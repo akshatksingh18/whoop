@@ -47,6 +47,7 @@ class LocalDb {
         await _createDayResult(db);
         await _createUserTables(db);
         await _createSyncCursor(db);
+        await _createLiveCoverage(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
@@ -141,8 +142,25 @@ class LocalDb {
           // R10 accel). Additive nullable column — old rows read null.
           await db.execute('ALTER TABLE sessions ADD COLUMN steps INTEGER');
         }
+        if (oldV < 12) {
+          // PURGE the old 1 Hz step ESTIMATE. 1 Hz can't count steps (Nyquist),
+          // and the prior ambulatory-minutes×cadence estimate inflated badly
+          // (resting noise cleared the floor → ~100k/day). `steps` is recomputed
+          // by the new hybrid (live 100 Hz real count + bounded 1 Hz estimate);
+          // wipe the bogus history so trends don't carry it.
+          await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
+        }
+        if (oldV < 13) {
+          // 100 Hz step coverage: the device-time windows the live pedometer
+          // actually counted, so the 1 Hz estimate can EXCLUDE them (prefer the
+          // real count, never double-count). Also drop the stale 'active_min'
+          // trend — active-minutes was replaced by the steps hybrid.
+          await _createLiveCoverage(db);
+          await db.execute("DELETE FROM metric_series WHERE key = 'active_min'");
+          await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
+        }
       },
-      version: 11,
+      version: 13,
     );
   }
 
@@ -164,6 +182,57 @@ class LocalDb {
         updated_at INTEGER NOT NULL
       )
     ''');
+  }
+
+  // ── 100 Hz STEP COVERAGE ────────────────────────────────────────────────────
+  // Device-time windows the live AN-2554 pedometer actually counted (real steps).
+  // The 1 Hz estimate excludes any minute that falls inside one of these windows
+  // — 100 Hz is the real count and always wins; we never count a minute twice.
+  // Times are device epoch SECONDS (same clock as raw_records.rec_ts, since the
+  // band's RTC is SET_CLOCK'd to phone time on connect). `day` = local date label
+  // of the window start (for per-day step attribution).
+  static Future<void> _createLiveCoverage(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_coverage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        steps INTEGER NOT NULL,
+        day TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)');
+  }
+
+  /// Record a real 100 Hz step window (device-time seconds) + its step count.
+  static Future<void> addLiveCoverage(
+      int startTs, int endTs, int steps, String day) async {
+    if (steps <= 0 || endTs < startTs) return;
+    final db = await instance;
+    await db.insert('live_coverage',
+        {'start_ts': startTs, 'end_ts': endTs, 'steps': steps, 'day': day});
+  }
+
+  /// Real (100 Hz) steps attributed to [day].
+  static Future<int> liveStepsForDay(String day) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+        'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?', [day]);
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
+  /// exclude already-counted minutes from the 1 Hz estimate.
+  static Future<List<List<int>>> coverageWindowsOverlapping(
+      int loSec, int hiSec) async {
+    final db = await instance;
+    final rows = await db.query('live_coverage',
+        where: 'end_ts >= ? AND start_ts < ?', whereArgs: [loSec, hiSec]);
+    return [
+      for (final r in rows)
+        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()]
+    ];
   }
 
   /// Read a sync-cursor value (null if unset).
@@ -952,7 +1021,15 @@ class LocalDb {
     }
   }
 
-  /// A long-format metric series (oldest first) for trends/sparklines.
+  /// Single metric_series value for one (date, key), or null.
+  static Future<double?> metricValueOn(String date, String key) async {
+    final db = await instance;
+    final rows = await db.query('metric_series',
+        where: 'date = ? AND key = ?', whereArgs: [date, key], limit: 1);
+    if (rows.isEmpty) return null;
+    return (rows.first['value'] as num?)?.toDouble();
+  }
+
   static Future<List<Map<String, dynamic>>> metricSeries(String key,
       {int? limit}) async {
     final db = await instance;

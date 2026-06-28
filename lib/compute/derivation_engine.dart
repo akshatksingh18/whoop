@@ -110,7 +110,7 @@ import 'substrate.dart';
 /// `calories_total` → metric_series; `steps`/`calories_total` bundle blocks. 1 Hz
 /// still can't COUNT steps (Nyquist) — real counts come from live streaming, which
 /// also tunes this estimate. Bumping re-derives non-finalized days so they fill.
-const int kAlgoVersion = 17;
+const int kAlgoVersion = 19;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -458,35 +458,21 @@ class DerivationEngine {
     final bundle = await Isolate.run(() => deriveDayBundle(withHistory))
         .timeout(_perDayTimeout);
 
-    // ── ACTIVITY-MINUTES (1 Hz ENMO over the WAKE span) ───────────────────────
-    // Steps can't be counted from 1 Hz (Nyquist) — only from live 100 Hz IMU. So
-    // the always-on movement metric is "active minutes": minutes of the waking
-    // day whose mean ENMO (van Hees amplitude) clears a light-activity threshold.
-    // Computed on THIS isolate (accel lives in `daySub`, not the bundle input).
-    final activeMin = _activeMinutes(daySub, onsetSec, offsetSec);
     // NOTE: deriveDayBundle's `scalars` literal is all-double? → Dart infers it
     // as Map<String, double?>. Writing a bare int here throws "int is not a
     // subtype of double?". Store as a double (sc() reads it via toDouble anyway).
     final scMap = (bundle['scalars'] as Map?)?.cast<String, dynamic>();
-    scMap?['active_min'] = activeMin.toDouble();
-    bundle['activity'] = <String, dynamic>{
-      'value': activeMin,
-      'active_min': activeMin,
-      'confidence': 0.6,
-      'tier': 'ESTIMATE',
-      'inputs_used': const ['accel_1hz'],
-      'note': 'active minutes (1 Hz ENMO over wake); 1 Hz cannot count steps — '
-          'true step counts come from live workout streaming',
-    };
 
-    // ── STEPS (24/7 ESTIMATE) + TOTAL DAILY ENERGY (TDEE) ─────────────────────
-    // 1 Hz cannot COUNT steps (Nyquist) — but it can detect ambulatory MINUTES
-    // and multiply by a cadence (steps/min) for an honest 24/7 ESTIMATE. The
-    // live 100 Hz pedometer (app_state) counts real steps AND personalizes the
-    // cadence this estimate uses (stepCalib). TDEE = HR-flex (BMR floor + active
-    // Keytel surplus). Both need accel/HR from daySub + the profile, so they run
-    // here on the main isolate (like activeMin), not in the pure bundle pipeline.
-    _stepsAndEnergy(bundle, scMap, daySub, profile, stepCalib);
+    // ── STEPS (real 100 Hz + 1 Hz estimate) + TOTAL DAILY ENERGY (TDEE) ───────
+    // Pull the day's 100 Hz coverage windows (device-time sec) + their real step
+    // count so _stepsAndEnergy can prefer them and estimate only the rest.
+    final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
+    final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
+    final coverageWindows =
+        await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
+    final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
+    _stepsAndEnergy(bundle, scMap, daySub, profile, coverageWindows,
+        liveStepsReal, stepCalib);
 
     // ── More substrate-derived detail blocks (computed here, where the full
     //    sliced substrate lives — same pattern as activeMin; these are fresh
@@ -558,9 +544,9 @@ class DerivationEngine {
         // New metrics → trends (day/week/month/3M).
         'stress': sc('stress'),
         'spo2': sc('spo2'),
-        'active_min': sc('active_min'),
         'calories': sc('calories'),
-        // 24/7 step ESTIMATE (ambulatory-min × cadence) + total daily energy.
+        // Steps = real 100 Hz count + 1 Hz estimate over uncovered minutes
+        // (computed in _stepsAndEnergy; never double-counted).
         'steps': sc('steps'),
         'calories_total': sc('calories_total'),
         // Sleep-stage minutes + HRV freq/stability trends.
@@ -837,54 +823,22 @@ class DerivationEngine {
     if (deleted > 0) _log('pruned $deleted raw rows with rec_ts < $cutoffSec');
   }
 
-  /// Active minutes over the WAKE span — a COARSE 1 Hz movement proxy. At 1 Hz
-  /// the dynamic-acceleration (ENMO) component of movement aliases away (Nyquist,
-  /// same limit that bars step counting), so magnitude stays pinned near 1 g.
-  /// What 1 Hz DOES resolve is wrist ORIENTATION change (van Hees z-angle) — so
-  /// movement = seconds where the arm angle shifts. A minute is "active" if a
-  /// meaningful fraction of its seconds show orientation change ≥5°. Transparent,
-  /// no ML; honest ESTIMATE (a "minutes you were moving" proxy, not step-grade).
-  int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
-    final n = s.length;
-    if (n < 60) return 0;
-    final ang = List<double>.filled(n, 0);
-    for (var i = 0; i < n; i++) {
-      ang[i] = ana.zAngle(s.ax[i], s.ay[i], s.az[i]);
-    }
-    const moveDeg = 5.0; // per-second orientation change = movement (van Hees)
-    const activeFrac = 0.20; // ≥20% of the minute's seconds moving → active
-    final moveSec = <int, int>{};
-    final totSec = <int, int>{};
-    for (var i = 1; i < n; i++) {
-      final t = s.tsSec[i];
-      if (sleepOffsetSec > sleepOnsetSec &&
-          t >= sleepOnsetSec &&
-          t < sleepOffsetSec) {
-        continue;
-      }
-      final m = t ~/ 60;
-      totSec[m] = (totSec[m] ?? 0) + 1;
-      if ((ang[i] - ang[i - 1]).abs() > moveDeg) {
-        moveSec[m] = (moveSec[m] ?? 0) + 1;
-      }
-    }
-    var active = 0;
-    totSec.forEach((m, tot) {
-      if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
-    });
-    return active;
-  }
 
-  /// 24/7 step ESTIMATE (Tier B) + total daily energy (TDEE), written into the
-  /// bundle's `steps` block + `scalars` (steps, calories_total). 1 Hz can't COUNT
-  /// steps (Nyquist) — this is ambulatory-minutes × cadence, personalized by the
-  /// live pedometer's [stepCalib]. TDEE is the HR-flex method (Mifflin BMR floor +
-  /// active Keytel surplus). Best-effort; leaves scalars null on missing data.
+  /// STEPS (hybrid: real 100 Hz count + bounded 1 Hz estimate) + total daily
+  /// energy (TDEE), written into the bundle's `steps` block + `scalars`.
+  ///
+  /// Steps = [liveStepsReal] (AN-2554 over the band's 100 Hz windows — the real
+  /// count, always preferred) + a 1 Hz estimate over the minutes those windows do
+  /// NOT cover ([coverageWindows], device-time sec). So a minute is counted by
+  /// 100 Hz OR estimated by 1 Hz, never both. TDEE = HR-flex (Mifflin BMR floor +
+  /// active Keytel surplus). Best-effort.
   void _stepsAndEnergy(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate daySub,
     Profile profile,
+    List<List<int>> coverageWindows,
+    int liveStepsReal,
     ana.StepCalibration? stepCalib,
   ) {
     try {
@@ -911,28 +865,46 @@ class DerivationEngine {
           }()
       ];
 
+      // STEPS — hybrid, no double-count. Drop any minute already covered by a
+      // 100 Hz window (real count wins), estimate steps for the rest from 1 Hz.
+      bool covered(double tsMinStartMs) {
+        final s = (tsMinStartMs / 1000).round();
+        for (final w in coverageWindows) {
+          if (s + 60 > w[0] && s < w[1]) return true;
+        }
+        return false;
+      }
+
+      final motionUn = <ana.MotionMinute>[];
+      final hrUn = <double>[];
+      for (var i = 0; i < motion.length; i++) {
+        if (covered(motion[i].tsMinStartMs)) continue;
+        motionUn.add(motion[i]);
+        hrUn.add(hrPerMin[i]);
+      }
+
       final rhr = (scMap?['rhr'] as num?)?.toDouble();
       final est = ana.dailyStepEstimate(
-        motion,
-        hrPerMin: hrPerMin,
+        motionUn,
+        hrPerMin: hrUn,
         restingHr: rhr,
         calib: stepCalib,
       );
-      if (est.present) {
-        final v = est.value!;
-        scMap?['steps'] = v.steps.toDouble();
-        bundle['steps'] = <String, dynamic>{
-          'value': v.steps,
-          'estimated': true,
-          'ambulatory_min': v.ambulatoryMinutes,
-          'cadence_used_spm': v.cadenceUsed,
-          'calibrated': v.calibrated,
-          'confidence': est.confidence,
-          'tier': est.tier,
-          'inputs_used': est.inputs_used,
-          'note': est.note,
-        };
-      }
+      final estSteps = est.present ? est.value!.steps : 0;
+      final daySteps = liveStepsReal + estSteps;
+      scMap?['steps'] = daySteps.toDouble();
+      bundle['steps'] = <String, dynamic>{
+        'value': daySteps,
+        'real_100hz': liveStepsReal, // AN-2554 over live windows (real count)
+        'estimated_1hz': estSteps, // walking-min × cadence for uncovered minutes
+        'ambulatory_min': est.present ? est.value!.ambulatoryMinutes : 0,
+        'cadence_used_spm': est.present ? est.value!.cadenceUsed : 0,
+        'confidence': liveStepsReal > 0 ? 0.7 : (est.present ? est.confidence : 0.2),
+        'tier': liveStepsReal > 0 && estSteps == 0 ? 'HIGH' : 'ESTIMATE',
+        'inputs_used': const ['live_100hz_pedometer', 'enmo_1hz', 'hr_1hz'],
+        'note': 'real 100 Hz count for streamed time + 1 Hz walking estimate for '
+            'the rest (1 Hz cannot count steps directly)',
+      };
 
       // Total daily energy (TDEE) — HR-flex over the day's per-minute HR.
       if (profile.isComplete) {

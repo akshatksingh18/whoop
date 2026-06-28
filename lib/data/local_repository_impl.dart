@@ -80,6 +80,7 @@ class LocalRepositoryImpl extends LocalRepository {
   bool _isTodayLabel(String date) =>
       date == DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
+
   /// The bundle for a requested date: the exact day's row, or — only for the
   /// Today request — the latest complete day. A historical date with no row
   /// returns null (→ the caller's honest empty shape), not the latest.
@@ -186,12 +187,6 @@ class LocalRepositoryImpl extends LocalRepository {
         readinessScalar == null ? _needNote(b, 'clinical.readiness_composite') : null;
     final readinessMetric =
         _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
-    // Active minutes (1 Hz movement proxy) — the honest stand-in for the steps
-    // tile, since 1 Hz can't count steps (Nyquist). Real step counts come from
-    // live workout streaming only.
-    final activeMin = (b['activity'] is Map)
-        ? ((b['activity'] as Map)['active_min'] as num?)?.round()
-        : _scalar(b, 'active_min')?.round();
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -204,11 +199,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'calories': _scalarMetric(_scalar(b, 'calories')?.round(), 'ESTIMATE', unit: 'kcal'),
       'calories_total':
           _scalarMetric(_scalar(b, 'calories_total')?.round(), 'ESTIMATE', unit: 'kcal'),
-      // STEPS — 24/7 ESTIMATE (ambulatory-minutes × cadence; 1 Hz can't COUNT
-      // steps, the live pedometer personalizes the cadence). `active_min` is the
-      // separate raw movement-minutes metric.
+      // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
+      // rest; computed in the derivation. The UI adds the in-flight live session.
       'steps': _scalarMetric(_scalar(b, 'steps')?.round(), 'ESTIMATE', unit: 'steps'),
-      'active_min': _scalarMetric(activeMin, 'ESTIMATE', unit: 'min'),
     };
 
     final hrv = rmssd == null

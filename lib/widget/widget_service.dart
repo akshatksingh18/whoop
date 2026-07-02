@@ -91,8 +91,20 @@ class WidgetService {
         iOSName: _iOSName,
         androidName: _androidName,
       );
+      await _syncWatch();
     } catch (_) {
       /* widgets unavailable / not configured yet — ignore */
+    }
+  }
+
+  /// Mirror the just-written App Group snapshot to the paired Apple Watch
+  /// (iOS only; no-op elsewhere or without a watch). One source of truth: the
+  /// native side reads the same App Group keys and pushes them over WCSession.
+  static Future<void> _syncWatch() async {
+    try {
+      await _platform.invokeMethod('syncWatch');
+    } catch (_) {
+      /* not iOS / no watch / channel absent — ignore */
     }
   }
 
@@ -113,6 +125,7 @@ class WidgetService {
           'batt_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
       await HomeWidget.updateWidget(
           iOSName: _batteryIOSName, androidName: _androidName);
+      await _syncWatch();
     } catch (_) {/* widgets unavailable / not configured yet — ignore */}
   }
 

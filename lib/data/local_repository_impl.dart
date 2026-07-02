@@ -1040,17 +1040,135 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {
-    final rows = await LocalDb.recentDayResults(90);
+    // The Recap card (ui/recap/recap_screen.dart) reads a `metrics` map
+    // (avg/total/delta_pct per key), daily `series` for the mini-viz, a
+    // `worn_days` count (its emptiness gate), and `from_epoch`/`to_epoch` for
+    // the period label. Build all of that from the persisted metric_series
+    // rows. NOTE: the old stub returned `{days:[…]}` — the wrong shape — so
+    // `_isEmpty` always saw metrics={} / worn_days=0 and the recap was stuck on
+    // "Not enough data yet" for BOTH week and month regardless of data.
+    final days = range == '7d' ? 7 : 30;
+
+    Future<Map<String, double>> seriesMap(String key) async {
+      final rows = await LocalDb.metricSeries(key); // ascending by date
+      final m = <String, double>{};
+      for (final r in rows) {
+        final v = (r['value'] as num?)?.toDouble();
+        if (v != null) m[r['date'] as String] = v;
+      }
+      return m;
+    }
+
+    final strain = await seriesMap('strain');
+    final rhr = await seriesMap('rhr');
+    final tst = await seriesMap('tst_min'); // minutes (recap _hm() formats h/m)
+    final cals = await seriesMap('calories');
+    final steps = await seriesMap('steps');
+
+    // Anchor on the most recent day that has ANY data.
+    final allDates = <String>{
+      ...strain.keys,
+      ...rhr.keys,
+      ...tst.keys,
+      ...cals.keys,
+      ...steps.keys,
+    };
+    if (allDates.isEmpty) {
+      return {'metrics': const {}, 'series': const {}, 'worn_days': 0};
+    }
+
+    DateTime parseD(String s) {
+      final p = s.split('-');
+      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+    }
+
+    String ymd(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
+
+    final anchor = allDates.map(parseD).reduce((a, b) => a.isAfter(b) ? a : b);
+    final start = anchor.subtract(Duration(days: days - 1));
+    final prevEnd = start.subtract(const Duration(days: 1));
+    final prevStart = prevEnd.subtract(Duration(days: days - 1));
+
+    List<double> windowVals(Map<String, double> m, DateTime s, DateTime e) {
+      final out = <double>[];
+      var d = s;
+      while (!d.isAfter(e)) {
+        final v = m[ymd(d)];
+        if (v != null) out.add(v);
+        d = d.add(const Duration(days: 1));
+      }
+      return out;
+    }
+
+    double? mean(List<double> xs) =>
+        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
+    double? total(List<double> xs) =>
+        xs.isEmpty ? null : xs.reduce((a, b) => a + b);
+    double? pctDelta(double? now, double? prev) =>
+        (now == null || prev == null || prev == 0)
+            ? null
+            : (now - prev) / prev * 100.0;
+    double? round1(double? v) =>
+        v == null ? null : double.parse(v.toStringAsFixed(1));
+
+    // Daily series (oldest→newest), present days only, as [{t, v}].
+    List<Map<String, dynamic>> daily(Map<String, double> m) {
+      final out = <Map<String, dynamic>>[];
+      var d = start;
+      while (!d.isAfter(anchor)) {
+        final v = m[ymd(d)];
+        if (v != null) out.add({'t': secOf(d), 'v': v});
+        d = d.add(const Duration(days: 1));
+      }
+      return out;
+    }
+
+    final strainAvg = mean(windowVals(strain, start, anchor));
+    final strainPrev = mean(windowVals(strain, prevStart, prevEnd));
+    final rhrAvg = mean(windowVals(rhr, start, anchor));
+    final rhrPrev = mean(windowVals(rhr, prevStart, prevEnd));
+    final tstAvg = mean(windowVals(tst, start, anchor));
+    final calTotal = total(windowVals(cals, start, anchor));
+
+    // Worn days = distinct days in the window with any metric present.
+    var worn = 0;
+    var wd = start;
+    while (!wd.isAfter(anchor)) {
+      final k = ymd(wd);
+      if (strain.containsKey(k) ||
+          rhr.containsKey(k) ||
+          tst.containsKey(k) ||
+          cals.containsKey(k) ||
+          steps.containsKey(k)) {
+        worn++;
+      }
+      wd = wd.add(const Duration(days: 1));
+    }
+
     return {
-      'days': [
-        for (final r in rows)
-          {
-            'date': r['date'],
-            'readiness': r['readiness'],
-            'resting_hr': r['rhr'],
-            'rmssd': r['rmssd'],
-          },
-      ],
+      'from_epoch': secOf(start),
+      'to_epoch': secOf(anchor),
+      'worn_days': worn,
+      'metrics': {
+        'strain': {
+          'avg': round1(strainAvg),
+          'delta_pct': round1(pctDelta(strainAvg, strainPrev)),
+        },
+        'resting_hr': {
+          'avg': round1(rhrAvg),
+          'delta_pct': round1(pctDelta(rhrAvg, rhrPrev)),
+        },
+        'sleep_duration': {'avg': round1(tstAvg)},
+        'calories': {'total': round1(calTotal)},
+      },
+      'series': {
+        'strain': daily(strain),
+        'steps': daily(steps),
+      },
     };
   }
 

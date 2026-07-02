@@ -29,7 +29,20 @@ import BackgroundTasks
       BackgroundTaskManager.handleTask(processingTask)
     }
 
+    // Apple Watch companion: activate the WCSession so the watch can receive
+    // today's metrics (mirrored from the App Group snapshot). No-op without a
+    // paired watch. See WatchBridge.swift.
+    WatchBridge.shared.activate()
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // Whenever the phone app comes to the foreground, mirror the latest App Group
+  // snapshot to the watch. This makes the watch fresh on any app open, not only
+  // when the Today screen happens to call WidgetService.push().
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    WatchBridge.shared.pushCurrentState()
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -74,6 +87,11 @@ enum ConfigBridge {
       switch call.method {
       case "appGroupIdentifier":
         result(Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String ?? "")
+      case "syncWatch":
+        // Dart calls this right after writing the widget snapshot; mirror it to
+        // the paired Apple Watch. Best-effort, never fails the Dart caller.
+        WatchBridge.shared.pushCurrentState()
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }

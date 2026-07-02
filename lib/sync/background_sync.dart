@@ -18,6 +18,7 @@ import '../ble/ble_engine.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 
 /// Load the local profile (no Provider in the headless isolate).
@@ -66,10 +67,25 @@ Future<bool> runHeadlessSync() async {
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
     final connected = await engine.connectToRemoteId(paired.remoteId);
     if (!connected) {
-      debugPrint('[bgsync] strap not reachable this cycle — will catch up next time.');
+      debugPrint(
+        '[bgsync] strap not reachable this cycle — will catch up next time.',
+      );
       return true;
     }
     try {
+      final plan = await HighFreqWakeWindow.planNow();
+      await engine.applyHighFreqWakeWindow(
+        enabled: plan.shouldEnable,
+        targetWake: plan.targetWake,
+        duration: HighFreqWakeWindow.lease,
+        intervalSeconds: 60,
+        reason: plan.source,
+      );
+      debugPrint(
+        '[bgsync] HighFreq wake window: source=${plan.source} '
+        'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
+        'target=${plan.targetWake?.toIso8601String()}',
+      );
       // Await the full backlog (default timeout): a phone-free run/sleep can leave a
       // large offline backlog on the band's flash. We never abort — if iOS cuts the
       // background window short, the offload persists what it got (flush-before-ACK)
@@ -84,8 +100,9 @@ Future<bool> runHeadlessSync() async {
     // the short iOS execution budget). Best-effort; if the slot ends first, the
     // light pass on the next drain or the foreground finalize catches up.
     try {
-      await DerivationEngine(log: (l) => debugPrint('[bgsync-derive] $l'))
-          .run(await _loadProfile());
+      await DerivationEngine(
+        log: (l) => debugPrint('[bgsync-derive] $l'),
+      ).run(await _loadProfile());
     } catch (e) {
       debugPrint('[bgsync] derive skipped: $e');
     }

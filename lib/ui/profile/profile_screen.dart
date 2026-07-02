@@ -5,19 +5,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/db.dart';
 import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
+import '../../debug/debug_mode.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../import/import_screen.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
+import 'advanced_data_screen.dart';
+import 'data_history_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 import 'notification_settings_screen.dart';
@@ -187,63 +188,35 @@ class ProfileScreen extends StatelessWidget {
             ),
             child: DetailRow(
               icon: Ic.history,
-              label: 'Re-analyze data',
-              value: app.reanalyzing
-                  ? (app.reanalyzeProgress.isEmpty
-                        ? 'Working…'
-                        : app.reanalyzeProgress)
-                  : 'Run',
-              onTap: () async {
-                if (app.reanalyzing) return;
-                final messenger = ScaffoldMessenger.of(context);
-                final n = await app.reanalyzeAll();
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      n > 0
-                          ? 'Analyzed $n day${n == 1 ? '' : 's'} of stored data.'
-                          : 'No raw data to analyze yet.',
-                    ),
-                  ),
-                );
-              },
+              label: 'Data history',
+              value: 'Manage',
+              onTap: () => Navigator.of(
+                context,
+              ).push(themedRoute((_) => const DataHistoryScreen())),
             ),
           ),
           const SizedBox(height: Sp.x3),
-          // Export the local SQLite store (transactionally-consistent VACUUM INTO
-          // snapshot) via the share sheet — for backup, moving to a new device
-          // ("Import from Edge"), or sharing for debugging.
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: Builder(
-              builder: (rowCtx) => DetailRow(
-                icon: Ic.cloud,
-                label: 'Export data (.db)',
-                value: 'Share',
-                onTap: () async {
-                  final messenger = ScaffoldMessenger.of(rowCtx);
-                  final box = rowCtx.findRenderObject() as RenderBox?;
-                  try {
-                    final path = await LocalDb.exportCopy();
-                    await Share.shareXFiles(
-                      [XFile(path)],
-                      text: 'OpenStrap data export',
-                      sharePositionOrigin: box != null
-                          ? box.localToGlobal(Offset.zero) & box.size
-                          : null,
-                    );
-                  } catch (e) {
-                    messenger.showSnackBar(
-                      SnackBar(content: Text('Export failed: $e')),
-                    );
-                  }
-                },
+          if (advancedDebugMode) ...[
+            ProCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5,
+                vertical: Sp.x2,
+              ),
+              child: DetailRow(
+                icon: Ic.settings,
+                label: 'Advanced data',
+                value: app.reanalyzing
+                    ? (app.reanalyzeProgress.isEmpty
+                          ? 'Working…'
+                          : app.reanalyzeProgress)
+                    : 'Debug tools',
+                onTap: () => Navigator.of(
+                  context,
+                ).push(themedRoute((_) => const AdvancedDataScreen())),
               ),
             ),
-          ),
+            const SizedBox(height: Sp.x3),
+          ],
 
           const SizedBox(height: Sp.x7),
 
@@ -429,13 +402,16 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Notifications'),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
             child: DetailRow(
               icon: Ic.bell,
               label: 'Alerts & reminders',
               value: 'Manage',
-              onTap: () => Navigator.of(context).push(
-                  themedRoute((_) => const NotificationSettingsScreen())),
+              onTap: () => Navigator.of(
+                context,
+              ).push(themedRoute((_) => const NotificationSettingsScreen())),
             ),
           ),
           // Notification relay (Android only — self-hides on iOS).

@@ -474,6 +474,100 @@ class DerivationEngine {
     }
   }
 
+  Future<int> runDays(
+    Profile profile,
+    Set<String> days, {
+    bool force = true,
+    void Function(String day, int index, int total)? onDayDone,
+  }) async {
+    if (days.isEmpty) return 0;
+    if (_running) return 0;
+    _running = true;
+    final startedAt = DateTime.now().millisecondsSinceEpoch;
+    _diag
+      ..['running'] = true
+      ..['stage'] = 'scope'
+      ..['mode'] = 'selected'
+      ..['force'] = force
+      ..['started_at'] = startedAt
+      ..['finished_at'] = null
+      ..['duration_ms'] = null
+      ..['raw_pages'] = 0
+      ..['raw_rows'] = 0
+      ..['day_raw_pages'] = 0
+      ..['day_raw_rows'] = 0
+      ..['max_day_raw_pages'] = 0
+      ..['max_day_raw_rows'] = 0
+      ..['range_from_rec_ts'] = null
+      ..['range_to_rec_ts'] = null
+      ..['scope_days'] = days.length
+      ..['scope_reason'] = 'selected-days'
+      ..['prepared_days'] = 0
+      ..['todo_days'] = 0
+      ..['done_days'] = 0
+      ..['skipped_days'] = 0
+      ..['active_day'] = null
+      ..['last_error'] = null;
+    try {
+      final scope = _scopeForDays(days.toList(), reason: 'selected-days');
+      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      if (dataNowSec <= 0) {
+        _log('derive selected: no raw');
+        return 0;
+      }
+      final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      final todoDays = [
+        for (final day in scope.targetDays)
+          if (force || !finalized.contains(day)) day,
+      ];
+      if (todoDays.isEmpty) {
+        _log('derive selected: all days finalized — nothing to do');
+        return 0;
+      }
+      _diag['todo_days'] = todoDays.length;
+      final history = await _BaselineHistoryCache.load();
+      var done = 0;
+      for (var i = 0; i < todoDays.length; i++) {
+        final dayId = todoDays[i];
+        _diag['active_day'] = dayId;
+        try {
+          final prepared = await _prepareTargetDay(dayId);
+          if (prepared != null) {
+            _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
+            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            done++;
+            _diag['done_days'] = done;
+          } else {
+            _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
+            _diag['last_error'] = 'no_bounded_window_payload day=$dayId';
+          }
+        } catch (e) {
+          _log('derive selected day $dayId FAILED/skipped: $e');
+          _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
+          _diag['last_error'] = '$e';
+        }
+        onDayDone?.call(dayId, i + 1, todoDays.length);
+      }
+      if (done > 0) {
+        await _refreshBaselines(history);
+        await _runCrossDay(profile);
+        await _runNotifications();
+      }
+      return done;
+    } catch (e, st) {
+      _log('derive selected ERROR: $e\n$st');
+      return 0;
+    } finally {
+      final finishedAt = DateTime.now().millisecondsSinceEpoch;
+      _diag
+        ..['running'] = false
+        ..['stage'] = 'idle'
+        ..['finished_at'] = finishedAt
+        ..['duration_ms'] = finishedAt - startedAt;
+      _running = false;
+    }
+  }
+
   static const int _rawDecodeBatchSize = 2000;
   static const int _maxDayRawRows = 500000;
   static const int _maxDayRawPages = 300;

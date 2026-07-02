@@ -91,6 +91,100 @@ class SyncReport {
   SyncReport(this.records, this.batches, this.complete);
 }
 
+enum _HpsTerminalKind {
+  metadataWhileNotSyncing,
+  success,
+  timeout,
+  disconnected,
+  error,
+}
+
+class _HpsTerminal {
+  final _HpsTerminalKind kind;
+  final String? reason;
+  final int successfulBursts;
+  final int records;
+  final int batches;
+  final String? gapSummary;
+
+  const _HpsTerminal({
+    required this.kind,
+    this.reason,
+    required this.successfulBursts,
+    required this.records,
+    required this.batches,
+    this.gapSummary,
+  });
+}
+
+class _SessionPacketCounts {
+  final Map<int, int> dataPacketCountsByRevision;
+  final int revision16Count;
+  final int consoleLogPacketCount;
+  final int unknownRevisionCount;
+  final int revision19Count;
+  final int revision22Count;
+  final int revision25Count;
+  final int revision26Count;
+
+  const _SessionPacketCounts({
+    required this.dataPacketCountsByRevision,
+    required this.revision16Count,
+    required this.consoleLogPacketCount,
+    required this.unknownRevisionCount,
+    required this.revision19Count,
+    required this.revision22Count,
+    required this.revision25Count,
+    required this.revision26Count,
+  });
+
+  static const zero = _SessionPacketCounts(
+    dataPacketCountsByRevision: <int, int>{},
+    revision16Count: 0,
+    consoleLogPacketCount: 0,
+    unknownRevisionCount: 0,
+    revision19Count: 0,
+    revision22Count: 0,
+    revision25Count: 0,
+    revision26Count: 0,
+  );
+}
+
+class _SessionGapSummary {
+  final int intraBurst;
+  final int crossBurst;
+  final int missing;
+  final int backward;
+
+  const _SessionGapSummary({
+    required this.intraBurst,
+    required this.crossBurst,
+    required this.missing,
+    required this.backward,
+  });
+
+  static const zero = _SessionGapSummary(
+    intraBurst: 0,
+    crossBurst: 0,
+    missing: 0,
+    backward: 0,
+  );
+
+  bool get isEmpty =>
+      intraBurst == 0 && crossBurst == 0 && missing == 0 && backward == 0;
+
+  @override
+  String toString() {
+    if (isEmpty) return 'none';
+    final parts = <String>[];
+    if (intraBurst > 0) parts.add('intraBurst=$intraBurst');
+    if (crossBurst > 0) parts.add('crossBurst=$crossBurst');
+    if (missing > 0) parts.add('missing=$missing');
+    if (backward > 0) parts.add('backward=$backward');
+    return '{${parts.join(', ')}}';
+  }
+}
+
 /// All per-connection resources. A fresh one is built on every connect and torn
 /// down (every subscription + timer cancelled, characteristics nulled) on every
 /// disconnect — so nothing bleeds across reconnects.
@@ -108,6 +202,7 @@ class _Session {
   Timer? keepAlive; // 30s: liveness watchdog + battery poll + realtime re-arm
   Timer? periodicBackfill; // 900s: re-trigger the historical offload
   Timer? idleWatchdog; // 60s: strap went silent mid-offload
+  Timer? historicalRetry; // explicit abort→retry settle
   // Starts false: we are NOT connected until connect() resolves / the OS
   // connectionState stream reports `connected`. (It was previously initialised
   // true, which combined with the stream replaying a spurious initial
@@ -129,6 +224,8 @@ class _Session {
     periodicBackfill = null;
     idleWatchdog?.cancel();
     idleWatchdog = null;
+    historicalRetry?.cancel();
+    historicalRetry = null;
     for (final s in subs) {
       await s.cancel();
     }
@@ -262,6 +359,14 @@ class BleEngine {
   int _historyRequests = 0;
   int _historyCompletions = 0;
   SyncReport? _lastSyncReport;
+  int _successfulBursts = 0;
+  _HpsTerminal? _lastHpsTerminal;
+  _SessionPacketCounts _sessionPacketCounts = _SessionPacketCounts.zero;
+  _SessionGapSummary _sessionGapSummary = _SessionGapSummary.zero;
+  DateTime? _highFreqUntil;
+  String? _highFreqReason;
+  bool _highFreqModeRequested = false;
+  final Map<int, int> _lastSequenceByRevision = <int, int>{};
   int? _strapHistoryOldestTs;
   int? _strapHistoryNewestTs;
 
@@ -290,6 +395,7 @@ class BleEngine {
   int _frontierTs = 0; // highest historical rec_ts we've durably persisted
   int _autoContinueCount = 0; // consecutive auto-continues this connection
   double _lastBackfillAt = 0; // monotonic-ish secs of the last offload trigger
+  double? _lastHistoricalSendAt; // last actual SEND_HISTORICAL_DATA wall time
   int _emptyStreak = 0; // consecutive empty offloads (BackfillPolicy backoff)
   int _droppedImplausible = 0; // records rejected by the plausibility gate
 
@@ -362,12 +468,29 @@ class BleEngine {
     'buffered_records': _drain?.bufferedRecords ?? 0,
     'history_requests': _historyRequests,
     'history_completions': _historyCompletions,
+    'successful_bursts': _successfulBursts,
+    'last_hps_terminal': _lastHpsTerminal?.kind.name,
+    'last_hps_reason': _lastHpsTerminal?.reason,
+    'last_hps_gap_summary': _lastHpsTerminal?.gapSummary,
+    'session_packet_counts_by_revision':
+        _sessionPacketCounts.dataPacketCountsByRevision,
+    'session_revision16_count': _sessionPacketCounts.revision16Count,
+    'session_console_count': _sessionPacketCounts.consoleLogPacketCount,
+    'session_unknown_count': _sessionPacketCounts.unknownRevisionCount,
+    'session_revision19_count': _sessionPacketCounts.revision19Count,
+    'session_revision22_count': _sessionPacketCounts.revision22Count,
+    'session_revision25_count': _sessionPacketCounts.revision25Count,
+    'session_revision26_count': _sessionPacketCounts.revision26Count,
+    'session_gap_summary': _sessionGapSummary.toString(),
     'last_progress_ms': _drain?.lastProgressMs,
     'last_report_records': _lastSyncReport?.records,
     'last_report_batches': _lastSyncReport?.batches,
     'last_report_complete': _lastSyncReport?.complete,
     'strap_history_oldest_ts': _strapHistoryOldestTs,
     'strap_history_newest_ts': _strapHistoryNewestTs,
+    'high_freq_requested': _highFreqModeRequested,
+    'high_freq_reason': _highFreqReason,
+    'high_freq_until_ms': _highFreqUntil?.millisecondsSinceEpoch,
   };
 
   int? get strapHistoryNewestTs => _strapHistoryNewestTs;
@@ -578,6 +701,14 @@ class BleEngine {
       _stuckStrap = StuckStrapDetector();
       _autoContinueCount = 0;
       _lastBackfillAt = 0;
+      _successfulBursts = 0;
+      _lastHpsTerminal = null;
+      _sessionPacketCounts = _SessionPacketCounts.zero;
+      _sessionGapSummary = _SessionGapSummary.zero;
+      _highFreqModeRequested = false;
+      _highFreqReason = null;
+      _highFreqUntil = null;
+      _lastSequenceByRevision.clear();
       _droppedImplausible = 0;
       _sessionOldestUnix = null;
       _sessionNewestUnix = null;
@@ -701,6 +832,12 @@ class BleEngine {
   }) async {
     final d = _drain;
     if (_session?.connected != true || d == null) return;
+    if (_offloadActive && !d._complete) {
+      _log(
+        '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
+      );
+      return;
+    }
     d.rearm();
     _setOffloadActive(true);
     if (refreshRange) {
@@ -710,8 +847,21 @@ class BleEngine {
       // has time to emit the range response before we request another drain.
       await Future.delayed(const Duration(milliseconds: 120));
     }
+    final wait = HistoricalSyncCommandPolicy.waitSeconds(
+      _lastHistoricalSendAt,
+      _wallSecs(),
+    );
+    if (wait > 0) {
+      _log(
+        '[SYNC] refresh($reason) — waiting ${wait.toStringAsFixed(2)}s '
+        'for the 0x16 floor.',
+      );
+      await Future.delayed(Duration(milliseconds: (wait * 1000).ceil()));
+      if (_session?.connected != true) return;
+    }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
     await _send(Cmd.sendHistoricalData, const [0x00]);
+    _lastHistoricalSendAt = _wallSecs();
   }
 
   Future<void> _subscribe(
@@ -739,6 +889,9 @@ class BleEngine {
     session.connected = false;
     // A drain in flight must complete (with linkDown) immediately, not run out
     // its full budget.
+    if (_offloadActive) {
+      _setHpsTerminal(_HpsTerminalKind.disconnected, drain: _drain);
+    }
     _drain?.onLinkDown();
     if (!wasIntentional) {
       _feedReconnectDetectors();
@@ -819,6 +972,54 @@ class BleEngine {
     await _write(frame);
   }
 
+  Future<void> applyHighFreqWakeWindow({
+    required bool enabled,
+    required DateTime? targetWake,
+    Duration duration = const Duration(minutes: 90),
+    int intervalSeconds = 60,
+    String reason = 'wake_window',
+  }) async {
+    if (_session?.connected != true) return;
+    if (!enabled || targetWake == null) {
+      await _disableHighFreqSync(reason: '$reason:outside_window');
+      return;
+    }
+    final unchanged =
+        _highFreqModeRequested &&
+        _highFreqReason == reason &&
+        _highFreqUntil?.millisecondsSinceEpoch ==
+            targetWake.millisecondsSinceEpoch;
+    if (unchanged) return;
+    _log(
+      '[SYNC] HighFreq enter ($reason) — interval=${intervalSeconds}s '
+      'duration=${duration.inSeconds}s until=${targetWake.toIso8601String()}',
+    );
+    await _write(
+      cmdEnterHighFreqSync(
+        _seq.nextLive(),
+        intervalSeconds: intervalSeconds,
+        durationSeconds: duration.inSeconds,
+      ),
+    );
+    _highFreqModeRequested = true;
+    _highFreqReason = reason;
+    _highFreqUntil = targetWake;
+  }
+
+  Future<void> _disableHighFreqSync({required String reason}) async {
+    if (_session?.connected != true || !_highFreqModeRequested) {
+      _highFreqModeRequested = false;
+      _highFreqReason = null;
+      _highFreqUntil = null;
+      return;
+    }
+    _log('[SYNC] HighFreq exit ($reason).');
+    await _write(cmdExitHighFreqSync(_seq.nextLive()));
+    _highFreqModeRequested = false;
+    _highFreqReason = null;
+    _highFreqUntil = null;
+  }
+
   // ── record store sinks (wrap the caller's sinks + arm the derive debounce) ──────
   // The drain controller persists through these so a stored historical batch (or a
   // single live record) re-arms the debounced onDataStored trigger.
@@ -886,6 +1087,12 @@ class BleEngine {
       // Fall through to decodeFrame so the UI gets live telemetry (state.liveHr).
     }
     if (pt == PacketType.historicalData) {
+      if (!_offloadActive) {
+        _setHpsTerminal(
+          _HpsTerminalKind.metadataWhileNotSyncing,
+          reason: 'historical_data_while_not_syncing',
+        );
+      }
       final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
       final counter = _counterFromInner(frame.inner);
       // Decode the record FIRST so we can stamp its REAL time onto rec_ts. The
@@ -957,11 +1164,17 @@ class BleEngine {
         'inner=${_innerHex(frame.inner)}',
       );
     } else if (pt == PacketType.event) {
+      if (_offloadActive) {
+        _drain?.onBurstEvent();
+      }
       _log('[EVENT] ${_innerHex(frame.inner)}');
       final e = parseEvent(frame.inner);
       if (e != null) {
+        _handleEventInfo(e);
         onEvent?.call(e.eventId, e.tsEpoch, _innerHex(frame.inner));
       }
+    } else if (pt == PacketType.consoleLogs && _offloadActive) {
+      _drain?.onBurstConsole();
     }
     final decoded = _maybeAugmentDataRange(frame, decodeFrame(frame));
     _absorbState(decoded);
@@ -1153,10 +1366,63 @@ class BleEngine {
       () {
         _log(
           '[SYNC] idle watchdog: strap silent ${kBackfillIdleTimeoutSeconds}s '
-          'mid-offload — abandoning the open chunk (band will re-send).',
+          'mid-offload — aborting historical sync and scheduling a retry.',
         );
         _drain?.discardOpenChunk();
-        unawaited(_onOffloadFinished(complete: false));
+        unawaited(_abortAndRetryHistorical(reason: 'idle_watchdog'));
+      },
+    );
+  }
+
+  void _handleEventInfo(EventInfo event) {
+    switch (event.eventId) {
+      case EventId.highFreqSyncPrompt:
+        _log(
+          '[SYNC] HighFreq prompt received — scheduling a one-shot historical refresh.',
+        );
+        unawaited(
+          _startHistoricalRefresh(
+            trigger: BackfillTrigger.strap,
+            reason: 'high_freq_prompt',
+            refreshRange: true,
+          ),
+        );
+        return;
+      case EventId.highFreqSyncEnabled:
+        _log('[SYNC] HighFreq sync enabled event received.');
+        _highFreqModeRequested = true;
+        return;
+      case EventId.highFreqSyncDisabled:
+        _log('[SYNC] HighFreq sync disabled event received.');
+        _highFreqModeRequested = false;
+        _highFreqReason = null;
+        _highFreqUntil = null;
+        return;
+    }
+  }
+
+  Future<void> _abortAndRetryHistorical({required String reason}) async {
+    final session = _session;
+    if (session == null || !session.connected) return;
+    session.idleWatchdog?.cancel();
+    session.historicalRetry?.cancel();
+    _setOffloadActive(false);
+    _log('[SYNC] abort($reason) — sending ABORT_HISTORICAL.');
+    await _send(Cmd.abortHistoricalTransmits, const [0x00]);
+    session.historicalRetry = Timer(
+      const Duration(seconds: kHistoricalAbortRetryDelaySeconds),
+      () {
+        if (_session != session || !session.connected) return;
+        _log(
+          '[SYNC] abort($reason) — retrying historical refresh after settle.',
+        );
+        unawaited(
+          _startHistoricalRefresh(
+            trigger: BackfillTrigger.strap,
+            reason: 'abort_retry:$reason',
+            refreshRange: true,
+          ),
+        );
       },
     );
   }
@@ -1170,20 +1436,75 @@ class BleEngine {
       '${frame.inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
     );
     if (m.sub == SyncMeta.historyStart) {
+      final d = _drain;
+      if (_offloadActive && d != null && d.bufferedRecords > 0) {
+        _log(
+          '[SYNC] HistoryStart received during active burst — discarding '
+          'partial open chunk and restarting burst state.',
+        );
+        d.discardOpenChunk();
+      }
+      _session?.historicalRetry?.cancel();
+      d?.rearm();
       _setOffloadActive(true);
       return;
     }
     if (m.sub == SyncMeta.historyEnd && m.token != null) {
       final d = _drain;
       if (d == null) return;
+      if (!_offloadActive) {
+        _setHpsTerminal(
+          _HpsTerminalKind.metadataWhileNotSyncing,
+          reason: 'history_end_while_not_syncing',
+          drain: d,
+        );
+      }
+      final expected = m.expectedPacketCount;
+      if (expected != null && !d.validateBurst(expectedPacketCount: expected)) {
+        _log(
+          '[SYNC] Burst validation failed '
+          '(attempt ${d.consecutiveValidationFailures}): expected=$expected, '
+          'actual=${d.currentBurstPacketCount}, breakdown=${d.currentBurstBreakdown}',
+        );
+        d.discardOpenChunk();
+        final fail = buildHistoryResultFail(_seq.nextSync());
+        _log(
+          '[SYNC] FAIL frame='
+          '${fail.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
+        );
+        await _write(fail);
+        await LocalDb.upsertSyncLedgerEntry(
+          status: 'validation_failed',
+          lastError: 'burst_packet_mismatch',
+          metaPatch: {
+            'expected_burst_packets': expected,
+            'actual_burst_packets': d.currentBurstPacketCount,
+            'burst_validation_failures': d.consecutiveValidationFailures,
+            'burst_breakdown': d.currentBurstBreakdown,
+          },
+        );
+        if (d.consecutiveValidationFailures >= 15) {
+          _log(
+            '[SYNC] Burst validation stuck after '
+            '${d.consecutiveValidationFailures} failures.',
+          );
+          _setHpsTerminal(_HpsTerminalKind.error, reason: 'stuck', drain: d);
+          _setOffloadActive(false);
+          return;
+        }
+        unawaited(_abortAndRetryHistorical(reason: 'burst_validation_failed'));
+        return;
+      }
+      _successfulBursts++;
+      _mergeValidatedBurst(d);
       final tokenHex = m.token!
           .map((b) => b.toRadixString(16).padLeft(2, '0'))
           .join();
       final r = d.bufferedRecTsRange;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
-        'token=$tokenHex '
-        'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
+        'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
+        'token=$tokenHex recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
@@ -1191,7 +1512,7 @@ class BleEngine {
       // re-delivers the chunk. Echo the 8-byte slice the band acks verbatim —
       // a mangled echo is the "Groundhog Day" re-flood bug.
       await d.commit(m.token); // raw + samples + strap_trim cursor, atomic
-      final ack = buildBatchAck(_seq.nextSync(), m.token!);
+      final ack = buildHistoryResultOk(_seq.nextSync(), m.token!);
       _log(
         '[SYNC] ACK frame='
         '${ack.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
@@ -1214,6 +1535,13 @@ class BleEngine {
     } else if (m.sub == SyncMeta.historyComplete) {
       final d = _drain;
       if (d == null) return;
+      if (!_offloadActive) {
+        _setHpsTerminal(
+          _HpsTerminalKind.metadataWhileNotSyncing,
+          reason: 'history_complete_while_not_syncing',
+          drain: d,
+        );
+      }
       // Backlog fully handed over (cursor is now at the live edge). Commit the tail
       // and KEEP LISTENING — live records continue on the same subscription. We do
       // NOT ACK a HISTORY_COMPLETE and we do NOT switch modes.
@@ -1237,6 +1565,7 @@ class BleEngine {
         '[SYNC] HistoryComplete — backlog drained (${d.records} records, '
         '$_droppedImplausible dropped). Still listening for live records.',
       );
+      _setHpsTerminal(_HpsTerminalKind.success, drain: d);
       _noteStored();
       await _onOffloadFinished(complete: true);
     }
@@ -1284,6 +1613,8 @@ class BleEngine {
       _autoContinueCount++;
       _log('[SYNC] auto-continue #$_autoContinueCount — more backlog remains.');
       await _triggerBackfill(BackfillTrigger.autoContinue);
+    } else if (!complete && _lastHpsTerminal == null) {
+      _setHpsTerminal(_HpsTerminalKind.timeout, drain: d);
     }
   }
 
@@ -1435,8 +1766,10 @@ class BleEngine {
   Future<void> setStrapName(String name) async {
     // Cap at 20 ASCII chars (matches the reference + the GET decoder's length
     // assumption); the length byte then always stays < 0x20.
-    final ascii =
-        name.codeUnits.where((c) => c >= 0x20 && c < 0x7f).take(20).toList();
+    final ascii = name.codeUnits
+        .where((c) => c >= 0x20 && c < 0x7f)
+        .take(20)
+        .toList();
     final payload = <int>[0x01, ascii.length, ...ascii, 0, 0, 0, 0];
     await _send(Cmd.setAdvertisingNameHarvard, payload);
     _log('SET_ADVERTISING_NAME → "$name"');
@@ -1514,6 +1847,11 @@ class BleEngine {
         await disableLiveStreams();
       } catch (_) {}
     }
+    if (_session?.connected == true && _highFreqModeRequested) {
+      try {
+        await _disableHighFreqSync(reason: 'intentional_disconnect');
+      } catch (_) {}
+    }
     await _teardownSession(intentional: true);
     // Release the single-owner claim ONLY on an intentional disconnect (not on a
     // link-down we intend to reconnect from) so the band is free for a background
@@ -1560,6 +1898,82 @@ class BleEngine {
     onOffloadState?.call(active);
   }
 
+  void _setHpsTerminal(
+    _HpsTerminalKind kind, {
+    String? reason,
+    _DrainController? drain,
+  }) {
+    final d = drain ?? _drain;
+    _lastHpsTerminal = _HpsTerminal(
+      kind: kind,
+      reason: reason,
+      successfulBursts: _successfulBursts,
+      records: d?.records ?? 0,
+      batches: d?.batches ?? 0,
+      gapSummary: d?.currentBurstBreakdown,
+    );
+  }
+
+  void _mergeValidatedBurst(_DrainController d) {
+    final burstCounts = d.burstStats.dataPacketCountsByRevision;
+    final mergedCounts = <int, int>{
+      ..._sessionPacketCounts.dataPacketCountsByRevision,
+    };
+    for (final entry in burstCounts.entries) {
+      mergedCounts[entry.key] = (mergedCounts[entry.key] ?? 0) + entry.value;
+    }
+    _sessionPacketCounts = _SessionPacketCounts(
+      dataPacketCountsByRevision: mergedCounts,
+      revision16Count:
+          _sessionPacketCounts.revision16Count + d.burstStats.revision16Count,
+      consoleLogPacketCount:
+          _sessionPacketCounts.consoleLogPacketCount +
+          d.burstStats.consoleCount,
+      unknownRevisionCount:
+          _sessionPacketCounts.unknownRevisionCount + d.burstStats.unknownCount,
+      revision19Count:
+          _sessionPacketCounts.revision19Count + d.burstStats.revision19Count,
+      revision22Count:
+          _sessionPacketCounts.revision22Count + d.burstStats.revision22Count,
+      revision25Count:
+          _sessionPacketCounts.revision25Count + d.burstStats.revision25Count,
+      revision26Count:
+          _sessionPacketCounts.revision26Count + d.burstStats.revision26Count,
+    );
+
+    var crossBurst = _sessionGapSummary.crossBurst;
+    var missing = _sessionGapSummary.missing + d.burstStats.intraBurstMissing;
+    var backward =
+        _sessionGapSummary.backward + d.burstStats.intraBurstBackward;
+    for (final entry in d.burstStats.sequenceByRevision.entries) {
+      final rev = entry.key;
+      final seq = entry.value;
+      final last = _lastSequenceByRevision[rev];
+      if (last != null) {
+        if (seq.firstSequence > last + 1) {
+          crossBurst++;
+          missing += (seq.firstSequence - last) - 1;
+        } else if (seq.firstSequence <= last) {
+          backward++;
+        }
+      }
+      final burstLast = seq.lastSequence;
+      if (burstLast != null) {
+        final prior = _lastSequenceByRevision[rev];
+        if (prior == null || burstLast > prior) {
+          _lastSequenceByRevision[rev] = burstLast;
+        }
+      }
+    }
+    _sessionGapSummary = _SessionGapSummary(
+      intraBurst:
+          _sessionGapSummary.intraBurst + d.burstStats.intraBurstGapCount,
+      crossBurst: crossBurst,
+      missing: missing,
+      backward: backward,
+    );
+  }
+
   Decoded _maybeAugmentDataRange(Frame frame, Decoded decoded) {
     if (decoded.kind != 'cmd_response') return decoded;
     final opcode = decoded.fields['opcode'];
@@ -1592,8 +2006,8 @@ class BleEngine {
 
 /// Per-connection historical-offload helper. Buffers records per ACK boundary and
 /// flushes them in one transaction (raw-first, BEFORE the HISTORY_END ACK). It is
-/// armed for the whole connection (single listening mode) — it never aborts and
-/// never switches modes. It just tracks running counts and exposes an
+/// armed for the whole connection (single listening mode). It tracks running counts
+/// and exposes an
 /// [awaitComplete] future that resolves when the band signals HISTORY_COMPLETE (or
 /// the link drops / a safety timeout elapses), so a caller can block until the
 /// backlog is fully handed over without disturbing the continuous listen.
@@ -1612,6 +2026,7 @@ class _DrainController {
 
   final List<RawRecord> _raws = [];
   final List<Sample?> _samples = [];
+  final _BurstStats burstStats = _BurstStats();
 
   int records = 0; // total this connection
   int recordsThisOffload = 0; // since the last HISTORY_COMPLETE / rearm
@@ -1647,13 +2062,17 @@ class _DrainController {
   // whose 8-byte token differs from the last one means the cursor moved.
   String? _lastAckedToken;
   bool lastTrimAdvanced = false;
+  int consecutiveValidationFailures = 0;
 
   bool get _buffering => onCommit != null || onRecordsBatch != null;
+  int get currentBurstPacketCount => burstStats.totalPacketCount;
+  String get currentBurstBreakdown => burstStats.breakdownString;
 
   void onHistoricalRecord(RawRecord raw, Sample? sample) {
     records++;
     recordsThisOffload++;
     _lastProgressAt = DateTime.now();
+    burstStats.onHistoricalData(raw.packetType, raw.counter, sample, raw.hex);
     if (_buffering) {
       _raws.add(raw);
       _samples.add(sample);
@@ -1663,6 +2082,22 @@ class _DrainController {
   }
 
   void noteBatchAcked() => batches++;
+
+  void onBurstEvent() => burstStats.onEvent();
+
+  void onBurstConsole() => burstStats.onConsole();
+
+  void onBurstUnknown() => burstStats.onUnknown();
+
+  bool validateBurst({required int expectedPacketCount}) {
+    final actual = currentBurstPacketCount;
+    if (expectedPacketCount == actual) {
+      consecutiveValidationFailures = 0;
+      return true;
+    }
+    consecutiveValidationFailures++;
+    return false;
+  }
 
   /// HISTORY_COMPLETE seen — the backlog has been fully handed over. Marks the
   /// current offload complete (for any awaiter) WITHOUT ending the listen.
@@ -1677,6 +2112,7 @@ class _DrainController {
     _complete = false;
     _linkDown = false;
     _lastProgressAt = DateTime.now();
+    burstStats.reset();
   }
 
   void onLinkDown() => _linkDown = true;
@@ -1760,5 +2196,187 @@ class _DrainController {
       done.complete(SyncReport(records, batches, stop == DrainStop.complete));
     });
     return done.future;
+  }
+}
+
+class _BurstStats {
+  static const Set<int> _ordinaryHistoricalRevisions = <int>{
+    7,
+    9,
+    10,
+    11,
+    12,
+    18,
+    20,
+    21,
+    24,
+  };
+
+  final Map<int, int> _dataPacketCountsByRevision = <int, int>{};
+  final Map<int, _SequenceState> _sequenceByRevision = <int, _SequenceState>{};
+  int _eventCount = 0;
+  int _consoleCount = 0;
+  int _unknownCount = 0;
+  int _revision16Count = 0;
+  int _revision19Count = 0;
+  int _revision22Count = 0;
+  int _revision25Count = 0;
+  int _revision26Count = 0;
+
+  Map<int, int> get dataPacketCountsByRevision =>
+      Map<int, int>.unmodifiable(_dataPacketCountsByRevision);
+  Map<int, _SequenceState> get sequenceByRevision =>
+      Map<int, _SequenceState>.unmodifiable(_sequenceByRevision);
+  int get eventCount => _eventCount;
+  int get consoleCount => _consoleCount;
+  int get unknownCount => _unknownCount;
+  int get revision16Count => _revision16Count;
+  int get revision19Count => _revision19Count;
+  int get revision22Count => _revision22Count;
+  int get revision25Count => _revision25Count;
+  int get revision26Count => _revision26Count;
+  int get intraBurstGapCount =>
+      _sequenceByRevision.values.fold<int>(0, (sum, s) => sum + s.gapCount);
+  int get intraBurstMissing =>
+      _sequenceByRevision.values.fold<int>(0, (sum, s) => sum + s.missingCount);
+  int get intraBurstBackward => _sequenceByRevision.values.fold<int>(
+    0,
+    (sum, s) => sum + s.backwardCount,
+  );
+
+  int get totalPacketCount =>
+      _dataPacketCountsByRevision.values.fold<int>(
+        0,
+        (sum, count) => sum + count,
+      ) +
+      _revision16Count +
+      _revision19Count +
+      _revision22Count +
+      _revision25Count +
+      _revision26Count +
+      _eventCount +
+      _consoleCount +
+      _unknownCount;
+
+  String get breakdownString {
+    final parts = <String>[];
+    final revs = _dataPacketCountsByRevision.keys.toList()..sort();
+    for (final rev in revs) {
+      parts.add('V$rev=${_dataPacketCountsByRevision[rev]}');
+    }
+    if (_revision16Count > 0) parts.add('V16=$_revision16Count');
+    if (_revision19Count > 0) parts.add('V19=$_revision19Count');
+    if (_revision22Count > 0) parts.add('V22=$_revision22Count');
+    if (_revision25Count > 0) parts.add('V25=$_revision25Count');
+    if (_revision26Count > 0) parts.add('V26=$_revision26Count');
+    if (_eventCount > 0) parts.add('events=$_eventCount');
+    if (_consoleCount > 0) parts.add('console=$_consoleCount');
+    if (_unknownCount > 0) parts.add('unknown=$_unknownCount');
+    final seq = sequenceSummary;
+    if (seq.isNotEmpty) parts.add(seq);
+    return '{${parts.join(', ')}}';
+  }
+
+  String get sequenceSummary {
+    final revs = _sequenceByRevision.keys.toList()..sort();
+    final parts = <String>[];
+    for (final rev in revs) {
+      final s = _sequenceByRevision[rev]!;
+      if (s.gapCount > 0 || s.backwardCount > 0 || s.missingCount > 0) {
+        parts.add(
+          'seqV$rev(gaps=${s.gapCount}, missing=${s.missingCount}, backward=${s.backwardCount})',
+        );
+      }
+    }
+    return parts.join(', ');
+  }
+
+  void onHistoricalData(
+    int packetType,
+    int counter,
+    Sample? sample,
+    String rawHex,
+  ) {
+    if (packetType != PacketType.historicalData) return;
+    final inner = hexToBytes(rawHex);
+    if (inner.length < 2) {
+      _unknownCount++;
+      return;
+    }
+    final revision = inner[1];
+    if (_ordinaryHistoricalRevisions.contains(revision)) {
+      _dataPacketCountsByRevision[revision] =
+          (_dataPacketCountsByRevision[revision] ?? 0) + 1;
+      final seq = _sequenceByRevision.putIfAbsent(
+        revision,
+        () => _SequenceState(firstSequence: counter),
+      );
+      seq.observe(counter);
+      return;
+    }
+    switch (revision) {
+      case 16:
+        _revision16Count++;
+        return;
+      case 19:
+        _revision19Count++;
+        return;
+      case 22:
+        _revision22Count++;
+        return;
+      case 25:
+        _revision25Count++;
+        return;
+      case 26:
+        _revision26Count++;
+        return;
+      default:
+        _unknownCount++;
+        return;
+    }
+  }
+
+  void onEvent() => _eventCount++;
+
+  void onConsole() => _consoleCount++;
+
+  void onUnknown() => _unknownCount++;
+
+  void reset() {
+    _dataPacketCountsByRevision.clear();
+    _sequenceByRevision.clear();
+    _eventCount = 0;
+    _consoleCount = 0;
+    _unknownCount = 0;
+    _revision16Count = 0;
+    _revision19Count = 0;
+    _revision22Count = 0;
+    _revision25Count = 0;
+    _revision26Count = 0;
+  }
+}
+
+class _SequenceState {
+  _SequenceState({required this.firstSequence});
+
+  final int firstSequence;
+  int? lastSequence;
+  int gapCount = 0;
+  int missingCount = 0;
+  int backwardCount = 0;
+
+  void observe(int seq) {
+    final last = lastSequence;
+    if (last != null) {
+      if (seq > last + 1) {
+        gapCount++;
+        missingCount += (seq - last) - 1;
+      } else if (seq <= last) {
+        backwardCount++;
+      }
+    }
+    if (last == null || seq > last) {
+      lastSequence = seq;
+    }
   }
 }

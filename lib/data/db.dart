@@ -36,6 +36,8 @@ class LocalDb {
     }
   }
 
+  static const int _daySec = 86400;
+
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);
@@ -209,7 +211,9 @@ class LocalDb {
           await _createBandSignals(db);
           await _ensureSyncStateSchema(db);
           await _createLiveCoverage(db);
-          await db.execute("DELETE FROM metric_series WHERE key = 'active_min'");
+          await db.execute(
+            "DELETE FROM metric_series WHERE key = 'active_min'",
+          );
           await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
         }
         if (oldV < 14) {
@@ -266,7 +270,9 @@ class LocalDb {
     // existing install. Keep this idempotent and cheap: create missing tables,
     // indexes, and additive columns the current code assumes are present.
     await _createSamples(db);
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)',
+    );
     await _createEvents(db);
     await _createBandSignals(db);
     await _createDerived(db);
@@ -318,22 +324,21 @@ class LocalDb {
 
   /// Upsert the symptom set for [date] (empty list clears the row).
   static Future<void> putCycleSymptoms(
-      String date, List<String> symptoms, {String? note}) async {
+    String date,
+    List<String> symptoms, {
+    String? note,
+  }) async {
     final db = await instance;
     if (symptoms.isEmpty && (note == null || note.isEmpty)) {
       await db.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
       return;
     }
-    await db.insert(
-      'cycle_symptom',
-      {
-        'date': date,
-        'symptoms_json': jsonEncode(symptoms),
-        'note': note,
-        'updated_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('cycle_symptom', {
+      'date': date,
+      'symptoms_json': jsonEncode(symptoms),
+      'note': note,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// All symptom rows (newest first): {date, symptoms_json, note}.
@@ -444,36 +449,52 @@ class LocalDb {
       )
     ''');
     await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)');
+      'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
+    );
   }
 
   /// Record a real 100 Hz step window (device-time seconds) + its step count.
   static Future<void> addLiveCoverage(
-      int startTs, int endTs, int steps, String day) async {
+    int startTs,
+    int endTs,
+    int steps,
+    String day,
+  ) async {
     if (steps <= 0 || endTs < startTs) return;
     final db = await instance;
-    await db.insert('live_coverage',
-        {'start_ts': startTs, 'end_ts': endTs, 'steps': steps, 'day': day});
+    await db.insert('live_coverage', {
+      'start_ts': startTs,
+      'end_ts': endTs,
+      'steps': steps,
+      'day': day,
+    });
   }
 
   /// Real (100 Hz) steps attributed to [day].
   static Future<int> liveStepsForDay(String day) async {
     final db = await instance;
     final r = await db.rawQuery(
-        'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?', [day]);
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?',
+      [day],
+    );
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
   /// exclude already-counted minutes from the 1 Hz estimate.
   static Future<List<List<int>>> coverageWindowsOverlapping(
-      int loSec, int hiSec) async {
+    int loSec,
+    int hiSec,
+  ) async {
     final db = await instance;
-    final rows = await db.query('live_coverage',
-        where: 'end_ts >= ? AND start_ts < ?', whereArgs: [loSec, hiSec]);
+    final rows = await db.query(
+      'live_coverage',
+      where: 'end_ts >= ? AND start_ts < ?',
+      whereArgs: [loSec, hiSec],
+    );
     return [
       for (final r in rows)
-        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()]
+        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],
     ];
   }
 
@@ -2171,6 +2192,328 @@ class LocalDb {
     return dest;
   }
 
+  static Future<int> databaseFileBytes() async {
+    final dir = await getDatabasesPath();
+    final path = p.join(dir, dbName);
+    final f = File(path);
+    if (!await f.exists()) return 0;
+    return await f.length();
+  }
+
+  static Future<List<Map<String, dynamic>>> dataHistoryDays() async {
+    final db = await instance;
+    final rawRows = await db.rawQuery(
+      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id, "
+      'COUNT(*) AS raw_count, '
+      'MIN(rec_ts) AS min_rec_ts, '
+      'MAX(rec_ts) AS max_rec_ts '
+      'FROM raw_records WHERE rec_ts > 0 GROUP BY day_id ORDER BY day_id DESC',
+    );
+    final derivedRows = await db.rawQuery(
+      'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
+      'FROM day_result r '
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
+      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      'ORDER BY r.day_id DESC',
+    );
+    final metricRows = await db.rawQuery(
+      'SELECT date AS day_id, COUNT(*) AS metric_count '
+      'FROM metric_series GROUP BY date',
+    );
+    final sessionRows = await db.rawQuery(
+      "SELECT strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS day_id, "
+      'COUNT(*) AS session_count '
+      'FROM sessions GROUP BY day_id',
+    );
+    final byDay = <String, Map<String, dynamic>>{};
+    Map<String, dynamic> ensure(String dayId) => byDay.putIfAbsent(
+      dayId,
+      () => {
+        'day_id': dayId,
+        'raw_count': 0,
+        'min_rec_ts': null,
+        'max_rec_ts': null,
+        'has_derived': false,
+        'algo_version': null,
+        'computed_at': null,
+        'finalized': 0,
+        'metric_count': 0,
+        'session_count': 0,
+      },
+    );
+    for (final row in rawRows) {
+      final dayId = row['day_id']?.toString();
+      if (dayId == null || dayId.isEmpty) continue;
+      final m = ensure(dayId);
+      m['raw_count'] = (row['raw_count'] as num?)?.toInt() ?? 0;
+      m['min_rec_ts'] = (row['min_rec_ts'] as num?)?.toInt();
+      m['max_rec_ts'] = (row['max_rec_ts'] as num?)?.toInt();
+    }
+    for (final row in derivedRows) {
+      final dayId = row['day_id']?.toString();
+      if (dayId == null || dayId.isEmpty) continue;
+      final m = ensure(dayId);
+      m['has_derived'] = true;
+      m['algo_version'] = (row['algo_version'] as num?)?.toInt();
+      m['computed_at'] = (row['computed_at'] as num?)?.toInt();
+      m['finalized'] = (row['finalized'] as num?)?.toInt() ?? 0;
+    }
+    for (final row in metricRows) {
+      final dayId = row['day_id']?.toString();
+      if (dayId == null || dayId.isEmpty) continue;
+      ensure(dayId)['metric_count'] =
+          (row['metric_count'] as num?)?.toInt() ?? 0;
+    }
+    for (final row in sessionRows) {
+      final dayId = row['day_id']?.toString();
+      if (dayId == null || dayId.isEmpty) continue;
+      ensure(dayId)['session_count'] =
+          (row['session_count'] as num?)?.toInt() ?? 0;
+    }
+    final out = byDay.values.toList()
+      ..sort(
+        (a, b) => (b['day_id'] as String).compareTo(a['day_id'] as String),
+      );
+    return out;
+  }
+
+  static int _localDayStartSec(String dayId) =>
+      DateTime.parse(dayId).millisecondsSinceEpoch ~/ 1000;
+
+  static Future<String> exportDaysDb(Set<String> dayIds) async {
+    final sorted = dayIds.toList()..sort();
+    if (sorted.isEmpty) {
+      throw ArgumentError('No days selected');
+    }
+    final src = await instance;
+    final tmp = await getTemporaryDirectory();
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final dest = p.join(tmp.path, 'openstrap_days_$stamp.db');
+    await deleteDatabase(dest);
+    final out = await openDatabase(
+      dest,
+      onCreate: (db, _) async {
+        await _createRaw(db);
+        await _createSamples(db);
+        await _createDecodedStore(db);
+        await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
+        await _createEvents(db);
+        await _createBandSignals(db);
+        await _createDerived(db);
+        await _createDayResult(db);
+        await _createUserTables(db);
+        await _createSyncState(db);
+        await _createSyncCursor(db);
+        await _createComputeState(db);
+        await _createPrimitiveArtifacts(db);
+        await _createLiveCoverage(db);
+      },
+    );
+
+    Future<void> copyRows(
+      String table, {
+      String? where,
+      List<Object?> whereArgs = const [],
+    }) async {
+      final rows = await src.query(table, where: where, whereArgs: whereArgs);
+      if (rows.isEmpty) return;
+      await out.transaction((txn) async {
+        final batch = txn.batch();
+        for (final row in rows) {
+          batch.insert(
+            table,
+            Map<String, Object?>.from(row),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+      });
+    }
+
+    Future<void> copyRawRange(int startSec, int endSec) async {
+      await copyRows(
+        'raw_records',
+        where: 'rec_ts >= ? AND rec_ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      final decoded = await src.query(
+        'decoded_onehz',
+        where: 'rec_ts >= ? AND rec_ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      if (decoded.isNotEmpty) {
+        await out.transaction((txn) async {
+          final batch = txn.batch();
+          for (final row in decoded) {
+            batch.insert(
+              'decoded_onehz',
+              Map<String, Object?>.from(row),
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          await batch.commit(noResult: true);
+        });
+        final counters = <Object?>[
+          for (final row in decoded)
+            if (row['counter'] != null) row['counter'],
+        ];
+        if (counters.isNotEmpty) {
+          final placeholders = List.filled(counters.length, '?').join(',');
+          final rr = await src.rawQuery(
+            'SELECT * FROM decoded_rr WHERE counter IN ($placeholders)',
+            counters,
+          );
+          if (rr.isNotEmpty) {
+            await out.transaction((txn) async {
+              final batch = txn.batch();
+              for (final row in rr) {
+                batch.insert(
+                  'decoded_rr',
+                  Map<String, Object?>.from(row),
+                  conflictAlgorithm: ConflictAlgorithm.replace,
+                );
+              }
+              await batch.commit(noResult: true);
+            });
+          }
+        }
+      }
+      await copyRows(
+        'samples',
+        where: 'ts >= ? AND ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'events',
+        where: 'ts >= ? AND ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'band_events',
+        where: 'ts >= ? AND ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'band_battery',
+        where: 'ts >= ? AND ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'sessions',
+        where: 'start_ts >= ? AND start_ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'live_coverage',
+        where: 'end_ts > ? AND start_ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+    }
+
+    for (final dayId in sorted) {
+      final startSec = _localDayStartSec(dayId);
+      final endSec = startSec + _daySec;
+      await copyRawRange(startSec, endSec);
+      await copyRows('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+      await copyRows('metric_series', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows('notifications', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows(
+        'sleep_session_candidates',
+        where: 'day_id = ?',
+        whereArgs: [dayId],
+      );
+      await copyRows(
+        'wake_day_features',
+        where: 'day_id = ?',
+        whereArgs: [dayId],
+      );
+    }
+    await out.close();
+    return dest;
+  }
+
+  static Future<int> deleteDays(Set<String> dayIds) async {
+    final sorted = dayIds.toList()..sort();
+    if (sorted.isEmpty) return 0;
+    final db = await instance;
+    int deleted = 0;
+    Future<void> deleteByIn(
+      Transaction txn,
+      String table,
+      String column,
+      List<String> values,
+    ) async {
+      final placeholders = List.filled(values.length, '?').join(',');
+      deleted += await txn.rawDelete(
+        'DELETE FROM $table WHERE $column IN ($placeholders)',
+        values,
+      );
+    }
+
+    await db.transaction((txn) async {
+      for (final dayId in sorted) {
+        final startSec = _localDayStartSec(dayId);
+        final endSec = startSec + _daySec;
+        deleted += await txn.delete(
+          'raw_records',
+          where: 'rec_ts >= ? AND rec_ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'decoded_rr',
+          where:
+              'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts >= ? AND rec_ts < ?)',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'decoded_onehz',
+          where: 'rec_ts >= ? AND rec_ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'samples',
+          where: 'ts >= ? AND ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'events',
+          where: 'ts >= ? AND ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'band_events',
+          where: 'ts >= ? AND ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'band_battery',
+          where: 'ts >= ? AND ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'sessions',
+          where: 'start_ts >= ? AND start_ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'live_coverage',
+          where: 'end_ts > ? AND start_ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+      }
+      await deleteByIn(txn, 'day_result', 'day_id', sorted);
+      await deleteByIn(txn, 'metric_series', 'date', sorted);
+      await deleteByIn(txn, 'journal', 'date', sorted);
+      await deleteByIn(txn, 'cycle_log', 'date', sorted);
+      await deleteByIn(txn, 'notifications', 'date', sorted);
+      await deleteByIn(txn, 'sleep_session_candidates', 'day_id', sorted);
+      await deleteByIn(txn, 'wake_day_features', 'day_id', sorted);
+    });
+    return deleted;
+  }
+
   /// Import another device's exported OpenStrap DB ([path], from [exportCopy] +
   /// share) by MERGING its rows into this one (INSERT-OR-REPLACE). Covers derived
   /// results, the metric series, user data, and the raw ledger so the receiving
@@ -2341,26 +2684,38 @@ class LocalDb {
       if (!await hasTable(table)) missingTables.add(table);
     }
 
-    final rawCols =
-        await hasTable('raw_records') ? await cols('raw_records') : <String>{};
-    final sessionCols =
-        await hasTable('sessions') ? await cols('sessions') : <String>{};
-    final syncLedgerCols =
-        await hasTable('sync_ledger') ? await cols('sync_ledger') : <String>{};
+    final rawCols = await hasTable('raw_records')
+        ? await cols('raw_records')
+        : <String>{};
+    final sessionCols = await hasTable('sessions')
+        ? await cols('sessions')
+        : <String>{};
+    final syncLedgerCols = await hasTable('sync_ledger')
+        ? await cols('sync_ledger')
+        : <String>{};
 
     final missingColumns = <String, List<String>>{};
     void expect(String table, Set<String> present, List<String> required) {
-      final miss = [for (final c in required) if (!present.contains(c)) c];
+      final miss = [
+        for (final c in required)
+          if (!present.contains(c)) c,
+      ];
       if (miss.isNotEmpty) missingColumns[table] = miss;
     }
 
     expect('raw_records', rawCols, ['counter', 'hex', 'captured_at', 'rec_ts']);
     expect('sessions', sessionCols, ['id', 'start_ts', 'status', 'steps']);
-    expect('sync_ledger', syncLedgerCols,
-        ['chunk_id', 'kind', 'status', 'updated_at', 'meta_json']);
+    expect('sync_ledger', syncLedgerCols, [
+      'chunk_id',
+      'kind',
+      'status',
+      'updated_at',
+      'meta_json',
+    ]);
 
     final integrity = await db.rawQuery('PRAGMA integrity_check');
-    final integrityOk = integrity.isNotEmpty && integrity.first.values.first == 'ok';
+    final integrityOk =
+        integrity.isNotEmpty && integrity.first.values.first == 'ok';
 
     return {
       'ok': missingTables.isEmpty && missingColumns.isEmpty && integrityOk,
@@ -2497,8 +2852,12 @@ class LocalDb {
   /// Single metric_series value for one (date, key), or null.
   static Future<double?> metricValueOn(String date, String key) async {
     final db = await instance;
-    final rows = await db.query('metric_series',
-        where: 'date = ? AND key = ?', whereArgs: [date, key], limit: 1);
+    final rows = await db.query(
+      'metric_series',
+      where: 'date = ? AND key = ?',
+      whereArgs: [date, key],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return (rows.first['value'] as num?)?.toDouble();
   }
@@ -2566,7 +2925,10 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first;
   }
 
-  static Future<void> putComputeFreshness(String key, String payloadJson) async {
+  static Future<void> putComputeFreshness(
+    String key,
+    String payloadJson,
+  ) async {
     final db = await instance;
     await db.insert('compute_freshness', {
       'key': key,
@@ -2611,7 +2973,8 @@ class LocalDb {
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
       if (latestOvernightDay == null) {
-        final sleep = ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
+        final sleep =
+            ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
         if (sleep is Map && sleep['tst_sec'] != null) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
@@ -2622,7 +2985,9 @@ class LocalDb {
         latestRecoveryDay = dayId;
         latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
       }
-      if (latestOvernightDay != null && latestRecoveryDay != null && todayRow != null) {
+      if (latestOvernightDay != null &&
+          latestRecoveryDay != null &&
+          todayRow != null) {
         break;
       }
     }
@@ -2630,7 +2995,8 @@ class LocalDb {
     final wakeComputedAt = (todayWake?['computed_at'] as num?)?.toInt();
     final activityReady = todayRow != null || todayWake != null;
     final overnightReady = latestOvernightDay == today;
-    final rawReachedToday = latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
+    final rawReachedToday =
+        latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
     final activityState = activityReady
         ? 'ready'
         : (rawReachedToday ? 'building' : 'missing');
@@ -2641,7 +3007,9 @@ class LocalDb {
       'capture',
       jsonEncode({
         'latest_raw_rec_ts': latestRawTs,
-        'latest_raw_day': latestRawTs == null ? null : _localDayLabelFromEpoch(latestRawTs),
+        'latest_raw_day': latestRawTs == null
+            ? null
+            : _localDayLabelFromEpoch(latestRawTs),
         'decoded_onehz': raw['decoded_onehz'],
         'decoded_rr': raw['decoded_rr'],
       }),
@@ -2690,10 +3058,7 @@ class LocalDb {
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.update(
       'compute_jobs',
-      {
-        'state': 'queued',
-        'updated_at': now,
-      },
+      {'state': 'queued', 'updated_at': now},
       where: 'state = ?',
       whereArgs: ['running'],
     );

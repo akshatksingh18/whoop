@@ -23,28 +23,51 @@ void main() {
       final newest = wall;
       // Inside the ±7d margin around the strap's own window → kept.
       expect(
-          isPlausibleUnix(oldest - 6 * 86400, wall,
-              sessionOldestUnix: oldest, sessionNewestUnix: newest),
-          isTrue);
+        isPlausibleUnix(
+          oldest - 6 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isTrue,
+      );
       // >7d before the oldest banked record → rejected (wandering-clock pollution).
       expect(
-          isPlausibleUnix(oldest - 8 * 86400, wall,
-              sessionOldestUnix: oldest, sessionNewestUnix: newest),
-          isFalse);
+        isPlausibleUnix(
+          oldest - 8 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isFalse,
+      );
       // >7d after the newest → rejected.
       expect(
-          isPlausibleUnix(newest + 8 * 86400, wall,
-              sessionOldestUnix: oldest, sessionNewestUnix: newest),
-          isFalse);
+        isPlausibleUnix(
+          newest + 8 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isFalse,
+      );
     });
 
-    test('a garbage session range is ignored (falls back to absolute gate)', () {
-      // newest < oldest → invalid range → only the absolute gate applies.
-      expect(
-          isPlausibleUnix(wall, wall,
-              sessionOldestUnix: wall, sessionNewestUnix: wall - 100),
-          isTrue);
-    });
+    test(
+      'a garbage session range is ignored (falls back to absolute gate)',
+      () {
+        // newest < oldest → invalid range → only the absolute gate applies.
+        expect(
+          isPlausibleUnix(
+            wall,
+            wall,
+            sessionOldestUnix: wall,
+            sessionNewestUnix: wall - 100,
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('ClockPolicy', () {
@@ -58,36 +81,76 @@ void main() {
 
   group('BackfillPolicy', () {
     test('first run is always allowed', () {
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.periodic, 100, null, 0),
-          isTrue);
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 100, null, 0),
+        isTrue,
+      );
     });
 
     test('manual + autoContinue are never floored', () {
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.manual, 0.1, 0, 0), isTrue);
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.autoContinue, 0.1, 0, 0),
-          isTrue);
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.manual, 0.1, 0, 0),
+        isTrue,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.autoContinue, 0.1, 0, 0),
+        isTrue,
+      );
     });
 
     test('periodic honors the 900s floor', () {
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.periodic, 899, 0, 0),
-          isFalse);
       expect(
-          BackfillPolicy.shouldRun(BackfillTrigger.periodic, 900, 0, 0), isTrue);
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 899, 0, 0),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 900, 0, 0),
+        isTrue,
+      );
     });
 
     test('connect/foreground honor the 90s event floor', () {
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.connect, 89, 0, 0), isFalse);
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.connect, 90, 0, 0), isTrue);
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.connect, 89, 0, 0),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.connect, 90, 0, 0),
+        isTrue,
+      );
     });
 
     test('empty-streak backoff multiplies the strap floor (capped 4x)', () {
       // streak 3 → 2^1 = 2x event floor (90 → 180s)
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.strap, 179, 0, 3), isFalse);
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.strap, 180, 0, 3), isTrue);
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 179, 0, 3),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 180, 0, 3),
+        isTrue,
+      );
       // streak huge → capped at 4x (90 → 360s), not unbounded.
       expect(
-          BackfillPolicy.shouldRun(BackfillTrigger.strap, 359, 0, 99), isFalse);
-      expect(BackfillPolicy.shouldRun(BackfillTrigger.strap, 360, 0, 99), isTrue);
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 359, 0, 99),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 360, 0, 99),
+        isTrue,
+      );
+    });
+  });
+
+  group('HistoricalSyncCommandPolicy', () {
+    test('first historical send is immediate', () {
+      expect(HistoricalSyncCommandPolicy.waitSeconds(null, 100), 0);
+    });
+
+    test('historical send is floored to 5 seconds', () {
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 101), 4);
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 104.5), 0.5);
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 105), 0);
     });
   });
 
@@ -99,71 +162,97 @@ void main() {
       int rows = 50,
       bool trimAdvanced = true,
       int count = 0,
-    }) =>
-        BackfillContinuation.shouldAutoContinue(
-          stillConnected: connected,
-          strapNewestTs: strapNewest,
-          ourFrontierTs: frontier,
-          rowsPersistedThisSession: rows,
-          lastTrimAdvanced: trimAdvanced,
-          consecutiveCount: count,
-        );
+    }) => BackfillContinuation.shouldAutoContinue(
+      stillConnected: connected,
+      strapNewestTs: strapNewest,
+      ourFrontierTs: frontier,
+      rowsPersistedThisSession: rows,
+      lastTrimAdvanced: trimAdvanced,
+      consecutiveCount: count,
+    );
 
     test('continues when strap is >5min ahead and trim advanced', () {
       expect(cont(strapNewest: 2000, frontier: 1000), isTrue);
     });
-    test('stops when disconnected', () => expect(cont(connected: false), isFalse));
-    test('stops at the per-connection cap', () => expect(cont(count: 6), isFalse));
-    test('stops when the cursor did not advance (spin guard)',
-        () => expect(cont(trimAdvanced: false), isFalse));
-    test('within the behind-gap but rows persisted → continues (#451 stale newest)',
-        () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 30), isTrue));
-    test('within the behind-gap and no rows → stops',
-        () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 0), isFalse));
+    test(
+      'stops when disconnected',
+      () => expect(cont(connected: false), isFalse),
+    );
+    test(
+      'stops at the per-connection cap',
+      () => expect(cont(count: 6), isFalse),
+    );
+    test(
+      'stops when the cursor did not advance (spin guard)',
+      () => expect(cont(trimAdvanced: false), isFalse),
+    );
+    test(
+      'within the behind-gap but rows persisted → continues (#451 stale newest)',
+      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 30), isTrue),
+    );
+    test(
+      'within the behind-gap and no rows → stops',
+      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 0), isFalse),
+    );
   });
 
   group('MarginalRadioDetector', () {
     test('trips after 2 consecutive arm→quick-timeouts, one-shot', () {
       final d = MarginalRadioDetector();
       expect(
-          d.connectionEnded(
-              wasArmed: true, secondsSinceArm: 5, timedOut: true),
-          isFalse);
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isFalse,
+      );
       expect(
-          d.connectionEnded(
-              wasArmed: true, secondsSinceArm: 5, timedOut: true),
-          isTrue); // trips
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isTrue,
+      ); // trips
       expect(
-          d.connectionEnded(
-              wasArmed: true, secondsSinceArm: 5, timedOut: true),
-          isFalse); // already tripped → one-shot
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isFalse,
+      ); // already tripped → one-shot
     });
 
-    test('a slow timeout (>20s after arm) does not count + resets the streak', () {
-      final d = MarginalRadioDetector();
-      d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true);
-      // 25s later → outside the quick window → resets.
-      expect(
+    test(
+      'a slow timeout (>20s after arm) does not count + resets the streak',
+      () {
+        final d = MarginalRadioDetector();
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true);
+        // 25s later → outside the quick window → resets.
+        expect(
           d.connectionEnded(
-              wasArmed: true, secondsSinceArm: 25, timedOut: true),
-          isFalse);
-      // Next single quick timeout shouldn't trip (streak was reset).
-      expect(
-          d.connectionEnded(
-              wasArmed: true, secondsSinceArm: 5, timedOut: true),
-          isFalse);
-    });
+            wasArmed: true,
+            secondsSinceArm: 25,
+            timedOut: true,
+          ),
+          isFalse,
+        );
+        // Next single quick timeout shouldn't trip (streak was reset).
+        expect(
+          d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+          isFalse,
+        );
+      },
+    );
 
     test('not armed → never counts', () {
       final d = MarginalRadioDetector();
       expect(
-          d.connectionEnded(
-              wasArmed: false, secondsSinceArm: null, timedOut: true),
-          isFalse);
+        d.connectionEnded(
+          wasArmed: false,
+          secondsSinceArm: null,
+          timedOut: true,
+        ),
+        isFalse,
+      );
       expect(
-          d.connectionEnded(
-              wasArmed: false, secondsSinceArm: null, timedOut: true),
-          isFalse);
+        d.connectionEnded(
+          wasArmed: false,
+          secondsSinceArm: null,
+          timedOut: true,
+        ),
+        isFalse,
+      );
     });
   });
 
@@ -171,21 +260,21 @@ void main() {
     test('trips after 2 bond→quick(<=8s)-timeouts', () {
       final d = PostBondTimeoutLoopDetector();
       expect(
-          d.connectionEnded(
-              wasBonded: true, secondsSinceBond: 2, timedOut: true),
-          isFalse);
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true),
+        isFalse,
+      );
       expect(
-          d.connectionEnded(
-              wasBonded: true, secondsSinceBond: 2, timedOut: true),
-          isTrue);
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true),
+        isTrue,
+      );
     });
     test('a timeout 9s after bond is outside the window', () {
       final d = PostBondTimeoutLoopDetector();
       d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true);
       expect(
-          d.connectionEnded(
-              wasBonded: true, secondsSinceBond: 9, timedOut: true),
-          isFalse);
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 9, timedOut: true),
+        isFalse,
+      );
     });
   });
 
@@ -193,25 +282,30 @@ void main() {
     test('trips on the 3rd consecutive console-only completed sync', () {
       final d = EmptySyncTracker();
       expect(
-          d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
-          isFalse);
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      );
       expect(
-          d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
-          isFalse);
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      );
       expect(
-          d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
-          isTrue);
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isTrue,
+      );
     });
     test('a sync that banked sensor records resets the streak', () {
       final d = EmptySyncTracker();
       d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true);
       d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true);
       expect(
-          d.recordCompletedSync(bankedSensorRecords: true, consoleOnly: false),
-          isFalse); // reset
+        d.recordCompletedSync(bankedSensorRecords: true, consoleOnly: false),
+        isFalse,
+      ); // reset
       expect(
-          d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
-          isFalse); // streak back to 1
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      ); // streak back to 1
     });
   });
 

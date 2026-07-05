@@ -144,22 +144,23 @@ class SeqAllocator {
 ///   - a generous safety `timeout` elapsed (so a pathological stream can't pin the
 ///     radio forever)
 ///
-/// We DELIBERATELY do NOT stop on a "live edge" (newest record near now) or on an
-/// idle gap, and we NEVER send ABORT_HISTORICAL. The band offloads OLDEST-first and
-/// only emits HISTORY_COMPLETE once its flash backlog is fully handed over; cutting
-/// the offload short (the old liveEdge/idle ABORT) meant we ACKed only part of the
-/// backlog, the band's read cursor never reached the end, and on the next connect it
-/// re-flooded the same history ("Groundhog Day"). Letting it run to HISTORY_COMPLETE
-/// is what advances the cursor durably. Once complete, the SAME subscription keeps
-/// delivering live records — there is no mode switch.
+/// We DELIBERATELY do NOT stop on a "live edge" (newest record near now). The band
+/// offloads OLDEST-first and only emits HISTORY_COMPLETE once its flash backlog is
+/// fully handed over; cutting the offload short (the old liveEdge/idle ABORT) meant
+/// we ACKed only part of the backlog, the band's read cursor never reached the end,
+/// and on the next connect it re-flooded the same history ("Groundhog Day").
+///
+/// The transport now allows one narrow abort path: if an offload goes silent for the
+/// full idle watchdog window, the driver abandons the open chunk, sends
+/// ABORT_HISTORICAL, waits a short settle delay, and retries. That is a recovery
+/// path for a stalled drain, not a normal stop condition. Once complete, the SAME
+/// subscription keeps delivering live records — there is no mode switch.
 enum DrainStop { keepGoing, complete, linkDown, timeout }
 
 class DrainStopEvaluator {
   final Duration timeout;
 
-  const DrainStopEvaluator({
-    this.timeout = const Duration(seconds: 600),
-  });
+  const DrainStopEvaluator({this.timeout = const Duration(seconds: 600)});
 
   /// Evaluate against the current offload telemetry. All times in seconds.
   DrainStop evaluate({
@@ -264,12 +265,18 @@ class AckRetryPolicy {
 /// the burst into a single pass. Pure + deterministic so it's unit-testable without
 /// timers — the engine drives it with wall-clock reads.
 class DeriveDebouncer {
-  final Duration quietPeriod;
-  final Duration maxWait;
+  final Duration staleQuietPeriod;
+  final Duration staleMaxWait;
+  final Duration freshQuietPeriod;
+  final Duration freshMaxWait;
+  final Duration staleThreshold;
 
   const DeriveDebouncer({
-    this.quietPeriod = const Duration(seconds: 12),
-    this.maxWait = const Duration(seconds: 90),
+    this.staleQuietPeriod = const Duration(seconds: 12),
+    this.staleMaxWait = const Duration(seconds: 90),
+    this.freshQuietPeriod = const Duration(minutes: 1),
+    this.freshMaxWait = const Duration(minutes: 5),
+    this.staleThreshold = const Duration(minutes: 30),
   });
 
   /// Should we derive now, given the pending-record bookkeeping?
@@ -280,8 +287,12 @@ class DeriveDebouncer {
     required bool hasPending,
     required Duration sinceLastRecord,
     required Duration sinceFirstPending,
+    required Duration dataStaleness,
   }) {
     if (!hasPending) return false;
+    final staleMode = dataStaleness >= staleThreshold;
+    final quietPeriod = staleMode ? staleQuietPeriod : freshQuietPeriod;
+    final maxWait = staleMode ? staleMaxWait : freshMaxWait;
     if (sinceLastRecord >= quietPeriod) return true; // stream went quiet
     if (sinceFirstPending >= maxWait) return true; // never-quiet floor
     return false;

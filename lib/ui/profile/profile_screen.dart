@@ -18,12 +18,15 @@ import '../../data/db.dart';
 import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
+import '../../debug/debug_mode.dart';
 import '../../theme/theme_switcher.dart';
 import '../ai/ai_settings_screen.dart';
 import '../design/design.dart';
 import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
 import '../today/step_goal_screen.dart';
+import 'advanced_data_screen.dart';
+import 'data_history_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 import 'notification_settings_screen.dart';
@@ -230,8 +233,29 @@ class ProfileScreen extends StatelessWidget {
                     );
                   }
                 },
+                divider: true,
               ),
             ),
+            // Per-day data manager (browse, export, delete stored days).
+            ListRow(
+              icon: Ic.history,
+              title: 'Data history',
+              value: 'Manage',
+              divider: advancedDebugMode,
+              onTap: () => Navigator.of(
+                context,
+              ).push(themedRoute((_) => const DataHistoryScreen())),
+            ),
+            // Debug-build-only deep inspection tools (raw stores, sync ledger).
+            if (advancedDebugMode)
+              ListRow(
+                icon: Ic.settings,
+                title: 'Advanced data',
+                value: 'Debug tools',
+                onTap: () => Navigator.of(
+                  context,
+                ).push(themedRoute((_) => const AdvancedDataScreen())),
+              ),
           ]),
 
           const SizedBox(height: Sp.x6),
@@ -334,8 +358,9 @@ class ProfileScreen extends StatelessWidget {
               osIcon: OsIcon.notifications,
               title: 'Alerts & reminders',
               value: 'Manage',
-              onTap: () => Navigator.of(context).push(
-                  themedRoute((_) => const NotificationSettingsScreen())),
+              onTap: () => Navigator.of(
+                context,
+              ).push(themedRoute((_) => const NotificationSettingsScreen())),
             ),
           ]),
           // Notification relay (Android only — self-hides on iOS).
@@ -381,8 +406,8 @@ class ProfileScreen extends StatelessWidget {
                       Text('On this device', style: AppText.title),
                       const SizedBox(height: 2),
                       Text(
-                        'Raw band data and metrics stay on this phone — '
-                        'nothing is uploaded.',
+                        'Your band data and metrics stay on this phone — '
+                        'nothing is uploaded to a server.',
                         style: AppText.captionMuted,
                       ),
                     ],

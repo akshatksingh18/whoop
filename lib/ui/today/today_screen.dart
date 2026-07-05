@@ -292,8 +292,10 @@ class _TodayScreenState extends State<TodayScreen>
   // ── content ──────────────────────────────────────────────────────────────────
 
   List<Widget> _content(TodayData t) {
+    final app = context.read<AppState>();
     final coach = t.coach;
     final alert = t.bodyAlert;
+    final status = t.status;
 
     return [
       if (_showStory(t)) ...[
@@ -315,6 +317,13 @@ class _TodayScreenState extends State<TodayScreen>
               : null,
           onDone: _dismissStory,
         ).dsEnter(),
+        const SizedBox(height: Sp.x3),
+      ],
+      // Data-freshness note — only when the band data is genuinely stale or a
+      // metrics pass is mid-flight (settling states also get the compact chip
+      // inside TodayVitals).
+      if (_shouldShowTodayStatus(app, status)) ...[
+        _todayStatusCard(app, status),
         const SizedBox(height: Sp.x3),
       ],
       // AI briefing hero — shows the cached one-liner for the current period;
@@ -501,11 +510,11 @@ class _TodayScreenState extends State<TodayScreen>
   // ── states ───────────────────────────────────────────────────────────────────
 
   /// Honest empty/processing state. Three cases, never a blank-with-no-reason:
-  ///   • analysis running  → "Processing… N/M days".
-  ///   • raw collected, not yet derived → invite to analyze now.
+  ///   • analysis running  → "Processing… N/M days" with a spinner.
+  ///   • decoded data collected, not yet derived → invite to analyze now.
   ///   • truly no data      → "Wear + sync to see today".
   Widget _emptyOrProcessing(AppState app) {
-    final raw = app.dbCounts['raw'] ?? 0;
+    final raw = app.dbCounts['decoded_onehz'] ?? app.dbCounts['raw'] ?? 0;
     if (app.reanalyzing) {
       return SurfaceCard(
         padding: const EdgeInsets.all(Sp.x6),
@@ -551,6 +560,70 @@ class _TodayScreenState extends State<TodayScreen>
       message:
           'Put your strap on and keep the app open. Your daily metrics '
           'appear after the next sync and analytics run.',
+    );
+  }
+
+  bool _shouldShowTodayStatus(AppState app, TodayStatus? status) {
+    final last = app.lastRecordAt;
+    final stale =
+        last == null || DateTime.now().difference(last).inMinutes >= 60;
+    if (stale) return true;
+    if (status == null) return false;
+    return status.overnightBuilding ||
+        status.activityBuilding ||
+        status.showingPriorOvernight;
+  }
+
+  Widget _todayStatusCard(AppState app, TodayStatus? status) {
+    final last = app.lastRecordAt;
+    final stale =
+        last == null || DateTime.now().difference(last).inMinutes >= 60;
+    final capture = app.pipelineStatus['capture'] as Map<String, dynamic>?;
+    final derive = app.pipelineStatus['derive'] as Map<String, dynamic>?;
+    final captureActive = capture?['active'] == true;
+    final deriveRunning = derive?['running'] == true;
+    final pendingLight = derive?['pending_light'] == true;
+    final pendingHeavy = derive?['pending_heavy'] == true;
+
+    String label;
+    if (stale &&
+        (captureActive || deriveRunning || pendingLight || pendingHeavy)) {
+      label =
+          'Your latest band data is more than an hour behind. OpenStrap is catching up now and this page will refresh automatically when sleep and today\'s metrics are ready.';
+    } else if (stale && app.isConnected) {
+      label =
+          'Your latest band data is more than an hour behind. OpenStrap is connected and waiting for the next data handoff.';
+    } else if (stale) {
+      label =
+          'Your latest band data is more than an hour behind. Reconnect the band and this page will refresh automatically once new data is captured and computed.';
+    } else if (status?.overnightBuilding == true &&
+        status?.activityBuilding == true) {
+      label =
+          'Today\'s activity is landing and the overnight metrics are still settling.';
+    } else if (status?.overnightBuilding == true) {
+      label =
+          'Today\'s overnight metrics are still computing. Sleep and readiness will fill when that pass finishes.';
+    } else if (status?.activityBuilding == true) {
+      label =
+          'Fresh data is in for today, but the day metrics are still catching up.';
+    } else {
+      label =
+          'Showing the last settled overnight while today\'s overnight metrics have not landed yet.';
+    }
+    final overnight = status?.overnightDay;
+    final extra = status?.showingPriorOvernight == true && overnight != null
+        ? ' Last settled night: $overnight.'
+        : '';
+    return ProCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppIcon(Ic.info, size: 18, color: AppColors.coralDeep),
+          const SizedBox(width: Sp.x3),
+          Expanded(child: Text('$label$extra', style: AppText.bodySoft)),
+        ],
+      ),
     );
   }
 

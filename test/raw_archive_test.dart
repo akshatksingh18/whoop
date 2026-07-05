@@ -33,6 +33,19 @@ void main() {
       capturedAt: 1750000000000,
       recTs: 1750000000,
     );
+    // Fully-decoded sample rides the batch (the durable substrate is the
+    // decoded store; commitSyncBatch persists decoded rows, not raw hex).
+    final sample = Sample(
+      tsEpoch: 1750000000,
+      counter: 1001,
+      hr: 62,
+      ax: 0.1,
+      ay: 0.2,
+      az: 0.9,
+      spo2RedRaw: 100,
+      spo2IrRaw: 200,
+      skinTempRaw: 300,
+    );
     final archive = ArchiveRecord(
       counter: 2002,
       hex: '2f63deadbeef', // an unknown record version
@@ -43,7 +56,7 @@ void main() {
 
     await LocalDb.commitSyncBatch(
       [raw],
-      const <Sample?>[null],
+      <Sample?>[sample],
       trimToken: 'aabbccddeeff0011',
       archives: [archive],
     );
@@ -53,9 +66,9 @@ void main() {
     expect(stats['count'], 1);
     expect((stats['by_reason'] as Map)['undecodable_rec_v99'], 1);
 
-    // Raw record landed in the SAME commit.
+    // Decoded record landed in the SAME commit.
     final counts = await LocalDb.counts();
-    expect((counts['raw'] ?? 0) >= 1, isTrue);
+    expect((counts['decoded_onehz'] ?? 0) >= 1, isTrue);
 
     // Trim cursor advanced in the SAME commit (what the ACK echoes verbatim).
     expect(await LocalDb.getCursor('strap_trim'), 'aabbccddeeff0011');

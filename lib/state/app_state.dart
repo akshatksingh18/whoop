@@ -58,6 +58,8 @@ import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
 import '../notify/water_buzzer.dart';
 import '../sync/edge_tracking.dart';
+import '../sync/band_ownership.dart';
+import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
 import '../sync/paired_device.dart';
 import '../sync/update_service.dart';
@@ -76,6 +78,7 @@ enum AppRoute { loading, welcome, pairing, profile, shell }
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
   PairedDevice? paired;
+  BandLease? _foregroundLease;
 
   /// SEAM: the screen data layer. Wired to [LocalRepositoryImpl] in the ctor —
   /// it reads the precomputed day_result / metric_series rows (ZERO heavy
@@ -196,7 +199,8 @@ class AppState extends ChangeNotifier {
   String get companionUrl => CompanionClient.effectiveBase;
 
   /// True when a companion URL is configured (override or build-time).
-  bool get companionConfigured => CompanionClient.effectiveBase.trim().isNotEmpty;
+  bool get companionConfigured =>
+      CompanionClient.effectiveBase.trim().isNotEmpty;
 
   /// Set (or clear, with '') the runtime companion-URL override.
   Future<void> setCompanionUrl(String url) async {
@@ -359,6 +363,7 @@ class AppState extends ChangeNotifier {
   String deviceId = '';
   bool telemetryConsent = false;
   bool healthShareConsent = false;
+
   /// Whether the user has been through the enrollment consent screen. Until then
   /// the toggles default ON there; an install that never saw the screen keeps the
   /// safe OFF default (we do NOT silently enable for someone who never chose).
@@ -427,10 +432,14 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kConsentChosen, true);
     TelemetryService.instance.enabled = on;
     notifyListeners();
-    unawaited(CompanionClient.postConsent(
-      deviceId: deviceId, scope: 'telemetry', granted: on,
-      termsVersion: termsVersion,
-    ));
+    unawaited(
+      CompanionClient.postConsent(
+        deviceId: deviceId,
+        scope: 'telemetry',
+        granted: on,
+        termsVersion: termsVersion,
+      ),
+    );
     if (on) unawaited(TelemetryService.instance.flush());
   }
 
@@ -442,10 +451,14 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kHealthShareConsent, on);
     await prefs.setBool(_kConsentChosen, true);
     notifyListeners();
-    unawaited(CompanionClient.postConsent(
-      deviceId: deviceId, scope: 'health_data', granted: on,
-      termsVersion: termsVersion,
-    ));
+    unawaited(
+      CompanionClient.postConsent(
+        deviceId: deviceId,
+        scope: 'health_data',
+        granted: on,
+        termsVersion: termsVersion,
+      ),
+    );
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -556,6 +569,10 @@ class AppState extends ChangeNotifier {
   /// (AI briefing breakdown, journal compose). The shell listens, pushes the
   /// screen and resets to null. Same off-ChangeNotifier design as [navRequest].
   final ValueNotifier<String?> screenRequest = ValueNotifier<String?>(null);
+
+  /// Bumped whenever stored insights change so listeners can re-query without a
+  /// full ChangeNotifier repaint.
+  final ValueNotifier<int> insightsRevision = ValueNotifier<int>(0);
   StreamSubscription<String>? _tapSub;
 
   void _handleTapRoute(String route) {
@@ -577,7 +594,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onEvent: _onLiveEvent,
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      // RESUMABLE SYNC: atomic commit of raw + samples + continuation cursor
+      // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect.
       onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
@@ -588,13 +605,20 @@ class AppState extends ChangeNotifier {
       cursorReader: LocalDb.getCursorInt,
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
-      // once a burst goes quiet. Light pass (newest affected day) — the foreground
-      // heavy finalize still runs in openSession after the backlog fully drains.
+      // once a burst goes quiet. Light pass = freshness-first (TODAY when data has
+      // reached today, else the latest pending day). The foreground heavy finalize
+      // still runs in openSession after the backlog fully drains.
       onDataStored: _onDataStored,
       onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
       // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
-      // live UI / spot-check, NEVER persisted to raw_records.
+      // live UI / spot-check, never persisted.
       onLiveFrame: _onLiveFrame,
+      deriveDataStaleness: () {
+        final ts = _lastRecTs;
+        if (ts == null || ts <= 0) return const Duration(days: 3650);
+        final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+        return DateTime.now().difference(at);
+      },
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
@@ -612,8 +636,11 @@ class AppState extends ChangeNotifier {
     _tapSub?.cancel();
     _stopBackfillTimer();
     _alarmGraceTimer?.cancel();
+    BandOwnership.markForegroundIntent(false);
+    _releaseForegroundLease();
     _deriveScheduler.dispose();
     _waterBuzzer.dispose();
+    insightsRevision.dispose();
     super.dispose();
   }
 
@@ -630,10 +657,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
-  /// [heavy]=false is the bounded light pass (newest affected day); [heavy]=true is
-  /// the foreground finalize sweep. Best-effort + non-blocking — never throws into
-  /// the BLE path. Refreshes the UI when results land so screens re-read the fresh
-  /// derived rows.
+  /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
+  /// else the latest pending day); [heavy]=true is the foreground finalize
+  /// sweep. Best-effort + non-blocking — never throws into the BLE path.
+  /// Refreshes the UI when results land so screens re-read the fresh derived rows.
   Future<void> _afterDrain({bool heavy = false}) async {
     try {
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
@@ -649,6 +676,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
@@ -736,15 +764,17 @@ class AppState extends ChangeNotifier {
       }
 
       await prefs.setString(_kLastRecoveryNotifDay, dayId);
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$dayId:recovery_ready',
-        category: NotifCategory.recovery,
-        priority: NotifPriority.normal,
-        title: 'Your recovery is ready',
-        body: 'Recovery $score$slept. Tap to see today.',
-        date: dayId,
-        route: '/today',
-      ));
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$dayId:recovery_ready',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          title: 'Your recovery is ready',
+          body: 'Recovery $score$slept. Tap to see today.',
+          date: dayId,
+          route: '/today',
+        ),
+      );
       _log('[notify] recovery-ready fired for $dayId (score=$score)');
     } catch (e) {
       _log('[notify] recovery-ready skipped: $e');
@@ -840,16 +870,21 @@ class AppState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString(_kLastStepGoalDay) == date) return; // already fired
       await prefs.setString(_kLastStepGoalDay, date);
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$date:step_goal',
-        category: NotifCategory.reminders,
-        priority: NotifPriority.low,
-        title: 'Step goal reached',
-        body: 'You hit about $steps steps — at or above your $goal goal. Nice work.',
-        date: date,
-        route: '/today',
-      ));
-    } catch (_) {/* best-effort */}
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$date:step_goal',
+          category: NotifCategory.reminders,
+          priority: NotifPriority.low,
+          title: 'Step goal reached',
+          body:
+              'You hit about $steps steps — at or above your $goal goal. Nice work.',
+          date: date,
+          route: '/today',
+        ),
+      );
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /// Opportunistic "time to move" nudge. HONEST LIMIT: movement is only visible
@@ -870,17 +905,22 @@ class AppState extends ChangeNotifier {
       if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
       await prefs.setInt(_kLastInactivityMs, nowMs);
       final today = '${now.year}-${now.month}-${now.day}';
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
-        category: NotifCategory.reminders,
-        priority: NotifPriority.low,
-        title: 'Time to move',
-        body: "You've been still for a couple of hours — a short walk keeps your "
-            'energy and circulation up.',
-        date: today,
-        route: '/today',
-      ));
-    } catch (_) {/* best-effort */}
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
+          category: NotifCategory.reminders,
+          priority: NotifPriority.low,
+          title: 'Time to move',
+          body:
+              "You've been still for a couple of hours — a short walk keeps your "
+              'energy and circulation up.',
+          date: today,
+          route: '/today',
+        ),
+      );
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /// True while a user-initiated full re-analysis is running (drives the button's
@@ -915,6 +955,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -992,6 +1033,57 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<int> reanalyzeDays(Set<String> days) async {
+    if (days.isEmpty || reanalyzing) return 0;
+    reanalyzing = true;
+    final ordered = days.toList()..sort();
+    reanalyzeProgress =
+        'Analyzing ${ordered.length} day${ordered.length == 1 ? '' : 's'}…';
+    notifyListeners();
+    try {
+      final n = await _derive.runDays(
+        _profile,
+        days,
+        force: true,
+        onDayDone: (day, index, total) async {
+          reanalyzeProgress = 'Analyzing $index/$total';
+          if (index == total || index == 1 || index % 3 == 0) {
+            dbCounts = await LocalDb.counts();
+            notifyListeners();
+          }
+        },
+      );
+      await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
+      dbCounts = await LocalDb.counts();
+      return n;
+    } catch (e) {
+      _log('[derive] reanalyze selected failed: $e');
+      return 0;
+    } finally {
+      reanalyzing = false;
+      reanalyzeProgress = '';
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> dataHistoryDays() =>
+      LocalDb.dataHistoryDays();
+
+  Future<int> dataFileBytes() => LocalDb.databaseFileBytes();
+
+  Future<String> exportDaysDb(Set<String> dayIds) =>
+      LocalDb.exportDaysDb(dayIds);
+
+  Future<int> deleteDays(Set<String> dayIds) async {
+    final deleted = await LocalDb.deleteDays(dayIds);
+    await LocalDb.refreshComputeFreshness();
+    dbCounts = await LocalDb.counts();
+    lastSynced = await LocalDb.latestSample();
+    notifyListeners();
+    return deleted;
+  }
+
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
   /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
@@ -1017,7 +1109,7 @@ class AppState extends ChangeNotifier {
     await _loadProfile();
     await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
-    _lastRecTs = await LocalDb.lastRawRecTs() ?? lastSynced?.tsEpoch;
+    _lastRecTs = await LocalDb.lastDecodedRecTs() ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
@@ -1031,7 +1123,9 @@ class AppState extends ChangeNotifier {
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
     // OFF the critical path so it can never block/break boot. Guarded internally.
     unawaited(_initCompanion());
-    unawaited(armWaterReminder()); // arm the hydration strap-buzz (timers don't persist)
+    unawaited(
+      armWaterReminder(),
+    ); // arm the hydration strap-buzz (timers don't persist)
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
@@ -1058,9 +1152,13 @@ class AppState extends ChangeNotifier {
           final b = v is Map ? (v['bedtime_min_of_day'] as num?) : null;
           bedtimeMin = b?.toDouble();
         }
-      } catch (_) {/* fall back to default bedtime */}
-      await NotificationCenter.instance
-          .scheduleStandingReminders(prefs, bedtimeMinOfDay: bedtimeMin);
+      } catch (_) {
+        /* fall back to default bedtime */
+      }
+      await NotificationCenter.instance.scheduleStandingReminders(
+        prefs,
+        bedtimeMinOfDay: bedtimeMin,
+      );
       // AI nudges (morning/evening briefing prompts + pre-sleep journal).
       final ai = await AiPrefs.load();
       await NotificationCenter.instance.scheduleAiReminders(
@@ -1080,7 +1178,10 @@ class AppState extends ChangeNotifier {
     FileLog.write(line);
     logLines.insert(0, line);
     if (logLines.length > 200) logLines.removeLast();
-    notifyListeners();
+  }
+
+  void _bumpInsightsRevision() {
+    insightsRevision.value = insightsRevision.value + 1;
   }
 
   /// Called when the app goes to the background.
@@ -1218,7 +1319,9 @@ class AppState extends ChangeNotifier {
   int _liveEnmoN = 0;
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
-  int _lastMovementMs = 0; // wall-clock of the last live frame showing real motion
+  int _lastMovementMs =
+      0; // wall-clock of the last live frame showing real motion
+  int _lastLiveUiNotifyMs = 0;
   // DEVICE-time window (epoch sec) the live pedometer covered this session — so
   // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
   int? _liveCoverStartTs;
@@ -1272,7 +1375,11 @@ class AppState extends ChangeNotifier {
       _magMin.removeRange(0, _minuteSamples);
       _committedRaw += ana.pedometer(minute);
     }
-    notifyListeners(); // live readout re-counts the partial minute on read
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastLiveUiNotifyMs >= 1000) {
+      _lastLiveUiNotifyMs = nowMs;
+      notifyListeners(); // live readout re-counts the partial minute on read
+    }
   }
 
   /// Reset the live step counter for a fresh connected session.
@@ -1281,6 +1388,7 @@ class AppState extends ChangeNotifier {
     _committedRaw = 0;
     _liveSamples = 0;
     _liveEnmoSum = 0;
+    _lastLiveUiNotifyMs = 0;
     _liveEnmoN = 0;
     _imuStreamSeen = false;
     _liveCoverStartTs = null;
@@ -1302,7 +1410,8 @@ class AppState extends ChangeNotifier {
     // 100 Hz always wins and a minute is never counted twice.
     if (steps > 0 && coverStart != null && coverEnd >= coverStart) {
       final d = DateTime.fromMillisecondsSinceEpoch(coverStart * 1000);
-      final day = '${d.year.toString().padLeft(4, '0')}-'
+      final day =
+          '${d.year.toString().padLeft(4, '0')}-'
           '${d.month.toString().padLeft(2, '0')}-'
           '${d.day.toString().padLeft(2, '0')}';
       unawaited(LocalDb.addLiveCoverage(coverStart, coverEnd, steps, day));
@@ -1318,8 +1427,10 @@ class AppState extends ChangeNotifier {
       final next = ana.calibrateCadence(prior, result, enmo);
       if (next != null && !identical(next, prior)) {
         await LocalDb.putStepCalibration(next);
-        _log('[steps] cadence calibrated → '
-            '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})');
+        _log(
+          '[steps] cadence calibrated → '
+          '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})',
+        );
       }
     } catch (e) {
       _log('[steps] calibration skipped: $e');
@@ -1386,6 +1497,8 @@ class AppState extends ChangeNotifier {
         // OS will relaunch us when it returns.
         if (_background) unawaited(_armRecovery());
         _reconnect();
+      } else {
+        _releaseForegroundLease();
       }
     }
     _prevConn = s.connection;
@@ -1412,6 +1525,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     try {
+      await _refreshHighFreqWakeWindow();
       _log('Periodic history refresh — requesting another offload.');
       final report = await _kickSyncBurst(kickFirst: true);
       _log(
@@ -1457,7 +1571,7 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
-      final frontierBefore = await LocalDb.lastRawRecTs();
+      final frontierBefore = await LocalDb.lastDecodedRecTs();
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -1465,7 +1579,7 @@ class AppState extends ChangeNotifier {
       final report = await engine.runSync(
         timeout: const Duration(seconds: 180),
       );
-      final frontierAfter = await LocalDb.lastRawRecTs();
+      final frontierAfter = await LocalDb.lastDecodedRecTs();
       final strapNewest = engine.strapHistoryNewestTs;
       final frontierAdvanced =
           frontierAfter != null &&
@@ -1489,6 +1603,10 @@ class AppState extends ChangeNotifier {
       );
       if (report.batches == 0) {
         _log('Backfill stop — no batch ACKs; trim did not advance.');
+        break;
+      }
+      if (report.complete && !backlogRemains) {
+        _log('Backfill stop — history complete acknowledged by strap.');
         break;
       }
       if (!frontierAdvanced && !backlogRemains) {
@@ -1576,6 +1694,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> unpair() async {
     _keepAlive = false;
+    BandOwnership.markForegroundIntent(false);
     _stopBackfillTimer();
     IosBleRestore.foregroundActive = false;
     await EdgeTracking.stop();
@@ -1584,6 +1703,7 @@ class AppState extends ChangeNotifier {
     // re-establishes iOS-26 relaunch eligibility. No-op on Android / iOS < 18.
     await AccessorySetup.removeAll();
     await engine.disconnect();
+    _releaseForegroundLease();
     await PairedDevice.clear();
     paired = null;
     notifyListeners();
@@ -1726,6 +1846,8 @@ class AppState extends ChangeNotifier {
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
     if (busy || paired == null) return;
+    BandOwnership.markForegroundIntent(true);
+    _log('[OWNERSHIP] foreground intent on (${BandOwnership.debugState})');
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
@@ -1785,10 +1907,14 @@ class AppState extends ChangeNotifier {
     IosBleRestore.arm(paired!.remoteId);
     _log('===== SESSION START ===== raw=${dbCounts['raw']}');
     try {
+      await _ensureForegroundLease();
       // connect() now subscribes → SET_CLOCK → INIT, so the historical offload is
-      // ALREADY streaming the moment this returns. We just enable live streams (so
-      // the band also emits live R10/R11) and poll device info; the offload keeps
-      // running on the same subscription with no mode flip.
+      // ALREADY streaming the moment this returns.
+      //
+      // NOTE on side traffic: info polls (battery/name/high-frequency wake
+      // config) and live-stream toggles ride the same link as the historical
+      // burst. The per-revision packet accounting counts data-role frames only,
+      // so these command exchanges don't perturb the burst packet counts.
       if (!await engine.connectToRemoteId(paired!.remoteId)) {
         lastError =
             'Could not reach your band. Is it nearby and free '
@@ -1799,6 +1925,9 @@ class AppState extends ChangeNotifier {
       await engine.getStrapName(); // populate strap name for the Profile UI
       // Alarm is displayed from the locally-set/persisted value (authoritative);
       // the GET_ALARM readback is parked (unconfirmed format) — see ble_engine.
+      // Arm the strap's high-frequency sync window when a wake alarm is near
+      // (denser flushes → fresher overnight data ahead of the alarm).
+      await _refreshHighFreqWakeWindow();
       _log('Listening — live streams on, historical burst runs concurrently.');
       // Enable live streams PROMPTLY, then let the historical burst run
       // CONCURRENTLY (unawaited, single-flight via _kickSyncBurst). History and
@@ -1819,6 +1948,8 @@ class AppState extends ChangeNotifier {
             'batches (${report.complete ? "complete" : "stopped early"}).',
           );
           dbCounts = await LocalDb.counts();
+          // Re-evaluate the high-frequency wake window now the backlog landed.
+          await _refreshHighFreqWakeWindow();
           // The whole backlog landed → heavy foreground finalize (full sleep
           // staging + 24-h spectra over every stale day).
           _deriveScheduler.requestHeavy();
@@ -1833,6 +1964,9 @@ class AppState extends ChangeNotifier {
     } finally {
       if (!engine.isConnected || !_keepAlive) {
         _stopBackfillTimer();
+        BandOwnership.markForegroundIntent(false);
+        _log('[OWNERSHIP] foreground intent off (${BandOwnership.debugState})');
+        _releaseForegroundLease();
       }
       _setBusy(false);
     }
@@ -1852,6 +1986,8 @@ class AppState extends ChangeNotifier {
       return;
     }
     _reconnecting = true;
+    BandOwnership.markForegroundIntent(true);
+    _log('[OWNERSHIP] reconnect intent on (${BandOwnership.debugState})');
     try {
       // Keep trying for as long as we still want the link (a session is active) —
       // a runner who left their phone behind can be out of range for an hour.
@@ -1878,14 +2014,21 @@ class AppState extends ChangeNotifier {
             (_background || attempt > _directAttemptsBeforeOsFallback);
         if (osPending) {
           connected = await engine.waitForOsAutoConnect(
-                paired!.remoteId,
-                keepWaiting: () => _keepAlive && !engine.isConnected,
-              ) &&
-              _keepAlive &&
-              await engine.connectToRemoteId(paired!.remoteId);
+            paired!.remoteId,
+            keepWaiting: () => _keepAlive && !engine.isConnected,
+          );
+          if (connected && _keepAlive) {
+            // Mark band ownership before the actual GATT setup so a headless
+            // wake can't fight this reconnect for the peripheral.
+            await _ensureForegroundLease();
+            connected = await engine.connectToRemoteId(paired!.remoteId);
+          } else {
+            connected = false;
+          }
         } else {
           await Future.delayed(engine.reconnectDelay(attempt));
           if (!_keepAlive) break;
+          await _ensureForegroundLease();
           connected = await engine.connectToRemoteId(paired!.remoteId);
         }
         if (connected) {
@@ -1895,6 +2038,9 @@ class AppState extends ChangeNotifier {
             await IosBleRestore.setOwnsBand(true);
           }
           EdgeTracking.start(); // ensure the Android foreground service is up too
+          // Arm the strap's high-frequency sync window when a wake alarm is
+          // near (denser flushes ahead of the alarm).
+          await _refreshHighFreqWakeWindow();
           // Live streams come up promptly; the FULL drain (no short timeout —
           // the ENTIRE offline backlog the band flashed while out of range)
           // runs concurrently, single-flight, exactly as in openSession.
@@ -1906,11 +2052,18 @@ class AppState extends ChangeNotifier {
             await engine.enableLiveStreams();
           }
           _resetLivePedometer();
+          await engine.getBattery();
+          await engine.getStrapName();
+          // Alarm display comes from the locally-set/persisted value; the
+          // GET_ALARM readback is parked (unconfirmed format) — see ble_engine.
           _log('Reconnected — live on; draining backlog in background.');
           unawaited(
             _kickSyncBurst(kickFirst: false).then((report) async {
               dbCounts = await LocalDb.counts();
               _log('Reconnect backlog drained: ${report.records} records.');
+              // Re-evaluate the high-frequency wake window now the backlog
+              // landed.
+              await _refreshHighFreqWakeWindow();
               // Backlog (often an overnight gap) just landed → derive it.
               _deriveScheduler.requestHeavy();
               notifyListeners();
@@ -1925,6 +2078,10 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('Reconnect failed: $e');
     } finally {
+      if (!_keepAlive) {
+        BandOwnership.markForegroundIntent(false);
+        _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
+      }
       _reconnecting = false;
       // If we gave up (keepAlive dropped / never connected), stop advertising
       // `reconnecting` — fall back to a truthful 'disconnected'. No-op when
@@ -1981,10 +2138,55 @@ class AppState extends ChangeNotifier {
 
   Future<void> syncNow() => openSession();
 
+  Future<void> _refreshHighFreqWakeWindow() async {
+    if (!engine.isConnected) return;
+    try {
+      final plan = await HighFreqWakeWindow.planNow();
+      await engine.applyHighFreqWakeWindow(
+        enabled: plan.shouldEnable,
+        targetWake: plan.targetWake,
+        duration: HighFreqWakeWindow.lease,
+        intervalSeconds: 60,
+        reason: plan.source,
+      );
+      _log(
+        '[SYNC] HighFreq wake window: source=${plan.source} '
+        'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
+        'target=${plan.targetWake?.toIso8601String()}',
+      );
+    } catch (e) {
+      _log('[SYNC] HighFreq wake window skipped: $e');
+    }
+  }
+
   Future<void> endSession() async {
     _keepAlive = false;
+    BandOwnership.markForegroundIntent(false);
+    _log('[OWNERSHIP] endSession intent off (${BandOwnership.debugState})');
     _stopBackfillTimer();
     await engine.disconnect();
+    _releaseForegroundLease();
+  }
+
+  Future<void> _ensureForegroundLease() async {
+    if (_foregroundLease != null) return;
+    final lease = await BandOwnership.acquireForeground();
+    _foregroundLease = lease;
+    _log(
+      '[OWNERSHIP] acquired foreground lease=${lease.token} '
+      '(${BandOwnership.debugState})',
+    );
+  }
+
+  void _releaseForegroundLease() {
+    final lease = _foregroundLease;
+    if (lease == null) return;
+    _log(
+      '[OWNERSHIP] releasing foreground lease=${lease.token} '
+      '(${BandOwnership.debugState})',
+    );
+    BandOwnership.release(lease);
+    _foregroundLease = null;
   }
 
   String get status => device.connection;
@@ -2167,8 +2369,10 @@ class AppState extends ChangeNotifier {
         if (next != null) {
           await LocalDb.putStepCalibration(next);
           learned = next.cadenceSpm;
-          _log('[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
-              '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})');
+          _log(
+            '[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
+            '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})',
+          );
         }
       } catch (e) {
         _log('[steps] calibration failed: $e');

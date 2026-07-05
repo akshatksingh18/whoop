@@ -109,7 +109,7 @@ void main() {
     const keepTs = 1780000500;
     await LocalDb.insertRecord(_raw(keepTs, 7), _sample(keepTs, 7, [700]));
 
-    await LocalDb.pruneRawBeforeRecTs(oldTs + 1000);
+    await LocalDb.pruneDecodedBeforeRecTs(oldTs + 1000);
 
     final orphan = await db.query('decoded_rr', where: 'counter = ?', whereArgs: [999999]);
     expect(orphan, isEmpty, reason: 'orphan sweep must clean the leaked beat');

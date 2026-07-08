@@ -103,7 +103,7 @@ void main() {
       expect(find.byType(AppIcon), findsWidgets);
     });
 
-    testWidgets('Today stress tile + orbit satellite render OsIcon.stress; '
+    testWidgets('Today orbit satellite renders OsIcon.stress; '
         'calories tile renders OsIcon.calories', (t) async {
       t.view.physicalSize = const Size(390, 3200);
       t.view.devicePixelRatio = 1.0;
@@ -122,12 +122,12 @@ void main() {
         ),
       ));
       await t.pump(const Duration(milliseconds: 1200));
-      // Stress art appears twice: the bento tile header + the orbit satellite.
+      // Stress has no bento tile anymore — only the orbit satellite renders it.
       expect(
         find.byWidgetPredicate(
           (w) => w is OsAppIcon && w.icon == OsIcon.stress,
         ),
-        findsNWidgets(2),
+        findsOneWidget,
       );
       expect(
         find.byWidgetPredicate(

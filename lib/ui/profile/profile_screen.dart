@@ -433,39 +433,6 @@ class ProfileScreen extends StatelessWidget {
             ),
           ]),
 
-          const SizedBox(height: Sp.x6),
-
-          // ── Honesty note ─────────────────────────────────────────────
-          SurfaceCard(
-            level: 0,
-            color: AppColors.surfaceAlt,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    AppIcon(OsIcon.shield, size: 18, color: AppColors.inkSoft),
-                    const SizedBox(width: Sp.x2),
-                    Text('How your metrics are made', style: AppText.label),
-                  ],
-                ),
-                const SizedBox(height: Sp.x3),
-                Text(
-                  'Metrics are computed on this phone from published algorithms '
-                  'over your strap\'s raw sensor data. We show only what the '
-                  'hardware can honestly measure — estimates are labelled, and '
-                  'a metric without enough data stays blank instead of guessed.',
-                  style: AppText.bodySoft,
-                ),
-                const SizedBox(height: Sp.x3),
-                Text(
-                  'OpenStrap • MIT • the analytics source is public.',
-                  style: AppText.captionMuted,
-                ),
-              ],
-            ),
-          ),
-
           const SizedBox(height: 110),
       ],
     );

@@ -114,8 +114,8 @@ void main() {
       expect(find.text('Primed'), findsOneWidget); // 82 → primed
       expect(find.text('48'), findsWidgets); // HRV value
       expect(find.text('52'), findsWidgets); // RHR value
-      expect(find.text('12.4'), findsWidgets); // strain — tile + orbit satellite
-      expect(find.text('7h 42m'), findsWidgets); // sleep — tile + orbit satellite
+      expect(find.text('12.4'), findsOneWidget); // strain — orbit satellite
+      expect(find.text('7h 42m'), findsOneWidget); // sleep — orbit satellite
       expect(find.text('8412'), findsOneWidget); // steps
       expect(find.text('Records & streaks'), findsOneWidget);
       expect(t.takeException(), isNull);
@@ -125,22 +125,21 @@ void main() {
       expect(opened, contains('readiness'));
     });
 
-    testWidgets('Stress + Sleep tiles show their numeric value', (t) async {
+    testWidgets('Stress + Sleep orbit satellites show their numeric value', (
+      t,
+    ) async {
       await t.pumpWidget(
         _host(
           TodayVitals(
             t: TodayData.fromJson(_sampleToday()),
-            stageMin: (awakeMin: 24, remMin: 96, lightMin: 258, deepMin: 84),
             onOpen: (_) {},
           ),
         ),
       );
       await t.pump(const Duration(milliseconds: 1200));
-      // Stress pill shows its 0–100 score (was rendering blank).
-      expect(find.text('Stress'.toUpperCase()), findsOneWidget);
-      expect(find.text('34'), findsWidgets); // stress — tile + orbit satellite
-      // Sleep pill shows its duration number.
-      expect(find.text('7h 42m'), findsWidgets); // tile + orbit satellite
+      // Stress + Sleep now live only on the orbit satellites (no bento tile).
+      expect(find.text('34'), findsOneWidget); // stress — orbit satellite
+      expect(find.text('7h 42m'), findsOneWidget); // sleep — orbit satellite
       expect(t.takeException(), isNull);
     });
 

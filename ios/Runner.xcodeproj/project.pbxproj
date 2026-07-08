@@ -379,6 +379,7 @@
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				2DCD42F2BAD7B7B913EF5123 /* [CP] Embed Pods Frameworks */,
+				FADE0005FADE0005FADE0005 /* Re-sign ad-hoc native-assets frameworks */,
 			);
 			buildRules = (
 			);
@@ -567,6 +568,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
+		};
+		FADE0005FADE0005FADE0005 /* Re-sign ad-hoc native-assets frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Re-sign ad-hoc native-assets frameworks";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CODE_SIGNING_ALLOWED}\" != \"YES\" ] || [ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ]; then\n  echo \"note: code signing not active for this build -- skipping native-assets framework re-sign.\"\n  exit 0\nfi\nAPP_PATH=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nFRAMEWORKS_DIR=\"${APP_PATH}/Frameworks\"\nif [ -d \"${FRAMEWORKS_DIR}\" ]; then\n  find \"${FRAMEWORKS_DIR}\" -maxdepth 1 -name \"*.framework\" | while IFS= read -r fw; do\n    if codesign -dv \"${fw}\" 2>&1 | grep -q \"Signature=adhoc\"; then\n      echo \"note: re-signing ad-hoc-signed framework: ${fw}\"\n      codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --preserve-metadata=identifier,entitlements,flags \"${fw}\"\n    fi\n  done\nfi\n";
+			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
 

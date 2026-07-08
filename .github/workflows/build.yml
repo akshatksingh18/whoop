@@ -77,6 +77,23 @@ jobs:
   # Note: free-account sideloads re-sign with a different team id, so App Group
   # features (home widget + Live Activity) may not work; there is no iOS OTA
   # auto-update either (that path installs an .apk). Attached to the same release.
+  #
+  # The Watch companion app is deliberately NOT embedded in this artifact — see
+  # the "Strip Watch companion" step below. It is structurally impossible for
+  # it to survive a per-user free-account resign: the Watch app's Info.plist
+  # carries a literal WKCompanionAppBundleIdentifier string that must exactly
+  # equal the phone app's bundle id, and every free-account resign (Sideloadly,
+  # AltStore, ...) mints its own unique per-user bundle id suffix to satisfy
+  # Apple's global App-ID-uniqueness rule but has no reason to know it also
+  # needs to patch that unrelated-looking key inside a different nested
+  # bundle's plist — none of them do. Unlike widget/Live-Activity extensions
+  # (which associate with the parent purely by PlugIns/ embedding + a simple
+  # bundle-id prefix, both of which survive naive resigning fine), this is not
+  # a Sideloadly bug to work around — it fails identically under every
+  # resigner. Full Watch support only ever works building from source with a
+  # consistent signing identity (see ios/Config/Signing.xcconfig + `flutter
+  # run`/Xcode direct install), where $(APP_BUNDLE_IDENTIFIER) threads through
+  # every target's plist, including this one, at build time.
   ios:
     runs-on: macos-latest
     permissions:
@@ -103,6 +120,16 @@ jobs:
 
       - name: Build unsigned iOS app
         run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      # See the job-level comment above: the Watch companion cannot survive a
+      # per-user free-account resign under any sideloading tool (Sideloadly,
+      # AltStore, ...) — it fails install for every such user, every time, with
+      # no per-app-side fix possible, because the resign step would need to
+      # rewrite a cross-reference key inside a different nested bundle's plist
+      # that these tools don't special-case. Drop it here so the artifact this
+      # job ships actually installs; source builds keep full Watch support.
+      - name: Strip Watch companion (can't survive per-user resigning)
+        run: rm -rf "build/ios/iphoneos/Runner.app/Watch"
 
       - name: Package unsigned IPA
         id: ipa

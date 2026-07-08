@@ -89,35 +89,18 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     }
   }
 
-  Future<void> _testBuzz() async {
-    final app = context.read<AppState>();
-    if (!app.isConnected) {
-      _snack('Connect your strap to test the alarm buzz.');
-      return;
-    }
-    try {
-      await app.testAlarmBuzz();
-      _snack('Sent a test buzz to your strap.');
-    } catch (e) {
-      _snack("Couldn't buzz the strap: $e");
-    }
-  }
-
   void _snack(String s) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
   }
 
   /// Live alarm-status caption driven by the strap's own confirmation events.
-  String _alarmCaption(AppState app) {
-    const base = 'Your strap buzzes at this time — set on the band, so it works '
-        'even with the app closed. Aligned to a ~90-min cycle so it lands near '
-        'light sleep.';
-    if (app.alarmEpoch == null) return base;
-    if (app.alarmConfirmed) return 'Alarm set ✓ — $base';
-    if (app.alarmPending) return 'Setting alarm… — $base';
-    return 'Alarm sent, but the strap hasn\'t confirmed it yet. '
-        'Tap "Test buzz" to check it fires, and keep a backup alarm.';
+  /// Null when no alarm has been set yet — nothing to say.
+  String? _alarmCaption(AppState app) {
+    if (app.alarmEpoch == null) return null;
+    if (app.alarmConfirmed) return 'Alarm set ✓';
+    if (app.alarmPending) return 'Setting alarm…';
+    return 'Alarm sent, waiting for the strap to confirm.';
   }
 
   @override
@@ -184,18 +167,11 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
               label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
             ),
           ),
-          const SizedBox(height: Sp.x2),
-          Row(children: [
-            Expanded(
-              child: Text(_alarmCaption(context.watch<AppState>()),
-                  style: AppText.captionMuted),
-            ),
-            const SizedBox(width: Sp.x2),
-            TextButton(
-              onPressed: _testBuzz,
-              child: const Text('Test buzz'),
-            ),
-          ]),
+          if (_alarmCaption(context.watch<AppState>()) != null) ...[
+            const SizedBox(height: Sp.x2),
+            Text(_alarmCaption(context.watch<AppState>())!,
+                style: AppText.captionMuted),
+          ],
         ],
       ]),
     );

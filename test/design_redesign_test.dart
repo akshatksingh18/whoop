@@ -442,17 +442,6 @@ void main() {
                   11000,
                   8412,
                 ],
-                stageMin: (
-                  awakeMin: 24,
-                  remMin: 96,
-                  lightMin: 258,
-                  deepMin: 84,
-                ),
-                hypno: const [
-                  HypnoSeg(SleepStage.light, 0.0, 0.4),
-                  HypnoSeg(SleepStage.deep, 0.4, 0.6),
-                  HypnoSeg(SleepStage.rem, 0.6, 1.0),
-                ],
                 onOpen: opened.add,
               ),
               palette: p,
@@ -463,12 +452,13 @@ void main() {
           expect(find.text('READINESS'), findsOneWidget);
           expect(find.text('Primed'), findsOneWidget);
           expect(find.text('Sleep'), findsOneWidget); // satellite route
-          // Bento numbers. Sleep/Heart(RHR)/Strain now also appear on their
-          // orbit satellite, so those match >1; HRV is bento-only.
+          // Bento numbers. RHR also appears on its orbit satellite (Heart), so
+          // it matches >1; HRV is bento-only. Strain/Sleep have no bento tile
+          // anymore — each shows exactly once, on its orbit satellite.
           expect(find.text('48'), findsOneWidget); // HRV — bento only
           expect(find.text('52'), findsWidgets); // RHR — tile + Heart satellite
-          expect(find.text('12.4'), findsWidgets); // strain — tile + satellite
-          expect(find.text('7h 42m'), findsWidgets); // sleep — tile + satellite
+          expect(find.text('12.4'), findsOneWidget); // strain — satellite only
+          expect(find.text('7h 42m'), findsOneWidget); // sleep — satellite only
           expect(find.text('8412'), findsOneWidget);
           expect(find.text('640'), findsOneWidget);
           // Week rings card present (steps spark provided).

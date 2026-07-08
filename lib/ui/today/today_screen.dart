@@ -53,10 +53,6 @@ class _TodayScreenState extends State<TodayScreen>
   /// null = no data that day (incl. future days), best-effort.
   List<double?> _stepsWeek = const [];
 
-  /// Last night's stage minutes + hypnogram, best-effort (nulls hide them).
-  ({int? awakeMin, int? remMin, int? lightMin, int? deepMin})? _stageMin;
-  List<HypnoSeg> _hypno = const [];
-
   /// Show the once-a-morning recovery story: only with a real readiness score,
   /// and only if it hasn't already been shown for today's date.
   bool _showStory(TodayData t) {
@@ -122,24 +118,6 @@ class _TodayScreenState extends State<TodayScreen>
           b['has'] == true ? ((b['value'] as num?)?.toDouble()) : null,
       ];
       if (mounted) setState(() => _stepsWeek = week);
-    } catch (_) {}
-    try {
-      final st = TodayData.fromJson(today).status;
-      final s = await repo.getDaySleep(st?.overnightDay ?? _todayStr());
-      if (s['has_sleep'] == true && mounted) {
-        int? mi(Object? v) => (v as num?)?.toInt();
-        setState(() {
-          _stageMin = (
-            awakeMin: mi(s['awake_min']),
-            remMin: mi(s['rem_min']),
-            lightMin: mi(s['light_min']),
-            deepMin: mi(s['deep_min']),
-          );
-          _hypno = hypnoSegmentsFromPoints(
-            (s['hypnogram'] as List?) ?? const [],
-          );
-        });
-      }
     } catch (_) {}
     return today;
   }
@@ -361,8 +339,6 @@ class _TodayScreenState extends State<TodayScreen>
           sparks: _sparks,
           stepsWeek: _stepsWeek,
           liveSteps: context.read<AppState>().liveSteps,
-          stageMin: _stageMin,
-          hypno: _hypno,
           onOpen: _open,
         ),
       ),
@@ -677,12 +653,6 @@ class TodayVitals extends StatelessWidget {
   /// Steps from the in-flight live session, not yet folded into the day metric.
   final int liveSteps;
 
-  /// Last night's stage minutes (nulls hide the stage bar).
-  final ({int? awakeMin, int? remMin, int? lightMin, int? deepMin})? stageMin;
-
-  /// Last night's hypnogram segments (empty hides the mini timeline).
-  final List<HypnoSeg> hypno;
-
   /// Tap-through router: readiness | sleep | heart | body | activity | wear |
   /// stress | oxygen | records.
   final void Function(String id) onOpen;
@@ -693,8 +663,6 @@ class TodayVitals extends StatelessWidget {
     this.sparks = const {},
     this.stepsWeek = const [],
     this.liveSteps = 0,
-    this.stageMin,
-    this.hypno = const [],
     required this.onOpen,
   });
 
@@ -742,13 +710,10 @@ class TodayVitals extends StatelessWidget {
         BentoColumns(
           left: [
             _hrvTile(context),
-            _sleepTile(),
             _caloriesTile(),
-            _stressTile(),
           ],
           right: [
             _rhrTile(),
-            _strainTile(),
             _stepsTile(),
             _oxygenTile(),
           ],
@@ -994,91 +959,6 @@ class TodayVitals extends StatelessWidget {
     );
   }
 
-  Widget _sleepTile() {
-    final sm = stageMin;
-    final hasStages =
-        sm != null &&
-        ((sm.remMin ?? 0) + (sm.lightMin ?? 0) + (sm.deepMin ?? 0)) > 0;
-    return BentoTile(
-      tone: BentoTone.soft,
-      accent: DomainAccent.sleep,
-      minHeight: _statTileMinHeight,
-      onTap: () => onOpen('sleep'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const TileHeader('Sleep'),
-          const SizedBox(height: Sp.x2),
-          BigStat(
-            value: _hm(t.sleepDuration),
-            caption: t.sleepNeed.isEmpty
-                ? null
-                : 'of ${_hm(t.sleepNeed)} need',
-          ),
-          if (hypno.isNotEmpty) ...[
-            const SizedBox(height: Sp.x3),
-            Hypnogram(hypno, height: 64, labels: false),
-          ],
-          if (hasStages) ...[
-            const SizedBox(height: Sp.x3),
-            StageBars(
-              awakeMin: sm.awakeMin,
-              remMin: sm.remMin,
-              lightMin: sm.lightMin,
-              deepMin: sm.deepMin,
-              legend: !(hypno.isNotEmpty), // timeline already tells the story
-            ),
-          ] else if (!t.sleepDuration.isEmpty && !t.sleepNeed.isEmpty) ...[
-            const SizedBox(height: Sp.x3),
-            ProgressPill(
-              (t.sleepDuration.value! / t.sleepNeed.value!).clamp(0.0, 1.0),
-              color: DomainAccent.sleep,
-              height: 8,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _strainTile() {
-    final v = t.strain;
-    return BentoTile(
-      accent: DomainAccent.strain,
-      minHeight: _statTileMinHeight,
-      onTap: () => onOpen('body'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const TileHeader('Strain'),
-          const SizedBox(height: Sp.x2),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: BigStat(
-                  value: v.isEmpty ? null : v.value!.toStringAsFixed(1),
-                  caption: 'of 21',
-                ),
-              ),
-              ArcGauge(
-                value: v.isEmpty
-                    ? double.nan
-                    : (v.value! / 21).clamp(0.0, 1.0),
-                color: DomainAccent.strain,
-                size: 52,
-                stroke: 6,
-                sweepFraction: 0.75,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _stepsTile() {
     final base = t.steps.isEmpty ? 0 : t.steps.value!.round();
     final steps = base + liveSteps;
@@ -1127,29 +1007,6 @@ class TodayVitals extends StatelessWidget {
             value: _int(t.calories),
             unit: 'kcal',
             caption: t.calories.isEmpty ? null : 'active burn · est',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _stressTile() {
-    final stress = t.stress;
-    return BentoTile(
-      accent: DomainAccent.stress,
-      minHeight: _statTileMinHeight,
-      onTap: () => onOpen('stress'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const TileHeader('Stress', icon: OsIcon.stress, trailing: Tag('est')),
-          const SizedBox(height: Sp.x2),
-          BigStat(
-            value: stress?.score?.toString(),
-            unit: '/100',
-            caption: stress?.band,
-            captionAccent: true,
           ),
         ],
       ),

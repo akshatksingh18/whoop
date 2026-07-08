@@ -359,9 +359,11 @@ class BleEngine {
 
   /// Tunable debounce window for [onDataStored]. Default coalesces a burst once the
   /// stream goes quiet. The debouncer can run in a fast stale mode or a calmer
-  /// fresh mode depending on [deriveDataStaleness].
+  /// fresh mode depending on [deriveDataStaleness] — or a fast foreground mode
+  /// depending on [isForegroundActive], which takes priority over both.
   final DeriveDebouncer deriveDebouncer;
   final Duration Function() deriveDataStaleness;
+  final bool Function() isForegroundActive;
 
   BleEngine({
     required this.onRecord,
@@ -378,6 +380,7 @@ class BleEngine {
     this.deriveDebouncer = const DeriveDebouncer(),
     this.isBackgroundDrainer = false,
     this.deriveDataStaleness = _defaultDeriveDataStaleness,
+    this.isForegroundActive = _defaultIsForegroundActive,
   });
 
   /// True for the headless restore-drain engine (runHeadlessSync). It YIELDS the
@@ -386,6 +389,10 @@ class BleEngine {
   final bool isBackgroundDrainer;
 
   static Duration _defaultDeriveDataStaleness() => const Duration(days: 3650);
+  // Callers that never wire this (e.g. the headless background drainer, which
+  // has no concept of foreground at all) correctly default to false — the
+  // fresh/stale staleness tiers still apply, unaffected.
+  static bool _defaultIsForegroundActive() => false;
 
   /// Optional reader for a persisted cursor value (e.g. counter_hw) so the engine
   /// can seed its frontier from the durable store on connect — making the stuck/
@@ -750,6 +757,7 @@ class BleEngine {
         sinceLastRecord: DateTime.now().difference(_lastStored),
         sinceFirstPending: DateTime.now().difference(fp),
         dataStaleness: deriveDataStaleness(),
+        isForeground: isForegroundActive(),
       );
       if (fire) {
         _firstPending = null;

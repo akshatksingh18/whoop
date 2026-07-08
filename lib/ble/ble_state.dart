@@ -348,6 +348,8 @@ class DeriveDebouncer {
   final Duration freshQuietPeriod;
   final Duration freshMaxWait;
   final Duration staleThreshold;
+  final Duration foregroundQuietPeriod;
+  final Duration foregroundMaxWait;
 
   const DeriveDebouncer({
     this.staleQuietPeriod = const Duration(seconds: 12),
@@ -355,22 +357,45 @@ class DeriveDebouncer {
     this.freshQuietPeriod = const Duration(minutes: 1),
     this.freshMaxWait = const Duration(minutes: 5),
     this.staleThreshold = const Duration(minutes: 30),
+    // A THIRD tier, independent of data staleness: while the app is in the
+    // foreground, a human is plausibly staring at the screen waiting for
+    // their just-synced number. The fresh-mode tier's whole rationale (avoid
+    // paying compute/battery cost for every trickle of ambient live data) is
+    // moot when the screen is already on — the cost of deriving sooner is
+    // the same either way, only the WAIT changes. Without this, the exact
+    // moment a catch-up sync's data staleness drops below staleThreshold
+    // (i.e. records finally reach "now" — precisely what the user is
+    // waiting on) is also the moment the debounce flips to its SLOWEST
+    // tier. This tier takes priority over fresh/stale whenever foreground.
+    this.foregroundQuietPeriod = const Duration(seconds: 5),
+    this.foregroundMaxWait = const Duration(seconds: 15),
   });
 
   /// Should we derive now, given the pending-record bookkeeping?
   ///   [hasPending]       — records persisted since the last derive
   ///   [sinceLastRecord]  — how long since the most recent persisted record
   ///   [sinceFirstPending]— how long since the first record of the current dirty run
+  ///   [isForeground]     — the app is actively in the foreground right now;
+  ///                        takes priority over the fresh/stale staleness
+  ///                        tiers when true (see foregroundQuietPeriod doc)
   bool shouldDerive({
     required bool hasPending,
     required Duration sinceLastRecord,
     required Duration sinceFirstPending,
     required Duration dataStaleness,
+    bool isForeground = false,
   }) {
     if (!hasPending) return false;
-    final staleMode = dataStaleness >= staleThreshold;
-    final quietPeriod = staleMode ? staleQuietPeriod : freshQuietPeriod;
-    final maxWait = staleMode ? staleMaxWait : freshMaxWait;
+    Duration quietPeriod;
+    Duration maxWait;
+    if (isForeground) {
+      quietPeriod = foregroundQuietPeriod;
+      maxWait = foregroundMaxWait;
+    } else {
+      final staleMode = dataStaleness >= staleThreshold;
+      quietPeriod = staleMode ? staleQuietPeriod : freshQuietPeriod;
+      maxWait = staleMode ? staleMaxWait : freshMaxWait;
+    }
     if (sinceLastRecord >= quietPeriod) return true; // stream went quiet
     if (sinceFirstPending >= maxWait) return true; // never-quiet floor
     return false;

@@ -624,6 +624,15 @@ class AppState extends ChangeNotifier {
         final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
         return DateTime.now().difference(at);
       },
+      // Foreground-aware debounce tier (see DeriveDebouncer's doc): without
+      // this, a catch-up sync's data staleness dropping below the fresh/stale
+      // threshold — i.e. records finally reaching "now", exactly what the
+      // user is watching for — flips the debounce into its SLOWEST tier
+      // (60s quiet / 5min floor) at precisely the worst moment. `_background`
+      // already exists for the derive-scheduler's own foreground/background
+      // gate (see pauseForBackground/openSession); reusing it here costs
+      // nothing new and keeps both signals consistent with each other.
+      isForegroundActive: () => !_background,
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band

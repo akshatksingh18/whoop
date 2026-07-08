@@ -455,5 +455,88 @@ void main() {
         );
       },
     );
+
+    test(
+        'foreground mode fires MUCH sooner than fresh mode at the exact same '
+        '(short) staleness — the case that used to hit the slowest tier right '
+        'when the user is watching', () {
+      // dataStaleness has just dropped below staleThreshold (a catch-up sync
+      // reaching "now") — without isForeground this would be fresh mode
+      // (1min quiet / 5min floor). With isForeground it must NOT wait that
+      // long: the foreground tier (5s quiet / 15s floor) takes priority.
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 6),
+          sinceFirstPending: const Duration(seconds: 10),
+          dataStaleness: const Duration(minutes: 5),
+          isForeground: true,
+        ),
+        isTrue, // 6s quiet >= the 5s foreground quiet period
+      );
+      // The SAME inputs without isForeground must NOT fire yet (fresh mode).
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 6),
+          sinceFirstPending: const Duration(seconds: 10),
+          dataStaleness: const Duration(minutes: 5),
+          isForeground: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('foreground mode still respects its own (short) floor', () {
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 2), // stream still active
+          sinceFirstPending: const Duration(seconds: 14),
+          dataStaleness: const Duration(hours: 2),
+          isForeground: true,
+        ),
+        isFalse, // under both the 5s quiet and the 15s floor
+      );
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 2),
+          sinceFirstPending: const Duration(seconds: 15),
+          dataStaleness: const Duration(hours: 2),
+          isForeground: true,
+        ),
+        isTrue, // hits the 15s floor even though the stream never went quiet
+      );
+    });
+
+    test('foreground mode overrides stale mode too (still just the fastest '
+        'reasonable tier, not slower)', () {
+      // Even in stale mode's territory (dataStaleness >= 30min), foreground
+      // is at least as fast — same fixture, both should fire promptly.
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 5),
+          sinceFirstPending: const Duration(seconds: 5),
+          dataStaleness: const Duration(hours: 2),
+          isForeground: true,
+        ),
+        isTrue, // 5s quiet >= the 5s foreground quiet period
+      );
+    });
+
+    test('isForeground defaults to false (existing callers unaffected)', () {
+      // No isForeground arg at all — must behave exactly like before.
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 6),
+          sinceFirstPending: const Duration(seconds: 10),
+          dataStaleness: const Duration(minutes: 5),
+        ),
+        isFalse, // fresh mode, unchanged
+      );
+    });
   });
 }

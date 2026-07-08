@@ -1,19 +1,29 @@
 // RouteMapView — the shared map widget for GPS workout routes.
 //
-// OUR OWN LOOK, not stock OpenStreetMap: raw OSM raster tiles are the only
-// source that needs no API key / no Google-Mapbox account, but their default
-// light, busy, multicoloured style clashes with the app's warm-dark ember
-// design language and doesn't read as "OpenStrap" — so every tile is passed
-// through a fixed ColorFilter (see [_kMapTileMatrix]) that desaturates the
-// whole basemap to a warm charcoal-to-cream monochrome (inverted luminance,
-// tinted toward AppColors.night / onNight — the SAME invariant dark hero
-// surface the live-workout screen itself uses). The map reads as ONE
-// consistent dark, branded surface everywhere it appears — live session,
-// finish card, workout detail — regardless of the surrounding screen's light/
-// dark theme. Against that quiet monochrome base, the route line (vivid,
-// HR-zone-coloured, glow-backed) and the coral position dot are the only
-// colour — a deliberate one-accent-colour map style (Nike Run Club / Strava's
-// minimal map, not a busy street atlas).
+// TILE SOURCE: CARTO's free "Positron" raster basemap, NOT raw
+// tile.openstreetmap.org. The OSM Foundation's tile-usage policy explicitly
+// forbids "heavy use (e.g. distributing an app that uses tiles from
+// openstreetmap.org)" — an app built against tile.openstreetmap.org directly
+// gets silently rate-limited / blocked once real usage shows up, which reads
+// to a user as "the map doesn't work" with zero error surfaced (flutter_map
+// just renders a blank/grey tile on a failed fetch). CARTO's basemap CDN
+// (basemaps.cartocdn.com) is the standard production-safe alternative: same
+// OSM-derived data, no API key, explicitly permitted for embedding in apps.
+// Still requires OSM data attribution (+ CARTO credit), rendered below.
+//
+// OUR OWN LOOK, not stock CARTO either: the default light, busy,
+// multicoloured basemap style clashes with the app's warm-dark ember design
+// language and doesn't read as "OpenStrap" — so every tile is passed through
+// a fixed ColorFilter (see [_kMapTileMatrix]) that desaturates the whole
+// basemap to a warm charcoal-to-cream monochrome (inverted luminance, tinted
+// toward AppColors.night / onNight — the SAME invariant dark hero surface the
+// live-workout screen itself uses). The map reads as ONE consistent dark,
+// branded surface everywhere it appears — live session, finish card, workout
+// detail — regardless of the surrounding screen's light/dark theme. Against
+// that quiet monochrome base, the route line (vivid, HR-zone-coloured,
+// glow-backed) and the coral position dot are the only colour — a deliberate
+// one-accent-colour map style (Nike Run Club / Strava's minimal map, not a
+// busy street atlas).
 //
 // Renders the route polyline SEGMENTED and COLOURED BY HR ZONE
 // (AppColors.zone), plus an optional pulsing current-position marker. Two
@@ -22,10 +32,12 @@
 //   • thumbnail:   non-interactive, fit-to-bounds (finish card + workout
 //     detail card).
 //
-// LOCAL-FIRST: tiles come straight from OpenStreetMap (no API key, no Google /
-// Mapbox); the route points are on-device only. A minimal "© OSM" credit is
-// always shown (required by the OSM tile-usage policy) as a small tucked-away
-// text badge, not the stock flutter_map attribution box.
+// LOCAL-FIRST: the route points themselves are on-device only, never
+// uploaded. Basemap tiles are fetched on demand (no account, no tracking of
+// the athlete — the tile CDN only ever sees anonymous {z,x,y} requests, never
+// route data). A minimal "© OSM · CARTO" credit is always shown (required by
+// both providers' attribution terms) as a small tucked-away text badge, not
+// the stock flutter_map attribution box.
 
 import 'package:flutter/material.dart' hide Split;
 import 'package:flutter_map/flutter_map.dart';
@@ -40,7 +52,12 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import 'kit.dart';
 
-const String _kOsmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+// CARTO Positron ("light_all") — a minimal light basemap, the closest
+// production-safe equivalent to plain OSM carto for our ColorFilter to
+// desaturate. `{r}` is the retina-tile suffix flutter_map fills in itself.
+const String _kOsmTileUrl =
+    'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const List<String> _kTileSubdomains = ['a', 'b', 'c', 'd'];
 const String _kUserAgent = 'wtf.openstrap.edge';
 
 /// Desaturate + invert-luminance + warm-tint every tile pixel in one pass:
@@ -174,6 +191,7 @@ class RouteMapView extends StatelessWidget {
           colorFilter: const ColorFilter.matrix(_kMapTileMatrix),
           child: TileLayer(
             urlTemplate: _kOsmTileUrl,
+            subdomains: _kTileSubdomains,
             userAgentPackageName: _kUserAgent,
             maxZoom: 19,
           ),
@@ -205,9 +223,10 @@ class RouteMapView extends StatelessWidget {
     return height == null ? clipped : SizedBox(height: height, child: clipped);
   }
 
-  /// A minimal, tucked-away credit — required by the OSM tile-usage policy,
-  /// but styled as a small text badge that blends into our own dark map
-  /// rather than flutter_map's stock boxed attribution widget.
+  /// A minimal, tucked-away credit — required by both the OSM data licence
+  /// and CARTO's basemap terms, but styled as a small text badge that blends
+  /// into our own dark map rather than flutter_map's stock boxed attribution
+  /// widget.
   Widget _attribution() => Positioned(
         right: 6,
         bottom: 6,
@@ -217,7 +236,7 @@ class RouteMapView extends StatelessWidget {
             mode: LaunchMode.externalApplication,
           ),
           child: Text(
-            '© OpenStreetMap',
+            '© OpenStreetMap · CARTO',
             style: AppText.captionMuted.copyWith(
               color: AppColors.onNightSoft,
               fontSize: 9,

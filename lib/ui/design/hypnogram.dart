@@ -1,21 +1,11 @@
-// Sleep-stage visualizations — the clean stage language from the refs:
-//
-//  • [Hypnogram] — the stepped stage timeline (Awake / REM / Light / Deep as
-//    rows; coloured segments at their row height joined by hairline risers).
-//  • [StageBars] — the compact single-row stage distribution (one rounded
-//    stacked bar + a quiet legend), for tiles that can't afford a timeline.
-//
-// Both read stage colours from [DomainAccent] so every sleep visual in the
-// app speaks the same palette, in both themes. Honest by contract: callers
-// pass real segments/minutes or nothing renders — no fabricated shapes.
-
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import 'domains.dart';
 
-/// Canonical stage order, top row → bottom row (the refs' convention).
+/// Canonical stage order, top row → bottom row.
 enum SleepStage { awake, rem, light, deep }
 
 Color stageColor(SleepStage s) => switch (s) {
@@ -42,7 +32,6 @@ class HypnoSeg {
 
 /// Parse the repository's hypnogram points ([{t, stage}], stage strings like
 /// 'awake'/'rem'/'light'/'deep'/'core'/'nrem') into normalized segments.
-/// Unknown stages are skipped; < 2 points → empty (nothing renders).
 List<HypnoSeg> hypnoSegmentsFromPoints(List<dynamic> points) {
   SleepStage? parse(Object? s) => switch ('$s'.toLowerCase()) {
     'awake' || 'wake' => SleepStage.awake,
@@ -76,22 +65,18 @@ List<HypnoSeg> hypnoSegmentsFromPoints(List<dynamic> points) {
   return segs;
 }
 
-/// The stepped stage timeline. Rows top→bottom: Awake / REM / Light / Deep.
+/// A beautiful stepped line chart hypnogram powered by fl_chart.
 class Hypnogram extends StatelessWidget {
   final List<HypnoSeg> segments;
   final double height;
-
-  /// Show the row labels down the left edge.
   final bool labels;
-
-  /// Optional start/end captions under the plot ('11:24 pm', '7:05 am').
   final String? startLabel;
   final String? endLabel;
 
   const Hypnogram(
     this.segments, {
     super.key,
-    this.height = 96,
+    this.height = 100,
     this.labels = true,
     this.startLabel,
     this.endLabel,
@@ -100,46 +85,112 @@ class Hypnogram extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (segments.isEmpty) return const SizedBox.shrink();
-    final plot = RepaintBoundary(
-      child: CustomPaint(
-        size: Size(double.infinity, height),
-        painter: _HypnogramPainter(
-          segments: segments,
-          colors: [for (final s in SleepStage.values) stageColor(s)],
-          gridColor: AppColors.divider,
+
+    // Map stages to Y values (0 = Deep, 1 = Light, 2 = REM, 3 = Awake)
+    double stageToY(SleepStage s) {
+      switch (s) {
+        case SleepStage.deep:
+          return 0;
+        case SleepStage.light:
+          return 1;
+        case SleepStage.rem:
+          return 2;
+        case SleepStage.awake:
+          return 3;
+      }
+    }
+
+    final spots = <FlSpot>[];
+    for (final seg in segments) {
+      spots.add(FlSpot(seg.start, stageToY(seg.stage)));
+      spots.add(FlSpot(seg.end, stageToY(seg.stage)));
+    }
+
+    final plot = SizedBox(
+      height: height,
+      child: LineChart(
+        LineChartData(
+          minX: 0,
+          maxX: 1,
+          minY: 0,
+          maxY: 3,
+          lineTouchData: LineTouchData(enabled: false), // Disable touch for cleaner UI
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: 1,
+            getDrawingHorizontalLine: (value) {
+              return FlLine(
+                color: AppColors.divider.withValues(alpha: 0.6),
+                strokeWidth: 1,
+                dashArray: [4, 4], // dotted grid lines
+              );
+            },
+          ),
+          titlesData: FlTitlesData(
+            show: labels,
+            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: labels,
+                interval: 1,
+                reservedSize: 42,
+                getTitlesWidget: (value, meta) {
+                  String text;
+                  switch (value.toInt()) {
+                    case 0:
+                      text = 'Deep';
+                      break;
+                    case 1:
+                      text = 'Light';
+                      break;
+                    case 2:
+                      text = 'REM';
+                      break;
+                    case 3:
+                      text = 'Awake';
+                      break;
+                    default:
+                      return const SizedBox.shrink();
+                  }
+                  return SideTitleWidget(
+                    axisSide: meta.axisSide,
+                    child: Text(
+                      text,
+                      style: AppText.captionMuted.copyWith(fontSize: 10),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: false,
+              isStepLineChart: true,
+              color: AppColors.accent, // A singular uniform color or gradient can be applied here
+              barWidth: 3,
+              isStrokeCapRound: true,
+              dotData: FlDotData(show: false),
+              belowBarData: BarAreaData(
+                show: true,
+                color: AppColors.accent.withValues(alpha: 0.1),
+              ),
+            ),
+          ],
         ),
       ),
     );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (labels)
-              SizedBox(
-                height: height,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final s in SleepStage.values)
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            stageName(s),
-                            style: AppText.captionMuted.copyWith(fontSize: 10),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            if (labels) const SizedBox(width: Sp.x3),
-            Expanded(child: SizedBox(height: height, child: plot)),
-          ],
-        ),
+        plot,
         if (startLabel != null || endLabel != null) ...[
           const SizedBox(height: Sp.x1),
           Padding(
@@ -158,76 +209,6 @@ class Hypnogram extends StatelessWidget {
   }
 }
 
-class _HypnogramPainter extends CustomPainter {
-  final List<HypnoSeg> segments;
-  final List<Color> colors; // indexed by SleepStage
-  final Color gridColor;
-  _HypnogramPainter({
-    required this.segments,
-    required this.colors,
-    required this.gridColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rows = SleepStage.values.length;
-    final rowH = size.height / rows;
-
-    // Faint row guides.
-    final grid = Paint()
-      ..strokeWidth = 1
-      ..color = gridColor.withValues(alpha: 0.6);
-    for (var r = 0; r < rows; r++) {
-      final y = rowH * r + rowH / 2;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
-    }
-
-    // Segments at their row heights, joined by hairline risers.
-    final bar = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round;
-    final riser = Paint()
-      ..strokeWidth = 1.2
-      ..color = gridColor;
-    double yFor(SleepStage s) => rowH * s.index + rowH / 2;
-
-    Offset? prevEnd;
-    for (final seg in segments) {
-      final y = yFor(seg.stage);
-      final x0 = (seg.start.clamp(0.0, 1.0)) * size.width;
-      final x1 = (seg.end.clamp(0.0, 1.0)) * size.width;
-      final w = x1 - x0;
-      if (w <= 0) continue;
-      if (prevEnd != null && (prevEnd.dy - y).abs() > 1) {
-        canvas.drawLine(Offset(x0, prevEnd.dy), Offset(x0, y), riser);
-      }
-      bar.color = colors[seg.stage.index];
-      if (w < 8) {
-        // Brief bouts (a 1–2 min Deep dip over a whole night is sub-pixel):
-        // draw a centred minimum-width dash instead of skipping or letting the
-        // cap inset flip the line backwards — every real stage bout stays
-        // visible.
-        final mid = (x0 + x1) / 2;
-        final half = w / 2 < 1.5 ? 1.5 : w / 2;
-        canvas.drawLine(
-          Offset((mid - half).clamp(0.0, size.width), y),
-          Offset((mid + half).clamp(0.0, size.width), y),
-          bar,
-        );
-      } else {
-        // Inset the round caps so adjacent segments don't overlap.
-        canvas.drawLine(Offset(x0 + 2.5, y), Offset(x1 - 2.5, y), bar);
-      }
-      prevEnd = Offset(x1, y);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_HypnogramPainter old) =>
-      old.segments != segments || old.colors != colors;
-}
-
 /// Compact stage distribution: one rounded stacked bar + a quiet legend.
 /// Pass minutes per stage; nulls/zeros are skipped honestly.
 class StageBars extends StatelessWidget {
@@ -236,8 +217,6 @@ class StageBars extends StatelessWidget {
   final int? lightMin;
   final int? deepMin;
   final double height;
-
-  /// Show the legend row under the bar.
   final bool legend;
 
   const StageBars({

@@ -218,6 +218,7 @@ class NoopImporter {
       spo2Red: spo2Red,
       spo2Ir: spo2Ir,
       skinTemp: skinTemp,
+      skinContact: ax.map((_) => 0).toList(),
     );
   }
 

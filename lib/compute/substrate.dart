@@ -41,6 +41,7 @@ class Substrate {
   final List<int> spo2Red;
   final List<int> spo2Ir;
   final List<int> skinTemp;
+  final List<int> skinContact;
 
   const Substrate({
     required this.tsSec,
@@ -53,6 +54,7 @@ class Substrate {
     required this.spo2Red,
     required this.spo2Ir,
     required this.skinTemp,
+    required this.skinContact,
   });
 
   static const Substrate empty = Substrate(
@@ -66,6 +68,7 @@ class Substrate {
     spo2Red: [],
     spo2Ir: [],
     skinTemp: [],
+    skinContact: [],
   );
 
   int get length => tsSec.length;
@@ -103,6 +106,7 @@ class Substrate {
       spo2Red: spo2Red.sublist(lo, hi),
       spo2Ir: spo2Ir.sublist(lo, hi),
       skinTemp: skinTemp.sublist(lo, hi),
+      skinContact: skinContact.sublist(lo, hi),
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -127,6 +131,7 @@ class Substrate {
       spo2Red: spo2Red.sublist(lo, hi),
       spo2Ir: spo2Ir.sublist(lo, hi),
       skinTemp: skinTemp.sublist(lo, hi),
+      skinContact: skinContact.sublist(lo, hi),
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -143,6 +148,7 @@ class Substrate {
       spo2Red: const [],
       spo2Ir: const [],
       skinTemp: const [],
+      skinContact: const [],
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -174,24 +180,26 @@ class Substrate {
         'spo2_red': spo2Red,
         'spo2_ir': spo2Ir,
         'skin_temp': skinTemp,
+        'skin_contact': skinContact,
       };
 
   static Substrate fromJson(Map<String, dynamic> m) {
-    List<int> ints(String k) =>
+    List<int> _i(Map<String, dynamic> m, String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
     List<double> dbls(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
     return Substrate(
-      tsSec: ints('ts_sec'),
-      hr: ints('hr'),
+      tsSec: _i(m, 'ts_sec'),
+      hr: _i(m, 'hr'),
       rrTsMs: dbls('rr_ts_ms'),
       rrMs: dbls('rr_ms'),
       ax: dbls('ax'),
       ay: dbls('ay'),
       az: dbls('az'),
-      spo2Red: ints('spo2_red'),
-      spo2Ir: ints('spo2_ir'),
-      skinTemp: ints('skin_temp'),
+      spo2Red: _i(m, 'spo2_red'),
+      spo2Ir: _i(m, 'spo2_ir'),
+      skinTemp: _i(m, 'skin_temp'),
+      skinContact: _i(m, 'skin_contact'),
     );
   }
 }
@@ -241,6 +249,7 @@ Substrate decodeSubstrate(List<String> hexes) {
   final spo2Red = List<int>.filled(n, 0);
   final spo2Ir = List<int>.filled(n, 0);
   final skinTemp = List<int>.filled(n, 0);
+  final skinContact = List<int>.filled(n, 0);
   final rrTsMs = <double>[], rrMs = <double>[];
 
   for (var i = 0; i < n; i++) {
@@ -255,6 +264,7 @@ Substrate decodeSubstrate(List<String> hexes) {
     spo2Red[i] = r.spo2RedRaw;
     spo2Ir[i] = r.spo2IrRaw;
     skinTemp[i] = r.skinTempRaw;
+    skinContact[i] = r.skinContact;
     // RR beats: anchored at the record second (epoch ms). Beats within a record
     // share its second; time order is preserved by the record sort above.
     final t = r.tsEpoch * 1000.0;
@@ -294,6 +304,7 @@ Substrate decodeSubstrate(List<String> hexes) {
     spo2Red: spo2Red,
     spo2Ir: spo2Ir,
     skinTemp: skinTemp,
+    skinContact: skinContact,
   );
 }
 

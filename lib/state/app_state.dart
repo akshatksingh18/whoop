@@ -13,6 +13,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
@@ -918,26 +920,43 @@ class AppState extends ChangeNotifier {
   static const String _kLastInactivityMs = 'last_inactivity_ms';
   Future<void> _maybeNotifyInactivity() async {
     try {
-      if (_lastMovementMs == 0) return; // no live movement data → stay silent
+      if (_lastMovementMs == 0 && _lastWalkMs == 0) return; // no live data
       final now = DateTime.now();
       if (now.hour < 9 || now.hour >= 21) return; // daytime only
       final nowMs = now.millisecondsSinceEpoch;
+      
       final idleMs = nowMs - _lastMovementMs;
-      if (idleMs < 2 * 60 * 60 * 1000) return; // < 2h idle → no nudge
+      final walkIdleMs = _lastWalkMs > 0 ? (nowMs - _lastWalkMs) : 0;
+      final recentlyProne = _lastProneMs > 0 && (nowMs - _lastProneMs) < 15 * 60 * 1000;
+      
+      String? title;
+      String? body;
+      
+      // Feature 3: Sedentary Desk-Job Detection
+      if (walkIdleMs >= 90 * 60 * 1000 && recentlyProne) {
+        title = 'Posture Check & Stretch';
+        body = 'You’ve been in a typing posture for over 90 minutes without walking. Time to stretch your legs and reset your posture!';
+      } else if (idleMs >= 2 * 60 * 60 * 1000) {
+        // Standard inactivity (2h total stillness)
+        title = 'Time to move';
+        body = "You've been still for a couple of hours — a short walk keeps your energy and circulation up.";
+      }
+      
+      if (title == null || body == null) return;
+      
       final prefs = await SharedPreferences.getInstance();
       final lastFired = prefs.getInt(_kLastInactivityMs) ?? 0;
       if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
       await prefs.setInt(_kLastInactivityMs, nowMs);
+      
       final today = '${now.year}-${now.month}-${now.day}';
       await NotificationCenter.instance.emit(
         NotificationEvent(
           dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
           category: NotifCategory.reminders,
           priority: NotifPriority.low,
-          title: 'Time to move',
-          body:
-              "You've been still for a couple of hours — a short walk keeps your "
-              'energy and circulation up.',
+          title: title,
+          body: body,
           date: today,
           route: '/today',
         ),
@@ -1371,13 +1390,13 @@ class AppState extends ChangeNotifier {
       _imuStreamSeen = true;
       final f = _safeFrameAccel(hex);
       if (f != null) {
-        _ingestLiveMags(f.mags);
+        _ingestLiveMags(f);
         _trackCoverage(recTs);
       }
     } else if (pt == 0x2B && !_imuStreamSeen) {
       final f = _safeFrameAccel(hex);
       if (f != null) {
-        _ingestLiveMags(f.mags);
+        _ingestLiveMags(f);
         _trackCoverage(recTs);
       }
     }
@@ -1407,6 +1426,8 @@ class AppState extends ChangeNotifier {
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
   int _lastMovementMs =
       0; // wall-clock of the last live frame showing real motion
+  int _lastWalkMs = 0; // last time steps were accumulated
+  int _lastProneMs = 0; // last time the wrist was in a flat/typing posture
   int _lastLiveUiNotifyMs = 0;
   // DEVICE-time window (epoch sec) the live pedometer covered this session — so
   // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
@@ -1436,7 +1457,8 @@ class AppState extends ChangeNotifier {
     return raw > 0 ? (raw * ana.StepParams.gain).round() : 0;
   }
 
-  void _ingestLiveMags(List<double> mags) {
+  void _ingestLiveMags(proto.ImuFrame f) {
+    final mags = f.mags;
     if (mags.isEmpty) return;
     // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
     // threshold rides the ~1 g baseline). Also accumulate a 1 Hz-equivalent ENMO
@@ -1450,18 +1472,31 @@ class AppState extends ChangeNotifier {
     final e = (magSum / mags.length) - 1.0;
     _liveEnmoSum += e > 0 ? e : 0.0;
     _liveEnmoN++;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
     // Stamp last real motion (for the inactivity nudge). 0.02 g over baseline is
     // clearly dynamic movement, not resting jitter.
-    if (e > 0.02) _lastMovementMs = DateTime.now().millisecondsSinceEpoch;
+    if (e > 0.02) _lastMovementMs = nowMs;
+
+    // Feature 3: Live Posture Tracking (detect desk-job pronation)
+    // Only trust orientation when not highly dynamic (e < 0.05).
+    if (e.abs() < 0.05 && f.ys != null && f.zs != null && f.ys!.isNotEmpty) {
+      final my = f.ys!.reduce((a, b) => a + b) / f.ys!.length;
+      final mz = f.zs!.reduce((a, b) => a + b) / f.zs!.length;
+      final rollDeg = math.atan2(my, mz) * 180.0 / math.pi;
+      if (rollDeg.abs() > 135) {
+        _lastProneMs = nowMs; // flat wrist / typing posture
+      }
+    }
 
     // Commit each completed minute into the raw total (matches the gain's
     // per-minute calibration), then keep counting the next partial minute.
     while (_magMin.length >= _minuteSamples) {
       final minute = _magMin.sublist(0, _minuteSamples);
       _magMin.removeRange(0, _minuteSamples);
+      final before = _committedRaw;
       _committedRaw += ana.pedometer(minute);
+      if (_committedRaw > before) _lastWalkMs = nowMs;
     }
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastLiveUiNotifyMs >= 1000) {
       _lastLiveUiNotifyMs = nowMs;
       notifyListeners(); // live readout re-counts the partial minute on read

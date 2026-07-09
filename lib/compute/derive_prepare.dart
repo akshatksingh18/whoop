@@ -388,5 +388,6 @@ class _PrepareAccumulator {
     spo2Red: spo2Red,
     spo2Ir: spo2Ir,
     skinTemp: skinTemp,
+    skinContact: const [],
   );
 }

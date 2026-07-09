@@ -956,8 +956,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
-      resolved-ref: "184d14da07b013329d86e366778252b376b50d56"
+      ref: "fix/step-regression"
+      resolved-ref: "160f07380153b4d6e26248d91f9e83e00c2b9503"
       url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"
@@ -974,8 +974,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
-      resolved-ref: eb07a9aa2b46594a69efc852e1599e32f54dccb2
+      ref: "feat/data-diagnostics-posture"
+      resolved-ref: da8c2192090a236986c890763b6927c8e81e206d
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"

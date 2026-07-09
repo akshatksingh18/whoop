@@ -159,7 +159,7 @@ import 'substrate.dart';
 // staging and corrected steps — this is the one bump so far where that's
 // worth actually telling users about, since it affects months of history,
 // not just going forward.
-const int kAlgoVersion = 33;
+const int kAlgoVersion = 34;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
@@ -1350,6 +1350,53 @@ class DerivationEngine {
     // `sleep` block (from segmentSleep) is the headline; this is a parallel
     // ESTIMATE detail. Best-effort — never throws.
     bundle['advanced_sleep'] = await _advancedSleep(daySub);
+
+    // Feature 6: Restlessness Map (Heatmap of Sleep)
+    if (sleepSub.length > 0) {
+      final bucketSec = 300; // 5 min
+      final moveSum = <int, double>{};
+      final moveCount = <int, int>{};
+      for (var i = 0; i < sleepSub.length; i++) {
+        final b = sleepSub.tsSec[i] ~/ bucketSec;
+        final ax = sleepSub.ax[i];
+        final ay = sleepSub.ay[i];
+        final az = sleepSub.az[i];
+        final mag = math.sqrt(ax * ax + ay * ay + az * az);
+        final enmo = (mag - 1.0).abs();
+        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
+        moveCount[b] = (moveCount[b] ?? 0) + 1;
+      }
+      final out = <Map<String, dynamic>>[];
+      final keys = moveSum.keys.toList()..sort();
+      for (final b in keys) {
+        final avgEnmo = moveSum[b]! / moveCount[b]!;
+        // 0.1g ENMO is quite restless. Scale to 0-1 for heatmap UI.
+        final density = math.min(1.0, avgEnmo * 10.0);
+        out.add({
+          't': b * bucketSec,
+          'density': double.parse(density.toStringAsFixed(3)),
+        });
+      }
+      bundle['restlessness_map'] = out;
+    }
+
+    // Feature 2: Fit Quality Diagnostics (Band Too Loose)
+    // Analyze skinContact during active periods (HR > 100)
+    var activeContactSum = 0;
+    var activeContactN = 0;
+    for (var i = 0; i < daySub.length; i++) {
+      if (daySub.hr[i] > 100 && daySub.skinContact[i] > 0) {
+        activeContactSum += daySub.skinContact[i];
+        activeContactN++;
+      }
+    }
+    if (activeContactN > 60) { // at least 1 minute of activity
+      final avgContact = activeContactSum / activeContactN;
+      if (avgContact < 100) {
+        bundle['fit_quality'] = 'poor';
+        bundle['fit_warning'] = 'Band is worn too loosely during high activity. Tighten for accurate HR.';
+      }
+    }
 
     await _persistWakeDayFeatures(dayId: day.date, wake: wake);
 

@@ -32,6 +32,7 @@ void main() {
         spo2Red: List<int>.filled(ts.length, 0),
         spo2Ir: List<int>.filled(ts.length, 0),
         skinTemp: List<int>.filled(ts.length, 0),
+        skinContact: List<int>.filled(ts.length, 0),
       );
 
       final all = prepareDerivationPayload(sub);
@@ -61,6 +62,7 @@ void main() {
       spo2Red: List<int>.filled(ts.length, 0),
       spo2Ir: List<int>.filled(ts.length, 0),
       skinTemp: List<int>.filled(ts.length, 0),
+      skinContact: List<int>.filled(ts.length, 0),
     );
 
     final none = prepareDerivationPayload(sub, targetDay: '2026-06-28');
@@ -88,6 +90,7 @@ void main() {
       spo2Red: List<int>.filled(ts.length, 0),
       spo2Ir: List<int>.filled(ts.length, 0),
       skinTemp: List<int>.filled(ts.length, 0),
+      skinContact: List<int>.filled(ts.length, 0),
     );
 
     final onsetSec = DateTime(2026, 6, 27, 0, 30).millisecondsSinceEpoch ~/ 1000;

@@ -33,6 +33,7 @@ import '../records/records_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../../widget/widget_service.dart';
 import 'ai_summary_card.dart';
+import 'health_pet_card.dart';
 
 class TodayScreen extends StatefulWidget {
   const TodayScreen({super.key});
@@ -324,6 +325,11 @@ class _TodayScreenState extends State<TodayScreen>
             onTap: () => _push(() => AiBreakdownScreen(period: period)),
           );
         }).dsEnter(index: 0),
+      ),
+      const SizedBox(height: Sp.x3),
+      KeyedSubtree(
+        key: const ValueKey('today-health-pet'),
+        child: HealthPetCard(today: t),
       ),
       if (alert != null) ...[
         const SizedBox(height: Sp.x3),

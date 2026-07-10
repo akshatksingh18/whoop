@@ -974,8 +974,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "feat/data-diagnostics-posture"
-      resolved-ref: e4dfac2446b9357f7c6add0d5c1c577671bdb9ee
+      ref: main
+      resolved-ref: "5f53be5ebae2e53d9d9bd54a1111ef36a1d224ce"
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"

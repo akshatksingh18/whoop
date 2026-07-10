@@ -19,7 +19,7 @@ dependencies:
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      ref: feat/data-diagnostics-posture
+      ref: main
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

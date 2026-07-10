@@ -2092,18 +2092,19 @@ class DerivationEngine {
       for (final h in daySub.hr)
         if (h > 0) h.toDouble(),
     ];
-    final age = profile.ageYears?.toDouble();
-    final weightKg = profile.weightKg;
-    final sex = profile.sex?.toLowerCase();
-    final hrMax = age == null ? null : 208 - 0.7 * age;
-    final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
+    final age = profile.ageYears?.toDouble() ?? 30.0; // fallback age
+    final weightKg = profile.weightKg ?? 70.0; // fallback weight
+    final sex = profile.sex?.toLowerCase() ?? 'm'; // fallback sex
+    final hrMax = 208 - 0.7 * age;
+    // Fallback to 60.0 so new users (no baseline yet, no manual RHR) still get Strain
+    final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble() ?? 60.0;
     double? strain;
     double? calories;
     double? steps;
     double? caloriesTotal;
     Map<String, int> zones = const {};
-    if (hrMax != null && perMin.isNotEmpty) {
-      if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
+    if (perMin.isNotEmpty) {
+      if (dayHrValid.isNotEmpty) {
         final trimp = ana.banisterTrimp(
           perMin,
           restingHr: rhrForTrimp,
@@ -2116,7 +2117,7 @@ class DerivationEngine {
         }
       }
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
-      if (age != null && sex != null && weightKg != null) {
+      if (true) {
         calories = _keytelCaloriesWake(
           perMin,
           age,

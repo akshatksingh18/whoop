@@ -100,11 +100,11 @@ class BackgroundDerivation {
     try {
       await Workmanager().initialize(derivationDispatcher);
       
-      // Schedule Sync Task (every 15 min - Android minimum)
+      // Schedule Sync Task (every 10 min - note Android clamps to 15 min minimum)
       await Workmanager().registerPeriodicTask(
         _kSyncTask,
         _kSyncTask,
-        frequency: const Duration(minutes: 15),
+        frequency: const Duration(minutes: 10),
         constraints: Constraints(
           networkType: NetworkType.notRequired,
           requiresBatteryNotLow: false,
@@ -113,11 +113,11 @@ class BackgroundDerivation {
         existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       );
 
-      // Schedule Analyze/Derivation Task (every 15 min - Android minimum)
+      // Schedule Analyze/Derivation Task (every 10 min - note Android clamps to 15 min minimum)
       await Workmanager().registerPeriodicTask(
         _kHeavyTask,
         _kHeavyTask,
-        frequency: const Duration(minutes: 15),
+        frequency: const Duration(minutes: 10),
         constraints: Constraints(
           networkType: NetworkType.notRequired,
           requiresBatteryNotLow: false,

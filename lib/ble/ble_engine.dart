@@ -718,7 +718,7 @@ class BleEngine {
     final key = 'v$version#$count';
     if (!shouldLogMilestone || !_historicalOpticalDebugKeys.add(key)) return;
 
-    if (version == 24 || version == 12) {
+    if (version == Record.r24 || version == Record.r12) {
       _log(
         '[SPO2] hist=v$version count=$count base=inner '
         'whoop4_optical(red@64 ir@66 temp@68 amb@70) '
@@ -1679,11 +1679,11 @@ class BleEngine {
     // backfill (all received in one sync) splits into correct per-real-day
     // buckets instead of collapsing into one "today".
     Sample? sample;
-    if (recType == Record.r24 || recType == 12) {
+    if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;
-      if (recType == 12 && decodeTarget.length == 88) {
+      if (recType == Record.r12 && decodeTarget.length == 88) {
         // v12 packets are 88 bytes, but parseR24 requires 89. Pad to 89 to hit the native version==12 layout.
         final padded = Uint8List(89);
         padded.setRange(0, 88, decodeTarget);

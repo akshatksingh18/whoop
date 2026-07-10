@@ -1,4 +1,4 @@
-import 'package:fl_chart/fl_chart.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
@@ -65,7 +65,65 @@ List<HypnoSeg> hypnoSegmentsFromPoints(List<dynamic> points) {
   return segs;
 }
 
-/// A beautiful stepped line chart hypnogram powered by fl_chart.
+class _GanttPainter extends CustomPainter {
+  final List<HypnoSeg> segments;
+  _GanttPainter(this.segments);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rowH = size.height / 4;
+
+    int stageToY(SleepStage s) {
+      switch (s) {
+        case SleepStage.awake:
+          return 0;
+        case SleepStage.rem:
+          return 1;
+        case SleepStage.light:
+          return 2;
+        case SleepStage.deep:
+          return 3;
+      }
+    }
+
+    // Draw subtle grid lines
+    final gridPaint = Paint()
+      ..color = AppColors.divider.withValues(alpha: 0.3)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 4; i++) {
+      final y = i * rowH;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // Draw the segments as progress bar blocks
+    for (final seg in segments) {
+      final yIdx = stageToY(seg.stage);
+      final top = yIdx * rowH;
+      final bottom = top + rowH;
+      final left = seg.start * size.width;
+      final right = seg.end * size.width;
+
+      if (right <= left) continue;
+
+      final paint = Paint()
+        ..color = stageColor(seg.stage)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(left, top + 2, right, bottom - 2),
+          const Radius.circular(2),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GanttPainter old) => true;
+}
+
+/// A beautiful Gantt chart hypnogram showing each stage on separated colored progress bars.
 class Hypnogram extends StatelessWidget {
   final List<HypnoSeg> segments;
   final double height;
@@ -86,103 +144,11 @@ class Hypnogram extends StatelessWidget {
   Widget build(BuildContext context) {
     if (segments.isEmpty) return const SizedBox.shrink();
 
-    // Map stages to Y values (0 = Deep, 1 = Light, 2 = REM, 3 = Awake)
-    double stageToY(SleepStage s) {
-      switch (s) {
-        case SleepStage.deep:
-          return 0;
-        case SleepStage.light:
-          return 1;
-        case SleepStage.rem:
-          return 2;
-        case SleepStage.awake:
-          return 3;
-      }
-    }
-
-    final spots = <FlSpot>[];
-    for (final seg in segments) {
-      spots.add(FlSpot(seg.start, stageToY(seg.stage)));
-      spots.add(FlSpot(seg.end, stageToY(seg.stage)));
-    }
-
     final plot = SizedBox(
       height: height,
-      child: LineChart(
-        LineChartData(
-          minX: 0,
-          maxX: 1,
-          minY: 0,
-          maxY: 3,
-          lineTouchData: LineTouchData(enabled: false), // Disable touch for cleaner UI
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            horizontalInterval: 1,
-            getDrawingHorizontalLine: (value) {
-              return FlLine(
-                color: AppColors.divider.withValues(alpha: 0.6),
-                strokeWidth: 1,
-                dashArray: [4, 4], // dotted grid lines
-              );
-            },
-          ),
-          titlesData: FlTitlesData(
-            show: labels,
-            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: labels,
-                interval: 1,
-                reservedSize: 42,
-                getTitlesWidget: (value, meta) {
-                  String text;
-                  switch (value.toInt()) {
-                    case 0:
-                      text = 'Deep';
-                      break;
-                    case 1:
-                      text = 'Light';
-                      break;
-                    case 2:
-                      text = 'REM';
-                      break;
-                    case 3:
-                      text = 'Awake';
-                      break;
-                    default:
-                      return const SizedBox.shrink();
-                  }
-                  return SideTitleWidget(
-                    axisSide: meta.axisSide,
-                    child: Text(
-                      text,
-                      style: AppText.captionMuted.copyWith(fontSize: 10),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          borderData: FlBorderData(show: false),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: false,
-              isStepLineChart: true,
-              color: AppColors.accent, // A singular uniform color or gradient can be applied here
-              barWidth: 3,
-              isStrokeCapRound: true,
-              dotData: FlDotData(show: false),
-              belowBarData: BarAreaData(
-                show: true,
-                color: AppColors.accent.withValues(alpha: 0.1),
-              ),
-            ),
-          ],
-        ),
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _GanttPainter(segments),
       ),
     );
 
@@ -190,7 +156,28 @@ class Hypnogram extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        plot,
+        if (labels)
+          Row(
+            children: [
+              SizedBox(
+                width: 46,
+                height: height,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Awake', style: AppText.captionMuted.copyWith(fontSize: 10)),
+                    Text('REM', style: AppText.captionMuted.copyWith(fontSize: 10)),
+                    Text('Light', style: AppText.captionMuted.copyWith(fontSize: 10)),
+                    Text('Deep', style: AppText.captionMuted.copyWith(fontSize: 10)),
+                  ],
+                ),
+              ),
+              Expanded(child: plot),
+            ],
+          )
+        else
+          plot,
         if (startLabel != null || endLabel != null) ...[
           const SizedBox(height: Sp.x1),
           Padding(
@@ -292,7 +279,7 @@ class StageBars extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${stageName(stage)} ${hm(min)}',
+                      '${stageName(stage)} ${hm(min)} (${(min * 100 / total).round()}%)',
                       style: AppText.captionMuted.copyWith(fontSize: 10.5),
                     ),
                   ],

@@ -37,7 +37,7 @@ enum BackgroundTaskManager {
     /// declared; this finally registers a task for it).
     static let refreshTaskIdentifier = "wtf.openstrap.edge.refresh"
     private static let channelName = "openstrap/bg_task"
-    private static let retryInterval: TimeInterval = 15 * 60   // 15-min earliest
+    private static let retryInterval: TimeInterval = 10 * 60   // 10-min earliest
 
     // Retained so the channel survives between task invocations.
     private static var channel: FlutterMethodChannel?

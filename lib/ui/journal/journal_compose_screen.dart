@@ -75,6 +75,7 @@ class _JournalComposeScreenState extends State<JournalComposeScreen> {
   }
 
   Future<void> _prefill() async {
+    if (!mounted) return;
     final repo = context.read<AppState>().repo;
     if (repo == null) {
       setState(() => _loaded = true);

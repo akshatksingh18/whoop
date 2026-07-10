@@ -35,6 +35,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
   }
 
   Future<void> _start() async {
+    if (!mounted) return;
     try {
       await context.read<AppState>().startStepCalibration();
       if (mounted) setState(() => _started = true);

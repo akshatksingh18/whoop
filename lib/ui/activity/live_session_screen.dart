@@ -131,6 +131,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     _fx = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
     _burst = AnimationController(vsync: this, duration: const Duration(milliseconds: 1300));
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _app = context.read<AppState>();
       _app!.addListener(_onTick);
       _onTick();

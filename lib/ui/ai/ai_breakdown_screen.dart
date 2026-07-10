@@ -56,6 +56,7 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   }
 
   void _load() {
+    if (!mounted) return;
     final cached = BriefingStore.read(widget.period);
     if (cached != null) {
       setState(() {

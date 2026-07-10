@@ -191,6 +191,7 @@ class _ScanStepState extends State<_ScanStep> {
     // discovery + selection) so the band is provisioned for iOS-26 background relaunch.
     // On Android / iOS < 18 we use the service-filtered scan flow.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       final ask = await context.read<AppState>().accessorySetupSupported();
       if (!mounted) return;
       if (ask) {

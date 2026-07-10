@@ -956,7 +956,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "fix/step-regression"
+      ref: main
       resolved-ref: "160f07380153b4d6e26248d91f9e83e00c2b9503"
       url: "https://github.com/OpenStrap/analytics.git"
     source: git

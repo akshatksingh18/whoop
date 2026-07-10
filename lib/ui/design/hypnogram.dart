@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
@@ -65,13 +64,15 @@ List<HypnoSeg> hypnoSegmentsFromPoints(List<dynamic> points) {
   return segs;
 }
 
-class _GanttPainter extends CustomPainter {
+class _SteppedHypnogramPainter extends CustomPainter {
   final List<HypnoSeg> segments;
-  _GanttPainter(this.segments);
+  _SteppedHypnogramPainter(this.segments);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rowH = size.height / 4;
+    if (segments.isEmpty) return;
+    
+    final rowH = size.height / 3;
 
     int stageToY(SleepStage s) {
       switch (s) {
@@ -88,42 +89,52 @@ class _GanttPainter extends CustomPainter {
 
     // Draw subtle grid lines
     final gridPaint = Paint()
-      ..color = AppColors.divider.withValues(alpha: 0.3)
+      ..color = AppColors.divider.withValues(alpha: 0.2)
       ..strokeWidth = 1;
-    for (var i = 1; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       final y = i * rowH;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
-    // Draw the segments as progress bar blocks
+    // Draw the continuous stepped line
+    double? lastY;
+    double? lastX;
+
     for (final seg in segments) {
-      final yIdx = stageToY(seg.stage);
-      final top = yIdx * rowH;
-      final bottom = top + rowH;
-      final left = seg.start * size.width;
-      final right = seg.end * size.width;
+      final y = stageToY(seg.stage) * rowH;
+      final x1 = seg.start * size.width;
+      final x2 = seg.end * size.width;
 
-      if (right <= left) continue;
+      if (x2 <= x1) continue;
 
-      final paint = Paint()
+      // Draw vertical step if needed
+      if (lastX != null && lastY != null && (lastY - y).abs() > 0.01) {
+        final stepPaint = Paint()
+          ..color = AppColors.inkMuted.withValues(alpha: 0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5;
+        canvas.drawLine(Offset(x1, lastY), Offset(x1, y), stepPaint);
+      }
+
+      // Draw horizontal segment colored by stage
+      final linePaint = Paint()
         ..color = stageColor(seg.stage)
-        ..style = PaintingStyle.fill;
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+        
+      canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
 
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(left, top + 2, right, bottom - 2),
-          const Radius.circular(2),
-        ),
-        paint,
-      );
+      lastX = x2;
+      lastY = y;
     }
   }
 
   @override
-  bool shouldRepaint(covariant _GanttPainter old) => true;
+  bool shouldRepaint(covariant _SteppedHypnogramPainter old) => true;
 }
 
-/// A beautiful Gantt chart hypnogram showing each stage on separated colored progress bars.
+/// A beautiful continuous stepped hypnogram.
 class Hypnogram extends StatelessWidget {
   final List<HypnoSeg> segments;
   final double height;
@@ -134,7 +145,7 @@ class Hypnogram extends StatelessWidget {
   const Hypnogram(
     this.segments, {
     super.key,
-    this.height = 100,
+    this.height = 120,
     this.labels = true,
     this.startLabel,
     this.endLabel,
@@ -148,7 +159,7 @@ class Hypnogram extends StatelessWidget {
       height: height,
       child: CustomPaint(
         size: Size.infinite,
-        painter: _GanttPainter(segments),
+        painter: _SteppedHypnogramPainter(segments),
       ),
     );
 
@@ -163,7 +174,7 @@ class Hypnogram extends StatelessWidget {
                 width: 46,
                 height: height,
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Awake', style: AppText.captionMuted.copyWith(fontSize: 10)),
@@ -173,11 +184,17 @@ class Hypnogram extends StatelessWidget {
                   ],
                 ),
               ),
-              Expanded(child: plot),
+              Expanded(child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: plot,
+              )),
             ],
           )
         else
-          plot,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: plot,
+          ),
         if (startLabel != null || endLabel != null) ...[
           const SizedBox(height: Sp.x1),
           Padding(
@@ -196,14 +213,12 @@ class Hypnogram extends StatelessWidget {
   }
 }
 
-/// Compact stage distribution: one rounded stacked bar + a quiet legend.
-/// Pass minutes per stage; nulls/zeros are skipped honestly.
+/// Separate progress bars for each stage, as requested.
 class StageBars extends StatelessWidget {
   final int? awakeMin;
   final int? remMin;
   final int? lightMin;
   final int? deepMin;
-  final double height;
   final bool legend;
 
   const StageBars({
@@ -212,7 +227,6 @@ class StageBars extends StatelessWidget {
     this.remMin,
     this.lightMin,
     this.deepMin,
-    this.height = 10,
     this.legend = true,
   });
 
@@ -228,65 +242,61 @@ class StageBars extends StatelessWidget {
     final total = entries.fold<int>(0, (a, e) => a + e.$2);
 
     String hm(int m) =>
-        m >= 60 ? '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}' : '${m}m';
+        m >= 60 ? '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m' : '${m}m';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        for (var i = 0; i < entries.length; i++) ...[
+          if (i > 0) const SizedBox(height: Sp.x2),
+          _buildStageBar(entries[i].$1, entries[i].$2, total, hm),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStageBar(SleepStage stage, int mins, int total, String Function(int) hm) {
+    final pct = (mins * 100 / total).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              stageName(stage),
+              style: AppText.body.copyWith(
+                color: stageColor(stage),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Text(
+              '$pct% (${hm(mins)})',
+              style: AppText.captionMuted,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
         ClipRRect(
           borderRadius: BorderRadius.circular(R.pill),
           child: SizedBox(
-            height: height,
+            height: 12,
             child: Row(
               children: [
-                for (var i = 0; i < entries.length; i++)
-                  Expanded(
-                    flex: (entries[i].$2 * 1000 / total).round().clamp(1, 1000000),
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: i == entries.length - 1 ? 0 : 2,
-                      ),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: stageColor(entries[i].$1),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ),
+                Expanded(
+                  flex: pct.clamp(1, 100),
+                  child: Container(color: stageColor(stage)),
+                ),
+                Expanded(
+                  flex: (100 - pct).clamp(0, 100),
+                  child: Container(color: AppColors.divider.withValues(alpha: 0.1)),
+                ),
               ],
             ),
           ),
         ),
-        if (legend) ...[
-          const SizedBox(height: Sp.x2),
-          Wrap(
-            spacing: Sp.x3,
-            runSpacing: Sp.x1,
-            children: [
-              for (final (stage, min) in entries)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: stageColor(stage),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${stageName(stage)} ${hm(min)} (${(min * 100 / total).round()}%)',
-                      style: AppText.captionMuted.copyWith(fontSize: 10.5),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ],
       ],
     );
   }

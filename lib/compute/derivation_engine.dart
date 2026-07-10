@@ -159,7 +159,7 @@ import 'substrate.dart';
 // staging and corrected steps — this is the one bump so far where that's
 // worth actually telling users about, since it affects months of history,
 // not just going forward.
-const int kAlgoVersion = 34;
+const int kAlgoVersion = 35;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;

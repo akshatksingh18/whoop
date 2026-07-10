@@ -3093,7 +3093,10 @@ class LocalDb {
       if (latestOvernightDay == null) {
         final sleep =
             ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
-        if (sleep is Map && sleep['tst_sec'] != null) {
+        final flags = decoded['flags'];
+        final hasSleep = sleep is Map && sleep['tst_sec'] != null;
+        final noSleep = flags is List && flags.contains('NO_SLEEP_DETECTED');
+        if (hasSleep || noSleep) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
         }

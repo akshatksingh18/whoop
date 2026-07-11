@@ -1224,9 +1224,22 @@ class AppState extends ChangeNotifier {
           if (await engine.connectToRemoteId(paired!.remoteId)) {
             _maybeDowngradeLiveForBackground();
             _startBackfillTimer();
+          } else {
+            // Connect attempt didn't succeed on this background cold-launch —
+            // fall back to the recovery arm so `foregroundActive` resets and
+            // native re-arms a fresh pending connect. Without this, a single
+            // failed connect here permanently wedges every future
+            // restore-wake for this process's lifetime: foregroundActive was
+            // already set true above, and it's the master gate on the native
+            // wake handler (ios_ble_restore.dart) — stuck true with no live
+            // connection means every subsequent wake silently no-ops forever,
+            // and the only way back is the user manually opening the app.
+            _log('[init] bg connect returned false — arming recovery');
+            await _armRecovery();
           }
         } catch (e) {
-          _log('[init] bg connect failed: $e');
+          _log('[init] bg connect failed: $e — arming recovery');
+          await _armRecovery();
         }
       } else {
         openSession();

@@ -105,33 +105,6 @@ void main() {
     expect(await LocalDb.session(id), isNull);
   });
 
-  test(
-    'notification idempotency (INSERT OR IGNORE by id) + unread/mark',
-    () async {
-      final row = {
-        'id': '2026-06-20:illness',
-        'kind': 'illness',
-        'title': 'Possible illness onset',
-        'body': 'Elevated resting HR + suppressed HRV.',
-        'date': '2026-06-20',
-        'created_at': 1700000000000,
-        'read': 0,
-      };
-      await LocalDb.putNotification(row);
-      await LocalDb.putNotification(row); // re-run pass: must NOT duplicate
-      final all = await LocalDb.notifications();
-      final mine = all.where((r) => r['id'] == '2026-06-20:illness').toList();
-      expect(mine.length, 1);
-
-      expect(await LocalDb.unreadCount(), greaterThanOrEqualTo(1));
-      await LocalDb.markNotificationsRead(ids: ['2026-06-20:illness']);
-      final after = (await LocalDb.notifications()).firstWhere(
-        (r) => r['id'] == '2026-06-20:illness',
-      );
-      expect(after['read'], 1);
-    },
-  );
-
   test('cycle log round-trip (ordered asc, delete)', () async {
     await LocalDb.putCycleLog('2026-05-01', 'start');
     await LocalDb.putCycleLog('2026-05-29', 'start');

@@ -30,7 +30,6 @@ import '../screens/screens.dart';
 import '../journey/journey_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
-import '../notifications/notifications_screen.dart';
 import '../../widget/widget_service.dart';
 import 'ai_summary_card.dart';
 
@@ -43,7 +42,6 @@ class TodayScreen extends StatefulWidget {
 class _TodayScreenState extends State<TodayScreen>
     with ScreenLoaderMixin<TodayScreen> {
   ChartSeries _hr = const ChartSeries([]);
-  int _unread = 0;
   bool _storyDismissed = false;
 
   /// 7-day spark series per vital (nulls = gaps), best-effort.
@@ -73,17 +71,11 @@ class _TodayScreenState extends State<TodayScreen>
     final today = await repo.getToday();
     // Push a fresh snapshot to the home/lock-screen widget (best-effort).
     WidgetService.push(TodayData.fromJson(today));
-    // HR chart + notifications + sparklines + last-night stages are all
-    // best-effort — never fail the screen.
+    // HR chart + sparklines + last-night stages are all best-effort — never
+    // fail the screen.
     try {
       final chart = await repo.getChart('hr');
       if (mounted) setState(() => _hr = ChartSeries.fromJson(chart));
-    } catch (_) {}
-    try {
-      final n = await repo.getNotifications();
-      if (mounted) {
-        setState(() => _unread = (n['unread'] as num?)?.toInt() ?? 0);
-      }
     } catch (_) {}
     try {
       final sparks = <String, List<double?>>{};
@@ -147,7 +139,6 @@ class _TodayScreenState extends State<TodayScreen>
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
-        _bellButton(),
         RoundIconButton(
           OsIcon.edit,
           onTap: () => _push(() => const JournalScreen()),
@@ -200,55 +191,6 @@ class _TodayScreenState extends State<TodayScreen>
           ],
         ),
       ),
-    );
-  }
-
-  // ── header actions ──────────────────────────────────────────────────────────
-
-  /// Notifications bell with an unread badge; refreshes the count on return.
-  Widget _bellButton() {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        RoundIconButton(
-          OsIcon.notifications,
-          onTap: () async {
-            await Navigator.of(
-              context,
-            ).push(themedRoute((_) => const NotificationsScreen()));
-            if (!mounted) return;
-            try {
-              final n = await context.read<AppState>().repo?.getNotifications();
-              if (mounted) {
-                setState(() => _unread = (n?['unread'] as num?)?.toInt() ?? 0);
-              }
-            } catch (_) {}
-          },
-        ),
-        if (_unread > 0)
-          Positioned(
-            right: -1,
-            top: -1,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              constraints: const BoxConstraints(minWidth: 16),
-              decoration: BoxDecoration(
-                color: AppColors.accent,
-                borderRadius: BorderRadius.circular(R.pill),
-                border: Border.all(color: AppColors.background, width: 1.5),
-              ),
-              child: Text(
-                _unread > 9 ? '9+' : '$_unread',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 

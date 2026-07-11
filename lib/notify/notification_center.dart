@@ -1,18 +1,15 @@
 // notification_center.dart — the single emitter.
 //
-// Every insight, alert and nudge goes through emit(). The in-app feed is ALWAYS
-// written (it's the user's own history, independent of OS permission). Whether the
-// event also fires an OS notification is decided by NotificationPrefs:
+// Every insight, alert and nudge goes through emit(). OS-level notifications
+// are the ONLY surface now — the in-app notifications feed/screen was
+// removed (it duplicated the OS notification with no independent value).
+// Whether an event fires an OS notification is decided by NotificationPrefs:
 //   • category must be enabled, AND
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.
-//
-// This is what fixes the old inversion where health-critical events (illness,
-// anomaly, fever) went only to the feed and never reached the OS shade.
 
 import '../ai/ai_prefs.dart';
 import '../ai/reminder_plan.dart';
-import '../data/db.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
 import 'notification_service.dart';
@@ -21,7 +18,7 @@ class NotificationCenter {
   NotificationCenter._();
   static final NotificationCenter instance = NotificationCenter._();
 
-  /// Persist to the feed and (if allowed) present to the OS. Never throws.
+  /// Present to the OS (if allowed). Never throws.
   ///
   /// [allowPermissionPrompt]: Apple's notification docs document that
   /// authorization must be requested IN CONTEXT, from an active foreground
@@ -30,19 +27,11 @@ class NotificationCenter {
   /// from). Callers that know they're running headless (see
   /// background_sync.dart's checkSyncStaleness) MUST pass `false`, so a
   /// not-yet-decided permission is checked, not requested, and never gets
-  /// permanently mis-cached as "denied" by a background attempt. The in-app
-  /// feed write above is unaffected either way — it's always written,
-  /// independent of OS permission.
+  /// permanently mis-cached as "denied" by a background attempt.
   Future<void> emit(
     NotificationEvent e, {
     bool allowPermissionPrompt = true,
   }) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    // Feed first — INSERT OR IGNORE keyed on dedupeKey, so re-runs don't dup.
-    try {
-      await LocalDb.putNotification(e.toFeedRow(nowMs));
-    } catch (_) {/* feed write best-effort */}
-
     try {
       final prefs = await NotificationPrefs.load();
       final now = DateTime.now();

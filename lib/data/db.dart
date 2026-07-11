@@ -3584,48 +3584,12 @@ class LocalDb {
     );
   }
 
-  // ── notifications I/O ─────────────────────────────────────────────────────────
-
-  /// Insert a notification (INSERT OR IGNORE — idempotent by id, so the
-  /// generator can re-run every derivation pass without duplicating).
-  static Future<void> putNotification(Map<String, dynamic> row) async {
-    final db = await instance;
-    await db.insert(
-      'notifications',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
-  }
-
-  /// All notifications, newest first.
-  static Future<List<Map<String, dynamic>>> notifications() async {
-    final db = await instance;
-    return db.query('notifications', orderBy: 'created_at DESC');
-  }
-
-  /// Mark notifications read (all, or the given [ids]).
-  static Future<void> markNotificationsRead({List<String>? ids}) async {
-    final db = await instance;
-    if (ids == null || ids.isEmpty) {
-      await db.update('notifications', {'read': 1});
-      return;
-    }
-    final placeholders = List.filled(ids.length, '?').join(',');
-    await db.rawUpdate(
-      'UPDATE notifications SET read = 1 WHERE id IN ($placeholders)',
-      ids,
-    );
-  }
-
-  static Future<int> unreadCount() async {
-    final db = await instance;
-    return Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM notifications WHERE read = 0',
-          ),
-        ) ??
-        0;
-  }
+  // NOTE: the in-app notifications feed (putNotification/notifications/
+  // markNotificationsRead/unreadCount, + the `notifications` table) was
+  // removed — OS-level notifications (NotificationCenter.emit's
+  // NotificationService.presentEvent path) are the only surface now. The
+  // `notifications` table itself is left in the schema (unused, harmless)
+  // rather than risk a DROP TABLE migration for no real benefit.
 
   // ── decoded retention ───────────────────────────────────────────────────────
 

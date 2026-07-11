@@ -4,16 +4,12 @@
 //   • pairing (instruction content + every PairPhase of PairingStateView)
 //   • profile setup (ProfileSetupForm: fields, sex chips, consents, submit)
 //   • profile (DeviceTile ink card incl. Sync-now action)
-//   • notifications (NotificationTile read/unread/priority)
 // Explicit pump durations (never blind pumpAndSettle — several widgets repeat).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_edge/ui/design/design.dart';
-import 'package:openstrap_edge/ui/notifications/notifications_screen.dart'
-    show NotificationTile;
 import 'package:openstrap_edge/ui/onboarding/welcome_screen.dart'
     show WelcomeHero, WelcomeOptionCard;
 import 'package:openstrap_edge/ui/pairing_screen.dart'
@@ -260,37 +256,4 @@ void main() {
     expect(find.text('Disconnected'), findsOneWidget);
   });
 
-  // ── Notifications ──────────────────────────────────────────────────────────
-
-  for (final (label, palette) in [('light', kLightPalette), ('dark', kDarkPalette)]) {
-    testWidgets('notification tiles render ($label)', (t) async {
-      await t.pumpWidget(_host(
-        Column(children: [
-          NotificationTile(
-            item: NotificationItem({
-              'category': 'recovery',
-              'priority': 0,
-              'title': 'Fully recovered',
-              'body': 'Green light for a hard session today.',
-              'read': false,
-            }),
-          ),
-          NotificationTile(
-            item: NotificationItem({
-              'category': 'health',
-              'priority': 3,
-              'title': 'Unusual overnight physiology',
-              'body': 'Resting HR well above your baseline.',
-              'read': true,
-            }),
-          ),
-        ]),
-        palette: palette,
-      ));
-      await _pumpTwice(t);
-
-      expect(find.text('Fully recovered'), findsOneWidget);
-      expect(find.text('Unusual overnight physiology'), findsOneWidget);
-    });
-  }
 }

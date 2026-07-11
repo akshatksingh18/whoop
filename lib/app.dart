@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -23,6 +25,7 @@ import 'ui/workouts/workouts_screen.dart';
 import 'ui/activity/live_session_screen.dart';
 import 'ui/ai/ai_breakdown_screen.dart';
 import 'ui/journal/journal_compose_screen.dart';
+import 'ui/stress/calm_breathing_screen.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -66,6 +69,10 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       app.maybeFinishFromLiveActivity();
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
+      // A Siri "start breathing" App Intent may have just foregrounded an
+      // already-running process (openAppWhenRun doesn't guarantee a fresh
+      // launch) — the constructor-time check alone would miss that case.
+      unawaited(app.checkPendingSiriRoute());
       if (app.isPaired) app.openSession();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
@@ -176,6 +183,10 @@ class _ShellState extends State<_Shell> {
       kRouteAiEvening =>
         const AiBreakdownScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalComposeScreen(),
+      // Siri/Shortcuts "start breathing" App Intent — see StartBreathingIntent
+      // in OpenStrapIntents.swift, which writes this route into the App Group
+      // for WidgetService.consumePendingRoute() to pick up on launch/resume.
+      kRouteBreathing => const CalmBreathingScreen(autoStart: true),
       _ => null,
     };
     if (screen == null) return;

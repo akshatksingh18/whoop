@@ -655,6 +655,19 @@ class AppState extends ChangeNotifier {
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
+    unawaited(checkPendingSiriRoute());
+  }
+
+  /// A Siri/Shortcuts App Intent (e.g. "start breathing") may have set a
+  /// pending route in the App Group before launching/foregrounding the app —
+  /// see WidgetService.consumePendingRoute + StartBreathingIntent in
+  /// OpenStrapIntents.swift. Checked on cold launch (constructor, above) AND
+  /// on every foreground resume (app.dart's didChangeAppLifecycleState),
+  /// since `openAppWhenRun = true` may just foreground an already-running
+  /// process rather than trigger a fresh launch.
+  Future<void> checkPendingSiriRoute() async {
+    final route = await WidgetService.consumePendingRoute();
+    if (route != null) _handleTapRoute(route);
   }
 
   @override

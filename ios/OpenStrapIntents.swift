@@ -80,6 +80,29 @@ struct SleepIntent: AppIntent {
   }
 }
 
+// MARK: - Action intents (these actually DO something, not just answer)
+
+/// "Start breathing" — unlike the query intents above, this needs the live
+/// Flutter engine + BLE stack (a guided session reads live RR from the band),
+/// so it must open the app rather than answer standalone. Writes the target
+/// route into the App Group; the Dart side picks it up via
+/// WidgetService.consumePendingRoute() on launch AND on every foreground
+/// resume (see AppState.checkPendingSiriRoute — openAppWhenRun doesn't
+/// guarantee a fresh launch, it may just foreground an already-running
+/// process, so both call sites matter).
+@available(iOS 16.0, *)
+struct StartBreathingIntent: AppIntent {
+  static var title: LocalizedStringResource = "Start Breathing Session"
+  static var description = IntentDescription(
+    "Start a guided resonance-breathing session in OpenStrap.")
+  static var openAppWhenRun = true
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    OpenStrapShared.defaults()?.set("/breathing", forKey: "pending_route")
+    return .result(dialog: "Starting your breathing session.")
+  }
+}
+
 // MARK: - Shortcuts provider (zero-setup Siri phrases)
 
 @available(iOS 16.0, *)
@@ -112,5 +135,16 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Sleep",
       systemImageName: "moon.zzz")
+
+    AppShortcut(
+      intent: StartBreathingIntent(),
+      phrases: [
+        "Start breathing in \(.applicationName)",
+        "\(.applicationName) breathe",
+        "Start a breathing session in \(.applicationName)",
+        "Breathe with \(.applicationName)",
+      ],
+      shortTitle: "Breathe",
+      systemImageName: "wind")
   }
 }

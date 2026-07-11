@@ -15,6 +15,7 @@ import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
 import '../screens/metric_row.dart' show infoFor;
+import 'calm_breathing_screen.dart';
 
 class StressScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -284,6 +285,23 @@ class StressDayContent extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: Sp.x4),
+        if (v >= 50)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Sp.x8),
+            child: OsButton(
+              label: 'Calm yourself',
+              type: OsButtonType.primary,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const CalmBreathingScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
         const SizedBox(height: Sp.x2),
       ],
     );

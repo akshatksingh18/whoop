@@ -357,39 +357,6 @@ class RecordsData {
   bool get isEmpty => daysTracked == 0 && nightsTracked == 0;
 }
 
-/// ── /notifications — server-generated personalized feed ──────────────────────
-class NotificationItem {
-  final Map<String, dynamic> _n;
-  NotificationItem(this._n);
-  String get id => (_n['id'] ?? '').toString();
-  String get kind => (_n['kind'] ?? '').toString();
-  String get category => (_n['category'] ?? '').toString();
-  int get priority => (_n['priority'] as num?)?.toInt() ?? 0;
-  String get title => (_n['title'] ?? '').toString();
-  String get body => (_n['body'] ?? '').toString();
-  bool get read => _n['read'] == true;
-  int? get createdAt => (_n['created_at'] as num?)?.toInt();
-}
-
-class NotificationsData {
-  final int unread;
-  final List<NotificationItem> items;
-  const NotificationsData(this.unread, this.items);
-
-  factory NotificationsData.fromJson(Object? json) {
-    final row = json is Map ? json.cast<String, dynamic>() : const {};
-    final list = (row['notifications'] as List?) ?? const [];
-    return NotificationsData(
-      (row['unread'] as num?)?.toInt() ?? 0,
-      list
-          .whereType<Map>()
-          .map((e) => NotificationItem(e.cast<String, dynamic>()))
-          .toList(),
-    );
-  }
-  bool get isEmpty => items.isEmpty;
-}
-
 /// ── /sleep (a row, newest first) ──────────────────────────────────────────────
 class SleepData {
   final Map<String, dynamic> _row;

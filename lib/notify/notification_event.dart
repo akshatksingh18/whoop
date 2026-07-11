@@ -2,8 +2,10 @@
 //
 // Everything that wants to reach the user (illness onset, recovery ready, a
 // wind-down nudge, a step goal) is expressed as ONE NotificationEvent and handed
-// to NotificationCenter.emit(). The center decides where it goes (in-app feed,
-// OS shade, or both) based on the category + the user's NotificationPrefs.
+// to NotificationCenter.emit(), which decides whether it fires an OS
+// notification based on the category + the user's NotificationPrefs. (There
+// used to also be an in-app notifications feed/screen — removed; OS
+// notifications are the only surface now.)
 //
 // Categories map 1:1 onto OS notification channels (see notification_service)
 // so Android users can mute each kind independently. Priority drives the
@@ -52,15 +54,4 @@ class NotificationEvent {
     };
     return base + (dedupeKey.hashCode.abs() % 100000);
   }
-
-  /// Feed row for LocalDb.putNotification (INSERT OR IGNORE keys on `id`).
-  Map<String, dynamic> toFeedRow(int nowMs) => {
-        'id': dedupeKey,
-        'kind': category.name,
-        'title': title,
-        'body': body,
-        'date': date,
-        'created_at': nowMs,
-        'read': 0,
-      };
 }

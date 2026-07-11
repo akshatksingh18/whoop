@@ -120,12 +120,6 @@ abstract class LocalRepository {
   Future<Map<String, List<String>>> getCycleSymptoms() =>
       throw UnimplementedError('re-layer: getCycleSymptoms');
 
-  // ── notifications feed ──────────────────────────────────────────────────────────
-  Future<Map<String, dynamic>> getNotifications() =>
-      throw UnimplementedError('re-layer: getNotifications');
-  Future<void> markNotificationsRead({List<String>? ids}) =>
-      throw UnimplementedError('re-layer: markNotificationsRead');
-
   // ── live HRV spot-check ───────────────────────────────────────────────────────
   /// Was POST /spotcheck (decode collected live RR frames → HRV). The re-layer
   /// computes this on-device via openstrap_protocol.realtimeRr + openstrap_analytics.

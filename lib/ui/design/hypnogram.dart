@@ -144,11 +144,13 @@ class Hypnogram extends StatelessWidget {
   Widget build(BuildContext context) {
     if (segments.isEmpty) return const SizedBox.shrink();
 
-    final plot = SizedBox(
-      height: height,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _GanttPainter(segments),
+    final plot = RepaintBoundary(
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: _GanttPainter(segments),
+        ),
       ),
     );
 
@@ -217,32 +219,49 @@ class StageBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = <(SleepStage, int)>[
-      if ((awakeMin ?? 0) > 0) (SleepStage.awake, awakeMin!),
-      if ((remMin ?? 0) > 0) (SleepStage.rem, remMin!),
-      if ((lightMin ?? 0) > 0) (SleepStage.light, lightMin!),
-      if ((deepMin ?? 0) > 0) (SleepStage.deep, deepMin!),
-    ];
-    if (entries.isEmpty) return const SizedBox.shrink();
-    final total = entries.fold<int>(0, (a, e) => a + e.$2);
+    // A stage is INCLUDED whenever the caller passed a value at all — even an
+    // explicit 0 — and OMITTED only when the caller never supplied it
+    // (stays null). This matters: a genuinely-absent stage (e.g. no Deep
+    // sleep detected) must render an honest labelled row saying so, never an
+    // invisible gap (see sleep_detail_screen.dart's _stageBreakdown doc
+    // comment) — but a caller that never tracks a given stage at all (e.g.
+    // sleep_periods_screen.dart's per-period breakdown never passes
+    // awakeMin) should still see that stage cleanly omitted, not a spurious
+    // "none detected" row for something it never asked about.
+    final mins = <SleepStage, int?>{
+      SleepStage.awake: awakeMin,
+      SleepStage.rem: remMin,
+      SleepStage.light: lightMin,
+      SleepStage.deep: deepMin,
+    };
+    if (mins.values.every((m) => m == null)) return const SizedBox.shrink();
+    final total = mins.values.fold<int>(0, (a, m) => a + (m ?? 0));
 
     String hm(int m) =>
         m >= 60 ? '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m' : '${m}m';
 
+    final stages = SleepStage.values;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (var i = 0; i < entries.length; i++) ...[
-          if (i > 0) const SizedBox(height: Sp.x2),
-          _buildStageBar(entries[i].$1, entries[i].$2, total, hm),
-        ],
+        for (var i = 0; i < stages.length; i++)
+          if (mins[stages[i]] != null) ...[
+            if (i > 0) const SizedBox(height: Sp.x2),
+            _buildStageBar(stages[i], mins[stages[i]]!, total, hm),
+          ],
       ],
     );
   }
 
-  Widget _buildStageBar(SleepStage stage, int mins, int total, String Function(int) hm) {
-    final pct = (mins * 100 / total).round();
+  Widget _buildStageBar(
+    SleepStage stage,
+    int mins,
+    int total,
+    String Function(int) hm,
+  ) {
+    final absent = mins <= 0;
+    final pct = (!absent && total > 0) ? (mins * 100 / total).round() : 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -250,16 +269,30 @@ class StageBars extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              stageName(stage),
-              style: AppText.body.copyWith(
-                color: stageColor(stage),
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                stageName(stage),
+                style: AppText.body.copyWith(
+                  color: absent ? AppColors.inkMuted : stageColor(stage),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            Text(
-              '$pct% (${hm(mins)})',
-              style: AppText.captionMuted,
+            const SizedBox(width: Sp.x2),
+            Flexible(
+              child: Text(
+                absent
+                    ? (stage == SleepStage.deep
+                        ? 'none detected · low-confidence estimate'
+                        : 'none detected')
+                    : '$pct% (${hm(mins)})',
+                style: AppText.captionMuted,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+              ),
             ),
           ],
         ),
@@ -267,19 +300,23 @@ class StageBars extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(R.pill),
           child: SizedBox(
-            height: height, // <-- Used the height parameter here
-            child: Row(
-              children: [
-                Expanded(
-                  flex: pct.clamp(1, 100),
-                  child: Container(color: stageColor(stage)),
-                ),
-                Expanded(
-                  flex: (100 - pct).clamp(0, 100),
-                  child: Container(color: AppColors.divider.withValues(alpha: 0.1)),
-                ),
-              ],
-            ),
+            height: height,
+            child: absent
+                ? Container(color: AppColors.divider.withValues(alpha: 0.1))
+                : Row(
+                    children: [
+                      Expanded(
+                        flex: pct.clamp(1, 100),
+                        child: Container(color: stageColor(stage)),
+                      ),
+                      Expanded(
+                        flex: (100 - pct).clamp(0, 100),
+                        child: Container(
+                          color: AppColors.divider.withValues(alpha: 0.1),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ],

@@ -33,6 +33,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../ble/ios_ble_restore.dart';
+import '../data/local_repository_impl.dart';
+import '../models/payloads.dart';
+import '../widget/widget_service.dart';
 import 'background_sync.dart';
 import 'headless_gate.dart';
 
@@ -93,6 +96,7 @@ class IosBgTask {
             // baseline-dependent scalars on recent finalized days if the
             // rolling baseline moved. Cheap no-op when unchanged.
             await engine.rescanRecent(profile);
+            await _refreshWidgetSnapshot(profile);
           } catch (e) {
             debugPrint('[ios-bgtask] heavy derive skipped: $e');
           }
@@ -104,6 +108,7 @@ class IosBgTask {
             final engine = DerivationEngine(
                 log: (l) => debugPrint('[ios-bgrefresh-derive] $l'));
             await engine.run(profile, heavy: false);
+            await _refreshWidgetSnapshot(profile);
           } catch (e) {
             debugPrint('[ios-bgrefresh] light derive skipped: $e');
           }
@@ -129,6 +134,26 @@ class IosBgTask {
       return Profile.fromMap((jsonDecode(raw) as Map).cast<String, dynamic>());
     } catch (_) {
       return const Profile();
+    }
+  }
+
+  /// Push a fresh Today snapshot to the App Group after a headless derive so
+  /// the home/lock-screen widget AND the Siri/Shortcuts query intents
+  /// (RecoveryIntent/StrainIntent/SleepIntent — see OpenStrapIntents.swift,
+  /// which read this same App Group) don't go stale just because the user
+  /// hasn't opened the Today screen. Previously WidgetService.push() was only
+  /// ever called from today_screen.dart's fetch() — a real gap: "ask Siri
+  /// without opening the app" is the whole point of a Siri Shortcut, so any
+  /// answer would silently reflect however-stale the last Today-screen visit
+  /// was (or "I don't have today's numbers yet" if that never happened at
+  /// all). Best-effort — never throws into the caller.
+  static Future<void> _refreshWidgetSnapshot(Profile profile) async {
+    try {
+      final repo = LocalRepositoryImpl(getProfileMap: () => profile.toMap());
+      final today = await repo.getToday();
+      await WidgetService.push(TodayData.fromJson(today));
+    } catch (e) {
+      debugPrint('[ios-bgtask] widget snapshot refresh skipped: $e');
     }
   }
 }

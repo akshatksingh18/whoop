@@ -173,6 +173,46 @@ class WidgetService {
     return false;
   }
 
+  /// Non-null once (and clears) if a Siri/Shortcuts App Intent asked to open a
+  /// specific in-app screen (e.g. StartBreathingIntent sets `pending_route` =
+  /// '/breathing' in the App Group before launching the app). Same
+  /// App-Group-flag pattern as [consumeEndSessionFlag]. Feed the result
+  /// through the normal tap-route pipeline (AppState._handleTapRoute /
+  /// tap_router.dart) — never invent a separate navigation path.
+  static Future<String?> consumePendingRoute() async {
+    try {
+      await init();
+      final v = await HomeWidget.getWidgetData<String>(
+        'pending_route',
+        defaultValue: '',
+      );
+      if (v != null && v.isNotEmpty) {
+        await HomeWidget.saveWidgetData<String>('pending_route', '');
+        return v;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// True once (and clears) if the BREATHING Live Activity's stop button was
+  /// tapped. A separate flag (`end_breathing_session`) from the workout's
+  /// `end_session` — EndBreathingIntent in OpenStrapBreathingLiveActivity.swift
+  /// sets it; two independent Live Activities must never share one flag.
+  static Future<bool> consumeEndBreathingFlag() async {
+    try {
+      await init();
+      final v = await HomeWidget.getWidgetData<bool>(
+        'end_breathing_session',
+        defaultValue: false,
+      );
+      if (v == true) {
+        await HomeWidget.saveWidgetData<bool>('end_breathing_session', false);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   static String _coachLine(CoachData? c) {
     if (c == null) return '';
     if (c.plan.isNotEmpty) return c.plan.first.title;

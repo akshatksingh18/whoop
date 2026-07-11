@@ -9,6 +9,7 @@
 const String kRouteAiMorning = '/ai/morning';
 const String kRouteAiEvening = '/ai/evening';
 const String kRouteJournalCompose = '/journal/compose';
+const String kRouteBreathing = '/breathing';
 
 class TapTarget {
   /// Shell tab index to land on (always valid; unknown → 0 = Today).
@@ -33,6 +34,7 @@ const Set<String> _screenRoutes = {
   kRouteAiMorning,
   kRouteAiEvening,
   kRouteJournalCompose,
+  kRouteBreathing,
 };
 
 TapTarget resolveTapRoute(String route) {

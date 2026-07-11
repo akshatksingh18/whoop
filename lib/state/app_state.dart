@@ -55,6 +55,7 @@ import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
 import '../data/models.dart';
 import '../live/live_activity.dart';
+import '../live/breathing_live_activity.dart';
 import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
@@ -655,6 +656,19 @@ class AppState extends ChangeNotifier {
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
+    unawaited(checkPendingSiriRoute());
+  }
+
+  /// A Siri/Shortcuts App Intent (e.g. "start breathing") may have set a
+  /// pending route in the App Group before launching/foregrounding the app —
+  /// see WidgetService.consumePendingRoute + StartBreathingIntent in
+  /// OpenStrapIntents.swift. Checked on cold launch (constructor, above) AND
+  /// on every foreground resume (app.dart's didChangeAppLifecycleState),
+  /// since `openAppWhenRun = true` may just foreground an already-running
+  /// process rather than trigger a fresh launch.
+  Future<void> checkPendingSiriRoute() async {
+    final route = await WidgetService.consumePendingRoute();
+    if (route != null) _handleTapRoute(route);
   }
 
   @override
@@ -2610,6 +2624,7 @@ class AppState extends ChangeNotifier {
     breathingError = null;
     _breathingFrames.clear();
     notifyListeners();
+    unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
       // OWNERSHIP: same rule as spot-check — only claim "we enabled it" when
       // live was actually OFF, so ending the session can never turn off
@@ -2636,6 +2651,7 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer = null;
     breathingActive = false;
     _stopBreathingStreams();
+    unawaited(BreathingLiveActivity.end());
     notifyListeners();
   }
 
@@ -2651,6 +2667,8 @@ class AppState extends ChangeNotifier {
       if (!breathingActive) return; // session ended while we awaited
       breathingResult = res;
       notifyListeners();
+      final score = res['ok'] == true ? (res['score'] as num?)?.toDouble() : null;
+      unawaited(BreathingLiveActivity.update(coherenceScore: score));
     } catch (_) {
       /* best-effort; keep the last good result on screen rather than erroring */
     }
@@ -2885,6 +2903,16 @@ class AppState extends ChangeNotifier {
   Future<void> maybeFinishFromLiveActivity() async {
     if (activeWorkout != null && await WidgetService.consumeEndSessionFlag()) {
       await stopWorkout();
+    }
+  }
+
+  /// Same idea as [maybeFinishFromLiveActivity] but for the breathing
+  /// session's own Live Activity stop button (EndBreathingIntent sets
+  /// `end_breathing_session` — a separate flag so the two Live Activities'
+  /// stop buttons never collide). Call on app resume.
+  Future<void> maybeStopBreathingFromLiveActivity() async {
+    if (breathingActive && await WidgetService.consumeEndBreathingFlag()) {
+      await stopBreathingSession();
     }
   }
 

@@ -18,11 +18,25 @@ import '../../state/app_state.dart';
 import '../design/design.dart';
 
 class CalmBreathingScreen extends StatelessWidget {
-  const CalmBreathingScreen({super.key});
+  /// Auto-begin the session the moment this screen mounts — used when opened
+  /// via the "start breathing" Siri/Shortcuts App Intent, where the spoken
+  /// command already IS the "start" action. The normal in-app entry point
+  /// (Stress screen's own button) leaves this false and shows the Ready state.
+  final bool autoStart;
+
+  const CalmBreathingScreen({super.key, this.autoStart = false});
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    if (autoStart && !app.breathingActive && app.isConnected) {
+      // Guarded by breathingActive so this only ever fires once per mount —
+      // startBreathingSession() flips breathingActive true and notifies,
+      // which rebuilds this widget and short-circuits the guard.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!app.breathingActive) app.startBreathingSession();
+      });
+    }
     return CalmBreathingView(
       connected: app.isConnected,
       active: app.breathingActive,

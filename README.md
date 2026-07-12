@@ -1,43 +1,39 @@
 # Edge
 
-This is the app you actually hold. It connects to a WHOOP 4.0 band over Bluetooth, pulls
-the data off it, and computes everything **on the phone itself**. Flutter, runs on iOS
-and Android. There's no cloud, no backend that sees your health data, no server this app
-depends on to work day to day.
+This is the app. It connects to a WHOOP 4.0 over Bluetooth, pulls the data off it, and
+does all the number-crunching right there on your phone. Flutter, runs on iOS and
+Android. No cloud, no backend watching your health data, no server this needs to talk
+to just to work day to day.
 
-> Not affiliated with WHOOP. This is for a band you own.
+> Not affiliated with WHOOP. This is for a band you already own.
 
-## First, the honest version
+If your subscription lapsed and the band's been sitting in a drawer, this gives it
+something to do again — heart rate, sleep, a strain number, a recovery number, trends
+over time, and it's real output off real hardware, not a mockup.
 
-If your WHOOP subscription has lapsed and the band's just sitting there, this gives it
-something to do again. You get your heart rate, your sleep, a strain number, a recovery
-number, trends over time. It's real and it's useful.
+Is it the same as WHOOP's own app? No, and it's not trying to be. They've got a research
+team and years of data behind their scores; I've got a protocol I worked out myself and a
+stack of published equations. So the numbers here are an honest read of what a wrist can
+actually tell you, not a clone of their secret sauce. If you're happily paying WHOOP,
+keep paying WHOOP. If the alternative is the band sitting in a drawer forever, this is
+better than a drawer.
 
-Is it WHOOP? No. I'm not going to oversell this. WHOOP has years of research and a team;
-this is one person, published equations, and a protocol I decoded myself. The numbers
-here are honest approximations of what your band can actually support, not a clone of
-their scores. Think of it as rescuing the hardware, not replacing the service. If you're
-happily paying WHOOP, stay there. If your band would otherwise be e-waste, this is better
-than a drawer.
+There are bugs. I've found some, definitely missed others. If a number looks wrong, open
+an issue and I'll go dig into it — this gets better the more people actually poke at it.
 
-And there are bugs. I know about some, probably not all. If something looks wrong, it
-might be wrong, open an issue and I'll chase it down. This gets better the more people use
-it and report what breaks.
-
-**One important thing:** once you start using this, don't reconnect the band to the
-official WHOOP app. It might push a firmware update, and that could change or break the
-events and records this depends on. I've only tested on WHOOP 4.0 as it ships today. Pick
-one app and stick with it.
+One thing that actually matters: once you're using this, don't reconnect the band to
+WHOOP's own app. A firmware push could quietly change the records this depends on and
+there's no un-breaking that from here. Pick one app and stay on it.
 
 ## Screens
 
 Today (readiness + the day's plan), Sleep, Heart, Stress, an HRV spot-check, Activity
-(strain + auto-detected workouts + live workout with GPS routes), Cycle tracking, a
-Journal (with on-device personal correlation insights — "what actually moves your
-numbers", never a cloud model), Journey/Timeline/Records for longitudinal trends, a
-deterministic Coach, a BYOK text-based AI assistant, a shareable weekly Recap, Onboarding,
-Pairing, and Profile. Every metric drills through the same shared trend screen
-(Today/Week/Month/3M with inline drill-down), so it looks and behaves the same everywhere.
+(strain, auto-detected workouts, live workout with GPS routes), Cycle tracking, a Journal
+with on-device personal-correlation insights — what actually moves your numbers, never a
+cloud model guessing — Journey/Timeline/Records for the long view, a deterministic Coach,
+a BYOK text AI assistant, a shareable weekly Recap, onboarding, pairing, profile. Every
+metric drills into the same shared trend screen (today/week/month/3-month, inline
+drill-down) so it behaves the same no matter where you tapped in from.
 
 | | | |
 |:--:|:--:|:--:|
@@ -46,22 +42,19 @@ Pairing, and Profile. Every metric drills through the same shared trend screen
 | <img src="screenshots/steps.png" width="230"><br>**Steps** | <img src="screenshots/workouts.png" width="230"><br>**Workouts** | <img src="screenshots/records.png" width="230"><br>**Records** |
 | <img src="screenshots/recap.png" width="230"><br>**Recap** | <img src="screenshots/profile.png" width="230"><br>**Profile** | |
 
-iOS also gets a home-screen widget, a lock-screen/Dynamic Island Live Activity (workouts
-and, more recently, live coherence during a guided breathing session), and a couple of
-Siri intents (check your recovery/strain/sleep, start a breathing session) via App
-Intents.
+iOS also gets a home-screen widget, a lock-screen/Dynamic Island Live Activity (workouts,
+and now live coherence during a guided breathing session), and a couple of Siri intents —
+check your recovery, check your strain, start a breathing session — through App Intents.
 
 | | | |
 |:--:|:--:|:--:|
 | <img src="screenshots/widget.jpg" width="300"><br>**Widget** | <img src="screenshots/battery-widget.jpg" width="200"><br>**Battery widget** | <img src="screenshots/live-activity.jpg" width="300"><br>**Live Activity** |
 
-> Numbers shown are real output from a WHOOP 4.0. Every figure carries a confidence and
-> estimates are labelled as such — see the two analytics repos this depends on for the
-> actual honesty contract.
+> Every screenshot above is real output from a WHOOP 4.0. Every figure carries a
+> confidence, and estimates are labelled as such — the two analytics repos this depends
+> on spell out the actual contract.
 
 ## How it's put together
-
-The flow, top to bottom:
 
 ```
    the screens (lib/ui)  ──read──►  AppState (lib/state)
@@ -81,83 +74,84 @@ The flow, top to bottom:
                                           day_result rows (kAlgoVersion)
 ```
 
-`AppState` is a `ChangeNotifier` and it's the only thing the UI ever reads. It owns the
-BLE engine and the local repository seam; screens don't talk to Bluetooth or SQL
-directly. The actual decode logic (bytes → records) and the actual analytics (records →
-metrics) both live in **separate, independent packages** —
-[openstrap-protocol-dart](https://github.com/OpenStrap/protocol) and
-[openstrap-analytics-onehz](https://github.com/OpenStrap/analytics) — pulled in as git
-dependencies. This app is the glue: BLE reliability, local storage, and the UI.
+`AppState` is a `ChangeNotifier`, and it's the only thing the UI ever reads. It owns the
+BLE engine and the local-repository seam, so screens never touch Bluetooth or SQL
+directly. The actual byte decoding and the actual analytics live in two separate packages
+pulled in as git deps — [openstrap-protocol-dart](https://github.com/OpenStrap/protocol)
+and [openstrap-analytics-onehz](https://github.com/OpenStrap/analytics). This repo is
+the glue holding them to a phone: BLE reliability, local storage, the UI.
 
 ## The Bluetooth part, which is the hard part
 
-`BleEngine` in `lib/ble/ble_engine.dart` (~3k lines) is where the real work is. The band
-speaks a custom GATT service (`61080001-...`): one characteristic you write commands to, a
-few you subscribe to for responses, events, and data.
+`BleEngine` in `lib/ble/ble_engine.dart` (~3k lines, sorry) is where the real work
+happens. The band speaks a custom GATT service (`61080001-...`) — one characteristic you
+write commands to, a few you subscribe to for responses, events, and data.
 
-A sync goes like this. Connect, bond (Android needs an explicit bond), bump the MTU to
-247, subscribe to the notify characteristics. Then set the clock, because the band ships
-with its real-time clock unset and if you skip this every record gets a garbage
-timestamp. Then fire the five-packet intro that ends with "send me your history," and the
-band starts draining records from its flash.
+A sync goes like this. Connect, bond (Android needs an explicit bond step), bump the MTU
+to 247, subscribe to the notify characteristics. Then set the clock — the band ships with
+its real-time clock unset, and if you skip this step every single record you pull off it
+gets a garbage timestamp. Nothing about this is documented anywhere, you just find out the
+hard way the first time your sleep data says you went to bed in 1970. Then fire the
+five-packet intro that ends in "send me your history," and the band starts draining
+records out of flash.
 
-Here's the bit that trips everyone up. The band sends records in batches, and after each
-batch it sends a marker carrying an 8-byte token. You have to read that token out and
-send it straight back, with a write-that-waits-for-acknowledgement, not a fire-and-forget
-write. Echo it exactly and the read cursor moves forward. Echo it wrong, or use the wrong
-write type, and the band re-sends the same batch over and over — forever, since it never
-trims flash for data it doesn't think you've confirmed. The commit to local storage
-happens **before** that acknowledgement is sent (in the same transaction), never after —
-so a crash mid-sync can't lose data or double-trim the band.
+Here's the part that trips everyone up. The band sends records in batches, and after
+each batch it sends a marker carrying an 8-byte token. You read that token and send it
+straight back — with a write that waits for acknowledgement, not fire-and-forget. Echo it
+exactly and the read cursor moves forward. Get the bytes wrong, or use the wrong write
+type, and the band just re-sends the same batch forever, since as far as it's concerned
+you never confirmed you got it. The commit to local storage happens **before** that
+acknowledgement goes out, in the same transaction, never after — so a crash mid-sync
+can't lose data or double-trim the band's flash.
 
-This app deliberately runs ONE continuous listening mode — no separate "sync" vs. "live"
-connection state to flip between, since that flip used to cause its own re-flood bug.
-Live high-rate streams (0x2B/0x33) are never written to disk; only the decoded 1 Hz
-substrate and RR beats are durable.
+This app runs one continuous listening mode, on purpose — no separate "sync" state vs.
+"live" state to flip between. There used to be, and the flip itself caused a re-flood bug
+that took a while to track down. Live high-rate streams (0x2B/0x33) never touch disk;
+only the decoded 1 Hz substrate and RR beats are durable.
 
-Two more things the engine is careful about. Live commands and sync acknowledgements use
-separate sequence-number ranges so they never collide. And the genuinely dangerous
-commands — the ones that erase flash, reboot the strap, or push firmware — are behind an
-explicit guard and never auto-sent; optical/PPG is wrist-gated only. You don't want to
-brick a band.
+Two more things worth knowing. Live commands and sync acknowledgements use separate
+sequence-number ranges so they never step on each other. And the genuinely dangerous
+commands — the ones that wipe flash, reboot the strap, or push firmware — sit behind an
+explicit guard and never get sent automatically; optical/PPG only turns on when the band's
+actually on a wrist. You really don't want to brick one of these.
 
-## Why the database looks the way it does
+## DB schema, and why it looks this way
 
-`lib/data/db.dart` (sqflite, WAL). There is no `raw_records` table anymore — it was
-dropped in favor of a decoded-first ledger:
+`lib/data/db.dart` (sqflite, WAL). There used to be a `raw_records` table holding
+everything the band ever sent — that's gone, replaced by a decoded-first ledger:
 
-- **`decoded_onehz`** + **`decoded_rr`** — the durable 1 Hz substrate (HR, accel, RR
-  beats), keyed so a band counter-reset recovers cleanly (newest-wins by timestamp, not a
-  naive insert-or-ignore).
-- **`raw_archive`** — records the decoder couldn't parse (unknown/unsupported firmware
-  version) land here, **never pruned**, so a future firmware update to the decoder can
-  re-derive them from bytes that were never thrown away.
-- **`day_result`** — versioned by `(day_id, kAlgoVersion)`; an algorithm change writes a
-  new row rather than mutating history, and a day is only pruned from the raw ledger
-  after it's actually been derived (not just attempted — a day whose derivation failed
-  keeps its raw substrate around for a real retry).
+- **`decoded_onehz`** + **`decoded_rr`** — the durable 1 Hz stuff (HR, accel, RR beats),
+  keyed so a band counter reset recovers cleanly instead of corrupting history
+  (newest-wins by timestamp, not a naive insert-and-ignore).
+- **`raw_archive`** — anything the decoder couldn't parse (unknown firmware version)
+  lands here and never gets pruned, so a future decoder update can go back and actually
+  read it instead of it being gone for good.
+- **`day_result`** — versioned by `(day_id, kAlgoVersion)`. An algorithm change writes a
+  new row instead of overwriting history, and a day only gets pruned from the raw ledger
+  once it's actually been derived — not just attempted, so a failed derivation still has
+  its raw material around for a real retry.
 
-Decoded rows get pruned once the covering day is safely derived; the raw archive and
-finalized derived results are kept.
+Decoded rows get pruned once the day they belong to is safely derived. The archive and
+the finalized results stick around.
 
-## Syncing in the background
+## Background sync
 
-You shouldn't have to open the app for it to work, but the two platforms get there very
-differently, and it's worth being honest about which one is more reliable.
+You shouldn't have to open the app for this to work, and on Android you mostly don't
+have to. iOS is a different story — Apple doesn't hand third-party apps a real
+background-service option, so this leans on a pile of overlapping half-measures instead.
 
 **Android**: a foreground service (`EdgeTrackingService`) keeps the process and the BLE
-connection alive, backed by `CompanionDeviceManager` device-presence observation and a
-periodic watchdog worker. This is the reliable path.
+connection alive, backed by `CompanionDeviceManager` presence-watching and a periodic
+watchdog worker. This one just works.
 
-**iOS**: there's no foreground-service equivalent, so this leans on a few overlapping
-mechanisms — a live BLE connection kept alive via `UIBackgroundModes: bluetooth-central`
-while the app is backgrounded, a separate CoreBluetooth-restoration central that
-relaunches the app when the band reappears if the live connection ever drops, and a
-`BGProcessingTask` + a lighter `BGAppRefreshTask` for opportunistic catch-up sync. iOS
-decides if/when those background tasks actually run; a force-quit app gets none of them.
-This is the honest ceiling of what's possible without a foreground-service equivalent —
-covered, not guaranteed, and every wake is a "skip, don't queue" event (a missed wake just
-gets caught up by the next one, never queued up to thrash).
+**iOS**: no foreground-service equivalent exists, so it's a live BLE connection held open
+via `UIBackgroundModes: bluetooth-central` while backgrounded, plus a separate
+CoreBluetooth restoration central that relaunches the app if that connection ever drops,
+plus a `BGProcessingTask` and a lighter `BGAppRefreshTask` for opportunistic catch-up
+sync. iOS decides if and when those actually run — force-quit the app and you get none of
+them. That's the ceiling here without a real background-service option: covered, not
+guaranteed. Every wake is skip-don't-queue, so a missed one just gets caught by the next
+one instead of piling up and thrashing.
 
 ## Getting around the code
 
@@ -173,12 +167,11 @@ gets caught up by the next one, never queued up to thrash).
 | `lib/gps/` | GPS workout-route tracking (on-device only) |
 | `lib/ai/`, `lib/coach/` | the BYOK AI briefings/journal assistant and the deterministic coaching engine |
 | `lib/widget/`, `lib/live/` | the home-screen widget and the iOS Live Activity bridges |
-| `ios/OpenStrapWidget/` | the actual widget and Dynamic Island Live Activity (needs an App Group you configure for your Apple team) |
+| `ios/OpenStrapWidget/` | the actual widget and Dynamic Island Live Activity (needs an App Group you configure for your own Apple team) |
 
-Note: the actual protocol decode (`openstrap_protocol`) and analytics
-(`openstrap_analytics`) code do **not** live in this repo at all — they're separate git
-dependencies. If you're looking for record byte layouts or metric formulas, they're in
-those repos, not here.
+The actual protocol decode (`openstrap_protocol`) and the actual analytics
+(`openstrap_analytics`) don't live in this repo at all — separate git deps. If you're
+after record byte layouts or metric formulas, they're over there, not here.
 
 ## Running it
 
@@ -189,27 +182,27 @@ flutter run --dart-define-from-file=.env
 ```
 
 `.env.example` documents two optional build-time defines: `BACKEND_URL` (only used for
-the one-time legacy-account import at onboarding — leave it blank if you don't have an
-old account to import) and `COMPANION_URL` (only used for the OTA/announcement pointer
-and the BYOK LLM proxy — also optional). The app works fully without either.
+the one-time legacy-account import at onboarding — leave it blank if you've got nothing
+to import) and `COMPANION_URL` (only used for the OTA/announcement pointer and the BYOK
+LLM proxy — also optional). The app works fine without either.
 
 Quit the official WHOOP app before you connect — Bluetooth only lets one app own the band
-at a time.
+at a time, no way around that.
 
-On iOS, the widget and Live Activity need signing configured for your Apple team and a
-matching App Group. See `guides/IOS_INSTALLATION.md`; the repo ships with placeholder
-bundle IDs and App Group values plus a gitignored local signing override, so it is not
-tied to one developer account. Use Profile or Release builds for normal iPhone
-home-screen relaunch testing; Flutter Debug builds must be launched through Flutter
-tooling or Xcode.
+On iOS, the widget and Live Activity need signing configured for your own Apple team and
+a matching App Group. See `guides/IOS_INSTALLATION.md` — the repo ships with placeholder
+bundle IDs and App Group values plus a gitignored local signing override, so none of it's
+tied to my developer account specifically. Use Profile or Release builds for normal
+iPhone home-screen relaunch testing; Flutter Debug builds need to go through Flutter
+tooling or Xcode directly.
 
 ## Your data
 
-Everything is computed and stored on your phone. There's no cloud sync for the running
+Everything's computed and stored on your phone. There's no cloud sync for the running
 app — the only network calls it ever makes are the three narrow, opt-in things listed
-under `lib/cloud/` above, none of which are required for the app to work. If you're a
+under `lib/cloud/` above, and none of them are required for the app to work. If you're a
 returning user with an old cloud account, `BACKEND_URL` lets you pull that history down
-once at onboarding; it's not an ongoing dependency after that.
+once at onboarding. It's not an ongoing dependency after that.
 
 ## The stack, briefly
 
@@ -219,4 +212,7 @@ local store, `provider` and `shared_preferences` for the plumbing, `http` for th
 network surface above, `fl_chart` / `google_fonts` / `hugeicons` / `share_plus` for the
 look of it.
 
-# Please raise fixes, let's make it better together
+---
+
+Found something broken? Open an issue. Found something broken and fixed it? Even better,
+send the PR.

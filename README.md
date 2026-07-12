@@ -219,4 +219,4 @@ local store, `provider` and `shared_preferences` for the plumbing, `http` for th
 network surface above, `fl_chart` / `google_fonts` / `hugeicons` / `share_plus` for the
 look of it.
 
-# Please raise Fixes, Lets make it better together
+# Please raise fixes, let's make it better together

@@ -180,7 +180,20 @@ import 'substrate.dart';
 // min, against an Apple Watch Ultra ground truth of wake=3 light=330 deep=38
 // rem=162 min for the same night. Bump so this genuinely different (much more
 // accurate) staging recomputes; "Re-analyze data" needed for finalized nights.
-const int kAlgoVersion = 37;
+// v38: audit-fix sweep, two changes actually touch output. (1) analytics'
+// `readinessLnRmssd` was including tonight's own value in its own baseline
+// window (`historyLnRmssd.sublist(start)` ran to the end of the list instead
+// of stopping before it) - pulled the mean/sd toward tonight, understating
+// how far off a genuinely suppressed/elevated night reads, worst exactly
+// when the window is smallest. Now strictly prior nights only, changing
+// `readiness_lnrmssd`'s z/cv/value for every day. (2) day windows here used
+// `_localDayLabelToSec(day) + 86400`, assuming every local day is exactly
+// 24h - wrong on the two DST-transition days a year (23h/25h), which could
+// clip or over-include a day's substrate window right at the boundary. Now
+// `_localNextDayLabelToSec` asks DateTime for the actual start of the next
+// day. Bump so recent days recompute onto the corrected readiness baseline;
+// only matters for history on the rare day that crossed a DST transition.
+const int kAlgoVersion = 38;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;

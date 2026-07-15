@@ -200,8 +200,10 @@ class HealthExporter {
     Duration(hours: 6),
     Duration(hours: 24),
   ];
+  // Entries start at attempts==1 (recorded right after the first failure), so
+  // index by attempts-1: the first failure gets the first (shortest) tier.
   Duration _backoffFor(int attempts) =>
-      _kRetryBackoff[attempts.clamp(0, _kRetryBackoff.length - 1)];
+      _kRetryBackoff[(attempts - 1).clamp(0, _kRetryBackoff.length - 1)];
 
   Future<Map<String, dynamic>> _loadRetryState() async {
     final raw = await LocalDb.getCursor(_kRetryCursor);
@@ -243,8 +245,19 @@ class HealthExporter {
         }
 
         final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
-        final attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
-        final lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+        var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
+        var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+        final wasFinalized = entry?['finalized'] as bool? ?? false;
+        if (finalized && !wasFinalized && attempts > 0) {
+          // The day just transitioned non-finalized -> finalized: a
+          // materially different (complete, now-immutable) payload than
+          // whatever was still re-deriving during the "recent tail" attempts
+          // that accrued this cap/backoff. Give it a clean attempt budget so
+          // a newly-finalized day is never skipped because of a cap earned
+          // against the old mutable version.
+          attempts = 0;
+          lastAttemptMs = null;
+        }
         final nowMs = DateTime.now().millisecondsSinceEpoch;
 
         var ok = false;
@@ -264,7 +277,11 @@ class HealthExporter {
             }
           } else {
             final nextAttempts = attempts + 1;
-            retryState[date] = {'attempts': nextAttempts, 'last_ms': nowMs};
+            retryState[date] = {
+              'attempts': nextAttempts,
+              'last_ms': nowMs,
+              'finalized': finalized,
+            };
             retryStateDirty = true;
             debugPrint(
                 '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)');
@@ -367,12 +384,17 @@ class HealthExporter {
         HealthDataUnit.RESPIRATIONS_PER_MINUTE, mid);
 
     // Hourly buckets spanning [dayStart, dayEnd), shared by the active/basal
-    // energy writers below. Built from the real dayEnd boundary (not fixed
-    // 1-hour Durations from dayStart) so every bucket — including the last —
-    // stays inside the correct calendar day on DST-transition days.
-    final bucketSpan = dayEnd.difference(dayStart) ~/ 24;
-    final bucketBounds = List<DateTime>.generate(
-        25, (i) => i == 24 ? dayEnd : dayStart.add(bucketSpan * i));
+    // energy writers below. Each bucket is a real elapsed clock-hour (not
+    // 1/24th of the day's span — that would give 57.5min/62.5min "hours" on
+    // DST-transition days); the day's actual length (23/24/25 real hours)
+    // instead changes bucketCount, with the final bucket clipped to dayEnd so
+    // it never spills into the next calendar day.
+    final bucketBounds = <DateTime>[dayStart];
+    while (bucketBounds.last.isBefore(dayEnd)) {
+      final next = bucketBounds.last.add(const Duration(hours: 1));
+      bucketBounds.add(next.isAfter(dayEnd) ? dayEnd : next);
+    }
+    final bucketCount = bucketBounds.length - 1;
 
     // Active energy: chunked into hourly buckets over the day.
     // We subtract workout calories to prevent double-counting, because workouts
@@ -400,8 +422,8 @@ class HealthExporter {
     }
 
     if (cal > 0) {
-      final calPerHour = cal / 24;
-      for (int i = 0; i < 24; i++) {
+      final calPerHour = cal / bucketCount;
+      for (int i = 0; i < bucketCount; i++) {
         try {
           await _health.writeHealthData(
               value: calPerHour,
@@ -421,8 +443,8 @@ class HealthExporter {
     final rawCal = sc('calories');
     if (calTotal != null && rawCal != null && calTotal > rawCal) {
       final basal = (calTotal - rawCal).toDouble();
-      final basalPerHour = basal / 24;
-      for (int i = 0; i < 24; i++) {
+      final basalPerHour = basal / bucketCount;
+      for (int i = 0; i < bucketCount; i++) {
         try {
           await _health.writeHealthData(
               value: basalPerHour,

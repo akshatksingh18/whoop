@@ -838,27 +838,33 @@ class DerivationEngine {
     await _loadSleepUserProfile();
     ana.cardioRecordObservations = true;
     ana.resetCardioObservations();
-    final candidate = prepareSleepSessionCandidate(
-      searchSub,
-      targetDay: dayId,
-      override: override,
-    );
-    ana.cardioRecordObservations = false;
-    if (override == null) {
-      await LocalDb.putSleepSessionCandidate(
-        dayId: dayId,
-        algoVersion: kAlgoVersion,
-        payloadJson: jsonEncode(candidate.toJson()),
+    // `finally` guarantees the recording flag is cleared even if staging or
+    // persistence throws — otherwise it leaks into the next day's derivation
+    // (this isolate is sequential, so no lock is needed, only the reset).
+    try {
+      final candidate = prepareSleepSessionCandidate(
+        searchSub,
+        targetDay: dayId,
+        override: override,
       );
-      // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
-      // rolling profile. Skipped for overrides and cached reuse (this branch is
-      // the fresh-stage path). EWMA self-seeds across the v42 re-derivation
-      // sweep, so no explicit migration is needed.
-      await _foldSleepUserProfile();
-    } else {
-      ana.resetCardioObservations();
+      if (override == null) {
+        await LocalDb.putSleepSessionCandidate(
+          dayId: dayId,
+          algoVersion: kAlgoVersion,
+          payloadJson: jsonEncode(candidate.toJson()),
+        );
+        // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
+        // rolling profile. Skipped for overrides and cached reuse (this branch
+        // is the fresh-stage path). EWMA self-seeds across the v42
+        // re-derivation sweep, so no explicit migration is needed.
+        await _foldSleepUserProfile();
+      } else {
+        ana.resetCardioObservations();
+      }
+      return candidate;
+    } finally {
+      ana.cardioRecordObservations = false;
     }
-    return candidate;
   }
 
   /// Load the persisted per-user sleep profile into the analytics ambient slot

@@ -59,6 +59,7 @@ class HealthExporter {
         HealthDataType.RESTING_HEART_RATE,
         _hrvType,
         HealthDataType.RESPIRATORY_RATE,
+        HealthDataType.HEART_RATE,
         HealthDataType.ACTIVE_ENERGY_BURNED,
         HealthDataType.BASAL_ENERGY_BURNED,
         HealthDataType.STEPS,
@@ -266,34 +267,86 @@ class HealthExporter {
     await writeAt(HealthDataType.RESPIRATORY_RATE, sc('resp_rate'),
         HealthDataUnit.RESPIRATIONS_PER_MINUTE, mid);
 
-    // Active energy over the whole day.
-    final cal = sc('calories');
-    if (cal != null && cal > 0) {
+    // Active energy: chunked into hourly buckets over the day.
+    // We subtract workout calories to prevent double-counting, because workouts
+    // are exported separately.
+    var cal = sc('calories')?.toDouble() ?? 0.0;
+    try {
+      final rows = await LocalDb.sessionsInRange(
+          dayStart.millisecondsSinceEpoch ~/ 1000,
+          dayEnd.millisecondsSinceEpoch ~/ 1000);
+      var workoutCal = 0.0;
+      for (final r in rows) {
+        if ((r['status']?.toString() ?? '') == 'live') continue;
+        workoutCal += (r['calories'] as num?)?.toDouble() ?? 0.0;
+      }
+      cal = (cal > workoutCal) ? cal - workoutCal : 0.0;
+    } catch (_) {}
+
+    if (cal > 0) {
       try {
-        await _health.writeHealthData(
-            value: cal.toDouble(),
-            type: HealthDataType.ACTIVE_ENERGY_BURNED,
-            startTime: dayStart,
-            endTime: dayEnd,
-            unit: HealthDataUnit.KILOCALORIE);
+        final calPerHour = cal / 24;
+        for (int i = 0; i < 24; i++) {
+          await _health.writeHealthData(
+              value: calPerHour,
+              type: HealthDataType.ACTIVE_ENERGY_BURNED,
+              startTime: dayStart.add(Duration(hours: i)),
+              endTime: dayStart.add(Duration(hours: i + 1)),
+              unit: HealthDataUnit.KILOCALORIE);
+        }
       } catch (e) {
         debugPrint('[health] write energy: $e');
       }
     }
 
-    // Basal energy = total daily energy (TDEE) − active, over the whole day.
+    // Basal energy = total daily energy (TDEE) − active, chunked hourly.
     final calTotal = sc('calories_total');
-    if (calTotal != null && cal != null && calTotal > cal) {
+    final rawCal = sc('calories');
+    if (calTotal != null && rawCal != null && calTotal > rawCal) {
       try {
-        await _health.writeHealthData(
-            value: (calTotal - cal).toDouble(),
-            type: HealthDataType.BASAL_ENERGY_BURNED,
-            startTime: dayStart,
-            endTime: dayEnd,
-            unit: HealthDataUnit.KILOCALORIE);
+        final basal = (calTotal - rawCal).toDouble();
+        final basalPerHour = basal / 24;
+        for (int i = 0; i < 24; i++) {
+          await _health.writeHealthData(
+              value: basalPerHour,
+              type: HealthDataType.BASAL_ENERGY_BURNED,
+              startTime: dayStart.add(Duration(hours: i)),
+              endTime: dayStart.add(Duration(hours: i + 1)),
+              unit: HealthDataUnit.KILOCALORIE);
+        }
       } catch (e) {
         debugPrint('[health] write basal energy: $e');
       }
+    }
+
+    // Continuous Heart Rate (minute-by-minute average).
+    try {
+      final db = await LocalDb.instance;
+      final startTs = dayStart.millisecondsSinceEpoch ~/ 1000;
+      final endTs = dayEnd.millisecondsSinceEpoch ~/ 1000;
+      // Group by minute to downsample
+      final hrRows = await db.rawQuery(
+          'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
+          'FROM decoded_onehz '
+          'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
+          'GROUP BY minute_ts',
+          [startTs, endTs]);
+      
+      for (final r in hrRows) {
+        final minuteTs = (r['minute_ts'] as num).toInt();
+        final avgHr = (r['avg_hr'] as num).toDouble();
+        if (avgHr > 0) {
+          final t = DateTime.fromMillisecondsSinceEpoch(minuteTs * 1000);
+          await _health.writeHealthData(
+              value: avgHr,
+              type: HealthDataType.HEART_RATE,
+              startTime: t,
+              endTime: t.add(const Duration(minutes: 1)),
+              unit: HealthDataUnit.BEATS_PER_MINUTE);
+        }
+      }
+    } catch (e) {
+      debugPrint('[health] write continuous hr: $e');
     }
 
     // Steps (24/7 estimate) over the whole day.

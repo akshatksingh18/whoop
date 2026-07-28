@@ -2580,6 +2580,12 @@ class LocalDb {
     );
   }
 
+  /// How many times [decodedRrByCounterRange]'s degraded counter-span fallback
+  /// hit its row cap and therefore returned an INCOMPLETE set of beats. Any
+  /// value above zero means some window's HRV was computed from truncated
+  /// input; it should stay at zero in normal operation.
+  static int decodedRrFallbackTruncations = 0;
+
   /// Sparse RR beats for one contiguous decoded 1 Hz page.
   ///
   /// [fromCounter] / [toCounter] are the page's FIRST and LAST row counters, as
@@ -2625,13 +2631,41 @@ class LocalDb {
     }
     final lo = fromCounter <= toCounter ? fromCounter : toCounter;
     final hi = fromCounter <= toCounter ? toCounter : fromCounter;
-    return db.query(
+    // BOUNDED. This branch is reached when an endpoint row is not in
+    // `decoded_onehz` — a prune, or an import's REPLACE + orphan-guard DELETE
+    // landing between the frame-page read and this call. The caller's counters
+    // are then just a span, and because the strap's counter resets on reboot a
+    // reboot-straddling page degenerates to `0 .. ~1200000`, i.e. effectively
+    // the whole table. Unbounded, that is a hundreds-of-MB platform-heap read
+    // on the same Java heap that OOMed the import path. A page is 2000 frames
+    // and a second rarely carries more than a handful of beats, so this cap is
+    // orders of magnitude above any legitimate page — reaching it means the
+    // degraded path is being used for a range it was never meant to serve.
+    const fallbackBeatCap = 200000;
+    final rows = await db.query(
       'decoded_rr',
       columns: ['counter', 'beat_index', 'rr_ts_ms', 'rr_ms'],
       where: 'counter >= ? AND counter <= ?',
       whereArgs: [lo, hi],
       orderBy: 'counter ASC, beat_index ASC',
+      limit: fallbackBeatCap,
     );
+    // Never truncate silently — a short read here means missing beats, which
+    // shows up downstream as understated HRV rather than as an error. db.dart
+    // deliberately takes no telemetry dependency, so the fact is recorded as a
+    // plain counter the Diagnostics screen can surface.
+    //
+    // A static field is sound HERE specifically: every sqflite call needs the
+    // root isolate's platform channel, and this method's only caller
+    // (`DerivationEngine._prepare`) reads on the main isolate and ships each
+    // page to the compute worker with `worker.send`. Increments therefore land
+    // in the same isolate that reads them. Move this read into an isolate and
+    // the counter silently stops working — pass the count back over the port
+    // instead of reaching for a static.
+    if (rows.length >= fallbackBeatCap) {
+      decodedRrFallbackTruncations++;
+    }
+    return rows;
   }
 
   // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
@@ -2977,72 +3011,120 @@ class LocalDb {
       },
     );
 
-    Future<void> copyRows(
+    // Every source read on the export path is PAGED on rowid. A day-ranged
+    // `SELECT *` over `decoded_onehz` is 86,400 rows, and sqflite materialises
+    // a whole result set as Java objects before any of it reaches Dart — the
+    // same platform-heap exhaustion that OOMed the import path. Keyset, not
+    // OFFSET, so paging stays linear.
+    const exportPageSize = 2000;
+    const rowidKey = '_rowid';
+
+    /// Streams `table` (optionally filtered) into [out] one page at a time,
+    /// calling [onPage] with each page after it has been written.
+    ///
+    /// [onPage] receives rows with the `$rowidKey` cursor column ALREADY
+    /// stripped, so a callback can insert what it is handed without tripping
+    /// over a column no destination table has. The cursor is read off the raw
+    /// page here and never leaves this function.
+    ///
+    /// PAGING COLUMN: rowid, not the filtered column, so one helper serves
+    /// every table regardless of what it is filtered on. That means a filtered
+    /// page walks the rowid chain and tests the predicate per row rather than
+    /// driving off the `rec_ts`/`ts` index. It stays cheap because both factors
+    /// are small: `decoded_onehz` is bounded by `rawRetentionDays` (days, not
+    /// years — it is pruned behind the data edge), and the never-pruned tables
+    /// paged per day here are hundreds to thousands of rows. Measured on a real
+    /// 435k-row ledger the worst case — the exhaustion page that scans to the
+    /// end of the table — is ~10 ms. Revisit only if retention grows a lot;
+    /// per-table cursors would need a composite `(ts, rowid)` key for the
+    /// non-unique columns, which is not worth the complexity today.
+    Future<void> copyPaged(
       String table, {
       String? where,
       List<Object?> whereArgs = const [],
+      Future<void> Function(List<Map<String, Object?>> page)? onPage,
     }) async {
-      final rows = await src.query(table, where: where, whereArgs: whereArgs);
-      if (rows.isEmpty) return;
-      await out.transaction((txn) async {
-        final batch = txn.batch();
-        for (final row in rows) {
-          batch.insert(
-            table,
-            Map<String, Object?>.from(row),
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        await batch.commit(noResult: true);
-      });
-    }
-
-    Future<void> copyRawRange(int startSec, int endSec) async {
-      final decoded = await src.query(
-        'decoded_onehz',
-        where: 'rec_ts >= ? AND rec_ts < ?',
-        whereArgs: [startSec, endSec],
-      );
-      if (decoded.isNotEmpty) {
+      var lastRowid = 0;
+      while (true) {
+        final clause = where == null ? '' : 'AND ($where) ';
+        final page = await src.rawQuery(
+          'SELECT rowid AS $rowidKey, * FROM $table '
+          'WHERE rowid > ? $clause'
+          'ORDER BY rowid ASC LIMIT ?',
+          [lastRowid, ...whereArgs, exportPageSize],
+        );
+        if (page.isEmpty) return;
+        final clean = [
+          for (final row in page)
+            <String, Object?>{
+              for (final e in row.entries)
+                if (e.key != rowidKey) e.key: e.value,
+            },
+        ];
         await out.transaction((txn) async {
           final batch = txn.batch();
-          for (final row in decoded) {
+          for (final row in clean) {
             batch.insert(
-              'decoded_onehz',
-              Map<String, Object?>.from(row),
+              table,
+              row,
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
           }
           await batch.commit(noResult: true);
         });
-        final counters = <Object?>[
-          for (final row in decoded)
-            if (row['counter'] != null) row['counter'],
-        ];
-        // CHUNKED `IN (…)`: a full day is 86 400 counters, two orders of
-        // magnitude past SQLITE_MAX_VARIABLE_NUMBER — one giant statement can
-        // never bind. (This never surfaced only because the missing `version:`
-        // above aborted the export earlier.)
-        for (final chunk in _sqlVarChunks(counters)) {
-          final placeholders = List.filled(chunk.length, '?').join(',');
-          final rr = await src.rawQuery(
-            'SELECT * FROM decoded_rr WHERE counter IN ($placeholders)',
-            chunk,
-          );
-          if (rr.isEmpty) continue;
-          await out.transaction((txn) async {
-            final batch = txn.batch();
-            for (final row in rr) {
-              batch.insert(
-                'decoded_rr',
-                Map<String, Object?>.from(row),
-                conflictAlgorithm: ConflictAlgorithm.replace,
-              );
-            }
-            await batch.commit(noResult: true);
-          });
-        }
+        if (onPage != null) await onPage(clean);
+        lastRowid = (page.last[rowidKey] as num).toInt();
+        if (page.length < exportPageSize) return;
       }
+    }
+
+    Future<void> copyRows(
+      String table, {
+      String? where,
+      List<Object?> whereArgs = const [],
+    }) =>
+        copyPaged(table, where: where, whereArgs: whereArgs);
+
+    Future<void> copyRawRange(int startSec, int endSec) async {
+      // The day's 1 Hz rows stream page by page, and each page's RR beats are
+      // pulled and written before the next page is read — so peak residency is
+      // one page of `decoded_onehz` plus its beats, not a whole day of both.
+      await copyPaged(
+        'decoded_onehz',
+        where: 'rec_ts >= ? AND rec_ts < ?',
+        whereArgs: [startSec, endSec],
+        onPage: (page) async {
+          final counters = <Object?>[
+            for (final row in page)
+              if (row['counter'] != null) row['counter'],
+          ];
+          if (counters.isEmpty) return;
+          // CHUNKED `IN (…)`: even one page's counters can approach
+          // SQLITE_MAX_VARIABLE_NUMBER, and a full day is 86,400 — two orders
+          // of magnitude past it, so one giant statement could never bind.
+          // (This never surfaced only because the missing `version:` above
+          // aborted the export earlier.)
+          for (final chunk in _sqlVarChunks(counters)) {
+            final placeholders = List.filled(chunk.length, '?').join(',');
+            final rr = await src.rawQuery(
+              'SELECT * FROM decoded_rr WHERE counter IN ($placeholders)',
+              chunk,
+            );
+            if (rr.isEmpty) continue;
+            await out.transaction((txn) async {
+              final batch = txn.batch();
+              for (final row in rr) {
+                batch.insert(
+                  'decoded_rr',
+                  Map<String, Object?>.from(row),
+                  conflictAlgorithm: ConflictAlgorithm.replace,
+                );
+              }
+              await batch.commit(noResult: true);
+            });
+          }
+        },
+      );
       await copyRows(
         'samples',
         where: 'ts >= ? AND ts < ?',
@@ -3234,13 +3316,50 @@ class LocalDb {
     final counts = <String, int>{};
     try {
       for (final t in tables) {
-        List<Map<String, Object?>> rows;
+        // PAGED SOURCE READ — never `SELECT *` a whole table.
+        //
+        // This used to be a single `src.query(t)`. sqflite serialises an entire
+        // result set into Java objects on the platform side BEFORE any of it
+        // crosses the channel, so importing another device's `decoded_onehz`
+        // (86,400 rows per day of history) materialised the whole table on the
+        // 256 MB Dalvik heap at once — and then held it live for the duration
+        // of the insert loop below. That is the production
+        // `java.lang.OutOfMemoryError` seen on 0.9.19 from ImportScreen
+        // ("target footprint 268435456, growth limit 268435456"); the OOM
+        // surfaced on whichever thread happened to allocate next, which is why
+        // it was blamed on a BLE binder callback.
+        //
+        // Keyset pagination on `rowid` (none of these tables is WITHOUT ROWID),
+        // NOT LIMIT/OFFSET — OFFSET re-scans the skipped prefix on every page,
+        // which is quadratic over a full history.
+        // `_rowid` is aliased into the projection so the cursor can advance;
+        // it is filtered straight back out when the row is rebuilt below,
+        // because the `cols.contains(e.key)` guard only admits real
+        // destination columns and no table has a column by that name.
+        const pageSize = 2000;
+        const rowidKey = '_rowid';
+        var lastRowid = 0;
+        Future<List<Map<String, Object?>>> nextPage() => src.rawQuery(
+              'SELECT rowid AS $rowidKey, * FROM $t '
+              'WHERE rowid > ? ORDER BY rowid ASC LIMIT ?',
+              [lastRowid, pageSize],
+            );
+
+        List<Map<String, Object?>> firstPage;
         try {
-          rows = await src.query(t);
-        } catch (_) {
-          continue; // table absent in the source export
+          firstPage = await nextPage();
+        } on DatabaseException catch (e) {
+          // ONLY "this export doesn't carry that table" is skippable. A blanket
+          // catch here made every read failure — corruption, a truncated or
+          // malformed source file, an I/O error — look identical to an absent
+          // table: the table was skipped, `counts[t]` was never set, and the
+          // summed total then reported a PARTIAL import as a success. Silent
+          // partial success on someone's health history is the worst available
+          // outcome, so anything that is not a missing table now propagates.
+          if (e.isNoSuchTableError()) continue;
+          rethrow;
         }
-        if (rows.isEmpty) {
+        if (firstPage.isEmpty) {
           counts[t] = 0;
           continue;
         }
@@ -3263,52 +3382,68 @@ class LocalDb {
           };
         }
         var copied = 0;
-        await db.transaction((txn) async {
-          // CHUNKED, for the same reason commitSyncBatch chunks: sqflite
-          // serialises a whole batch's args into ONE platform message. A
-          // full-history import is hundreds of thousands of rows, and the
-          // orphan guard below adds an op per decoded_onehz row on top.
-          const chunkOps = 4000;
-          var batch = txn.batch();
-          var ops = 0;
-          Future<void> flush() async {
-            if (ops == 0) return;
-            await batch.commit(noResult: true);
-            batch = txn.batch();
-            ops = 0;
-          }
+        var page = firstPage;
+        // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
+        // this replaces could only ever commit if the entire table fit in
+        // memory first, which is the bug. Per-page commits keep peak residency
+        // at one page, and the import stays safe to interrupt or repeat: every
+        // write is INSERT OR REPLACE keyed on the row's own identity, so a
+        // re-run converges to the same state, and each decoded_onehz row's
+        // orphan guard is still queued in the SAME transaction as the row it
+        // guards — the invariant that matters is per-row, not per-table.
+        while (page.isNotEmpty) {
+          await db.transaction((txn) async {
+            // CHUNKED, for the same reason commitSyncBatch chunks: sqflite
+            // serialises a whole batch's args into ONE platform message, and
+            // the orphan guard below adds an op per decoded_onehz row on top.
+            const chunkOps = 4000;
+            var batch = txn.batch();
+            var ops = 0;
+            Future<void> flush() async {
+              if (ops == 0) return;
+              await batch.commit(noResult: true);
+              batch = txn.batch();
+              ops = 0;
+            }
 
-          for (final r in rows) {
-            final row = <String, Object?>{
-              for (final e in r.entries)
-                if (cols.contains(e.key)) e.key: e.value,
-            };
-            if (row.isEmpty) continue;
-            if (t == 'day_result' &&
-                protectedKeys.contains(
-                  '${row['day_id']}|${row['algo_version']}',
-                )) {
-              continue; // locally finalized — never overwritten by an import
+            for (final r in page) {
+              final row = <String, Object?>{
+                for (final e in r.entries)
+                  if (cols.contains(e.key)) e.key: e.value,
+              };
+              if (row.isEmpty) continue;
+              if (t == 'day_result' &&
+                  protectedKeys.contains(
+                    '${row['day_id']}|${row['algo_version']}',
+                  )) {
+                continue; // locally finalized — never overwritten by an import
+              }
+              // ORPHAN GUARD ON THE IMPORT PATH. A plain replace-insert into
+              // decoded_onehz bypasses _queueDecodedOneHz entirely, so a
+              // foreign row colliding on UNIQUE(rec_ts) (different counter) or
+              // on the `counter` PRIMARY KEY (different second) evicted a local
+              // row and stranded its decoded_rr beats — the exact leak the
+              // ingest path is guarded against, wide open here. Queue the SAME
+              // guard, in the same batch/transaction, right before the row.
+              if (t == 'decoded_onehz') {
+                final counter = (row['counter'] as num?)?.toInt();
+                final recTs = (row['rec_ts'] as num?)?.toInt();
+                if (counter == null || recTs == null) continue;
+                ops += _queueOrphanGuard(batch, counter: counter, recTs: recTs);
+              }
+              batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
+              copied++;
+              if (++ops >= chunkOps) await flush();
             }
-            // ORPHAN GUARD ON THE IMPORT PATH. A plain replace-insert into
-            // decoded_onehz bypasses _queueDecodedOneHz entirely, so a foreign
-            // row colliding on UNIQUE(rec_ts) (different counter) or on the
-            // `counter` PRIMARY KEY (different second) evicted a local row and
-            // stranded its decoded_rr beats — the exact leak the ingest path is
-            // guarded against, wide open here. Queue the SAME guard, in the
-            // same batch/transaction, right before the row.
-            if (t == 'decoded_onehz') {
-              final counter = (row['counter'] as num?)?.toInt();
-              final recTs = (row['rec_ts'] as num?)?.toInt();
-              if (counter == null || recTs == null) continue;
-              ops += _queueOrphanGuard(batch, counter: counter, recTs: recTs);
-            }
-            batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
-            copied++;
-            if (++ops >= chunkOps) await flush();
-          }
-          await flush();
-        });
+            await flush();
+          });
+          // Advance past the last row this page actually delivered. Read the
+          // cursor BEFORE dropping the page, and stop on a short page rather
+          // than issuing one more query to discover the end.
+          lastRowid = (page.last[rowidKey] as num).toInt();
+          if (page.length < pageSize) break;
+          page = await nextPage();
+        }
         counts[t] = copied;
       }
     } finally {

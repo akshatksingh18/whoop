@@ -9,6 +9,7 @@
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
@@ -22,9 +23,19 @@ class ImportScreen extends StatefulWidget {
 
 class _ImportScreenState extends State<ImportScreen> {
   bool _busy = false;
+
+  /// True while the native file picker is on screen. Distinct from [_busy]
+  /// (which means "an import is running"): the cards must be inert for BOTH,
+  /// but only [_busy] shows the progress card.
+  bool _picking = false;
   String? _progress;
   String? _result;
   String? _error;
+
+  /// The option cards are inert while EITHER a picker is open or an import is
+  /// running — the window between those two states is exactly where the
+  /// double-tap `already_active` crash lived.
+  bool get _locked => _busy || _picking;
 
   void _set(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -34,14 +45,41 @@ class _ImportScreenState extends State<ImportScreen> {
   // types and rejects unmapped ones like `db` (and often `csv`) with "Unsupported
   // filter". The importers are content-aware (NOOP/WHOOP detect by CSV header,
   // Edge opens the file as SQLite), so we accept any file and validate on parse.
+  //
+  // RE-ENTRANCY: `_busy` only goes true once an import is already RUNNING, i.e.
+  // after the picker returns — so while the native sheet is open the three
+  // option cards stayed live. A second tap (the sheet takes a beat to appear on
+  // a cold platform channel, so users do tap twice) called pickFiles again and
+  // file_picker threw `PlatformException(already_active)` out of an unawaited
+  // context, crashing the app. Guarded twice over: `_picking` disables the
+  // cards for the duration, and the catch below refuses to let any picker
+  // platform failure become a fatal — a picker that won't open is a message,
+  // not a crash.
   Future<List<String>> _pick({bool multiple = false}) async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: multiple,
-      withData: false,
-    );
-    if (res == null) return const [];
-    return [for (final f in res.files) if (f.path != null) f.path!];
+    if (_picking) return const [];
+    _set(() => _picking = true);
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: multiple,
+        withData: false,
+      );
+      if (res == null) return const [];
+      return [for (final f in res.files) if (f.path != null) f.path!];
+    } on PlatformException catch (e) {
+      // `already_active` is the benign double-tap race — the first picker is
+      // still up and will deliver the user's choice, so say nothing. Anything
+      // else is worth showing.
+      if (e.code != 'already_active') {
+        _set(() => _error = 'Could not open the file picker: ${e.message ?? e.code}');
+      }
+      return const [];
+    } catch (e) {
+      _set(() => _error = 'Could not open the file picker: $e');
+      return const [];
+    } finally {
+      _set(() => _picking = false);
+    }
   }
 
   Future<void> _run(String label, Future<int> Function() task,
@@ -113,14 +151,14 @@ class _ImportScreenState extends State<ImportScreen> {
             icon: OsIcon.heartRate,
             title: 'Import from NOOP',
             body: 'Raw 1 Hz CSV — re-analyzed end-to-end on this phone.',
-            onTap: _busy ? null : _importNoop,
+            onTap: _locked ? null : _importNoop,
           ),
           const SizedBox(height: Sp.x3),
           ImportOptionCard(
             icon: OsIcon.server,
             title: 'Import from Edge backup',
             body: 'A .db exported from another OpenStrap device.',
-            onTap: _busy ? null : _importEdge,
+            onTap: _locked ? null : _importEdge,
           ),
           const SizedBox(height: Sp.x3),
           ImportOptionCard(
@@ -128,7 +166,7 @@ class _ImportScreenState extends State<ImportScreen> {
             title: 'Import from WHOOP',
             tag: 'BETA',
             body: 'WHOOP export CSVs — derived summaries only.',
-            onTap: _busy ? null : _importWhoop,
+            onTap: _locked ? null : _importWhoop,
           ),
         ]),
         const SizedBox(height: Sp.x2),

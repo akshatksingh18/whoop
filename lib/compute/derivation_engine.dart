@@ -37,6 +37,7 @@ import '../notify/notification_event.dart';
 import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
+import 'derive_pacing.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'profile.dart';
@@ -655,8 +656,16 @@ Future<void> runWithConcurrency<T>(
 }
 
 class DerivationEngine {
-  DerivationEngine({this.log});
+  DerivationEngine({this.log, this.background = false});
   final void Function(String)? log;
+
+  /// True when this engine was constructed inside a headless/background entry
+  /// (iOS BGProcessingTask / BGAppRefreshTask, Android WorkManager, the
+  /// post-drain background sync pass). The OS throttles CPU hard in those
+  /// contexts, which changes two tuning decisions — see [_deriveConcurrency]
+  /// and [_perDayTimeout]. Set at construction, not per-run, so a long-lived
+  /// foreground engine can never inherit background tuning by accident.
+  final bool background;
 
   bool _running = false;
   bool get running => _running;
@@ -1493,9 +1502,13 @@ class DerivationEngine {
         'v$kAlgoVersion|na';
   }
 
+  /// Foreground vs background pacing — lane count and per-day wall-clock
+  /// budget. See [DerivePacing] for why the background numbers differ.
+  DerivePacing get _pacing => DerivePacing(background: background);
+
   /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
   /// skipped so the sweep always makes progress.
-  static const Duration _perDayTimeout = Duration(seconds: 90);
+  Duration get _perDayTimeout => _pacing.perDayTimeout;
 
   /// Throttle for the readiness-absent diagnostic log — one per calendar day
   /// so repeated light-pass re-derives of today don't spam the outbox.
@@ -1510,17 +1523,12 @@ class DerivationEngine {
   /// substrate loads + compute-isolate all finishing before the next day even
   /// started), which wastes every core beyond the one doing the current day's
   /// work. Running several days' isolate work genuinely concurrently gets
-  /// real wall-clock speedup from the device's other cores. Capped
-  /// conservatively — this is a phone doing background/foreground compute,
-  /// not a server batch job — rather than using every available core.
-  static const int _maxDeriveConcurrency = 3;
-
+  /// real wall-clock speedup from the device's other cores — in the FOREGROUND.
+  /// A headless background slot has no spare cores to soak up, so it takes one
+  /// lane; [DerivePacing] owns that decision and explains it.
   int get _deriveConcurrency {
     try {
-      return math.max(
-        1,
-        math.min(_maxDeriveConcurrency, Platform.numberOfProcessors),
-      );
+      return _pacing.concurrency(Platform.numberOfProcessors);
     } catch (_) {
       return 1; // Platform unavailable on this target — sequential fallback
     }

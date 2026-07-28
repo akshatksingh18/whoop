@@ -2652,8 +2652,16 @@ class LocalDb {
     );
     // Never truncate silently — a short read here means missing beats, which
     // shows up downstream as understated HRV rather than as an error. db.dart
-    // takes no telemetry dependency (it has to run inside compute isolates), so
-    // the fact is recorded as a counter the Diagnostics screen can surface.
+    // deliberately takes no telemetry dependency, so the fact is recorded as a
+    // plain counter the Diagnostics screen can surface.
+    //
+    // A static field is sound HERE specifically: every sqflite call needs the
+    // root isolate's platform channel, and this method's only caller
+    // (`DerivationEngine._prepare`) reads on the main isolate and ships each
+    // page to the compute worker with `worker.send`. Increments therefore land
+    // in the same isolate that reads them. Move this read into an isolate and
+    // the counter silently stops working — pass the count back over the port
+    // instead of reaching for a static.
     if (rows.length >= fallbackBeatCap) {
       decodedRrFallbackTruncations++;
     }
@@ -3013,6 +3021,23 @@ class LocalDb {
 
     /// Streams `table` (optionally filtered) into [out] one page at a time,
     /// calling [onPage] with each page after it has been written.
+    ///
+    /// [onPage] receives rows with the `$rowidKey` cursor column ALREADY
+    /// stripped, so a callback can insert what it is handed without tripping
+    /// over a column no destination table has. The cursor is read off the raw
+    /// page here and never leaves this function.
+    ///
+    /// PAGING COLUMN: rowid, not the filtered column, so one helper serves
+    /// every table regardless of what it is filtered on. That means a filtered
+    /// page walks the rowid chain and tests the predicate per row rather than
+    /// driving off the `rec_ts`/`ts` index. It stays cheap because both factors
+    /// are small: `decoded_onehz` is bounded by `rawRetentionDays` (days, not
+    /// years — it is pruned behind the data edge), and the never-pruned tables
+    /// paged per day here are hundreds to thousands of rows. Measured on a real
+    /// 435k-row ledger the worst case — the exhaustion page that scans to the
+    /// end of the table — is ~10 ms. Revisit only if retention grows a lot;
+    /// per-table cursors would need a composite `(ts, rowid)` key for the
+    /// non-unique columns, which is not worth the complexity today.
     Future<void> copyPaged(
       String table, {
       String? where,
@@ -3029,22 +3054,25 @@ class LocalDb {
           [lastRowid, ...whereArgs, exportPageSize],
         );
         if (page.isEmpty) return;
-        await out.transaction((txn) async {
-          final batch = txn.batch();
-          for (final row in page) {
-            final clean = <String, Object?>{
+        final clean = [
+          for (final row in page)
+            <String, Object?>{
               for (final e in row.entries)
                 if (e.key != rowidKey) e.key: e.value,
-            };
+            },
+        ];
+        await out.transaction((txn) async {
+          final batch = txn.batch();
+          for (final row in clean) {
             batch.insert(
               table,
-              clean,
+              row,
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
           }
           await batch.commit(noResult: true);
         });
-        if (onPage != null) await onPage(page);
+        if (onPage != null) await onPage(clean);
         lastRowid = (page.last[rowidKey] as num).toInt();
         if (page.length < exportPageSize) return;
       }
@@ -3320,8 +3348,16 @@ class LocalDb {
         List<Map<String, Object?>> firstPage;
         try {
           firstPage = await nextPage();
-        } catch (_) {
-          continue; // table absent in the source export
+        } on DatabaseException catch (e) {
+          // ONLY "this export doesn't carry that table" is skippable. A blanket
+          // catch here made every read failure — corruption, a truncated or
+          // malformed source file, an I/O error — look identical to an absent
+          // table: the table was skipped, `counts[t]` was never set, and the
+          // summed total then reported a PARTIAL import as a success. Silent
+          // partial success on someone's health history is the worst available
+          // outcome, so anything that is not a missing table now propagates.
+          if (e.isNoSuchTableError()) continue;
+          rethrow;
         }
         if (firstPage.isEmpty) {
           counts[t] = 0;

@@ -195,6 +195,26 @@ void main() {
               'an interrupted import is always safe to re-run');
     });
 
+    test('a source missing most tables skips them without throwing', () async {
+      // The fixture only ever creates decoded_onehz + decoded_rr, so every
+      // other table in the import list raises "no such table" on its first
+      // page. That path is narrowed to `DatabaseException.isNoSuchTableError()`
+      // precisely so a genuine read failure can no longer masquerade as an
+      // absent table — which means if that predicate ever stops matching
+      // sqflite's real exception, importing a partial export would start
+      // THROWING instead of skipping. Asserted explicitly rather than left to
+      // ride implicitly on the paging tests above.
+      await clearLocal();
+      await buildSource(10, startTs: 1786400000);
+
+      final counts = await LocalDb.importFromDbFile(srcPath);
+
+      expect(counts['decoded_onehz'], 10, reason: 'present tables still copy');
+      expect(counts.containsKey('journal'), isFalse,
+          reason: 'a table absent from the source is skipped, not reported as '
+              'an empty success');
+    });
+
     test('an empty source table reports zero and writes nothing', () async {
       await clearLocal();
       await buildSource(0, startTs: 1786300000);

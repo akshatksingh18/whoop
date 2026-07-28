@@ -2781,6 +2781,30 @@ class BleEngine {
   Future<void> buzzPattern(int pattern) =>
       _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
 
+  /// Signal strength of the live link, in dBm (negative; closer to zero is
+  /// stronger). Null whenever there is nothing to measure.
+  ///
+  /// Used by the find-my-band hunt. Note what this does NOT do: it never
+  /// scans. A hunt needs to BUZZ the band as well as track it, and buzzing
+  /// requires the connection — so a band we cannot reach is one we could not
+  /// help find anyway. Read straight off the connected device instead, which
+  /// also means the hunt costs nothing beyond one small GATT read per poll:
+  /// no radio mode change, no interference with an in-flight offload.
+  ///
+  /// Returns null rather than throwing on a mid-hunt disconnect; the caller
+  /// polls on a timer and a dropped sample must not blow up the screen. The
+  /// timeout matters because `readRssi` can hang on a link that is technically
+  /// still "connected" but is not passing traffic.
+  Future<int?> readRssi() async {
+    final s = _session;
+    if (s == null || !s.connected) return null;
+    try {
+      return await s.device.readRssi().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
   /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
   /// DOES NOT change the displayed state — we stay in the single `listening` phase;

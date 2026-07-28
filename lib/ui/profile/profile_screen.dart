@@ -23,6 +23,7 @@ import '../../state/units_controller.dart';
 import '../../debug/debug_mode.dart';
 import '../../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import '../../theme/theme_switcher.dart';
+import '../find/find_band_screen.dart';
 import '../ai/ai_settings_screen.dart';
 import '../coach/ai_coach_screen.dart';
 import '../design/design.dart';
@@ -1356,6 +1357,22 @@ class _DeviceSheet extends StatelessWidget {
           value: live.strapName ?? 'OpenStrap',
           divider: true,
           onTap: connected ? () => _rename(context, live) : null,
+        ),
+        ListRow(
+          icon: OsIcon.bluetooth,
+          title: 'Find my strap',
+          value: connected ? 'Buzz and track' : 'Needs a connection',
+          divider: true,
+          onTap: connected
+              ? () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FindBandScreen(),
+                    ),
+                  );
+                }
+              : null,
         ),
         ListRow(
           icon: OsIcon.alarm,

@@ -27,6 +27,7 @@ import 'package:firebase_performance/firebase_performance.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 
 import '../cloud/companion_client.dart';
+import 'jank_policy.dart';
 
 /// A band-side snapshot AppState supplies (it owns the live DeviceState).
 typedef BandSnapshot = Map<String, dynamic> Function();
@@ -263,35 +264,49 @@ class TelemetryService {
 
   /// Turn invisible UI jank into real Crashlytics non-fatal reports. Flutter
   /// itself already measures every frame's build+raster cost — we just have
-  /// to listen. A frame at/above [thresholdMs] reads as a visible stutter to
-  /// the user; this is what actually answers "the app froze while scrolling"
-  /// reports, which Crashlytics otherwise never sees at all (freezing isn't a
-  /// crash). Throttled to at most one report per [minGapSeconds] so a rough
-  /// patch (e.g. a long scroll over a busy screen) doesn't spam the outbox —
-  /// still enough to catch the pattern without drowning it.
+  /// to listen. A frame whose ENGINE WORK (build + raster) is at/above
+  /// [thresholdMs] reads as a visible stutter to the user; this is what
+  /// actually answers "the app froze while scrolling" reports, which
+  /// Crashlytics otherwise never sees at all (freezing isn't a crash).
+  /// Throttled to at most one report per [minGapSeconds] so a rough patch
+  /// (e.g. a long scroll over a busy screen) doesn't spam the outbox — still
+  /// enough to catch the pattern without drowning it.
+  ///
+  /// The threshold deliberately does NOT apply to `FrameTiming.totalSpan`.
+  /// totalSpan includes time the engine did nothing — above all the gap across
+  /// an app resume — which produced reports like "Slow frame: 16358ms (build=0
+  /// raster=8)" and made this the noisiest issue in the project. See
+  /// [JankPolicy] for the full rationale; totalSpan is still attached as
+  /// context so a scheduling-delay pattern remains visible.
   void installJankWatchdog({int thresholdMs = 700, int minGapSeconds = 30}) {
+    final policy = JankPolicy(thresholdMs: thresholdMs);
     SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
       if (_jankThrottle != null) return;
       for (final t in timings) {
-        final totalMs = t.totalSpan.inMilliseconds;
-        if (totalMs < thresholdMs) continue;
+        final v = policy.evaluate(
+          buildMs: t.buildDuration.inMilliseconds,
+          rasterMs: t.rasterDuration.inMilliseconds,
+          totalMs: t.totalSpan.inMilliseconds,
+        );
+        if (!v.report) continue;
         _jankThrottle = Timer(Duration(seconds: minGapSeconds), () {
           _jankThrottle = null;
         });
-        final buildMs = t.buildDuration.inMilliseconds;
-        final rasterMs = t.rasterDuration.inMilliseconds;
         breadcrumb(
-          'slow_frame total=${totalMs}ms build=${buildMs}ms raster=${rasterMs}ms',
+          'slow_frame work=${v.workMs}ms build=${v.buildMs}ms '
+          'raster=${v.rasterMs}ms total=${v.totalMs}ms',
         );
         recordNonFatal(
-          Exception('Slow frame: ${totalMs}ms (build=$buildMs raster=$rasterMs)'),
+          Exception(v.message),
           StackTrace.current,
           reason: 'jank_watchdog',
         );
         record(kind: 'event', level: 'warn', message: 'slow_frame', context: {
-          'total_ms': totalMs,
-          'build_ms': buildMs,
-          'raster_ms': rasterMs,
+          'work_ms': v.workMs,
+          'build_ms': v.buildMs,
+          'raster_ms': v.rasterMs,
+          'total_ms': v.totalMs,
+          'idle_ms': v.idleMs,
         });
         break; // one report per callback batch is enough signal
       }

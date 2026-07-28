@@ -123,6 +123,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     try {
       await DerivationEngine(
         log: (l) => debugPrint('[bgsync-derive] $l'),
+        background: true,
       ).run(await _loadProfile());
     } catch (e) {
       debugPrint('[bgsync] derive skipped: $e');

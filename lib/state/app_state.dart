@@ -1968,13 +1968,18 @@ class AppState extends ChangeNotifier {
       if (last != null && now.difference(last) < const Duration(minutes: 15)) {
         return;
       }
-      _lastBatteryForecastAt = now;
 
       final prefs = await NotificationPrefs.load();
       final nowMin = now.hour * 60 + now.minute;
       if (!BatteryForecaster.inEveningWindow(nowMin, prefs.quietStartMin)) {
         return;
       }
+      // Stamped only once the cheap checks have PASSED, so the throttle governs
+      // the expensive work (a few hundred rows off `band_battery`) rather than
+      // the clock check. Stamping earlier meant a tick that arrived just before
+      // the evening window opened would push the first real forecast back by up
+      // to another 15 minutes for no reason.
+      _lastBatteryForecastAt = now;
 
       final rows = await LocalDb.recentBandBatterySamples(limit: 400);
       final samples = <BatterySample>[

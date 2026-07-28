@@ -209,6 +209,35 @@ void main() {
       expect(w, DateTime(2026, 7, 29, 7, 0));
       expect(w.isAfter(n), isTrue);
     });
+
+    test('the WALL-CLOCK hour is preserved when rolling to tomorrow', () {
+      // This is the property DST breaks. `add(Duration(days: 1))` is absolute
+      // elapsed time, so across a transition it lands at 06:00 or 08:00 rather
+      // than the 07:00 the user set — and hours-to-wake, and everything built
+      // on it, shifts by an hour. Asserting the wall clock rather than the
+      // instant is what makes the constructor-vs-Duration distinction visible.
+      // (In a UTC test environment there is no transition to cross, so this
+      // pins the intent; the guarantee itself lives in the constructor.)
+      for (final month in [1, 3, 6, 10, 11]) {
+        final n = DateTime(2026, month, 28, 23, 30);
+        final w = BatteryForecaster.nextWakeTime(n, 7 * 60);
+        expect(w.hour, 7, reason: 'month $month');
+        expect(w.minute, 0, reason: 'month $month');
+        expect(w.isAfter(n), isTrue);
+      }
+    });
+
+    test('rolls correctly across a month end', () {
+      final n = DateTime(2026, 1, 31, 23, 0);
+      expect(BatteryForecaster.nextWakeTime(n, 7 * 60),
+          DateTime(2026, 2, 1, 7, 0));
+    });
+
+    test('rolls correctly across a year end', () {
+      final n = DateTime(2026, 12, 31, 23, 0);
+      expect(BatteryForecaster.nextWakeTime(n, 6 * 60 + 30),
+          DateTime(2027, 1, 1, 6, 30));
+    });
   });
 
   group('inEveningWindow — only warn while it is still actionable', () {
@@ -259,5 +288,27 @@ void main() {
       wakeAt: wake,
     );
     expect(BatteryForecaster.describe(real, wakeAt: wake), contains('%/h'));
+  });
+
+  test('describe() only claims "before you wake" when that is actually true',
+      () {
+    // Dies at ~07:30 on this rate — i.e. AFTER a 07:00 wake.
+    final survives = f.forecast(
+      samples: run(endPct: 40, ratePctPerHour: 2),
+      now: now,
+      wakeAt: wake,
+    );
+    expect(survives.predictedEmptyAt!.isAfter(wake), isTrue);
+    expect(BatteryForecaster.describe(survives, wakeAt: wake),
+        isNot(contains('before you wake')),
+        reason: 'the text must follow the numbers, not the call site');
+
+    final dies = f.forecast(
+      samples: run(endPct: 15, ratePctPerHour: 2),
+      now: now,
+      wakeAt: wake,
+    );
+    expect(BatteryForecaster.describe(dies, wakeAt: wake),
+        contains('before you wake'));
   });
 }

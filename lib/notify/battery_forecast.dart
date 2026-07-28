@@ -289,17 +289,19 @@ class BatteryForecaster {
   /// DateTime. Minutes-from-midnight in, absolute instant out — kept here so
   /// the wrap-past-midnight arithmetic is unit-tested rather than inlined at
   /// the call site.
+  ///
+  /// Rolls to tomorrow via the DateTime CONSTRUCTOR, never `add(Duration(days:
+  /// 1))`. A Duration is absolute elapsed time, so across a DST boundary
+  /// "+24 h" lands an hour either side of the wall-clock time the user actually
+  /// set — which would then skew hours-to-wake and the projection built on it.
+  /// The constructor normalises a day overflow (day 32 → the 1st) while keeping
+  /// the wall-clock hour fixed, which is the property that matters here.
   static DateTime nextWakeTime(DateTime now, int wakeMinuteOfDay) {
-    final today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      wakeMinuteOfDay ~/ 60,
-      wakeMinuteOfDay % 60,
-    );
-    return today.isAfter(now)
-        ? today
-        : today.add(const Duration(days: 1));
+    final h = wakeMinuteOfDay ~/ 60;
+    final m = wakeMinuteOfDay % 60;
+    final today = DateTime(now.year, now.month, now.day, h, m);
+    if (today.isAfter(now)) return today;
+    return DateTime(now.year, now.month, now.day + 1, h, m);
   }
 
   /// True when [nowMinuteOfDay] sits in the run-up to bedtime.
@@ -327,6 +329,12 @@ class BatteryForecaster {
 
   /// Human-readable one-liner for the notification body. Kept next to the model
   /// so the numbers and the words can never drift apart.
+  /// The "before you wake" clause is CONDITIONAL on the forecast actually
+  /// saying so, rather than assumed. Today the only caller gates on
+  /// [willNotSurvive] first, so the claim happens to hold — but a function
+  /// whose text asserts an invariant it never checks is one refactor away from
+  /// lying, and a UI surface showing a survivable forecast is the obvious next
+  /// caller. Check it here instead of relying on where it is called from.
   static String describe(BatteryForecast f, {required DateTime wakeAt}) {
     final rate = f.drainPctPerHour;
     final pct = f.currentPct;
@@ -334,8 +342,10 @@ class BatteryForecaster {
     if (rate == null || pct == null || empty == null) return '';
     final h = empty.hour.toString().padLeft(2, '0');
     final m = empty.minute.toString().padLeft(2, '0');
-    return 'At ${rate.toStringAsFixed(1)}%/h it runs out around $h:$m — '
-        'before you wake. Charge it now to keep tonight\'s sleep.';
+    final head = 'At ${rate.toStringAsFixed(1)}%/h it runs out around $h:$m';
+    return empty.isBefore(wakeAt)
+        ? '$head — before you wake. Charge it now to keep tonight\'s sleep.'
+        : '$head, after your usual wake time.';
   }
 
   /// Whole hours remaining at the current rate, for compact UI. Null when the

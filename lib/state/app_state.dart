@@ -46,6 +46,7 @@ import '../gps/gps_source.dart';
 import '../gps/route_tracker.dart';
 import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
+import '../notify/battery_forecast.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
@@ -179,6 +180,12 @@ class AppState extends ChangeNotifier {
   bool? _widgetBattCharging;
   String? _widgetBattName;
   int? _storedBatteryPct;
+
+  /// Last time the overnight battery forecast ran. `_onEngineState` fires on
+  /// every device-state update, and the forecast reads a few hundred rows, so
+  /// it is throttled rather than run per tick. The user-visible fire-once
+  /// guarantee comes from the dedupeKey, not from this.
+  DateTime? _lastBatteryForecastAt;
   bool? _storedBatteryCharging;
   bool? _storedBatteryWristOn;
   bool initialized = false;
@@ -1939,6 +1946,70 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// "Charge it now or lose tonight" — the one battery warning that is about
+  /// DATA rather than about the battery.
+  ///
+  /// A band that dies at 03:00 costs the whole night: no nocturnal HRV, no
+  /// stages, no recovery score in the morning, and a hole in the rolling
+  /// baselines that quietly degrades baseline-relative metrics for days. The
+  /// band has been reporting battery every few minutes and we have been
+  /// persisting it all along, so the drain rate needed to see this coming was
+  /// already on disk.
+  ///
+  /// Deliberately conservative. It fires only in the evening run-up to bedtime
+  /// (while there is still time to act), only when the projection actually
+  /// lands under the reserve, and never on an abstention — an unknown rate must
+  /// stay silent, because the user can always read the battery number
+  /// themselves and a false "you're fine" is worse than no message at all.
+  Future<void> _maybeWarnOvernightBattery() async {
+    try {
+      final now = DateTime.now();
+      final last = _lastBatteryForecastAt;
+      if (last != null && now.difference(last) < const Duration(minutes: 15)) {
+        return;
+      }
+      _lastBatteryForecastAt = now;
+
+      final prefs = await NotificationPrefs.load();
+      final nowMin = now.hour * 60 + now.minute;
+      if (!BatteryForecaster.inEveningWindow(nowMin, prefs.quietStartMin)) {
+        return;
+      }
+
+      final rows = await LocalDb.recentBandBatterySamples(limit: 400);
+      final samples = <BatterySample>[
+        for (final r in rows)
+          if (r['battery_pct'] != null && r['ts'] != null)
+            BatterySample(
+              tsSec: (r['ts'] as num).toInt(),
+              pct: (r['battery_pct'] as num).toDouble(),
+              charging: (r['charging'] as num?)?.toInt() == 1,
+            ),
+      ];
+
+      const forecaster = BatteryForecaster();
+      final wakeAt = BatteryForecaster.nextWakeTime(now, prefs.quietEndMin);
+      final f = forecaster.forecast(samples: samples, now: now, wakeAt: wakeAt);
+      if (!forecaster.willNotSurvive(f)) return;
+
+      final day = todayLabel(now);
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$day:battery_overnight',
+          category: NotifCategory.device,
+          title: 'Charge your strap before bed',
+          body: BatteryForecaster.describe(f, wakeAt: wakeAt),
+          date: day,
+          route: '/profile',
+        ),
+      );
+    } catch (e) {
+      // A forecast is a nicety; it must never take down the state update that
+      // carries the actual band data.
+      _log('[battery-forecast] skipped: $e');
+    }
+  }
+
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
@@ -1960,6 +2031,9 @@ class AppState extends ChangeNotifier {
         ),
       );
     }
+    // A fresh battery reading is exactly when the overnight forecast is worth
+    // re-running — and only then, so this costs nothing on idle ticks.
+    unawaited(_maybeWarnOvernightBattery());
     // Heal a stale/garbled persisted serial: once the band reports a clean serial
     // (HELLO body, fixed offset), persist it so the disconnected display stops
     // showing any old "?*" junk left by a previous build. HEAL ONLY — see
@@ -2337,6 +2411,23 @@ class AppState extends ChangeNotifier {
     if (!isConnected) throw Exception('Connect to your strap first');
     await engine.buzzPattern(pattern);
   }
+
+  /// Pulse the strap so it can be heard/felt during a find-my-strap hunt.
+  /// Unlike [testAlarmBuzz] this NEVER throws — the hunt screen fires it on a
+  /// timer and a momentary disconnect must not surface as an error dialog.
+  Future<void> buzzBand() async {
+    if (!isConnected) return;
+    try {
+      await engine.buzz();
+    } catch (_) {
+      // Best-effort by design: the next tick will try again.
+    }
+  }
+
+  /// Live signal strength of the band in dBm, or null when unmeasurable.
+  /// Deliberately raw — all smoothing and labelling belongs to
+  /// ProximityTracker, which is testable without a radio.
+  Future<int?> readBandRssi() => engine.readRssi();
 
   Future<void> disableAlarm() async {
     if (!isConnected) throw Exception('Connect to your strap first');

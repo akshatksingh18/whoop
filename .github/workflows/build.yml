@@ -65,6 +65,38 @@ jobs:
           fi
           echo "versionCode $build (versionName $name) OK — exceeds prior max $max."
 
+          # The iOS EMBEDDED bundles (widget extension, Watch app) build their
+          # Info.plist from Xcode build settings — GENERATE_INFOPLIST_FILE=YES —
+          # not from pubspec. Only the Runner target reads $(FLUTTER_BUILD_NAME),
+          # because Flutter's Generated.xcconfig is in scope for that target
+          # alone. So MARKETING_VERSION / CURRENT_PROJECT_VERSION in
+          # project.pbxproj are a SECOND, hand-maintained source of truth, and
+          # when they fall behind a pubspec bump the embedded bundles ship the
+          # old version. Apple rejects that outright — an extension or WatchKit
+          # app whose CFBundleShortVersionString differs from the host app fails
+          # App Store validation — so the whole upload bounces after the build.
+          #
+          # Pointing them at $(FLUTTER_BUILD_NAME) does NOT work: the variable is
+          # undefined for those targets and the versions come out EMPTY. Verified
+          # by building and reading the compiled bundles. So they stay literal,
+          # and this guard is what keeps them honest.
+          pbx=ios/Runner.xcodeproj/project.pbxproj
+          bad=0
+          for mv in $(grep -oE 'MARKETING_VERSION = [0-9][^;]*;' "$pbx" | awk '{print $3}' | tr -d ';' | sort -u); do
+            if [ "$mv" != "$name" ]; then
+              echo "::error::$pbx has MARKETING_VERSION $mv but pubspec versionName is $name — the iOS widget/Watch bundles would ship $mv and App Store validation would reject the upload."
+              bad=1
+            fi
+          done
+          for cv in $(grep -oE 'CURRENT_PROJECT_VERSION = [0-9][^;]*;' "$pbx" | awk '{print $3}' | tr -d ';' | sort -u); do
+            if [ "$cv" != "$build" ]; then
+              echo "::error::$pbx has CURRENT_PROJECT_VERSION $cv but pubspec build is $build — embedded bundles would ship a mismatched CFBundleVersion."
+              bad=1
+            fi
+          done
+          [ "$bad" = 0 ] || exit 1
+          echo "iOS embedded-bundle versions match pubspec ($name / $build)."
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

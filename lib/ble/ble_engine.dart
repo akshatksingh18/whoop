@@ -667,11 +667,9 @@ class BleEngine {
   int _corruptClockReadCount = 0;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
-  // Consecutive auto-continue rounds that banked NOTHING. A productive round
-  // resets it, so a large backlog is not cut short by the round cap.
-  int _autoContinueCount = 0;
-  // Wall-clock start of the current auto-continue run, or null when not in one.
-  double? _autoContinueStartedAt;
+  // Run-state for a chain of auto-continued offload rounds: how many
+  // consecutive rounds banked nothing, and when the chain started.
+  final AutoContinueRun _autoContinue = AutoContinueRun();
   double _lastBackfillAt = 0; // monotonic-ish secs of the last offload trigger
   double? _lastHistoricalSendAt; // last actual SEND_HISTORICAL_DATA wall time
   int _emptyStreak = 0; // consecutive empty offloads (BackfillPolicy backoff)
@@ -1147,8 +1145,7 @@ class BleEngine {
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
       _burstMismatchStreak = 0;
-      _autoContinueCount = 0;
-      _autoContinueStartedAt = null;
+      _autoContinue.end();
       _lastBackfillAt = 0;
       _successfulBursts = 0;
       _lastHpsTerminal = null;
@@ -2552,27 +2549,26 @@ class BleEngine {
     // still has real backlog and the cursor advanced — but cap per connection.
     // Read BEFORE resetOffloadCounters() wipes them.
     final productive = d.recordsThisOffload > 0 && d.lastTrimAdvanced;
+    // Clear the streak BEFORE the gate: a capped streak must not block the
+    // round that just proved there is more to fetch.
+    _autoContinue.observe(productive: productive);
     final cont = BackfillContinuation.shouldAutoContinue(
       stillConnected: _session?.connected == true,
       strapNewestTs: _sessionNewestUnix,
       ourFrontierTs: _recordGate.frontierTs,
       rowsPersistedThisSession: d.recordsThisOffload,
       lastTrimAdvanced: d.lastTrimAdvanced,
-      consecutiveUnproductiveCount: _autoContinueCount,
-      elapsedSeconds: _autoContinueStartedAt == null
-          ? 0
-          : _wallSecs() - _autoContinueStartedAt!,
+      consecutiveUnproductiveCount: _autoContinue.unproductiveStreak,
+      elapsedSeconds: _autoContinue.elapsed(_wallSecs()),
     );
     d.resetOffloadCounters();
     if (cont) {
-      _autoContinueStartedAt ??= _wallSecs();
-      // Only unproductive rounds spend the budget — see shouldAutoContinue.
-      _autoContinueCount = productive ? 0 : _autoContinueCount + 1;
+      _autoContinue.continued(productive: productive, now: _wallSecs());
       _log('[SYNC] auto-continue — more backlog remains '
-          '(unproductive streak $_autoContinueCount).');
+          '(unproductive streak ${_autoContinue.unproductiveStreak}).');
       await _triggerBackfill(BackfillTrigger.autoContinue);
     } else {
-      _autoContinueStartedAt = null;
+      _autoContinue.end();
       // nothing left to continue - this offload cycle is genuinely done
       // either way (clean completion or not), so maintenance traffic
       // (heartbeat/keepalive/RTC re-verify/live re-arm/battery poll) can

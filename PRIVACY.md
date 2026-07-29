@@ -69,9 +69,10 @@ so to be specific about it:
   uploaded, but drawing a map under it requires downloading the map squares it
   covers from CARTO (basemaps.cartocdn.com), a third-party tile provider. That
   request tells CARTO which part of the world you are looking at, and their
-  server sees your IP address. It happens only while a map is on screen, it
-  carries no health data and no account, and no map is fetched if you never
-  open one.
+  server sees your IP address. It happens only while a map is being drawn:
+  opening a route, or rendering the map into a share image. The request carries
+  no health data and no account, and nothing is fetched if you never open a
+  route.
 - **The one exception is you.** If you tap Share on a workout, the image you
   are shown includes a picture of your route, and whatever you send it to
   receives it. That is your choice, you see the image before it is sent, and it

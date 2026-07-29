@@ -58,6 +58,16 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
+
+          # pubspec_overrides.yaml is gitignored and local-dev only. If one ever
+          # arrives in the tree, `flutter pub get` below picks it up
+          # automatically and CI silently stops testing the pinned SHAs.
+          if [ -e pubspec_overrides.yaml ]; then
+            echo "::error::pubspec_overrides.yaml is present in CI — dependency"
+            echo "::error::resolution would use local paths instead of the pins."
+            fail=1
+          fi
+
           for pkg in openstrap_protocol openstrap_analytics; do
             block=$(awk -v p="  $pkg:" '$0==p{f=1;next} /^  [a-z_]+:/{f=0} f' pubspec.lock)
 

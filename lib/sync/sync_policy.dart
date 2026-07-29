@@ -234,6 +234,44 @@ class HistoricalSyncCommandPolicy {
   }
 }
 
+/// Run-state for a chain of auto-continued offload rounds.
+///
+/// Kept separate from [BackfillContinuation] (which is a pure decision) because
+/// the ORDER these transitions happen in is itself the thing that goes wrong:
+/// a productive round has to clear the unproductive streak BEFORE the gate is
+/// consulted, or a streak already at the cap blocks the very round that is
+/// making progress.
+class AutoContinueRun {
+  int _unproductive = 0;
+  double? _startedAt;
+
+  int get unproductiveStreak => _unproductive;
+  bool get active => _startedAt != null;
+
+  /// Seconds since this run's first auto-continue, or 0 if no run is active.
+  double elapsed(double now) => _startedAt == null ? 0 : now - _startedAt!;
+
+  /// Call once per finished round, BEFORE consulting [BackfillContinuation].
+  /// A round that banked records and advanced the trim token has proven there
+  /// is more to fetch, so it does not spend the budget.
+  void observe({required bool productive}) {
+    if (productive) _unproductive = 0;
+  }
+
+  /// Call when the gate said continue.
+  void continued({required bool productive, required double now}) {
+    _startedAt ??= now;
+    if (!productive) _unproductive++;
+  }
+
+  /// Call when the gate said stop — the chain is over, so the next one starts
+  /// with a full budget. New runs are still rate-limited by the backfill floor.
+  void end() {
+    _startedAt = null;
+    _unproductive = 0;
+  }
+}
+
 // ── continuation: re-kick immediately instead of waiting 15 min ──────────────
 class BackfillContinuation {
   static const int defaultMaxAutoContinues = 6;

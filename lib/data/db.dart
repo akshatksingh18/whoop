@@ -1632,12 +1632,14 @@ class LocalDb {
       'CREATE INDEX IF NOT EXISTS idx_decoded_rr_counter ON decoded_rr(counter, beat_index)',
     );
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_rr_ts ON decoded_rr(rr_ts_ms)',
-    );
-    await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_rr_ts_beat_unique '
       'ON decoded_rr(rr_ts_ms, beat_index)',
     );
+    // idx_decoded_rr_ts(rr_ts_ms) was a strict prefix of the unique index
+    // above, so SQLite could already serve every rr_ts_ms lookup and ordering
+    // from it. The narrower index only added a second b-tree to maintain on
+    // the hottest write path in the app.
+    await db.execute('DROP INDEX IF EXISTS idx_decoded_rr_ts');
   }
 
   /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
@@ -4528,6 +4530,44 @@ class LocalDb {
       deleted += await txn.delete('band_battery',
           where: 'ts < ?', whereArgs: [cutoffSec]);
     });
+    return deleted;
+  }
+
+  /// Drop recomputable per-day intermediates left behind by superseded
+  /// algorithm versions.
+  ///
+  /// `sleep_session_candidates` and `wake_day_features` are keyed
+  /// (day_id, algo_version), so every kAlgoVersion bump writes a whole new
+  /// generation beside the old one and nothing ever removed the old one — the
+  /// tables grow without bound across releases. Neither is durable ledger:
+  /// both are derived from `decoded_*` and rewritten whenever a day is
+  /// re-derived.
+  ///
+  /// [keepVersions] generations are retained, newest first. Keeping more than
+  /// one matters: a user on a GitHub release can roll back to the previous
+  /// build, and pruning down to only the current version would leave that build
+  /// with nothing to read.
+  static Future<int> pruneSupersededIntermediates({int keepVersions = 2}) async {
+    if (keepVersions < 1) return 0;
+    final db = await instance;
+    var deleted = 0;
+    for (final table in const [
+      'sleep_session_candidates',
+      'wake_day_features',
+    ]) {
+      final versions = (await db.rawQuery(
+        'SELECT DISTINCT algo_version FROM $table ORDER BY algo_version DESC',
+      ))
+          .map((r) => r['algo_version'] as int)
+          .toList();
+      if (versions.length <= keepVersions) continue;
+      final cutoff = versions[keepVersions - 1];
+      deleted += await db.delete(
+        table,
+        where: 'algo_version < ?',
+        whereArgs: [cutoff],
+      );
+    }
     return deleted;
   }
 

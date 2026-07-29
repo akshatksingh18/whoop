@@ -8,12 +8,17 @@ permissions:
   contents: write       # needed to create the GitHub Release
 
 jobs:
-  android:
+  # PREFLIGHT. Every version guard lives here, in its own job, and BOTH
+  # release jobs depend on it. It used to sit inside `android`, which meant
+  # a version mismatch failed the APK while the `ios` job — having no
+  # `needs:` — carried on and published an IPA anyway. The iOS bundle guard
+  # in particular was protecting a job it could not stop.
+  preflight:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # need all tags so the versionCode guard can read prior releases' pubspec
+          fetch-depth: 0   # all tags, so the versionCode guard can read prior releases' pubspec
 
       # Fail the release BEFORE building if the Android versionCode is missing or
       # would go backwards. Flutter derives versionCode from the `+BUILD` suffix
@@ -80,22 +85,76 @@ jobs:
           # undefined for those targets and the versions come out EMPTY. Verified
           # by building and reading the compiled bundles. So they stay literal,
           # and this guard is what keeps them honest.
-          pbx=ios/Runner.xcodeproj/project.pbxproj
-          bad=0
-          for mv in $(grep -oE 'MARKETING_VERSION = [0-9][^;]*;' "$pbx" | awk '{print $3}' | tr -d ';' | sort -u); do
-            if [ "$mv" != "$name" ]; then
-              echo "::error::$pbx has MARKETING_VERSION $mv but pubspec versionName is $name — the iOS widget/Watch bundles would ship $mv and App Store validation would reject the upload."
-              bad=1
-            fi
-          done
-          for cv in $(grep -oE 'CURRENT_PROJECT_VERSION = [0-9][^;]*;' "$pbx" | awk '{print $3}' | tr -d ';' | sort -u); do
-            if [ "$cv" != "$build" ]; then
-              echo "::error::$pbx has CURRENT_PROJECT_VERSION $cv but pubspec build is $build — embedded bundles would ship a mismatched CFBundleVersion."
-              bad=1
-            fi
-          done
-          [ "$bad" = 0 ] || exit 1
-          echo "iOS embedded-bundle versions match pubspec ($name / $build)."
+          #
+          # The check is per build-configuration, not a flat grep over the file.
+          # A configuration with GENERATE_INFOPLIST_FILE=YES builds its Info.plist
+          # from these settings and must carry LITERAL versions matching pubspec;
+          # the Runner configurations have no such flag and correctly use
+          # $(FLUTTER_BUILD_*), because Runner's checked-in Info.plist substitutes
+          # them. Matching only values that start with a digit would skip a
+          # variable-valued setting entirely and silently pass the exact
+          # misconfiguration that ships empty versions.
+          VERSION_NAME="$name" VERSION_BUILD="$build" python3 - <<'PY'
+          import os, re, sys
+
+          name  = os.environ['VERSION_NAME']
+          build = os.environ['VERSION_BUILD']
+          pbx   = 'ios/Runner.xcodeproj/project.pbxproj'
+          why   = ('App Store validation rejects an embedded bundle whose version '
+                   'differs from the host app, so the upload bounces after the build.')
+
+          bad, checked = [], 0
+          for m in re.finditer(r'/\* (\w+) \*/ = \{\s*isa = XCBuildConfiguration;(.*?)\n\t\t\};',
+                               open(pbx).read(), re.S):
+              cfg, body = m.groups()
+              if not re.search(r'\bGENERATE_INFOPLIST_FILE = YES;', body):
+                  continue          # Runner: versions come from Runner/Info.plist
+              checked += 1
+              for key, want in (('MARKETING_VERSION', name), ('CURRENT_PROJECT_VERSION', build)):
+                  found = re.search(r'\b%s = ([^;]+);' % key, body)
+                  if not found:
+                      bad.append('%s: %s config has no %s, so its generated Info.plist '
+                                 'would omit the version. %s' % (pbx, cfg, key, why))
+                      continue
+                  val = found.group(1).strip().strip('"')
+                  if '$(' in val:
+                      bad.append('%s: %s config has %s = %s -- that build variable is '
+                                 'undefined for this target and produces an EMPTY version. %s'
+                                 % (pbx, cfg, key, val, why))
+                  elif val != want:
+                      bad.append('%s: %s config has %s = %s but pubspec says %s. %s'
+                                 % (pbx, cfg, key, val, want, why))
+
+          if checked == 0:
+              print('::error::%s: found no GENERATE_INFOPLIST_FILE build configurations -- '
+                    'the iOS version guard is no longer checking anything.' % pbx)
+              sys.exit(1)
+
+          # The other half of the mechanism: the main app must keep tracking pubspec.
+          plist = open('ios/Runner/Info.plist').read()
+          for key, var in (('CFBundleShortVersionString', '$(FLUTTER_BUILD_NAME)'),
+                           ('CFBundleVersion', '$(FLUTTER_BUILD_NUMBER)')):
+              got = re.search(r'<key>%s</key>\s*<string>([^<]*)</string>' % key, plist)
+              if not got or got.group(1).strip() != var:
+                  bad.append('ios/Runner/Info.plist: %s is %s, expected %s -- the main app '
+                             'would stop tracking pubspec and this guard would stop meaning '
+                             'anything.' % (key, got.group(1).strip() if got else 'absent', var))
+
+          for b in bad:
+              print('::error::%s' % b)
+          if bad:
+              sys.exit(1)
+          print('iOS embedded-bundle versions match pubspec (%s / %s) across %d build '
+                'configurations.' % (name, build, checked))
+          PY
+
+  android:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need all tags so the versionCode guard can read prior releases' pubspec
 
       - uses: actions/setup-java@v4
         with:
@@ -189,6 +248,7 @@ jobs:
   # run`/Xcode direct install), where $(APP_BUNDLE_IDENTIFIER) threads through
   # every target's plist, including this one, at build time.
   ios:
+    needs: preflight
     runs-on: macos-latest
     permissions:
       contents: write

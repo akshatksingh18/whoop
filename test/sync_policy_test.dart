@@ -178,13 +178,15 @@ void main() {
       int rows = 50,
       bool trimAdvanced = true,
       int count = 0,
+      double elapsed = 0,
     }) => BackfillContinuation.shouldAutoContinue(
       stillConnected: connected,
       strapNewestTs: strapNewest,
       ourFrontierTs: frontier,
       rowsPersistedThisSession: rows,
       lastTrimAdvanced: trimAdvanced,
-      consecutiveCount: count,
+      consecutiveUnproductiveCount: count,
+      elapsedSeconds: elapsed,
     );
 
     test('continues when strap is >5min ahead and trim advanced', () {
@@ -195,9 +197,21 @@ void main() {
       () => expect(cont(connected: false), isFalse),
     );
     test(
-      'stops at the per-connection cap',
+      'stops at the unproductive-round cap',
       () => expect(cont(count: 6), isFalse),
     );
+    test('stops once the run exceeds its time ceiling', () {
+      expect(cont(elapsed: 599), isTrue);
+      expect(cont(elapsed: 600), isFalse);
+    });
+    test('a long productive backlog is not cut short by the round cap', () {
+      // Productive rounds keep the unproductive streak at 0, so continuation
+      // survives far past maxAutoContinues rounds.
+      for (var round = 0; round < 50; round++) {
+        expect(cont(count: 0, rows: 200, elapsed: round * 5.0), isTrue,
+            reason: 'round $round');
+      }
+    });
     test(
       'stops when the cursor did not advance (spin guard)',
       () => expect(cont(trimAdvanced: false), isFalse),

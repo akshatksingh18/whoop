@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # all tags, so the versionCode guard can read prior releases' pubspec
+          persist-credentials: false   # nothing here writes to the repo
 
       # Fail the release BEFORE building if the Android versionCode is missing or
       # would go backwards. Flutter derives versionCode from the `+BUILD` suffix
@@ -152,9 +153,13 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
+      # Shallow: the guard that needed full tag history now runs in `preflight`, and
+      # nothing in this job reads git. `generate_release_notes` builds its diff on
+      # GitHub's side from the tag, not from local history — the ios job has always
+      # run shallow and attaches to the same release without trouble.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # need all tags so the versionCode guard can read prior releases' pubspec
+          persist-credentials: false   # nothing here writes to the repo
 
       - uses: actions/setup-java@v4
         with:
@@ -254,6 +259,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here writes to the repo
 
       - uses: subosito/flutter-action@v2
         with:

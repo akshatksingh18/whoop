@@ -234,28 +234,82 @@ class HistoricalSyncCommandPolicy {
   }
 }
 
+/// Run-state for a chain of auto-continued offload rounds.
+///
+/// Kept separate from [BackfillContinuation] (which is a pure decision) because
+/// the ORDER these transitions happen in is itself the thing that goes wrong:
+/// a productive round has to clear the unproductive streak BEFORE the gate is
+/// consulted, or a streak already at the cap blocks the very round that is
+/// making progress.
+class AutoContinueRun {
+  int _unproductive = 0;
+  double? _startedAt;
+
+  int get unproductiveStreak => _unproductive;
+  bool get active => _startedAt != null;
+
+  /// Seconds since this run's first auto-continue, or 0 if no run is active.
+  double elapsed(double now) => _startedAt == null ? 0 : now - _startedAt!;
+
+  /// Call once per finished round, BEFORE consulting [BackfillContinuation].
+  /// A round that banked records and advanced the trim token has proven there
+  /// is more to fetch, so it does not spend the budget.
+  void observe({required bool productive}) {
+    if (productive) _unproductive = 0;
+  }
+
+  /// Call when the gate said continue.
+  void continued({required bool productive, required double now}) {
+    _startedAt ??= now;
+    if (!productive) _unproductive++;
+  }
+
+  /// Call when the gate said stop — the chain is over, so the next one starts
+  /// with a full budget. New runs are still rate-limited by the backfill floor.
+  void end() {
+    _startedAt = null;
+    _unproductive = 0;
+  }
+}
+
 // ── continuation: re-kick immediately instead of waiting 15 min ──────────────
 class BackfillContinuation {
   static const int defaultMaxAutoContinues = 6;
   static const int defaultBehindGapSeconds = 300;
 
+  /// Ceiling on one continuous auto-continue run, seconds. Rounds that are
+  /// making progress no longer spend [defaultMaxAutoContinues], so this is what
+  /// bounds the run — which is the right unit anyway, because what actually
+  /// runs out on a background wake is time, not rounds.
+  static const int defaultMaxAutoContinueSeconds = 600;
+
   /// Whether to immediately re-trigger an offload after a chunk drain / idle cap.
-  /// ALL gates must hold: still connected, under the per-connection cap, the trim
-  /// cursor actually advanced (not spinning on a frozen cursor), and either the
-  /// strap is genuinely >5 min ahead of our frontier OR this session persisted
-  /// real rows (the strap's reported "newest" can be stale — #451).
+  /// ALL gates must hold: still connected, inside the time ceiling, under the
+  /// unproductive-round cap, the trim cursor actually advanced (not spinning on
+  /// a frozen cursor), and either the strap is genuinely >5 min ahead of our
+  /// frontier OR this session persisted real rows (the strap's reported
+  /// "newest" can be stale — #451).
+  ///
+  /// [consecutiveUnproductiveCount] counts only rounds that banked nothing. A
+  /// round that banked records AND advanced the trim token has proven there is
+  /// more to fetch, so it must not consume the budget — otherwise a single
+  /// background wake stops after [maxAutoContinues] rounds no matter how far
+  /// behind the strap is, and the backlog outruns the sync.
   static bool shouldAutoContinue({
     required bool stillConnected,
     required int? strapNewestTs,
     required int? ourFrontierTs,
     required int rowsPersistedThisSession,
     required bool lastTrimAdvanced,
-    required int consecutiveCount,
+    required int consecutiveUnproductiveCount,
+    double elapsedSeconds = 0,
     int maxAutoContinues = defaultMaxAutoContinues,
     int behindGapSeconds = defaultBehindGapSeconds,
+    int maxAutoContinueSeconds = defaultMaxAutoContinueSeconds,
   }) {
     if (!stillConnected) return false;
-    if (consecutiveCount >= maxAutoContinues) return false;
+    if (elapsedSeconds >= maxAutoContinueSeconds) return false;
+    if (consecutiveUnproductiveCount >= maxAutoContinues) return false;
     if (!lastTrimAdvanced) return false;
     if (strapNewestTs != null && ourFrontierTs != null) {
       if ((strapNewestTs - ourFrontierTs) > behindGapSeconds) return true;

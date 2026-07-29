@@ -2498,6 +2498,13 @@ class DerivationEngine {
     if (deleted > 0) {
       _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
     }
+    // Superseded generations of the recomputable per-day intermediates. Runs
+    // here rather than inside the decoded prune so it stays off the path to a
+    // durable commit.
+    final stale = await LocalDb.pruneSupersededIntermediates();
+    if (stale > 0) {
+      _log('pruned $stale superseded intermediate rows');
+    }
   }
 
   static List<double> _perMinuteMeanWake(

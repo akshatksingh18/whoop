@@ -48,6 +48,53 @@ jobs:
           channel: stable
           cache: true
 
+      # `flutter pub get` run locally WITH pubspec_overrides.yaml present
+      # rewrites the tracked pubspec.lock to `path: ../analytics` and drops the
+      # resolved-ref, so the lock stops recording which sibling commit was
+      # actually tested. It is easy to do by accident — any local `flutter
+      # build` or `flutter test` triggers it — and it has reached main before.
+      # This runs BEFORE `pub get` so it inspects the committed file.
+      - name: Guard — the lock pins sibling commits, not local paths
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # pubspec_overrides.yaml is gitignored and local-dev only. If one ever
+          # arrives in the tree, `flutter pub get` below picks it up
+          # automatically and CI silently stops testing the pinned SHAs.
+          if [ -e pubspec_overrides.yaml ]; then
+            echo "::error::pubspec_overrides.yaml is present in CI — dependency"
+            echo "::error::resolution would use local paths instead of the pins."
+            fail=1
+          fi
+
+          for pkg in openstrap_protocol openstrap_analytics; do
+            block=$(awk -v p="  $pkg:" '$0==p{f=1;next} /^  [a-z_]+:/{f=0} f' pubspec.lock)
+
+            if printf '%s' "$block" | grep -qE '^\s+source: path'; then
+              echo "::error::pubspec.lock resolves $pkg from a local path."
+              echo "::error::Re-run: mv pubspec_overrides.yaml /tmp/ && flutter pub get && mv /tmp/pubspec_overrides.yaml ."
+              fail=1
+              continue
+            fi
+
+            locked=$(printf '%s' "$block" | grep -E '^\s+resolved-ref:' | head -1 | awk '{print $2}' | tr -d '"')
+            pinned=$(awk -v p="  $pkg:" '$0==p{f=1;next} /^  [a-z_]+:/{f=0} f' pubspec.yaml \
+              | grep -E '^\s+ref:' | head -1 | awk '{print $2}' | tr -d '"')
+
+            if [ -z "$locked" ] || [ -z "$pinned" ]; then
+              echo "::error::could not read a commit pin for $pkg (lock='$locked' pubspec='$pinned')."
+              fail=1
+            elif [ "$locked" != "$pinned" ]; then
+              echo "::error::$pkg pin drift — pubspec.yaml says $pinned, pubspec.lock resolved $locked."
+              echo "::error::A release citing a sibling change would not actually contain it."
+              fail=1
+            else
+              echo "$pkg pinned at $pinned, lock agrees."
+            fi
+          done
+          [ "$fail" = 0 ]
+
       # Sibling packages resolve from their pinned commit SHAs in pubspec.yaml.
       # There is no pubspec_overrides.yaml here — that file is gitignored and
       # local-dev only — so CI tests exactly the pins a release would ship.

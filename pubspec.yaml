@@ -35,24 +35,27 @@ dependencies:
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      # Tip of protocol main — OpenStrap/protocol#19 merged: bounded R-R counts,
-      # NaN accel rejection, v7/v9/v12/v18 routed through parseR24 so a
-      # historical record keeps its OWN timestamp instead of collapsing to
-      # capture time, alarm form dispatch, bounded battery.
-      # Verified present: `git show <sha>:lib/src/live.dart | grep kKnownRecordVersions`.
-      ref: a98cd7061346681db17a81844c300c46da118c02
+      # Tip of protocol main — OpenStrap/protocol#20 merged: the reassembler now
+      # checks the length-field crc8 before trusting it (a corrupted length byte
+      # used to consume up to 4092 bytes of good stream before this), and
+      # hexToBytes rejects odd-length hex instead of silently flooring it. This
+      # PR sat unpinned for a full day after merging — see fix/issues #22 for
+      # why (edge's own release pipeline shipped the pre-fix decoder).
+      # NOTE: this ref predates protocol fix/issues#21 (realtimeRr RR-bound,
+      # historical-family activity/steps_inc null-vs-0) — repin again once #21
+      # merges to pick those up too.
+      # Verified present: `git show <sha>:lib/src/framing.dart | grep 'crc8(Uint8List'`.
+      ref: 5bb8606964f2d94d9a73dc42c57416cb74282d52
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      # Tip of analytics main — OpenStrap/analytics#30 merged: the
-      # abstain-over-fabricate sweep, plus the step/activity rebuild on a
-      # calibration-invariant feature (dailyStepEstimate's new signature,
-      # personalDynFloorFromDailySummaries, dailyDynSummary — all called by
-      # lib/compute/).
+      # Tip of analytics main — OpenStrap/analytics#31 merged: cardioStager's
+      # per-epoch robustZ scale is now computed once per night instead of
+      # re-sorted every epoch (reviewed for DST/incremental-drain staleness —
+      # none found; it's a pure perf hoist).
       # Verified present at THIS sha, not assumed from the PR being merged:
-      # steps.dart carries the new API, rr_correction.dart has the signed-dRR
-      # `seg.add(x[k])`, advanced_stager.dart has maxAccelCarryForwardSec.
-      ref: f5ccae61cbc6a8083425ae0121b665deadcb421d
+      # cardio_stager.dart builds a RobustScale once and robustZ delegates to it.
+      ref: 5d421918b5111f0158ccdfd9fa7f99eda1fa87b4
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

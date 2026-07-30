@@ -709,6 +709,16 @@ class BleEngine {
 
   double _wallSecs() => DateTime.now().millisecondsSinceEpoch / 1000.0;
 
+  // A monotonic clock for measuring ELAPSED durations — never for wall-clock
+  // comparisons. DateTime.now() (see _wallSecs above) can jump backward
+  // mid-measurement (DST fall-back, a manual or NTP time correction), which
+  // would silently disable a duration-based cap built on it (the
+  // auto-continue run ceiling in particular). Started once and never reset;
+  // callers diff two readings of it, same shape as _wallSecs so they compose
+  // with existing double-seconds call sites like AutoContinueRun's.
+  final Stopwatch _monotonic = Stopwatch()..start();
+  double _monotonicSecs() => _monotonic.elapsedMicroseconds / 1e6;
+
   // Wall-clock of the last BLE notification received on ANY characteristic. iOS
   // can resume the app with the peripheral still flagged "connected" while its
   // GATT notifications silently died during suspension — the UI reads connected
@@ -2559,11 +2569,13 @@ class BleEngine {
       rowsPersistedThisSession: d.recordsThisOffload,
       lastTrimAdvanced: d.lastTrimAdvanced,
       consecutiveUnproductiveCount: _autoContinue.unproductiveStreak,
-      elapsedSeconds: _autoContinue.elapsed(_wallSecs()),
+      // Monotonic, not wall-clock: this ceiling must not un-arm itself if the
+      // phone's clock steps backward mid-chain.
+      elapsedSeconds: _autoContinue.elapsed(_monotonicSecs()),
     );
     d.resetOffloadCounters();
     if (cont) {
-      _autoContinue.continued(productive: productive, now: _wallSecs());
+      _autoContinue.continued(productive: productive, now: _monotonicSecs());
       _log('[SYNC] auto-continue — more backlog remains '
           '(unproductive streak ${_autoContinue.unproductiveStreak}).');
       await _triggerBackfill(BackfillTrigger.autoContinue);

@@ -72,7 +72,12 @@ for pkg in openstrap_protocol openstrap_analytics; do
   fi
   echo "$pkg pinned at $pinned, lock agrees."
 
-  if upstream="$(git ls-remote "https://github.com/OpenStrap/$repo.git" refs/heads/main 2>/dev/null | awk '{print $1}')" \
+  # Bounded: git ls-remote has no built-in timeout, and this whole probe is
+  # supposed to degrade to a warning on any network trouble — an unbounded
+  # hang on a stalled connection would instead wedge the job (test job or,
+  # worse, release preflight) until CI's own multi-hour job timeout, which is
+  # a much bigger failure than the staleness check it's guarding against.
+  if upstream="$(timeout --kill-after=5s 30s git ls-remote "https://github.com/OpenStrap/$repo.git" refs/heads/main 2>/dev/null | awk '{print $1}')" \
       && [ -n "$upstream" ]; then
     if [ "$upstream" != "$pinned" ]; then
       echo "::warning::$pkg is pinned at $pinned but $repo's main has moved to $upstream."

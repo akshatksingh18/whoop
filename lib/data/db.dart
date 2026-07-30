@@ -4574,16 +4574,24 @@ class LocalDb {
         final v = r['algo_version'] as int;
         (versionsByDay[day] ??= <int>[]).add(v);
       }
-      for (final entry in versionsByDay.entries) {
-        final versions = entry.value..sort((a, b) => b.compareTo(a));
-        if (versions.length <= keepVersions) continue;
-        final cutoff = versions[keepVersions - 1];
-        deleted += await db.delete(
-          table,
-          where: 'day_id = ? AND algo_version < ?',
-          whereArgs: [entry.key, cutoff],
-        );
-      }
+      // One transaction per table instead of one round-trip per day_id —
+      // right after a kAlgoVersion bump forces a bulk re-derive (or a user
+      // runs "Re-analyze data"), many days can cross the keepVersions
+      // threshold in the same pass, and un-batched deletes on iOS run under
+      // the same CPU-watchdog constraint the rest of derivation is careful
+      // about.
+      await db.transaction((txn) async {
+        for (final entry in versionsByDay.entries) {
+          final versions = entry.value..sort((a, b) => b.compareTo(a));
+          if (versions.length <= keepVersions) continue;
+          final cutoff = versions[keepVersions - 1];
+          deleted += await txn.delete(
+            table,
+            where: 'day_id = ? AND algo_version < ?',
+            whereArgs: [entry.key, cutoff],
+          );
+        }
+      });
     }
     return deleted;
   }

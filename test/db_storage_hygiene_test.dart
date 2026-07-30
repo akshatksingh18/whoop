@@ -86,4 +86,47 @@ void main() {
   test('pruning is a no-op when there is nothing superseded', () async {
     expect(await LocalDb.pruneSupersededIntermediates(), 0);
   });
+
+  test(
+      'a day stuck on an old version (raw aged out, never re-derived) is not '
+      'orphaned just because OTHER days reached newer versions', () async {
+    final db = await LocalDb.instance;
+    // '2026-06-01' only ever got derived once, at v48 — its raw substrate is
+    // long gone (raw retention is 3 days) so it can never write a v49/v50
+    // row of its own. Two unrelated recent days churn through v49 then v50.
+    await db.insert('sleep_session_candidates', {
+      'day_id': '2026-06-01',
+      'algo_version': 48,
+      'payload_json': '{"stale":true}',
+      'computed_at': 0,
+    });
+    for (final v in const [49, 50]) {
+      for (final day in const ['2026-07-28', '2026-07-29']) {
+        await db.insert('sleep_session_candidates', {
+          'day_id': day,
+          'algo_version': v,
+          'payload_json': '{}',
+          'computed_at': 0,
+        });
+      }
+    }
+
+    await LocalDb.pruneSupersededIntermediates();
+
+    final stale = await LocalDb.sleepSessionCandidate('2026-06-01', 48);
+    expect(stale, isNotNull,
+        reason:
+            'a table-wide "keep the 2 highest versions present anywhere" '
+            'cutoff would delete this the moment two OTHER days reach v49/50 '
+            '— it must be scoped per day_id instead');
+    expect(stale!['payload_json'], '{"stale":true}');
+
+    // The recent days still get their own per-day retention (49/50 kept,
+    // nothing older present to prune here).
+    final recent = (await db.rawQuery(
+      "SELECT DISTINCT algo_version FROM sleep_session_candidates "
+      "WHERE day_id = '2026-07-28' ORDER BY algo_version",
+    )).map((r) => r['algo_version'] as int).toList();
+    expect(recent, [49, 50]);
+  });
 }

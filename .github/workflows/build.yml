@@ -21,6 +21,15 @@ jobs:
           fetch-depth: 0   # all tags, so the versionCode guard can read prior releases' pubspec
           persist-credentials: false   # nothing here writes to the repo
 
+      # Shared with test.yml — but a tag push (this workflow's only trigger)
+      # never runs test.yml, so without this the pin-drift guard protected
+      # nothing about an actual release. Bit the project on 2026-07-30: edge
+      # shipped a full day pinned one merge behind protocol/analytics main,
+      # including a decoder fix for a bug that could eat up to 4092 bytes of
+      # good historical data, and no release-path check ever saw it.
+      - name: Guard — the lock pins sibling commits, and the pins aren't stale
+        run: bash .github/scripts/check_sibling_pins.sh
+
       # Fail the release BEFORE building if the Android versionCode is missing or
       # would go backwards. Flutter derives versionCode from the `+BUILD` suffix
       # of pubspec's `version:` and silently falls back to 1 when it's absent, so

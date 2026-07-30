@@ -4543,10 +4543,20 @@ class LocalDb {
   /// both are derived from `decoded_*` and rewritten whenever a day is
   /// re-derived.
   ///
-  /// [keepVersions] generations are retained, newest first. Keeping more than
-  /// one matters: a user on a GitHub release can roll back to the previous
-  /// build, and pruning down to only the current version would leave that build
-  /// with nothing to read.
+  /// [keepVersions] generations are retained per day_id, newest first.
+  /// Keeping more than one matters: a user on a GitHub release can roll back
+  /// to the previous build, and pruning down to only the current version
+  /// would leave that build with nothing to read for a day it never
+  /// re-derives (raw retention is 3 days; a day older than that only gets a
+  /// fresh-version row if something forces a re-derive).
+  ///
+  /// Scoped PER day_id, not table-wide. A table-wide "keep the 2 highest
+  /// versions present ANYWHERE" cutoff deletes a day's only cached
+  /// generation the moment any two OTHER days reach newer versions — not
+  /// when this day does — because a day whose raw substrate has already
+  /// aged out never re-enters the derive pipeline to write a newer row of
+  /// its own. That silently orphaned still-needed rows for days that can
+  /// never be re-derived.
   static Future<int> pruneSupersededIntermediates({int keepVersions = 2}) async {
     if (keepVersions < 1) return 0;
     final db = await instance;
@@ -4555,18 +4565,33 @@ class LocalDb {
       'sleep_session_candidates',
       'wake_day_features',
     ]) {
-      final versions = (await db.rawQuery(
-        'SELECT DISTINCT algo_version FROM $table ORDER BY algo_version DESC',
-      ))
-          .map((r) => r['algo_version'] as int)
-          .toList();
-      if (versions.length <= keepVersions) continue;
-      final cutoff = versions[keepVersions - 1];
-      deleted += await db.delete(
-        table,
-        where: 'algo_version < ?',
-        whereArgs: [cutoff],
+      final rows = await db.rawQuery(
+        'SELECT DISTINCT day_id, algo_version FROM $table',
       );
+      final versionsByDay = <String, List<int>>{};
+      for (final r in rows) {
+        final day = r['day_id'] as String;
+        final v = r['algo_version'] as int;
+        (versionsByDay[day] ??= <int>[]).add(v);
+      }
+      // One transaction per table instead of one round-trip per day_id —
+      // right after a kAlgoVersion bump forces a bulk re-derive (or a user
+      // runs "Re-analyze data"), many days can cross the keepVersions
+      // threshold in the same pass, and un-batched deletes on iOS run under
+      // the same CPU-watchdog constraint the rest of derivation is careful
+      // about.
+      await db.transaction((txn) async {
+        for (final entry in versionsByDay.entries) {
+          final versions = entry.value..sort((a, b) => b.compareTo(a));
+          if (versions.length <= keepVersions) continue;
+          final cutoff = versions[keepVersions - 1];
+          deleted += await txn.delete(
+            table,
+            where: 'day_id = ? AND algo_version < ?',
+            whereArgs: [entry.key, cutoff],
+          );
+        }
+      });
     }
     return deleted;
   }

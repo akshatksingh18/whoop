@@ -350,7 +350,19 @@ import 'substrate.dart';
 // green: steps.dart carries the new step API, rr_correction.dart has the
 // signed-dRR `seg.add(x[k])`, advanced_stager.dart has maxAccelCarryForwardSec,
 // live.dart has kKnownRecordVersions.
-const int kAlgoVersion = 50;
+
+// v51: edge#170 — autoDetectWorkouts' motion-confirmation gate (tuned for
+// arm-swing activities) silently dropped every low-limb-swing cardio window
+// (cycling/rowing: the wrist stays still on a handlebar/oar) no matter how
+// strong the HR signal was. analytics#32 (PR-branch head, pinned above —
+// repin to main once merged) adds an HR-ONSET bypass: the gate is skipped
+// only when mean bpm over the candidate's first 3 min rises >=25 bpm versus
+// the 3 min immediately before it (Whipp & Wasserman 1972 phase-II kinetics),
+// which fires on genuine exercise starts but NOT on slow-drifting elevations
+// (fever/heat/anxiety) that have no discernible onset — so this changes which
+// suggestions autoDetectWorkouts emits without loosening the false-positive
+// gate it exists to protect.
+const int kAlgoVersion = 51;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;

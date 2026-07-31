@@ -49,13 +49,16 @@ dependencies:
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      # Tip of analytics main — OpenStrap/analytics#31 merged: cardioStager's
-      # per-epoch robustZ scale is now computed once per night instead of
-      # re-sorted every epoch (reviewed for DST/incremental-drain staleness —
-      # none found; it's a pure perf hoist).
-      # Verified present at THIS sha, not assumed from the PR being merged:
-      # cardio_stager.dart builds a RobustScale once and robustZ delegates to it.
-      ref: 5d421918b5111f0158ccdfd9fa7f99eda1fa87b4
+      # PR-BRANCH HEAD, not main — OpenStrap/analytics#32 (fix/issue-170-...)
+      # is open, not yet merged. Repin to the merge commit on main once it
+      # lands (same pattern v49 used briefly for protocol/analytics PR heads).
+      # autoDetectWorkouts now bypasses the motion-confirmation gate on a
+      # genuine HR-onset (fast rise vs. immediately-preceding baseline),
+      # fixing low-limb-swing cardio (cycling/rowing) going undetected while
+      # still rejecting slow-drifting elevations (fever/heat/anxiety) that
+      # have no discernible onset.
+      # Verified present at THIS sha: `git show <sha>:lib/src/onehz/workout/auto_detect.dart | grep onsetRiseBpm`.
+      ref: 422c8b8b9631770b07bc571b6fbe904ef59e5052
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

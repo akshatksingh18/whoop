@@ -58,7 +58,10 @@ dependencies:
       # still rejecting slow-drifting elevations (fever/heat/anxiety) that
       # have no discernible onset.
       # Verified present at THIS sha: `git show <sha>:lib/src/onehz/workout/auto_detect.dart | grep onsetRiseBpm`.
-      ref: 422c8b8b9631770b07bc571b6fbe904ef59e5052
+      # Moved to the branch's new head (cbbe06a) after CodeRabbit caught a real
+      # off-by-one in the onset window on analytics#32 (earlyMean was 181s vs
+      # preMean's 180s) — fixed there, not worth a separate edge changelog line.
+      ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

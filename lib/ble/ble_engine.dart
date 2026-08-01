@@ -84,6 +84,35 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
+/// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
+/// or null when this record kind has no `Sample` equivalent (yet).
+///
+/// Only `Gen5HistorySample` (v18, the per-second stream) maps today — the
+/// deep buffers (`Gen5OpticalBuffer`/`Gen5ImuBuffer`/`Gen5PpgWaveform`, R22
+/// opt-in only) need their own raw-buffer storage, not a 1Hz `Sample`, so
+/// they (and a null [g], e.g. an unrecognised version) correctly return null
+/// here — the caller archives those, exactly like an undecodable gen4
+/// record. Extracted as a top-level pure function (rather than inlined in
+/// `_ingestHistoricalFrame`) so the mapping is unit-testable without a live
+/// BLE session — see `gen5_sample_mapping_test.dart`.
+@visibleForTesting
+Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
+  if (g is! Gen5HistorySample) return null;
+  return Sample(
+    tsEpoch: g.unix,
+    counter: g.recordIndex,
+    hr: g.heartRate,
+    rrIntervalsMs: List<int>.from(g.rrIntervalsMs),
+    // Gravity vector is float32 g-units on BOTH generations (unlike skin
+    // temp / SpO2, which use gen5-specific scales/mechanisms — see
+    // Gen5HistorySample's field docs) — safe to feed straight into the
+    // shared ax/ay/az fields analytics already reads band-agnostically.
+    ax: g.gravityG.isNotEmpty ? g.gravityG[0] : null,
+    ay: g.gravityG.length > 1 ? g.gravityG[1] : null,
+    az: g.gravityG.length > 2 ? g.gravityG[2] : null,
+  );
+}
+
 @visibleForTesting
 int countHistoricalBurstPackets({
   required Map<int, int> dataPacketCountsByRevision,
@@ -370,6 +399,15 @@ class BleEngine {
   final Duration Function() deriveDataStaleness;
   final bool Function() isForegroundActive;
 
+  /// Opt-in: send the gen5 "R22" 16-flag SET_CONFIG enable sequence
+  /// (`kGen5R22EnableFlags`) before the historical offload on a gen5 link,
+  /// unlocking the v20 (optical)/v21 (IMU)/v26 (PPG) deep buffers. Defaults to
+  /// OFF — the official WHOOP app never sends this either, the sequence is
+  /// UNTESTED on physical hardware, and without it a gen5 strap still serves
+  /// its always-on v18 per-second stream perfectly well. Wire a caller-owned
+  /// settings read here to make it a real user-facing toggle.
+  final bool Function() gen5DeepBuffersEnabled;
+
   BleEngine({
     required this.onRecord,
     required this.onState,
@@ -386,7 +424,10 @@ class BleEngine {
     this.isBackgroundDrainer = false,
     this.deriveDataStaleness = _defaultDeriveDataStaleness,
     this.isForegroundActive = _defaultIsForegroundActive,
+    this.gen5DeepBuffersEnabled = _defaultGen5DeepBuffersDisabled,
   });
+
+  static bool _defaultGen5DeepBuffersDisabled() => false;
 
   /// True for the headless restore-drain engine (runHeadlessSync). It YIELDS the
   /// band to a foreground engine rather than fighting it — see [_claimBand]. The
@@ -1146,6 +1187,7 @@ class BleEngine {
         return false;
       }
       session.applyBand(band);
+      state.generation = band.isGen5 ? 'gen5' : 'gen4';
       _log('Detected ${band.isGen5 ? "WHOOP 5 (gen5)" : "WHOOP 4 (gen4)"} link.');
       final gatt = band.gatt;
       BluetoothCharacteristic? find(String prefix) {
@@ -1604,7 +1646,17 @@ class BleEngine {
   }
 
   Future<bool> _send(int opcode, List<int> payload) async {
-    if (dangerousCmds.contains(opcode)) {
+    // `dangerousCmds` is this codebase's own gen4-curated hard-block list
+    // (FORCE_TRIM/REBOOT/POWER_CYCLE/TOGGLE_PERSISTENT_R21/firmware-load).
+    // `OpcodeSafety.destructive` is whoop-rs's independently-curated list of
+    // opcodes with NO legitimate use anywhere in EITHER codebase (142-144
+    // have no named meaning at all) — the two don't fully overlap, so both
+    // apply. Deliberately NOT `OpcodeSafety.forbidden`: that broader list
+    // also flags opcodes this app sends ON PURPOSE via named, reviewed call
+    // sites (SET_ADVERTISING_NAME/SELECT_WRIST/SET_CONFIG for the R22
+    // sequence/SET_CLOCK_MAVERICK) — see that class's own doc for why a
+    // blanket block on `forbidden` would be wrong here.
+    if (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode)) {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)}');
       return false;
     }
@@ -1793,7 +1845,19 @@ class BleEngine {
     } else if (pt == PacketType.consoleLogs && _offloadActive) {
       _drain?.onBurstConsole();
     }
-    final decoded = _maybeAugmentDataRange(frame, decodeFrame(frame));
+    final band = _session?.band ?? BandProfile.gen4;
+    final decoded = _maybeAugmentGen5ClockEpoch(
+      frame,
+      _maybeAugmentDataRange(frame, decodeFrame(frame, profile: band)),
+    );
+    // gen5-only, debug-visibility ONLY (never persisted, never gated on):
+    // log the strap's own console text (now decoded by protocol's
+    // `parseConsoleLog`, wired into `decodeFrame` above). Genuinely useful
+    // for diagnosing the untested gen5 handshake/offload on real hardware.
+    if (band.isGen5 && decoded.kind == 'console_log') {
+      _log('[CONSOLE gen5] idx=${decoded.fields['record_index']} '
+          'ts=${decoded.fields['ts_epoch']}: ${decoded.fields['text']}');
+    }
     _absorbState(decoded);
   }
 
@@ -1888,13 +1952,14 @@ class BleEngine {
     Sample? sample;
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
-      // gen5 (WHOOP 5) thin 1 Hz record: HR + timing only. Motion (K10/K21) and
-      // any unknown kind return null → archived to raw_archive below, exactly
-      // like an undecodable gen4 record. No accel/spo2/temp is fabricated.
-      final r = parseGen5Record(frame.inner);
-      if (r != null) {
-        sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
-      }
+      // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
+      // gen5 historical-record kinds (v18 per-second summary, v20 optical/
+      // v21 IMU/v26 PPG deep buffers — R22 opt-in only). Only v18 maps onto
+      // the band-agnostic `Sample` type today; the deep buffers need their
+      // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
+      // fall through to the undecodable archive below — that is honest
+      // (correctly-identified-but-not-yet-stored), not a decode failure.
+      sample = sampleFromGen5Historical(parseGen5Historical(frame.inner));
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
@@ -2114,6 +2179,16 @@ class BleEngine {
       state.batteryPct = h.batteryPct ?? state.batteryPct;
       state.wristOn = h.wristOn ?? state.wristOn;
       onState(state);
+    }
+    // gen5's GET_HELLO (opcode 145) response shape is unrelated to gen4's
+    // HelloInfo — it carries a device_name + a gated fw_version instead
+    // (parseCommandResponse's gen5 GET_HELLO branch). No confirmed serial/
+    // battery/wrist-on offsets for it yet, so — unlike gen4's HELLO above —
+    // this is diagnostics-only for now (confirms the untested gen5 handshake
+    // actually got a byte-parseable reply) rather than wired into `state`.
+    if (d.kind == 'cmd_response' && f.containsKey('device_name')) {
+      _log('[HELLO gen5] device_name=${f['device_name']} '
+          'fw_version=${f['fw_version']}');
     }
     if (d.kind == 'realtime_hr') {
       final hr = f['hr'] as int;
@@ -2517,6 +2592,11 @@ class BleEngine {
           'last_ack_batches': d.batches,
           'strap_history_oldest_ts': _strapHistoryOldestTs,
           'strap_history_newest_ts': _strapHistoryNewestTs,
+          // Which WHOOP generation this batch came from — records/sessions
+          // vary hugely in richness by generation (and, for gen5, by whether
+          // the R22 deep-buffer opt-in was sent), so downstream diagnostics
+          // need this without reaching into the transport layer.
+          'band_generation': state.generation,
         },
       ));
       // Same event, but a REAL per-chunk row keyed by the token — closes out
@@ -2576,6 +2656,7 @@ class BleEngine {
           'history_completions': _historyCompletions,
           'strap_history_oldest_ts': _strapHistoryOldestTs,
           'strap_history_newest_ts': _strapHistoryNewestTs,
+          'band_generation': state.generation,
         },
       ));
       _log(
@@ -2660,6 +2741,35 @@ class BleEngine {
   String _innerHex(Uint8List inner) =>
       inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
+  /// Send the gen5 "R22" 16-flag SET_CONFIG enable sequence
+  /// (protocol's `buildR22EnableSequence`/`kGen5R22EnableFlags`), unlocking
+  /// the v20 (optical)/v21 (IMU)/v26 (PPG) deep-buffer historical records.
+  /// Sequential, ~40ms apart (same spacing discipline as the gen4 5-packet
+  /// INIT) — the official WHOOP app never sends this, and neither does
+  /// OpenStrap unless [gen5DeepBuffersEnabled] opts in (see the constructor
+  /// doc). UNTESTED on physical hardware. No-op on a gen4 link.
+  ///
+  /// Written directly via [_write] (not [_send]) because the pre-built
+  /// frames already carry their own sequence numbers — going through `_send`
+  /// would double-allocate from [_seq] for no benefit. SET_FF_VALUE (120) is
+  /// in `OpcodeSafety.forbidden` but NOT `OpcodeSafety.destructive`; per that
+  /// class's own doc this deliberate, explicitly-opted-in sequence is exactly
+  /// the kind of call site the broader `forbidden` list is not meant to gate
+  /// (see `_send`'s doc for the full reasoning) — writing it directly here
+  /// keeps that intentional exception in ONE place rather than needing an
+  /// allowlist parameter threaded through the shared chokepoint.
+  Future<void> enableGen5DeepBuffers() async {
+    if (!(_session?.band.isGen5 ?? false)) return;
+    final frames = buildR22EnableSequence(startSeq: _seq.nextLive());
+    _log('Sending gen5 R22 deep-buffer enable sequence (${frames.length} '
+        'flags)…');
+    for (final frame in frames) {
+      await _write(frame);
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
+    _log('gen5 R22 deep-buffer enable sequence sent.');
+  }
+
   // ── high-level flows ─────────────────────────────────────────────────────────────
   Future<void> sendInit() async {
     final band = _session?.band ?? BandProfile.gen4;
@@ -2673,6 +2783,12 @@ class BleEngine {
       _log('Sending gen5 CLIENT_HELLO + offload…');
       await _write(gen5ClientHello());
       await Future.delayed(const Duration(milliseconds: 120));
+      // Opt-in deep-buffer sequence, BEFORE the offload trigger (SET_CONFIG
+      // flags must land before SEND_HISTORICAL_DATA to take effect for this
+      // drain). Default OFF — see [gen5DeepBuffersEnabled].
+      if (gen5DeepBuffersEnabled()) {
+        await enableGen5DeepBuffers();
+      }
       // Same band-aware helpers the refresh/backfill/retry paths use, so the
       // gen5 offload command format is identical everywhere.
       await _sendGetDataRange();
@@ -2784,16 +2900,28 @@ class BleEngine {
       0,
       0,
     ];
-    await _send(Cmd.setClock, payload);
-    _log('SET_CLOCK → sec=$sec subsec=$subsec (WHOOP-exact 8B).');
+    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4 — the
+    // 8-byte payload shape is unchanged, only the opcode value differs (see
+    // Cmd.setClockMaverick's doc in protocol/constants.dart). Sending gen4's
+    // opcode 0x0A to a gen5 strap here would silently fail to latch the RTC,
+    // which then refuses to serve type-47 history — the exact symptom fixed.
+    final isGen5 = _session?.band.isGen5 ?? false;
+    final opcode = isGen5 ? Cmd.setClockMaverick : Cmd.setClock;
+    await _send(opcode, payload);
+    _log('SET_CLOCK${isGen5 ? " (gen5 Maverick)" : ""} → sec=$sec '
+        'subsec=$subsec (WHOOP-exact 8B).');
     // Read the RTC back so the GET_CLOCK response handler can confirm it latched
     // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
     await getClock();
   }
 
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
-  /// verify drift and re-correlate the strap-RTC ↔ wall clock.
-  Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
+  /// verify drift and re-correlate the strap-RTC ↔ wall clock. gen5 uses its
+  /// own GET_CLOCK opcode (147) — see [setClock].
+  Future<void> getClock() => _send(
+        (_session?.band.isGen5 ?? false) ? Cmd.getClockGen5 : Cmd.getClock,
+        const <int>[],
+      );
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:
@@ -2876,11 +3004,25 @@ class BleEngine {
   }
 
   Future<void> getBattery() => _send(Cmd.getBatteryLevel, const []);
-  Future<void> getHello() => _send(Cmd.getHelloHarvard, const [0x00]);
+  Future<void> getHello() => (_session?.band.isGen5 ?? false)
+      ? _send(Cmd.getHello, const [0x01])
+      : _send(Cmd.getHelloHarvard, const [0x00]);
   Future<void> buzz() => buzzPattern(hapticShortPulse);
 
-  Future<void> buzzPattern(int pattern) =>
-      _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
+  /// Play a haptic buzz. gen5 ("Maverick") has a DIFFERENT buzz opcode and
+  /// payload shape than gen4 (`Cmd.runHapticPatternMaverick`, 12-byte body —
+  /// see `cmdBuzzGen5Maverick` in protocol/commands.dart) — [pattern] is
+  /// honoured only on gen4; a gen5 link always plays the strap's fixed
+  /// `[47, 152]` waveform pair (the only Maverick buzz byte-verified so far).
+  Future<void> buzzPattern(int pattern) {
+    if (_session?.band.isGen5 ?? false) {
+      return _send(
+        Cmd.runHapticPatternMaverick,
+        const [0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      );
+    }
+    return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
+  }
 
   /// Signal strength of the live link, in dBm (negative; closer to zero is
   /// stronger). Null whenever there is nothing to measure.
@@ -3190,6 +3332,33 @@ class BleEngine {
     fields['history_oldest'] = ts.reduce((a, b) => a < b ? a : b);
     fields['history_newest'] = ts.reduce((a, b) => a > b ? a : b);
     return Decoded(decoded.kind, fields);
+  }
+
+  /// Patch up `COMMAND_RESPONSE` decodes for GET_CLOCK_GEN5 (147) — the one
+  /// gen5-exclusive opcode `parseCommandResponse` doesn't populate a
+  /// `clock_epoch` for yet (its GET_HELLO=145 and GET_BATTERY_LEVEL=26
+  /// battery-scale handling are already profile-aware natively, via the
+  /// `profile:` param passed into `decodeFrame` above). Without this, gen5's
+  /// SET_CLOCK/GET_CLOCK drift-correlation (`ClockRef`, read in
+  /// `_absorbState`) would never populate on a gen5 link, since
+  /// `parseCommandResponse` only recognises gen4's `Cmd.getClock` (0x0B) for
+  /// that field. Same "edge augments a decode protocol hasn't caught up to
+  /// yet" pattern as [_maybeAugmentDataRange].
+  Decoded _maybeAugmentGen5ClockEpoch(Frame frame, Decoded decoded) {
+    if (decoded.kind != 'cmd_response') return decoded;
+    if (decoded.fields['opcode'] != Cmd.getClockGen5) return decoded;
+    final inner = frame.inner;
+    final payload =
+        inner.length > 3 ? Uint8List.sublistView(inner, 3) : Uint8List(0);
+    final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (var o = 0; o + 4 <= payload.length; o++) {
+      final v = u32(payload, o);
+      if (isPlausibleUnix(v, wallNow)) {
+        final fields = <String, dynamic>{...decoded.fields, 'clock_epoch': v};
+        return Decoded(decoded.kind, fields);
+      }
+    }
+    return decoded;
   }
 }
 

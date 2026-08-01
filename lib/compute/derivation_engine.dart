@@ -1949,7 +1949,11 @@ class DerivationEngine {
       if (nb != null) {
         await NotificationCenter.instance.emit(
           NotificationEvent(
-            dedupeKey: '${day.date}:auto_workout',
+            // Per-bout, not per-day — a per-day key silently swallowed the
+            // notification for a second real workout later the same day
+            // (fire-once-per-key by design). endSec is stable across re-derive
+            // passes re-detecting the SAME bout, so that case still dedupes.
+            dedupeKey: '${day.date}:auto_workout:${nb.endSec}',
             category: NotifCategory.recovery,
             priority: NotifPriority.normal,
             title: 'Did you work out?',

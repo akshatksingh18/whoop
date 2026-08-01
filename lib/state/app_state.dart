@@ -2478,6 +2478,14 @@ class AppState extends ChangeNotifier {
   // just wires the strap event stream + persistence + the fired notification.
   final AlarmConfirmation _alarm = AlarmConfirmation();
   Timer? _alarmGraceTimer;
+  // Event 56 is a one-shot BLE notification — if that single packet gets
+  // dropped by an ordinary momentary disconnect right after the write (the
+  // band DID latch the alarm), there is no retry/re-poll for it and the
+  // GET_ALARM readback fallback is parked (unconfirmed format), so the app had
+  // no way to ever clear the "unconfirmed" warning short of the user
+  // re-sending the whole alarm. One silent, automatic re-arm covers that
+  // common case; only a still-unconfirmed retry falls through to the warning.
+  bool _alarmAutoRetried = false;
 
   /// The strap emitted ALARM_SET (event 56) — the alarm is confirmed armed.
   bool get alarmConfirmed => _alarm.confirmed;
@@ -2514,6 +2522,7 @@ class AppState extends ChangeNotifier {
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch); // await event 56
+    _alarmAutoRetried = false; // fresh user-initiated set gets its one retry
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('alarm_epoch', epoch);
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
@@ -2521,10 +2530,39 @@ class AppState extends ChangeNotifier {
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = Timer(
       Duration(milliseconds: _alarm.graceMs + 250),
-      () {
-        if (!_alarm.confirmed) notifyListeners();
-      },
+      () => unawaited(_onAlarmGraceElapsed(when)),
     );
+    notifyListeners();
+  }
+
+  /// Grace window elapsed with no event 56. Before showing the soft warning,
+  /// try ONE silent re-arm — if the strap really did latch it and only the
+  /// confirmation notification was dropped, this re-send gives it a second
+  /// chance to confirm without the user having to notice or do anything.
+  Future<void> _onAlarmGraceElapsed(DateTime when) async {
+    if (_alarm.confirmed) return;
+    if (_alarmAutoRetried || !isConnected) {
+      notifyListeners();
+      return;
+    }
+    _alarmAutoRetried = true;
+    try {
+      final ok = await engine.setAlarm(when);
+      if (ok) {
+        _alarm.set(
+          when.millisecondsSinceEpoch ~/ 1000,
+          DateTime.now().millisecondsSinceEpoch,
+        );
+        _alarmGraceTimer?.cancel();
+        _alarmGraceTimer = Timer(
+          Duration(milliseconds: _alarm.graceMs + 250),
+          () => unawaited(_onAlarmGraceElapsed(when)),
+        );
+        return;
+      }
+    } catch (e) {
+      _log('[alarm] auto-retry re-arm failed: $e');
+    }
     notifyListeners();
   }
 

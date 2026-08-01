@@ -2346,9 +2346,18 @@ class DerivationEngine {
     // unconditionally on every heavy pass. _decodeBundle/_crossDayRecord are
     // both static, so this whole transform+encode step is isolate-safe.
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
+    final today = LocalDb.localDayLabelNow();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
+        // Today's own row updates on every derive pass while the night is
+        // still syncing/settling — feeding that partial reading into the
+        // illness/anomaly CUSUM can fire a false "possible illness onset" on
+        // data that's really just a truncated/mid-drain night. Only exclude
+        // TODAY specifically; older days already had their 48h to settle.
+        if (row['day_id'] == today && (row['finalized'] as num?) != 1) {
+          continue;
+        }
         final payload = _decodeBundle(row['payload_json']);
         if (payload == null) continue;
         if (payload['skipped'] == true) continue;

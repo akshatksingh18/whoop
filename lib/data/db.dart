@@ -2712,12 +2712,20 @@ class LocalDb {
         'rmssd': rmssd,
         'readiness': readiness,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      for (final e in series.entries) {
-        await txn.insert('metric_series', {
-          'date': dayId,
-          'key': e.key,
-          'value': e.value,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      // A `partial` row already doesn't count as "derived" for the raw-pruning
+      // guard (see above) — extend the same caution to the rolling baselines:
+      // don't let a day whose second-half compute failed/timed out overwrite
+      // (or seed, for a brand-new day) the value tomorrow's readiness/illness
+      // baseline reads via metric_series. The next successful (non-partial)
+      // pass writes the real value once it lands.
+      if (!partial) {
+        for (final e in series.entries) {
+          await txn.insert('metric_series', {
+            'date': dayId,
+            'key': e.key,
+            'value': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
       }
     });
   }

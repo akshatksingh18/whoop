@@ -1351,14 +1351,43 @@ class DerivationEngine {
     }
     final rawDays = rawByDay.keys.toList()..sort();
     if (force) {
+      // A full restage resolves any held-back timezone-adjacent days on its
+      // own — reset the guard's baseline offset so it doesn't fire again
+      // until a genuinely new jump happens.
+      await LocalDb.putBaseline(
+        'tz_travel_guard',
+        jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
+      );
       return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
     }
 
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
-    final pending = [
+    var pending = [
       for (final day in rawDays)
         if (!finalized.contains(day)) day,
     ];
+
+    // decodedRecTsMaxByDay() buckets by the CURRENT device timezone, but
+    // `finalized` was frozen under whatever timezone was active when each day
+    // was derived. A real cross-timezone trip (not an ~1h DST shift) can make
+    // the SAME rec_ts rows relabel to a day adjacent to one already finalized
+    // — looking like a brand-new "pending" night that's really a duplicate, or
+    // silently landing on an already-finalized day_id and looking lost. Once
+    // that's detected, hold off auto-deriving anything adjacent to finalized
+    // data until "Re-analyze data" (full restage) resolves it properly.
+    if (await _timezoneTravelSuspected()) {
+      final adjacent = <String>{
+        for (final day in finalized) ..._adjacentDayIds(day),
+      };
+      final held = pending.where(adjacent.contains).toList();
+      if (held.isNotEmpty) {
+        _log(
+          'derive: possible timezone change — holding ${held.length} day(s) '
+          'adjacent to finalized data until Re-analyze data runs: $held',
+        );
+        pending = pending.where((d) => !adjacent.contains(d)).toList();
+      }
+    }
     if (pending.isEmpty) {
       return _scopeForDays([rawDays.last], reason: 'latest-finalized-check');
     }
@@ -1373,6 +1402,47 @@ class DerivationEngine {
       today: LocalDb.localDayLabelNow(),
     );
     return _scopeForDays(light.days, reason: light.reason);
+  }
+
+  /// The day before and after [dayId] ('YYYY-MM-DD'), DST-safe (goes through
+  /// real DateTime arithmetic, not a raw ±86400s offset).
+  static List<String> _adjacentDayIds(String dayId) {
+    final d = DateTime.tryParse(dayId);
+    if (d == null) return const [];
+    String label(DateTime x) =>
+        '${x.year.toString().padLeft(4, '0')}-'
+        '${x.month.toString().padLeft(2, '0')}-'
+        '${x.day.toString().padLeft(2, '0')}';
+    return [
+      label(DateTime(d.year, d.month, d.day - 1)),
+      label(DateTime(d.year, d.month, d.day + 1)),
+    ];
+  }
+
+  /// True once, right after the device timezone jumps by more than a real DST
+  /// shift ever would (>=3h) — a strong signal of actual cross-timezone
+  /// travel rather than a seasonal clock change. Persists the new offset so
+  /// this only fires on the transition itself, not every subsequent call.
+  static const int _tzJumpThresholdMin = 180;
+  Future<bool> _timezoneTravelSuspected() async {
+    final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
+    final row = await LocalDb.baseline('tz_travel_guard');
+    final raw = row?['payload_json'];
+    int? lastOffsetMin;
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final d = jsonDecode(raw);
+        if (d is Map) lastOffsetMin = (d['offset_min'] as num?)?.toInt();
+      } catch (_) {
+        // fall through — treat as unknown
+      }
+    }
+    await LocalDb.putBaseline(
+      'tz_travel_guard',
+      jsonEncode({'offset_min': nowOffsetMin}),
+    );
+    if (lastOffsetMin == null) return false;
+    return (nowOffsetMin - lastOffsetMin).abs() >= _tzJumpThresholdMin;
   }
 
   _DeriveScope _scopeForDays(

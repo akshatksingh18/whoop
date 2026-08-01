@@ -41,7 +41,7 @@ dependencies:
       # This SHA is that branch merged with protocol main (crc8 length-field
       # check + hexToBytes odd-length rejection + the framing.dart profile-
       # aware header-CRC fix so gen5 frames actually pass the same guard).
-      ref: e543e47918d151f9acd2770eb0a84dddadc0387c
+      ref: 7f1a2dbe27f9c9e1023dce2ca1a2c2baf96a883e
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

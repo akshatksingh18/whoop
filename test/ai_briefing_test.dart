@@ -114,20 +114,49 @@ void main() {
 
   group('prompt building (pure)', () {
     test('system prompt scopes by period and forbids invention', () {
-      final m = briefingSystemPrompt(BriefingPeriod.morning);
+      final m = briefingSystemPrompt(BriefingPeriod.morning, 'morning');
       expect(m, contains('ONLY the numbers provided'));
       expect(m.toLowerCase(), contains('sleep'));
-      final e = briefingSystemPrompt(BriefingPeriod.evening);
+      final e = briefingSystemPrompt(BriefingPeriod.evening, 'evening');
       expect(e.toLowerCase(), contains('strain'));
+    });
+
+    test('greeting follows the clock, not the period (issue #134)', () {
+      expect(partOfDay(DateTime(2026, 7, 22, 9)), 'morning');
+      expect(partOfDay(DateTime(2026, 7, 22, 15)), 'afternoon');
+      expect(partOfDay(DateTime(2026, 7, 22, 19)), 'evening');
+      expect(partOfDay(DateTime(2026, 7, 22, 23)), 'night');
+      // The morning briefing is shown until 17:00, so an afternoon reader must
+      // be told it's afternoon and the prompt must never say "morning".
+      final sys = briefingSystemPrompt(BriefingPeriod.morning, 'afternoon');
+      expect(sys, contains('currently afternoon'));
+      expect(sys.toLowerCase(), isNot(contains('morning')));
+      final usr = buildBriefingUserPrompt(
+          BriefingPeriod.morning, '2026-07-22', {'readiness': 74}, 'afternoon');
+      expect(usr, contains('afternoon'));
+      expect(usr.toLowerCase(), isNot(contains('morning')));
     });
 
     test('user prompt lists provided metrics and marks empty data', () {
       final p = buildBriefingUserPrompt(
-          BriefingPeriod.morning, '2026-07-04', {'readiness': 74});
+          BriefingPeriod.morning, '2026-07-04', {'readiness': 74}, 'morning');
       expect(p, contains('readiness: 74'));
       final empty = buildBriefingUserPrompt(
-          BriefingPeriod.evening, '2026-07-04', {});
+          BriefingPeriod.evening, '2026-07-04', {}, 'evening');
       expect(empty, contains('no metrics available'));
+    });
+
+    test(
+        'readinessBand cuts at 40/66 — MUST match the Today ring\'s own '
+        'word-thresholds (score>=66 Push, >=40 Focus, else Recover) or '
+        'the briefing and the ring can disagree again', () {
+      // Just below/at each ring boundary.
+      expect(readinessBand(39), 'low'); // ring: "Recover"
+      expect(readinessBand(40), 'moderate'); // ring: "Focus"
+      expect(readinessBand(65), 'moderate'); // ring: "Focus"
+      expect(readinessBand(66), 'good'); // ring: "Push"
+      expect(readinessBand(100), 'good');
+      expect(readinessBand(0), 'low');
     });
   });
 
@@ -144,6 +173,14 @@ void main() {
           '```\nSolid day.\n- Good strain\n```');
       expect(r.oneLiner, 'Solid day.');
       expect(r.breakdownMd, contains('Good strain'));
+    });
+
+    test('a single-line reply leaves the breakdown empty (no echo — #107)', () {
+      // A model that ignores the format and returns one line must NOT have that
+      // line copied back as a lone bullet, or the UI renders it twice.
+      final r = parseBriefingResponse('User Safety: safe');
+      expect(r.oneLiner, 'User Safety: safe');
+      expect(r.breakdownMd, isEmpty);
     });
   });
 

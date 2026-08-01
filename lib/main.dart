@@ -17,20 +17,39 @@ import 'widget/widget_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:workmanager/workmanager.dart';
+import 'dart:async';
 import 'dart:io';
 import 'compute/background_derivation.dart' show kHeavyDeriveTaskName, kSyncTaskName;
 
+/// Ceiling on every pre-runApp platform-channel await. Each one is guarded
+/// against THROWING, but a channel call that simply never completes (seen in
+/// the field: flutter_secure_storage wedging on some Samsung Knox keystores)
+/// used to park the app on the native launch screen forever — no crash, no
+/// ANR, just "the app doesn't load". A timed-out init logs and degrades;
+/// first frame always ships.
+const _kStartupInitTimeout = Duration(seconds: 6);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase (overridden by dummy values until flutterfire configure)
+
+  // Initialize Firebase (overridden by dummy values until flutterfire configure).
+  // OPTIONAL: a build with no real google-services.json / GoogleService-Info.plist
+  // throws here and the app carries on without any Firebase at all.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
-    );
+    ).timeout(_kStartupInitTimeout);
   } catch (e) {
     debugPrint('Firebase init failed (run flutterfire configure!): $e');
   }
+  // ZERO COLLECTION UNTIL CONSENT. The SDKs are already told to stay quiet at
+  // the platform level (Info.plist / AndroidManifest.xml
+  // *_collection_enabled=false) so nothing is collected before Dart even runs;
+  // this restates it programmatically so a build with a stale native config
+  // still cannot auto-log first_open, an app-start trace, or a startup crash.
+  // Collection is only ever switched ON later, from the user's loaded consent
+  // (TelemetryService.applyConsent) — never here.
+  TelemetryService.instance.enforceCollectionOffUntilConsent();
 
   // Install crash/error hooks (FlutterError.onError + PlatformDispatcher.onError)
   // BEFORE anything else. Capture is always-on and LOCAL; nothing transmits until
@@ -42,6 +61,18 @@ Future<void> main() async {
   // otherwise has zero visibility into "the app froze while scrolling" since
   // freezing isn't a crash. See installJankWatchdog's doc for the threshold.
   TelemetryService.instance.installJankWatchdog();
+
+  // Cap the decoded-image cache. Flutter's default is 1000 entries / 100 MiB of
+  // DECODED bitmaps, which is sized for a photo feed, not for us. The only thing
+  // in this app that can fill it is map tiles: a retina 512² tile costs ~1 MiB
+  // decoded, so a long ride that pans continuously could sit on ~100 MiB of
+  // resident tile bitmaps — on top of the deliberately-persistent pre-warmed
+  // FlutterEngine — and push a 3–4 GB device into LMK/jetsam territory mid-
+  // workout. 40 MiB still covers several screens of tiles either side of the
+  // route; evicted tiles simply re-decode from the network layer.
+  PaintingBinding.instance.imageCache
+    ..maximumSizeBytes = 40 << 20
+    ..maximumSize = 200;
 
   // Android: Cancel the two legacy WorkManager tasks by unique name. A previous
   // version scheduled heavy derivation passes in the background, but they were
@@ -60,8 +91,10 @@ Future<void> main() async {
   // watchdog out on every single cold start, silently disabling it.
   if (Platform.isAndroid) {
     try {
-      await Workmanager().cancelByUniqueName(kHeavyDeriveTaskName);
-      await Workmanager().cancelByUniqueName(kSyncTaskName);
+      await Future.wait([
+        Workmanager().cancelByUniqueName(kHeavyDeriveTaskName),
+        Workmanager().cancelByUniqueName(kSyncTaskName),
+      ]).timeout(_kStartupInitTimeout);
     } catch (_) {}
   }
 
@@ -73,10 +106,12 @@ Future<void> main() async {
   // notifications dead until a full reconnect+re-subscribe (the "connected, no events"
   // bug). MUST be set before any other FBP call. No-op on Android.
   try {
-    await FlutterBluePlus.setOptions(restoreState: true);
+    await FlutterBluePlus.setOptions(restoreState: true)
+        .timeout(_kStartupInitTimeout);
   } catch (_) {/* older plugin / unsupported platform — ignore */}
   try {
-    await FlutterBluePlus.setLogLevel(LogLevel.none, color: false);
+    await FlutterBluePlus.setLogLevel(LogLevel.none, color: false)
+        .timeout(_kStartupInitTimeout);
   } catch (_) {/* older plugin / unsupported platform — ignore */}
 
   // Optional startup services. A failure in any one of these must NEVER block the
@@ -106,7 +141,7 @@ Future<void> main() async {
   // Fall back to a system-brightness controller if persistence fails.
   ThemeController theme;
   try {
-    theme = await ThemeController.bootstrap();
+    theme = await ThemeController.bootstrap().timeout(_kStartupInitTimeout);
   } catch (e, st) {
     debugPrint('[main] ThemeController.bootstrap failed, using default: $e\n$st');
     theme = ThemeController.seed(
@@ -118,19 +153,25 @@ Future<void> main() async {
   // Local display-units preference (metric/imperial). Best-effort; defaults to metric.
   UnitsController units;
   try {
-    units = await UnitsController.bootstrap();
+    units = await UnitsController.bootstrap().timeout(_kStartupInitTimeout);
   } catch (e, st) {
     debugPrint('[main] UnitsController.bootstrap failed, using metric: $e\n$st');
     units = UnitsController.seed(UnitSystem.metric);
   }
 
-  // Local BYOK AI-coach config (key in keychain). Best-effort load.
+  // Local BYOK AI-coach config (key in keychain). Best-effort load — and
+  // deliberately NOT awaited: this is a flutter_secure_storage read, i.e. the
+  // Android Keystore, which is the documented hang-forever case on some
+  // Samsung Knox devices. Nothing needs the coach config until an AI screen
+  // opens, and CoachConfig is a ChangeNotifier — consumers rebuild when the
+  // load lands. First frame must never wait on the keystore.
   final coachConfig = CoachConfig();
-  try {
-    await coachConfig.load();
-  } catch (e, st) {
-    debugPrint('[main] CoachConfig.load failed: $e\n$st');
-  }
+  unawaited(
+    coachConfig.load().timeout(const Duration(seconds: 15)).catchError(
+          (Object e) =>
+              debugPrint('[main] CoachConfig.load failed/timed out: $e'),
+        ),
+  );
 
   runApp(
     MultiProvider(
@@ -146,10 +187,15 @@ Future<void> main() async {
 }
 
 /// Run an optional startup init, swallowing (but logging) any failure so it can
-/// never prevent runApp from being reached.
+/// never prevent runApp from being reached. Also bounded by
+/// [_kStartupInitTimeout]: a hang is just as fatal to the first frame as a
+/// throw, and try/catch alone never covered it.
 Future<void> _safeInit(String label, Future<void> Function() init) async {
   try {
-    await init();
+    await init().timeout(_kStartupInitTimeout);
+  } on TimeoutException {
+    debugPrint('[main] $label init TIMED OUT after '
+        '${_kStartupInitTimeout.inSeconds}s — continuing without it');
   } catch (e, st) {
     debugPrint('[main] $label init failed (continuing without it): $e\n$st');
   }

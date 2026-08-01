@@ -23,7 +23,9 @@ import '../../state/units_controller.dart';
 import '../../debug/debug_mode.dart';
 import '../../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import '../../theme/theme_switcher.dart';
+import '../find/find_band_screen.dart';
 import '../ai/ai_settings_screen.dart';
+import '../coach/ai_coach_screen.dart';
 import '../design/design.dart';
 import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
@@ -39,11 +41,14 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   // Community links. Editable here; swap any URL and rebuild — no backend needed.
+  // Real per-brand marks now (were all OsIcon.activity — a generic pulse
+  // glyph standing in for every single one, so GitHub/Discord/Reddit/X all
+  // looked identical in this list).
   static const List<({String label, OsIcon icon, String url})> _socials = [
-    (icon: OsIcon.activity, label: 'GitHub', url: 'https://github.com/OpenStrap'),
-    (icon: OsIcon.activity, label: 'Discord', url: 'https://discord.gg/dUXds5MWkd'),
-    (icon: OsIcon.activity, label: 'Reddit', url: 'https://reddit.com/r/openstrap'),
-    (icon: OsIcon.activity, label: 'X', url: 'https://x.com/OpenStrap'),
+    (icon: OsIcon.github, label: 'GitHub', url: 'https://github.com/OpenStrap'),
+    (icon: OsIcon.discord, label: 'Discord', url: 'https://discord.gg/dUXds5MWkd'),
+    (icon: OsIcon.reddit, label: 'Reddit', url: 'https://reddit.com/r/openstrap'),
+    (icon: OsIcon.xTwitter, label: 'X', url: 'https://x.com/OpenStrap'),
   ];
 
   static Future<void> _openUrl(String url) async {
@@ -439,15 +444,27 @@ class ProfileScreen extends StatelessWidget {
           ],
           const SizedBox(height: Sp.x6),
 
-          // ── AI briefings & journaling (BYOK) ──────────────────────────
-          const SectionHeader('AI briefings & journaling'),
+          // ── AI (BYOK) ──────────────────────────────────────────────────
+          // Two distinct AI surfaces get their own row here — previously the
+          // agentic AI Coach chat was reachable ONLY via a small pill button
+          // on the Body screen, with nothing under Profile pointing at it.
+          const SectionHeader('AI'),
           _SettingsCard(rows: [
             ListRow(
               icon: OsIcon.ai,
               title: 'Briefings & journal',
+              subtitle: 'Your AI key, morning/evening briefings, journal prompt',
               value: 'Manage',
               onTap: () => Navigator.of(context).push(themedRoute(
                   (_) => const AiSettingsScreen(), name: 'AiSettingsScreen')),
+            ),
+            ListRow(
+              icon: OsIcon.ai,
+              title: 'AI coach',
+              subtitle: 'Chat with your on-device AI about your own data',
+              value: 'Open',
+              onTap: () => Navigator.of(context).push(themedRoute(
+                  (_) => const AiCoachScreen(), name: 'AiCoachScreen')),
             ),
           ]),
           const SizedBox(height: Sp.x6),
@@ -1340,6 +1357,22 @@ class _DeviceSheet extends StatelessWidget {
           value: live.strapName ?? 'OpenStrap',
           divider: true,
           onTap: connected ? () => _rename(context, live) : null,
+        ),
+        ListRow(
+          icon: OsIcon.bluetooth,
+          title: 'Find my strap',
+          value: connected ? 'Buzz and track' : 'Needs a connection',
+          divider: true,
+          onTap: connected
+              ? () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FindBandScreen(),
+                    ),
+                  );
+                }
+              : null,
         ),
         ListRow(
           icon: OsIcon.alarm,

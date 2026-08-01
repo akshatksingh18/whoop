@@ -47,13 +47,13 @@ void main() {
         Column(children: [
           const WelcomeHero(),
           WelcomeOptionCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: 'I used OpenStrap before',
             body: 'Sign in and pull your history onto this phone.',
             onTap: () => tapped++,
           ),
           WelcomeOptionCard(
-            icon: Ic.profile,
+            icon: OsIcon.profile,
             title: 'I’m new',
             body: 'A few basics and you’re in.',
             accent: true,
@@ -193,9 +193,12 @@ void main() {
       expect(submitted!['age'], 30);
       expect(submitted!['sex'], 'f');
       expect(telemetry, isTrue);
-      // Gated default: only pre-enabled in a build compiled with
-      // kHealthDataContributionEnabled.
-      expect(healthShare, kHealthDataContributionEnabled);
+      // Health-data contribution must ALWAYS start unchecked on a fresh
+      // enrollment, regardless of kHealthDataContributionEnabled — that flag
+      // only gates whether the toggle is offered at all (see the ConsentTile
+      // count assertion above), never its default value. This is an opt-in
+      // feature; a user must actively flip it.
+      expect(healthShare, isFalse);
     });
   }
 

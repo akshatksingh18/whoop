@@ -17,6 +17,7 @@ import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme_switcher.dart';
 import '../design/design.dart';
+import '../insights/coach_cards.dart';
 import '../screens/metric_row.dart';
 import '../screens/trend_screen.dart';
 import 'sleep_periods_screen.dart';
@@ -26,7 +27,15 @@ class SleepDetailScreen extends StatefulWidget {
   // When true, render just the section content (no Scaffold/back bar) so it can
   // be embedded inside the Sleep screen (Today/Week/Month/3M).
   final bool embedded;
-  const SleepDetailScreen({super.key, required this.date, this.embedded = false});
+  // Render the Sleep Coach card inline (see SleepNightContent.showSleepCoach)
+  // — only the Today segment sets this.
+  final bool showSleepCoach;
+  const SleepDetailScreen({
+    super.key,
+    required this.date,
+    this.embedded = false,
+    this.showSleepCoach = false,
+  });
 
   /// Convenience: a detail screen for today (local).
   factory SleepDetailScreen.today({Key? key}) {
@@ -238,6 +247,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         onEditTimes: _editSleepTimes,
         onConfirmFallback: _confirmFallback,
         onClearOverride: _clearOverride,
+        showSleepCoach: widget.showSleepCoach,
       ),
     ];
   }
@@ -300,6 +310,14 @@ class SleepNightContent extends StatelessWidget {
   final VoidCallback onConfirmFallback;
   final VoidCallback onClearOverride;
 
+  /// Render the Sleep Coach card (tonight's need/bedtime/wake/alarm) inline,
+  /// between the Cycles and Nocturnal-heart sections — it only makes sense
+  /// for TODAY's night, so only the Today segment's caller sets this true
+  /// (see SleepScreen.todayDetail in screens.dart). Explicit rather than an
+  /// implicit `date == todayLabel()` check here, matching how [embedded]
+  /// is already threaded explicitly from the caller.
+  final bool showSleepCoach;
+
   const SleepNightContent({
     super.key,
     required this.data,
@@ -307,6 +325,7 @@ class SleepNightContent extends StatelessWidget {
     required this.onEditTimes,
     required this.onConfirmFallback,
     required this.onClearOverride,
+    this.showSleepCoach = false,
   });
 
   // ── defensive parsing ──────────────────────────────────────────────────────
@@ -364,6 +383,9 @@ class SleepNightContent extends StatelessWidget {
 
   Map<String, dynamic> get _nocturnal => _map(data['nocturnal']);
   Map<String, dynamic> get _resp => _map(data['resp']);
+  // SpO2 desaturation dips — moved here from the Heart tab: an overnight
+  // signal, not a general daytime heart metric (see _nocturnalTile).
+  Map<String, dynamic> get _spo2 => _map(data['spo2']);
   bool get _hasNocturnal => _num(_nocturnal['sleeping_hr_avg']) != null;
 
   // Parallel 4-class AASM read (Cole–Kripke/DoG stager). ESTIMATE; shown below
@@ -444,6 +466,15 @@ class SleepNightContent extends StatelessWidget {
         if (_hasAdvanced) ...[
           const SizedBox(height: Sp.x5),
           _advancedCard(),
+        ],
+        // Sleep Coach — tonight's need/bedtime/wake/alarm. Lives here (below
+        // the stage estimate cluster, above Nocturnal heart) rather than as
+        // its own leading card at the top of the Today segment; same scroll,
+        // just reordered, per the "quick glance value first, not a wall of
+        // cards before you get to the night's own numbers" principle.
+        if (showSleepCoach) ...[
+          const SizedBox(height: Sp.x5),
+          const SleepCoachCard(),
         ],
         if (_hasNocturnal) ...[
           const SizedBox(height: Sp.x5),
@@ -618,7 +649,6 @@ class SleepNightContent extends StatelessWidget {
     final eff = _efficiency;
     final debt = _debtMin;
     final noDebt = debt == null || debt.round() <= 0;
-    final reg = _regularity;
 
     void info(String title, String body, [String? method]) =>
         showInfoSheet(context, title: title, body: body, methodNote: method);
@@ -678,6 +708,32 @@ class SleepNightContent extends StatelessWidget {
             ],
           ),
         ),
+      ],
+      // "Awake" (WASO) and "Consistency" (SRI) tiles removed from this bento
+      // per request — WASO stays available inline in the Efficiency tile's
+      // long-press detail (`_awakeMin` is still used there), and Consistency
+      // still has its own row further down in the metrics list (`_regularity`,
+      // gated the same honest way) — this only drops the duplicate summary
+      // tiles up here, neither getter/section was touched.
+      //
+      // Sleep debt moved here (was left-column row 3, stacked under
+      // Efficiency) so it sits in the same row as Efficiency side by side,
+      // per request — left/right are independent stacks in this two-column
+      // bento, so same list-index = same row.
+      right: [
+        BentoTile(
+          onLongPress: () => info(
+              'Woke', 'When you woke for the day — the end of the window.'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const TileHeader('Woke'),
+              const SizedBox(height: Sp.x2),
+              BigStat(value: wake == null ? null : _clock(wake)),
+            ],
+          ),
+        ),
         BentoTile(
           tone: noDebt ? BentoTone.paper : BentoTone.soft,
           accent: DomainAccent.sleep,
@@ -695,58 +751,6 @@ class SleepNightContent extends StatelessWidget {
                     ? null
                     : (noDebt ? 'all caught up' : 'carried over'),
                 captionAccent: !noDebt,
-              ),
-            ],
-          ),
-        ),
-      ],
-      right: [
-        BentoTile(
-          onLongPress: () => info(
-              'Woke', 'When you woke for the day — the end of the window.'),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const TileHeader('Woke'),
-              const SizedBox(height: Sp.x2),
-              BigStat(value: wake == null ? null : _clock(wake)),
-            ],
-          ),
-        ),
-        BentoTile(
-          accent: DomainAccent.stress,
-          onLongPress: () => info(
-              'Awake (WASO)',
-              'Time awake after first falling asleep — brief wake-ups are '
-                  'normal; long stretches drag efficiency down.'),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const TileHeader('Awake'),
-              const SizedBox(height: Sp.x2),
-              BigStat(value: _awakeMin == null ? null : _hm(_awakeMin)),
-            ],
-          ),
-        ),
-        BentoTile(
-          accent: DomainAccent.recovery,
-          onLongPress: () => info(
-            'Sleep consistency',
-            'How steady your bed and wake times have been. Higher is steadier.',
-            'Sleep Regularity Index over recent nights — needs several nights to unlock',
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const TileHeader('Consistency'),
-              const SizedBox(height: Sp.x2),
-              BigStat(
-                value: reg == null ? null : '${reg.round()}',
-                unit: reg == null ? null : '/100',
-                caption: reg == null ? 'need a few more nights' : null,
               ),
             ],
           ),
@@ -979,6 +983,13 @@ class SleepNightContent extends StatelessWidget {
     final vsBase = _num(_nocturnal['vs_baseline_bpm'])?.toDouble();
     final elevated = _nocturnal['elevated'] == true;
     final respVal = _num(_resp['value'])?.toDouble();
+    // Oxygen dips — moved here from the Heart tab (overnight signal, grouped
+    // with the rest of this night's respiratory/cardiac numbers). Same
+    // null-safe read as the Heart tab used (odi_per_hour, falling back to a
+    // legacy `value` key) so it renders '—' rather than the literal string
+    // "null".
+    final odiPerHour = _num(_spo2['odi_per_hour']) ?? _num(_spo2['value']);
+    final hasSpo2 = _spo2.isNotEmpty;
 
     return BentoTile(
       tone: BentoTone.ink,
@@ -1014,9 +1025,39 @@ class SleepNightContent extends StatelessWidget {
                     ? '—'
                     : '${vsBase > 0 ? '+' : ''}${vsBase.toStringAsFixed(1)}',
                 vsBase == null ? 'building' : 'bpm'),
-            if (respVal != null)
-              _nStat('BREATH', respVal.toStringAsFixed(1), '/min · beta'),
           ]),
+          // Respiratory/oxygen pair on their own row — keeps the cardiac row
+          // above from getting cramped, and reads as one grouped "the rest of
+          // tonight's numbers" line.
+          if (respVal != null || hasSpo2) ...[
+            const SizedBox(height: Sp.x3),
+            Builder(builder: (context) {
+              return Row(children: [
+                if (respVal != null)
+                  _nStat('BREATH', respVal.toStringAsFixed(1), '/min · beta'),
+                if (hasSpo2)
+                  _nStat(
+                    'O2 DIPS',
+                    odiPerHour?.toStringAsFixed(1) ?? '—',
+                    '/h overnight — tap for trend',
+                    // Tappable into its own trend (same generic bars every
+                    // other metric uses) — restores the drill-down the old
+                    // Heart-tab/Today-tile versions had, without a second
+                    // "Trends" row restating the same number.
+                    onTap: () => openTrend(
+                      context,
+                      title: 'Overnight oxygen dips',
+                      metric: 'spo2',
+                      icon: OsIcon.hydration,
+                      accent: DomainAccent.oxygen,
+                    ),
+                  ),
+                // Pad the row so a single stat doesn't stretch full-width
+                // when the other is absent — same rhythm as the row above.
+                if (respVal == null || !hasSpo2) const Spacer(),
+              ]);
+            }),
+          ],
           if (elevated) ...[
             const SizedBox(height: Sp.x3),
             Row(
@@ -1038,10 +1079,15 @@ class SleepNightContent extends StatelessWidget {
     );
   }
 
-  Widget _nStat(String label, String value, String sub) => Expanded(
+  /// [onTap], when given, opens this stat's trend (see the O2 DIPS cell) —
+  /// the value stays shown here ONCE (this tile), so a metric gets either a
+  /// static stat or a drillable one, never both a static AND a duplicated
+  /// "Trends" row for the same number.
+  Widget _nStat(String label, String value, String sub, {VoidCallback? onTap}) =>
+      Expanded(
         child: Builder(builder: (context) {
           final tone = ToneScope.of(context);
-          return Column(
+          final content = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1056,6 +1102,7 @@ class SleepNightContent extends StatelessWidget {
                     style: AppText.captionMuted.copyWith(color: tone.fgMuted)),
             ],
           );
+          return onTap == null ? content : Pressable(onTap: onTap, child: content);
         }),
       );
 

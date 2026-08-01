@@ -18,6 +18,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
+import '../compute/hr_max.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -132,6 +133,11 @@ class LocalRepositoryImpl extends LocalRepository {
     return v is num ? v : null;
   }
 
+  /// Round a display value to 2dp without upgrading an int to a double —
+  /// used where a raw analytics metric (e.g. round6()'d lf_hf) would
+  /// otherwise render with far more precision than its sibling scalars.
+  num? _round2(num? v) => v == null ? null : num.parse(v.toStringAsFixed(2));
+
   /// A bare metric from a scalar (used where a screen reads a number directly).
   /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
   /// the UI can render "Need N more nights" for baseline-gated abstentions.
@@ -165,7 +171,7 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getProfile() async {
     final p = getProfileMap() ?? const {};
-    return {...p, 'step_goal': (p['step_goal'] as num?)?.toInt() ?? 10000};
+    return {...p, 'step_goal': (p['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal};
   }
 
   @override
@@ -238,9 +244,22 @@ class LocalRepositoryImpl extends LocalRepository {
     // Readiness/recovery: when the composite abstains for lack of baseline, the
     // envelope carries a `need_baseline:have=H,need=N` note. Pass that note
     // through so the hero can render "Need N more nights" instead of a number.
-    final readinessScalar = showOvernight
+    var readinessScalar = showOvernight
         ? _scalar(sleepBundle, 'readiness')
         : null;
+    // FROZEN MORNING HEADLINE (#128): once today's overnight first settled on a
+    // genuinely complete night, the derive pinned that readiness. Surface the
+    // pin so the hero + once-a-morning recovery story stop drifting as the day's
+    // re-derives (more daytime data, a shifting baseline) move the live scalar.
+    // ONLY the headline is pinned — every other metric below still reflects the
+    // latest re-derive. Gated to today's OWN overnight (`ready`, matching day)
+    // so a prior-night fallback or a stale yesterday pin can never leak in.
+    if (overnightState == 'ready') {
+      final pin = await LocalDb.frozenHeadline();
+      if (pin != null && pin.day == todayDay) {
+        readinessScalar = pin.value.toDouble();
+      }
+    }
     final readinessNote = readinessScalar == null && showOvernight
         ? _needNote(sleepBundle, 'clinical.readiness_composite')
         : null;
@@ -322,9 +341,9 @@ class LocalRepositoryImpl extends LocalRepository {
           : const {'value': null},
       // Stress (Baevsky SI → 0–100 score block) + relative SpO₂ (desat index),
       // both emitted by the pipeline. The Today tiles + stress screen read these.
-      // Same readiness-inverse fallback as getDayStress: without it the Today
-      // stress tile rendered "—" whenever SI abstained while the stress screen
-      // showed a number (the "stress pill has no number" bug).
+      // No imputation: stressSummaryForToday returns the SI block verbatim (null
+      // when absent), so the Today tile shows "—" whenever the real SI abstained.
+      // The old `100 - readiness` fallback that fabricated a number was removed.
       if (sleepBundle != null)
         'stress': ?stressSummaryForToday(sleepBundle, _scalar(sleepBundle, 'readiness')),
       if (sleepBundle != null && sleepBundle['spo2'] is Map)
@@ -359,7 +378,7 @@ class LocalRepositoryImpl extends LocalRepository {
       (await _crossDay()) ?? const {};
 
   Future<int> _stepGoal() async =>
-      (getProfileMap()?['step_goal'] as num?)?.toInt() ?? 10000;
+      (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
 
   num? _wearMin(Map<String, dynamic> b) {
     // Wear = RECORD presence (the band logs 1 Hz to flash ONLY while worn), NOT
@@ -468,7 +487,12 @@ class LocalRepositoryImpl extends LocalRepository {
         'baseline': (await _seriesMean('rmssd'))?.round(),
         // HRV stability (CV %) + LF/HF — both now computed.
         'cv': _sub(b, 'clinical')?['cv'],
-        'lf_hf': _sub(b, 'clinical.hrv_freq.value')?['lf_hf'],
+        // Rounded to 2dp for display — the raw clinical metric is round6()'d
+        // in analytics, which read as a raw-looking "0.354402" next to the
+        // whole-number RMSSD/SDNN beside it. Only consumer is this HRV group
+        // (detail_cards.dart HeartDayContent), so rounding at the source here
+        // is safe.
+        'lf_hf': _round2(_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?),
       },
       // Poincaré irregular-beat screen (sd1/sd2/flag/confidence).
       'irregular': _sub(b, 'clinical')?['irregular'],
@@ -485,7 +509,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'daytime_hrv': b['daytime_hrv'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
-      'spo2': b['spo2'],
+      // 'spo2' (oxygen dips) moved to _daySleep()/getDaySleep — it's an
+      // overnight signal, grouped with the Sleep tab's nocturnal numbers now,
+      // not shown on the Heart tab anymore.
       // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
       // baseline is short, so the card can say "Need N more nights".
       'illness': cd?['illness'],
@@ -509,6 +535,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'prsa_ac': _sub(b, 'clinical.prsa_ac'),
     };
   }
+
+  @override
+  Future<List<String>> availableDays() => LocalDb.availableDayIds();
 
   @override
   Future<Map<String, dynamic>> getDaySleep(String date) => _daySleep(date);
@@ -565,6 +594,11 @@ class LocalRepositoryImpl extends LocalRepository {
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
+      // Oxygen dips (SpO2/ODI) — moved here from getDayHeart's payload: an
+      // overnight signal belongs with the rest of this night's numbers, not
+      // a general daytime heart metric. Pure re-exposure of the same bundle
+      // field getDayHeart already read; no new computation.
+      'spo2': b['spo2'],
       // Sleep need: default 8 h (480 min) until a personal sleep-need baseline
       // exists. Debt = need − actual TST (≥0). Never null so the gauge always reads.
       'need_min': 480,
@@ -645,18 +679,29 @@ class LocalRepositoryImpl extends LocalRepository {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
     final cov = _sub(b, 'coverage');
-    final total = (cov?['hr_samples'] as num?)?.toInt() ?? 0;
+    final hrSamples = (cov?['hr_samples'] as num?)?.toInt();
     // Wear block (on/off segments, first/last on, longest off) computed in the
     // engine; fall back to the coverage counts when absent.
     final w = b['wear'] is Map
         ? (b['wear'] as Map).cast<String, dynamic>()
         : null;
+    // MISSING IS NOT ZERO. This used to collapse "we never measured wear" into
+    // `worn_min: 0` via `hr_samples ?? 0`, which an imported day (no `wear`
+    // block, no `coverage` block) hits every time — making it byte-identical to
+    // a day the strap genuinely sat in a drawer, so the screen asserted "Not
+    // worn on this day — no wrist contact was recorded" about data it simply
+    // never had. Resolution order is now: engine wear block, then the day's
+    // own `worn_min` scalar, then the coverage record count, then absent.
+    final scalarWornMin = (_sub(b, 'scalars')?['worn_min'] as num?)?.toInt();
+    final wornMin = (w?['worn_min'] as num?)?.toInt() ??
+        scalarWornMin ??
+        (hrSamples == null ? null : (hrSamples / 60).round());
     return {
       // Wear = RECORD presence, not valid HR (HR drops out during daytime
       // motion). Fall back to the total record count, never hr_valid.
-      'worn_min': (w?['worn_min'] as num?)?.toInt() ?? (total / 60).round(),
-      'coverage_pct':
-          (w?['coverage_pct'] as num?)?.toInt() ?? (total > 0 ? 100 : 0),
+      'worn_min': wornMin,
+      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt() ??
+          (hrSamples == null ? null : (hrSamples > 0 ? 100 : 0)),
       'segments': w?['segments'] ?? const [],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
@@ -668,8 +713,9 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDayStress(String date) async {
     // Stress = the pipeline's Baevsky Stress Index block (resting autonomic
-    // tension; transparent RR-histogram metric → 0–100 score). Falls back to the
-    // readiness inverse only if SI is absent. Nocturnal arousal isn't computed,
+    // tension; transparent RR-histogram metric → 0–100 score). No fallback: the
+    // score stays null when the SI is absent, so the screen renders "—" (the old
+    // `100 - readiness` imputation was removed). Nocturnal arousal isn't computed,
     // so `sleep_stress` is intentionally absent (the screen handles it).
     final b = await _bundleForDate(date);
     if (b == null) return const {};
@@ -680,14 +726,13 @@ class LocalRepositoryImpl extends LocalRepository {
     num? score = (stressBlk?['score'] as num?);
     String? level = stressBlk?['level'] as String?;
     final si = (stressBlk?['si'] as num?);
-    if (score == null) {
-      // Fallback: inverse of readiness (only when SI couldn't compute).
-      final readiness = _scalar(b, 'readiness');
-      if (readiness != null) {
-        score = (100 - readiness).round().clamp(0, 100);
-        level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
-      }
-    }
+    // NO fallback here. `100 - readiness` used to backfill a "stress" number
+    // whenever the real Baevsky SI was absent — fabricating a score from an
+    // unrelated metric, which violates the "absent input -> null, never
+    // imputed" rule and is exactly why a user with no overnight SI could see
+    // a confident-looking stress score anyway. `hasStress` downstream (see
+    // stress_screen.dart) already gates the hero UI on `score is num`, so
+    // leaving score/level null here correctly renders as "-".
 
     final lfHf =
         (stressBlk?['lf_hf'] as num?) ??
@@ -827,7 +872,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // complete day.
     final bundleDate = (b['date'] as String?) ?? date;
     final dayStart = _localMidnightSec(bundleDate);
-    final dayEnd = dayStart + 86400;
+    final dayEnd = _localDayEndSec(bundleDate);
 
     // Sleep span (onset/wake) for the context band + sleep symbol.
     final sw = _sub(b, 'sleep.window.value');
@@ -843,15 +888,19 @@ class LocalRepositoryImpl extends LocalRepository {
 
     // Workouts + device events for that calendar day.
     final sess = await LocalDb.sessionsInRange(dayStart, dayEnd);
-    final allEvents = await LocalDb.unuploadedEvents(limit: 2000);
+    // Bounded BY THE DAY, in SQL. This used to pull `unuploadedEvents(limit:
+    // 2000)` — `ORDER BY ts ASC LIMIT 2000`, i.e. the OLDEST 2000 rows — and
+    // then filter that page down to this day. Once `events` held more than 2000
+    // rows the page could no longer reach recent days at all, so their markers
+    // silently vanished from the timeline (the same oldest-N-vs-trailing-N
+    // shape as the metricSeries(limit:) outage).
+    final dayEvents = await LocalDb.eventsInRange(dayStart, dayEnd);
     final events = <Map<String, dynamic>>[
-      for (final e in allEvents)
-        if (((e['ts'] as num?)?.toInt() ?? -1) >= dayStart &&
-            ((e['ts'] as num?)?.toInt() ?? -1) < dayEnd)
-          {
-            'event_id': (e['event_id'] as num?)?.toInt(),
-            'ts': (e['ts'] as num?)?.toInt(),
-          },
+      for (final e in dayEvents)
+        {
+          'event_id': (e['event_id'] as num?)?.toInt(),
+          'ts': (e['ts'] as num?)?.toInt(),
+        },
     ];
 
     // Daytime naps (principled detectNaps) as their own bands on the timeline.
@@ -936,15 +985,15 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   /// Local midnight (epoch sec) of a 'YYYY-MM-DD' date string.
-  int _localMidnightSec(String ymd) {
-    final p = ymd.split('-');
-    if (p.length != 3) return 0;
-    final y = int.tryParse(p[0]),
-        m = int.tryParse(p[1]),
-        d = int.tryParse(p[2]);
-    if (y == null || m == null || d == null) return 0;
-    return DateTime(y, m, d).millisecondsSinceEpoch ~/ 1000;
-  }
+  int _localMidnightSec(String ymd) => localDayStartSec(ymd) ?? 0;
+
+  /// End of that local day (epoch sec) — the NEXT local midnight.
+  ///
+  /// NOT `_localMidnightSec(ymd) + 86400`: a spring-forward day is 23 h local
+  /// and a fall-back day is 25 h, so the flat +86400 window pulled in an hour
+  /// of the next day (or dropped the last hour) on exactly those two days a
+  /// year. See day_label.dart.
+  int _localDayEndSec(String ymd) => localDayEndSec(ymd) ?? 0;
 
   // ── lists / summaries ─────────────────────────────────────────────────────
 
@@ -1445,7 +1494,7 @@ class LocalRepositoryImpl extends LocalRepository {
       final b = await _bundleForDate(today);
       final curve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
       final dayStart = _localMidnightSec(today);
-      final dayEnd = dayStart + 86400;
+      final dayEnd = _localDayEndSec(today);
       return {
         'points': [
           for (final e in curve)
@@ -1472,18 +1521,17 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getRecords() async {
-    final rows = await LocalDb.recentDayResults(3650);
-    final days = rows.length;
-    int nights = 0;
-    final sleepDays = <String>{};
-    for (final r in rows) {
-      final b = _decode(r['payload_json']);
-      if (_sub(b, 'sleep.accounting.value')?['tst_sec'] != null) {
-        nights++;
-        final d = r['date'] as String?;
-        if (d != null) sleepDays.add(d);
-      }
-    }
+    // PAYLOAD-FREE. This used to be `recentDayResults(3650)` — `SELECT r.*`
+    // over TEN YEARS of day_result, dragging every bundle's hr_curve /
+    // hypnogram / HRV series across and `jsonDecode`ing each on the main
+    // isolate, for a screen that only ever needs scalar extremes. At ~2 years
+    // of history that is hundreds of MB decoded to compute two counts. Both
+    // are now answered in SQLite: day labels from an index-only GROUP BY, the
+    // sleep count via json_extract (only the scalar crosses the boundary).
+    final dayLabelList = await LocalDb.dayResultDayIdsDesc();
+    final days = dayLabelList.length;
+    final sleepDays = await LocalDb.daysWithSleepTst();
+    final nights = sleepDays.length;
 
     // Personal records from the day scalars (metric_series) + the sessions
     // table — computed locally with the record's own date attached.
@@ -1517,6 +1565,26 @@ class LocalRepositoryImpl extends LocalRepository {
     await extreme('most_steps', 'steps');
     await extreme('top_readiness', 'readiness');
 
+    // Honest gamification: don't celebrate a "personal best" built on a
+    // baseline the app itself still calls "calibrating"/"provisional"
+    // elsewhere (the Heart tab's Personal-baselines card) — resting_hr is
+    // the one record key with a real Winsorized-EWMA trust status to check.
+    // (The other record keys — strain/sleep/efficiency/steps/readiness/
+    // workout — have no equivalent trust concept in this codebase to gate
+    // on; celebrating an all-time extreme from a short history is a smaller,
+    // pre-existing honesty gap for those, left as-is here rather than
+    // inventing a new trust proxy for six unrelated metrics.)
+    if (records.containsKey('lowest_rhr')) {
+      final latest = await _latestBundle();
+      // Dotted-path _sub instead of chained dynamic indexing — a bundle
+      // where baselines.resting_hr isn't a Map (or is missing/a List) would
+      // otherwise throw NoSuchMethodError out of getRecords() instead of
+      // falling into the honest "not trusted" branch. _sub already walks
+      // the whole path defensively, returning null on any mismatch.
+      final rhrStatus = _sub(latest, 'baselines.resting_hr')?['status'] as String?;
+      if (rhrStatus != 'trusted') records.remove('lowest_rhr');
+    }
+
     // Sessions: top workout strain (with its type) + total tracked count.
     var workoutsTracked = 0;
     final sessions = await LocalDb.sessionsInRange(
@@ -1545,10 +1613,7 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     // Streaks: consecutive most-recent days with derived data / with sleep.
-    final dayLabels = <String>{
-      for (final r in rows)
-        if (r['date'] is String) r['date'] as String,
-    };
+    final dayLabels = dayLabelList.toSet();
     int streakOf(Set<String> have) {
       var streak = 0;
       var d = DateTime.now();
@@ -1669,13 +1734,34 @@ class LocalRepositoryImpl extends LocalRepository {
     // Sessions have no avg_hr column — without this every workout looked like
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
-      final stats = await LocalDb.sessionHrStats(fromTs, nowSec);
+      final age = _profileAge();
+      final stats = await LocalDb.sessionHrStats(fromTs, nowSec,
+          maxHrCeiling: hrCeilingForAge(age), minHrFloor: kHrFloorBpm);
+      // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
+      // over one batched join so the list agrees with getWorkout's on-read
+      // recompute.
+      final rawBySession = await LocalDb.sessionHrSamplesBySession(fromTs, nowSec);
       for (final w in workouts) {
         final s = stats[w['id']];
-        if (s == null || (s['n'] ?? 0) == 0) continue;
-        w['avg_hr'] = (s['avg_hr'] as num).round();
-        w['min_hr'] = (s['min_hr'] as num).toInt();
-        w['max_hr'] ??= (s['max_hr'] as num).toInt();
+        final raw = rawBySession[w['id']];
+        if (s != null && (s['n'] ?? 0) != 0) {
+          w['avg_hr'] = (s['avg_hr'] as num).round();
+        }
+        // Peak: smoothed-from-raw (authoritative, matches the detail screen);
+        // else stored column, else the ceiling-bounded SQL max.
+        final smax = raw == null ? null : smoothedMaxHr(raw, age: age);
+        if (smax != null) {
+          w['max_hr'] = smax;
+        } else if (s != null && (s['n'] ?? 0) != 0) {
+          w['max_hr'] ??= (s['max_hr'] as num).toInt();
+        }
+        // Trough: same treatment. Raw pruned → the floor-bounded SQL min.
+        final smin = raw == null ? null : smoothedMinHr(raw, age: age);
+        if (smin != null) {
+          w['min_hr'] = smin;
+        } else if (s != null && (s['n'] ?? 0) != 0) {
+          w['min_hr'] = (s['min_hr'] as num).toInt();
+        }
       }
     } catch (_) {
       /* stats are an enrichment — the list still renders without them */
@@ -1752,12 +1838,18 @@ class LocalRepositoryImpl extends LocalRepository {
         w['hr'] = _minuteHrCurve(ts, hr);
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
-        w['min_hr'] = hr.reduce(math.min);
-        final peak = hr.reduce(math.max);
-        w['max_hr'] = math.max((w['max_hr'] as int?) ?? 0, peak);
+        // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
+        // define the min, symmetric to the max recompute below.
+        w['min_hr'] = smoothedMinHr(hr, age: _profileAge()) ?? hr.reduce(math.min);
+        // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
+        // do NOT floor against the stored column: the live path may already have
+        // written a spiked max there, and math.max() would preserve it.
+        final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
+        if (peakAt != null) {
+          w['max_hr'] = peakAt.$1;
+          w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
+        }
         w['zone_bands'] = _zoneBands(hr);
-        w['time_to_peak_min'] =
-            ((ts[hr.indexOf(peak)] - startTs) / 60).round();
         final drift = _hrDriftPct(ts, hr, startTs, endTs);
         if (drift != null) w['hr_drift_pct'] = drift;
       }
@@ -1886,6 +1978,10 @@ class LocalRepositoryImpl extends LocalRepository {
     final age = (getProfileMap()?['age'] as num?)?.toDouble() ?? 30.0;
     return (220 - age).round();
   }
+
+  /// Profile age in years, or null when unset — the input to the physiological
+  /// HR ceiling in the spike-suppressed max ([hrCeilingForAge]).
+  int? _profileAge() => (getProfileMap()?['age'] as num?)?.round();
 
   @override
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
@@ -2177,8 +2273,18 @@ class LocalRepositoryImpl extends LocalRepository {
     // Phase + fertile window — only when meanLength is known (else honest unknown).
     String phase = 'unknown';
     String? fertileStart, fertileEnd;
-    if (meanLength != null && cycleDay != null && lastStart != null) {
-      final ovDay = (meanLength - 14).round().clamp(10, meanLength.round());
+    // A mean cycle shorter than the 10-day ovulation floor makes the clamp
+    // bounds cross — `clamp(10, 8)` THROWS ArgumentError (lowerLimit >
+    // upperLimit), and it threw straight out of getCycle() so the entire cycle
+    // screen errored instead of degrading. Two logged `start` markers 8 days
+    // apart is enough: a mis-tap the user then corrected, or a genuinely short
+    // cycle. Below the floor there is no defensible ovulation day to place, so
+    // be honest — leave `phase: 'unknown'` and publish no fertile window
+    // (predictedNext / cycleDay / the biometric overlay still render).
+    final ovDay = (meanLength == null || meanLength.round() < 10)
+        ? null
+        : (meanLength - 14).round().clamp(10, meanLength.round());
+    if (ovDay != null && cycleDay != null && lastStart != null) {
       if (cycleDay <= 5) {
         phase = 'menstrual';
       } else if (cycleDay < ovDay) {
@@ -2320,8 +2426,7 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── small series helpers ─────────────────────────────────────────────────────
 
   Future<double?> _seriesMean(String key) async {
-    final rows = await LocalDb.metricSeries(key, limit: 28);
-    final vs = [for (final r in rows) (r['value'] as num).toDouble()];
+    final vs = await LocalDb.trailingSeriesValues(key, 28);
     if (vs.isEmpty) return null;
     return vs.reduce((a, b) => a + b) / vs.length;
   }
@@ -2344,11 +2449,14 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 }
 
-/// The /today `stress` block from a day bundle — the pipeline's Baevsky block
-/// with the SAME readiness-inverse fallback getDayStress applies (only when SI
-/// couldn't compute a score). Pure + public so the Today seam is unit-testable.
-/// Returns null when there is neither a stress block nor a readiness scalar
-/// (the tile then renders the honest "—").
+/// The /today `stress` block from a day bundle — the pipeline's Baevsky block,
+/// verbatim, with NO fallback substitute when SI couldn't compute a score.
+/// (Previously mirrored getDayStress's `100 - readiness` fallback; removed for
+/// the same reason — it fabricated a stress-looking number out of an unrelated
+/// metric, violating the never-impute rule.) Pure + public so the Today seam
+/// is unit-testable. Returns null when there is neither a stress block nor any
+/// score (the tile then renders the honest "—"); [readiness] is now unused but
+/// kept as a parameter for call-site compatibility.
 Map<String, dynamic>? stressSummaryForToday(
   Map<String, dynamic> bundle,
   num? readiness,
@@ -2356,14 +2464,7 @@ Map<String, dynamic>? stressSummaryForToday(
   final blk = bundle['stress'] is Map
       ? (bundle['stress'] as Map).cast<String, dynamic>()
       : const <String, dynamic>{};
-  if (blk['score'] != null) return blk;
-  if (readiness == null) return blk.isEmpty ? null : blk;
-  final score = (100 - readiness).round().clamp(0, 100);
-  return {
-    ...blk,
-    'score': score,
-    'level': score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high'),
-  };
+  return blk.isEmpty ? null : blk;
 }
 
 // ── Live spot-check / breathing compute (run under Isolate.run, off the UI) ────

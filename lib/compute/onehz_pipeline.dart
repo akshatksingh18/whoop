@@ -33,6 +33,40 @@ const MetricCfg _skinTempAdcCfg = MetricCfg(
   halfLifeS: 21.0,
 );
 
+/// Physiological cap on the readiness composite z, above which the score is a
+/// degenerate-baseline artefact rather than a real reading — so it is abstained
+/// from the HEADLINE scalar rather than persisted.
+///
+/// The composite maps its weighted, sign-oriented z to a 0–100 score via a
+/// logistic (`readiness_composite.dart`): `score = 100 / (1 + exp(-z))`. That
+/// curve only approaches the 100 rail as z → ∞: a real composite z is a weighted
+/// mean of per-input robust-z's, so even a flawless morning (every input at +2 z)
+/// lands at z=2 → score 88, and +3 z all-round is z=3 → 95. Reaching z=5
+/// (score 99.3) is physiologically unreachable by a genuine reading — it only
+/// happens when an input's robust-z explodes because its baseline MAD is tiny.
+///
+/// robustZ (`util.dart`) returns null only on EXACT-zero MAD (fully-quantised
+/// baseline) → the composite abstains and the ring shows a blank '—'. But a
+/// baseline that is near-degenerate — e.g. duplicate-day pollution collapsing the
+/// window toward one repeated value — has a tiny NON-zero MAD, so robustZ does
+/// NOT null: it returns a huge z, the logistic saturates, and the headline flashes
+/// ~100 before a cleaner re-derive snaps it back (the ready→ready bounce, #117).
+/// Capping at 5 suppresses ONLY that saturated rail and hides zero legitimate
+/// scores. This is the belt-and-braces guard; removing the degenerate baselines at
+/// source is the sibling `fix/readiness-baseline-pollution` work.
+const double kReadinessZCap = 5.0;
+
+/// The headline readiness scalar for a computed [composite], or null when it must
+/// abstain: absent composite, or one whose |z| exceeds [kReadinessZCap] (a
+/// saturated, degenerate-baseline artefact — see [kReadinessZCap]). Pure so the
+/// gate is unit-testable without the full pipeline.
+double? headlineReadinessScalar(Metric<Readiness> composite) {
+  if (!composite.present) return null;
+  final r = composite.value!;
+  if (r.compositeZ.abs() > kReadinessZCap) return null;
+  return r.score;
+}
+
 /// Serializable input to the isolate: one physiological day's decoded 1 Hz
 /// substrate (the day slice), the PRECOMPUTED single-source sleep segmentation,
 /// the profile, and trailing baseline history for the readiness pass.
@@ -260,8 +294,19 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           tier: Tier.high,
           inputs_used: ['rr_cleaned'],
         );
-  // Nocturnal RHR over the SLEEP HR (fallback to day-valid only if no sleep HR).
-  final rhr = nocturnalRhr(sleepHr.isNotEmpty ? sleepHr : dayHrValid);
+  // Nocturnal RHR over the SLEEP HR (fallback to the DAY series only if there
+  // is no sleep HR at all).
+  //
+  // Both arguments must be POSITIONALLY DENSE 1 Hz series where 0 means
+  // off-skin — `nocturnalRhr` slides its 30-minute window over wall-clock
+  // POSITIONS and enforces a minimum on-skin coverage per window. Passing the
+  // compacted `dayHrValid` here defeated that: with gaps squeezed out, 1800
+  // consecutive entries could span many hours, so "lowest 30-minute mean"
+  // silently became "lowest mean over whatever 1800 samples happened to
+  // survive". `dayHr` keeps its zeros, so a day too sparse to contain a real
+  // contiguous window now abstains instead of reporting a stitched-together
+  // trough.
+  final rhr = nocturnalRhr(sleepHr.isNotEmpty ? sleepHr : dayHr);
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
@@ -349,7 +394,19 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final lnToday = (sleepSessionRmssd != null && sleepSessionRmssd > 0)
       ? math.log(sleepSessionRmssd)
       : null;
-  final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
+  // Readiness's RHR input must come from an ACTUAL detected sleep session.
+  // `rhr` above intentionally falls back to daytime HR (`dayHr`) for the
+  // general-purpose "resting HR" display card, but feeding that fallback into
+  // readiness let a handful of minutes of live daytime HR masquerade as an
+  // overnight resting rate — the sole reason a same-day score of 100 could
+  // appear ~10 minutes after first wearing the strap, with no real sleep yet.
+  // HRV/resp/temp above are already correctly gated on the sleep window (`nn`
+  // comes from `d.sleepRrMs`); this makes RHR consistent with them so a
+  // no-sleep day has ALL FOUR composite inputs null and readiness reports "—"
+  // instead of computing off RHR alone.
+  final rhrToday = (hasSleep && sleepHr.isNotEmpty && rhr.present)
+      ? rhr.value!.low30Mean
+      : null;
   final respToday = resp.present ? resp.value!.brpm : null;
   final composite = readinessComposite([
     hrvInput(lnToday, d.lnRmssdHistory),
@@ -367,17 +424,47 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // "no value" / "baseline too short" from "everything present but MAD was
   // degenerate" by elimination (readinessComposite doesn't surface the last
   // case in its own note — see readiness_composite.dart's robustZ() null path).
+  // `baseline_sd` additionally distinguishes a TRULY zero-dispersion baseline
+  // (readinessComposite's documented, intentional "never fabricate against
+  // zero dispersion" abstain — see its rescue-vs-flat test) from some other,
+  // unexplained cause of a null z — so a future Crashlytics hit is diagnosable
+  // instead of another round of guessing from value/baseline_n alone.
   Map<String, dynamic>? readinessAbsentDiag;
   if (!composite.present) {
     readinessAbsentDiag = {
-      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
-      'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
-      'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
-      'temp': {'value': skinTempAdc != null, 'baseline_n': d.skinTempAdcHistory.length},
+      'hrv': {
+        'value': lnToday != null,
+        'baseline_n': d.lnRmssdHistory.length,
+        'baseline_sd': _stddev(d.lnRmssdHistory),
+      },
+      'rhr': {
+        'value': rhrToday != null,
+        'baseline_n': d.rhrHistory.length,
+        'baseline_sd': _stddev(d.rhrHistory),
+      },
+      'resp': {
+        'value': respToday != null,
+        'baseline_n': d.respHistory.length,
+        'baseline_sd': _stddev(d.respHistory),
+      },
+      'temp': {
+        'value': skinTempAdc != null,
+        'baseline_n': d.skinTempAdcHistory.length,
+        'baseline_sd': _stddev(d.skinTempAdcHistory),
+      },
       'note': composite.note,
     };
   }
-  // Plews lnRMSSD readiness over the trailing history INCLUDING today.
+  // Plews lnRMSSD readiness. `readinessLnRmssd` is contractually handed the
+  // trailing history with TONIGHT AS THE LAST ELEMENT and takes strictly the
+  // prior elements as its baseline (analytics v38). So appending `lnToday`
+  // exactly once is right — PROVIDED `d.lnRmssdHistory` holds only days BEFORE
+  // this one. It didn't: the engine filled it from an unfiltered trailing
+  // `metric_series` window that already contained the row a previous derive of
+  // THIS day wrote, so today was in its own baseline AND counted a second time
+  // by this append. The engine now self-excludes the target date
+  // (`_attachHistory` → `_BaselineHistoryCache.valuesBefore`), which is what
+  // makes this single append the correct, non-duplicating one.
   final lnHist = [...d.lnRmssdHistory, ?lnToday];
   final lnReadiness = lnHist.length >= 4
       ? readinessLnRmssd(lnHist)
@@ -599,7 +686,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
       ? hrvT.value!.rmssd
       : null;
-  final readinessScalar = composite.present ? composite.value!.score : null;
+  // Abstain from a saturated, degenerate-baseline readiness rather than persist a
+  // bogus ~100 that a cleaner re-derive would then snap back down (#117 bounce).
+  final readinessScalar = headlineReadinessScalar(composite);
   final strainScalar = strainMetric.present ? strainMetric.value : null;
 
   // ── STRESS: Baevsky SI → a transparent 0–100 score (log-mapped over the

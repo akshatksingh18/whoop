@@ -38,11 +38,23 @@ class Palette {
   final Color inkSoft;
   final Color inkMuted;
 
-  // Accent — ember coral.
+  // Accent — ember coral. Reserved for genuinely low/poor/urgent evaluative
+  // states (see AppColors.scoreColor, DomainAccent.heart's domain exception)
+  // — never used for routine brand chrome; see `brand` below for that.
   final Color coral;
   final Color coralDeep;
   final Color coralSoft;
   final Color coralInk;
+
+  // Brand identity — a calm, controlled cyan/teal, structurally separate
+  // from `coral`. Powers nav active-state, routine/non-evaluative CTAs and
+  // chrome (Material `primary`, FilledButton, AppColors.accent/accentSoft) —
+  // deliberately never a "something needs attention" colour, so orange stays
+  // legible as a genuine signal wherever it does appear.
+  final Color brand;
+  final Color brandDeep;
+  final Color brandSoft;
+  final Color brandInk;
 
   // Status.
   final Color good;
@@ -72,6 +84,10 @@ class Palette {
     required this.coralDeep,
     required this.coralSoft,
     required this.coralInk,
+    required this.brand,
+    required this.brandDeep,
+    required this.brandSoft,
+    required this.brandInk,
     required this.good,
     required this.goodSoft,
     required this.warn,
@@ -102,6 +118,10 @@ const Palette kLightPalette = Palette(
   coralDeep: Color(0xFFE8431F),
   coralSoft: Color(0xFFFFE7DF), // tint fill
   coralInk: Color(0xFF7A2A16), // ink on coralSoft
+  brand: Color(0xFF12879B), // controlled cyan/teal — calm, not orange
+  brandDeep: Color(0xFF0C6C7D),
+  brandSoft: Color(0xFFDCF2F4), // tint fill
+  brandInk: Color(0xFF0A4650), // ink on brandSoft
   good: Color(0xFF2BB673),
   goodSoft: Color(0xFFDBF3E7),
   warn: Color(0xFFF5A623),
@@ -131,6 +151,10 @@ const Palette kDarkPalette = Palette(
   coralDeep: Color(0xFFFF8159), // "deep" = stronger/lighter coral on dark text
   coralSoft: Color(0xFF3A2018), // deep warm ember tint fill
   coralInk: Color(0xFFFFB59E), // light coral text on coralSoft
+  brand: Color(0xFF3FD3E3), // a hair brighter on dark, same family as light
+  brandDeep: Color(0xFF63E3EF),
+  brandSoft: Color(0xFF102E32), // deep teal tint fill
+  brandInk: Color(0xFFA6ECF2), // light cyan text on brandSoft
   good: Color(0xFF34C988),
   goodSoft: Color(0xFF15281F),
   warn: Color(0xFFF7B53A),
@@ -171,14 +195,50 @@ class AppColors {
   //    device card, the live-workout screen, splash overlays). ──
   static const night = Color(0xFF181613);
   static const nightAlt = Color(0xFF24211D);
+
+  // ── Ink ramp for permanently-dark surfaces (the live session screen) ──
+  //
+  // These exist because that screen was written with ad-hoc `Colors.white30` /
+  // `white38` values, and MEASURED against [nightAlt] they do not clear the
+  // WCAG AA floor for small text (4.5:1):
+  //
+  //     white24 → 2.20:1     white30 → 2.72:1     white38 → 3.49:1
+  //
+  // Its labels are 9 px overlines, so that is squarely small text — the
+  // "labels are invisible on the dark panel" report. Opacity is a convenient
+  // knob but it is not a contrast decision; picking one requires knowing the
+  // backdrop, which is exactly what a token can encode and a call site cannot.
+  //
+  // Ratios below are against [nightAlt] (the sheet); every one is higher
+  // against the darker [night]. Guarded by test/zone_contrast_test.dart.
+  /// Muted ink (overline labels, units) — 5.77:1. The FLOOR for small text on
+  /// this surface; do not reach for a lower opacity instead.
+  ///
+  /// [onNight] (14.23:1) and [onNightSoft] (6.21:1) below already existed and
+  /// already pass — the live session screen simply wasn't using them, and
+  /// reached for raw `Colors.whiteNN` instead. This adds the third step that
+  /// was missing so there is a token for every role and no reason to.
+  static const onNightMuted = Color(0xFF9C9B99);
+
+  /// Primary ink on a dark session surface — 14.23:1.
   static const onNight = Color(0xFFF4F1EC);
+
+  /// Secondary ink (values, unselected controls) — 6.21:1.
   static const onNightSoft = Color(0xFFA8A096);
 
-  // ── Accent — ember coral (mode-varying) ──
+  // ── Accent — ember coral (mode-varying). Alert/urgent semantics ONLY —
+  //    see `brand` below for the routine identity accent. ──
   static Color get coral => active.coral;
   static Color get coralDeep => active.coralDeep;
   static Color get coralSoft => active.coralSoft;
   static Color get coralInk => active.coralInk;
+
+  // ── Brand identity — calm cyan/teal (mode-varying). Structurally separate
+  //    from `coral`: this is what `accent`/`accentSoft` below resolve to. ──
+  static Color get brand => active.brand;
+  static Color get brandDeep => active.brandDeep;
+  static Color get brandSoft => active.brandSoft;
+  static Color get brandInk => active.brandInk;
 
   // ── Status (mode-varying) ──
   static Color get good => active.good;
@@ -221,25 +281,70 @@ class AppColors {
   // ── HR zone palette (Z0..Z5) — the single source for zone colours. Reads the
   //    active palette at call time, so it re-themes for free. Both the live
   //    session ladder and the workouts zone bars source their colours here. ──
-  static Color zone(int z) {
+  static Color zone(int z) => zoneIn(active, z);
+
+  /// The zone ramp resolved against a SPECIFIC palette rather than whatever is
+  /// active. Needed because not every surface follows the app theme.
+  static Color zoneIn(Palette p, int z) {
     switch (z.clamp(0, 5)) {
       case 0:
-        return cool; // resting / below zone 1
+        return p.cool; // resting / below zone 1
       case 1:
-        return loadDetraining; // warm-up
+        return p.loadDetraining; // warm-up
       case 2:
-        return good; // fat burn
+        return p.good; // fat burn
       case 3:
-        return warn; // aerobic
+        return p.warn; // aerobic
       case 4:
-        return coral; // threshold
+        return p.coral; // threshold
       default:
-        return coralDeep; // max effort (Z5)
+        return p.coralDeep; // max effort (Z5)
     }
   }
 
+  /// Zone colour for a surface that is ALWAYS dark, regardless of the user's
+  /// theme — today that means the live workout session screen, which paints on
+  /// [night]/[nightAlt] whether the app is in light or dark mode.
+  ///
+  /// Two separate legibility bugs are fixed here, both measured rather than
+  /// eyeballed (WCAG relative-luminance contrast against [nightAlt]):
+  ///
+  ///  1. Plain [zone] resolves the ACTIVE palette. With the app in LIGHT mode
+  ///     that returned hues tuned for contrast against white and painted them
+  ///     on near-black.
+  ///  2. Even on the dark palette, Z0 mapped to `cool` — which is a SURFACE
+  ///     token (a dark cool-grey panel), not an ink. As a foreground it
+  ///     measured **1.03:1** against nightAlt: literally invisible. And Z0 is
+  ///     the resting zone, i.e. exactly what is on screen at the start of
+  ///     every workout and whenever heart rate is low or absent.
+  ///
+  /// Z0 therefore uses `coolInk` — the token that already exists as "ink on
+  /// the cool surface" — measuring 9.76:1. The rest of the ramp was already
+  /// clear (5.7:1 – 8.9:1) and is unchanged.
+  ///
+  /// Guarded by a test that asserts every zone clears 3:1 on this surface, so
+  /// a future palette edit cannot silently reintroduce an invisible zone.
+  static Color zoneOnDark(int z) =>
+      z.clamp(0, 5) == 0 ? kDarkPalette.coolInk : zoneIn(kDarkPalette, z);
+
   /// A soft tint of a zone colour — for faint backfills / legend swatches.
   static Color zoneSoft(int z) => zone(z).withValues(alpha: 0.16);
+
+  /// THE tonal-fill recipe for a coloured pill/chip/verdict-card FILL: alpha-
+  /// blends [hue] at a low weight onto the real elevated-surface baseline
+  /// (never a raw `hue.withValues(alpha: x)` painted over whatever happens to
+  /// sit behind the widget — that only lightens/darkens relative to an
+  /// unknown backdrop, it doesn't guarantee a result close to the app's
+  /// near-black baseline). Text/icons on top stay full-saturation `hue` —
+  /// the point is ONE formula for "this surface is tinted, not lit up",
+  /// reused everywhere a colour needs a background instead of invented per
+  /// call site. Kept deliberately low in dark mode: nothing here should
+  /// approach the readiness ring's glow, the one place full brightness is
+  /// reserved for.
+  static Color tonalFill(Color hue) => Color.alphaBlend(
+        hue.withValues(alpha: isDark ? 0.09 : 0.13),
+        Elevation.surfaceAt(1),
+      );
 
   // ── Semantic aliases — the design-system vocabulary. One canonical name per
   //    role, resolved through [active] like everything else. New components
@@ -263,12 +368,18 @@ class AppColors {
   /// Tertiary content — placeholders, disabled, hairline glyphs.
   static Color get onSurfaceFaint => active.inkMuted;
 
-  /// THE brand accent — ember coral.
-  static Color get accent => active.coral;
+  /// THE brand accent — calm cyan/teal identity colour. Routine,
+  /// non-evaluative CTAs/chrome and nav active-state ONLY: structurally
+  /// separate from the alert semantics (`coral`/`warn`/`bad`) so a genuinely
+  /// low/urgent state never has to compete with the brand hue for attention.
+  /// See [DomainAccent] for per-health-domain colours (heart keeps the ember
+  /// coral as its own domain identity, a deliberate, contained exception).
+  static Color get accent => active.brand;
 
-  /// Ember tint fill (chips, soft badges); pair text with [onAccentSoft].
-  static Color get accentSoft => active.coralSoft;
-  static Color get onAccentSoft => active.coralInk;
+  /// Brand tint fill (chips, soft badges, nav lozenge); pair text with
+  /// [onAccentSoft].
+  static Color get accentSoft => active.brandSoft;
+  static Color get onAccentSoft => active.brandInk;
 
   /// Status roles.
   static Color get positive => active.good;
@@ -323,6 +434,13 @@ class Shadows {
   ];
   static const coral = [
     BoxShadow(color: Color(0x40FF5A36), blurRadius: 28, offset: Offset(0, 12)),
+  ];
+
+  /// Matching soft-glow shadow for [AppColors.accent] (brand teal) surfaces —
+  /// same treatment as [coral], just the brand hue so a teal chip/button
+  /// doesn't cast a mismatched orange shadow.
+  static const brand = [
+    BoxShadow(color: Color(0x4012879B), blurRadius: 28, offset: Offset(0, 12)),
   ];
 
   /// A medium sheet/finish-card shadow — stronger than [card], softer than

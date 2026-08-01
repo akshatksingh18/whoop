@@ -1,0 +1,336 @@
+// Tests for the persistent fire-once dedupe guard added for issue #136.
+//
+// NotificationCenter.emit must present a given dedupeKey to the OS at most once,
+// persisted across restarts, while a fresh (e.g. next-day) key still fires and
+// the existing category/quiet-hours gating is untouched. We inject a fake
+// present sink (counts calls, no device) and a mocked SharedPreferences.
+//
+// NOTE — this suite runs with NO sqlite factory registered, so FiredKeyStore's
+// atomic SQLite claim is unavailable and every test here exercises its DEGRADED
+// SharedPreferences fallback. That's deliberate: the fallback is what runs when
+// the DB is torn down mid-background-pass, and it must still dedupe. The atomic
+// claim itself (and the legacy-list migration) is covered against a real DB in
+// notification_claim_atomic_test.dart.
+
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:openstrap_edge/data/day_label.dart';
+
+import 'package:openstrap_edge/notify/fired_keys.dart';
+import 'package:openstrap_edge/notify/notification_center.dart';
+import 'package:openstrap_edge/notify/notification_event.dart';
+
+/// Records every event handed to the OS layer so tests can assert call counts.
+class _FakeSink {
+  final List<NotificationEvent> shown = [];
+  bool grant; // false simulates permission-denied (nothing actually shown)
+
+  _FakeSink({this.grant = true});
+
+  Future<bool> call(NotificationEvent e, {bool allowPermissionPrompt = true}) async {
+    if (!grant) return false;
+    shown.add(e);
+    return true;
+  }
+}
+
+/// A sink that parks inside the present call until [release] is called, so a
+/// test can hold one emit mid-critical-section and prove a second overlapping
+/// emit is serialised behind it. [calls] counts entries into present.
+///
+/// [entered] fires the moment an emit first reaches the parked point, so tests
+/// order on that signal rather than a scheduler-dependent delay.
+class _GatedSink {
+  int calls = 0;
+  final List<String> keys = [];
+  final Completer<void> _gate = Completer<void>();
+  final Completer<void> _entered = Completer<void>();
+
+  /// Completes when the first emit reaches (enters) the present call.
+  Future<void> get entered => _entered.future;
+
+  Future<bool> call(NotificationEvent e, {bool allowPermissionPrompt = true}) async {
+    calls++;
+    keys.add(e.dedupeKey);
+    if (!_entered.isCompleted) _entered.complete();
+    await _gate.future;
+    return true;
+  }
+
+  void release() => _gate.complete();
+}
+
+NotificationEvent _ev(
+  String dedupeKey, {
+  NotifCategory category = NotifCategory.health,
+  NotifPriority priority = NotifPriority.critical,
+  String date = '2026-07-23',
+}) =>
+    NotificationEvent(
+      dedupeKey: dedupeKey,
+      category: category,
+      priority: priority,
+      title: 't',
+      body: 'b',
+      date: date,
+    );
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  final center = NotificationCenter.instance;
+  late Future<bool> Function(NotificationEvent, {bool allowPermissionPrompt})
+      original;
+
+  setUp(() {
+    // Quiet hours off + all categories on, so gating never interferes with the
+    // dedupe-focused tests (the gating tests set their own values).
+    SharedPreferences.setMockInitialValues({'notif_quiet_enabled': false});
+    original = center.presentSink;
+  });
+
+  tearDown(() {
+    center.presentSink = original;
+  });
+
+  group('emit dedupe (issue #136)', () {
+    test('same dedupeKey fires the OS notification exactly once', () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      final e = _ev('2026-07-23:irregular');
+      await center.emit(e);
+      await center.emit(e); // re-derive would re-emit the same key
+      await center.emit(e);
+
+      expect(sink.shown.length, 1);
+    });
+
+    test('a different (next-day) key fires again', () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      await center.emit(_ev('2026-07-23:irregular', date: '2026-07-23'));
+      await center.emit(_ev('2026-07-24:irregular', date: '2026-07-24'));
+
+      expect(sink.shown.length, 2);
+      expect(
+        sink.shown.map((e) => e.dedupeKey),
+        containsAll(['2026-07-23:irregular', '2026-07-24:irregular']),
+      );
+    });
+
+    test('the guard survives via SharedPreferences (restart-safe)', () async {
+      // First "session": key fires once and is recorded to SharedPreferences —
+      // the same on-disk store that survives an app restart on-device.
+      final sink1 = _FakeSink();
+      center.presentSink = sink1.call;
+      await center.emit(_ev('2026-07-23:illness'));
+      expect(sink1.shown.length, 1);
+
+      // Second "session": same persisted store — the key is still remembered,
+      // so it must NOT fire again.
+      final sink2 = _FakeSink();
+      center.presentSink = sink2.call;
+      await center.emit(_ev('2026-07-23:illness'));
+      expect(sink2.shown, isEmpty);
+    });
+
+    test('a permission-denied no-op does not consume the key', () async {
+      // Present fails (permission denied) → key not recorded → a later grant
+      // still lets it fire.
+      final denied = _FakeSink(grant: false);
+      center.presentSink = denied.call;
+      await center.emit(_ev('2026-07-23:temp'));
+
+      final granted = _FakeSink();
+      center.presentSink = granted.call;
+      await center.emit(_ev('2026-07-23:temp'));
+      expect(granted.shown.length, 1);
+    });
+  });
+
+  group('emit still respects gating', () {
+    test('a disabled category never presents (and is not recorded)', () async {
+      SharedPreferences.setMockInitialValues({'notif_health': false});
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      await center.emit(_ev('2026-07-23:illness', category: NotifCategory.health));
+      expect(sink.shown, isEmpty);
+
+      // Re-enabling the category later must let the key fire — the gate, not the
+      // dedupe guard, suppressed it, so no key should have been recorded.
+      expect(await const FiredKeyStore().hasFired('2026-07-23:illness'), isFalse);
+    });
+
+    test('quiet hours suppress a non-critical event', () async {
+      // A window covering the whole day → now is always inside quiet hours.
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': 0,
+        'notif_quiet_end': 1440,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      await center.emit(_ev(
+        '2026-07-23:recovery',
+        category: NotifCategory.recovery,
+        priority: NotifPriority.normal,
+      ));
+      expect(sink.shown, isEmpty);
+    });
+
+    test('a critical event overrides quiet hours (default) and still fires once',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': 0,
+        'notif_quiet_end': 1440,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      final e = _ev('2026-07-23:illness', priority: NotifPriority.critical);
+      await center.emit(e);
+      await center.emit(e);
+      expect(sink.shown.length, 1);
+    });
+  });
+
+  group('concurrent emit serialisation', () {
+    test('two overlapping emits of the SAME key present exactly once',
+        () async {
+      final sink = _GatedSink();
+      center.presentSink = sink.call;
+
+      final e = _ev('2026-07-23:irregular');
+      final f1 = center.emit(e);
+      final f2 = center.emit(e);
+      // Order on the sink's entry signal, not a timer: once the first emit is
+      // parked inside present, the second is provably held on the lock (it
+      // can't have reached the fired-key check), so exactly one entered.
+      await sink.entered;
+      expect(sink.calls, 1);
+      sink.release();
+      await Future.wait([f1, f2]);
+
+      // Second emit saw the now-recorded key and never presented.
+      expect(sink.calls, 1);
+    });
+
+    test('two overlapping emits of DIFFERENT keys both record (no clobber)',
+        () async {
+      final sink = _GatedSink();
+      center.presentSink = sink.call;
+
+      final f1 = center.emit(_ev('2026-07-23:a'));
+      final f2 = center.emit(_ev('2026-07-23:b'));
+      // First emit is parked inside present; the second is held on the lock, so
+      // its record-key write can only run after the first's — no interleaving.
+      await sink.entered;
+      sink.release();
+      await Future.wait([f1, f2]);
+
+      expect(sink.calls, 2);
+      // Independent per-key flags: neither key clobbered the other.
+      const store = FiredKeyStore();
+      expect(await store.hasFired('2026-07-23:a'), isTrue);
+      expect(await store.hasFired('2026-07-23:b'), isTrue);
+    });
+  });
+
+  group('stress-screen high-stress alert (now routed through emit)', () {
+    // The exact event stress_screen.dart builds: health category, default
+    // (normal) priority, no route. It used to call presentEvent directly,
+    // bypassing both the gate and the dedupe guard — now it goes through emit.
+    NotificationEvent highStress() => NotificationEvent(
+          dedupeKey: '2026-07-23:high_stress',
+          category: NotifCategory.health,
+          title: 'High Stress Detected',
+          body: 'Your stress score is 82. Consider taking a moment to breathe.',
+          date: '2026-07-23',
+        );
+
+    test('dedupes on repeat (was previously re-alerting per screen visit)',
+        () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      await center.emit(highStress());
+      await center.emit(highStress());
+      await center.emit(highStress());
+      expect(sink.shown.length, 1);
+    });
+
+    test('now respects quiet hours (normal priority, no longer bypassing)',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': 0,
+        'notif_quiet_end': 1440,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      await center.emit(highStress());
+      expect(sink.shown, isEmpty);
+    });
+  });
+
+  group('FiredKeyStore per-key + retention (degraded mode)', () {
+    // A local YYYY-MM-DD offset from today, for retention-window assertions.
+    // dayLabelOf, not raw toIso8601String: day labels are LOCAL everywhere, and
+    // the store's own cutoff is computed the same way.
+    String dayOffset(int days) =>
+        dayLabelOf(DateTime.now().add(Duration(days: days)));
+
+    test('hasFired reflects recordFired', () async {
+      SharedPreferences.setMockInitialValues({});
+      const store = FiredKeyStore();
+      expect(await store.hasFired('a'), isFalse);
+      await store.recordFired('a');
+      expect(await store.hasFired('a'), isTrue);
+    });
+
+    test('independent per-key flags — a record never clobbers another key',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      const store = FiredKeyStore();
+      await store.recordFired('${dayOffset(0)}:a');
+      await store.recordFired('${dayOffset(0)}:b');
+      await store.recordFired('${dayOffset(0)}:a'); // repeat — idempotent no-op
+      expect(await store.hasFired('${dayOffset(0)}:a'), isTrue);
+      expect(await store.hasFired('${dayOffset(0)}:b'), isTrue);
+    });
+
+    test('prune drops date-prefixed flags older than the retention window',
+        () async {
+      // Seed a clearly-stale dated flag directly (bypassing recordFired, whose
+      // own prune would eat it immediately), plus a within-window one.
+      final stale = '${dayOffset(-(FiredKeyStore.retentionDays + 5))}:low_read';
+      final fresh = '${dayOffset(-1)}:low_read';
+      SharedPreferences.setMockInitialValues({
+        'notif_fired:$stale': true,
+        'notif_fired:$fresh': true,
+      });
+      const store = FiredKeyStore();
+      // Any record triggers a prune pass.
+      await store.recordFired('${dayOffset(0)}:trigger');
+      expect(await store.hasFired(stale), isFalse); // pruned
+      expect(await store.hasFired(fresh), isTrue); // retained
+    });
+
+    test('prune leaves undated keys (e.g. alarm_fired:<epoch>) untouched',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_fired:alarm_fired:12345': true,
+      });
+      const store = FiredKeyStore();
+      await store.recordFired('${dayOffset(0)}:trigger');
+      expect(await store.hasFired('alarm_fired:12345'), isTrue);
+    });
+  });
+}

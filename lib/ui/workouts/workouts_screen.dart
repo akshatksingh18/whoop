@@ -17,6 +17,7 @@ import '../../models/payloads.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../activity/live_session_screen.dart';
+import '../activity/workout_share_card.dart';
 import '../../theme/theme_switcher.dart';
 import '../design/design.dart';
 import '../kit/route_map.dart';
@@ -198,19 +199,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   /// Confirm an auto-detected suggestion → create a completed session, then
   /// drop the suggestion and refresh.
   Future<void> _confirmSuggestion(Map<String, dynamic> s) async {
-    final start = (s['start_ts'] as num?)?.toInt() ?? 0;
-    await LocalDb.putSession({
-      'id': 'auto:$start',
-      'start_ts': start,
-      'end_ts': (s['end_ts'] as num?)?.toInt(),
-      'type': (s['sport'] as String?) ?? 'cardio',
-      'status': 'done',
-      'duration_min': (s['duration_min'] as num?)?.toInt(),
-      'max_hr': (s['peak_bpm'] as num?)?.toInt(),
-      'source': 'auto',
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-    });
-    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    await _logDetectedSession(s, context.read<AppState>());
     await _load();
   }
 
@@ -374,10 +363,19 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         topWorkout: topWorkout,
         mostSteps: mostSteps,
         entranceIndex: index,
-        onTap: () => Navigator.of(context).push(
-          themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
-              name: 'WorkoutDetailScreen'),
-        ),
+        onTap: () async {
+          // Reload if the detail screen reports a deletion (pop(true)) —
+          // WorkoutsScreen doesn't observe AppState, so without this signal
+          // a workout deleted from detail stayed visible until a manual
+          // refresh.
+          final deleted = await Navigator.of(context).push<bool>(
+            themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
+                name: 'WorkoutDetailScreen'),
+          );
+          // mounted guard: this screen itself could have been popped/disposed
+          // while the detail push was awaited; _load() calls setState.
+          if (deleted == true && mounted) _load();
+        },
         onLongPress: w['status'] == 'live' ? null : () => _exportCard(w),
       ),
     );
@@ -461,10 +459,10 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       ),
     );
     if (ok != true || !mounted) return false;
-    final api = context.read<AppState>().repo;
-    if (api == null) return false;
+    final app = context.read<AppState>();
+    if (app.repo == null) return false;
     try {
-      await api.deleteWorkout(id);
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
       _load();
       return true;
     } catch (_) {
@@ -500,6 +498,35 @@ class _StartButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Log an auto-detected suggestion as a completed session and drop the
+/// suggestion. Shared by the Workouts tab card and the deep-linked
+/// [WorkoutSuggestionScreen] so both write an identical session. Never logs
+/// silently — only called from an explicit "Log it" tap.
+///
+/// [appState], when passed, triggers an immediate session-triggered Health
+/// export (issue #130) instead of leaving this workout to wait for the next
+/// day_result/derive pass — same fix as [AppState.stopWorkout].
+Future<void> _logDetectedSession(Map<String, dynamic> s,
+    [AppState? appState]) async {
+  final start = (s['start_ts'] as num?)?.toInt() ?? 0;
+  final row = {
+    'id': 'auto:$start',
+    'start_ts': start,
+    'end_ts': (s['end_ts'] as num?)?.toInt(),
+    'type': (s['sport'] as String?) ?? 'cardio',
+    'status': 'done',
+    'duration_min': (s['duration_min'] as num?)?.toInt(),
+    'max_hr': (s['peak_bpm'] as num?)?.toInt(),
+    'source': 'auto',
+    'created_at': DateTime.now().millisecondsSinceEpoch,
+  };
+  await LocalDb.putSession(row);
+  await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+  if (appState != null && appState.healthSyncEnabled) {
+    unawaited(appState.exportWorkoutToHealth(row));
   }
 }
 
@@ -829,21 +856,27 @@ class WorkoutFeedCard extends StatelessWidget {
                 ),
                 const SizedBox(width: Sp.x3),
                 if (!live && !detected)
-                  (noData
+                  // `noData` alone missed the case where avg_hr is real but
+                  // strain itself is null (e.g. an old pruned workout with HR
+                  // but no strain recompute) — that fell through to ArcGauge
+                  // with `value: double.nan`, which the gauge's own contract
+                  // renders as a "muted empty ring" (see arc_gauge.dart) —
+                  // exactly the hollow "training load" circle users were
+                  // seeing for workouts with no real strain figure. Gate the
+                  // text-vs-gauge choice on strain==null directly instead.
+                  ((noData || strain == null)
                       ? Text('No data',
                           style: AppText.captionMuted
                               .copyWith(color: tone.fgMuted))
                       : ArcGauge(
-                          value: strain == null
-                              ? double.nan
-                              : (strain / 21).clamp(0.0, 1.0).toDouble(),
+                          value: (strain / 21).clamp(0.0, 1.0).toDouble(),
                           color: tone.accent,
                           size: 54,
                           stroke: 6,
                           sweepFraction: 0.75,
                           animate: false,
                           center: Text(
-                            strain == null ? '—' : strain.toStringAsFixed(1),
+                            strain.toStringAsFixed(1),
                             style: AppText.metricSm
                                 .copyWith(fontSize: 13, color: tone.fg),
                           ),
@@ -872,9 +905,39 @@ class WorkoutFeedCard extends StatelessWidget {
 }
 
 /// Post-workout breakdown (also the tap target from the list).
-class WorkoutDetailScreen extends StatelessWidget {
+class WorkoutDetailScreen extends StatefulWidget {
   final String id;
   const WorkoutDetailScreen({super.key, required this.id});
+
+  @override
+  State<WorkoutDetailScreen> createState() => _WorkoutDetailScreenState();
+}
+
+class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
+  /// Published by the body once the workout (and its route) have loaded.
+  ///
+  /// The share action lives in the scaffold's action row but the data it needs
+  /// is loaded by the body below it, so the body hands it up here. Held as a
+  /// notifier rather than lifted into setState so a load doesn't rebuild the
+  /// whole screen just to enable one button.
+  final ValueNotifier<WorkoutShareData?> _shareData = ValueNotifier(null);
+
+  String get id => widget.id;
+
+  @override
+  void dispose() {
+    _shareData.dispose();
+    super.dispose();
+  }
+
+  Future<void> _share() async {
+    final data = _shareData.value;
+    if (data == null) return;
+    await Navigator.of(context).push(
+      themedRoute((_) => WorkoutSharePreviewScreen(data: data),
+          name: 'WorkoutSharePreviewScreen'),
+    );
+  }
 
   Future<void> _delete(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -905,11 +968,14 @@ class WorkoutDetailScreen extends StatelessWidget {
       ),
     );
     if (ok != true || !context.mounted) return;
-    final api = context.read<AppState>().repo;
-    if (api == null) return;
+    final app = context.read<AppState>();
+    if (app.repo == null) return;
     try {
-      await api.deleteWorkout(id);
-      if (context.mounted) Navigator.of(context).pop();
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
+      // pop(true) so the list screen that pushed this route knows to reload —
+      // it doesn't observe AppState, so without this the deleted workout
+      // stayed visible in the list until a manual refresh.
+      if (context.mounted) Navigator.of(context).pop(true);
     } catch (_) {}
   }
 
@@ -919,16 +985,32 @@ class WorkoutDetailScreen extends StatelessWidget {
       title: 'Workout',
       largeTitle: false,
       actions: [
+        // Sharing a past workout is the same action as sharing one you just
+        // finished, and produces the same card — it was only reachable from
+        // the finish screen, so the moment you left that screen the workout
+        // became unshareable. Appears once there is something to share.
+        ValueListenableBuilder<WorkoutShareData?>(
+          valueListenable: _shareData,
+          builder: (context, data, _) => data == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(right: Sp.x2),
+                  child: RoundIconButton(OsIcon.share, onTap: _share),
+                ),
+        ),
         RoundIconButton(OsIcon.trash, onTap: () => _delete(context)),
       ],
-      body: _WorkoutDetailBody(id: id),
+      body: _WorkoutDetailBody(id: id, shareData: _shareData),
     );
   }
 }
 
 class _WorkoutDetailBody extends StatefulWidget {
   final String id;
-  const _WorkoutDetailBody({required this.id});
+
+  /// Filled in once loaded, so the scaffold above can offer a share action.
+  final ValueNotifier<WorkoutShareData?> shareData;
+  const _WorkoutDetailBody({required this.id, required this.shareData});
   @override
   State<_WorkoutDetailBody> createState() => _WorkoutDetailBodyState();
 }
@@ -959,12 +1041,50 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
           _route = route;
           _loading = false;
         });
+        _publishShareData();
       }
     } catch (_) {
       if (mounted) {
         setState(() => _loading = false);
       }
     }
+  }
+
+  /// Hand the scaffold a ready-to-share composition.
+  ///
+  /// Built through [buildWorkoutShareData] — the same function the finish
+  /// screen uses — so sharing a run from here and from the finish screen
+  /// produce identical cards rather than two subtly different ones.
+  void _publishShareData() {
+    final d = _d;
+    if (d == null || d.isEmpty) {
+      widget.shareData.value = null;
+      return;
+    }
+    // A still-running workout has no final numbers yet; sharing one would post
+    // a half-finished card.
+    if (d['status'] == 'live') {
+      widget.shareData.value = null;
+      return;
+    }
+    final startTs = d['start_ts'] as int?;
+    final endTs = d['end_ts'] as int?;
+    final durationSec = (startTs != null && endTs != null && endTs > startTs)
+        ? endTs - startTs
+        : ((d['duration_min'] as num?)?.toDouble() ?? 0) * 60;
+    widget.shareData.value = buildWorkoutShareData(
+      units: context.read<UnitsController>(),
+      type: (d['type'] as String?) ?? '',
+      duration: Duration(seconds: durationSec.round()),
+      when: startTs != null && startTs > 0
+          ? DateTime.fromMillisecondsSinceEpoch(startTs * 1000).toLocal()
+          : DateTime.now(),
+      maxHr: context.read<AppState>().maxHr,
+      strain: (d['strain'] as num?)?.toDouble() ?? 0,
+      calories: (d['calories'] as num?)?.toInt() ?? 0,
+      route: _route,
+      avgHr: (d['avg_hr'] as num?)?.toInt(),
+    );
   }
 
   Future<void> _correctType() async {
@@ -1543,4 +1663,141 @@ class WorkoutDetailContent extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Focused review of auto-detected workout suggestions, deep-linked from the
+/// "Did you work out?" notification (route [kRouteWorkoutSuggestion], resolved
+/// in tap_router.dart). The notification used to route to plain `/workouts`,
+/// which only selected the Workouts tab and left the suggestion as one card in
+/// the history list — so tapping it never clearly took the user to where the
+/// detected activity could be logged or adjusted (issue #113). This lands them
+/// straight on that log/adjust affordance, on top of the Workouts tab.
+class WorkoutSuggestionScreen extends StatefulWidget {
+  const WorkoutSuggestionScreen({super.key});
+
+  @override
+  State<WorkoutSuggestionScreen> createState() =>
+      _WorkoutSuggestionScreenState();
+}
+
+class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
+  List<Map<String, dynamic>> _suggestions = const [];
+  bool _loading = true;
+  // Tracked SEPARATELY from `_suggestions` — a failed query must not be
+  // rendered as "nothing to review": that tells the user a still-active
+  // suggestion was already handled. Only a successful query with zero
+  // results earns the empty state; a failure gets a retryable error card.
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = false;
+    });
+    try {
+      final sug = await LocalDb.activeWorkoutSuggestions();
+      if (mounted) {
+        setState(() {
+          _suggestions = sug;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      // Deliberately leave `_suggestions` untouched — we don't know whether
+      // it's really empty, only that we failed to find out.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _confirm(Map<String, dynamic> s) async {
+    try {
+      await _logDetectedSession(s, context.read<AppState>());
+    } catch (_) {
+      _showActionFailure('Could not log this workout — try again.');
+      return;
+    }
+    await _afterAction();
+  }
+
+  Future<void> _dismiss(Map<String, dynamic> s) async {
+    try {
+      await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    } catch (_) {
+      _showActionFailure('Could not dismiss this suggestion — try again.');
+      return;
+    }
+    await _afterAction();
+  }
+
+  // A failed confirm/dismiss must be visible — the suggestion is still
+  // active, but silently doing nothing reads as "it worked".
+  void _showActionFailure(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // Reload; once there's nothing left to review, close back to the Workouts tab
+  // underneath (which lists the now-logged session).
+  Future<void> _afterAction() async {
+    await _load();
+    if (mounted && !_error && _suggestions.isEmpty) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Detected activity',
+      children: [
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(top: Sp.x6),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_error)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x6),
+            child: StateCard(
+              icon: OsIcon.sync,
+              title: "Couldn't load",
+              message: 'Check your connection and try again.',
+              actionLabel: 'Retry',
+              onAction: _load,
+            ),
+          )
+        else if (_suggestions.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x6),
+            child: Text(
+              'Nothing to review right now — this activity may already have '
+              'been logged or dismissed.',
+              style: AppText.captionMuted,
+            ),
+          )
+        else
+          for (final s in _suggestions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Sp.x3),
+              child: _SuggestionCard(
+                s: s,
+                onConfirm: () => _confirm(s),
+                onDismiss: () => _dismiss(s),
+              ),
+            ),
+      ],
+    );
+  }
 }

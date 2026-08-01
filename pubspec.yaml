@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.14+47
+version: 0.9.21+52
 
 environment:
   sdk: ^3.11.4
@@ -21,24 +21,43 @@ dependencies:
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
+  # SIBLING PACKAGES ARE PINNED TO COMMIT SHAs, NOT FLOATING `main`/BRANCH REFS.
+  # A floating ref means an upstream commit silently changes the behaviour of an
+  # already-tagged edge release (this bit us: analytics v42 rode `ref: main` into
+  # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
+  # Bump these SHAs deliberately, as part of a reviewed edge change. Local dev
+  # still builds against ../analytics and ../protocol via pubspec_overrides.yaml.
+  # NOTE: this branch is intentionally WHOOP-4-only — protocol stays on `main`,
+  # NOT the gen5/multiband branch.
+  # Both are now MERGE COMMITS ON `main`, not PR-branch heads — the PR-branch
+  # SHAs these briefly pointed at are no longer the canonical location of the
+  # change, and a branch deletion could orphan them.
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      # EXPERIMENTAL: WHOOP 5 (gen5) multi-band support. Point back to `main`
-      # once OpenStrap/protocol#16 merges.
-      ref: feat/multiband-whoop5
+      # EXPERIMENTAL: WHOOP 5 (gen5) multi-band support, this branch's whole
+      # point — stays on protocol's feat/multiband-whoop5, NOT main. Pinned to
+      # a SHA (not the floating branch ref) per this repo's own convention.
+      # This SHA is that branch merged with protocol main (crc8 length-field
+      # check + hexToBytes odd-length rejection + the framing.dart profile-
+      # aware header-CRC fix so gen5 frames actually pass the same guard).
+      ref: e543e47918d151f9acd2770eb0a84dddadc0387c
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      ref: main
-
-  # Illustrated icon set — theme-aware full-colour WebP icons (nav tabs, domain
-  # heroes, metric tiles). Path dep for local dev; a release build would need
-  # this published to pub.dev or pinned to a git ref instead.
-  openstrap_icons:
-    git:
-      url: https://github.com/OpenStrap/icons.git
-      ref: main
+      # PR-BRANCH HEAD, not main — OpenStrap/analytics#32 (fix/issue-170-...)
+      # is open, not yet merged. Repin to the merge commit on main once it
+      # lands (same pattern v49 used briefly for protocol/analytics PR heads).
+      # autoDetectWorkouts now bypasses the motion-confirmation gate on a
+      # genuine HR-onset (fast rise vs. immediately-preceding baseline),
+      # fixing low-limb-swing cardio (cycling/rowing) going undetected while
+      # still rejecting slow-drifting elevations (fever/heat/anxiety) that
+      # have no discernible onset.
+      # Verified present at THIS sha: `git show <sha>:lib/src/onehz/workout/auto_detect.dart | grep onsetRiseBpm`.
+      # Moved to the branch's new head (cbbe06a) after CodeRabbit caught a real
+      # off-by-one in the onset window on analytics#32 (earlyMean was 181s vs
+      # preMean's 180s) — fixed there, not worth a separate edge changelog line.
+      ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -65,21 +84,42 @@ dependencies:
   # Charts (for the future server-analytics view).
   fl_chart: ^0.69.2
 
-  # Interactive maps for GPS workout routes (run/ride/walk). Local-first: raster
-  # tiles are fetched from OpenStreetMap on demand (no cloud API keys, no Google/
-  # Mapbox), and the "© OpenStreetMap contributors" attribution is rendered on
-  # every map per the OSM tile-usage license. Recorded GPS points are stored
-  # on-device only (workout_route table) and never uploaded.
+  # Interactive maps for GPS workout routes (run/ride/walk). Raster tiles are
+  # fetched on demand from CARTO (basemaps.cartocdn.com) — OSM data, but served
+  # by CARTO rather than tile.openstreetmap.org, whose tile-usage policy does
+  # not permit app traffic. No cloud API keys, no Google/Mapbox. The
+  # "© OpenStreetMap contributors" attribution is rendered on every map.
+  # Recorded GPS points are stored on-device only (workout_route table) and are
+  # never uploaded — but the tile requests do tell CARTO which area is on
+  # screen, which PRIVACY.md states.
   # flutter_map_tile_caching (offline tile cache) is a documented follow-up — it
-  # pulls heavier native storage deps, so v1 uses live OSM tiles only.
+  # pulls heavier native storage deps, so v1 uses live CARTO tiles only.
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   geolocator: ^13.0.2
 
-  # Modern type (ONE family — Manrope, tabular figures for all metrics) and a
-  # professional icon set.
-  google_fonts: ^6.2.1
+  # Type: Manrope + Barlow Condensed are BUNDLED under assets/fonts/ (declared
+  # in flutter.fonts below), not pulled at runtime — see the note there.
+
+  # Icon packs backing lib/ui/kit/os_icons.dart (see that file's header for the
+  # full per-concept rationale). Mixed deliberately — each pack is used only
+  # for the concepts it's genuinely best at, normalized to one consistent
+  # size/weight by OsAppIcon:
+  #   - phosphor_flutter   — Duotone weight; the primary "hero" biometric/
+  #     domain glyphs (closest replacement for the old illustrations).
+  #   - solar_icons        — Bold weight; literal sport + sleep-stage glyphs.
+  #   - iconsax_flutter    — battery/bluetooth variants + the heartbeat-zigzag
+  #     "activity" glyph (cardio/resting-HR family).
+  #   - fluentui_system_icons — Regular weight; plain monochrome UI chrome
+  #     (arrows, check, settings, calendar…) — reads crisper flat than duotone
+  #     at small utility sizes.
+  #   - hugeicons          — used for exactly the 2 concepts it wins outright
+  #     (a literal ECG waveform + a literal blood-drop); nothing else uses it.
   hugeicons: ^0.0.11
+  solar_icons: ^0.1.0
+  iconsax_flutter: ^1.0.1
+  fluentui_system_icons: ^1.1.273
+  phosphor_flutter: ^2.1.0
 
   # Declarative motion language for the design system (entrance stagger, press
   # pops, count-ups, shimmer) — one consistent vocabulary instead of hand-rolled
@@ -157,11 +197,22 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   test: ^1.25.8
+  # no_runtime_font_fetch_test parses pubspec.yaml to assert every family the
+  # type scale uses is bundled rather than fetched at runtime.
+  yaml: ^3.1.2
   flutter_launcher_icons: ^0.13.1
   sqflite_common_ffi: ^2.4.0+3
   # RouteTracker's stall-watchdog tests drive virtual time (was a transitive
   # dep via flutter_test; declared directly since test/ now imports it).
   fake_async: ^1.3.1
+  # day_window_dst_test moves the PROCESS timezone via libc setenv/tzset so the
+  # DST day-length regressions are real on a non-DST host (transitive via
+  # sqflite_common_ffi; declared directly since test/ now imports it).
+  ffi: ^2.1.0
+  # db_p0_fixes_test swaps PathProviderPlatform.instance for a temp-dir fake so
+  # exportDaysDb can run without a platform plugin (transitive via
+  # path_provider; declared directly since test/ now imports it).
+  path_provider_platform_interface: ^2.1.0
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -176,3 +227,28 @@ flutter:
   assets:
     - assets/images/
     - assets/splash/
+  # Both families are bundled, not fetched. google_fonts resolves a missing
+  # family over HTTP to fonts.gstatic.com on first launch — before the user
+  # has seen the consent screen, and contrary to PRIVACY.md. It also lets the
+  # hero readiness numerals flicker or fall back on a cold offline launch.
+  # SIL Open Font License (OFL.txt alongside the .ttf files, from
+  # https://github.com/google/fonts).
+  fonts:
+    - family: Barlow Condensed
+      fonts:
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-ExtraBold.ttf
+          weight: 800
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope/Manrope-400.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope/Manrope-500.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope/Manrope-600.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope/Manrope-700.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope/Manrope-800.ttf
+          weight: 800

@@ -1,15 +1,17 @@
-// OpenStrap chart kit — rings, sparkline bars, labeled week bars, area sparks,
-// the coral dot-matrix, and the composite StatTile. All paper-on-coral styled.
+// OpenStrap chart kit — rings, gauges, sparkline bars, labeled week bars, the
+// time-series chart family and the workout HR/zone strips. All paper-on-coral
+// styled. Every widget here has at least one live call site in the app; the
+// dead ornamental ones (area spark, dot-matrix, calendar heatmap, composite
+// stat tile, baseline progress) were removed rather than kept "just in case".
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../models/metric.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import 'kit.dart';
 import '../design/arc_gauge.dart';
+import '../design/controls.dart' show StatusChip, ChipTone;
+import '../design/domains.dart' show DomainAccent;
 
 /// A circular progress gauge with a value in the center — the richer engine
 /// behind [RingStat]. Adds an optional zone-tinted track, an optional target
@@ -85,97 +87,13 @@ class RingStat extends StatelessWidget {
   );
 }
 
-/// BaselineProgress — the honest "still learning you" state, rendered as a
-/// partially-filled [Gauge] (nights collected / nights needed) with the count
-/// remaining in the centre and a line saying what it unlocks. Replaces the bare
-/// "Need N more nights" text where a baseline is still filling in.
-class BaselineProgress extends StatelessWidget {
-  final int collected;
-  final int needed;
-  final String unlocks; // e.g. 'to unlock Readiness'
-  final Color? color;
-  final double size;
-  const BaselineProgress({
-    super.key,
-    required this.collected,
-    required this.needed,
-    this.unlocks = '',
-    this.color,
-    this.size = 150,
-  });
-
-  /// Build from a baseline-gated [Metric] (`need_baseline:have=H,need=N`).
-  /// Returns null if the metric isn't a baseline abstention.
-  static BaselineProgress? fromMetric(
-    Metric m, {
-    String unlocks = '',
-    Color? color,
-    double size = 150,
-    Key? key,
-  }) {
-    final note = m.note;
-    if (note == null || !note.contains('need_baseline:')) return null;
-    final match = RegExp(r'have=(\d+),need=(\d+)').firstMatch(note);
-    if (match == null) return null;
-    final have = int.tryParse(match.group(1)!) ?? 0;
-    final need = int.tryParse(match.group(2)!) ?? 0;
-    if (need <= 0) return null;
-    return BaselineProgress(
-      key: key,
-      collected: have.clamp(0, need),
-      needed: need,
-      unlocks: unlocks,
-      color: color,
-      size: size,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.coral;
-    final remaining = (needed - collected).clamp(0, needed);
-    final frac = needed == 0 ? 0.0 : (collected / needed).clamp(0.0, 1.0);
-    final numSize = (size * 0.28).clamp(20.0, 44.0);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Gauge(
-          t: frac,
-          color: c,
-          size: size,
-          stroke: size < 110 ? 10 : 12,
-          center: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$remaining', style: AppText.display.copyWith(fontSize: numSize)),
-              Text(
-                remaining == 1 ? 'night to go' : 'nights to go',
-                style: AppText.caption.copyWith(fontSize: size < 110 ? 9.5 : 12),
-              ),
-            ],
-          ),
-        ),
-        if (unlocks.isNotEmpty) ...[
-          const SizedBox(height: Sp.x4),
-          Text(
-            unlocks,
-            style: AppText.bodySoft,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: Sp.x2),
-          Text(
-            '$collected of $needed nights',
-            style: AppText.captionMuted,
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 /// Tiny sparkline bars (for inside cards). Values normalized to their own max.
 class MiniBars extends StatelessWidget {
-  final List<double> values;
+  /// Bar values. A NULL entry is a documented gap (nothing was measured for
+  /// that slot) and renders as empty space — it is never compacted away (which
+  /// would shift every later bar left onto the wrong day) and never drawn as a
+  /// bar (which would read as a measured zero).
+  final List<double?> values;
   final Color? color;
   final double height;
   final double gap;
@@ -190,7 +108,9 @@ class MiniBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = this.color ?? AppColors.coral;
     if (values.isEmpty) return SizedBox(height: height);
-    final maxV = values.reduce(math.max);
+    final present = values.whereType<double>();
+    if (present.isEmpty) return SizedBox(height: height);
+    final maxV = present.reduce(math.max);
     return SizedBox(
       height: height,
       child: Row(
@@ -198,23 +118,32 @@ class MiniBars extends StatelessWidget {
         children: [
           for (int i = 0; i < values.length; i++) ...[
             Expanded(
-              child: TweenAnimationBuilder<double>(
-                duration: Motion.med,
-                curve: Motion.curve,
-                tween: Tween(begin: 0, end: maxV == 0 ? 0 : (values[i] / maxV)),
-                builder: (_, v, _) => Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Container(
-                    height: math.max(3, v * height),
-                    decoration: BoxDecoration(
-                      color: color.withValues(
-                        alpha: 0.4 + 0.6 * (maxV == 0 ? 0 : values[i] / maxV),
+              // A gap keeps its slot (so the bars stay aligned to their days)
+              // but draws nothing at all.
+              child: values[i] == null
+                  ? const SizedBox.shrink()
+                  : TweenAnimationBuilder<double>(
+                      duration: Motion.med,
+                      curve: Motion.curve,
+                      tween: Tween(
+                        begin: 0,
+                        end: maxV == 0 ? 0 : (values[i]! / maxV),
                       ),
-                      borderRadius: BorderRadius.circular(R.pill),
+                      builder: (_, v, _) => Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          height: math.max(3, v * height),
+                          decoration: BoxDecoration(
+                            color: color.withValues(
+                              alpha:
+                                  0.4 +
+                                  0.6 * (maxV == 0 ? 0 : values[i]! / maxV),
+                            ),
+                            borderRadius: BorderRadius.circular(R.pill),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
             ),
             if (i != values.length - 1) SizedBox(width: gap),
           ],
@@ -228,7 +157,11 @@ class MiniBars extends StatelessWidget {
 /// Shows the numeric value above each bar (set [showValues] false to hide).
 /// [onTapBar] makes a bar tappable (drill-down in the Metric Explorer).
 class LabeledBars extends StatelessWidget {
-  final List<double> values;
+  /// Bar values. A NULL entry is an explicit GAP — no measurement exists for
+  /// that period — and renders as an em-dash with NO bar. It must never be
+  /// coerced to 0.0: the bar floor (`heightFactor 0.02`) would otherwise draw
+  /// a real, accent-coloured, tappable bar for a day the strap wasn't worn.
+  final List<double?> values;
   final List<String> labels;
   final Color? color;
   final double height;
@@ -248,7 +181,10 @@ class LabeledBars extends StatelessWidget {
     this.onTapBar,
   });
 
-  String _fmt(double v) {
+  /// Label above a bar. Null = absent → the honest em-dash (NOT '' and NOT
+  /// '0': a missing measurement must never be printed as a number).
+  String _fmt(double? v) {
+    if (v == null) return '—';
     if (valueFmt != null) return valueFmt!(v);
     // tidy default: integers when whole, else one decimal; blank for exact 0.
     if (v == 0) return '';
@@ -258,7 +194,10 @@ class LabeledBars extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = this.color ?? AppColors.coral;
-    final maxV = values.isEmpty ? 1.0 : math.max(1.0, values.reduce(math.max));
+    final present = values.whereType<double>();
+    final maxV = present.isEmpty
+        ? 1.0
+        : math.max(1.0, present.reduce(math.max));
     return SizedBox(
       height: height,
       child: Row(
@@ -279,7 +218,9 @@ class LabeledBars extends StatelessWidget {
                           _fmt(values[i]),
                           style: AppText.caption.copyWith(
                             fontWeight: FontWeight.w600,
-                            color: (highlight == null || highlight == i)
+                            color: values[i] == null
+                                ? AppColors.inkMuted
+                                : (highlight == null || highlight == i)
                                 ? AppColors.ink
                                 : AppColors.inkMuted,
                           ),
@@ -288,23 +229,31 @@ class LabeledBars extends StatelessWidget {
                         ),
                       if (showValues) const SizedBox(height: 2),
                       Expanded(
-                        child: TweenAnimationBuilder<double>(
-                          duration: Motion.med,
-                          curve: Motion.emphatic,
-                          tween: Tween(begin: 0, end: values[i] / maxV),
-                          builder: (_, v, _) => FractionallySizedBox(
-                            heightFactor: v.clamp(0.02, 1.0),
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: (highlight == null || highlight == i)
-                                    ? color
-                                    : color.withValues(alpha: 0.28),
-                                borderRadius: BorderRadius.circular(R.pill),
+                        // Absent → draw NOTHING. The 0.02 floor below exists so
+                        // a genuine tiny value stays visible; applying it to a
+                        // missing day fabricates a bar out of no measurement.
+                        child: values[i] == null
+                            ? const SizedBox.shrink()
+                            : TweenAnimationBuilder<double>(
+                                duration: Motion.med,
+                                curve: Motion.emphatic,
+                                tween: Tween(begin: 0, end: values[i]! / maxV),
+                                builder: (_, v, _) => FractionallySizedBox(
+                                  heightFactor: v.clamp(0.02, 1.0),
+                                  alignment: Alignment.bottomCenter,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color:
+                                          (highlight == null || highlight == i)
+                                          ? color
+                                          : color.withValues(alpha: 0.28),
+                                      borderRadius: BorderRadius.circular(
+                                        R.pill,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
                       ),
                       const SizedBox(height: Sp.x2),
                       Text(
@@ -317,62 +266,6 @@ class LabeledBars extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// Smooth area spark (HR / strain over a window) using fl_chart.
-class AreaSpark extends StatelessWidget {
-  final List<double> values;
-  final Color? color;
-  final double height;
-  const AreaSpark(this.values, {super.key, this.color, this.height = 90});
-  @override
-  Widget build(BuildContext context) {
-    final color = this.color ?? AppColors.coral;
-    if (values.length < 2) {
-      return SizedBox(
-        height: height,
-        child: Center(
-          child: Text('Not enough data yet', style: AppText.captionMuted),
-        ),
-      );
-    }
-    final spots = [
-      for (int i = 0; i < values.length; i++) FlSpot(i.toDouble(), values[i]),
-    ];
-    final minY = values.reduce(math.min);
-    final maxY = values.reduce(math.max);
-    return SizedBox(
-      height: height,
-      child: LineChart(
-        LineChartData(
-          minY: minY - (maxY - minY) * 0.15 - 0.5,
-          maxY: maxY + (maxY - minY) * 0.15 + 0.5,
-          gridData: const FlGridData(show: false),
-          titlesData: const FlTitlesData(show: false),
-          borderData: FlBorderData(show: false),
-          lineTouchData: const LineTouchData(enabled: false),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              curveSmoothness: 0.3,
-              color: color,
-              barWidth: 3,
-              dotData: const FlDotData(show: false),
-              belowBarData: BarAreaData(
-                show: true,
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [color.withValues(alpha: 0.28), Colors.transparent],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -813,6 +706,73 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
   }
 }
 
+/// Where the peak/low/"now" chip row sits relative to the HR curve.
+enum HrChipsPosition { above, below }
+
+/// The shared HR line-chart + chip row. Previously the Today lookback card
+/// and the Heart screen's day-detail section each hand-rolled their own copy
+/// of this (chips above vs. below, a "now" chip present or not, a same-day
+/// `maxX` cutoff or the full day, and a manually re-implemented tooltip that
+/// happened to exactly match [TimeSeriesChart]'s own default formatter) — three
+/// near-identical HR charts drifting slightly apart. This is the one
+/// definition; screens choose position/cutoff/now-chip, nothing else differs.
+class HrCurveWithChips extends StatelessWidget {
+  final List<TimeSeriesPoint> points;
+  final double height;
+  final HrChipsPosition chipsPosition;
+
+  /// True caps the x-axis at "now" (Today's still-in-progress day); false
+  /// shows the full day (a past, complete day on the Heart screen).
+  final bool cutoffToNow;
+
+  /// Show a "Now NNN" chip for the latest point (Heart screen does; Today's
+  /// lookback card doesn't — it isn't a live gauge).
+  final bool showNowChip;
+
+  const HrCurveWithChips({
+    super.key,
+    required this.points,
+    this.height = 200,
+    this.chipsPosition = HrChipsPosition.below,
+    this.cutoffToNow = false,
+    this.showNowChip = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) return const SizedBox.shrink();
+    final latest = points.last;
+    final peak = points.reduce((a, b) => a.y >= b.y ? a : b);
+    final low = points.reduce((a, b) => a.y <= b.y ? a : b);
+    final chips = Wrap(
+      spacing: Sp.x2,
+      runSpacing: Sp.x1,
+      children: [
+        if (showNowChip)
+          StatusChip('Now ${latest.y.round()}', tone: ChipTone.accent),
+        StatusChip('Peak ${peak.y.round()}',
+            tone: showNowChip ? ChipTone.neutral : ChipTone.accent),
+        StatusChip('Low ${low.y.round()}'),
+      ],
+    );
+    final chart = TimeSeriesChart(
+      points: points,
+      color: DomainAccent.heart,
+      height: height,
+      maxX: cutoffToNow
+          ? DateTime.now().millisecondsSinceEpoch / 1000.0
+          : null,
+      yUnit: ' bpm', // relies on TimeSeriesChart's own default tooltip/labels
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: chipsPosition == HrChipsPosition.above
+          ? [chips, const SizedBox(height: Sp.x4), chart]
+          : [chart, const SizedBox(height: Sp.x3), chips],
+    );
+  }
+}
+
 /// A play button + a dot that replays an HR line — an [AnimationController]
 /// sweeps x across the series while a dot rides the curve. Drop it in as the
 /// last child of the host's Stack (it returns a [Positioned.fill]); the host
@@ -864,53 +824,60 @@ class _HrReplayOverlayState extends State<HrReplayOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final playing = _c.isAnimating;
+    // The AnimatedBuilder must sit OUTSIDE the `0 < t < 1` gate. It used to be
+    // inside it, so the only thing that could ever rebuild past the gate was
+    // the setState in _toggle — which runs while _c.value is still 0. The gate
+    // was therefore false on every rebuild and the replay dot never mounted.
     return Positioned.fill(
-      child: Stack(
-        children: [
-          if (_c.value > 0 && _c.value < 1)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: _c,
-                  builder: (context, _) => CustomPaint(
-                    painter: _ReplayDotPainter(
-                      points: widget.points,
-                      t: _c.value,
-                      loX: widget.loX,
-                      hiX: widget.hiX,
-                      loY: widget.loY,
-                      hiY: widget.hiY,
-                      leftPad: widget.leftPad,
-                      topInset: widget.topInset,
-                      plotH: widget.chartHeight - widget.bottomPad,
-                      color: widget.color,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          final playing = _c.isAnimating;
+          return Stack(
+            children: [
+              if (t > 0 && t < 1)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _ReplayDotPainter(
+                        points: widget.points,
+                        t: t,
+                        loX: widget.loX,
+                        hiX: widget.hiX,
+                        loY: widget.loY,
+                        hiY: widget.hiY,
+                        leftPad: widget.leftPad,
+                        topInset: widget.topInset,
+                        plotH: widget.chartHeight - widget.bottomPad,
+                        color: widget.color,
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                right: 0,
+                top: widget.topInset,
+                child: Material(
+                  color: widget.color,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _toggle,
+                    child: Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: Icon(
+                        playing ? Icons.pause : Icons.play_arrow,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          Positioned(
-            right: 0,
-            top: widget.topInset,
-            child: Material(
-              color: widget.color,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _toggle,
-                child: Padding(
-                  padding: const EdgeInsets.all(7),
-                  child: Icon(
-                    playing ? Icons.pause : Icons.play_arrow,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1047,63 +1014,6 @@ class ZoneTimelineBar extends StatelessWidget {
   }
 }
 
-/// Coral dot-matrix column chart (ref #2 Stats). Each column is a stack of
-/// rounded squares; filled count ∝ value. Great for week/month step-like data.
-class DotMatrix extends StatelessWidget {
-  final List<double> values;
-  final int rows;
-  final Color? color;
-  final double cell;
-  const DotMatrix(
-    this.values, {
-    super.key,
-    this.rows = 12,
-    this.color,
-    this.cell = 12,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final color = this.color ?? AppColors.coral;
-    if (values.isEmpty) return const SizedBox.shrink();
-    final maxV = math.max(1.0, values.reduce(math.max));
-    return LayoutBuilder(
-      builder: (context, c) {
-        return SizedBox(
-          height: rows * (cell + 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (final v in values)
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      for (int r = rows - 1; r >= 0; r--)
-                        Padding(
-                          padding: const EdgeInsets.all(2),
-                          child: Container(
-                            height: cell,
-                            decoration: BoxDecoration(
-                              color: ((v / maxV) * rows) > r
-                                  ? color.withValues(
-                                      alpha: 0.45 + 0.55 * (r / rows),
-                                    )
-                                  : color.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
 /// Horizontal multi-segment bar (HR zones z1..z5).
 class SegmentBar extends StatelessWidget {
   final List<double> values;
@@ -1137,148 +1047,6 @@ class SegmentBar extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 0.5),
                   ),
                 ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Composite stat tile: icon + label, big number + unit, optional delta + spark.
-/// Renders "—" muted when [value] is null. Confidence dot + honesty tag optional.
-class StatTile extends StatelessWidget {
-  final OsIcon icon;
-  final String label;
-  final String? value;
-  final String? unit;
-  final num? deltaPct;
-  final bool deltaGoodIsUp;
-  final List<double>? spark;
-  final Color? accent;
-  final double? confidence;
-  final Widget? tag;
-  final VoidCallback? onTap;
-  const StatTile({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.unit,
-    this.deltaPct,
-    this.deltaGoodIsUp = true,
-    this.spark,
-    this.accent,
-    this.confidence,
-    this.tag,
-    this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final accent = this.accent ?? AppColors.coral;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 110),
-      child: ProCard(
-        onTap: onTap == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                onTap!();
-              },
-        pressScale: onTap != null,
-        padding: const EdgeInsets.all(Sp.x3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(R.chip),
-                      ),
-                      child: AppIcon(icon, size: 16, color: accent),
-                    ),
-                    const SizedBox(width: Sp.x2),
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: AppText.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (confidence != null) ConfDot(confidence!),
-                  ],
-                ),
-                const SizedBox(height: Sp.x3),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    if (value == null)
-                      metricDash(24)
-                    else
-                      Flexible(
-                        child: Text(
-                          value!,
-                          style: AppText.metric.copyWith(fontSize: 22),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    if (unit != null && value != null) ...[
-                      const SizedBox(width: 4),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(
-                          unit!,
-                          style: AppText.caption.copyWith(
-                            color: AppColors.inkMuted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-            if (deltaPct != null || tag != null || spark != null) ...[
-              const SizedBox(height: Sp.x2),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (deltaPct != null)
-                          Flexible(
-                            child: DeltaChip(deltaPct, goodIsUp: deltaGoodIsUp),
-                          ),
-                        if (tag != null) ...[
-                          if (deltaPct != null) const SizedBox(width: Sp.x2),
-                          Flexible(child: tag!),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (spark != null && spark!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(left: Sp.x2),
-                      child: SizedBox(
-                        width: 48,
-                        child: MiniBars(spark!, color: accent, height: 22),
-                      ),
-                    ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
@@ -1355,73 +1123,6 @@ class FormChart extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// CalendarHeatmap — a month grid (weeks × 7) of cells colored by a metric. Pass
-/// day entries with a 0..1 intensity `t` and a base color; null `t` = no data.
-class CalendarHeatmap extends StatelessWidget {
-  final List<({DateTime date, double? t})> days;
-  final Color? color;
-  final double cell;
-  const CalendarHeatmap({
-    super.key,
-    required this.days,
-    this.color,
-    this.cell = 16,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final color = this.color ?? AppColors.good;
-    if (days.isEmpty) return const SizedBox.shrink();
-    const wd = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    // Pad the front so the first day lands on its weekday column (Mon=0).
-    final first = days.first.date;
-    final lead = (first.weekday + 6) % 7; // Mon=0
-    final cells = <({DateTime? date, double? t})>[
-      for (int i = 0; i < lead; i++) (date: null, t: null),
-      for (final d in days) (date: d.date, t: d.t),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            for (final l in wd)
-              SizedBox(
-                width: cell + 4,
-                child: Text(
-                  l,
-                  textAlign: TextAlign.center,
-                  style: AppText.captionMuted,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 4,
-          runSpacing: 4,
-          children: [
-            for (final c in cells)
-              Container(
-                width: cell,
-                height: cell,
-                decoration: BoxDecoration(
-                  color: c.date == null
-                      ? Colors.transparent
-                      : (c.t == null
-                            ? AppColors.surfaceSunk
-                            : color.withValues(
-                                alpha: (0.18 + 0.82 * c.t!.clamp(0, 1)),
-                              )),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-          ],
-        ),
-      ],
     );
   }
 }

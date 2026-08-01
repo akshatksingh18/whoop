@@ -27,6 +27,7 @@ import 'package:firebase_performance/firebase_performance.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 
 import '../cloud/companion_client.dart';
+import 'jank_policy.dart';
 
 /// A band-side snapshot AppState supplies (it owns the live DeviceState).
 typedef BandSnapshot = Map<String, dynamic> Function();
@@ -45,6 +46,38 @@ class TelemetryService {
   bool get enabled => _enabled;
   set enabled(bool value) {
     _enabled = value;
+    _consentResolved = true;
+    _applyFirebaseCollection(value);
+  }
+
+  // ── consent-gated Firebase collection ──────────────────────────────────────
+  //
+  // The Firebase SDKs auto-collect from process start unless told otherwise at
+  // the PLATFORM level, which is why ios/Runner/Info.plist and
+  // android/app/src/main/AndroidManifest.xml both ship
+  // <analytics|crashlytics|performance>_collection_enabled = false. Those flags
+  // are the real guarantee (they land before any Dart runs); everything here is
+  // the seam that turns collection back ON, and only after the user's stored
+  // consent has actually been read.
+
+  /// False until the user's persisted telemetry consent has been LOADED — not
+  /// merely defaulted. Nothing is transmitted and no Firebase SDK is enabled
+  /// while this is false, no matter what else happens during startup.
+  bool _consentResolved = false;
+  bool get consentResolved => _consentResolved;
+
+  /// Test seam: replaces the real `set*CollectionEnabled` fan-out (the Firebase
+  /// SDKs can't be initialized in a unit test). Receives the value that would
+  /// have been pushed to Crashlytics/Performance/Analytics.
+  @visibleForTesting
+  static void Function(bool enabled)? debugCollectionSink;
+
+  void _applyFirebaseCollection(bool value) {
+    final sink = debugCollectionSink;
+    if (sink != null) {
+      sink(value);
+      return;
+    }
     try {
       if (Firebase.apps.isNotEmpty) {
         FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(value);
@@ -52,6 +85,34 @@ class TelemetryService {
         FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(value);
       }
     } catch (_) {}
+  }
+
+  /// Apply the user's AFFIRMATIVELY LOADED telemetry consent. Preferred over
+  /// assigning [enabled] directly because it reads as what it is: the single
+  /// point where collection may be switched on.
+  void applyConsent(bool consent) => enabled = consent;
+
+  /// Belt-and-braces: force every Firebase SDK's collection OFF at startup,
+  /// before consent is known. The platform flags already do this, but a build
+  /// with a stale plist/manifest (or a future SDK that defaults differently)
+  /// must still not collect. No-op once consent has been resolved, so a hot
+  /// restart / re-entry can't silently revoke an opt-in.
+  ///
+  /// Called from main() right after Firebase.initializeApp. Safe when Firebase
+  /// is absent entirely (no google-services.json / GoogleService-Info.plist) —
+  /// Firebase is OPTIONAL and the app must run without it.
+  void enforceCollectionOffUntilConsent() {
+    if (_consentResolved) return;
+    _enabled = false;
+    _applyFirebaseCollection(false);
+  }
+
+  /// Test seam: return the singleton to its fresh-install state (no consent
+  /// read yet, nothing transmitted).
+  @visibleForTesting
+  void debugResetConsent() {
+    _consentResolved = false;
+    _enabled = false;
   }
 
   /// Anchors + version stamped onto each batch (AppState sets these on load).
@@ -77,7 +138,22 @@ class TelemetryService {
       prior?.call(details);
       try {
         if (Firebase.apps.isNotEmpty && _enabled) {
-          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+          // Flutter itself marks a FlutterErrorDetails `silent: true` for
+          // errors it considers expected/non-actionable noise — e.g. an
+          // image/tile network fetch that fails after the requesting widget
+          // (a workout-route map tile) was already disposed: the framework's
+          // own ImageStreamCompleter.reportError falls through to this global
+          // handler only because no listener remained to catch it, NOT
+          // because the app crashed (see image_stream.dart's `silent: true`
+          // call sites — "resolving an image codec" / "loading an image").
+          // Treating every FlutterError as FATAL misclassified these as
+          // fatal crashes (inflating crash-free-users) even though the app
+          // kept running fine. Still fully captured — just filed as
+          // non-fatal so it doesn't count against crash-free-rate.
+          FirebaseCrashlytics.instance.recordFlutterError(
+            details,
+            fatal: !details.silent,
+          );
         }
       } catch (_) {}
       record(
@@ -85,7 +161,7 @@ class TelemetryService {
         level: 'error',
         message: details.exceptionAsString(),
         stack: details.stack?.toString(),
-        context: {'library': details.library ?? 'flutter'},
+        context: {'library': details.library ?? 'flutter', 'silent': details.silent},
       );
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
@@ -101,10 +177,13 @@ class TelemetryService {
 
   // ── observability surface: breadcrumbs, context, non-fatals, traces ────────
   //
-  // Crashlytics only ever sees FATAL errors on its own (installErrorHandlers
-  // above) — it has zero visibility into freezes/jank or into errors that get
-  // caught-and-swallowed today. These helpers are how we get real signal out
-  // of Firebase for exactly those blind spots:
+  // Crashlytics only ever sees framework-reported errors on its own
+  // (installErrorHandlers above) — PlatformDispatcher.onError is always fatal,
+  // and FlutterError.onError is fatal unless the framework itself flagged the
+  // FlutterErrorDetails `silent` (then non-fatal). Either way it has zero
+  // visibility into freezes/jank or into errors that get caught-and-swallowed
+  // today. These helpers are how we get real signal out of Firebase for
+  // exactly those blind spots:
   //   - breadcrumb()/setContext(): attached automatically to whatever crash OR
   //     ANR report comes next from this session — the log() calls and the
   //     currently-set custom keys both ride along, no extra wiring needed.
@@ -185,35 +264,49 @@ class TelemetryService {
 
   /// Turn invisible UI jank into real Crashlytics non-fatal reports. Flutter
   /// itself already measures every frame's build+raster cost — we just have
-  /// to listen. A frame at/above [thresholdMs] reads as a visible stutter to
-  /// the user; this is what actually answers "the app froze while scrolling"
-  /// reports, which Crashlytics otherwise never sees at all (freezing isn't a
-  /// crash). Throttled to at most one report per [minGapSeconds] so a rough
-  /// patch (e.g. a long scroll over a busy screen) doesn't spam the outbox —
-  /// still enough to catch the pattern without drowning it.
+  /// to listen. A frame whose ENGINE WORK (build + raster) is at/above
+  /// [thresholdMs] reads as a visible stutter to the user; this is what
+  /// actually answers "the app froze while scrolling" reports, which
+  /// Crashlytics otherwise never sees at all (freezing isn't a crash).
+  /// Throttled to at most one report per [minGapSeconds] so a rough patch
+  /// (e.g. a long scroll over a busy screen) doesn't spam the outbox — still
+  /// enough to catch the pattern without drowning it.
+  ///
+  /// The threshold deliberately does NOT apply to `FrameTiming.totalSpan`.
+  /// totalSpan includes time the engine did nothing — above all the gap across
+  /// an app resume — which produced reports like "Slow frame: 16358ms (build=0
+  /// raster=8)" and made this the noisiest issue in the project. See
+  /// [JankPolicy] for the full rationale; totalSpan is still attached as
+  /// context so a scheduling-delay pattern remains visible.
   void installJankWatchdog({int thresholdMs = 700, int minGapSeconds = 30}) {
+    final policy = JankPolicy(thresholdMs: thresholdMs);
     SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
       if (_jankThrottle != null) return;
       for (final t in timings) {
-        final totalMs = t.totalSpan.inMilliseconds;
-        if (totalMs < thresholdMs) continue;
+        final v = policy.evaluate(
+          buildMs: t.buildDuration.inMilliseconds,
+          rasterMs: t.rasterDuration.inMilliseconds,
+          totalMs: t.totalSpan.inMilliseconds,
+        );
+        if (!v.report) continue;
         _jankThrottle = Timer(Duration(seconds: minGapSeconds), () {
           _jankThrottle = null;
         });
-        final buildMs = t.buildDuration.inMilliseconds;
-        final rasterMs = t.rasterDuration.inMilliseconds;
         breadcrumb(
-          'slow_frame total=${totalMs}ms build=${buildMs}ms raster=${rasterMs}ms',
+          'slow_frame work=${v.workMs}ms build=${v.buildMs}ms '
+          'raster=${v.rasterMs}ms total=${v.totalMs}ms',
         );
         recordNonFatal(
-          Exception('Slow frame: ${totalMs}ms (build=$buildMs raster=$rasterMs)'),
+          Exception(v.message),
           StackTrace.current,
           reason: 'jank_watchdog',
         );
         record(kind: 'event', level: 'warn', message: 'slow_frame', context: {
-          'total_ms': totalMs,
-          'build_ms': buildMs,
-          'raster_ms': rasterMs,
+          'work_ms': v.workMs,
+          'build_ms': v.buildMs,
+          'raster_ms': v.rasterMs,
+          'total_ms': v.totalMs,
+          'idle_ms': v.idleMs,
         });
         break; // one report per callback batch is enough signal
       }

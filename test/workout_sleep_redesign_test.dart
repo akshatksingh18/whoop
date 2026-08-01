@@ -249,7 +249,13 @@ void main() {
         expect(find.text('94%'), findsOneWidget);
         expect(find.text('EFFICIENCY'), findsOneWidget);
         expect(find.text('SLEEP DEBT'), findsOneWidget);
-        expect(find.text('CONSISTENCY'), findsOneWidget);
+        // "Awake" and "Consistency" summary tiles were deliberately removed
+        // from this bento (Consistency still has its own honest-gated row
+        // further down the screen; Awake/WASO still surfaces inline in the
+        // Efficiency tile's long-press detail) — assert they're GONE rather
+        // than leaving a stale assumption they still render here.
+        expect(find.text('AWAKE'), findsNothing);
+        expect(find.text('CONSISTENCY'), findsNothing);
         expect(t.takeException(), isNull);
       }
     });
@@ -359,7 +365,9 @@ void main() {
         expect(find.text('PEAK BPM'), findsOneWidget);
         expect(find.text('TIME IN ZONES'), findsOneWidget);
         expect(find.text('Full breakdown'), findsOneWidget);
-        expect(find.text('Share'), findsOneWidget);
+        // Share is the PRIMARY action now (filled, full-width), and it
+        // opens a composed preview rather than rasterising this screen.
+        expect(find.text('Share workout'), findsOneWidget);
         expect(t.takeException(), isNull);
         await t.pump(const Duration(milliseconds: 1600)); // settle shimmers
       }
@@ -413,7 +421,9 @@ void main() {
       // TestWidgetsFlutterBinding, a sandboxing limitation, not a product
       // bug. Verify the actual share output manually on a real
       // device/simulator via the Design Gallery's "Workout preview" section.
-      expect(find.text('Share'), findsOneWidget);
+      // Share is the PRIMARY action now (filled, full-width), and it
+        // opens a composed preview rather than rasterising this screen.
+        expect(find.text('Share workout'), findsOneWidget);
     });
   });
 }

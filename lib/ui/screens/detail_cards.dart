@@ -10,8 +10,10 @@ import 'package:provider/provider.dart';
 
 import '../../models/metric.dart'
     show needMoreNightsFromNote, needMessageFromNote;
+import '../../data/day_label.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
+import '../widgets/async_guards.dart' show LatestRequestGate;
 import 'metric_row.dart';
 import 'trend_screen.dart';
 
@@ -21,6 +23,22 @@ String hm(num? minutes) {
   return '${m ~/ 60}h ${m % 60}m';
 }
 
+/// The plain-language line shown collapsed for the SDNN/LF-HF/HRV-stability/
+/// breathing-variability [Disclosure] — deterministic from real numbers
+/// already computed elsewhere (RMSSD vs its trend baseline), never a
+/// fabricated interpretation. Honest fallback when there's no baseline yet.
+String _hrvDetailSummary(Map hrv) {
+  final rmssd = (hrv['rmssd'] as num?)?.toDouble();
+  final baseline = (hrv['baseline'] as num?)?.toDouble();
+  if (rmssd == null || baseline == null || baseline <= 0) {
+    return 'SDNN, LF/HF, stability and breathing detail below.';
+  }
+  final pct = (rmssd - baseline) / baseline;
+  if (pct.abs() < 0.08) return 'A typical HRV rhythm for you today.';
+  if (pct > 0) return 'HRV rhythm running higher than your normal today.';
+  return 'HRV rhythm running lower than your normal today.';
+}
+
 /// Signed deviation string for relative metrics ("+0.3", "-0.2", "0.0").
 String _signed(num? v) {
   if (v == null) return '—';
@@ -28,13 +46,17 @@ String _signed(num? v) {
   return v > 0 ? '+$s' : s;
 }
 
-/// One Winsorized-EWMA baseline row: "center unit · z value" plus a status tag.
+/// One Winsorized-EWMA baseline row: "center unit · z value", plus a status
+/// tag ONLY when [showBadge] — badge clutter is consolidated to a single
+/// header count (see the "Personal baselines" section below); a row only
+/// carries its own tag when it's an EXCEPTION to that summary (not trusted).
 /// [relative] metrics (skin temp, raw ADC) show only z + status (no absolute).
 Widget _baselineRow(
   Map<String, dynamic> b,
   String label,
   String unit, {
   bool relative = false,
+  bool showBadge = true,
 }) {
   num? n(Object? v) => v is num ? v : null;
   final center = n(b['baseline']);
@@ -53,7 +75,7 @@ Widget _baselineRow(
   return DetailRow(
     label: label,
     value: value,
-    trailing: Tag(status, color: tagColor),
+    trailing: showBadge ? Tag(status, color: tagColor) : null,
   );
 }
 
@@ -77,6 +99,10 @@ class _FetchState extends State<_Fetch> {
   AppState? _app;
   VoidCallback? _insightsListener;
   int _lastInsightsRevision = -1;
+  // ...which then introduced its own race: two revisions in quick succession
+  // (rollup, then derive) leave two loads in flight and the later-STARTING one
+  // can complete first, letting the stale payload land last and win.
+  final LatestRequestGate _gate = LatestRequestGate();
 
   @override
   void initState() {
@@ -108,16 +134,17 @@ class _FetchState extends State<_Fetch> {
   Future<void> _go() async {
     final api = context.read<AppState>().repo;
     if (api == null) return;
+    final token = _gate.begin();
     try {
       final d = await widget.load(api);
-      if (mounted) {
-        setState(() {
-          _d = d;
-          _loading = false;
-        });
-      }
+      if (!mounted || !_gate.isCurrent(token)) return; // superseded
+      setState(() {
+        _d = d;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted || !_gate.isCurrent(token)) return;
+      setState(() => _loading = false);
     }
   }
 
@@ -251,7 +278,6 @@ class HeartDayContent extends StatelessWidget {
     final noct = (d['nocturnal'] as Map?);
     final illness = (d['illness'] as Map?);
     final resp = (d['resp'] as Map?);
-    final spo2 = (d['spo2'] as Map?);
     final irr24 = (d['irregular_24h'] as Map?);
     final irr24v = (irr24?['value'] is Map)
         ? (irr24!['value'] as Map).cast<String, dynamic>()
@@ -262,9 +288,6 @@ class HeartDayContent extends StatelessWidget {
     // affected this" section + a desaturation row, but getDayHeart() never
     // actually sets that key - it was permanently dead code, removed rather
     // than force-fitting a fake driver split just to have something to show.
-    final latest = hr.isEmpty ? null : hr.last;
-    final peak = hr.isEmpty ? null : hr.reduce((a, b) => a.y >= b.y ? a : b);
-    final low = hr.isEmpty ? null : hr.reduce((a, b) => a.y <= b.y ? a : b);
     final sleepingHr = _n(noct?['sleeping_hr_avg']);
     final dipPct = _n(noct?['dip_pct']);
 
@@ -424,30 +447,16 @@ class HeartDayContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: Sp.x3),
-                TimeSeriesChart(
+                // Same shared HR chart+chips as Today's lookback card — chips
+                // below (this IS the primary reading here) + a "now" chip;
+                // only cut off at "now" for today itself, a finished past day
+                // shows its whole span.
+                HrCurveWithChips(
                   points: hr,
-                  color: DomainAccent.heart,
                   height: 200,
-                  yUnit: ' bpm',
-                  tooltip: (p) {
-                    final dt = DateTime.fromMillisecondsSinceEpoch(
-                      (p.x * 1000).round(),
-                    ).toLocal();
-                    final mm = dt.minute.toString().padLeft(2, '0');
-                    return '${dt.hour}:$mm\n${p.y.round()} bpm';
-                  },
-                ),
-                const SizedBox(height: Sp.x3),
-                Wrap(
-                  spacing: Sp.x2,
-                  runSpacing: Sp.x1,
-                  children: [
-                    if (latest != null)
-                      StatusChip('Now ${latest.y.round()}',
-                          tone: ChipTone.accent),
-                    if (peak != null) StatusChip('Peak ${peak.y.round()}'),
-                    if (low != null) StatusChip('Low ${low.y.round()}'),
-                  ],
+                  chipsPosition: HrChipsPosition.below,
+                  showNowChip: true,
+                  cutoffToNow: date == todayLabel(),
                 ),
               ],
             ),
@@ -525,67 +534,89 @@ class HeartDayContent extends StatelessWidget {
               metric: 'hrv',
               trendTitle: 'HRV (RMSSD)',
             ),
-            if (hrv['sdnn'] != null)
-              TrendMetricRow(
-                icon: OsIcon.heartRate,
-                accent: DomainAccent.recovery,
-                label: 'SDNN',
-                info: infoFor('sdnn'),
-                value: '${hrv['sdnn']}',
-                unit: 'ms',
-                metric: 'sdnn',
-                trendTitle: 'HRV (SDNN)',
-              ),
-            if (hrv['lf_hf'] != null)
-              TrendMetricRow(
-                icon: OsIcon.heartRate,
-                accent: DomainAccent.recovery,
-                label: 'LF / HF',
-                info: infoFor('lf_hf'),
-                value: '${hrv['lf_hf']}',
-                metric: 'lf_hf',
-                trendTitle: 'LF / HF',
-              ),
-            if (hrv['cv'] != null)
-              TrendMetricRow(
-                icon: OsIcon.activity,
-                accent: DomainAccent.recovery,
-                label: 'HRV stability',
-                info: infoFor('hrv_cv'),
-                value: '${hrv['cv']}',
-                unit: '%',
-                metric: 'hrv_cv',
-                trendTitle: 'HRV stability (CV)',
-              ),
             if (hrv['baseline'] != null)
               MetricRow(
                 icon: OsIcon.activity,
                 accent: AppColors.inkSoft,
-                label: 'Your baseline',
-                info: 'Your typical RMSSD — recovery is measured against this.',
+                label: 'Baseline (trend)',
+                info: 'Your typical RMSSD over recent history (simple '
+                    'trailing average) — recovery is measured against this.',
                 value: '${(_n(hrv['baseline']) ?? 0).round()}',
                 unit: 'ms',
               ),
-            if (brvHas)
-              TrendMetricRow(
-                icon: OsIcon.activity,
-                accent: DomainAccent.recovery,
-                label: 'Breathing variability',
-                info: 'How much your breathing rate varied overnight '
-                    '(within-user trend), tracked against your own history.',
-                value: () {
-                  final cv = _n((((d['brv'] as Map)['value']) as Map)['cv']);
-                  return cv == null ? '—' : cv.toStringAsFixed(2);
-                }(),
-                metric: 'brv',
-                trendTitle: 'Breathing-rate variability',
-              ),
           ]),
+          // Progressive disclosure: SDNN/LF-HF/HRV-stability/breathing
+          // variability are always-visible-but-cryptic acronyms otherwise —
+          // collapsed by default behind a plain-language summary line so the
+          // Heart tab's resting scroll height SHRINKS rather than grows.
+          if (hrv['sdnn'] != null ||
+              hrv['lf_hf'] != null ||
+              hrv['cv'] != null ||
+              brvHas) ...[
+            const SizedBox(height: Sp.x2),
+            Disclosure(
+              summary: _hrvDetailSummary(hrv),
+              child: MetricGroup([
+                if (hrv['sdnn'] != null)
+                  TrendMetricRow(
+                    icon: OsIcon.heartRate,
+                    accent: DomainAccent.recovery,
+                    label: 'SDNN',
+                    info: infoFor('sdnn'),
+                    value: '${hrv['sdnn']}',
+                    unit: 'ms',
+                    metric: 'sdnn',
+                    trendTitle: 'HRV (SDNN)',
+                  ),
+                if (hrv['lf_hf'] != null)
+                  TrendMetricRow(
+                    icon: OsIcon.heartRate,
+                    accent: DomainAccent.recovery,
+                    label: 'LF / HF',
+                    info: infoFor('lf_hf'),
+                    value: '${hrv['lf_hf']}',
+                    metric: 'lf_hf',
+                    trendTitle: 'LF / HF',
+                  ),
+                if (hrv['cv'] != null)
+                  TrendMetricRow(
+                    icon: OsIcon.activity,
+                    accent: DomainAccent.recovery,
+                    label: 'HRV stability',
+                    info: infoFor('hrv_cv'),
+                    value: '${hrv['cv']}',
+                    unit: '%',
+                    metric: 'hrv_cv',
+                    trendTitle: 'HRV stability (CV)',
+                  ),
+                if (brvHas)
+                  TrendMetricRow(
+                    icon: OsIcon.activity,
+                    accent: DomainAccent.recovery,
+                    label: 'Breathing variability',
+                    info: 'How much your breathing rate varied overnight '
+                        '(within-user trend), tracked against your own '
+                        'history.',
+                    value: () {
+                      final cv =
+                          _n((((d['brv'] as Map)['value']) as Map)['cv']);
+                      return cv == null ? '—' : cv.toStringAsFixed(2);
+                    }(),
+                    metric: 'brv',
+                    trendTitle: 'Breathing-rate variability',
+                  ),
+              ]),
+            ),
+          ],
         ],
 
         // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ───────────────────
+        // Section title is just "Rhythm" — this is a section within the Heart
+        // screen, not a separate route; "Rhythm screen" read as a broken nav
+        // promise. The InfoDot below still says "screen" deliberately (the
+        // clinical sense: a screening test, not a diagnosis).
         const SizedBox(height: Sp.x6),
-        const SectionHeader('Rhythm screen'),
+        const SectionHeader('Rhythm'),
         Builder(builder: (context) {
           if (irr24v == null) {
             return const _QuietState(
@@ -633,24 +664,36 @@ class HeartDayContent extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: Sp.x3),
-                Row(
-                  children: [
-                    Expanded(
-                      child: BigStat(
-                        value: ratio?.toStringAsFixed(2),
-                        label: 'SD1/SD2',
-                        size: BigStatSize.md,
+                // Progressive disclosure: the StatusChip above already gives
+                // the plain-language verdict — the raw SD1/SD2 ratio + pNN
+                // acronyms are opt-in detail, collapsed by default.
+                Disclosure(
+                  summary: flag
+                      ? 'Beat-timing pattern irregular — see the numbers.'
+                      : 'Beat-timing pattern normal — see the numbers.',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: BigStat(
+                          value: ratio?.toStringAsFixed(2),
+                          // "(ratio)" distinguishes this unitless SD1/SD2
+                          // ratio from the raw-ms Poincaré SD1/SD2 axes shown
+                          // lower on this screen's nocturnal irregular-beat
+                          // card.
+                          label: 'SD1/SD2 (ratio)',
+                          size: BigStatSize.md,
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      child: BigStat(
-                        value: pnn?.toStringAsFixed(0),
-                        unit: '%',
-                        label: 'pNN',
-                        size: BigStatSize.md,
+                      Expanded(
+                        child: BigStat(
+                          value: pnn?.toStringAsFixed(0),
+                          unit: '%',
+                          label: 'pNN',
+                          size: BigStatSize.md,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -661,72 +704,93 @@ class HeartDayContent extends StatelessWidget {
         if (baselines != null && baselines.isNotEmpty) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Personal baselines'),
-          SurfaceCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x4,
-              vertical: Sp.x2,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TileHeader(
-                  'You vs your normal',
-                  trailing: InfoDot(
-                    title: 'Personal baselines',
-                    body:
-                        'Robust, recency-weighted baselines (Winsorized EWMA). '
-                        '"z" is today vs your personal range; the tag shows how '
-                        'settled each baseline is (calibrating → trusted).',
-                  ),
-                ),
-                for (final e in const [
-                  ['resting_hr', 'Resting HR', 'bpm', false],
-                  ['hrv', 'HRV (RMSSD)', 'ms', false],
-                  ['resp', 'Respiratory rate', 'rpm', false],
-                  ['skin_temp', 'Skin temp', '', true], // relative-only (ADC)
-                ])
-                  if (baselines[e[0] as String] is Map)
-                    _baselineRow(
-                      (baselines[e[0] as String] as Map)
-                          .cast<String, dynamic>(),
-                      e[1] as String,
-                      e[2] as String,
-                      relative: e[3] as bool,
+          Builder(builder: (context) {
+            const rows = [
+              ['resting_hr', 'Resting HR', 'bpm', false],
+              // "(EWMA)" disambiguates this from the "Baseline (trend)" row
+              // above (simple trailing mean) — same day, two legitimate
+              // different numbers, now two different labels.
+              ['hrv', 'HRV (RMSSD) · EWMA', 'ms', false],
+              ['resp', 'Respiratory rate', 'rpm', false],
+              ['skin_temp', 'Skin temp', '', true], // relative-only (ADC)
+            ];
+            // Consolidated badge count: one header note instead of one pill
+            // per row (was 4 TRUSTED/PROVISIONAL pills stacked vertically) —
+            // a row only gets its OWN tag when it's an exception (not yet
+            // trusted); the honesty is preserved, just summarized.
+            var building = 0;
+            for (final e in rows) {
+              final b = baselines[e[0] as String];
+              if (b is Map && (b['status'] as String?) != 'trusted') {
+                building++;
+              }
+            }
+            return SurfaceCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x4,
+                vertical: Sp.x2,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TileHeader(
+                    'You vs your normal',
+                    trailing: InfoDot(
+                      title: 'Personal baselines',
+                      body:
+                          'Robust, recency-weighted baselines (Winsorized '
+                          'EWMA). "z" is today vs your personal range; a '
+                          'baseline needs enough recent history before it\'s '
+                          'trusted.',
                     ),
-              ],
-            ),
-          ),
+                  ),
+                  if (building > 0) ...[
+                    const SizedBox(height: Sp.x1),
+                    Text(
+                      '$building metric${building == 1 ? '' : 's'} still '
+                      'building baseline',
+                      style: AppText.captionMuted,
+                    ),
+                  ],
+                  const SizedBox(height: Sp.x1),
+                  for (final e in rows)
+                    if (baselines[e[0] as String] is Map)
+                      _baselineRow(
+                        (baselines[e[0] as String] as Map)
+                            .cast<String, dynamic>(),
+                        e[1] as String,
+                        e[2] as String,
+                        relative: e[3] as bool,
+                        showBadge: ((baselines[e[0] as String] as Map)
+                                    ['status'] as String?) !=
+                                'trusted',
+                      ),
+                ],
+              ),
+            );
+          }),
         ],
 
-        // ── Respiratory + skin temperature ───────────────────────────────────
-        if (resp != null || spo2 != null) ...[
+        // ── Respiratory ───────────────────────────────────────────────────────
+        // "Oxygen dips" (SpO2/ODI) moved to the Sleep tab's nocturnal grouping
+        // — it's an overnight signal, not a general daytime heart metric (see
+        // the Sleep tab's "Nocturnal heart" section).
+        if (resp != null) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Respiratory'),
           MetricGroup([
-            if (resp != null)
-              MetricRow(
-                icon: OsIcon.activity,
-                accent: DomainAccent.oxygen,
-                label: 'Respiratory rate',
-                info: infoFor('resp'),
-                value: '${resp['value']}',
-                unit: 'brpm',
-              ),
-            if (spo2 != null)
-              TrendMetricRow(
-                icon: OsIcon.hydration,
-                accent: DomainAccent.oxygen,
-                label: 'Oxygen dips',
-                info: infoFor('spo2'),
-                value: '${spo2['odi_per_hour'] ?? spo2['value']}',
-                unit: '/h',
-                metric: 'spo2',
-                trendTitle: 'Overnight oxygen dips',
-              ),
+            MetricRow(
+              icon: OsIcon.activity,
+              accent: DomainAccent.oxygen,
+              label: 'Respiratory rate',
+              info: infoFor('resp'),
+              value: '${resp['value']}',
+              unit: 'brpm',
+            ),
           ]),
         ],
 
-        if (spo2 != null || d['skin_temp'] is Map) ...[
+        if (d['skin_temp'] is Map) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Skin temperature'),
           MetricGroup([
@@ -1422,6 +1486,22 @@ Widget _legendPill(String label, Color color) {
     );
   }
 
+  // A grade needs at least ONE computed dip metric. These used to default to
+  // 0, so a night with trusted coverage but nothing computed fell all the way
+  // through to "Quiet — No meaningful overnight oxygen dips were detected" —
+  // an affirmative all-clear derived from three absent numbers. Currently
+  // unreachable only because `spo2.disabled` short-circuits upstream; it goes
+  // live the moment SpO₂ decoding is re-enabled.
+  if (odiPerHour == null && maxDipPct == null && burdenPct == null) {
+    return (
+      label: 'Not graded',
+      color: AppColors.inkSoft,
+      reason:
+          'The overnight dip metrics weren’t computed for this night, so '
+          'there is nothing to grade — this is not an all-clear.',
+    );
+  }
+
   final odi = odiPerHour ?? 0;
   final maxDip = maxDipPct ?? 0;
   final burden = burdenPct ?? 0;
@@ -1481,6 +1561,7 @@ class _OxygenRecentStrip extends StatefulWidget {
 class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
   Map<String, dynamic>? _trend;
   bool _loading = true;
+  final LatestRequestGate _gate = LatestRequestGate();
 
   @override
   void initState() {
@@ -1491,19 +1572,20 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
   Future<void> _load() async {
     final api = context.read<AppState>().repo;
     if (api == null) return;
+    final token = _gate.begin();
     try {
       final trend = await api.getTrend(
         'spo2',
         scale: 'week',
         anchor: widget.date,
       );
-      if (!mounted) return;
+      if (!mounted || !_gate.isCurrent(token)) return; // superseded
       setState(() {
         _trend = trend;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !_gate.isCurrent(token)) return;
       setState(() => _loading = false);
     }
   }
@@ -1543,7 +1625,7 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
       return (
         label: 'spike',
         color: AppColors.warn,
-        reason: 'Tonight stands well above your recent oxygen-dip pattern.',
+        reason: 'Tonight stands well above your recent oxygen-index pattern.',
       );
     }
     if (drift >= 1.0) {
@@ -1606,7 +1688,18 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Tag(pattern.label, color: pattern.color),
-                InfoDot(title: 'Last 7 nights', body: pattern.reason),
+                InfoDot(
+                  title: 'Last 7 nights',
+                  body: pattern.reason,
+                  // The `spo2` SERIES is not the ODI shown in the hero above:
+                  // the on-device pipeline writes null into it, so its only
+                  // writer is the cloud importer's vendor saturation index.
+                  // It must not be captioned "/h" as if it were a dip rate.
+                  methodNote:
+                      'These bars are the imported vendor oxygen index, not '
+                      'the dip rate in the hero above and not an absolute '
+                      'SpO₂. Nights with no imported value are left blank.',
+                ),
               ],
             ),
           ),
@@ -1626,9 +1719,9 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
             spacing: Sp.x2,
             runSpacing: Sp.x1,
             children: [
-              StatusChip('Latest ${latest.toStringAsFixed(1)}/h',
+              StatusChip('Latest ${latest.toStringAsFixed(1)}',
                   tone: ChipTone.accent),
-              StatusChip('Avg ${avg.toStringAsFixed(1)}/h'),
+              StatusChip('Avg ${avg.toStringAsFixed(1)}'),
               StatusChip(
                 '${(latest - avg >= 0 ? '+' : '')}${(latest - avg).toStringAsFixed(1)} vs avg',
               ),
@@ -1787,12 +1880,25 @@ class _IrregularCard extends StatelessWidget {
           ),
           if (irr!['sd1'] != null && irr!['sd2'] != null) ...[
             const SizedBox(height: Sp.x2),
-            DetailRow(
-              label: 'Poincaré SD1 / SD2',
-              value: '${irr!['sd1']} / ${irr!['sd2']} ms',
+            // Progressive disclosure — the StatusChip above already gives the
+            // plain-language verdict; the raw Poincaré/pNN acronyms are
+            // opt-in, collapsed by default.
+            Disclosure(
+              summary: flag
+                  ? 'Overnight beat-timing irregular — see the numbers.'
+                  : 'Overnight beat-timing normal — see the numbers.',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DetailRow(
+                    label: 'Poincaré SD1 / SD2',
+                    value: '${irr!['sd1']} / ${irr!['sd2']} ms',
+                  ),
+                  if (irr!['pnn50'] != null)
+                    DetailRow(label: 'pNN50', value: '${irr!['pnn50']}%'),
+                ],
+              ),
             ),
-            if (irr!['pnn50'] != null)
-              DetailRow(label: 'pNN50', value: '${irr!['pnn50']}%'),
           ],
         ],
       ),
@@ -1825,6 +1931,20 @@ class WearDayContent extends StatelessWidget {
 
   num? _n(Object? v) => v is num ? v : null;
 
+  /// How many separate on-wrist stretches the day had.
+  ///
+  /// `getDayWear` emits `segments` as a LIST of on/off segment maps (the
+  /// engine builds it as a list). The old `(_n(d['segments']) ?? 0).toInt()`
+  /// therefore always saw a List, always fell through to `?? 0`, and printed
+  /// "Wear stretches 0" on every day on every device — including a 24 h-worn
+  /// day with three stretches. An EMPTY list means no wear block was stored at
+  /// all (a worn day necessarily has ≥1 stretch), which is absence, not zero.
+  static int? _segmentCount(Object? v) {
+    if (v is List) return v.isEmpty ? null : v.length;
+    if (v is num) return v.toInt(); // legacy/precomputed count
+    return null;
+  }
+
   // unix seconds → local "h:mm AM/PM"
   String _clock(num? ts) {
     if (ts == null) return '—';
@@ -1838,16 +1958,32 @@ class WearDayContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = data;
     final accent = AppColors.coralDeep;
-    final worn = (_n(d['worn_min']) ?? 0).toInt();
-    final cov = (_n(d['coverage_pct']) ?? 0).toInt();
+    // NULLABLE on purpose. "The strap was off all day" and "this day has no
+    // wear measurement" are different claims, and only one of them is ours to
+    // make. A cloud-imported day carries no wear/coverage block, so the old
+    // `?? 0` turned silence into the affirmative "No wrist contact was
+    // recorded" — on a day whose own Week bars showed hours of wear.
+    final worn = _n(d['worn_min'])?.toInt();
+    final cov = _n(d['coverage_pct'])?.toInt();
     final hourly = ((d['hourly'] as List?) ?? const [])
-        .map((e) => (e as num).toDouble())
+        .whereType<num>()
+        .map((e) => e.toDouble())
         .toList();
     final firstOn = _n(d['first_on']);
     final lastOn = _n(d['last_on']);
-    final segments = (_n(d['segments']) ?? 0).toInt();
-    final longestOff = (_n(d['longest_off_min']) ?? 0).toInt();
+    final segments = _segmentCount(d['segments']);
+    final longestOff = _n(d['longest_off_min'])?.toInt();
 
+    if (d.isEmpty || worn == null) {
+      return const _QuietState(
+        icon: OsIcon.wear,
+        title: 'Wear time wasn’t recorded',
+        message:
+            'This day has no wear measurement stored — imported days don’t '
+            'carry one. That is not the same as the strap being off, so '
+            'nothing is claimed either way.',
+      );
+    }
     if (worn == 0) {
       return const _QuietState(
         icon: OsIcon.wear,
@@ -1888,17 +2024,23 @@ class WearDayContent extends StatelessWidget {
                   Expanded(
                     child: BigStat(
                       value: hm(worn),
-                      caption: '$cov% of the day',
+                      caption: cov == null
+                          ? 'share of day not recorded'
+                          : '$cov% of the day',
                       size: BigStatSize.xl,
                     ),
                   ),
                   const SizedBox(width: Sp.x3),
                   ArcGauge(
-                    value: (cov / 100).clamp(0.0, 1.0),
+                    // NaN → the muted empty ring; a missing coverage figure
+                    // must not be drawn as a 0% ring.
+                    value: cov == null
+                        ? double.nan
+                        : (cov / 100).clamp(0.0, 1.0),
                     color: AppColors.coralDeep,
                     size: 96,
                     stroke: 10,
-                    valueText: '$cov%',
+                    valueText: cov == null ? '—' : '$cov%',
                     label: 'of day',
                   ),
                 ],
@@ -1941,6 +2083,29 @@ class WearDayContent extends StatelessWidget {
               ],
             ),
           ),
+        ] else ...[
+          // The hourly array is NOT stored per day (getDayWear hard-codes
+          // `'hourly': const []`), so for a recent day both branches above
+          // used to be false and the card vanished with no explanation —
+          // the one outcome the honesty contract forbids: rendering nothing
+          // silently. Say so instead.
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            child: Row(
+              children: [
+                AppIcon(OsIcon.wear, size: 20, color: AppColors.inkMuted),
+                const SizedBox(width: Sp.x3),
+                Expanded(
+                  child: Text(
+                    'Hour-by-hour wear isn’t stored for this day — only the '
+                    'day totals above are. Nothing has been estimated to '
+                    'fill the gap.',
+                    style: AppText.caption.copyWith(color: AppColors.inkSoft),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
 
         // ── when + how continuous ────────────────────────────────────────────
@@ -1968,7 +2133,11 @@ class WearDayContent extends StatelessWidget {
                 children: [
                   const TileHeader('Wear stretches'),
                   const SizedBox(height: Sp.x2),
-                  BigStat(value: '$segments', size: BigStatSize.md),
+                  // Null → BigStat's honest em-dash.
+                  BigStat(
+                    value: segments?.toString(),
+                    size: BigStatSize.md,
+                  ),
                 ],
               ),
             ),
@@ -1995,8 +2164,14 @@ class WearDayContent extends StatelessWidget {
                 children: [
                   const TileHeader('Longest off'),
                   const SizedBox(height: Sp.x2),
+                  // 'none' is a positive claim ("never removed"). Only make it
+                  // from a MEASURED zero — a day whose bundle has coverage but
+                  // no engine wear block has no off-time measurement at all,
+                  // and its raw may already be pruned, so it can never get one.
                   BigStat(
-                    value: longestOff > 0 ? hm(longestOff) : 'none',
+                    value: longestOff == null
+                        ? null
+                        : (longestOff > 0 ? hm(longestOff) : 'none'),
                     size: BigStatSize.md,
                   ),
                 ],

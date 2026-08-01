@@ -12,7 +12,6 @@ import 'package:flutter/services.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/os_icons.dart';
-import 'pressable.dart';
 
 class NavPillItem {
   /// Illustrated tab icon (full-colour, theme-aware). Always rendered at full
@@ -125,42 +124,6 @@ class FloatingNavPill extends StatelessWidget {
             for (var i = half; i < items.length; i++) buildItem(i),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// The standard ember circle for [FloatingNavPill.centerAction] — press
-/// feedback + haptic + semantics come free. Kept public for custom shells;
-/// the app shell itself no longer renders a center action.
-class NavPillAction extends StatelessWidget {
-  /// Material/HugeIcons glyph, rendered on the ember circle. Ignored when
-  /// [osIcon] is set.
-  final OsIcon? icon;
-
-  /// Illustrated action (e.g. [OsIcon.add]). The art is itself a soft-3D
-  /// button coin, so it renders as-is — no ember circle behind it.
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  const NavPillAction({
-    super.key,
-    this.icon,
-    required this.onTap,
-    this.semanticLabel = 'Start',
-  }) : assert(icon != null);
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: Pressable(
-        // Pressable fires the selection haptic itself.
-        pressedScale: 0.9,
-        onTap: onTap,
-        // The illustrated coin IS the button — same 46px footprint.
-        child: SizedBox(width: 46, height: 46, child: OsAppIcon(icon!, size: 46)),
       ),
     );
   }

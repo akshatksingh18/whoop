@@ -90,7 +90,8 @@ class IosBgTask {
           try {
             final profile = await _loadProfile();
             final engine = DerivationEngine(
-                log: (l) => debugPrint('[ios-bgtask-derive] $l'));
+                log: (l) => debugPrint('[ios-bgtask-derive] $l'),
+                background: true);
             await engine.run(profile, heavy: true);
             // Baseline-dirty rescan on the iOS BGTask tick: refresh
             // baseline-dependent scalars on recent finalized days if the
@@ -106,7 +107,8 @@ class IosBgTask {
           try {
             final profile = await _loadProfile();
             final engine = DerivationEngine(
-                log: (l) => debugPrint('[ios-bgrefresh-derive] $l'));
+                log: (l) => debugPrint('[ios-bgrefresh-derive] $l'),
+                background: true);
             await engine.run(profile, heavy: false);
             await _refreshWidgetSnapshot(profile);
           } catch (e) {

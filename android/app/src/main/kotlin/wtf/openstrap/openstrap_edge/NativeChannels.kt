@@ -8,15 +8,19 @@ import android.content.ActivityNotFoundException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import android.view.KeyEvent
+import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -34,6 +38,14 @@ object NativeChannels {
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
 
     private var torchOn = false
+
+    // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
+    // stopped — without a held reference the default TYPE_RINGTONE loops until the
+    // process dies, which is why it rang until force-close (#115).
+    private const val RING_TIMEOUT_MS = 30_000L
+    private var activeRingtone: Ringtone? = null
+    private val ringHandler = Handler(Looper.getMainLooper())
+    private var ringStopRunnable: Runnable? = null
 
     fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
@@ -57,6 +69,32 @@ object NativeChannels {
                     "stop" -> {
                         app.stopService(Intent(app, EdgeTrackingService::class.java))
                         result.success(null)
+                    }
+                    // Hold the screen on for the duration of a live workout, the
+                    // way every run/ride app does — the athlete is glancing at a
+                    // handlebar/armband, not tapping to keep the display awake.
+                    // FLAG_KEEP_SCREEN_ON is scoped to this window and released
+                    // automatically if the activity goes away, so it can never
+                    // leak into a permanent wakelock.
+                    "keepAwake" -> {
+                        val on = call.argument<Boolean>("on") == true
+                        val activity = CompanionBridge.currentActivity
+                        if (activity == null) {
+                            result.success(false)
+                        } else {
+                            activity.runOnUiThread {
+                                if (on) {
+                                    activity.window.addFlags(
+                                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                                    )
+                                } else {
+                                    activity.window.clearFlags(
+                                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                                    )
+                                }
+                            }
+                            result.success(true)
+                        }
                     }
                     "consumeHeadlessBootPending" -> {
                         val prefs = app.getSharedPreferences(
@@ -351,9 +389,34 @@ object NativeChannels {
     }
 
     private fun ringPhone(ctx: Context) {
+        // Toggle: a second double-tap while it's ringing stops it early.
+        if (activeRingtone?.isPlaying == true) {
+            stopRing()
+            return
+        }
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        RingtoneManager.getRingtone(ctx.applicationContext, uri)?.play()
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        val rt = RingtoneManager.getRingtone(ctx.applicationContext, uri) ?: return
+        // Loop for the whole find-my-phone window (API 28+); older versions loop a
+        // TYPE_RINGTONE by default. Either way the timeout below guarantees it stops.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) rt.isLooping = true
+        activeRingtone = rt
+        rt.play()
+        // Register the fail-safe stop BEFORE vibrating: vibrate() can throw and
+        // perform() swallows it, which must never leave the ring without a
+        // scheduled stop (that was the original ring-forever failure mode).
+        ringStopRunnable?.let { ringHandler.removeCallbacks(it) }
+        val stop = Runnable { stopRing() }
+        ringStopRunnable = stop
+        ringHandler.postDelayed(stop, RING_TIMEOUT_MS)
         vibrate(ctx)
+    }
+
+    private fun stopRing() {
+        ringStopRunnable?.let { ringHandler.removeCallbacks(it) }
+        ringStopRunnable = null
+        activeRingtone?.let { if (it.isPlaying) it.stop() }
+        activeRingtone = null
     }
 
     // Torch via CameraManager.setTorchMode — no CAMERA permission required (API 23+).

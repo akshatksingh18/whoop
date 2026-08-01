@@ -8,8 +8,14 @@
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../ai/ai_prefs.dart';
 import '../ai/reminder_plan.dart';
+import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
 import 'notification_service.dart';
@@ -17,6 +23,40 @@ import 'notification_service.dart';
 class NotificationCenter {
   NotificationCenter._();
   static final NotificationCenter instance = NotificationCenter._();
+
+  /// The persistent "already fired this dedupeKey" guard. See [FiredKeyStore].
+  final FiredKeyStore _fired = const FiredKeyStore();
+
+  /// Tail of a chained-Future lock that serialises the claim-present-release
+  /// critical section in [emit]. It keeps two overlapping emits in THIS isolate
+  /// from interleaving their presents — more likely now the UI-thread stress
+  /// alert can race the background derive loop.
+  ///
+  /// It is not what enforces fire-once. This lock can only order emits WITHIN
+  /// this isolate; derivation also runs in the WorkManager isolate, which it
+  /// cannot see. Fire-once across both is enforced by the atomic
+  /// [FiredKeyStore.claim] below — one SQLite INSERT OR IGNORE, one winner.
+  Future<void> _lock = Future<void>.value();
+
+  /// Run [action] after any in-flight critical section completes, exclusively.
+  Future<void> _synchronized(Future<void> Function() action) async {
+    final prev = _lock;
+    final done = Completer<void>();
+    _lock = done.future; // installed synchronously — orders concurrent callers
+    await prev;
+    try {
+      await action();
+    } finally {
+      done.complete();
+    }
+  }
+
+  /// The OS presentation sink. Returns true when the event was actually shown
+  /// (permission granted, no error). Overridable in tests to assert call counts
+  /// without a device; defaults to the real service.
+  @visibleForTesting
+  Future<bool> Function(NotificationEvent e, {bool allowPermissionPrompt})
+      presentSink = NotificationService.instance.presentEvent;
 
   /// Present to the OS (if allowed). Never throws.
   ///
@@ -28,21 +68,87 @@ class NotificationCenter {
   /// background_sync.dart's checkSyncStaleness) MUST pass `false`, so a
   /// not-yet-decided permission is checked, not requested, and never gets
   /// permanently mis-cached as "denied" by a background attempt.
-  Future<void> emit(
+  ///
+  /// Returns TRUE only when the event actually reached the OS. Callers that
+  /// keep their own "already fired today" guard (see [emitOncePerDay]) MUST key
+  /// it off this, never off the mere fact that emit was called: the event is
+  /// dropped outright when [NotificationPrefs.shouldFireOs] says no (quiet
+  /// hours, category muted) or when the OS present fails.
+  Future<bool> emit(
     NotificationEvent e, {
     bool allowPermissionPrompt = true,
   }) async {
+    var presented = false;
     try {
       final prefs = await NotificationPrefs.load();
       final now = DateTime.now();
       final minuteOfDay = now.hour * 60 + now.minute;
-      if (prefs.shouldFireOs(e, minuteOfDay)) {
-        await NotificationService.instance.presentEvent(
-          e,
-          allowPermissionPrompt: allowPermissionPrompt,
-        );
-      }
+      if (!prefs.shouldFireOs(e, minuteOfDay)) return false;
+      // Enforce the dedupeKey's "fires at most once" contract (issue #136).
+      // The OS id only REPLACES a prior post of the same key — it still
+      // re-alerts — and derivation re-runs on every BLE sync, so an insight
+      // whose condition holds all day would otherwise buzz over and over. The
+      // guard resets itself per new day via the date-prefixed keys.
+      //
+      // CLAIM, don't check. A check-then-record pair is not atomic: the two
+      // derivation isolates can both read "not fired" before either records and
+      // both alert. [FiredKeyStore.claim] decides ownership in ONE atomic
+      // operation, so exactly one caller — in either isolate — ever proceeds.
+      //
+      // A claim we don't spend is given straight back: a permission-denied
+      // no-op or a throwing present must NOT consume the key, or that insight
+      // stays silent for the rest of the day. Release on every non-present path
+      // (hence the finally), which restores the pre-existing
+      // "record only after a real present" semantics.
+      await _synchronized(() async {
+        if (!await _fired.claim(e.dedupeKey)) return;
+        var shown = false;
+        try {
+          shown = await presentSink(
+            e,
+            allowPermissionPrompt: allowPermissionPrompt,
+          );
+        } finally {
+          if (!shown) await _fired.release(e.dedupeKey);
+        }
+        presented = shown;
+      });
     } catch (_) {/* OS present best-effort */}
+    return presented;
+  }
+
+  /// Fire [e] at most once per [dayId], with the persisted day-guard at
+  /// [prefsKey] consumed ONLY when the notification was actually presented.
+  /// Returns true iff it fired.
+  ///
+  /// The callers of this (recovery-ready, step-goal) used to write the guard
+  /// FIRST and then emit. [emit] drops the event outright when
+  /// [NotificationPrefs.shouldFireOs] is false, so a band that syncs at 06:40 —
+  /// inside the DEFAULT 22:00–07:00 quiet window — computed the new day's
+  /// recovery, burned the guard, got suppressed, and then had every retry that
+  /// day blocked by the guard it never earned: "Your recovery is ready" simply
+  /// never fired. Claiming the guard only on a real present makes the retry
+  /// (the next derive pass, after 07:00) work.
+  Future<bool> emitOncePerDay({
+    required String prefsKey,
+    required String dayId,
+    required NotificationEvent e,
+    bool allowPermissionPrompt = true,
+  }) async {
+    SharedPreferences? prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+    } catch (_) {
+      prefs = null; // no store — [emit]'s own FiredKeyStore still dedupes
+    }
+    if (prefs != null && prefs.getString(prefsKey) == dayId) return false;
+    final shown = await emit(e, allowPermissionPrompt: allowPermissionPrompt);
+    if (shown && prefs != null) {
+      try {
+        await prefs.setString(prefsKey, dayId);
+      } catch (_) {/* guard is an optimisation; FiredKeyStore is the truth */}
+    }
+    return shown;
   }
 
   // Default schedule for standing reminders (user-overridable via prefs UI).

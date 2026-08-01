@@ -14,6 +14,16 @@
 
 import '../gps/route_models.dart';
 
+/// The single source of truth for "no step goal configured yet" (8k/day is
+/// the commonly-cited optimal benefit/cost ratio for step count). Both the
+/// data layer (local_repository_impl.dart's `getProfile()`/`_stepGoal()`,
+/// which is where `TodayData.stepGoal` actually gets its default BEFORE any
+/// UI-level fallback ever sees a null) and the UI (`StepGoalScreen.defaultGoal`,
+/// the preset picker's own default) must agree — they used to independently
+/// default to two different values (10000 here vs. 8000 in the UI), so the UI
+/// fallback never actually triggered for real profile data.
+const int kDefaultStepGoal = 8000;
+
 /// Replaces the old ApiClient `ApiException`. Screens catch this to show an
 /// offline / error state. The re-layer can subclass or throw it directly.
 class RepositoryException implements Exception {
@@ -72,6 +82,14 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getDayWear');
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
+
+  /// Every day ('YYYY-MM-DD') the lookback screen can actually RENDER — the days
+  /// with a genuine derived bundle (`getDayTimeline` returns real data for), not
+  /// raw-only or skip-marker days that would render empty — newest first. Bounds
+  /// the lookback screen's day navigation (the reachable prev/next days + the
+  /// date-picker's selectable days). Empty when nothing has been derived yet.
+  Future<List<String>> availableDays() =>
+      throw UnimplementedError('re-layer: availableDays');
 
   // ── trends + records + charts ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getTrend(String metric,

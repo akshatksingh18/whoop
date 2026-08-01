@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'ai/briefing.dart';
 import 'coach/coach_config.dart';
+import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
@@ -67,6 +68,12 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
+      // The user may have flipped our notification switch either way in OS
+      // Settings while we were backgrounded. Drop the cached authorization
+      // decision so the next present/schedule re-reads reality — a denial used
+      // to latch for the whole process, silencing every notification and
+      // scheduled reminder until a full app restart.
+      NotificationService.instance.invalidatePermissionCache();
       app.maybeFinishFromLiveActivity();
       unawaited(app.maybeStopBreathingFromLiveActivity());
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
@@ -195,6 +202,9 @@ class _ShellState extends State<_Shell> {
       kRouteAiEvening =>
         const AiBreakdownScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalComposeScreen(),
+      // "Did you work out?" auto-detect tap → focused log/adjust review, on top
+      // of the Workouts tab (issue #113). WorkoutsScreen is already imported.
+      kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
       // Siri/Shortcuts "start breathing" App Intent — see StartBreathingIntent
       // in OpenStrapIntents.swift, which writes this route into the App Group
       // for WidgetService.consumePendingRoute() to pick up on launch/resume.
@@ -218,7 +228,7 @@ class _ShellState extends State<_Shell> {
         WorkoutsScreen(),
       ];
 
-  // Illustrated tab icons (theme-aware art from openstrap_icons).
+  // Tab icons (see lib/ui/kit/os_icons.dart for the pack each one resolves to).
   static const _nav = [
     NavPillItem(OsIcon.today, 'Today'),
     NavPillItem(OsIcon.sleep, 'Sleep'),

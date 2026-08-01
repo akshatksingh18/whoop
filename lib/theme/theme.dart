@@ -1,75 +1,121 @@
-// OpenStrap theme — ONE type family (Manrope), ember-coral on paper (day) or
-// char (night). `AppText` is the type scale; every numeric/metric style carries
+// OpenStrap theme — TWO type voices, ember-coral on paper (day) or char
+// (night). `AppText` is the type scale; every numeric/metric style carries
 // tabular figures so big numbers align and count-ups don't jitter. Text colours
 // resolve through the live `AppColors` getters, so the type scale follows the
 // active mode for free.
 //
-// Why Manrope: a single family must do three jobs here — hero numerals with
-// real presence (w800, tight tracking), dense small labels that stay legible,
-// and body copy that reads effortlessly. Manrope covers 200–800 with true
-// tabular figures, so the whole app speaks one voice (the old Space Grotesk +
-// Inter pairing is consolidated away).
+// Why two voices: a hero number (Readiness, Strain, Sleep score) and a
+// plain-language sentence (an AI briefing, an insight caption) are two
+// different KINDS of information and should read that way.
+//  - `hero`/`display`/`metric`/`metricSm` (the big tabular figures) use
+//    Barlow Condensed at heavy weight + slight tracking — confident and
+//    kinetic, athletic-brand register. BUNDLED locally (assets/fonts/
+//    BarlowCondensed/*.ttf, declared in pubspec.yaml's `flutter.fonts`) —
+//    this app is local-first/offline by design, and the readiness ring's
+//    numeral is the last thing that should be able to flicker or fall back
+//    on a cold offline launch, which a google_fonts runtime HTTP fetch can
+//    do on first use. SIL Open Font License (OFL.txt ships alongside the
+//    .ttf files).
+//  - Everything else (`h1`/`h2`/`title`/`body`/`bodySoft`/`label`/`caption`/
+//    `overline`) uses Manrope, bundled the same way (assets/fonts/Manrope/
+//    *.ttf, OFL.txt alongside). It used to resolve through google_fonts,
+//    which fetches the family from fonts.gstatic.com on first launch — before
+//    the consent screen, and contrary to PRIVACY.md.
 //
 // `buildOpenStrapTheme(palette)` builds a full ThemeData from an explicit
 // [Palette] (not the live getters) so the light + dark ThemeData objects are
 // each internally consistent regardless of which mode is currently active.
 
-import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+// CupertinoPageTransitionsBuilder (used below for iOS/macOS) comes from
+// material.dart on the pinned toolchain (Flutter 3.41.6 — see
+// .github/workflows/test.yml). It moved between cupertino.dart and
+// material.dart across Flutter versions, so if you bump the pin and this
+// suddenly fails to resolve, re-add:
+//   import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'page_transitions.dart';
 import 'tokens.dart';
 
 /// Type scale — one family (Manrope). Numerics carry tabular figures.
 /// Colours come from the live [AppColors] getters → they track the active mode.
+/// Manrope, bundled as a local asset (pubspec.yaml `flutter.fonts`) rather
+/// than resolved through google_fonts, which fetches the family from
+/// fonts.gstatic.com on first launch — before the consent screen, and contrary
+/// to PRIVACY.md. Same call shape as `GoogleFonts.manrope(...)`, no network.
+TextStyle _manrope({
+  double? fontSize,
+  FontWeight? fontWeight,
+  double? height,
+  double? letterSpacing,
+  Color? color,
+}) => TextStyle(
+  fontFamily: 'Manrope',
+  fontSize: fontSize,
+  fontWeight: fontWeight,
+  height: height,
+  letterSpacing: letterSpacing,
+  color: color,
+);
+
 class AppText {
   AppText._();
 
   static const _tnum = [FontFeature.tabularFigures()];
 
-  // ── Display / numerics — heavy, tight, tabular ──
-  static TextStyle get hero => GoogleFonts.manrope(
-    fontSize: 64,
-    fontWeight: FontWeight.w800,
-    height: 0.98,
-    letterSpacing: -2.4,
-    color: AppColors.ink,
-    fontFeatures: _tnum,
-  );
-  static TextStyle get display => GoogleFonts.manrope(
-    fontSize: 44,
-    fontWeight: FontWeight.w800,
-    height: 1.0,
-    letterSpacing: -1.4,
-    color: AppColors.ink,
-    fontFeatures: _tnum,
-  );
-  static TextStyle get metric => GoogleFonts.manrope(
-    fontSize: 30,
-    fontWeight: FontWeight.w800,
-    height: 1.0,
-    letterSpacing: -0.7,
-    color: AppColors.ink,
-    fontFeatures: _tnum,
-  );
-  static TextStyle get metricSm => GoogleFonts.manrope(
-    fontSize: 22,
-    fontWeight: FontWeight.w800,
-    height: 1.0,
-    letterSpacing: -0.35,
+  // ── Display / numerics — Barlow Condensed: heavy, tight, tabular, kinetic ──
+  // Bundled as a local asset (pubspec.yaml `flutter.fonts`), NOT fetched at
+  // runtime via google_fonts — see the file header. `_barlow` is a thin
+  // TextStyle helper standing in for GoogleFonts.barlowCondensed(...); same
+  // call shape, zero network dependency.
+  static TextStyle _barlow({
+    required double fontSize,
+    required FontWeight fontWeight,
+    required double height,
+    required double letterSpacing,
+  }) => TextStyle(
+    fontFamily: 'Barlow Condensed',
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    height: height,
+    letterSpacing: letterSpacing,
     color: AppColors.ink,
     fontFeatures: _tnum,
   );
 
+  static TextStyle get hero => _barlow(
+    fontSize: 68,
+    fontWeight: FontWeight.w800,
+    height: 0.96,
+    letterSpacing: -0.4,
+  );
+  static TextStyle get display => _barlow(
+    fontSize: 47,
+    fontWeight: FontWeight.w800,
+    height: 1.0,
+    letterSpacing: -0.2,
+  );
+  static TextStyle get metric => _barlow(
+    fontSize: 32,
+    fontWeight: FontWeight.w800,
+    height: 1.0,
+    letterSpacing: -0.1,
+  );
+  static TextStyle get metricSm => _barlow(
+    fontSize: 23,
+    fontWeight: FontWeight.w700,
+    height: 1.0,
+    letterSpacing: 0,
+  );
+
   // ── Headings ──
-  static TextStyle get h1 => GoogleFonts.manrope(
+  static TextStyle get h1 => _manrope(
     fontSize: 28,
     fontWeight: FontWeight.w800,
     height: 1.05,
     letterSpacing: -0.7,
     color: AppColors.ink,
   );
-  static TextStyle get h2 => GoogleFonts.manrope(
+  static TextStyle get h2 => _manrope(
     fontSize: 20,
     fontWeight: FontWeight.w700,
     height: 1.1,
@@ -78,41 +124,41 @@ class AppText {
   );
 
   // ── Body / labels ──
-  static TextStyle get title => GoogleFonts.manrope(
+  static TextStyle get title => _manrope(
     fontSize: 16,
     fontWeight: FontWeight.w700,
     letterSpacing: -0.15,
     color: AppColors.ink,
   );
-  static TextStyle get body => GoogleFonts.manrope(
+  static TextStyle get body => _manrope(
     fontSize: 14.5,
     fontWeight: FontWeight.w500,
     height: 1.45,
     color: AppColors.ink,
   );
-  static TextStyle get bodySoft => GoogleFonts.manrope(
+  static TextStyle get bodySoft => _manrope(
     fontSize: 14.5,
     fontWeight: FontWeight.w500,
     height: 1.45,
     color: AppColors.inkSoft,
   );
-  static TextStyle get label => GoogleFonts.manrope(
+  static TextStyle get label => _manrope(
     fontSize: 13,
     fontWeight: FontWeight.w700,
     color: AppColors.inkSoft,
     letterSpacing: 0.1,
   );
-  static TextStyle get caption => GoogleFonts.manrope(
+  static TextStyle get caption => _manrope(
     fontSize: 12,
     fontWeight: FontWeight.w600,
     color: AppColors.inkSoft,
   );
-  static TextStyle get captionMuted => GoogleFonts.manrope(
+  static TextStyle get captionMuted => _manrope(
     fontSize: 12,
     fontWeight: FontWeight.w600,
     color: AppColors.inkMuted,
   );
-  static TextStyle get overline => GoogleFonts.manrope(
+  static TextStyle get overline => _manrope(
     fontSize: 11,
     fontWeight: FontWeight.w800,
     letterSpacing: 1.5,
@@ -123,16 +169,20 @@ class AppText {
 /// Build the full theme from an explicit [Palette] so light/dark are each
 /// self-consistent. Call with [kLightPalette] / [kDarkPalette].
 ThemeData buildOpenStrapTheme(Palette p) {
+  // Material's `primary` drives every routine/non-evaluative default (Switch,
+  // ProgressIndicator, FilledButton, focus rings, splash) — that's brand
+  // identity territory, not alert territory, so it seeds from `p.brand` (calm
+  // cyan/teal), never `p.coral` (reserved for genuinely low/urgent states).
   final scheme =
       ColorScheme.fromSeed(
-        seedColor: p.coral,
+        seedColor: p.brand,
         brightness: p.brightness,
       ).copyWith(
         surface: p.surface,
         onSurface: p.ink,
-        primary: p.coral,
+        primary: p.brand,
         onPrimary: Colors.white,
-        secondary: p.coralDeep,
+        secondary: p.brandDeep,
       );
 
   final base = ThemeData(
@@ -141,9 +191,13 @@ ThemeData buildOpenStrapTheme(Palette p) {
     colorScheme: scheme,
     scaffoldBackgroundColor: p.bg,
     dividerColor: p.divider,
-    splashColor: p.coral.withValues(alpha: 0.08),
-    highlightColor: p.coral.withValues(alpha: 0.05),
-    textTheme: GoogleFonts.manropeTextTheme().apply(
+    splashColor: p.brand.withValues(alpha: 0.08),
+    highlightColor: p.brand.withValues(alpha: 0.05),
+    textTheme: (p.brightness == Brightness.dark
+            ? Typography.material2021().white
+            : Typography.material2021().black)
+        .apply(
+      fontFamily: 'Manrope',
       bodyColor: p.ink,
       displayColor: p.ink,
     ),
@@ -170,7 +224,7 @@ ThemeData buildOpenStrapTheme(Palette p) {
       foregroundColor: p.ink,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: GoogleFonts.manrope(
+      titleTextStyle: _manrope(
         fontSize: 20,
         fontWeight: FontWeight.w700,
         height: 1.1,
@@ -185,12 +239,12 @@ ThemeData buildOpenStrapTheme(Palette p) {
         horizontal: Sp.x5,
         vertical: Sp.x4,
       ),
-      hintStyle: GoogleFonts.manrope(
+      hintStyle: _manrope(
         fontSize: 14.5,
         fontWeight: FontWeight.w500,
         color: p.inkMuted,
       ),
-      labelStyle: GoogleFonts.manrope(
+      labelStyle: _manrope(
         fontSize: 14.5,
         fontWeight: FontWeight.w500,
         color: p.inkSoft,
@@ -205,12 +259,16 @@ ThemeData buildOpenStrapTheme(Palette p) {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(R.cardSm),
-        borderSide: BorderSide(color: p.coral, width: 2),
+        borderSide: BorderSide(color: p.brand, width: 2),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: p.coral,
+        // Default FilledButton = the routine primary-action colour (brand
+        // teal). Genuinely destructive actions override this explicitly with
+        // AppColors.critical at the call site (see profile_screen's confirm
+        // dialog) — that pattern is unaffected by this change.
+        backgroundColor: p.brand,
         foregroundColor: Colors.white,
         disabledBackgroundColor: p.inkMuted.withValues(alpha: 0.35),
         minimumSize: const Size(0, 56),
@@ -218,7 +276,7 @@ ThemeData buildOpenStrapTheme(Palette p) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(R.pill),
         ),
-        textStyle: GoogleFonts.manrope(
+        textStyle: _manrope(
           fontSize: 16,
           fontWeight: FontWeight.w800,
         ),
@@ -232,7 +290,7 @@ ThemeData buildOpenStrapTheme(Palette p) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(R.pill),
         ),
-        textStyle: GoogleFonts.manrope(
+        textStyle: _manrope(
           fontSize: 15,
           fontWeight: FontWeight.w700,
         ),
@@ -240,8 +298,8 @@ ThemeData buildOpenStrapTheme(Palette p) {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: p.coralDeep,
-        textStyle: GoogleFonts.manrope(
+        foregroundColor: p.brandDeep,
+        textStyle: _manrope(
           fontSize: 14,
           fontWeight: FontWeight.w700,
         ),
@@ -250,7 +308,7 @@ ThemeData buildOpenStrapTheme(Palette p) {
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: p.isDark ? p.surfaceAlt : AppColors.night,
-      contentTextStyle: GoogleFonts.manrope(color: AppColors.onNight),
+      contentTextStyle: _manrope(color: AppColors.onNight),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(R.chip),
       ),

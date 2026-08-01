@@ -14,6 +14,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
+import '../design/disclosure.dart';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,27 @@ Map<String, dynamic>? _val(Object? metric) {
   if (metric is! Map) return null;
   final v = metric['value'];
   return v is Map ? v.cast<String, dynamic>() : null;
+}
+
+/// The alarm-status caption for the Sleep page, from the SESSION-scoped
+/// confirmation machine only. Pure + public so the "only speak after an
+/// in-session SET" rule is unit-tested.
+///
+/// The confirmation state machine ([AppState.alarm…]) is reset on every launch
+/// and only advances once the user actually writes a SET this session, so all
+/// three inputs are false on a fresh open. A persisted `alarmEpoch` (an alarm
+/// set in a PREVIOUS session) is deliberately NOT an input: keying the caption
+/// off it made the page read "Alarm sent, waiting for the strap to confirm." on
+/// a fresh open when the user never tapped the button. All-false → null (idle).
+String? alarmStatusCaption({
+  required bool confirmed,
+  required bool pending,
+  required bool unconfirmed,
+}) {
+  if (confirmed) return 'Alarm set ✓';
+  if (pending) return 'Setting alarm…';
+  if (unconfirmed) return 'Alarm sent, waiting for the strap to confirm.';
+  return null;
 }
 
 // ── SLEEP COACH ──────────────────────────────────────────────────────────────
@@ -95,21 +117,22 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
   }
 
   /// Live alarm-status caption driven by the strap's own confirmation events.
-  /// Null when no alarm has been set yet — nothing to say.
-  String? _alarmCaption(AppState app) {
-    if (app.alarmEpoch == null) return null;
-    if (app.alarmConfirmed) return 'Alarm set ✓';
-    if (app.alarmPending) return 'Setting alarm…';
-    return 'Alarm sent, waiting for the strap to confirm.';
-  }
+  /// Null when no alarm is being tracked THIS session — nothing to say.
+  String? _alarmCaption(AppState app) => alarmStatusCaption(
+        confirmed: app.alarmConfirmed,
+        pending: app.alarmPending,
+        unconfirmed: app.alarmUnconfirmed,
+      );
 
   @override
   Widget build(BuildContext context) {
     // Rebuild only on the 3 alarm fields _alarmCaption reads — was two
     // separate context.watch<AppState>() calls below (each one subscribing
-    // to ALL 67 notifyListeners() sources, not just alarm state).
-    context.select<AppState, (int?, bool, bool)>(
-      (a) => (a.alarmEpoch, a.alarmConfirmed, a.alarmPending),
+    // to ALL 67 notifyListeners() sources, not just alarm state). The grace
+    // timer's notifyListeners() flips alarmPending true→false, which changes
+    // this tuple, so the unconfirmed transition still triggers a rebuild.
+    context.select<AppState, (bool, bool, bool)>(
+      (a) => (a.alarmConfirmed, a.alarmPending, a.alarmUnconfirmed),
     );
     if (_loading) return const SizedBox.shrink();
     final need = _val(_coach?['need']);
@@ -131,6 +154,15 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     final pct = (perf?['pct'] as num?)?.round();
     final accent = AppColors.loadDetraining;
 
+    // Collapsed-by-default disclosure (same pattern as LF/HF, SD1/SD2, the
+    // AI insight, etc. this session): the quick-glance value — tonight's
+    // need + the ring someone actually looks at — stays visible at rest;
+    // the bedtime/wake breakdown and the "Set band alarm" action are one
+    // tap away rather than permanently occupying space.
+    final needLine = pct == null
+        ? 'Tonight you need ${_dur(needSec)}'
+        : 'Tonight you need ${_dur(needSec)} · $pct% of need';
+
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -141,47 +173,77 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
           if (pct != null) Tag('$pct% of need', color: accent),
         ]),
         const SizedBox(height: Sp.x3),
-        Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Tonight you need', style: AppText.captionMuted),
-              const SizedBox(height: 2),
-              Text(_dur(needSec), style: AppText.h2.copyWith(color: accent)),
-            ]),
-          ),
-          if (pct != null)
-            RingStat(
-              t: pct / 100.0,
-              color: accent,
-              size: 70,
-              stroke: 9,
-              center: Text('$pct%', style: AppText.label),
+        // Only offer the expand affordance when there's actually detail
+        // behind it — with bedtime/wake both absent (need computed, but the
+        // schedule recommendation isn't yet) a Disclosure here would show
+        // "Bedtime & alarm" and expand into an empty column.
+        if (bedMin == null && wakeMin == null)
+          _needSummary(needSec, pct, accent)
+        else
+          Disclosure(
+            summary: needLine,
+            expandLabel: 'Bedtime & alarm',
+            collapseLabel: 'Hide',
+            summaryWidget: _needSummary(needSec, pct, accent),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (bedMin != null)
+                  _row(OsIcon.sleep, accent, 'Recommended bedtime',
+                      _hhmm(bedMin)),
+                if (wakeMin != null)
+                  _row(OsIcon.notifications, AppColors.coral,
+                      'Wake (cycle-aligned)', _hhmm(wakeMin)),
+                if (wakeMin != null) ...[
+                  const SizedBox(height: Sp.x3),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => _setAlarm(wakeMin.toDouble()),
+                      icon: const AppIcon(OsIcon.notifications,
+                          size: 16, color: Colors.white),
+                      label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
+                    ),
+                  ),
+                  ?switch (_alarmCaption(context.read<AppState>())) {
+                    final String c => Padding(
+                        padding: const EdgeInsets.only(top: Sp.x2),
+                        child: Text(c, style: AppText.captionMuted),
+                      ),
+                    _ => null,
+                  },
+                ],
+              ],
             ),
-        ]),
-        const SizedBox(height: Sp.x4),
-        if (bedMin != null)
-          _row(OsIcon.sleep, accent, 'Recommended bedtime', _hhmm(bedMin)),
-        if (wakeMin != null)
-          _row(OsIcon.notifications, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin)),
-        if (wakeMin != null) ...[
-          const SizedBox(height: Sp.x3),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => _setAlarm(wakeMin.toDouble()),
-              icon: const AppIcon(OsIcon.notifications, size: 16, color: Colors.white),
-              label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
-            ),
           ),
-          if (_alarmCaption(context.read<AppState>()) != null) ...[
-            const SizedBox(height: Sp.x2),
-            Text(_alarmCaption(context.read<AppState>())!,
-                style: AppText.captionMuted),
-          ],
-        ],
       ]),
     );
   }
+
+  /// The always-visible "tonight you need" line + ring — shared by the
+  /// collapsed Disclosure summary and the no-detail-to-expand fallback, so
+  /// both read identically.
+  Widget _needSummary(num needSec, int? pct, Color accent) => Row(children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tonight you need', style: AppText.captionMuted),
+              const SizedBox(height: 2),
+              Text(_dur(needSec), style: AppText.h2.copyWith(color: accent)),
+            ],
+          ),
+        ),
+        if (pct != null)
+          RingStat(
+            t: pct / 100.0,
+            color: accent,
+            size: 70,
+            stroke: 9,
+            center: Text('$pct%', style: AppText.label),
+          ),
+      ]);
 
   Widget _row(OsIcon icon, Color accent, String label, String value) =>
       Padding(

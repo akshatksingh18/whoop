@@ -1,6 +1,8 @@
 // AiBreakdownScreen — the ONE screen behind both the morning briefing and the
 // evening recap (parameterized by period). Deep-linked from the scheduled
-// notifications and from the Today AiSummaryCard.
+// notifications and from Today's ring-adjacent AI insight line (regenerate +
+// the exact "based on" metric snapshot live here even though the line itself
+// now shows the one-liner + breakdown bullets inline via a Disclosure).
 //
 // Generates-or-shows-cached: a cached briefing for today renders instantly;
 // otherwise it generates on open via the shared BYOK plumbing. Honest states:
@@ -39,6 +41,12 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   _Phase _phase = _Phase.busy;
   Briefing? _brief;
   String _error = '';
+  // Regenerate is a plain button on a screen whose generate can take many
+  // seconds. Two taps = two in-flight calls; whichever settles LAST wins, so a
+  // first call that errors after the second succeeds flips ready → error and
+  // throws away the briefing already on screen (and the reverse re-renders the
+  // older one as current).
+  bool _generating = false;
 
   @override
   void initState() {
@@ -69,11 +77,13 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   }
 
   Future<void> _generate() async {
+    if (_generating) return; // a generation is already in flight
     final engine = _engine();
     if (engine == null || !engine.configured) {
       setState(() => _phase = _Phase.noKey);
       return;
     }
+    _generating = true;
     setState(() => _phase = _Phase.busy);
     try {
       final b = await engine.generate(widget.period);
@@ -92,6 +102,8 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
         _phase = _Phase.error;
         _error = e.toString().replaceFirst('CoachException: ', '');
       });
+    } finally {
+      _generating = false;
     }
   }
 
@@ -102,8 +114,12 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
     return AppScaffold(
       title: widget.period.title,
       actions: [
+        // Regenerate/rerun action — was OsIcon.activity (a generic pulse
+        // glyph with no "refresh/rerun" meaning); OsIcon.sync (arrows in a
+        // circle) is the icon this app already uses everywhere else for
+        // "run this again"/refresh, so this button now actually reads as one.
         if (_phase == _Phase.ready)
-          RoundIconButton(OsIcon.activity, onTap: _generate),
+          RoundIconButton(OsIcon.sync, onTap: _generate),
       ],
       children: switch (_phase) {
         _Phase.noKey => _noKey(),
@@ -185,6 +201,12 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
     final at = DateTime.fromMillisecondsSinceEpoch(b.generatedAtMs);
     final hh = at.hour.toString().padLeft(2, '0');
     final mm = at.minute.toString().padLeft(2, '0');
+    final md = b.breakdownMd.trim();
+    // Hide the breakdown when it is empty or merely restates the one-liner —
+    // older cached briefings stored the one-liner back as a lone bullet, so the
+    // hero sentence rendered a second time (issue #107).
+    final breakdownBody = md.replaceFirst(RegExp(r'^[-*]\s*'), '').trim();
+    final showBreakdown = md.isNotEmpty && breakdownBody != b.oneLiner.trim();
     return [
       // Hero — the one-liner, numbers-first tone, glow like the Today slot.
       SurfaceCard(
@@ -194,30 +216,33 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Container(
-                // Art carries its own padding: 2 + 28 ≈ the old 8 + 17 chip.
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: AppColors.accentSoft,
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: const OsAppIcon(OsIcon.ai, size: 28),
+            // The AppScaffold title already names the screen ("Morning
+            // briefing"), so no overline label here — it just repeated the
+            // title (issue #107). The icon chip stays as the visual anchor.
+            Container(
+              // Art carries its own padding: 2 + 28 ≈ the old 8 + 17 chip.
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft,
+                borderRadius: BorderRadius.circular(R.chip),
               ),
-              const SizedBox(width: Sp.x3),
-              Text(b.period.title.toUpperCase(), style: AppText.overline),
-            ]),
+              child: const OsAppIcon(OsIcon.ai, size: 28),
+            ),
             const SizedBox(height: Sp.x4),
             Text(b.oneLiner, style: AppText.h2),
           ],
         ),
       ).dsEnter(index: 0),
-      const SizedBox(height: Sp.x3),
 
-      // The short structured breakdown (markdown bullets).
-      SurfaceCard(
-        child: GptMarkdown(b.breakdownMd, style: AppText.body),
-      ).dsEnter(index: 1),
+      // The short structured breakdown (markdown bullets). Hidden when the
+      // model returned only a one-liner (no distinct breakdown) — otherwise it
+      // echoes the hero sentence a second time (issue #107).
+      if (showBreakdown) ...[
+        const SizedBox(height: Sp.x3),
+        SurfaceCard(
+          child: GptMarkdown(md, style: AppText.body),
+        ).dsEnter(index: 1),
+      ],
       const SizedBox(height: Sp.x5),
 
       // Exactly what the model saw — the inputs snapshot as glanceable tiles.

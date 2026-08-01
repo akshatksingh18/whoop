@@ -66,7 +66,8 @@ void derivationDispatcher() {
       } else if (task == kHeavyDeriveTaskName) {
         debugPrint('[bg-derive] triggered by WorkManager');
         final profile = await _loadProfile();
-        final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));
+        final engine = DerivationEngine(
+            log: (m) => debugPrint('[bg-derive] $m'), background: true);
         await engine.run(profile, heavy: true);
         // Baseline-dirty rescan on the scheduled tick: refresh baseline-dependent
         // scalars on recent finalized days when the rolling baseline has moved.

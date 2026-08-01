@@ -178,13 +178,15 @@ void main() {
       int rows = 50,
       bool trimAdvanced = true,
       int count = 0,
+      double elapsed = 0,
     }) => BackfillContinuation.shouldAutoContinue(
       stillConnected: connected,
       strapNewestTs: strapNewest,
       ourFrontierTs: frontier,
       rowsPersistedThisSession: rows,
       lastTrimAdvanced: trimAdvanced,
-      consecutiveCount: count,
+      consecutiveUnproductiveCount: count,
+      elapsedSeconds: elapsed,
     );
 
     test('continues when strap is >5min ahead and trim advanced', () {
@@ -195,9 +197,66 @@ void main() {
       () => expect(cont(connected: false), isFalse),
     );
     test(
-      'stops at the per-connection cap',
+      'stops at the unproductive-round cap',
       () => expect(cont(count: 6), isFalse),
     );
+    test('stops once the run exceeds its time ceiling', () {
+      expect(cont(elapsed: 599), isTrue);
+      expect(cont(elapsed: 600), isFalse);
+    });
+    test('a capped unproductive streak still yields to a productive round', () {
+      // The ordering bug this guards: the streak was cleared INSIDE the
+      // continue branch, so once it reached the cap the gate saw the stale
+      // count and refused the very round that had just banked records.
+      final run = AutoContinueRun();
+      for (var i = 0; i < 6; i++) {
+        run.observe(productive: false);
+        expect(cont(count: run.unproductiveStreak), isTrue,
+            reason: 'unproductive round $i should still be allowed');
+        run.continued(productive: false, now: i.toDouble());
+      }
+      expect(run.unproductiveStreak, 6);
+      expect(cont(count: run.unproductiveStreak), isFalse,
+          reason: 'capped while nothing is being banked');
+
+      // Now a round that actually banked records and advanced the trim token.
+      run.observe(productive: true);
+      expect(run.unproductiveStreak, 0);
+      expect(cont(count: run.unproductiveStreak), isTrue,
+          reason: 'progress must reopen the budget');
+    });
+
+    test('ending a run restores the full budget', () {
+      final run = AutoContinueRun();
+      for (var i = 0; i < 6; i++) {
+        run.observe(productive: false);
+        run.continued(productive: false, now: i.toDouble());
+      }
+      expect(run.unproductiveStreak, 6);
+      expect(run.active, isTrue);
+      run.end();
+      expect(run.unproductiveStreak, 0);
+      expect(run.active, isFalse);
+      expect(run.elapsed(1000), 0);
+    });
+
+    test('elapsed measures from the first continuation of the run', () {
+      final run = AutoContinueRun();
+      expect(run.elapsed(500), 0, reason: 'no run active yet');
+      run.continued(productive: true, now: 100);
+      expect(run.elapsed(160), 60);
+      run.continued(productive: true, now: 160); // start must not move
+      expect(run.elapsed(220), 120);
+    });
+
+    test('a long productive backlog is not cut short by the round cap', () {
+      // Productive rounds keep the unproductive streak at 0, so continuation
+      // survives far past maxAutoContinues rounds.
+      for (var round = 0; round < 50; round++) {
+        expect(cont(count: 0, rows: 200, elapsed: round * 5.0), isTrue,
+            reason: 'round $round');
+      }
+    });
     test(
       'stops when the cursor did not advance (spin guard)',
       () => expect(cont(trimAdvanced: false), isFalse),

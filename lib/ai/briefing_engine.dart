@@ -166,18 +166,17 @@ String readinessBand(num v) {
   return 'good';
 }
 
-String briefingSystemPrompt(BriefingPeriod period, String timeOfDay) {
+String briefingSystemPrompt(BriefingPeriod period) {
   final scope = period == BriefingPeriod.morning
       ? 'last night\'s sleep and recovery, and what they mean for the day ahead'
       : 'today\'s activity, strain and stress, and how the day landed';
   return 'You write a health briefing for a local-first fitness band app. '
       'Summarize $scope.\n'
       'HARD RULES:\n'
-      '- Do NOT open with a greeting or any time-of-day reference ("good '
-      'morning", "this evening", etc.) — the app shows its own greeting '
-      'separately, computed at the moment the reader actually opens it, and '
-      'this text may be read hours after it was written. Start straight with '
-      'the substance.\n'
+      '- Do NOT open with a greeting or any reference to the time of day — '
+      'the app shows its own greeting separately, computed at the moment the '
+      'reader actually opens it, and this text may be read hours after it was '
+      'written. Start straight with the substance.\n'
       '- Use ONLY the numbers provided. Never invent, estimate or mention a '
       'metric that is not in the data. No medical advice or diagnosis.\n'
       '- If a "readiness" value is given, its parenthesized band label '
@@ -291,7 +290,7 @@ class BriefingEngine {
         (({required String system, required String user}) =>
             CoachEngine.completeText(
                 config: config, system: system, user: user)))(
-      system: briefingSystemPrompt(period, tod),
+      system: briefingSystemPrompt(period),
       user: buildBriefingUserPrompt(period, day, inputs, tod),
     );
     if (raw.trim().isEmpty) {

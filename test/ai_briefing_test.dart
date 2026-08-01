@@ -114,23 +114,36 @@ void main() {
 
   group('prompt building (pure)', () {
     test('system prompt scopes by period and forbids invention', () {
-      final m = briefingSystemPrompt(BriefingPeriod.morning, 'morning');
+      final m = briefingSystemPrompt(BriefingPeriod.morning);
       expect(m, contains('ONLY the numbers provided'));
       expect(m.toLowerCase(), contains('sleep'));
-      final e = briefingSystemPrompt(BriefingPeriod.evening, 'evening');
+      final e = briefingSystemPrompt(BriefingPeriod.evening);
       expect(e.toLowerCase(), contains('strain'));
     });
 
-    test('greeting follows the clock, not the period (issue #134)', () {
+    test('greeting comes from the app at read time, never baked into the '
+        'model text (issue #134)', () {
       expect(partOfDay(DateTime(2026, 7, 22, 9)), 'morning');
       expect(partOfDay(DateTime(2026, 7, 22, 15)), 'afternoon');
       expect(partOfDay(DateTime(2026, 7, 22, 19)), 'evening');
       expect(partOfDay(DateTime(2026, 7, 22, 23)), 'night');
-      // The morning briefing is shown until 17:00, so an afternoon reader must
-      // be told it's afternoon and the prompt must never say "morning".
-      final sys = briefingSystemPrompt(BriefingPeriod.morning, 'afternoon');
-      expect(sys, contains('currently afternoon'));
-      expect(sys.toLowerCase(), isNot(contains('morning')));
+      // The morning briefing is shown until 17:00, so it can be generated at
+      // 5am and read at 4pm — the model must never be told to write a
+      // greeting/time-of-day reference at all, since that word gets cached
+      // and can't track the actual read time. This must hold regardless of
+      // which period is requested.
+      for (final period in BriefingPeriod.values) {
+        final sys = briefingSystemPrompt(period).toLowerCase();
+        expect(sys, contains('do not open with a greeting'));
+        // No "currently <time-of-day>" framing — that's the exact pattern
+        // that got baked into the cached text and read stale hours later.
+        expect(sys, isNot(contains('currently')));
+        expect(sys, isNot(contains('good morning')));
+        expect(sys, isNot(contains('good afternoon')));
+        expect(sys, isNot(contains('good evening')));
+      }
+      // The USER prompt still carries the real read-time context for the
+      // model to reason with, distinct from the system prompt's rules.
       final usr = buildBriefingUserPrompt(
           BriefingPeriod.morning, '2026-07-22', {'readiness': 74}, 'afternoon');
       expect(usr, contains('afternoon'));

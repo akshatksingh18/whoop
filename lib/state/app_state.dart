@@ -2796,8 +2796,10 @@ class AppState extends ChangeNotifier {
       // live inside the engine regardless of who awaits the report.
       await engine.enableLiveStreams();
       // Recover any steps orphaned by a killed process BEFORE wiping the
-      // counters for this fresh session.
-      unawaited(_recoverOrphanedLiveSession());
+      // counters for this fresh session. Awaited (not unawaited) so there's
+      // no window where a fresh session could start accumulating before the
+      // old checkpoint is read and cleared.
+      await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
       dbCounts = await LocalDb.counts();
       unawaited(

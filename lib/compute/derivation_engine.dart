@@ -1419,10 +1419,14 @@ class DerivationEngine {
     ];
   }
 
-  /// True once, right after the device timezone jumps by more than a real DST
-  /// shift ever would (>=3h) — a strong signal of actual cross-timezone
-  /// travel rather than a seasonal clock change. Persists the new offset so
-  /// this only fires on the transition itself, not every subsequent call.
+  /// True right after the device timezone jumps by more than a real DST shift
+  /// ever would (>=3h) — a strong signal of actual cross-timezone travel
+  /// rather than a seasonal clock change. Stays true across repeated calls
+  /// (derive runs many times a day) by only ever updating the persisted
+  /// baseline offset when NO jump is detected — updating it unconditionally
+  /// would make the very next call see lastOffset == nowOffset and silently
+  /// drop the guard after a single pass. `force` (full restage) is what
+  /// resets it, per _deriveScope.
   static const int _tzJumpThresholdMin = 180;
   Future<bool> _timezoneTravelSuspected() async {
     final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
@@ -1437,12 +1441,21 @@ class DerivationEngine {
         // fall through — treat as unknown
       }
     }
-    await LocalDb.putBaseline(
-      'tz_travel_guard',
-      jsonEncode({'offset_min': nowOffsetMin}),
-    );
-    if (lastOffsetMin == null) return false;
-    return (nowOffsetMin - lastOffsetMin).abs() >= _tzJumpThresholdMin;
+    if (lastOffsetMin == null) {
+      await LocalDb.putBaseline(
+        'tz_travel_guard',
+        jsonEncode({'offset_min': nowOffsetMin}),
+      );
+      return false;
+    }
+    final jumped = (nowOffsetMin - lastOffsetMin).abs() >= _tzJumpThresholdMin;
+    if (!jumped) {
+      await LocalDb.putBaseline(
+        'tz_travel_guard',
+        jsonEncode({'offset_min': nowOffsetMin}),
+      );
+    }
+    return jumped;
   }
 
   _DeriveScope _scopeForDays(

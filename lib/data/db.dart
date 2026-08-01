@@ -790,6 +790,22 @@ class LocalDb {
     });
   }
 
+  /// True when a coverage row for exactly this window already exists.
+  ///
+  /// `live_coverage` is an append-only SUM (no uniqueness on the window), so a
+  /// replayed write double-counts the day's real steps. The orphaned-session
+  /// recovery uses this to stay idempotent: a process killed AFTER
+  /// `_finalizeLivePedometer` wrote coverage but BEFORE it cleared the
+  /// checkpoint would otherwise re-add the same bout on the next launch.
+  static Future<bool> hasLiveCoverageWindow(int startTs, int endTs) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT 1 FROM live_coverage WHERE start_ts = ? AND end_ts = ? LIMIT 1',
+      [startTs, endTs],
+    );
+    return r.isNotEmpty;
+  }
+
   /// Real (100 Hz) steps attributed to [day].
   static Future<int> liveStepsForDay(String day) async {
     final db = await instance;

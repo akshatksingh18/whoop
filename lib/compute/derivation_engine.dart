@@ -878,6 +878,14 @@ class DerivationEngine {
       if (scope.fullHistory) {
         _diag['stage'] = 'prune';
         await _pruneOldDecoded(todoDays, dataNowSec);
+        // The full restage COMPLETED — every day was re-derived under the
+        // current timezone, so any held-back adjacency is resolved. Re-baseline
+        // the travel guard now (not when the scope was chosen), so an
+        // interrupted restage leaves the hold in place.
+        await LocalDb.putBaseline(
+          'tz_travel_guard',
+          jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
+        );
       }
       return done;
     } catch (e, st) {
@@ -1352,12 +1360,9 @@ class DerivationEngine {
     final rawDays = rawByDay.keys.toList()..sort();
     if (force) {
       // A full restage resolves any held-back timezone-adjacent days on its
-      // own — reset the guard's baseline offset so it doesn't fire again
-      // until a genuinely new jump happens.
-      await LocalDb.putBaseline(
-        'tz_travel_guard',
-        jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
-      );
+      // own, so it clears the guard — but only once it has actually RUN. See
+      // the reset at the end of run(): clearing it here, at scope-selection
+      // time, meant an interrupted restage still dropped the hold.
       return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
     }
 
@@ -1692,6 +1697,10 @@ class DerivationEngine {
     bool forceFinalize = false,
   }) async {
     final daySub = sub.slice(day.startSec, day.endSec);
+    // Same buffered slice prepareDerivationPayload uses — without it, imported
+    // days fall back to daySub and a nap straddling midnight is bisected again
+    // on exactly the path this PR set out to fix.
+    final napSub = sub.slice(day.startSec, day.endSec + napBoundaryBufferSec);
     final sleepSub = day.hasSleep
         ? sub.sliceIdx(day.sleepLoIdx, day.sleepHiIdx)
         : Substrate.empty;
@@ -1725,6 +1734,7 @@ class DerivationEngine {
         sleepOnsetSec: onsetSec,
         sleepOffsetSec: offsetSec,
         daySub: daySub,
+        napSub: napSub,
         sleepSub: sleepSub,
       ),
       profile,

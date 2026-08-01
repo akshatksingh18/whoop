@@ -2079,6 +2079,15 @@ class AppState extends ChangeNotifier {
         lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
       );
       if (window == null) return;
+      // The clean-shutdown path writes coverage BEFORE clearing the checkpoint
+      // (durable-first, same ordering rule as commit-before-ACK). A kill in
+      // that narrow gap leaves a checkpoint whose bout is already banked —
+      // `live_coverage` has no uniqueness on the window, so replaying it would
+      // silently inflate the day. Skip anything already recorded.
+      if (await LocalDb.hasLiveCoverageWindow(window.startTs, window.endTs)) {
+        _log('[steps] orphan checkpoint already banked — not re-adding');
+        return;
+      }
       final day = dayLabelOf(
         DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
       );

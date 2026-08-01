@@ -1836,6 +1836,7 @@ class DerivationEngine {
       // sendable object (never `this`, `day`, or `bundle`).
       final blocksInput = _DayBlocksInput(
         daySub: daySub,
+        napSub: day.napSub,
         sleepSub: sleepSub,
         profile: profile,
         onsetSec: day.sleepOnsetSec,
@@ -3267,7 +3268,12 @@ class DerivationEngine {
 
   /// Sleep periods: the main sleep + any NAPS (still, on-wrist minute-runs ≥20
   /// min OUTSIDE the main window). Conservative — naps need sustained stillness.
-  static Map<String, dynamic> _sleepPeriods(Substrate s, int onsetSec, int offsetSec) {
+  static Map<String, dynamic> _sleepPeriods(
+    Substrate s,
+    int onsetSec,
+    int offsetSec, {
+    int? attributionEndSec,
+  }) {
     final periods = <Map<String, dynamic>>[];
     var totalAsleep = 0;
     if (offsetSec > onsetSec) {
@@ -3317,8 +3323,13 @@ class DerivationEngine {
           j++;
         }
         final lenMin = j - i;
-        if (lenMin >= 20) {
-          final start = keys[i] * 60, end = keys[j - 1] * 60 + 60;
+        final start = keys[i] * 60;
+        // A run STARTING at/after the real day boundary belongs to tomorrow's
+        // own (unbuffered) window — only count runs that started today.
+        final startsToday =
+            attributionEndSec == null || start < attributionEndSec;
+        if (lenMin >= 20 && startsToday) {
+          final end = keys[j - 1] * 60 + 60;
           periods.add({
             'is_main': false,
             'start': start,
@@ -3342,8 +3353,9 @@ class DerivationEngine {
     Map<String, dynamic>? scMap,
     Substrate s,
     int onsetSec,
-    int offsetSec,
-  ) {
+    int offsetSec, {
+    int? attributionEndSec,
+  }) {
     try {
       final n = s.length;
       if (n < 60) return;
@@ -3363,8 +3375,14 @@ class DerivationEngine {
         if (lo >= 0 && hi > lo) main = ana.SleepWindowSpan(lo, hi);
       }
       final m = ana.detectNaps(accel, hr, mainSleep: main);
-      final naps = m.value ?? const [];
       final t0 = s.tsSec.first;
+      // A nap STARTING at/after the real day boundary is tomorrow's — its own
+      // (unbuffered) window finds it independently, so keeping it here too
+      // would double-count it.
+      final naps = (m.value ?? const []).where((nap) {
+        if (attributionEndSec == null) return true;
+        return t0 + nap.startSec < attributionEndSec;
+      }).toList();
       bundle['naps'] = <String, dynamic>{
         'value': [
           for (final nap in naps)
@@ -3604,8 +3622,15 @@ class DerivationEngine {
     seriesPatch['resp_day'] = _dayRespCurve(daySub);
     seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundlePatch['restlessness'] = _restlessness(sleepSub);
-    bundlePatch['sleep_periods'] = _sleepPeriods(daySub, onset, offset);
-    _attachNaps(bundlePatch, scMap, daySub, onset, offset);
+    // napSub extends a few hours past this day's calendar end so a nap/
+    // secondary-sleep block spanning midnight isn't bisected — but a run that
+    // actually STARTS in that borrowed buffer belongs to tomorrow (which sees
+    // it in its own regular window), so both helpers drop anything starting
+    // at/after dayEndSec to avoid double-counting.
+    bundlePatch['sleep_periods'] =
+        _sleepPeriods(inp.napSub, onset, offset, attributionEndSec: inp.dayEndSec);
+    _attachNaps(bundlePatch, scMap, inp.napSub, onset, offset,
+        attributionEndSec: inp.dayEndSec);
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);
     bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
@@ -3974,6 +3999,7 @@ Future<R> runCancellableIsolate<R>(
 /// pure compute needs are performed by the caller and passed in here.
 class _DayBlocksInput {
   final Substrate daySub;
+  final Substrate napSub;
   final Substrate sleepSub;
   final Profile profile;
   final int onsetSec;
@@ -3998,6 +4024,7 @@ class _DayBlocksInput {
   final int dataNowSec;
   const _DayBlocksInput({
     required this.daySub,
+    required this.napSub,
     required this.sleepSub,
     required this.profile,
     required this.onsetSec,

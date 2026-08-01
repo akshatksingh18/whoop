@@ -18,6 +18,14 @@ class PreparedDerivationDay {
   final Substrate daySub;
   final Substrate sleepSub;
 
+  /// Same as [daySub] but extended [napBoundaryBufferSec] past the calendar
+  /// end — a nap/secondary-sleep block that starts before midnight and runs
+  /// past it was being silently bisected at the exact day boundary (each half
+  /// falling under the 20-min floor and vanishing from BOTH days). Only nap
+  /// detection reads this wider slice; every other day-scoped calc keeps using
+  /// the strict [daySub] so steps/wear/activity are never double-counted.
+  final Substrate napSub;
+
   const PreparedDerivationDay({
     required this.date,
     required this.endSec,
@@ -29,8 +37,9 @@ class PreparedDerivationDay {
     required this.sleepOffsetSec,
     required this.daySub,
     required this.sleepSub,
+    Substrate? napSub,
     this.sleepSource = 'auto',
-  });
+  }) : napSub = napSub ?? daySub;
 
   Map<String, dynamic> toJson() => {
     'date': date,
@@ -44,11 +53,15 @@ class PreparedDerivationDay {
     'sleep_source': sleepSource,
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
+    'nap_sub': napSub.toJson(),
   };
 
   static PreparedDerivationDay fromJson(Map<String, dynamic> m) {
     List<String> strs(String k) =>
         ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
+    final daySub = Substrate.fromJson(
+      ((m['day_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
+    );
     return PreparedDerivationDay(
       date: m['date'] as String? ?? '',
       endSec: (m['end_sec'] as num?)?.toInt() ?? 0,
@@ -60,15 +73,23 @@ class PreparedDerivationDay {
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
-      daySub: Substrate.fromJson(
-        ((m['day_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
-      ),
+      daySub: daySub,
       sleepSub: Substrate.fromJson(
         ((m['sleep_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
+      napSub: m['nap_sub'] is Map
+          ? Substrate.fromJson((m['nap_sub'] as Map).cast<String, dynamic>())
+          : daySub,
     );
   }
 }
+
+/// How far past a day's calendar end nap detection is allowed to look, so a
+/// nap/secondary-sleep block spanning midnight is seen whole by the day it
+/// started on. Naps starting inside this buffer belong to tomorrow, which
+/// sees them anyway in its own regular (unbuffered) window — so this can't
+/// double-count.
+const int napBoundaryBufferSec = 3 * 3600;
 
 class PreparedDerivationPayload {
   final int dataNowSec;
@@ -287,6 +308,7 @@ PreparedDerivationPayload prepareDerivationPayload(
   for (final day in calendarDays(sub, override: override)) {
     if (targetDay != null && day.date != targetDay) continue;
     final daySub = sub.slice(day.startSec, day.endSec);
+    final napSub = sub.slice(day.startSec, day.endSec + napBoundaryBufferSec);
     final sleepSub = day.hasSleep
         ? sub.sliceIdx(day.sleepLoIdx, day.sleepHiIdx)
         : Substrate.empty;
@@ -322,6 +344,7 @@ PreparedDerivationPayload prepareDerivationPayload(
         sleepSource: day.sleepSource,
         daySub: daySub,
         sleepSub: sleepSub,
+        napSub: napSub,
       ),
     );
   }

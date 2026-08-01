@@ -1085,6 +1085,17 @@ class AppState extends ChangeNotifier {
         want = BriefingPeriod.morning;
       }
       if (want == null || BriefingStore.read(want) != null) return;
+      if (want == BriefingPeriod.morning) {
+        // Don't opportunistically write (and permanently cache) a morning
+        // briefing off a still-syncing/truncated overnight — e.g. the band
+        // disconnected mid-sleep and the app is only foregrounded at 5am, so
+        // "overnight_state" is still 'building'. Wait for it to genuinely
+        // settle; the 10-min rate limit above already caps how often we check.
+        final today = await r.getToday();
+        final status = (today['status'] as Map?)?.cast<String, dynamic>();
+        final overnightState = status?['overnight_state']?.toString();
+        if (overnightState != 'ready') return;
+      }
       _lastBriefingAttemptMs = at.millisecondsSinceEpoch;
       await BriefingEngine(config: cfg, repo: r).generate(want, now: at);
       _log('[ai] ${want.id} briefing generated');

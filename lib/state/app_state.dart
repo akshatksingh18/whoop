@@ -1816,7 +1816,27 @@ class AppState extends ChangeNotifier {
   /// gain-applied). Used for cadence calibration. 0 when not streaming.
   int get _liveRaw =>
       _committedRaw + (_magMin.isEmpty ? 0 : ana.pedometer(_magMin));
-  int get liveSteps => (_liveRaw * ana.StepParams.gain).round();
+
+  // A routine BLE disconnect zeroes the live counter for a fresh session
+  // (`_resetLivePedometer`) before the derived day_result has had a chance to
+  // fold the just-ended session's steps in — the Today tile would otherwise
+  // visibly drop then jump back once derivation catches up. Hold the ended
+  // session's total on display for a short grace window so the number never
+  // regresses; the derived total supersedes it well within that window.
+  int _sessionStepsCushion = 0;
+  int _sessionCushionSetAtMs = 0;
+  static const int _sessionCushionGraceMs = 20 * 1000;
+
+  int get liveSteps {
+    final raw = (_liveRaw * ana.StepParams.gain).round();
+    if (_sessionStepsCushion <= 0) return raw;
+    if (DateTime.now().millisecondsSinceEpoch - _sessionCushionSetAtMs >=
+        _sessionCushionGraceMs) {
+      _sessionStepsCushion = 0;
+      return raw;
+    }
+    return math.max(raw, _sessionStepsCushion);
+  }
 
   // Snapshot of the RAW session total at the moment a manual workout started, so
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
@@ -1876,13 +1896,19 @@ class AppState extends ChangeNotifier {
 
     // Commit each completed minute into the raw total (matches the gain's
     // per-minute calibration), then keep counting the next partial minute.
+    var committedThisTick = false;
     while (_magMin.length >= _minuteSamples) {
       final minute = _magMin.sublist(0, _minuteSamples);
       _magMin.removeRange(0, _minuteSamples);
       final before = _committedRaw;
       _committedRaw += ana.pedometer(minute);
       if (_committedRaw > before) _lastWalkMs = nowMs;
+      committedThisTick = true;
     }
+    // Checkpoint once a minute (only on an actual commit, not every frame) so
+    // a killed process doesn't lose the whole session — only whatever hasn't
+    // completed a minute yet. See _recoverOrphanedLiveSession.
+    if (committedThisTick) unawaited(_checkpointLiveSession());
     if (nowMs - _lastLiveUiNotifyMs >= 1000) {
       _lastLiveUiNotifyMs = nowMs;
       notifyListeners(); // live readout re-counts the partial minute on read
@@ -1924,6 +1950,10 @@ class AppState extends ChangeNotifier {
     final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
     // Derive the coverage window BEFORE resetting (it reads session counters).
     final window = _liveCoverageWindow(steps);
+    if (steps > 0) {
+      _sessionStepsCushion = steps;
+      _sessionCushionSetAtMs = DateTime.now().millisecondsSinceEpoch;
+    }
     _resetLivePedometer();
     // Record the REAL 100 Hz step window (device time). The derivation pass adds
     // it to the day's steps AND excludes those minutes from the 1 Hz estimate, so
@@ -1936,6 +1966,10 @@ class AppState extends ChangeNotifier {
           '${d.day.toString().padLeft(2, '0')}';
       await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
     }
+    // The session ended cleanly and is now durably recorded — the checkpoint
+    // that would otherwise let a killed-process session recover is no longer
+    // needed.
+    await _clearLiveSessionCheckpoint();
     if (steps <= 0 || durS < 20) return;
     final cadence = steps / (durS / 60.0);
     // Any nonzero AN-2554 count is CONFIRM-gated gait; confidence is high when
@@ -1954,6 +1988,84 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       _log('[steps] calibration skipped: $e');
+    }
+  }
+
+  // Whatever accrued via _committedRaw/_magMin between minute-commits is
+  // in-memory ONLY — if the OS kills the app (backgrounded walk, phone
+  // reboot) mid-session, none of it was ever going to reach
+  // _finalizeLivePedometer, so it just vanished with no trace and no
+  // fallback (the 1 Hz estimator only backfills minutes a coverage row
+  // says are UNCOVERED). Checkpoint the committed total once a minute so
+  // the next session start can recover it instead of losing it outright.
+  static const String _kLiveSessionCheckpoint = 'live_session_checkpoint';
+
+  Future<void> _checkpointLiveSession() async {
+    if (_committedRaw <= 0 || _liveCoverStartTs == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _kLiveSessionCheckpoint,
+        jsonEncode({
+          'steps': (_committedRaw * ana.StepParams.gain).round(),
+          'samples': _liveSamples,
+          'cover_start_ts': _liveCoverStartTs,
+          'cover_end_ts': _liveCoverEndTs,
+          'first_ingest_ms': _liveFirstIngestMs,
+          'last_ingest_ms': _liveLastIngestMs,
+        }),
+      );
+    } catch (e) {
+      _log('[steps] checkpoint skipped: $e');
+    }
+  }
+
+  Future<void> _clearLiveSessionCheckpoint() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kLiveSessionCheckpoint);
+    } catch (_) {
+      // best-effort
+    }
+  }
+
+  /// Recover a checkpoint left behind by a session that never reached
+  /// [_finalizeLivePedometer] (the process was killed, not a clean
+  /// disconnect) — folds the committed steps into `live_coverage` just like
+  /// a normal session end, so a killed background walk doesn't just vanish.
+  /// Call this BEFORE starting a fresh session ([_resetLivePedometer]).
+  Future<void> _recoverOrphanedLiveSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kLiveSessionCheckpoint);
+      if (raw == null || raw.isEmpty) return;
+      await prefs.remove(_kLiveSessionCheckpoint);
+      final m = jsonDecode(raw);
+      if (m is! Map) return;
+      final steps = (m['steps'] as num?)?.toInt() ?? 0;
+      final startTs = (m['cover_start_ts'] as num?)?.toInt();
+      final endTs = (m['cover_end_ts'] as num?)?.toInt();
+      if (steps <= 0 || startTs == null || endTs == null || endTs <= startTs) {
+        return;
+      }
+      final window = deriveLiveCoverageWindow(
+        steps: steps,
+        samples100Hz: (m['samples'] as num?)?.toInt() ?? 0,
+        bandStartTs: startTs,
+        bandEndTs: endTs,
+        firstIngestMs: (m['first_ingest_ms'] as num?)?.toInt(),
+        lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
+      );
+      if (window == null) return;
+      final d = DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000);
+      final day =
+          '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+      await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
+      _log('[steps] recovered $steps orphaned step(s) from a killed session');
+    } catch (e) {
+      _log('[steps] orphan recovery skipped: $e');
     }
   }
 
@@ -2645,6 +2757,9 @@ class AppState extends ChangeNotifier {
       // untouched: commit-before-ACK and the HISTORY_COMPLETE bookkeeping all
       // live inside the engine regardless of who awaits the report.
       await engine.enableLiveStreams();
+      // Recover any steps orphaned by a killed process BEFORE wiping the
+      // counters for this fresh session.
+      unawaited(_recoverOrphanedLiveSession());
       _resetLivePedometer(); // fresh live step count for this connected session
       dbCounts = await LocalDb.counts();
       unawaited(

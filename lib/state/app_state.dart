@@ -1473,6 +1473,13 @@ class AppState extends ChangeNotifier {
         try {
           await _ensureForegroundLease();
           if (await engine.connectToRemoteId(paired!.remoteId)) {
+            // A process kill followed by an iOS BLE-restore relaunch lands
+            // HERE, not in openSession() — this is the primary case the live
+            // step checkpoint exists for, so recovery has to run on this path
+            // too or those steps sit in prefs forever. Counters are fresh on a
+            // cold launch, so there is nothing to double-count.
+            await _recoverOrphanedLiveSession();
+            _resetLivePedometer();
             _maybeDowngradeLiveForBackground();
             _startBackfillTimer();
           } else {
@@ -1827,8 +1834,15 @@ class AppState extends ChangeNotifier {
   int _sessionCushionSetAtMs = 0;
   static const int _sessionCushionGraceMs = 20 * 1000;
 
+  /// The TRUE gain-applied step count for THIS connected session, with no
+  /// display cushion. Everything that PERSISTS or CALIBRATES must read this —
+  /// [liveSteps] is display-only and can deliberately report a just-ended
+  /// PRIOR session's larger total during its grace window, which would
+  /// double-count into `live_coverage` and poison the cadence model.
+  int get _rawSessionSteps => (_liveRaw * ana.StepParams.gain).round();
+
   int get liveSteps {
-    final raw = (_liveRaw * ana.StepParams.gain).round();
+    final raw = _rawSessionSteps;
     if (_sessionStepsCushion <= 0) return raw;
     if (DateTime.now().millisecondsSinceEpoch - _sessionCushionSetAtMs >=
         _sessionCushionGraceMs) {
@@ -1945,13 +1959,23 @@ class AppState extends ChangeNotifier {
   /// End-of-session: if the bout is credible walking, fold it into the personal
   /// cadence calibration (persisted) so the 24/7 estimate gets more accurate.
   Future<void> _finalizeLivePedometer() async {
-    final steps = liveSteps; // gain-applied
+    // RAW, never the cushioned display value: a second short session ending
+    // inside the first one's grace window would otherwise persist the FIRST
+    // session's total again (double-counted coverage + a nonsense cadence).
+    final steps = _rawSessionSteps; // gain-applied
     final durS = _liveSamples / 100.0;
     final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
     // Derive the coverage window BEFORE resetting (it reads session counters).
     final window = _liveCoverageWindow(steps);
     if (steps > 0) {
-      _sessionStepsCushion = steps;
+      // Never LOWER a still-active cushion — a small follow-up session ending
+      // inside the grace window must not reintroduce the visible regression
+      // the cushion exists to prevent.
+      final active = liveSteps; // expires the cushion if it is already stale
+      _sessionStepsCushion = math.max(
+        steps,
+        math.max(active, _sessionStepsCushion),
+      );
       _sessionCushionSetAtMs = DateTime.now().millisecondsSinceEpoch;
     }
     _resetLivePedometer();
@@ -1959,11 +1983,9 @@ class AppState extends ChangeNotifier {
     // it to the day's steps AND excludes those minutes from the 1 Hz estimate, so
     // 100 Hz always wins and a minute is never counted twice.
     if (window != null) {
-      final d = DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000);
-      final day =
-          '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+      final day = dayLabelOf(
+        DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
+      );
       await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
     }
     // The session ended cleanly and is now durably recorded — the checkpoint
@@ -2057,11 +2079,9 @@ class AppState extends ChangeNotifier {
         lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
       );
       if (window == null) return;
-      final d = DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000);
-      final day =
-          '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+      final day = dayLabelOf(
+        DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
+      );
       await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
       _log('[steps] recovered $steps orphaned step(s) from a killed session');
     } catch (e) {
@@ -2527,12 +2547,18 @@ class AppState extends ChangeNotifier {
     await prefs.setInt('alarm_epoch', epoch);
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
     // its soft warning even if no event ever arrives.
+    _armAlarmGraceTimer(when);
+    notifyListeners();
+  }
+
+  /// (Re)arm the "grace window elapsed" timer. One helper so the grace
+  /// duration and the retry wiring can't drift between the two call sites.
+  void _armAlarmGraceTimer(DateTime when) {
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = Timer(
       Duration(milliseconds: _alarm.graceMs + 250),
       () => unawaited(_onAlarmGraceElapsed(when)),
     );
-    notifyListeners();
   }
 
   /// Grace window elapsed with no event 56. Before showing the soft warning,
@@ -2540,28 +2566,34 @@ class AppState extends ChangeNotifier {
   /// confirmation notification was dropped, this re-send gives it a second
   /// chance to confirm without the user having to notice or do anything.
   Future<void> _onAlarmGraceElapsed(DateTime when) async {
-    if (_alarm.confirmed) return;
+    if (_disposed || _alarm.confirmed) return;
+    final epoch = when.millisecondsSinceEpoch ~/ 1000;
+    // A newer alarm was armed while this timer was pending — that set owns the
+    // confirmation machine now; retrying the stale time would clobber it.
+    if (_savedAlarm != epoch) return;
     if (_alarmAutoRetried || !isConnected) {
       notifyListeners();
       return;
     }
     _alarmAutoRetried = true;
+    var rearmed = false;
     try {
-      final ok = await engine.setAlarm(when);
-      if (ok) {
-        _alarm.set(
-          when.millisecondsSinceEpoch ~/ 1000,
-          DateTime.now().millisecondsSinceEpoch,
-        );
-        _alarmGraceTimer?.cancel();
-        _alarmGraceTimer = Timer(
-          Duration(milliseconds: _alarm.graceMs + 250),
-          () => unawaited(_onAlarmGraceElapsed(when)),
-        );
-        return;
-      }
+      rearmed = await engine.setAlarm(when);
     } catch (e) {
       _log('[alarm] auto-retry re-arm failed: $e');
+    }
+    // The write itself never landed, so the one retry was not actually spent —
+    // give it back rather than latching this alarm out of any future retry.
+    if (!rearmed) _alarmAutoRetried = false;
+    // dispose() ran while the write was in flight — do NOT create a timer it
+    // no longer has any chance to cancel (it would keep poking a torn-down
+    // engine on every fire).
+    if (_disposed) return;
+    // Re-check staleness after the await for the same reason as above.
+    if (rearmed && _savedAlarm == epoch && !_alarm.confirmed) {
+      _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
+      _armAlarmGraceTimer(when);
+      return;
     }
     notifyListeners();
   }
@@ -2794,13 +2826,13 @@ class AppState extends ChangeNotifier {
       // no-progress timer, so bursts ran long). The drain's correctness is
       // untouched: commit-before-ACK and the HISTORY_COMPLETE bookkeeping all
       // live inside the engine regardless of who awaits the report.
-      await engine.enableLiveStreams();
-      // Recover any steps orphaned by a killed process BEFORE wiping the
-      // counters for this fresh session. Awaited (not unawaited) so there's
-      // no window where a fresh session could start accumulating before the
-      // old checkpoint is read and cleared.
+      // Recover any steps orphaned by a killed process, and zero the counters
+      // for this session, BEFORE live delivery starts. Doing it after
+      // enableLiveStreams() left a window where frames ingested during the
+      // (awaited, I/O-bound) recovery were then wiped by _resetLivePedometer.
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
+      await engine.enableLiveStreams();
       dbCounts = await LocalDb.counts();
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
@@ -3377,7 +3409,7 @@ class AppState extends ChangeNotifier {
   /// model (refEnmo + cadence). Returns the learned cadence (spm), or null if the
   /// walk wasn't credible. Stops the stream we turned on.
   Future<double?> finishStepCalibration() async {
-    final steps = liveSteps;
+    final steps = _rawSessionSteps; // raw, never the display cushion
     final durS = _liveSamples / 100.0;
     final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
     double? learned;

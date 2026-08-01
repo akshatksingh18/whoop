@@ -1386,6 +1386,16 @@ class DerivationEngine {
           'adjacent to finalized data until Re-analyze data runs: $held',
         );
         pending = pending.where((d) => !adjacent.contains(d)).toList();
+        if (pending.isEmpty) {
+          // Everything pending was held. Falling through to the
+          // 'latest-finalized-check' below would re-derive rawDays.last —
+          // one of the very days just held — defeating the hold entirely.
+          return const _DeriveScope(
+            fullHistory: false,
+            targetDays: [],
+            reason: 'tz-travel-hold',
+          );
+        }
       }
     }
     if (pending.isEmpty) {
@@ -2367,19 +2377,26 @@ class DerivationEngine {
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
+        final payload = _decodeBundle(row['payload_json']);
+        if (payload == null) continue;
+        if (payload['skipped'] == true) continue;
+        final rec = _crossDayRecord(row, payload);
+        if (rec == null) continue;
         // Today's own row updates on every derive pass while the night is
         // still syncing/settling — feeding that partial reading into the
         // illness/anomaly CUSUM can fire a false "possible illness onset" on
         // data that's really just a truncated/mid-drain night. Only exclude
         // TODAY specifically; older days already had their 48h to settle.
+        //
+        // FLAG it rather than DROP it: `days` is the single input list for the
+        // whole cross-day bundle, so dropping today also silently removed it
+        // from readiness/glass-box, the resting-HR trend-shift CUSUM, load,
+        // sleep debt and `recent` (whose last row dates every notification).
+        // buildCrossDayBundle nulls only the alert inputs for a flagged day.
         if (row['day_id'] == today && (row['finalized'] as num?) != 1) {
-          continue;
+          rec['unsettled'] = true;
         }
-        final payload = _decodeBundle(row['payload_json']);
-        if (payload == null) continue;
-        if (payload['skipped'] == true) continue;
-        final rec = _crossDayRecord(row, payload);
-        if (rec != null) days.add(rec);
+        days.add(rec);
       }
       return (days, jsonEncode({'algo_version': kAlgoVersion, 'days': days}));
     }, _crossDayTimeout, label: 'crossday-input');

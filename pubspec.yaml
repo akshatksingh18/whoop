@@ -38,10 +38,16 @@ dependencies:
       # EXPERIMENTAL: WHOOP 5 (gen5) multi-band support, this branch's whole
       # point — stays on protocol's feat/multiband-whoop5, NOT main. Pinned to
       # a SHA (not the floating branch ref) per this repo's own convention.
-      # This SHA is that branch merged with protocol main (crc8 length-field
-      # check + hexToBytes odd-length rejection + the framing.dart profile-
-      # aware header-CRC fix so gen5 frames actually pass the same guard).
-      ref: 7f1a2dbe27f9c9e1023dce2ca1a2c2baf96a883e
+      # Moved from 7f1a2db to this SHA for the gen5 session-lifecycle work in
+      # this same edge branch: replaces parseGen5Record's wrong version set
+      # ({9,12,24}, gen4's) with real gen5 decoders (parseGen5Historical —
+      # v18/v20/v21/v26), adds the gen5 clock/haptics/SET_CONFIG opcodes +
+      # the R22 deep-buffer enable-sequence builder, the band-agnostic
+      # OpcodeSafety gate, a CONSOLE_LOGS decoder, and profile-aware
+      # COMMAND_RESPONSE (gen5's direct-percent battery, GET_HELLO shape).
+      # edge's BleEngine changes in this same commit depend on all of this —
+      # do NOT roll this pin back without reverting those changes too.
+      ref: 412ead9415240591b89164110ad37dcf204f9dcb
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

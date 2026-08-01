@@ -963,16 +963,20 @@ packages:
   openstrap_analytics:
     dependency: "direct main"
     description:
-      path: "../analytics"
-      relative: true
-    source: path
+      path: "."
+      ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
+      resolved-ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
+      url: "https://github.com/OpenStrap/analytics.git"
+    source: git
     version: "1.0.0"
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "../protocol"
-      relative: true
-    source: path
+      path: "."
+      ref: c525e29e69ff8b8f0a180b8464d4ccb32ec3e56d
+      resolved-ref: c525e29e69ff8b8f0a180b8464d4ccb32ec3e56d
+      url: "https://github.com/OpenStrap/protocol.git"
+    source: git
     version: "1.0.0"
   ota_update:
     dependency: "direct main"

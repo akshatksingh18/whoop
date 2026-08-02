@@ -47,20 +47,30 @@ Map<String, dynamic> buildCrossDayBundle(
     for (final d in days) _numOrNull(d['skin_temp_z']),
   ];
 
+  // A day flagged `unsettled` (today, still syncing / not finalized) is a
+  // truncated reading, not a physiological signal — it must not drive an
+  // illness/anomaly/temperature ALERT. It stays in `days` for everything else
+  // (readiness, RHR trend, load, sleep debt, `recent`), which is why this is a
+  // per-input null rather than dropping the row from the list.
+  final unsettled = <bool>[for (final d in days) d['unsettled'] == true];
+  T? settled<T>(int i, T? v) => unsettled[i] ? null : v;
+
   // ── illness CUSUM (NightSignal) on nightly RHR ─────────────────────────────
-  final illness = ana.illnessCusum(dates, rhrList);
+  final illness = ana.illnessCusum(dates, [
+    for (var i = 0; i < n; i++) settled(i, rhrList[i]),
+  ]);
 
   // ── multivariate anomaly {RHR↑,HRV↓,temp↑,resp↑} ───────────────────────────
   // Build one AnomalyFeatures per day (same length as dates). Days with all
   // features null still occupy a slot — the detector handles the nulls
   // internally (needs ≥2 present features tonight to compute a distance).
   final feats = <ana.AnomalyFeatures>[
-    for (final d in days)
+    for (var i = 0; i < n; i++)
       ana.AnomalyFeatures(
-        rhr: _numOrNull(d['rhr']),
-        hrv: _numOrNull(d['rmssd']),
-        temp: _numOrNull(d['skin_temp_z']),
-        resp: _numOrNull(d['resp_rate']),
+        rhr: settled(i, rhrList[i]),
+        hrv: settled(i, rmssdList[i]),
+        temp: settled(i, tempList[i]),
+        resp: settled(i, respList[i]),
       ),
   ];
   final anomaly = ana.multivariateAnomaly(dates, feats);
@@ -81,7 +91,9 @@ Map<String, dynamic> buildCrossDayBundle(
   final load = ana.ctlAtlTsb(dailyTrimp);
 
   // ── skin-temp illness flag (Smarr, cycle-aware) ────────────────────────────
-  final tempIllness = ana.tempIllnessFlag(dates, tempList);
+  final tempIllness = ana.tempIllnessFlag(dates, [
+    for (var i = 0; i < n; i++) settled(i, tempList[i]),
+  ]);
 
   // ── circadian: mid-sleep, free/work split, jetlag, chronotype, sleep debt ──
   // mid-sleep epoch = (onset+wake)/2; local clock-hours in [0,24) via mod-day.

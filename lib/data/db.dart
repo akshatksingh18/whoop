@@ -790,6 +790,22 @@ class LocalDb {
     });
   }
 
+  /// True when a coverage row for exactly this window already exists.
+  ///
+  /// `live_coverage` is an append-only SUM (no uniqueness on the window), so a
+  /// replayed write double-counts the day's real steps. The orphaned-session
+  /// recovery uses this to stay idempotent: a process killed AFTER
+  /// `_finalizeLivePedometer` wrote coverage but BEFORE it cleared the
+  /// checkpoint would otherwise re-add the same bout on the next launch.
+  static Future<bool> hasLiveCoverageWindow(int startTs, int endTs) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT 1 FROM live_coverage WHERE start_ts = ? AND end_ts = ? LIMIT 1',
+      [startTs, endTs],
+    );
+    return r.isNotEmpty;
+  }
+
   /// Real (100 Hz) steps attributed to [day].
   static Future<int> liveStepsForDay(String day) async {
     final db = await instance;
@@ -2712,12 +2728,20 @@ class LocalDb {
         'rmssd': rmssd,
         'readiness': readiness,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      for (final e in series.entries) {
-        await txn.insert('metric_series', {
-          'date': dayId,
-          'key': e.key,
-          'value': e.value,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      // A `partial` row already doesn't count as "derived" for the raw-pruning
+      // guard (see above) — extend the same caution to the rolling baselines:
+      // don't let a day whose second-half compute failed/timed out overwrite
+      // (or seed, for a brand-new day) the value tomorrow's readiness/illness
+      // baseline reads via metric_series. The next successful (non-partial)
+      // pass writes the real value once it lands.
+      if (!partial) {
+        for (final e in series.entries) {
+          await txn.insert('metric_series', {
+            'date': dayId,
+            'key': e.key,
+            'value': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
       }
     });
   }

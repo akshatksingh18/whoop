@@ -803,6 +803,7 @@ class DerivationEngine {
 
       var done = 0;
       var completed = 0;
+      var failures = 0;
       final activeDays = <String>{};
       _diag['stage'] = 'per_day';
       _diag['active_days'] = const <String>[];
@@ -844,6 +845,7 @@ class DerivationEngine {
             );
             _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
             _diag['last_error'] = 'no_bounded_window_payload day=$dayId';
+            failures++;
           }
         } catch (e) {
           _log('derive day $dayId FAILED/skipped: $e');
@@ -856,6 +858,7 @@ class DerivationEngine {
           );
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
+          failures++;
         }
         activeDays.remove(dayId);
         _diag['active_days'] = activeDays.toList();
@@ -878,6 +881,22 @@ class DerivationEngine {
       if (scope.fullHistory) {
         _diag['stage'] = 'prune';
         await _pruneOldDecoded(todoDays, dataNowSec);
+        // Re-baseline the travel guard — but ONLY if every targeted day
+        // actually got re-derived under the current timezone. processDay
+        // swallows per-day errors and marks the day skipped, so a restage can
+        // "finish" with days still unresolved; clearing the hold then would
+        // drop it without the adjacency ever having been fixed. (A day kept
+        // deliberately — a pruned override day — is not a failure.)
+        if (failures == 0) {
+          await LocalDb.putBaseline(
+            'tz_travel_guard',
+            jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
+          );
+        } else {
+          _log(
+            'derive: $failures day(s) unresolved — keeping the timezone hold',
+          );
+        }
       }
       return done;
     } catch (e, st) {
@@ -953,6 +972,7 @@ class DerivationEngine {
       final orderedDays = todoDays.reversed.toList();
       var done = 0;
       var completed = 0;
+      var failures = 0;
       final activeDays = <String>{};
 
       Future<void> processDay(String dayId) async {
@@ -968,11 +988,13 @@ class DerivationEngine {
           } else {
             _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
             _diag['last_error'] = 'no_bounded_window_payload day=$dayId';
+            failures++;
           }
         } catch (e) {
           _log('derive selected day $dayId FAILED/skipped: $e');
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
+          failures++;
         }
         activeDays.remove(dayId);
         _diag['active_days'] = activeDays.toList();
@@ -981,6 +1003,23 @@ class DerivationEngine {
       }
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      // A SELECTED re-analyze that happens to cover the whole raw history, with
+      // every day resolved, is a full restage by any other name — it re-derived
+      // every day under the current timezone, so it clears the travel hold too.
+      // A partial selection deliberately does not: those days say nothing about
+      // the ones still held.
+      if (force && failures == 0) {
+        final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys.toSet();
+        if (rawDays.isNotEmpty && rawDays.difference(days).isEmpty) {
+          await LocalDb.putBaseline(
+            'tz_travel_guard',
+            jsonEncode({
+              'offset_min': DateTime.now().timeZoneOffset.inMinutes,
+            }),
+          );
+          _log('derive selected: full-coverage restage — timezone hold cleared');
+        }
+      }
       if (done > 0) {
         await _refreshBaselines();
         await _runCrossDay(profile);
@@ -1017,12 +1056,19 @@ class DerivationEngine {
     final candidate = await _sleepCandidateForDay(dayId, stats: stats);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
-    final daySub = await _loadSubstrateRange(
+    // Load the day PLUS the nap boundary buffer in ONE pass (each
+    // _loadSubstrateRange spawns its own isolate, so a second load would
+    // double that cost) and slice the calendar day back out of it. Without
+    // this, the live decoded path — run()/runDays()/rescanRecent(), i.e. every
+    // non-import day — fell back to napSub == daySub and went on bisecting
+    // naps at midnight.
+    final napSub = await _loadSubstrateRange(
       dayStart,
-      dayEnd - 1,
+      dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
       stats: stats,
     );
+    final daySub = napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
@@ -1042,7 +1088,11 @@ class DerivationEngine {
     if (stats.rows > (_diag['max_day_raw_rows'] as int)) {
       _diag['max_day_raw_rows'] = stats.rows;
     }
-    return candidate.toPreparedDay(daySub: daySub, sleepSub: sleepSub);
+    return candidate.toPreparedDay(
+      daySub: daySub,
+      napSub: napSub,
+      sleepSub: sleepSub,
+    );
   }
 
   Future<SleepSessionCandidate> _sleepCandidateForDay(
@@ -1351,14 +1401,50 @@ class DerivationEngine {
     }
     final rawDays = rawByDay.keys.toList()..sort();
     if (force) {
+      // A full restage resolves any held-back timezone-adjacent days on its
+      // own, so it clears the guard — but only once it has actually RUN. See
+      // the reset at the end of run(): clearing it here, at scope-selection
+      // time, meant an interrupted restage still dropped the hold.
       return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
     }
 
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
-    final pending = [
+    var pending = [
       for (final day in rawDays)
         if (!finalized.contains(day)) day,
     ];
+
+    // decodedRecTsMaxByDay() buckets by the CURRENT device timezone, but
+    // `finalized` was frozen under whatever timezone was active when each day
+    // was derived. A real cross-timezone trip (not an ~1h DST shift) can make
+    // the SAME rec_ts rows relabel to a day adjacent to one already finalized
+    // — looking like a brand-new "pending" night that's really a duplicate, or
+    // silently landing on an already-finalized day_id and looking lost. Once
+    // that's detected, hold off auto-deriving anything adjacent to finalized
+    // data until "Re-analyze data" (full restage) resolves it properly.
+    if (await _timezoneTravelSuspected()) {
+      final adjacent = <String>{
+        for (final day in finalized) ..._adjacentDayIds(day),
+      };
+      final held = pending.where(adjacent.contains).toList();
+      if (held.isNotEmpty) {
+        _log(
+          'derive: possible timezone change — holding ${held.length} day(s) '
+          'adjacent to finalized data until Re-analyze data runs: $held',
+        );
+        pending = pending.where((d) => !adjacent.contains(d)).toList();
+        if (pending.isEmpty) {
+          // Everything pending was held. Falling through to the
+          // 'latest-finalized-check' below would re-derive rawDays.last —
+          // one of the very days just held — defeating the hold entirely.
+          return const _DeriveScope(
+            fullHistory: false,
+            targetDays: [],
+            reason: 'tz-travel-hold',
+          );
+        }
+      }
+    }
     if (pending.isEmpty) {
       return _scopeForDays([rawDays.last], reason: 'latest-finalized-check');
     }
@@ -1373,6 +1459,60 @@ class DerivationEngine {
       today: LocalDb.localDayLabelNow(),
     );
     return _scopeForDays(light.days, reason: light.reason);
+  }
+
+  /// The day before and after [dayId] ('YYYY-MM-DD'), DST-safe (goes through
+  /// real DateTime arithmetic, not a raw ±86400s offset).
+  static List<String> _adjacentDayIds(String dayId) {
+    final d = DateTime.tryParse(dayId);
+    if (d == null) return const [];
+    String label(DateTime x) =>
+        '${x.year.toString().padLeft(4, '0')}-'
+        '${x.month.toString().padLeft(2, '0')}-'
+        '${x.day.toString().padLeft(2, '0')}';
+    return [
+      label(DateTime(d.year, d.month, d.day - 1)),
+      label(DateTime(d.year, d.month, d.day + 1)),
+    ];
+  }
+
+  /// True right after the device timezone jumps by more than a real DST shift
+  /// ever would (>=3h) — a strong signal of actual cross-timezone travel
+  /// rather than a seasonal clock change. Stays true across repeated calls
+  /// (derive runs many times a day) by only ever updating the persisted
+  /// baseline offset when NO jump is detected — updating it unconditionally
+  /// would make the very next call see lastOffset == nowOffset and silently
+  /// drop the guard after a single pass. `force` (full restage) is what
+  /// resets it, per _deriveScope.
+  static const int _tzJumpThresholdMin = 180;
+  Future<bool> _timezoneTravelSuspected() async {
+    final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
+    final row = await LocalDb.baseline('tz_travel_guard');
+    final raw = row?['payload_json'];
+    int? lastOffsetMin;
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final d = jsonDecode(raw);
+        if (d is Map) lastOffsetMin = (d['offset_min'] as num?)?.toInt();
+      } catch (_) {
+        // fall through — treat as unknown
+      }
+    }
+    if (lastOffsetMin == null) {
+      await LocalDb.putBaseline(
+        'tz_travel_guard',
+        jsonEncode({'offset_min': nowOffsetMin}),
+      );
+      return false;
+    }
+    final jumped = (nowOffsetMin - lastOffsetMin).abs() >= _tzJumpThresholdMin;
+    if (!jumped) {
+      await LocalDb.putBaseline(
+        'tz_travel_guard',
+        jsonEncode({'offset_min': nowOffsetMin}),
+      );
+    }
+    return jumped;
   }
 
   _DeriveScope _scopeForDays(
@@ -1599,6 +1739,10 @@ class DerivationEngine {
     bool forceFinalize = false,
   }) async {
     final daySub = sub.slice(day.startSec, day.endSec);
+    // Same buffered slice prepareDerivationPayload uses — without it, imported
+    // days fall back to daySub and a nap straddling midnight is bisected again
+    // on exactly the path this PR set out to fix.
+    final napSub = sub.slice(day.startSec, day.endSec + napBoundaryBufferSec);
     final sleepSub = day.hasSleep
         ? sub.sliceIdx(day.sleepLoIdx, day.sleepHiIdx)
         : Substrate.empty;
@@ -1632,6 +1776,7 @@ class DerivationEngine {
         sleepOnsetSec: onsetSec,
         sleepOffsetSec: offsetSec,
         daySub: daySub,
+        napSub: napSub,
         sleepSub: sleepSub,
       ),
       profile,
@@ -1836,6 +1981,7 @@ class DerivationEngine {
       // sendable object (never `this`, `day`, or `bundle`).
       final blocksInput = _DayBlocksInput(
         daySub: daySub,
+        napSub: day.napSub,
         sleepSub: sleepSub,
         profile: profile,
         onsetSec: day.sleepOnsetSec,
@@ -1878,7 +2024,11 @@ class DerivationEngine {
       if (nb != null) {
         await NotificationCenter.instance.emit(
           NotificationEvent(
-            dedupeKey: '${day.date}:auto_workout',
+            // Per-bout, not per-day — a per-day key silently swallowed the
+            // notification for a second real workout later the same day
+            // (fire-once-per-key by design). endSec is stable across re-derive
+            // passes re-detecting the SAME bout, so that case still dedupes.
+            dedupeKey: '${day.date}:auto_workout:${nb.endSec}',
             category: NotifCategory.recovery,
             priority: NotifPriority.normal,
             title: 'Did you work out?',
@@ -2275,6 +2425,7 @@ class DerivationEngine {
     // unconditionally on every heavy pass. _decodeBundle/_crossDayRecord are
     // both static, so this whole transform+encode step is isolate-safe.
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
+    final today = LocalDb.localDayLabelNow();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
@@ -2282,7 +2433,22 @@ class DerivationEngine {
         if (payload == null) continue;
         if (payload['skipped'] == true) continue;
         final rec = _crossDayRecord(row, payload);
-        if (rec != null) days.add(rec);
+        if (rec == null) continue;
+        // Today's own row updates on every derive pass while the night is
+        // still syncing/settling — feeding that partial reading into the
+        // illness/anomaly CUSUM can fire a false "possible illness onset" on
+        // data that's really just a truncated/mid-drain night. Only exclude
+        // TODAY specifically; older days already had their 48h to settle.
+        //
+        // FLAG it rather than DROP it: `days` is the single input list for the
+        // whole cross-day bundle, so dropping today also silently removed it
+        // from readiness/glass-box, the resting-HR trend-shift CUSUM, load,
+        // sleep debt and `recent` (whose last row dates every notification).
+        // buildCrossDayBundle nulls only the alert inputs for a flagged day.
+        if (row['day_id'] == today && (row['finalized'] as num?) != 1) {
+          rec['unsettled'] = true;
+        }
+        days.add(rec);
       }
       return (days, jsonEncode({'algo_version': kAlgoVersion, 'days': days}));
     }, _crossDayTimeout, label: 'crossday-input');
@@ -3267,7 +3433,12 @@ class DerivationEngine {
 
   /// Sleep periods: the main sleep + any NAPS (still, on-wrist minute-runs ≥20
   /// min OUTSIDE the main window). Conservative — naps need sustained stillness.
-  static Map<String, dynamic> _sleepPeriods(Substrate s, int onsetSec, int offsetSec) {
+  static Map<String, dynamic> _sleepPeriods(
+    Substrate s,
+    int onsetSec,
+    int offsetSec, {
+    int? attributionEndSec,
+  }) {
     final periods = <Map<String, dynamic>>[];
     var totalAsleep = 0;
     if (offsetSec > onsetSec) {
@@ -3317,8 +3488,13 @@ class DerivationEngine {
           j++;
         }
         final lenMin = j - i;
-        if (lenMin >= 20) {
-          final start = keys[i] * 60, end = keys[j - 1] * 60 + 60;
+        final start = keys[i] * 60;
+        // A run STARTING at/after the real day boundary belongs to tomorrow's
+        // own (unbuffered) window — only count runs that started today.
+        final startsToday =
+            attributionEndSec == null || start < attributionEndSec;
+        if (lenMin >= 20 && startsToday) {
+          final end = keys[j - 1] * 60 + 60;
           periods.add({
             'is_main': false,
             'start': start,
@@ -3342,8 +3518,9 @@ class DerivationEngine {
     Map<String, dynamic>? scMap,
     Substrate s,
     int onsetSec,
-    int offsetSec,
-  ) {
+    int offsetSec, {
+    int? attributionEndSec,
+  }) {
     try {
       final n = s.length;
       if (n < 60) return;
@@ -3363,8 +3540,14 @@ class DerivationEngine {
         if (lo >= 0 && hi > lo) main = ana.SleepWindowSpan(lo, hi);
       }
       final m = ana.detectNaps(accel, hr, mainSleep: main);
-      final naps = m.value ?? const [];
       final t0 = s.tsSec.first;
+      // A nap STARTING at/after the real day boundary is tomorrow's — its own
+      // (unbuffered) window finds it independently, so keeping it here too
+      // would double-count it.
+      final naps = (m.value ?? const []).where((nap) {
+        if (attributionEndSec == null) return true;
+        return t0 + nap.startSec < attributionEndSec;
+      }).toList();
       bundle['naps'] = <String, dynamic>{
         'value': [
           for (final nap in naps)
@@ -3604,8 +3787,15 @@ class DerivationEngine {
     seriesPatch['resp_day'] = _dayRespCurve(daySub);
     seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundlePatch['restlessness'] = _restlessness(sleepSub);
-    bundlePatch['sleep_periods'] = _sleepPeriods(daySub, onset, offset);
-    _attachNaps(bundlePatch, scMap, daySub, onset, offset);
+    // napSub extends a few hours past this day's calendar end so a nap/
+    // secondary-sleep block spanning midnight isn't bisected — but a run that
+    // actually STARTS in that borrowed buffer belongs to tomorrow (which sees
+    // it in its own regular window), so both helpers drop anything starting
+    // at/after dayEndSec to avoid double-counting.
+    bundlePatch['sleep_periods'] =
+        _sleepPeriods(inp.napSub, onset, offset, attributionEndSec: inp.dayEndSec);
+    _attachNaps(bundlePatch, scMap, inp.napSub, onset, offset,
+        attributionEndSec: inp.dayEndSec);
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);
     bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
@@ -3974,6 +4164,7 @@ Future<R> runCancellableIsolate<R>(
 /// pure compute needs are performed by the caller and passed in here.
 class _DayBlocksInput {
   final Substrate daySub;
+  final Substrate napSub;
   final Substrate sleepSub;
   final Profile profile;
   final int onsetSec;
@@ -3998,6 +4189,7 @@ class _DayBlocksInput {
   final int dataNowSec;
   const _DayBlocksInput({
     required this.daySub,
+    required this.napSub,
     required this.sleepSub,
     required this.profile,
     required this.onsetSec,

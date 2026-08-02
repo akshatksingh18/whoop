@@ -178,16 +178,16 @@ class _TodayScreenState extends State<TodayScreen>
 
   @override
   Widget build(BuildContext context) {
-    // SELECT the 3 fields _emptyOrProcessing actually reads, not the whole
-    // AppState — this screen used to fully rebuild on EVERY notifyListeners()
-    // (67 call sites incl. per-second timers and every derive-day callback),
-    // which is exactly what made a multi-day backfill/reanalyze visibly
-    // freeze this screen (several notifications in quick succession, each one
-    // forcing a full ListView rebuild while a screen switch might also be
-    // in flight). `app` itself is still the live, same-instance object (read,
-    // not watch) — only the REBUILD TRIGGER is now scoped.
-    context.select<AppState, (Map<String, int>, bool, String)>(
-      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress),
+    // SELECT the fields this screen actually reads, not the whole AppState —
+    // it used to fully rebuild on EVERY notifyListeners() (67 call sites incl.
+    // per-second timers and every derive-day callback), which is exactly what
+    // made a multi-day backfill/reanalyze visibly freeze this screen. `app`
+    // itself is still the live, same-instance object (read, not watch) — only
+    // the REBUILD TRIGGER is scoped. liveSteps is included (already rate-
+    // limited to ~1/s at the source) so the steps tile doesn't freeze mid-walk
+    // while waiting on an unrelated dbCounts change.
+    context.select<AppState, (Map<String, int>, bool, String, int)>(
+      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress, a.liveSteps),
     );
     final app = context.read<AppState>();
     final t = TodayData.fromJson(data);

@@ -38,6 +38,7 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'profile.dart';
@@ -362,7 +363,24 @@ import 'substrate.dart';
 // (fever/heat/anxiety) that have no discernible onset — so this changes which
 // suggestions autoDetectWorkouts emits without loosening the false-positive
 // gate it exists to protect.
-const int kAlgoVersion = 51;
+// v52: the rolling per-user sleep profile (`sleep_user_profile`) was folded on
+// EVERY staging pass for a day, not once per day — a real 12-day export carried
+// `nights: 1348`. Two consequences, both bad: `personalWeight` pinned at its
+// 0.5 cap from the first sweep, and an EWMA collapsed onto whichever day was
+// re-derived last. Replaying that profile against the same 11 nights moved wake
+// 4.3% -> 36.4% and deep 1.9% -> 0.0% on the worst night, i.e. the
+// personalization layer was re-creating the wake over-call cardioStager exists
+// to avoid. Fixed by (1) folding at most once per day_id (tracked in the
+// profile payload), (2) withholding the profile from staging until
+// kMinNightsForSleepProfile nights (van der Aar 2025: gains need >=3 nights and
+// ~17.5% of subjects get WORSE from personalization), and (3) discarding
+// pre-tracking profiles, which cannot be repaired, so they rebuild honestly.
+// Bump so every day re-stages without the corrupt blend.
+const int kAlgoVersion = 52;
+
+// Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
+// all live in SleepProfilePolicy (pure, unit-tested) — see
+// lib/compute/sleep_profile_policy.dart for the evidence behind each rule.
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
@@ -1155,17 +1173,32 @@ class DerivationEngine {
     // The worker isolate dies after `Isolate.run`, so the recording flag can't
     // leak into the next day's derivation — no try/finally reset needed.
     final profileJson = await _loadSleepUserProfileJson();
+    // Which day_ids have ALREADY been folded into that profile. See
+    // [_kFoldedDaysKey] for why this exists and why a legacy profile that
+    // lacks it is discarded rather than trusted.
+    final foldedDays = SleepProfilePolicy.foldedDays(profileJson);
+    final mayFold = SleepProfilePolicy.shouldFold(
+      alreadyFolded: foldedDays,
+      dayId: dayId,
+      hasOverride: override != null,
+    );
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
-    final (candidateJson, updatedProfileJson) =
+    final (candidateJson, observationJson) =
         await _runIsolateCancellable(() {
       try {
-        ana.cardioUserProfile = profileJson == null
+        final p = profileJson == null
             ? null
             : ana.SleepUserProfile.fromJson(
                 (jsonDecode(profileJson) as Map).cast<String, dynamic>());
+        // Warm-up gate — see SleepProfilePolicy.shouldBlend. Note the profile
+        // is only WITHHELD FROM STAGING here; accumulation into it happens on
+        // the main isolate in _foldObservationIntoProfile, which re-reads the
+        // current profile, so a withheld night still counts toward `nights`.
+        ana.cardioUserProfile =
+            SleepProfilePolicy.shouldBlend(p?.nights) ? p : null;
       } catch (_) {
         // Defense in depth: an incompatible/outdated persisted profile must
         // fall back to a cold start, never throw inside the worker (an uncaught
@@ -1183,20 +1216,44 @@ class DerivationEngine {
       // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
       // rolling profile — done here in the worker because the observations live
       // in THIS isolate's globals. Skipped for overrides. EWMA self-seeds.
-      String? foldedJson;
-      if (override == null) {
+      String? observationJson;
+      // IDEMPOTENT PER DAY. `fold()` is an EWMA step that also increments
+      // `nights`, and this path runs on EVERY staging pass for a day — an
+      // algo-version bump, a BLE-drain re-derive, a backfill sweep. Without a
+      // guard the same handful of real nights fold hundreds of times: a real
+      // user export showed `nights: 1348` against 12 days of data, which pins
+      // `personalWeight` at its 0.5 cap from day one and collapses the EWMA
+      // onto whichever day was re-derived last. Measured effect of that
+      // corrupt profile on the same nights: wake 4.3% -> 36.4%, deep 1.9% ->
+      // 0.0%. One fold per day_id, ever.
+      if (mayFold) {
         final obs = ana.takeCardioObservations();
         if (obs.isNotEmpty) {
           obs.sort((a, b) => b.epochs.compareTo(a.epochs));
           final main = obs.first;
           if (main.epochs >= 120) {
-            // require ≥60 min — not a nap
-            final base = ana.cardioUserProfile ?? const ana.SleepUserProfile();
-            foldedJson = jsonEncode(base.fold(main).toJson());
+            // require ≥60 min — not a nap.
+            // Return the raw OBSERVATION, not a folded profile. Folding here
+            // would bake in the profile this worker read before staging began,
+            // and a concurrent day may have written a newer one since. The
+            // fold happens on the main isolate under the profile lock.
+            observationJson = jsonEncode({
+              'epochs': main.epochs,
+              'hr_floor_p5': main.hrFloorP5,
+              'hr_floor_p25': main.hrFloorP25,
+              'hr_sleep_median': main.hrSleepMedian,
+              'hr_arousal': main.hrArousal,
+              'rmssd_med': main.rmssdMed,
+              'rmssd_mad': main.rmssdMad,
+              'enmo_still_cut': main.enmoStillCut,
+              'enmo_move_cut': main.enmoMoveCut,
+              'lfhf_med': main.lfhfMed,
+              'rk_med': main.rkMed,
+            });
           }
         }
       }
-      return (jsonEncode(candidate.toJson()), foldedJson);
+      return (jsonEncode(candidate.toJson()), observationJson);
     }, _perDayTimeout, label: 'sleep-staging $dayId');
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
@@ -1206,17 +1263,117 @@ class DerivationEngine {
         algoVersion: kAlgoVersion,
         payloadJson: candidateJson,
       );
-      if (updatedProfileJson != null) {
-        await LocalDb.putBaseline('sleep_user_profile', updatedProfileJson);
+      if (observationJson != null) {
+        // BEST-EFFORT, and deliberately isolated from the day's success path.
+        // The fold is bookkeeping; the day's real result is already persisted
+        // above. `updateBaseline` takes an exclusive SQLite write lock, and the
+        // whole point of this change is that two derivation isolates contend
+        // for it — so SQLITE_BUSY here is an EXPECTED outcome, not an
+        // exceptional one. Letting it escape would hit processDay's broad
+        // catch, which calls `_markDaySkipped` and increments `failures`,
+        // throwing away a fully computed day (and holding the timezone) over a
+        // bookkeeping write.
+        //
+        // KNOWN LIMITATION — a swallowed failure here is PERMANENT for this
+        // day, not retried. Once the day finalizes, the cached-candidate
+        // short-circuit at the top of this method returns before staging runs,
+        // so `observationJson` is never regenerated and the fold never happens.
+        // Same for a day whose override is later removed if it already has a
+        // cached candidate from before the override.
+        //
+        // Accepted deliberately rather than fixed: the profile is an EWMA with
+        // a ~14-night horizon and a hard 0.5 blend cap, so one missing night is
+        // a small perturbation, whereas a retry path needs durable pending
+        // state and a way to distinguish "failed, retry" from "declined
+        // permanently" (a <120-epoch nap never folds, and would otherwise
+        // bypass the candidate cache and re-stage on every sweep forever).
+        // If the fold ever stops being best-effort, that state machine is the
+        // thing to build — do not simply bypass the cache.
+        try {
+          await _foldObservationIntoProfile(dayId, observationJson);
+        } catch (e) {
+          _log('sleep profile fold skipped for $dayId (day result kept, '
+              'this night will not contribute to the profile): $e');
+        }
       }
     }
     return candidate;
+  }
+
+  /// Fold one night's observation into the shared profile, serialised against
+  /// every other day in the sweep.
+  ///
+  /// The profile is RE-READ inside the lock and [SleepProfilePolicy.shouldFold]
+  /// re-checked, because the value this day read before staging is stale by
+  /// definition — a concurrently-derived day may have folded since. Skipping
+  /// that re-check is what turns a read-modify-write race into a lost fold plus
+  /// a lost day_id, and the day then re-folds forever.
+  Future<void> _foldObservationIntoProfile(
+      String dayId, String observationJson) async {
+    final Map<String, dynamic> o;
+    try {
+      o = (jsonDecode(observationJson) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return;
+    }
+    double? d(String k) => (o[k] as num?)?.toDouble();
+    final observed = ana.SleepNightObservation(
+      epochs: (o['epochs'] as num?)?.toInt() ?? 0,
+      hrFloorP5: d('hr_floor_p5'),
+      hrFloorP25: d('hr_floor_p25'),
+      hrSleepMedian: d('hr_sleep_median'),
+      hrArousal: d('hr_arousal'),
+      rmssdMed: d('rmssd_med'),
+      rmssdMad: d('rmssd_mad'),
+      enmoStillCut: d('enmo_still_cut'),
+      enmoMoveCut: d('enmo_move_cut'),
+      lfhfMed: d('lfhf_med'),
+      rkMed: d('rk_med'),
+    );
+    // The whole read-modify-write happens inside ONE exclusive DB transaction.
+    // A Dart mutex cannot do this job: `derivationDispatcher` is a
+    // vm:entry-point WorkManager entry that builds its own DerivationEngine in
+    // a SEPARATE background isolate, and a `static` lock has one copy per
+    // isolate — so a background heavy pass and a foreground sweep would each
+    // read the same profile, fold, and clobber the other, losing both the fold
+    // and its day_id from folded_days. SQLite's write lock is cross-connection
+    // and therefore cross-isolate.
+    await LocalDb.updateBaseline('sleep_user_profile', (current) {
+      // Re-derive freshness INSIDE the transaction: the value this day read
+      // before staging is stale by definition, another lane may have folded
+      // since. Returning null leaves the row untouched.
+      final usable = SleepProfilePolicy.usableProfileJson(current);
+      final freshDays = SleepProfilePolicy.foldedDays(usable);
+      if (!SleepProfilePolicy.shouldFold(
+          alreadyFolded: freshDays, dayId: dayId, hasOverride: false)) {
+        return null;
+      }
+      final ana.SleepUserProfile base;
+      try {
+        base = usable == null
+            ? const ana.SleepUserProfile()
+            : ana.SleepUserProfile.fromJson(
+                (jsonDecode(usable) as Map).cast<String, dynamic>());
+      } catch (_) {
+        return null; // unreadable — leave it for the cold-start path
+      }
+      return jsonEncode(SleepProfilePolicy.withFoldedDays(
+          base.fold(observed).toJson(), freshDays, dayId));
+    });
   }
 
   /// Read the persisted per-user sleep profile (`baselines` key
   /// `sleep_user_profile`) as raw JSON, for passing into the staging worker
   /// isolate. Absent/corrupt ⇒ null (cold start). DB read stays on the main
   /// isolate (the DB owner); the worker reconstructs the profile from this JSON.
+  ///
+  /// A profile written before per-day fold tracking existed carries no
+  /// [_kFoldedDaysKey] and therefore an untrustworthy `nights` count and an
+  /// EWMA skewed by repeated re-folds of the same nights. We cannot repair it
+  /// (there is no record of which days went in), so we DISCARD it and rebuild.
+  /// That degrades to pure per-night-local baselines — the cold-start path
+  /// cardio_stager.dart was validated on — and the profile re-earns its weight
+  /// over the next few nights under the corrected accounting.
   Future<String?> _loadSleepUserProfileJson() async {
     final row = await LocalDb.baseline('sleep_user_profile');
     final raw = row?['payload_json'];
@@ -1224,12 +1381,7 @@ class DerivationEngine {
     // Validate here (mirrors the cached-candidate guard above) so a corrupt
     // payload becomes a cold start, per this method's contract — rather than
     // throwing later inside the staging worker's `jsonDecode(...) as Map`.
-    try {
-      if (jsonDecode(raw) is Map) return raw;
-    } catch (_) {
-      // corrupt payload → null (cold start)
-    }
-    return null;
+    return SleepProfilePolicy.usableProfileJson(raw);
   }
 
   Future<Substrate> _loadSubstrateRange(

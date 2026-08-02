@@ -3891,6 +3891,51 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Atomically read-modify-write one `baselines` row.
+  ///
+  /// [transform] receives the current `payload_json` (null when the row does
+  /// not exist) and returns the replacement, or null to leave the row alone.
+  ///
+  /// Needed because a Dart-level lock CANNOT serialize this. Derivation runs in
+  /// more than one isolate — `derivationDispatcher` is a `vm:entry-point`
+  /// WorkManager entry that constructs its own `DerivationEngine` in a separate
+  /// background isolate — and a `static` mutex has one copy per isolate. Two
+  /// isolates would each read the same payload, merge into it, and write back,
+  /// dropping the other's changes. That matters most for accumulator payloads
+  /// like `sleep_user_profile`, where a lost write also loses the record of
+  /// which days were already folded.
+  ///
+  /// `exclusive: true` issues BEGIN IMMEDIATE, taking SQLite's write lock up
+  /// front rather than on first write. Without it a deferred transaction that
+  /// reads and then writes can fail to upgrade under WAL when another
+  /// connection holds the write lock. The lock is cross-connection and
+  /// therefore cross-isolate, which is exactly the guarantee a Dart static
+  /// cannot give.
+  static Future<void> updateBaseline(
+    String key,
+    String? Function(String? current) transform,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'baselines',
+        columns: ['payload_json'],
+        where: 'key = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
+      final current =
+          rows.isEmpty ? null : rows.first['payload_json'] as String?;
+      final next = transform(current);
+      if (next == null) return;
+      await txn.insert('baselines', {
+        'key': key,
+        'payload_json': next,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }, exclusive: true);
+  }
+
   static Future<Map<String, dynamic>?> computeFreshness(String key) async {
     final db = await instance;
     final rows = await db.query(

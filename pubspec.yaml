@@ -41,27 +41,34 @@ dependencies:
       # hexToBytes rejects odd-length hex instead of silently flooring it. This
       # PR sat unpinned for a full day after merging — see fix/issues #22 for
       # why (edge's own release pipeline shipped the pre-fix decoder).
-      # NOTE: this ref predates protocol fix/issues#21 (realtimeRr RR-bound,
-      # historical-family activity/steps_inc null-vs-0) — repin again once #21
-      # merges to pick those up too.
-      # Verified present: `git show <sha>:lib/src/framing.dart | grep 'crc8(Uint8List'`.
-      ref: 5bb8606964f2d94d9a73dc42c57416cb74282d52
+      # protocol main @ #21 merge. Picks up the realtimeRr RR-bound (live.dart
+      # accepted ANY positive int16 as an interval, unlike parseRealtimeHr and
+      # parseR24 which both gate 200-2500ms, so a misaligned 0x28 frame could
+      # hand a 5ms "beat" to live HRV/coherence) plus the historical-family
+      # activity/steps_inc null-instead-of-0 fix. Edge does not read the latter
+      # two fields, so only the RR bound is behaviour-visible here.
+      # Verified present: `git show <sha>:lib/src/live.dart | grep -c kMinRrMs`.
+      ref: 7edcb3e377329968118c62cb03a81d95e2f6db8e
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      # PR-BRANCH HEAD, not main — OpenStrap/analytics#32 (fix/issue-170-...)
-      # is open, not yet merged. Repin to the merge commit on main once it
-      # lands (same pattern v49 used briefly for protocol/analytics PR heads).
-      # autoDetectWorkouts now bypasses the motion-confirmation gate on a
-      # genuine HR-onset (fast rise vs. immediately-preceding baseline),
-      # fixing low-limb-swing cardio (cycling/rowing) going undetected while
-      # still rejecting slow-drifting elevations (fever/heat/anxiety) that
-      # have no discernible onset.
-      # Verified present at THIS sha: `git show <sha>:lib/src/onehz/workout/auto_detect.dart | grep onsetRiseBpm`.
-      # Moved to the branch's new head (cbbe06a) after CodeRabbit caught a real
-      # off-by-one in the onset window on analytics#32 (earlyMean was 181s vs
-      # preMean's 180s) — fixed there, not worth a separate edge changelog line.
-      ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
+      # analytics main @ #34 merge. Two hops in one: #32 (the HR-onset bypass
+      # for low-limb-swing cardio) had already merged and this pin was still
+      # sitting on its PR-branch head, and #34 lands the sleep-stager rewrite.
+      #
+      # #34 replaces the deep/REM boolean conjunctions with weighted robust-z
+      # scores. Measured against 99 PSG-labelled wrist nights (DREAMT), the old
+      # rules scored kappa 0.036 — deep PPV 5.7% against a 4.5% base rate, REM
+      # 12.1% against 14.0%, i.e. at or below chance — because the deep rule
+      # AND-ed one good axis, one null axis (rmssd, d -0.13) and one INVERTED
+      # axis (mean HR, d +0.31), so they could only co-fire by luck. That is
+      # what produced 30-second deep specks the 3-min bout rule then deleted.
+      # Now kappa 0.128 (0.132 held out), deep 53.0/12.9 sens/PPV, REM
+      # 52.6/20.7. Cutoffs are calibrated on OUR captures, not DREAMT — the
+      # DREAMT-optimal values under-called REM badly on real WHOOP data.
+      # Verified present: `git show <sha>:lib/src/onehz/sleep/cardio_stager.dart
+      #   | grep -E 'classifyCardioEpochs|_remScoreCut = 0.5'`.
+      ref: f0d115308aa5e9e3c82ee113c3d52e59756121d4
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

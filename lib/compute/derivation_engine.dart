@@ -376,7 +376,22 @@ import 'substrate.dart';
 // ~17.5% of subjects get WORSE from personalization), and (3) discarding
 // pre-tracking profiles, which cannot be repaired, so they rebuild honestly.
 // Bump so every day re-stages without the corrupt blend.
-const int kAlgoVersion = 52;
+// v53: repin analytics to main @ #34 — the sleep-stager decision layer is
+// rewritten. Deep and REM were boolean conjunctions AND-ing one informative
+// axis with one null one (rmssd, Cohen's d -0.13 deep / -0.02 REM) and one
+// INVERTED one (mean HR, d +0.31 for deep, i.e. deep sleep runs slightly
+// FASTER than light on the wrist), so all three could only co-fire by
+// coincidence — which is why deep sleep came out as isolated 30-second specks
+// that the 3-min minimum-bout rule then deleted. Scored against 99 PSG-labelled
+// wrist nights those rules managed kappa 0.036, with deep PPV 5.7% against a
+// 4.5% base rate and REM 12.1% against 14.0% — at or below chance for both.
+// Now weighted robust-z scores (weights = the measured effect sizes) over
+// Rk / hrSd / sdnn / lfhf, with rmssd and mean HR dropped: kappa 0.128, 0.132
+// on held-out subjects, deep 53.0/12.9 and REM 52.6/20.7 sens/PPV. Every day's
+// hypnogram, stage minutes and sleep-derived scalars change, so every day must
+// re-derive. Also picks up the protocol realtimeRr bound (live HRV no longer
+// sees implausible sub-100ms "beats" from a misaligned 0x28 frame).
+const int kAlgoVersion = 53;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

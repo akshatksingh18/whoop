@@ -972,6 +972,7 @@ class DerivationEngine {
       final orderedDays = todoDays.reversed.toList();
       var done = 0;
       var completed = 0;
+      var failures = 0;
       final activeDays = <String>{};
 
       Future<void> processDay(String dayId) async {
@@ -987,11 +988,13 @@ class DerivationEngine {
           } else {
             _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
             _diag['last_error'] = 'no_bounded_window_payload day=$dayId';
+            failures++;
           }
         } catch (e) {
           _log('derive selected day $dayId FAILED/skipped: $e');
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
+          failures++;
         }
         activeDays.remove(dayId);
         _diag['active_days'] = activeDays.toList();
@@ -1000,6 +1003,23 @@ class DerivationEngine {
       }
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      // A SELECTED re-analyze that happens to cover the whole raw history, with
+      // every day resolved, is a full restage by any other name — it re-derived
+      // every day under the current timezone, so it clears the travel hold too.
+      // A partial selection deliberately does not: those days say nothing about
+      // the ones still held.
+      if (force && failures == 0) {
+        final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys.toSet();
+        if (rawDays.isNotEmpty && rawDays.difference(days).isEmpty) {
+          await LocalDb.putBaseline(
+            'tz_travel_guard',
+            jsonEncode({
+              'offset_min': DateTime.now().timeZoneOffset.inMinutes,
+            }),
+          );
+          _log('derive selected: full-coverage restage — timezone hold cleared');
+        }
+      }
       if (done > 0) {
         await _refreshBaselines();
         await _runCrossDay(profile);

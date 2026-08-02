@@ -2073,14 +2073,21 @@ class AppState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kLiveSessionCheckpoint);
       if (raw == null || raw.isEmpty) return;
-      await prefs.remove(_kLiveSessionCheckpoint);
+      // Durable-FIRST, like everywhere else in this codebase (commit-before-ACK
+      // is the same rule): the checkpoint is only dropped once its steps are
+      // banked, so a kill anywhere in here re-runs the recovery rather than
+      // losing the bout. Replay is safe because of the coverage-window check
+      // below and because this method is single-flight. The one exception is a
+      // checkpoint that can never be recovered — dropped immediately so it
+      // can't be retried on every single connect forever.
+      Future<void> drop() => prefs.remove(_kLiveSessionCheckpoint);
       final m = jsonDecode(raw);
-      if (m is! Map) return;
+      if (m is! Map) return await drop();
       final steps = (m['steps'] as num?)?.toInt() ?? 0;
       final startTs = (m['cover_start_ts'] as num?)?.toInt();
       final endTs = (m['cover_end_ts'] as num?)?.toInt();
       if (steps <= 0 || startTs == null || endTs == null || endTs <= startTs) {
-        return;
+        return await drop();
       }
       final window = deriveLiveCoverageWindow(
         steps: steps,
@@ -2090,20 +2097,20 @@ class AppState extends ChangeNotifier {
         firstIngestMs: (m['first_ingest_ms'] as num?)?.toInt(),
         lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
       );
-      if (window == null) return;
-      // The clean-shutdown path writes coverage BEFORE clearing the checkpoint
-      // (durable-first, same ordering rule as commit-before-ACK). A kill in
-      // that narrow gap leaves a checkpoint whose bout is already banked —
-      // `live_coverage` has no uniqueness on the window, so replaying it would
-      // silently inflate the day. Skip anything already recorded.
+      if (window == null) return await drop();
+      // The clean-shutdown path writes coverage BEFORE clearing the checkpoint,
+      // so a kill in that gap leaves a checkpoint whose bout is already banked —
+      // and `live_coverage` has no uniqueness on the window, so replaying it
+      // would silently inflate the day. Skip anything already recorded.
       if (await LocalDb.hasLiveCoverageWindow(window.startTs, window.endTs)) {
         _log('[steps] orphan checkpoint already banked — not re-adding');
-        return;
+        return await drop();
       }
       final day = dayLabelOf(
         DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
       );
       await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
+      await drop();
       _log('[steps] recovered $steps orphaned step(s) from a killed session');
     } catch (e) {
       _log('[steps] orphan recovery skipped: $e');

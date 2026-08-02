@@ -1272,12 +1272,28 @@ class DerivationEngine {
         // exceptional one. Letting it escape would hit processDay's broad
         // catch, which calls `_markDaySkipped` and increments `failures`,
         // throwing away a fully computed day (and holding the timezone) over a
-        // bookkeeping write. Nothing is lost by swallowing it: the day_id never
-        // reaches `folded_days`, so the next pass simply folds it again.
+        // bookkeeping write.
+        //
+        // KNOWN LIMITATION — a swallowed failure here is PERMANENT for this
+        // day, not retried. Once the day finalizes, the cached-candidate
+        // short-circuit at the top of this method returns before staging runs,
+        // so `observationJson` is never regenerated and the fold never happens.
+        // Same for a day whose override is later removed if it already has a
+        // cached candidate from before the override.
+        //
+        // Accepted deliberately rather than fixed: the profile is an EWMA with
+        // a ~14-night horizon and a hard 0.5 blend cap, so one missing night is
+        // a small perturbation, whereas a retry path needs durable pending
+        // state and a way to distinguish "failed, retry" from "declined
+        // permanently" (a <120-epoch nap never folds, and would otherwise
+        // bypass the candidate cache and re-stage on every sweep forever).
+        // If the fold ever stops being best-effort, that state machine is the
+        // thing to build — do not simply bypass the cache.
         try {
           await _foldObservationIntoProfile(dayId, observationJson);
         } catch (e) {
-          _log('sleep profile fold skipped for $dayId (day result kept): $e');
+          _log('sleep profile fold skipped for $dayId (day result kept, '
+              'this night will not contribute to the profile): $e');
         }
       }
     }

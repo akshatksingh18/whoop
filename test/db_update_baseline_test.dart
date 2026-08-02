@@ -8,6 +8,17 @@
 // and a static has one copy per isolate. The read-modify-write therefore has to
 // be atomic in the DATABASE. `sleep_profile_policy_test.dart` covers the pure
 // decision contract; these cover the storage contract it depends on.
+//
+// WHAT THESE DO AND DO NOT PROVE. Every test here runs in ONE isolate against
+// ONE sqflite_ffi connection, so the "concurrent" cases exercise interleaved
+// async access to a single connection — real, and they do fail against a naive
+// read-then-write (19 of 20 increments lost), but not the same thing as two
+// OS-level connections contending. The cross-ISOLATE guarantee rests on
+// SQLite's documented locking (BEGIN IMMEDIATE takes the write lock up front
+// and it is cross-connection), which these tests assume rather than verify.
+// Verifying it properly needs a spawned isolate opening the same file, and
+// LocalDb's singleton/static setup does not currently have an entry point for
+// that. Worth building if this primitive picks up more callers.
 
 import 'dart:convert';
 import 'dart:io';

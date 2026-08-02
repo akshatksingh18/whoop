@@ -68,12 +68,19 @@ void main() {
       );
     });
 
-    test('skipping an override does NOT blacklist the day forever', () {
-      // Declining to fold an override must leave the day eligible: because the
-      // day_id never enters folded_days, removing the override later and
-      // re-deriving folds it normally. Worth pinning — the alternative
-      // (recording it as folded to "remember we skipped it") would silently
-      // exclude that night from the profile for good.
+    test('skipping an override records nothing, so the POLICY stays eligible',
+        () {
+      // Scope note, because the obvious reading of this test is wrong:
+      // it asserts the POLICY only. Declining to fold an override records
+      // nothing in folded_days, so `shouldFold` keeps saying yes afterwards.
+      // Worth pinning because the tempting alternative — marking it folded to
+      // "remember we skipped it" — would exclude that night permanently.
+      //
+      // It does NOT assert that the engine actually re-folds after an override
+      // is removed. It often will not: `_sleepCandidateForDay` short-circuits
+      // on a cached finalized candidate before staging runs, so a day that had
+      // a candidate cached before the override was applied never regenerates an
+      // observation. See the KNOWN LIMITATION comment at the fold call site.
       const day = '2026-07-31';
       var folded = <String>{};
       expect(

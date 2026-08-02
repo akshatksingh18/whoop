@@ -114,69 +114,92 @@ void main() {
     });
   });
 
-  group('profile lock (concurrent-day race)', () {
-    test('serialises read-modify-write so no fold is clobbered', () async {
-      // Model the real shape: N days derive concurrently, each reads the
-      // shared profile, awaits (staging), then writes it back. Without the
-      // lock the later writer overwrites the earlier one's folded_days.
-      var profile = jsonEncode({'nights': 0, 'folded_days': <String>[]});
-      Future<void> foldDay(String day) =>
-          SleepProfilePolicy.withProfileLock(() async {
-            final days = SleepProfilePolicy.foldedDays(profile);
-            if (!SleepProfilePolicy.shouldFold(
-                alreadyFolded: days, dayId: day, hasOverride: false)) {
-              return;
-            }
-            await Future<void>.delayed(Duration.zero); // yield mid-section
-            final n = (jsonDecode(profile) as Map)['nights'] as int;
-            profile = jsonEncode(SleepProfilePolicy.withFoldedDays(
-                {'nights': n + 1}, days, day));
-          });
+  group('concurrent-fold semantics (DB transaction contract)', () {
+    // The real serialization is an exclusive SQLite transaction in
+    // LocalDb.updateBaseline — a Dart lock cannot span isolates. What is
+    // testable here without a DB is the PURE contract the transaction body
+    // relies on: given the payload as it exists at commit time, decide once.
+    //
+    // These model the transaction body running serially (which is what the
+    // exclusive write lock guarantees) and assert the outcome is correct for
+    // any interleaving.
 
+    String? foldInto(String? current, String dayId) {
+      final usable = SleepProfilePolicy.usableProfileJson(current);
+      final days = SleepProfilePolicy.foldedDays(usable);
+      if (!SleepProfilePolicy.shouldFold(
+          alreadyFolded: days, dayId: dayId, hasOverride: false)) {
+        return null; // leave the row untouched
+      }
+      final nights = usable == null
+          ? 0
+          : ((jsonDecode(usable) as Map)['nights'] as num?)?.toInt() ?? 0;
+      return jsonEncode(SleepProfilePolicy.withFoldedDays(
+          {'nights': nights + 1}, days, dayId));
+    }
+
+    test('two lanes folding the SAME day commit exactly one fold', () {
+      // The case the old test failed to cover: BOTH lanes see an empty
+      // folded_days when they start. Serialized at commit time, the second
+      // must observe the first's write and decline.
+      var row = jsonEncode({'nights': 0, 'folded_days': <String>[]});
+      var writes = 0;
+      for (var lane = 0; lane < 2; lane++) {
+        final next = foldInto(row, '2026-07-30');
+        if (next != null) {
+          row = next;
+          writes++;
+        }
+      }
+      expect(writes, 1, reason: 'the second lane must see the first write');
+      final decoded = jsonDecode(row) as Map;
+      expect(decoded['nights'], 1);
+      expect(decoded[SleepProfilePolicy.foldedDaysKey], ['2026-07-30']);
+    });
+
+    test('distinct days each commit once and none is lost', () {
+      var row = jsonEncode({'nights': 0, 'folded_days': <String>[]});
       final days = ['2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31'];
-      await Future.wait(days.map(foldDay));
+      for (final d in days) {
+        final next = foldInto(row, d);
+        if (next != null) row = next;
+      }
+      final decoded = jsonDecode(row) as Map;
+      expect(decoded['nights'], days.length);
+      expect((decoded[SleepProfilePolicy.foldedDaysKey] as List).cast<String>(),
+          days);
+    });
 
-      final decoded = jsonDecode(profile) as Map;
-      expect(decoded['nights'], days.length,
-          reason: 'every concurrent fold must be counted exactly once');
+    test('a stale pre-staging read cannot resurrect an already-folded day', () {
+      // Lane A read an empty profile, went off to stage for 90s, and comes back
+      // to find lane B folded the same day. Re-checking against the CURRENT row
+      // (what the transaction body does) is what prevents the double count.
+      const staleView = '{"nights":0,"folded_days":[]}';
+      final committed = jsonEncode({
+        'nights': 1,
+        'folded_days': const ['2026-07-30'],
+      });
       expect(
-        (decoded[SleepProfilePolicy.foldedDaysKey] as List).cast<String>(),
-        days,
-        reason: 'no day_id may be lost to a clobbering write',
+        SleepProfilePolicy.shouldFold(
+          alreadyFolded: SleepProfilePolicy.foldedDays(staleView),
+          dayId: '2026-07-30',
+          hasOverride: false,
+        ),
+        isTrue,
+        reason: 'the stale view alone would wrongly permit a second fold',
       );
+      expect(foldInto(committed, '2026-07-30'), isNull,
+          reason: 'deciding against the committed row declines correctly');
     });
 
-    test('a day already folded by another lane is skipped, not double-counted',
-        () async {
-      var profile =
-          jsonEncode({'nights': 1, 'folded_days': const ['2026-07-30']});
-      var folds = 0;
-      Future<void> foldDay(String day) =>
-          SleepProfilePolicy.withProfileLock(() async {
-            final days = SleepProfilePolicy.foldedDays(profile);
-            if (!SleepProfilePolicy.shouldFold(
-                alreadyFolded: days, dayId: day, hasOverride: false)) {
-              return;
-            }
-            await Future<void>.delayed(Duration.zero);
-            folds++;
-            profile = jsonEncode(
-                SleepProfilePolicy.withFoldedDays({'nights': 99}, days, day));
-          });
-
-      await Future.wait([foldDay('2026-07-30'), foldDay('2026-07-30')]);
-      expect(folds, 0, reason: 'already folded, by either lane');
-    });
-
-    test('a throwing action releases the lock', () async {
-      await expectLater(
-        SleepProfilePolicy.withProfileLock<void>(
-            () async => throw StateError('boom')),
-        throwsStateError,
-      );
-      var ran = false;
-      await SleepProfilePolicy.withProfileLock(() async => ran = true);
-      expect(ran, isTrue, reason: 'lock must not deadlock after a failure');
+    test('a legacy row is discarded, not merged into', () {
+      final legacy = jsonEncode({'nights': 1348}); // no folded_days
+      final next = foldInto(legacy, '2026-07-30');
+      expect(next, isNotNull);
+      final decoded = jsonDecode(next!) as Map;
+      expect(decoded['nights'], 1,
+          reason: 'rebuild from cold start, not from 1348');
+      expect(decoded[SleepProfilePolicy.foldedDaysKey], ['2026-07-30']);
     });
   });
 

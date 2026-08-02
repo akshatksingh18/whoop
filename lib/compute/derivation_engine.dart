@@ -1186,7 +1186,7 @@ class DerivationEngine {
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
-    final (candidateJson, updatedProfileJson) =
+    final (candidateJson, observationJson) =
         await _runIsolateCancellable(() {
       try {
         final p = profileJson == null
@@ -1216,7 +1216,7 @@ class DerivationEngine {
       // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
       // rolling profile — done here in the worker because the observations live
       // in THIS isolate's globals. Skipped for overrides. EWMA self-seeds.
-      String? foldedJson;
+      String? observationJson;
       // IDEMPOTENT PER DAY. `fold()` is an EWMA step that also increments
       // `nights`, and this path runs on EVERY staging pass for a day — an
       // algo-version bump, a BLE-drain re-derive, a backfill sweep. Without a
@@ -1237,7 +1237,7 @@ class DerivationEngine {
             // would bake in the profile this worker read before staging began,
             // and a concurrent day may have written a newer one since. The
             // fold happens on the main isolate under the profile lock.
-            foldedJson = jsonEncode({
+            observationJson = jsonEncode({
               'epochs': main.epochs,
               'hr_floor_p5': main.hrFloorP5,
               'hr_floor_p25': main.hrFloorP25,
@@ -1253,7 +1253,7 @@ class DerivationEngine {
           }
         }
       }
-      return (jsonEncode(candidate.toJson()), foldedJson);
+      return (jsonEncode(candidate.toJson()), observationJson);
     }, _perDayTimeout, label: 'sleep-staging $dayId');
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
@@ -1263,8 +1263,8 @@ class DerivationEngine {
         algoVersion: kAlgoVersion,
         payloadJson: candidateJson,
       );
-      if (updatedProfileJson != null) {
-        await _foldObservationIntoProfile(dayId, updatedProfileJson);
+      if (observationJson != null) {
+        await _foldObservationIntoProfile(dayId, observationJson);
       }
     }
     return candidate;
@@ -1280,42 +1280,55 @@ class DerivationEngine {
   /// a lost day_id, and the day then re-folds forever.
   Future<void> _foldObservationIntoProfile(
       String dayId, String observationJson) async {
-    await SleepProfilePolicy.withProfileLock(() async {
-      final fresh = await _loadSleepUserProfileJson();
-      final freshDays = SleepProfilePolicy.foldedDays(fresh);
+    final Map<String, dynamic> o;
+    try {
+      o = (jsonDecode(observationJson) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return;
+    }
+    double? d(String k) => (o[k] as num?)?.toDouble();
+    final observed = ana.SleepNightObservation(
+      epochs: (o['epochs'] as num?)?.toInt() ?? 0,
+      hrFloorP5: d('hr_floor_p5'),
+      hrFloorP25: d('hr_floor_p25'),
+      hrSleepMedian: d('hr_sleep_median'),
+      hrArousal: d('hr_arousal'),
+      rmssdMed: d('rmssd_med'),
+      rmssdMad: d('rmssd_mad'),
+      enmoStillCut: d('enmo_still_cut'),
+      enmoMoveCut: d('enmo_move_cut'),
+      lfhfMed: d('lfhf_med'),
+      rkMed: d('rk_med'),
+    );
+    // The whole read-modify-write happens inside ONE exclusive DB transaction.
+    // A Dart mutex cannot do this job: `derivationDispatcher` is a
+    // vm:entry-point WorkManager entry that builds its own DerivationEngine in
+    // a SEPARATE background isolate, and a `static` lock has one copy per
+    // isolate — so a background heavy pass and a foreground sweep would each
+    // read the same profile, fold, and clobber the other, losing both the fold
+    // and its day_id from folded_days. SQLite's write lock is cross-connection
+    // and therefore cross-isolate.
+    await LocalDb.updateBaseline('sleep_user_profile', (current) {
+      // Re-derive freshness INSIDE the transaction: the value this day read
+      // before staging is stale by definition, another lane may have folded
+      // since. Returning null leaves the row untouched.
+      final usable = SleepProfilePolicy.usableProfileJson(current);
+      final freshDays = SleepProfilePolicy.foldedDays(usable);
       if (!SleepProfilePolicy.shouldFold(
           alreadyFolded: freshDays, dayId: dayId, hasOverride: false)) {
-        return; // another lane folded this day while we were staging
+        return null;
       }
       final ana.SleepUserProfile base;
       try {
-        base = fresh == null
+        base = usable == null
             ? const ana.SleepUserProfile()
             : ana.SleepUserProfile.fromJson(
-                (jsonDecode(fresh) as Map).cast<String, dynamic>());
+                (jsonDecode(usable) as Map).cast<String, dynamic>());
       } catch (_) {
-        return; // unreadable profile — leave it for the cold-start path
+        return null; // unreadable — leave it for the cold-start path
       }
-      final o = (jsonDecode(observationJson) as Map).cast<String, dynamic>();
-      double? d(String k) => (o[k] as num?)?.toDouble();
-      final folded = base.fold(ana.SleepNightObservation(
-        epochs: (o['epochs'] as num?)?.toInt() ?? 0,
-        hrFloorP5: d('hr_floor_p5'),
-        hrFloorP25: d('hr_floor_p25'),
-        hrSleepMedian: d('hr_sleep_median'),
-        hrArousal: d('hr_arousal'),
-        rmssdMed: d('rmssd_med'),
-        rmssdMad: d('rmssd_mad'),
-        enmoStillCut: d('enmo_still_cut'),
-        enmoMoveCut: d('enmo_move_cut'),
-        lfhfMed: d('lfhf_med'),
-        rkMed: d('rk_med'),
-      ));
-      await LocalDb.putBaseline(
-        'sleep_user_profile',
-        jsonEncode(SleepProfilePolicy.withFoldedDays(
-            folded.toJson(), freshDays, dayId)),
-      );
+      return jsonEncode(SleepProfilePolicy.withFoldedDays(
+          base.fold(observed).toJson(), freshDays, dayId));
     });
   }
 

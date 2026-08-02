@@ -1264,7 +1264,21 @@ class DerivationEngine {
         payloadJson: candidateJson,
       );
       if (observationJson != null) {
-        await _foldObservationIntoProfile(dayId, observationJson);
+        // BEST-EFFORT, and deliberately isolated from the day's success path.
+        // The fold is bookkeeping; the day's real result is already persisted
+        // above. `updateBaseline` takes an exclusive SQLite write lock, and the
+        // whole point of this change is that two derivation isolates contend
+        // for it — so SQLITE_BUSY here is an EXPECTED outcome, not an
+        // exceptional one. Letting it escape would hit processDay's broad
+        // catch, which calls `_markDaySkipped` and increments `failures`,
+        // throwing away a fully computed day (and holding the timezone) over a
+        // bookkeeping write. Nothing is lost by swallowing it: the day_id never
+        // reaches `folded_days`, so the next pass simply folds it again.
+        try {
+          await _foldObservationIntoProfile(dayId, observationJson);
+        } catch (e) {
+          _log('sleep profile fold skipped for $dayId (day result kept): $e');
+        }
       }
     }
     return candidate;

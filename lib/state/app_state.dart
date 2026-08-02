@@ -2056,7 +2056,19 @@ class AppState extends ChangeNotifier {
   /// disconnect) — folds the committed steps into `live_coverage` just like
   /// a normal session end, so a killed background walk doesn't just vanish.
   /// Call this BEFORE starting a fresh session ([_resetLivePedometer]).
-  Future<void> _recoverOrphanedLiveSession() async {
+  /// Single-flight: two entry points can now call this (openSession's full
+  /// connect and the background cold-launch branch). Interleaving them would
+  /// let both read the checkpoint before either removed it, and
+  /// `live_coverage` is an append-only SUM with no window uniqueness — the
+  /// duplicate would silently inflate the day's real steps.
+  Future<void>? _orphanRecovery;
+
+  Future<void> _recoverOrphanedLiveSession() =>
+      _orphanRecovery ??= _recoverOrphanedLiveSessionOnce().whenComplete(() {
+        _orphanRecovery = null;
+      });
+
+  Future<void> _recoverOrphanedLiveSessionOnce() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kLiveSessionCheckpoint);

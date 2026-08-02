@@ -182,6 +182,7 @@ class SleepSessionCandidate {
   PreparedDerivationDay toPreparedDay({
     required Substrate daySub,
     required Substrate sleepSub,
+    Substrate? napSub,
   }) => PreparedDerivationDay(
     date: dayId,
     // `endSec` is what the engine anchors FINALIZATION on
@@ -202,6 +203,7 @@ class SleepSessionCandidate {
     sleepOffsetSec: sleepOffsetSec,
     sleepSource: sleepSource,
     daySub: daySub,
+    napSub: napSub,
     sleepSub: sleepSub,
   );
 }

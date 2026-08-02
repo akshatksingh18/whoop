@@ -803,6 +803,7 @@ class DerivationEngine {
 
       var done = 0;
       var completed = 0;
+      var failures = 0;
       final activeDays = <String>{};
       _diag['stage'] = 'per_day';
       _diag['active_days'] = const <String>[];
@@ -844,6 +845,7 @@ class DerivationEngine {
             );
             _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
             _diag['last_error'] = 'no_bounded_window_payload day=$dayId';
+            failures++;
           }
         } catch (e) {
           _log('derive day $dayId FAILED/skipped: $e');
@@ -856,6 +858,7 @@ class DerivationEngine {
           );
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
+          failures++;
         }
         activeDays.remove(dayId);
         _diag['active_days'] = activeDays.toList();
@@ -878,14 +881,22 @@ class DerivationEngine {
       if (scope.fullHistory) {
         _diag['stage'] = 'prune';
         await _pruneOldDecoded(todoDays, dataNowSec);
-        // The full restage COMPLETED — every day was re-derived under the
-        // current timezone, so any held-back adjacency is resolved. Re-baseline
-        // the travel guard now (not when the scope was chosen), so an
-        // interrupted restage leaves the hold in place.
-        await LocalDb.putBaseline(
-          'tz_travel_guard',
-          jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
-        );
+        // Re-baseline the travel guard — but ONLY if every targeted day
+        // actually got re-derived under the current timezone. processDay
+        // swallows per-day errors and marks the day skipped, so a restage can
+        // "finish" with days still unresolved; clearing the hold then would
+        // drop it without the adjacency ever having been fixed. (A day kept
+        // deliberately — a pruned override day — is not a failure.)
+        if (failures == 0) {
+          await LocalDb.putBaseline(
+            'tz_travel_guard',
+            jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
+          );
+        } else {
+          _log(
+            'derive: $failures day(s) unresolved — keeping the timezone hold',
+          );
+        }
       }
       return done;
     } catch (e, st) {
@@ -1025,12 +1036,19 @@ class DerivationEngine {
     final candidate = await _sleepCandidateForDay(dayId, stats: stats);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
-    final daySub = await _loadSubstrateRange(
+    // Load the day PLUS the nap boundary buffer in ONE pass (each
+    // _loadSubstrateRange spawns its own isolate, so a second load would
+    // double that cost) and slice the calendar day back out of it. Without
+    // this, the live decoded path — run()/runDays()/rescanRecent(), i.e. every
+    // non-import day — fell back to napSub == daySub and went on bisecting
+    // naps at midnight.
+    final napSub = await _loadSubstrateRange(
       dayStart,
-      dayEnd - 1,
+      dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
       stats: stats,
     );
+    final daySub = napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
@@ -1050,7 +1068,11 @@ class DerivationEngine {
     if (stats.rows > (_diag['max_day_raw_rows'] as int)) {
       _diag['max_day_raw_rows'] = stats.rows;
     }
-    return candidate.toPreparedDay(daySub: daySub, sleepSub: sleepSub);
+    return candidate.toPreparedDay(
+      daySub: daySub,
+      napSub: napSub,
+      sleepSub: sleepSub,
+    );
   }
 
   Future<SleepSessionCandidate> _sleepCandidateForDay(

@@ -353,27 +353,61 @@ class NoopImporter {
   /// A run with zero steps still yields no window: `live_coverage` exists to
   /// suppress the 1 Hz estimate over minutes the real counter already covered,
   /// and a 0-step run would suppress a real estimate while contributing nothing.
-  static List<StepRun> stepRuns(Map<int, int> samples) {
+  ///
+  /// [covered] lists time spans ALREADY banked in `live_coverage` (device-time
+  /// seconds, inclusive). A per-second delta whose interval intersects one of
+  /// them is skipped and BREAKS the run, so those steps are never banked twice.
+  /// This is what makes a re-import safe in general rather than only for a
+  /// byte-identical file: an exact-window check alone is defeated the moment the
+  /// user exports again over a longer span (09:00-09:20 then 09:00-09:40), where
+  /// the run boundary shifts, no exact window matches, and the overlap is banked
+  /// a second time — measured at 3,598 steps against a true 2,399 before this.
+  /// Clipping is exact, not pro-rated: we hold the counter value at every
+  /// second, so the uncovered sub-intervals are summed from real deltas.
+  /// It also means an imported span cannot double-count against a LIVE 100 Hz
+  /// pedometer window, which shares this table.
+  static List<StepRun> stepRuns(
+    Map<int, int> samples, {
+    List<List<int>> covered = const [],
+  }) {
     if (samples.isEmpty) return const [];
     final ts = samples.keys.toList()..sort();
+
+    // Does the half-open delta interval (a, b] touch anything already banked?
+    bool isCovered(int a, int b) {
+      for (final w in covered) {
+        if (b > w[0] && a < w[1]) return true;
+      }
+      return false;
+    }
+
     final out = <StepRun>[];
-    var runStart = ts.first;
+    int? runStart, runLast;
     var runSteps = 0;
+    void closeRun() {
+      if (runStart != null &&
+          runLast != null &&
+          runSteps > 0 &&
+          runLast! > runStart!) {
+        out.add(StepRun(runStart!, runLast!, runSteps));
+      }
+      runStart = null;
+      runLast = null;
+      runSteps = 0;
+    }
+
     for (var i = 1; i <= ts.length; i++) {
-      final broke = i == ts.length || ts[i] - ts[i - 1] > stepRunMaxGapSec;
-      if (!broke) {
-        final d = samples[ts[i]]! - samples[ts[i - 1]]!;
-        if (d > 0) runSteps += d;
+      final bankable = i < ts.length &&
+          ts[i] - ts[i - 1] <= stepRunMaxGapSec &&
+          !isCovered(ts[i - 1], ts[i]);
+      if (!bankable) {
+        closeRun();
         continue;
       }
-      final runEnd = ts[i - 1];
-      if (runSteps > 0 && runEnd > runStart) {
-        out.add(StepRun(runStart, runEnd, runSteps));
-      }
-      if (i < ts.length) {
-        runStart = ts[i];
-        runSteps = 0;
-      }
+      runStart ??= ts[i - 1];
+      final d = samples[ts[i]]! - samples[ts[i - 1]]!;
+      if (d > 0) runSteps += d;
+      runLast = ts[i];
     }
     return out;
   }
@@ -383,16 +417,23 @@ class NoopImporter {
   /// estimate (`coverageWindowsOverlapping`) — the same contract the live 100 Hz
   /// pedometer uses, so imported and live days are counted identically.
   ///
-  /// IDEMPOTENT: `live_coverage` is an append-only SUM with no uniqueness on the
-  /// window, so re-importing the same export would otherwise double every step.
-  /// Each window is checked with `hasLiveCoverageWindow` first.
+  /// IDEMPOTENT BY TIME SPAN, not by exact window: `live_coverage` is an
+  /// append-only SUM with no uniqueness constraint, so anything already banked
+  /// over a second must not be banked again. The spans covering this batch are
+  /// read back and passed to [stepRuns], which clips them out. An exact-window
+  /// check is deliberately NOT used — it only catches a byte-identical
+  /// re-import and silently double-counts the overlap when the user exports
+  /// again over a longer span (see the note on [stepRuns]).
   ///
-  /// Returns the steps actually banked (0 for windows already present).
+  /// Returns the steps actually banked (0 when the span was fully covered).
   static Future<int> _flushStepCoverage(
       Map<int, int> stepSamples, String date) async {
+    if (stepSamples.isEmpty) return 0;
+    final ts = stepSamples.keys.toList()..sort();
+    final existing =
+        await LocalDb.coverageWindowsOverlapping(ts.first, ts.last + 1);
     var banked = 0;
-    for (final r in stepRuns(stepSamples)) {
-      if (await LocalDb.hasLiveCoverageWindow(r.startSec, r.endSec)) continue;
+    for (final r in stepRuns(stepSamples, covered: existing)) {
       await LocalDb.addLiveCoverage(r.startSec, r.endSec, r.steps, date);
       banked += r.steps;
     }

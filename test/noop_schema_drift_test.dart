@@ -93,6 +93,37 @@ void main() {
       final a = NoopImporter.stepRuns({3: 130, 0: 100, 2: 120, 1: 110});
       expect(a, [const StepRun(0, 3, 30)]);
     });
+
+    test('skips deltas already covered, and breaks the run there', () {
+      // 0..5 covered → only the 5→8 tail is bankable.
+      final runs = NoopImporter.stepRuns(
+        {0: 100, 1: 110, 2: 120, 5: 150, 6: 160, 7: 170, 8: 180},
+        covered: const [
+          [0, 5]
+        ],
+      );
+      expect(runs, [const StepRun(5, 8, 30)]);
+    });
+
+    test('a fully covered span banks nothing', () {
+      expect(
+        NoopImporter.stepRuns({0: 100, 1: 110, 2: 120},
+            covered: const [
+              [0, 2]
+            ]),
+        isEmpty,
+      );
+    });
+
+    test('a covered span in the MIDDLE splits into two runs', () {
+      final runs = NoopImporter.stepRuns(
+        {0: 100, 1: 110, 2: 120, 3: 130, 4: 140, 5: 150},
+        covered: const [
+          [2, 3]
+        ],
+      );
+      expect(runs, [const StepRun(0, 2, 20), const StepRun(3, 5, 20)]);
+    });
   });
 
   group('end-to-end import of the CURRENT NOOP schema', () {
@@ -165,6 +196,32 @@ void main() {
       expect(cov2.length, cov.length, reason: 'no duplicate windows');
       final total2 = cov2.fold<int>(0, (a, r) => a + (r['steps'] as int));
       expect(total2, total, reason: 'step total unchanged after re-import');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('an OVERLAPPING re-export does not double-count', () async {
+      // The realistic re-import: the user exports again later over a LONGER
+      // span covering the same session. An exact-window guard misses this
+      // entirely (the run boundary moved), so the overlap gets banked twice —
+      // measured at 3,598 against a true 2,399 before the covered-clipping fix.
+      const t0 = 1785834000;
+      final short = writeCsv('ov_short.csv', t0: t0, seconds: 1200);
+      final long = writeCsv('ov_long.csv', t0: t0, seconds: 2400);
+
+      final r1 = await NoopImporter.importFile(
+          short.path, const Profile(), DerivationEngine());
+      expect(r1.steps, 1199);
+
+      final r2 = await NoopImporter.importFile(
+          long.path, const Profile(), DerivationEngine());
+      // Only the NEW tail is banked, not the whole longer span.
+      expect(r2.steps, 2399 - 1199,
+          reason: 'second import banks only the previously uncovered tail');
+
+      final db = await LocalDb.instance;
+      final cov = await db.query('live_coverage',
+          where: 'start_ts >= ? AND start_ts < ?', whereArgs: [t0, t0 + 2400]);
+      final total = cov.fold<int>(0, (a, r) => a + (r['steps'] as int));
+      expect(total, 2399, reason: 'total equals the truth, not 3598');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('shifted event_kind/event_payload columns do not misparse', () async {

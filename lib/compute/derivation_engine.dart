@@ -391,7 +391,20 @@ import 'substrate.dart';
 // hypnogram, stage minutes and sleep-derived scalars change, so every day must
 // re-derive. Also picks up the protocol realtimeRr bound (live HRV no longer
 // sees implausible sub-100ms "beats" from a misaligned 0x28 frame).
-const int kAlgoVersion = 53;
+// v54: NOOP CSV imports now bank the export's `step_counter` as REAL steps.
+// NOOP's schema gained a `steps` stream (and a `band_sleep_state` column that
+// shifted event_kind/event_payload) — the importer read columns by name so it
+// never misparsed, but it dropped `steps` into its default branch and every
+// imported day reported steps = 0 while the band had actually counted them
+// (2,572 over the 3.5 h in the OpenStrap/edge#160 export). The counter is now
+// differenced into contiguous runs and written to `live_coverage`, the same
+// table the live 100 Hz pedometer uses, so imported and live days count steps
+// identically and the 1 Hz estimate still cannot double-count those minutes.
+// Only the `steps`/`active_min` block of IMPORTED days changes; no live-sync
+// output moves. NOTE this bump does not retro-fix an existing import — imported
+// days are force-finalized snapshots with no stored raw to recompute from, so
+// an already-imported day needs a re-import to pick its steps up.
+const int kAlgoVersion = 54;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

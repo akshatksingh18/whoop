@@ -1188,18 +1188,15 @@ class DerivationEngine {
     // all derivation was dead until app restart.
     final (candidateJson, updatedProfileJson) =
         await _runIsolateCancellable(() {
-      // The LOADED profile, kept separate from the one we hand the stager:
-      // below the minimum-nights gate we withhold it from staging but must
-      // still ACCUMULATE into it, otherwise every night folds into an empty
-      // profile and `nights` can never climb past 1.
-      ana.SleepUserProfile? loaded;
       try {
         final p = profileJson == null
             ? null
             : ana.SleepUserProfile.fromJson(
                 (jsonDecode(profileJson) as Map).cast<String, dynamic>());
-        loaded = p;
-        // Warm-up gate — see SleepProfilePolicy.shouldBlend.
+        // Warm-up gate — see SleepProfilePolicy.shouldBlend. Note the profile
+        // is only WITHHELD FROM STAGING here; accumulation into it happens on
+        // the main isolate in _foldObservationIntoProfile, which re-reads the
+        // current profile, so a withheld night still counts toward `nights`.
         ana.cardioUserProfile =
             SleepProfilePolicy.shouldBlend(p?.nights) ? p : null;
       } catch (_) {
@@ -1235,13 +1232,24 @@ class DerivationEngine {
           obs.sort((a, b) => b.epochs.compareTo(a.epochs));
           final main = obs.first;
           if (main.epochs >= 120) {
-            // require ≥60 min — not a nap
-            final base = loaded ?? const ana.SleepUserProfile();
-            foldedJson = jsonEncode(SleepProfilePolicy.withFoldedDays(
-              base.fold(main).toJson(),
-              foldedDays,
-              dayId,
-            ));
+            // require ≥60 min — not a nap.
+            // Return the raw OBSERVATION, not a folded profile. Folding here
+            // would bake in the profile this worker read before staging began,
+            // and a concurrent day may have written a newer one since. The
+            // fold happens on the main isolate under the profile lock.
+            foldedJson = jsonEncode({
+              'epochs': main.epochs,
+              'hr_floor_p5': main.hrFloorP5,
+              'hr_floor_p25': main.hrFloorP25,
+              'hr_sleep_median': main.hrSleepMedian,
+              'hr_arousal': main.hrArousal,
+              'rmssd_med': main.rmssdMed,
+              'rmssd_mad': main.rmssdMad,
+              'enmo_still_cut': main.enmoStillCut,
+              'enmo_move_cut': main.enmoMoveCut,
+              'lfhf_med': main.lfhfMed,
+              'rk_med': main.rkMed,
+            });
           }
         }
       }
@@ -1256,10 +1264,59 @@ class DerivationEngine {
         payloadJson: candidateJson,
       );
       if (updatedProfileJson != null) {
-        await LocalDb.putBaseline('sleep_user_profile', updatedProfileJson);
+        await _foldObservationIntoProfile(dayId, updatedProfileJson);
       }
     }
     return candidate;
+  }
+
+  /// Fold one night's observation into the shared profile, serialised against
+  /// every other day in the sweep.
+  ///
+  /// The profile is RE-READ inside the lock and [SleepProfilePolicy.shouldFold]
+  /// re-checked, because the value this day read before staging is stale by
+  /// definition — a concurrently-derived day may have folded since. Skipping
+  /// that re-check is what turns a read-modify-write race into a lost fold plus
+  /// a lost day_id, and the day then re-folds forever.
+  Future<void> _foldObservationIntoProfile(
+      String dayId, String observationJson) async {
+    await SleepProfilePolicy.withProfileLock(() async {
+      final fresh = await _loadSleepUserProfileJson();
+      final freshDays = SleepProfilePolicy.foldedDays(fresh);
+      if (!SleepProfilePolicy.shouldFold(
+          alreadyFolded: freshDays, dayId: dayId, hasOverride: false)) {
+        return; // another lane folded this day while we were staging
+      }
+      final ana.SleepUserProfile base;
+      try {
+        base = fresh == null
+            ? const ana.SleepUserProfile()
+            : ana.SleepUserProfile.fromJson(
+                (jsonDecode(fresh) as Map).cast<String, dynamic>());
+      } catch (_) {
+        return; // unreadable profile — leave it for the cold-start path
+      }
+      final o = (jsonDecode(observationJson) as Map).cast<String, dynamic>();
+      double? d(String k) => (o[k] as num?)?.toDouble();
+      final folded = base.fold(ana.SleepNightObservation(
+        epochs: (o['epochs'] as num?)?.toInt() ?? 0,
+        hrFloorP5: d('hr_floor_p5'),
+        hrFloorP25: d('hr_floor_p25'),
+        hrSleepMedian: d('hr_sleep_median'),
+        hrArousal: d('hr_arousal'),
+        rmssdMed: d('rmssd_med'),
+        rmssdMad: d('rmssd_mad'),
+        enmoStillCut: d('enmo_still_cut'),
+        enmoMoveCut: d('enmo_move_cut'),
+        lfhfMed: d('lfhf_med'),
+        rkMed: d('rk_med'),
+      ));
+      await LocalDb.putBaseline(
+        'sleep_user_profile',
+        jsonEncode(SleepProfilePolicy.withFoldedDays(
+            folded.toJson(), freshDays, dayId)),
+      );
+    });
   }
 
   /// Read the persisted per-user sleep profile (`baselines` key

@@ -114,6 +114,72 @@ void main() {
     });
   });
 
+  group('profile lock (concurrent-day race)', () {
+    test('serialises read-modify-write so no fold is clobbered', () async {
+      // Model the real shape: N days derive concurrently, each reads the
+      // shared profile, awaits (staging), then writes it back. Without the
+      // lock the later writer overwrites the earlier one's folded_days.
+      var profile = jsonEncode({'nights': 0, 'folded_days': <String>[]});
+      Future<void> foldDay(String day) =>
+          SleepProfilePolicy.withProfileLock(() async {
+            final days = SleepProfilePolicy.foldedDays(profile);
+            if (!SleepProfilePolicy.shouldFold(
+                alreadyFolded: days, dayId: day, hasOverride: false)) {
+              return;
+            }
+            await Future<void>.delayed(Duration.zero); // yield mid-section
+            final n = (jsonDecode(profile) as Map)['nights'] as int;
+            profile = jsonEncode(SleepProfilePolicy.withFoldedDays(
+                {'nights': n + 1}, days, day));
+          });
+
+      final days = ['2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31'];
+      await Future.wait(days.map(foldDay));
+
+      final decoded = jsonDecode(profile) as Map;
+      expect(decoded['nights'], days.length,
+          reason: 'every concurrent fold must be counted exactly once');
+      expect(
+        (decoded[SleepProfilePolicy.foldedDaysKey] as List).cast<String>(),
+        days,
+        reason: 'no day_id may be lost to a clobbering write',
+      );
+    });
+
+    test('a day already folded by another lane is skipped, not double-counted',
+        () async {
+      var profile =
+          jsonEncode({'nights': 1, 'folded_days': const ['2026-07-30']});
+      var folds = 0;
+      Future<void> foldDay(String day) =>
+          SleepProfilePolicy.withProfileLock(() async {
+            final days = SleepProfilePolicy.foldedDays(profile);
+            if (!SleepProfilePolicy.shouldFold(
+                alreadyFolded: days, dayId: day, hasOverride: false)) {
+              return;
+            }
+            await Future<void>.delayed(Duration.zero);
+            folds++;
+            profile = jsonEncode(
+                SleepProfilePolicy.withFoldedDays({'nights': 99}, days, day));
+          });
+
+      await Future.wait([foldDay('2026-07-30'), foldDay('2026-07-30')]);
+      expect(folds, 0, reason: 'already folded, by either lane');
+    });
+
+    test('a throwing action releases the lock', () async {
+      await expectLater(
+        SleepProfilePolicy.withProfileLock<void>(
+            () async => throw StateError('boom')),
+        throwsStateError,
+      );
+      var ran = false;
+      await SleepProfilePolicy.withProfileLock(() async => ran = true);
+      expect(ran, isTrue, reason: 'lock must not deadlock after a failure');
+    });
+  });
+
   group('folded-day bookkeeping', () {
     test('append is sorted and de-duplicated', () {
       final out = SleepProfilePolicy.appendFoldedDay(

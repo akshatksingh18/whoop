@@ -35,6 +35,7 @@
 // so it CANNOT be repaired — [usableProfileJson] discards it and lets the
 // profile rebuild honestly.
 
+import 'dart:async';
 import 'dart:convert';
 
 class SleepProfilePolicy {
@@ -117,6 +118,29 @@ class SleepProfilePolicy {
         ...profileMap,
         foldedDaysKey: appendFoldedDay(alreadyFolded, dayId),
       };
+
+  /// Serialises the read-modify-write of the shared `sleep_user_profile` row.
+  ///
+  /// `processDay` runs up to `_deriveConcurrency` days at once in the
+  /// foreground, and each day reads the profile, awaits a staging isolate, then
+  /// writes the profile back. Without a lock two days read the same pre-write
+  /// payload, both decide to fold, and the later write clobbers the earlier
+  /// one — losing a fold AND losing its day_id from [foldedDaysKey], so that
+  /// day re-folds on the next sweep and `nights` drifts up again. That is the
+  /// same accounting corruption this class exists to prevent, just slower.
+  ///
+  /// The lock is held ONLY across the DB read-modify-write, never across the
+  /// staging isolate, so day-level concurrency is preserved. Callers must
+  /// therefore re-read the profile and re-check [shouldFold] INSIDE the
+  /// critical section rather than trusting a value read before staging.
+  static Future<T> withProfileLock<T>(Future<T> Function() action) {
+    final prior = _lock;
+    final done = Completer<void>();
+    _lock = done.future;
+    return prior.then((_) => action()).whenComplete(done.complete);
+  }
+
+  static Future<void> _lock = Future<void>.value();
 
   static Map<String, dynamic>? _decode(String? payloadJson) {
     if (payloadJson == null || payloadJson.isEmpty) return null;

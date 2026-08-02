@@ -248,17 +248,66 @@ void main() {
           hasLength(3));
     });
 
-    test('the set is capped, evicting the oldest', () {
+    test('eviction is chronological for real day labels', () {
+      // The cap sorts lexicographically, which only means "age" for zero-padded
+      // ISO dates. Pin it across a month and year boundary, where a naive
+      // non-padded format would misorder.
       var days = <String>{};
-      for (var i = 0; i < SleepProfilePolicy.maxFoldedDays + 50; i++) {
-        days = {
-          ...SleepProfilePolicy.appendFoldedDay(
-              days, '2020-01-${i.toString().padLeft(5, '0')}')
-        };
+      for (final d in [
+        '2025-12-30',
+        '2025-12-31',
+        '2026-01-01',
+        '2026-01-02',
+        '2026-01-09',
+        '2026-01-10',
+      ]) {
+        days = {...SleepProfilePolicy.appendFoldedDay(days, d)};
+      }
+      expect(days.toList(), [
+        '2025-12-30',
+        '2025-12-31',
+        '2026-01-01',
+        '2026-01-02',
+        '2026-01-09',
+        '2026-01-10',
+      ]);
+    });
+
+    test('a non-date day_id trips the precondition', () {
+      // A UUID or epoch string would break the sort, so a RECENT day could be
+      // evicted and then re-folded — the exact bug this class prevents.
+      expect(
+        () => SleepProfilePolicy.appendFoldedDay(const {}, '1785522024'),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => SleepProfilePolicy.appendFoldedDay(const {}, '2026-7-4'),
+        throwsA(isA<AssertionError>()),
+        reason: 'unpadded dates sort wrong too',
+      );
+    });
+
+    test('the set is capped, evicting the oldest', () {
+      String label(int i) {
+        final d = DateTime.utc(2020, 1, 1).add(Duration(days: i));
+        return '${d.year.toString().padLeft(4, '0')}-'
+            '${d.month.toString().padLeft(2, '0')}-'
+            '${d.day.toString().padLeft(2, '0')}';
+      }
+
+      const overflow = 50;
+      const total = SleepProfilePolicy.maxFoldedDays + overflow;
+      var days = <String>{};
+      for (var i = 0; i < total; i++) {
+        days = {...SleepProfilePolicy.appendFoldedDay(days, label(i))};
       }
       expect(days, hasLength(SleepProfilePolicy.maxFoldedDays));
-      expect(days.contains('2020-01-00000'), isFalse, reason: 'oldest evicted');
-      expect(days.contains('2020-01-00449'), isTrue, reason: 'newest kept');
+      expect(days.contains(label(0)), isFalse, reason: 'oldest evicted');
+      expect(days.contains(label(overflow - 1)), isFalse,
+          reason: 'everything past the cap is evicted, oldest first');
+      expect(days.contains(label(overflow)), isTrue,
+          reason: 'the first surviving day');
+      expect(days.contains(label(total - 1)), isTrue, reason: 'newest kept');
     });
 
     test('withFoldedDays stamps the key without disturbing profile fields', () {

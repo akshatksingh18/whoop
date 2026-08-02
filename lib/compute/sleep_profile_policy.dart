@@ -97,14 +97,30 @@ class SleepProfilePolicy {
   /// entries: re-folding a day that has aged out is far less harmful than an
   /// unbounded row, and at a ~14-night EWMA horizon an ancient re-fold is
   /// nearly a no-op.
+  ///
+  /// PRECONDITION: [dayId] is a `YYYY-MM-DD` local day label (what
+  /// `day_label.dart` produces, and the only thing derivation passes). The cap
+  /// leans on that: eviction is by LEXICOGRAPHIC order, which equals
+  /// chronological order only for zero-padded ISO dates. Feed this an epoch
+  /// string or a UUID and the sort no longer means "age", so a RECENT day could
+  /// be evicted while an older one is kept — and an evicted day passes
+  /// [shouldFold] again, i.e. the double-fold this class exists to prevent.
+  /// Asserted rather than silently sorted differently, because the failure is
+  /// invisible in the payload.
   static List<String> appendFoldedDay(
       Set<String> alreadyFolded, String dayId) {
+    assert(_isDayLabel(dayId),
+        'folded day_ids must be YYYY-MM-DD (eviction sorts on them); got "$dayId"');
     final out = (<String>{...alreadyFolded, dayId}).toList()..sort();
     if (out.length > maxFoldedDays) {
       out.removeRange(0, out.length - maxFoldedDays);
     }
     return out;
   }
+
+  static final RegExp _dayLabel = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  static bool _isDayLabel(String s) => _dayLabel.hasMatch(s);
 
   /// Stamp the folded-day set into a profile map produced by
   /// `SleepUserProfile.toJson()` (which does not know about this key).

@@ -67,6 +67,35 @@ void main() {
         isFalse,
       );
     });
+
+    test('skipping an override does NOT blacklist the day forever', () {
+      // Declining to fold an override must leave the day eligible: because the
+      // day_id never enters folded_days, removing the override later and
+      // re-deriving folds it normally. Worth pinning — the alternative
+      // (recording it as folded to "remember we skipped it") would silently
+      // exclude that night from the profile for good.
+      const day = '2026-07-31';
+      var folded = <String>{};
+      expect(
+        SleepProfilePolicy.shouldFold(
+            alreadyFolded: folded, dayId: day, hasOverride: true),
+        isFalse,
+      );
+      expect(folded, isEmpty, reason: 'a skipped override records nothing');
+      // user deletes the override, day is re-derived
+      expect(
+        SleepProfilePolicy.shouldFold(
+            alreadyFolded: folded, dayId: day, hasOverride: false),
+        isTrue,
+      );
+      folded = {...SleepProfilePolicy.appendFoldedDay(folded, day)};
+      // ...and still only once thereafter
+      expect(
+        SleepProfilePolicy.shouldFold(
+            alreadyFolded: folded, dayId: day, hasOverride: false),
+        isFalse,
+      );
+    });
   });
 
   group('minimum-nights warm-up gate', () {

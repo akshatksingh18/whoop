@@ -165,6 +165,48 @@ void main() {
     expect(stored, days..sort());
   });
 
+  test('concurrent LEGACY discard: the rebuild loses nothing either', () async {
+    // Specifically the legacy-transition case. The worry is that several lanes
+    // all observe the pre-tracking row at once, each treat it as a cold start,
+    // and each write a fresh profile containing only its own day — so the
+    // rebuild silently drops folds.
+    //
+    // It cannot happen through this method: BEGIN IMMEDIATE serialises the
+    // transactions, so only the FIRST lane sees the legacy row. By the time
+    // the second runs, the row already carries folded_days and is no longer
+    // legacy. Asserting it rather than reasoning about it.
+    await LocalDb.putBaseline('ub_legacy', jsonEncode({'nights': 1348}));
+    final days = [for (var d = 10; d < 25; d++) '2026-07-$d'];
+
+    await Future.wait([
+      for (final day in days)
+        LocalDb.updateBaseline('ub_legacy', (current) {
+          // Mirrors _foldObservationIntoProfile: legacy ⇒ treat as cold start.
+          final map = current == null
+              ? null
+              : (jsonDecode(current) as Map).cast<String, dynamic>();
+          final isLegacy = map != null && map['folded_days'] is! List;
+          final usable = (map == null || isLegacy) ? null : map;
+          final known =
+              ((usable?['folded_days'] as List?) ?? const []).cast<String>();
+          if (known.contains(day)) return null;
+          final nights = (usable?['nights'] as int?) ?? 0;
+          return jsonEncode({
+            'nights': nights + 1,
+            'folded_days': [...known, day]..sort(),
+          });
+        })
+    ]);
+
+    final row = await LocalDb.baseline('ub_legacy');
+    final decoded = jsonDecode(row!['payload_json'] as String) as Map;
+    expect(decoded['nights'], days.length,
+        reason: 'rebuilt from 0, and every lane counted exactly once');
+    expect((decoded['folded_days'] as List).cast<String>(), days..sort(),
+        reason: 'no day_id lost to the legacy-discard transition');
+    expect(decoded['nights'], isNot(1348), reason: 'legacy count discarded');
+  });
+
   test('a throwing transform rolls back and leaves the row intact', () async {
     await LocalDb.putBaseline('ub_throw', '{"v":"keep"}');
     await expectLater(

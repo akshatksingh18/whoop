@@ -224,6 +224,52 @@ void main() {
       expect(total, 2399, reason: 'total equals the truth, not 3598');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
+    test('a PARTIALLY flushed import self-heals on re-import', () async {
+      // Covered-clipping is keyed by TIME SPAN, not by an exact window row, so
+      // a flush interrupted between two runs is recoverable: the run that never
+      // landed is not covered, and the next import banks it. This is why the
+      // flush does not need to be transactional.
+      const t0 = 1785920400;
+      final b = StringBuffer()..writeln(_header);
+      void block(int start, int n, int base) {
+        for (var i = 0; i < n; i++) {
+          b.writeln(_row(start + i, 'hr', hr: '65'));
+          b.writeln(
+              _row(start + i, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'));
+          b.writeln(_row(start + i, 'steps', stepCounter: '${base + i}'));
+        }
+      }
+
+      block(t0, 600, 1000); // run A: 599 steps
+      block(t0 + 1200, 600, 2000); // run B: 599 steps, past the 60 s split
+      final f = File(p.join(tmp.path, 'partial.csv'))
+        ..writeAsStringSync(b.toString());
+
+      final r1 = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(r1.steps, 1198);
+
+      final db = await LocalDb.instance;
+      final cov = await db.query('live_coverage',
+          where: 'start_ts >= ? AND start_ts < ?',
+          whereArgs: [t0, t0 + 2000],
+          orderBy: 'start_ts');
+      expect(cov.length, 2);
+
+      // Simulate a crash after run A was written but before run B.
+      await db.delete('live_coverage',
+          where: 'start_ts = ?', whereArgs: [cov.last['start_ts']]);
+
+      final r2 = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(r2.steps, 599, reason: 'the lost run is re-banked, and only it');
+
+      final after = await db.query('live_coverage',
+          where: 'start_ts >= ? AND start_ts < ?', whereArgs: [t0, t0 + 2000]);
+      final total = after.fold<int>(0, (a, r) => a + (r['steps'] as int));
+      expect(total, 1198, reason: 'back to truth, with no double-count');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
     test('shifted event_kind/event_payload columns do not misparse', () async {
       // `band_sleep_state` at 15 pushes event_* to 16/17. Reading by NAME means
       // hr/gravity/steps still land correctly; a positional reader would not.

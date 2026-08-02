@@ -1,10 +1,31 @@
 // noop_import.dart — import a NOOP raw-sensor CSV export into the local store.
 //
 // The NOOP export is LONG-FORMAT raw 1 Hz: one row per decoded sample, with a
-// `stream` discriminator (hr / rr / gravity / spo2 / skintemp / resp / event) and
-// only that stream's columns filled. Header (line 4):
+// `stream` discriminator and only that stream's columns filled. Columns are read
+// by NAME from the header, never by fixed position — NOOP has already shipped one
+// schema change (see below) and name-keyed reads absorbed it without misparsing.
+//
+// SCHEMA AS SHIPPED (observed 2026-08, NOOP 9.1/9.2 — OpenStrap/edge#160):
 //   unix_s,iso_utc,stream,hr_bpm,rr_ms,grav_x,grav_y,grav_z,step_counter,
-//   ppg_bpm,ppg_conf,spo2_red,spo2_ir,skintemp_raw,resp_raw,event_kind,event_payload
+//   ppg_bpm,ppg_conf,spo2_red,spo2_ir,skintemp_raw,resp_raw,band_sleep_state,
+//   event_kind,event_payload
+// `band_sleep_state` was INSERTED at index 15, shifting event_kind/event_payload
+// to 16/17 (the older documented layout, still in [_defaultCols], ends at
+// event_payload=16). Streams now seen: hr, rr, gravity, skintemp, steps,
+// band_sleep_state, ppghr, event. Note `spo2` and `resp` rows are no longer
+// emitted at all even though their columns survive in the header.
+//
+// WHAT WE CONSUME, AND WHY NOT THE REST:
+//   • hr / rr / gravity / skintemp / spo2 → the Substrate (full 1 Hz analytics).
+//   • steps → `live_coverage` as a REAL step count (see [_flushStepCoverage]).
+//   • band_sleep_state → deliberately ignored. `segmentSleep` is the single sleep
+//     source (a second one would contradict it), and in the real #160 export this
+//     column was constant 0 across all 12,663 rows — no signal to gain.
+//   • ppghr → deliberately ignored. The `hr` stream already covers every second
+//     the export carries, and PPG-derived HR is not trusted as a substitute.
+//   • resp_raw → ignored; respiration rate is derived from RR downstream.
+// An unrecognised future `stream` also lands in the default branch and is skipped
+// safely, so a further NOOP schema change degrades rather than throws.
 //
 // Because this is RAW 1 Hz — the SAME signal family as our own Substrate — we run
 // it through the FULL local pipeline (full-fidelity analytics, identical to a live
@@ -22,17 +43,45 @@ import 'dart:io';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../compute/substrate.dart';
+import '../data/db.dart';
 
 class NoopImportResult {
   final int days;
   final int rows;
+
+  /// Real steps recovered from the export's `step_counter` and banked as
+  /// `live_coverage` (0 when the export carries no `steps` stream).
+  final int steps;
 
   /// Rows whose local date had ALREADY been derived and pruned by the time
   /// they appeared in the file (a genuinely out-of-order export). They cannot
   /// be folded back in, so they are counted here rather than silently dropped
   /// — a non-zero value means the export was not fully time-ordered.
   final int lateRows;
-  NoopImportResult(this.days, this.rows, [this.lateRows = 0]);
+  NoopImportResult(this.days, this.rows,
+      [this.lateRows = 0, this.steps = 0]);
+}
+
+/// One contiguous run of the band's cumulative `step_counter`, ready to bank as
+/// a `live_coverage` row: real steps over a known [startSec]..[endSec] window.
+class StepRun {
+  final int startSec;
+  final int endSec;
+  final int steps;
+  const StepRun(this.startSec, this.endSec, this.steps);
+
+  @override
+  String toString() => 'StepRun($startSec..$endSec, $steps)';
+
+  @override
+  bool operator ==(Object other) =>
+      other is StepRun &&
+      other.startSec == startSec &&
+      other.endSec == endSec &&
+      other.steps == steps;
+
+  @override
+  int get hashCode => Object.hash(startSec, endSec, steps);
 }
 
 /// What to do with an incoming row given the import's high-water date.
@@ -76,9 +125,18 @@ class NoopImporter {
     final rrMs = <double>[];
     String? curDate;
     final derived = <String>{}; // dates already derived + pruned out of `secs`
-    var totalRows = 0, daysDone = 0, lateRows = 0;
+    var totalRows = 0, daysDone = 0, lateRows = 0, stepsBanked = 0;
+
+    // Band step counter, ts(sec) → cumulative value, keyed by local date so a
+    // run is never attributed across midnight. Flushed to `live_coverage`
+    // BEFORE the date derives, since the derivation reads real steps from there.
+    final stepsByDate = <String, Map<int, int>>{};
 
     Future<void> deriveAndPrune(String date) async {
+      // Real steps must be banked BEFORE deriving: _deriveDay reads them via
+      // LocalDb.liveStepsForDay/coverageWindowsOverlapping at derive time.
+      final st = stepsByDate.remove(date);
+      if (st != null) stepsBanked += await _flushStepCoverage(st, date);
       // Build a Substrate from everything buffered (prev + current date) and
       // derive ONLY [date]; calendarDays gives [date] its prior-evening context.
       final sub = _buildSubstrate(secs, rrTs, rrMs);
@@ -182,22 +240,37 @@ class NoopImporter {
         case 'skintemp':
           (secs[ts] ??= _Sec()).skinTemp = int.tryParse(at(f, 'skintemp_raw'));
           break;
-        // resp / event / step / ppg: not part of the Substrate — resp rate is
-        // derived from RR downstream, so resp_raw is intentionally ignored. An
-        // unknown future `stream` value also lands here and is skipped safely.
+        case 'steps':
+          // CUMULATIVE band counter, not a per-second increment — differenced
+          // into real step windows at flush time (see [stepRuns]). Kept out of
+          // the Substrate: it is a real count, not a 1 Hz signal to analyse.
+          final v = int.tryParse(at(f, 'step_counter'));
+          if (v != null && v >= 0) (stepsByDate[date] ??= <int, int>{})[ts] = v;
+          break;
+        // band_sleep_state / ppghr / resp / event: intentionally not consumed —
+        // see the stream inventory in the file header for why each is skipped.
+        // An unknown future `stream` value also lands here and is skipped safely.
         default:
           break;
       }
     }
     // EOF — derive the final buffered date.
     if (curDate != null && secs.isNotEmpty) {
+      final st = stepsByDate.remove(curDate);
+      if (st != null) stepsBanked += await _flushStepCoverage(st, curDate);
       final sub = _buildSubstrate(secs, rrTs, rrMs);
       daysDone += await engine.deriveImportedDays(sub, profile, {curDate});
       onProgress?.call(daysDone);
     }
+    // Any date whose steps were buffered but which never derived (e.g. a date
+    // that carried ONLY a `steps` stream) still banks its real count — dropping
+    // it would silently lose steps the band actually measured.
+    for (final e in stepsByDate.entries) {
+      stepsBanked += await _flushStepCoverage(e.value, e.key);
+    }
 
     await engine.finalizeImport(profile);
-    return NoopImportResult(daysDone, totalRows, lateRows);
+    return NoopImportResult(daysDone, totalRows, lateRows, stepsBanked);
   }
 
   /// Build a Substrate from the buffered seconds + RR beats. Gravity / SpO₂ /
@@ -256,6 +329,115 @@ class NoopImporter {
       skinTemp: skinTemp,
       skinContact: ax.map((_) => 0).toList(),
     );
+  }
+
+  /// Maximum gap (seconds) between consecutive `step_counter` samples that is
+  /// still treated as one continuous run. The #160 export samples steps every
+  /// second, but drops out whenever the band is off-wrist or unsynced; a gap
+  /// wider than this is a hole we know nothing about, so we refuse to span it.
+  static const int stepRunMaxGapSec = 60;
+
+  /// Turn the band's CUMULATIVE `step_counter` samples into discrete
+  /// [StepRun]s that can be banked as real (non-estimated) step counts.
+  ///
+  /// [samples] is ts(sec) → counter value, any order. Runs are split on a gap
+  /// wider than [stepRunMaxGapSec], so a 20 h hole in the export (exactly what
+  /// the #160 file has) never becomes one window claiming to cover the day.
+  ///
+  /// Only POSITIVE deltas within a run are summed: the counter resets to 0 on a
+  /// band reboot, and a negative delta is that reset, not −24,000 steps. Deltas
+  /// ACROSS a run boundary are deliberately NOT counted — we cannot attribute
+  /// steps to a window we have no samples for, and inventing that attribution is
+  /// exactly the kind of fabrication the honesty contract forbids.
+  ///
+  /// A run with zero steps still yields no window: `live_coverage` exists to
+  /// suppress the 1 Hz estimate over minutes the real counter already covered,
+  /// and a 0-step run would suppress a real estimate while contributing nothing.
+  ///
+  /// [covered] lists time spans ALREADY banked in `live_coverage` (device-time
+  /// seconds, inclusive). A per-second delta whose interval intersects one of
+  /// them is skipped and BREAKS the run, so those steps are never banked twice.
+  /// This is what makes a re-import safe in general rather than only for a
+  /// byte-identical file: an exact-window check alone is defeated the moment the
+  /// user exports again over a longer span (09:00-09:20 then 09:00-09:40), where
+  /// the run boundary shifts, no exact window matches, and the overlap is banked
+  /// a second time — measured at 3,598 steps against a true 2,399 before this.
+  /// Clipping is exact, not pro-rated: we hold the counter value at every
+  /// second, so the uncovered sub-intervals are summed from real deltas.
+  /// It also means an imported span cannot double-count against a LIVE 100 Hz
+  /// pedometer window, which shares this table.
+  static List<StepRun> stepRuns(
+    Map<int, int> samples, {
+    List<List<int>> covered = const [],
+  }) {
+    if (samples.isEmpty) return const [];
+    final ts = samples.keys.toList()..sort();
+
+    // Does the half-open delta interval (a, b] touch anything already banked?
+    bool isCovered(int a, int b) {
+      for (final w in covered) {
+        if (b > w[0] && a < w[1]) return true;
+      }
+      return false;
+    }
+
+    final out = <StepRun>[];
+    int? runStart, runLast;
+    var runSteps = 0;
+    void closeRun() {
+      if (runStart != null &&
+          runLast != null &&
+          runSteps > 0 &&
+          runLast! > runStart!) {
+        out.add(StepRun(runStart!, runLast!, runSteps));
+      }
+      runStart = null;
+      runLast = null;
+      runSteps = 0;
+    }
+
+    for (var i = 1; i <= ts.length; i++) {
+      final bankable = i < ts.length &&
+          ts[i] - ts[i - 1] <= stepRunMaxGapSec &&
+          !isCovered(ts[i - 1], ts[i]);
+      if (!bankable) {
+        closeRun();
+        continue;
+      }
+      runStart ??= ts[i - 1];
+      final d = samples[ts[i]]! - samples[ts[i - 1]]!;
+      if (d > 0) runSteps += d;
+      runLast = ts[i];
+    }
+    return out;
+  }
+
+  /// Bank [date]'s step runs into `live_coverage` so the derivation picks them up
+  /// as REAL steps (`liveStepsForDay`) and excludes those minutes from the 1 Hz
+  /// estimate (`coverageWindowsOverlapping`) — the same contract the live 100 Hz
+  /// pedometer uses, so imported and live days are counted identically.
+  ///
+  /// IDEMPOTENT BY TIME SPAN, not by exact window: `live_coverage` is an
+  /// append-only SUM with no uniqueness constraint, so anything already banked
+  /// over a second must not be banked again. The spans covering this batch are
+  /// read back and passed to [stepRuns], which clips them out. An exact-window
+  /// check is deliberately NOT used — it only catches a byte-identical
+  /// re-import and silently double-counts the overlap when the user exports
+  /// again over a longer span (see the note on [stepRuns]).
+  ///
+  /// Returns the steps actually banked (0 when the span was fully covered).
+  static Future<int> _flushStepCoverage(
+      Map<int, int> stepSamples, String date) async {
+    if (stepSamples.isEmpty) return 0;
+    final ts = stepSamples.keys.toList()..sort();
+    final existing =
+        await LocalDb.coverageWindowsOverlapping(ts.first, ts.last + 1);
+    var banked = 0;
+    for (final r in stepRuns(stepSamples, covered: existing)) {
+      await LocalDb.addLiveCoverage(r.startSec, r.endSec, r.steps, date);
+      banked += r.steps;
+    }
+    return banked;
   }
 
   /// String date compare 'YYYY-MM-DD' — true when [a] is strictly after [b].

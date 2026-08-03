@@ -126,6 +126,18 @@ class DeviceState {
   String? serial;
   double? batteryPct;
   bool? charging;
+
+  /// Strap timestamp (unix sec) of the chargingOn/chargingOff EVENT that last
+  /// set [charging] — null when unknown.
+  ///
+  /// [charging] alone cannot distinguish "the puck just went on" from "the strap
+  /// replayed a chargingOn out of its flash backlog hours later" (see
+  /// charge_alert_policy.dart). It is deliberately kept beside the flag rather
+  /// than folded into it: the flag is still the LATEST KNOWN charging state and
+  /// the UI should show it, while anything that treats the transition as a live
+  /// event (notifications) has to check the age first.
+  int? chargingTs;
+
   bool? wristOn;
   int? liveHr; // latest live HR from the foreground stream
   int? liveHrAt; // epoch ms

@@ -62,6 +62,13 @@ class HealthExporter {
         HealthDataType.HEART_RATE,
         HealthDataType.ACTIVE_ENERGY_BURNED,
         HealthDataType.BASAL_ENERGY_BURNED,
+        // STEPS is listed for DELETION ONLY — we no longer write steps (see the
+        // block further down for why). Keeping it here means the per-day delete
+        // pass below actively PURGES the fabricated step samples we wrote into
+        // Apple Health / Health Connect in earlier versions, instead of leaving
+        // them contaminating the system store forever. Deleting our own samples
+        // is a write-scope operation, which is why WRITE_STEPS stays in the
+        // Android manifest even though nothing writes steps any more.
         HealthDataType.STEPS,
         HealthDataType.SLEEP_DEEP,
         HealthDataType.SLEEP_REM,
@@ -497,21 +504,22 @@ class HealthExporter {
       }
     }
 
-    // Steps (24/7 estimate) over the whole day.
-    final steps = sc('steps');
-    if (steps != null && steps > 0) {
-      try {
-        await _health.writeHealthData(
-            value: steps.toDouble(),
-            type: HealthDataType.STEPS,
-            startTime: dayStart,
-            endTime: dayEnd,
-            unit: HealthDataUnit.COUNT);
-      } catch (e) {
-        debugPrint('[health] write steps: $e');
-        success = false;
-      }
-    }
+    // STEPS ARE DELIBERATELY NOT EXPORTED.
+    //
+    // We used to write `scalars.steps` here as a plain HealthDataType.STEPS
+    // sample. Two reasons that had to stop:
+    //
+    //   1. The value was a 1 Hz fabrication (active minutes x an assumed
+    //      cadence) — measured at 2,645 against a true count under 400.
+    //   2. Even now that `steps` is real-pedometer-only, exporting it is
+    //      wrong: on iOS the phone ALREADY writes its own pedometer steps to
+    //      HealthKit, and we now READ those (see PhonePedometer). Writing our
+    //      derived copy back would double-count into the system store and
+    //      then feed our own number back to us on the next read.
+    //
+    // The "estimate" qualifier every in-app surface carries is also lost the
+    // moment a sample lands in Apple Health as a bare STEPS count, so a wrong
+    // number here contaminates every other app on the device.
 
     // Sleep stages from the per-segment hypnogram (real time ranges).
     final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];

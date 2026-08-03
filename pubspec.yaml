@@ -68,7 +68,22 @@ dependencies:
       # DREAMT-optimal values under-called REM badly on real WHOOP data.
       # Verified present: `git show <sha>:lib/src/onehz/sleep/cardio_stager.dart
       #   | grep -E 'classifyCardioEpochs|_remScoreCut = 0.5'`.
-      ref: f0d115308aa5e9e3c82ee113c3d52e59756121d4
+      #
+      # ⚠️ TEMPORARY PR PIN — points at the HEAD of OpenStrap/analytics#35, NOT
+      # at main. This edge branch calls `dailyActiveMinutes`,
+      # `shouldRefreezeFloor` and `enrollmentDaysForFrozenFloor`, none of which
+      # exist on analytics main yet, so pinning main here would fail to COMPILE
+      # in CI (the exact drift class that shipped broken v42/v43 builds).
+      #
+      # RE-PIN TO THE analytics MAIN SHA BEFORE MERGING THIS PR.
+      #
+      # analytics#35 deletes the 1 Hz step estimate (`dailyStepEstimate` ->
+      # `dailyActiveMinutes`: movement minutes only, no steps, no cadence),
+      # removes the proven-dead HR gate and x3 ceiling, and adds the frozen-floor
+      # policy this branch consumes.
+      # Verified present: `git show <sha>:lib/src/onehz/motion/steps.dart
+      #   | grep -E 'dailyActiveMinutes|shouldRefreezeFloor'`.
+      ref: 00a2efef57ffdf37c08b6f9255f136e559c2b7ae
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

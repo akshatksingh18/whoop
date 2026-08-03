@@ -203,14 +203,28 @@ void main() {
           reason: 'Mifflin BMR needs real anthropometrics');
     });
 
-    test('steps still compute without a profile (data-derived, not imputed)',
+    test('a day with no gait-capable source has NO step count at all',
         () async {
-      // `dailyStepEstimate` falls back to the day's own 10th-percentile HR when
-      // no resting HR is known — that is derived from the data, so abstaining
-      // would be over-correction.
+      // This test used to assert the opposite ("steps still compute without a
+      // profile"), and it passed only because the old code persisted a hard
+      // 0.0 for an abstaining estimator — a fabricated measurement dressed as
+      // data. There is no `live_coverage` row in this fixture, so nothing that
+      // can resolve gait measured this day, so the honest output is nothing.
+      //
+      // A 1 Hz wrist stream cannot count steps: gait is sub-Nyquist there, and
+      // wrist amplitude ranks arm work above walking. See kAlgoVersion v55.
       final got = await deriveWith(const Profile(), '2026-04-11',
           DateTime(2026, 4, 11).millisecondsSinceEpoch ~/ 1000);
-      expect(got['steps'], isNotNull);
+      expect(got['steps'], isNull,
+          reason: 'no real pedometer covered this day — absent, not zero');
+
+      // ...and it must be ABSENT, not a zero sitting in the series where it
+      // would drag every average and "most steps" record down.
+      expect(await LocalDb.metricValueOn('2026-04-11', 'steps'), isNull);
+
+      // Movement minutes are still computable from 1 Hz and are unaffected.
+      expect(got.containsKey('steps'), isTrue,
+          reason: 'the key may exist; its VALUE must be null');
     });
 
     test('a real profile still produces strain and calories', () async {

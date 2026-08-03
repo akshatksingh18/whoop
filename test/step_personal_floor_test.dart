@@ -38,7 +38,7 @@ void main() {
       final floor = ana.personalDynFloorFromDailySummaries(const []);
       expect(floor, isNull);
 
-      final est = ana.dailyStepEstimate(
+      final est = ana.dailyActiveMinutes(
         rows(List<double>.filled(600, 0.60)), // plenty of real movement
         personalDynFloorG: floor,
       );
@@ -58,7 +58,7 @@ void main() {
       final floor = ana.personalDynFloorFromDailySummaries(enough);
       expect(floor, isNotNull);
 
-      final est = ana.dailyStepEstimate(
+      final est = ana.dailyActiveMinutes(
         rows(List<double>.filled(600, 0.60)),
         personalDynFloorG: floor,
       );
@@ -74,13 +74,13 @@ void main() {
       // to inflate — it must now yield nothing.
       final floor =
           ana.personalDynFloorFromDailySummaries(List<double>.filled(7, 0.44))!;
-      final est = ana.dailyStepEstimate(
+      final est = ana.dailyActiveMinutes(
         rows(List<double>.filled(900, 0.02)), // sedentary dynamic amplitude
         personalDynFloorG: floor,
       );
       expect(est.present, isTrue);
       expect(est.value!.activeMinutes, 0);
-      expect(est.value!.steps, 0);
+      expect(est.value!.boutCount, 0);
     });
 
     test('one anomalous day cannot drag the floor (median across days)', () {
@@ -100,7 +100,7 @@ void main() {
       final floor = ana.personalDynFloorFromDailySummaries(withQuietDay)!;
       expect(floor, greaterThan(0.4));
 
-      final est = ana.dailyStepEstimate(
+      final est = ana.dailyActiveMinutes(
         rows(List<double>.filled(900, 0.02)),
         personalDynFloorG: floor,
       );

@@ -1094,8 +1094,56 @@ class _HealthSection extends StatelessWidget {
             const SizedBox(height: Sp.x3),
             _statusRow(context, st, store),
           ],
+          const SizedBox(height: Sp.x3),
+          Divider(height: 1, thickness: 1, color: AppColors.divider),
+          const SizedBox(height: Sp.x3),
+          _phoneStepsRow(context, store),
         ],
       ),
+    );
+  }
+
+  /// Read the phone's own step counts from the health store.
+  ///
+  /// This is the ONLY source of real all-day steps. The band is on the wrist
+  /// and its 24/7 stream is 1 Hz, where walking is physically unresolvable —
+  /// so without this, most days simply have no step count, which is the honest
+  /// outcome but not a useful one.
+  Widget _phoneStepsRow(BuildContext context, String store) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Use phone step count'),
+              const SizedBox(height: 1),
+              Text(
+                'Your band is on your wrist and can’t reliably count steps. '
+                'Your phone already counts them — read them from $store. '
+                'Stays on your device.',
+                style: AppText.captionMuted,
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: app.phoneStepsEnabled,
+          activeThumbColor: AppColors.accent,
+          onChanged: (v) async {
+            if (!v) {
+              await app.disablePhoneSteps();
+              return;
+            }
+            final ok = await app.requestPhoneSteps();
+            if (!ok && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$store didn’t grant step access.')),
+              );
+            }
+          },
+        ),
+      ],
     );
   }
 

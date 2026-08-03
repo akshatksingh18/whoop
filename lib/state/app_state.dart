@@ -52,6 +52,7 @@ import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/health_export.dart';
+import '../health/phone_pedometer.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
@@ -229,6 +230,10 @@ class AppState extends ChangeNotifier {
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
+    // Steps only exist if a real pedometer measured them, so pull the phone's
+    // counts early — before the first derive sweep reads `live_coverage`.
+    if (phoneStepsEnabled) unawaited(syncPhoneSteps());
     // Best-effort, no prompt: learn the current health-permission state so the
     // Profile toggle reflects reality on open.
     if (healthSyncEnabled) unawaited(checkHealth());
@@ -387,7 +392,64 @@ class AppState extends ChangeNotifier {
   /// Export all finalized-but-unexported days now. Returns days written.
   Future<int> healthSyncNow() async {
     final n = await _healthExport.exportAll();
+    unawaited(syncPhoneSteps());
     return n;
+  }
+
+  // ── phone pedometer (the ONLY source of real 24/7 step counts) ─────────────
+  final PhonePedometer _phonePedometer = PhonePedometer();
+  bool phoneStepsEnabled = false;
+  static const String _kPhoneSteps = 'phone_steps';
+
+  /// Ask for READ access to the phone's own step counts (user gesture).
+  ///
+  /// The band cannot count steps: it is on the wrist, and its 24/7 stream is
+  /// 1 Hz, where gait is sub-Nyquist. The phone rides in a pocket and already
+  /// counts steps continuously into the on-device health store — this reads
+  /// them. Nothing is uploaded and nothing is written back.
+  Future<bool> requestPhoneSteps() async {
+    final ok = await _phonePedometer.requestPermission();
+    phoneStepsEnabled = ok;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPhoneSteps, ok);
+    notifyListeners();
+    if (ok) unawaited(syncPhoneSteps());
+    return ok;
+  }
+
+  /// Turn phone steps off and DROP the counts we pulled.
+  ///
+  /// Leaving the rows behind would keep serving phone-sourced steps from a
+  /// source the user just switched off, and `liveStepsForDay` prefers phone
+  /// rows over band rows — so a stale row would keep overriding the band
+  /// indefinitely. Revoking the platform permission is the user's to do in
+  /// Settings; all we can do is stop reading and forget what we read.
+  Future<void> disablePhoneSteps() async {
+    phoneStepsEnabled = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPhoneSteps, false);
+    try {
+      await LocalDb.clearPhoneCoverage();
+    } catch (e) {
+      debugPrint('[phone_steps] clear: $e');
+    }
+    notifyListeners();
+  }
+
+  /// Pull the last [days] days of phone step counts into `live_coverage`.
+  ///
+  /// Idempotent (delete-then-insert per day, scoped to the phone source), so
+  /// calling it repeatedly — on launch, after a sync, from a background pass —
+  /// can never accumulate. Best-effort; never throws.
+  Future<int> syncPhoneSteps({int days = 7}) async {
+    try {
+      final n = await _phonePedometer.syncRecent(days: days);
+      if (n > 0) notifyListeners();
+      return n;
+    } catch (e) {
+      debugPrint('[phone_steps] sync: $e');
+      return 0;
+    }
   }
 
   /// Session-triggered Health export for one just-finished workout (issue

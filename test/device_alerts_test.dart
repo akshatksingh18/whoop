@@ -335,6 +335,30 @@ void main() {
       expect(sink.countOf(NotificationService.idCharging), 1);
     });
 
+    test('an untimed announce clears the identity high-water', () async {
+      // A session announced with no usable clock has no identity of its own.
+      // Keeping the previous high-water would let it judge a session it knows
+      // nothing about and silently swallow a real confirmation.
+      // A session announced two hours ago, whose strap timestamp landed at the
+      // top of the allowed slightly-ahead-of-phone tolerance.
+      store.values[DeviceAlerts.debugLastChargeTsKey] = tsAged(-240);
+      store.values[DeviceAlerts.debugLastChargeWallKey] = tsAged(2 * 3600);
+
+      // RTC lost → announced via the untimed path (past the untimed cooldown).
+      final untimed = alerts();
+      untimed.onDeviceState(charging: true, chargingTs: 0);
+      await untimed.settled;
+      expect(sink.countOf(NotificationService.idCharging), 1);
+      expect(store.values[DeviceAlerts.debugLastChargeTsKey], 0);
+
+      // RTC restored. This session is genuinely new, but its timestamp is BELOW
+      // the old high-water, so an uncleared identity check would suppress it.
+      final restored = alerts();
+      restored.onDeviceState(charging: true, chargingTs: tsAged(5));
+      await restored.settled;
+      expect(sink.countOf(NotificationService.idCharging), 2);
+    });
+
     test('a broken store never re-announces the same session', () async {
       // Persistence is dead, so only the in-process latches stand between the
       // strap's re-sends and a repeat. They must be committed before the I/O

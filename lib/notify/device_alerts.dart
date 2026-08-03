@@ -86,7 +86,19 @@ class DeviceAlerts {
 
   static const String _kLastChargeTs = 'device_alerts.last_charge_event_ts';
   static const String _kLastChargeWall = 'device_alerts.last_charge_wall_sec';
+
+  /// Note the asymmetry if the store is ever unavailable: the charging alert
+  /// still has the recency window as a second line of defence, but a battery
+  /// percentage carries no timestamp, so low-battery has only this key. With a
+  /// dead store it degrades to the pre-#179 behaviour (re-armed per process),
+  /// which is the right way to fail — there is no way to remember a latch
+  /// without somewhere to remember it.
   static const String _kLowArmed = 'device_alerts.low_armed';
+
+  @visibleForTesting
+  static const String debugLastChargeTsKey = _kLastChargeTs;
+  @visibleForTesting
+  static const String debugLastChargeWallKey = _kLastChargeWall;
 
   bool _lowArmed = true; // may we raise a low-battery alert?
   bool? _wasCharging; // previous charging state (null = not seen yet)
@@ -130,7 +142,8 @@ class DeviceAlerts {
       // half — wall set, event ts null, which would disable the identity check
       // — is already unreachable; keeping the invariant local means it stays
       // unreachable if someone reorders the reads.)
-      _lastAnnouncedEventTs = eventTs;
+      // 0 is the "cleared" sentinel written by an untimed announcement.
+      _lastAnnouncedEventTs = (eventTs != null && eventTs > 0) ? eventTs : null;
       _lastAnnouncedWallSec = wallSec;
       if (armed != null) _lowArmed = armed != 0;
     } catch (_) {
@@ -215,6 +228,17 @@ class DeviceAlerts {
       if (ChargeAlertPolicy.timestampUsable(chargingTs, wallNowSec: nowSec)) {
         _lastAnnouncedEventTs = chargingTs;
         persistEventTs = chargingTs;
+      } else {
+        // Announced without a usable clock, so we have no identity for THIS
+        // session. Leaving the previous high-water in place would let it judge a
+        // session it knows nothing about: the next usable timestamp that happens
+        // to fall at or below it gets suppressed, and the user silently loses a
+        // real "on the charger" confirmation. Clear it (0 = none; every real
+        // strap timestamp is far above it) so only the wall-clock cooldown
+        // guards this path — which is exactly what the untimed branch of
+        // ChargeAlertPolicy assumes.
+        _lastAnnouncedEventTs = null;
+        persistEventTs = 0;
       }
     }
     // Tracks the LATEST KNOWN charging state, including from events too stale to

@@ -56,6 +56,25 @@ class _FakeStore implements DeviceAlertStore {
   Future<void> writeInt(String key, int value) async => values[key] = value;
 }
 
+/// A sink whose presentation always fails — the platform plugin unavailable in
+/// a headless wake. Counts attempts so a stuck latch shows up as a retry storm.
+class _ThrowingSink implements DeviceAlertSink {
+  int attempts = 0;
+
+  @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    attempts++;
+    throw StateError('unavailable');
+  }
+
+  @override
+  Future<void> cancel(int id) async {}
+}
+
 /// A store whose reads always fail — e.g. SharedPreferences unavailable during a
 /// headless wake. Alerts must degrade to "no persisted history", not stop.
 class _ThrowingStore implements DeviceAlertStore {
@@ -109,6 +128,15 @@ void main() {
       expect(verdict(eventTs: now - 30367), ChargeAlertVerdict.stale);
     });
 
+    test('a replay older than a day is still stale, not "cannot tell"', () {
+      // Regression: an earlier draft capped usability at 24 h (mirroring
+      // GestureDispatcher), which sent a multi-day-old event down the UNTIMED
+      // path — where it announced. The strap banks days of data, so an old
+      // plausible timestamp is a real old event, not a broken clock.
+      expect(verdict(eventTs: now - 2 * 86400), ChargeAlertVerdict.stale);
+      expect(verdict(eventTs: now - 7 * 86400), ChargeAlertVerdict.stale);
+    });
+
     test('already charging suppresses regardless of timestamp', () {
       expect(verdict(eventTs: now, wasCharging: true),
           ChargeAlertVerdict.alreadyCharging);
@@ -150,12 +178,9 @@ void main() {
           ChargeAlertVerdict.announce);
     });
 
-    test('timestampUsable rejects unset, ancient and far-future clocks', () {
+    test('timestampUsable rejects unset and far-future clocks', () {
       expect(ChargeAlertPolicy.timestampUsable(null, wallNowSec: now), isFalse);
       expect(ChargeAlertPolicy.timestampUsable(42, wallNowSec: now), isFalse);
-      expect(
-          ChargeAlertPolicy.timestampUsable(now - 200000, wallNowSec: now),
-          isFalse);
       expect(
           ChargeAlertPolicy.timestampUsable(now + 99999, wallNowSec: now),
           isFalse);
@@ -164,6 +189,17 @@ void main() {
       // Inside the tolerance for a strap clock running slightly fast.
       expect(ChargeAlertPolicy.timestampUsable(now + 60, wallNowSec: now),
           isTrue);
+      // Old but plausible is USABLE (and therefore judged stale, not guessed at).
+      expect(ChargeAlertPolicy.timestampUsable(now - 200000, wallNowSec: now),
+          isTrue);
+    });
+
+    test('isStale only judges timestamps it can trust', () {
+      expect(ChargeAlertPolicy.isStale(now - 3600, wallNowSec: now), isTrue);
+      expect(ChargeAlertPolicy.isStale(now - 60, wallNowSec: now), isFalse);
+      // Unset RTC → no opinion, so callers fall back rather than act on a guess.
+      expect(ChargeAlertPolicy.isStale(42, wallNowSec: now), isFalse);
+      expect(ChargeAlertPolicy.isStale(null, wallNowSec: now), isFalse);
     });
   });
 
@@ -265,6 +301,53 @@ void main() {
       expect(sink.countOf(NotificationService.idCharging), 1);
     });
 
+    test('a replayed chargingOff does not clear a live Charging card',
+        () async {
+      final a = alerts();
+      a.onDeviceState(charging: true, chargingTs: tsAged(3));
+      await a.settled;
+      expect(sink.countOf(NotificationService.idCharging), 1);
+
+      // The strap replays a chargingOff from a PREVIOUS session while the band
+      // is genuinely on the charger right now.
+      a.onDeviceState(charging: false, chargingTs: tsAged(9 * 3600));
+      await a.settled;
+      expect(sink.cancelled, isNot(contains(NotificationService.idCharging)));
+
+      // The real removal still clears it.
+      a.onDeviceState(charging: false, chargingTs: tsAged(2));
+      await a.settled;
+      expect(sink.cancelled, contains(NotificationService.idCharging));
+    });
+
+    test('a stale on/off pair does not swallow the next genuine plug-in',
+        () async {
+      final a = alerts();
+      // Whole backlogged charge session replayed at once — neither announces.
+      a.onDeviceState(charging: true, chargingTs: tsAged(9 * 3600));
+      a.onDeviceState(charging: false, chargingTs: tsAged(8 * 3600));
+      await a.settled;
+      expect(sink.countOf(NotificationService.idCharging), 0);
+
+      // The band really goes on the charger now.
+      a.onDeviceState(charging: true, chargingTs: tsAged(2));
+      await a.settled;
+      expect(sink.countOf(NotificationService.idCharging), 1);
+    });
+
+    test('a broken store never re-announces the same session', () async {
+      // Persistence is dead, so only the in-process latches stand between the
+      // strap's re-sends and a repeat. They must be committed before the I/O
+      // that throws (AGENTS.md 4.3).
+      final a = DeviceAlerts(sink: sink, store: _ThrowingStore());
+      final ts = tsAged(3);
+      for (var i = 0; i < 4; i++) {
+        a.onDeviceState(charging: true, chargingTs: ts);
+        await a.settled;
+      }
+      expect(sink.countOf(NotificationService.idCharging), 1);
+    });
+
     test('a broken store degrades to working alerts, not silence', () async {
       // The restore future is memoised, so a failure that escaped would be
       // re-thrown on every later update and kill alerts for the whole process.
@@ -351,6 +434,19 @@ void main() {
       a.onDeviceState(batteryPct: 12, charging: false, chargingTs: tsAged(1));
       await a.settled;
       expect(sink.countOf(NotificationService.idLowBattery), 2);
+    });
+
+    test('a failing sink does not leave the low latch stuck armed', () async {
+      // AGENTS.md 4.3: the disarm used to happen after the show, so a throwing
+      // sink meant _lowArmed stayed true and the alert was retried on every
+      // single update — an alert storm behind a swallowed error.
+      final failing = _ThrowingSink();
+      final a = DeviceAlerts(sink: failing, store: store);
+      for (var i = 0; i < 3; i++) {
+        a.onDeviceState(batteryPct: 12);
+        await a.settled;
+      }
+      expect(failing.attempts, 1);
     });
 
     test('a replayed plug-in does not re-arm the low alert', () async {

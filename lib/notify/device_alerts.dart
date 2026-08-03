@@ -90,6 +90,7 @@ class DeviceAlerts {
 
   bool _lowArmed = true; // may we raise a low-battery alert?
   bool? _wasCharging; // previous charging state (null = not seen yet)
+  bool _cancelledForOff = false; // already cleared the card for this off-state
   int? _lastAnnouncedEventTs; // strap ts of the last announced charge session
   int? _lastAnnouncedWallSec; // wall time of that announcement
 
@@ -121,17 +122,21 @@ class DeviceAlerts {
   /// defaults costs at most one duplicate announcement.
   Future<void> _restore() async {
     try {
-      _lastAnnouncedEventTs = await _store.readInt(_kLastChargeTs);
-      _lastAnnouncedWallSec = await _store.readInt(_kLastChargeWall);
+      final eventTs = await _store.readInt(_kLastChargeTs);
+      final wallSec = await _store.readInt(_kLastChargeWall);
       final armed = await _store.readInt(_kLowArmed);
+      // Assigned together so the identity pair is never half-applied by a read
+      // that throws part-way. (With the read order above the dangerous
+      // half — wall set, event ts null, which would disable the identity check
+      // — is already unreachable; keeping the invariant local means it stays
+      // unreachable if someone reorders the reads.)
+      _lastAnnouncedEventTs = eventTs;
+      _lastAnnouncedWallSec = wallSec;
       if (armed != null) _lowArmed = armed != 0;
-    } catch (_) {}
-  }
-
-  Future<void> _setLowArmed(bool armed) async {
-    if (_lowArmed == armed) return;
-    _lowArmed = armed;
-    await _store.writeInt(_kLowArmed, armed ? 1 : 0);
+    } catch (_) {
+      _lastAnnouncedEventTs = null;
+      _lastAnnouncedWallSec = null;
+    }
   }
 
   /// Call with the latest device state. Cheap and safe to call on every update.
@@ -162,52 +167,100 @@ class DeviceAlerts {
     required int? chargingTs,
     required int nowSec,
   }) async {
+    // ── DECIDE ────────────────────────────────────────────────────────────────
+    // Every latch is committed BEFORE the first await. AGENTS.md §4.3 ("sticky
+    // boolean latches never reset on the failure path") is the exact hazard: a
+    // flag written after an await is a flag a throwing sink or store leaves
+    // un-written, and onDeviceState's catchError makes that silent — the alert
+    // then re-fires on the very next update, which is the bug this file exists
+    // to prevent. Nothing below reads the results of the I/O, so deciding first
+    // costs nothing.
+
     // Charger removed → clear the "Charging" card. It is a STATE claim, so
     // leaving it in the tray after the puck comes off is wrong on its own; it
     // also re-arms `onlyAlertOnce`, which only suppresses re-alerting while a
     // notification with that id is still showing.
-    if (charging == false && _wasCharging != false) {
-      await _notes.cancel(NotificationService.idCharging);
-    }
+    //
+    // A STALE chargingOff must not clear it: the strap replays old events, so a
+    // chargingOff from a previous session can arrive while the band is genuinely
+    // on the charger right now, and cancelling then would hide a card that is
+    // telling the truth.
+    //
+    // The "already cancelled" latch is separate from [_wasCharging] on purpose.
+    // Keying the cancel off the charging TRANSITION looks equivalent and isn't:
+    // a stale chargingOff still has to update _wasCharging (it is the latest
+    // known state), which consumes the transition, and the real removal that
+    // follows would then find nothing to act on and leave the card stranded.
+    final cancelChargingCard = charging == false &&
+        !_cancelledForOff &&
+        !ChargeAlertPolicy.isStale(chargingTs, wallNowSec: nowSec);
+    if (cancelChargingCard) _cancelledForOff = true;
+    // Any chargingOn — even one too stale to announce — means a card may exist
+    // again, so the next removal must be free to clear it.
+    if (charging == true) _cancelledForOff = false;
 
-    if (charging == true) {
-      final verdict = ChargeAlertPolicy.evaluate(
-        eventTsEpoch: chargingTs,
-        wallNowSec: nowSec,
-        wasCharging: _wasCharging,
-        lastAnnouncedEventTs: _lastAnnouncedEventTs,
-        lastAnnouncedWallSec: _lastAnnouncedWallSec,
-      );
-      if (verdict == ChargeAlertVerdict.announce) {
-        await _notes.show(
-          id: NotificationService.idCharging,
-          title: 'Charging',
-          body: 'Your band is on the charger.',
-        );
-        _lastAnnouncedWallSec = nowSec;
-        await _store.writeInt(_kLastChargeWall, nowSec);
-        if (ChargeAlertPolicy.timestampUsable(chargingTs, wallNowSec: nowSec)) {
-          _lastAnnouncedEventTs = chargingTs;
-          await _store.writeInt(_kLastChargeTs, chargingTs!);
-        }
-        // A real plug-in clears any stale low alert and re-arms the next drain.
-        await _notes.cancel(NotificationService.idLowBattery);
-        await _setLowArmed(true);
+    final announce = charging == true &&
+        ChargeAlertPolicy.evaluate(
+              eventTsEpoch: chargingTs,
+              wallNowSec: nowSec,
+              wasCharging: _wasCharging,
+              lastAnnouncedEventTs: _lastAnnouncedEventTs,
+              lastAnnouncedWallSec: _lastAnnouncedWallSec,
+            ) ==
+            ChargeAlertVerdict.announce;
+
+    int? persistEventTs;
+    if (announce) {
+      _lastAnnouncedWallSec = nowSec;
+      if (ChargeAlertPolicy.timestampUsable(chargingTs, wallNowSec: nowSec)) {
+        _lastAnnouncedEventTs = chargingTs;
+        persistEventTs = chargingTs;
       }
     }
+    // Tracks the LATEST KNOWN charging state, including from events too stale to
+    // announce — otherwise a stale on/off pair would leave us believing we are
+    // still charging and swallow the next genuine plug-in as `alreadyCharging`.
     if (charging != null) _wasCharging = charging;
 
-    if (batteryPct == null) return;
-    if (batteryPct >= _rearmPct) {
-      await _setLowArmed(true); // recovered → arm for next time
+    // Low-battery hysteresis, same precedence as before: a real plug-in re-arms
+    // the next drain, so does a battery that recovered past the ceiling.
+    var lowArmed = _lowArmed;
+    if (announce) lowArmed = true;
+    if (batteryPct != null && batteryPct >= _rearmPct) lowArmed = true;
+    final fireLow = batteryPct != null &&
+        charging != true &&
+        batteryPct < _lowPct &&
+        lowArmed;
+    if (fireLow) lowArmed = false;
+    final lowArmedChanged = lowArmed != _lowArmed;
+    _lowArmed = lowArmed;
+
+    // ── ACT ───────────────────────────────────────────────────────────────────
+    if (cancelChargingCard) {
+      await _notes.cancel(NotificationService.idCharging);
     }
-    if (charging != true && batteryPct < _lowPct && _lowArmed) {
+    if (announce) {
+      await _notes.show(
+        id: NotificationService.idCharging,
+        title: 'Charging',
+        body: 'Your band is on the charger.',
+      );
+      await _store.writeInt(_kLastChargeWall, nowSec);
+      if (persistEventTs != null) {
+        await _store.writeInt(_kLastChargeTs, persistEventTs);
+      }
+      // A real plug-in clears any stale low alert.
+      await _notes.cancel(NotificationService.idLowBattery);
+    }
+    if (fireLow) {
       await _notes.show(
         id: NotificationService.idLowBattery,
         title: 'Low battery',
         body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
       );
-      await _setLowArmed(false);
+    }
+    if (lowArmedChanged) {
+      await _store.writeInt(_kLowArmed, lowArmed ? 1 : 0);
     }
   }
 }

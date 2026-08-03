@@ -30,6 +30,8 @@
 // Pure and synchronous: the caller owns the clock, the persisted values and the
 // notification plugin. See device_alerts.dart for the wiring.
 
+import '../sync/sync_policy.dart' show kMinPlausibleUnix;
+
 /// Why a charging event did (or did not) raise an alert. Returned instead of a
 /// bare bool so the caller can log the reason — the failure this fixes was
 /// invisible in logs precisely because nothing recorded WHY a notification
@@ -70,19 +72,25 @@ class ChargeAlertPolicy {
   /// exact replays are caught by the identity check below, not by this one.
   static const int liveWindowSec = 900; // 15 min
 
-  /// Above this age a timestamp is not evidence of anything — the strap ships
-  /// with its RTC unset and can wander before SET_CLOCK lands. We refuse to
-  /// judge staleness from it (mirrors GestureDispatcher's `_plausibleAgeCapSec`)
-  /// and fall back to the untimed path.
-  static const int implausibleAgeSec = 86400;
-
-  /// Below this a strap timestamp is clearly a wrong/unset RTC rather than a
-  /// real unix time — the same plausible-unix floor the sync clock policies use.
-  static const int plausibleUnixFloor = 1700000000;
-
   /// Tolerance for a strap clock that reads slightly AHEAD of the phone. Inside
   /// this the event is still "now"; beyond it the timestamp is not usable.
   static const int futureSlackSec = 300;
+
+  /// NOTE — there is deliberately NO upper age bound on usability.
+  ///
+  /// An earlier draft mirrored GestureDispatcher's 24 h `_plausibleAgeCapSec`,
+  /// treating anything older as "can't tell → allow". That is right for a tap
+  /// (whose backlog is bounded) and wrong here: the strap banks days of data, so
+  /// a two-day-old chargingOn is a REAL old event, not a broken clock — and
+  /// routing it to the untimed path made it announce, reintroducing the exact
+  /// bug at a longer horizon. An unset RTC reads near zero and is caught by
+  /// [kMinPlausibleUnix]; a plausible-but-old timestamp is simply [stale].
+  ///
+  /// The residual risk is a strap clock that drifts backwards by more than
+  /// [liveWindowSec] without falling under the floor: its charging events would
+  /// all read as stale and stop notifying. That needs ~15 min of drift, against
+  /// a 32768 Hz RTC that is re-set on every connect, and it fails in the quiet
+  /// direction rather than the spamming one.
 
   /// Minimum gap between alerts when the event carries no usable timestamp, so
   /// an unset-RTC strap can't buzz on every reconnect.
@@ -101,11 +109,16 @@ class ChargeAlertPolicy {
 
   /// Whether [tsEpoch] can be trusted as a real strap wall-clock reading.
   static bool timestampUsable(int? tsEpoch, {required int wallNowSec}) {
-    if (tsEpoch == null || tsEpoch < plausibleUnixFloor) return false;
-    final age = wallNowSec - tsEpoch;
-    if (age < -futureSlackSec) return false; // strap clock ahead of the phone
-    return age < implausibleAgeSec;
+    if (tsEpoch == null || tsEpoch < kMinPlausibleUnix) return false;
+    return wallNowSec - tsEpoch >= -futureSlackSec; // not ahead of the phone
   }
+
+  /// Whether [tsEpoch] describes an event old enough to be backlog rather than
+  /// news. False when the timestamp is unusable — we don't guess from a clock we
+  /// don't trust.
+  static bool isStale(int? tsEpoch, {required int wallNowSec}) =>
+      timestampUsable(tsEpoch, wallNowSec: wallNowSec) &&
+      wallNowSec - tsEpoch! > liveWindowSec;
 
   /// Decide whether a chargingOn edge should raise a notification.
   ///
@@ -134,7 +147,7 @@ class ChargeAlertPolicy {
     }
 
     final ts = eventTsEpoch!;
-    if (wallNowSec - ts > liveWindowSec) return ChargeAlertVerdict.stale;
+    if (isStale(ts, wallNowSec: wallNowSec)) return ChargeAlertVerdict.stale;
 
     final identityLive = lastAnnouncedWallSec == null ||
         wallNowSec - lastAnnouncedWallSec <= identityExpirySec;

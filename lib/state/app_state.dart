@@ -2188,7 +2188,11 @@ class AppState extends ChangeNotifier {
 
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
-    _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
+    _deviceAlerts.onDeviceState(
+      batteryPct: s.batteryPct,
+      charging: s.charging,
+      chargingTs: s.chargingTs,
+    );
     final roundedPct = s.batteryPct?.round();
     if (roundedPct != _storedBatteryPct ||
         s.charging != _storedBatteryCharging ||

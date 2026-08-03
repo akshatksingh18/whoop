@@ -1965,6 +1965,12 @@ class BleEngine {
     }
     if (f.containsKey('charging')) {
       state.charging = f['charging'] as bool;
+      // Carry the EVENT's own strap timestamp alongside the flag. The strap
+      // dumps its buffered event log on connect and re-sends events it has
+      // already delivered, so a chargingOn frame is not evidence that the puck
+      // went on just now — only its timestamp is. Consumers that treat the
+      // transition as live (DeviceAlerts) gate on this; see #179.
+      state.chargingTs = (f['ts_epoch'] as num?)?.toInt();
       onState(state);
     }
     if (f.containsKey('on_wrist')) {

@@ -83,7 +83,7 @@ dependencies:
       # policy this branch consumes.
       # Verified present: `git show <sha>:lib/src/onehz/motion/steps.dart
       #   | grep -E 'dailyActiveMinutes|shouldRefreezeFloor'`.
-      ref: 00a2efef57ffdf37c08b6f9255f136e559c2b7ae
+      ref: 38a8636ae676888bc062cd9b0163b2de90ef02de
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

@@ -56,17 +56,30 @@ class PhonePedometer {
     }
   }
 
+  /// Best-effort permission probe. `null` is treated as MAYBE, not NO.
+  ///
+  /// Health Connect's `hasPermissions` frequently returns null/false even after
+  /// the user has granted everything — `HealthExport` documents this exact
+  /// behaviour and deliberately attempts every write rather than gating on the
+  /// check. Gating a READ on it here would reintroduce that failure: on Android
+  /// phone steps could silently never sync after a successful grant, and the
+  /// user would see only a missing step count with nothing to act on.
+  ///
+  /// So this returns false ONLY on an explicit `false`. A null (unknown) result
+  /// lets the read proceed and lets the platform enforce — an ungranted read
+  /// simply returns no data, which `syncDay` already treats as "unknown", not
+  /// as zero.
   Future<bool> hasPermission() async {
     try {
       await _health.configure();
-      return (await _health.hasPermissions(
-            _types,
-            permissions: const [HealthDataAccess.READ],
-          )) ==
-          true;
+      final r = await _health.hasPermissions(
+        _types,
+        permissions: const [HealthDataAccess.READ],
+      );
+      return r != false; // null => attempt anyway
     } catch (e) {
       debugPrint('[phone_pedometer] hasPermission: $e');
-      return false;
+      return true; // probe failed; let the read attempt decide
     }
   }
 
@@ -91,10 +104,26 @@ class PhonePedometer {
       var anyRead = false;
       final now = DateTime.now();
 
-      for (var h = 0; h < 24; h++) {
-        final from = dayStartLocal.add(Duration(hours: h));
+      // CALENDAR-AWARE hour walk. `Duration` arithmetic on a local DateTime is
+      // ABSOLUTE, so `dayStartLocal.add(Duration(hours: h))` over a fixed 24
+      // iterations spans 25 wall-clock hours on a fall-back day (the last
+      // bucket crosses into the next local day and its steps get counted
+      // twice) and 23 on a spring-forward day (one real hour never queried).
+      // Constructing each boundary from calendar fields lets the runtime place
+      // the instant correctly, and the next-midnight bound ends the day exactly.
+      final nextMidnight = DateTime(
+        dayStartLocal.year,
+        dayStartLocal.month,
+        dayStartLocal.day + 1,
+      );
+      for (var h = 0; h < 25; h++) {
+        final from = DateTime(dayStartLocal.year, dayStartLocal.month,
+            dayStartLocal.day, h);
+        if (!from.isBefore(nextMidnight)) break; // spring-forward short day
         if (from.isAfter(now)) break; // future hours of today
-        final to = from.add(const Duration(hours: 1));
+        var to = DateTime(dayStartLocal.year, dayStartLocal.month,
+            dayStartLocal.day, h + 1);
+        if (to.isAfter(nextMidnight)) to = nextMidnight;
         final capped = to.isAfter(now) ? now : to;
         if (!capped.isAfter(from)) break;
 
@@ -127,10 +156,13 @@ class PhonePedometer {
   Future<int> syncRecent({int days = 7}) async {
     if (!await hasPermission()) return 0;
     final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day);
     var ok = 0;
     for (var d = 0; d < days; d++) {
-      final day = midnight.subtract(Duration(days: d));
+      // Calendar subtraction, NOT `Duration(days: d)` — the latter lands on
+      // 23:00 or 01:00 across a DST transition rather than local midnight,
+      // which would mislabel the day and start its hour walk at the wrong
+      // offset. DateTime normalises an out-of-range day field for us.
+      final day = DateTime(now.year, now.month, now.day - d);
       if (await syncDay(day) != null) ok++;
     }
     return ok;

@@ -677,6 +677,14 @@ class _BaselineHistoryCache {
   /// AFTER the target are excluded too: a baseline is prior days, and a backfill
   /// sweep must not let later days leak into an older day's baseline (which
   /// would also make the result depend on sweep order).
+  /// The set of dates that actually have a stored value for [key].
+  ///
+  /// Used to detect wear GAPS: a date with no `dyn_p90` row means the band
+  /// produced no usable motion that day.
+  Set<String> datesFor(String key) => {
+        for (final s in _series[key] ?? const <_DatedValue>[]) s.date,
+      };
+
   List<double> valuesBefore(String key, String beforeDate) => _trailing([
         for (final s in _series[key] ?? const <_DatedValue>[])
           if (s.date.compareTo(beforeDate) < 0) s,
@@ -3051,20 +3059,41 @@ class DerivationEngine {
     String dayId,
   ) async {
     final stored = await LocalDb.getMovementFloor();
+    final hist = history.valuesBefore('dyn_p90', dayId);
+
     if (stored != null) {
       // Re-freeze only on a real change of scale, never on elapsed time alone.
+      //
+      // NOTE on the unwired signals: `shouldRefreezeFloor` also accepts
+      // `deviceChanged` and `wristChanged`, and edge has no reliable source for
+      // either yet (no persisted device identity, no wrist-selection history),
+      // so they are deliberately NOT passed rather than passed as a fabricated
+      // `false` that reads like a checked condition. `wearGapDays` IS
+      // derivable — a run of days with no `dyn_p90` row means the band was not
+      // worn — so it is computed and passed.
       final age = _daysBetweenLabels(stored.frozenOn, dayId);
-      if (!ana.shouldRefreezeFloor(daysSinceFrozen: age)) return stored.floorG;
-    }
+      final refreeze = ana.shouldRefreezeFloor(
+        daysSinceFrozen: age,
+        wearGapDays: _wearGapDays(history, dayId),
+      );
+      if (!refreeze) return stored.floorG;
 
-    final hist = history.valuesBefore('dyn_p90', dayId);
-    if (hist.length < ana.enrollmentDaysForFrozenFloor) {
-      // Still enrolling. Return null so the metric abstains and says so, rather
-      // than shipping a threshold we have already proven will be re-derived.
+      // A re-freeze that CANNOT be satisfied must not destroy what we have.
+      // Falling through to enrollment with thin history would return null and
+      // make `active_min` vanish for the day — and that is reachable exactly
+      // when re-freezing matters most (an old floor on a user whose recent
+      // `dyn_p90` history was pruned or is sparse). Keep serving the existing
+      // floor until a replacement can actually be computed.
+      if (hist.length < ana.enrollmentDaysForFrozenFloor) return stored.floorG;
+    } else if (hist.length < ana.enrollmentDaysForFrozenFloor) {
+      // Still enrolling, and nothing stored to fall back on. Return null so the
+      // metric abstains and says so, rather than shipping a threshold we have
+      // already proven will be re-derived.
       return null;
     }
+
     final floor = ana.personalDynFloorFromDailySummaries(hist);
-    if (floor == null) return null;
+    if (floor == null) return stored?.floorG;
     await LocalDb.putMovementFloor(
       floorG: floor,
       frozenOn: dayId,
@@ -3077,12 +3106,84 @@ class DerivationEngine {
     return floor;
   }
 
+  /// Consecutive days immediately before [dayId] with no `dyn_p90` row.
+  ///
+  /// A missing daily summary means the band produced no usable motion for that
+  /// day, i.e. it was not worn. Used only as a re-freeze trigger: a long gap
+  /// suggests the body/device relationship may have changed enough that the
+  /// frozen movement floor should be re-estimated.
+  static int _wearGapDays(_BaselineHistoryCache history, String dayId) {
+    final target = DateTime.tryParse(dayId);
+    if (target == null) return 0;
+    final have = history.datesFor('dyn_p90');
+    if (have.isEmpty) return 0;
+    var gap = 0;
+    for (var back = 1; back <= 60; back++) {
+      final d = target.subtract(Duration(days: back));
+      final label =
+          '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+      if (have.contains(label)) break;
+      gap++;
+    }
+    return gap;
+  }
+
   /// Whole days between two `YYYY-MM-DD` labels; 0 if either is unparseable.
   static int _daysBetweenLabels(String a, String b) {
     final da = DateTime.tryParse(a);
     final db = DateTime.tryParse(b);
     if (da == null || db == null) return 0;
     return db.difference(da).inDays.abs();
+  }
+
+  /// Write the day's step count. REAL PEDOMETER MEASUREMENTS ONLY.
+  ///
+  /// The 1 Hz substrate contributes NOTHING here and must never do so again.
+  /// The removed estimate multiplied 1 Hz "active minutes" by a walking cadence
+  /// band; on a real user day it reported 2,645 steps against a true count
+  /// under 400. Both halves of that conversion are invalid at 1 Hz:
+  ///   * cadence is not identifiable (gait 1.4-2.3 Hz is sub-Nyquist; 80/100/
+  ///     140/160 spm all alias to the same 0.333 Hz), and
+  ///   * the minutes counted were never specifically ambulation — at the wrist,
+  ///     arm work out-accelerates walking (stirring ~104 mg, chopping ~139 mg
+  ///     vs walking ~66 mg ENMO), which is why wrist devices are documented
+  ///     emitting 22-27 false steps/min during dishes and driving (O'Connell
+  ///     2017) while missing slow walking at sensitivity 0.05.
+  /// Two errors of OPPOSITE sign: no gain constant fixes both.
+  ///
+  /// So `steps` is absent unless something that can actually see gait measured
+  /// it: the Tier A 100 Hz pedometer, or the phone's own pedometer (both land
+  /// in `live_coverage`). No real source -> no number.
+  ///
+  /// Called BEFORE the movement-substrate guards, because it depends on none of
+  /// them — see the call site.
+  static void _writeSteps(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    int liveStepsReal,
+  ) {
+    final haveRealSteps = liveStepsReal > 0;
+    if (haveRealSteps) {
+      scMap?['steps'] = liveStepsReal.toDouble();
+    } else {
+      scMap?.remove('steps');
+    }
+    bundle['steps'] = <String, dynamic>{
+      'value': haveRealSteps ? liveStepsReal : null,
+      'real_measured': liveStepsReal,
+      'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
+      'confidence': haveRealSteps ? 0.9 : 0.0,
+      'tier': haveRealSteps ? 'HIGH' : 'ESTIMATE',
+      'inputs_used': const ['live_coverage_pedometer'],
+      'note': haveRealSteps
+          ? 'real pedometer count over measured windows only; time outside '
+              'those windows is not counted rather than estimated'
+          : 'no step count: nothing that can resolve gait measured this day. '
+              'A 1 Hz wrist stream cannot count steps, so no number is shown '
+              'instead of an invented one',
+    };
   }
 
   /// STEPS (real pedometer counts ONLY) + movement minutes + total daily energy
@@ -3108,6 +3209,17 @@ class DerivationEngine {
     int dynHistoryDays,
   ) {
     try {
+      // STEPS FIRST — they depend on NOTHING from the band substrate.
+      //
+      // `liveStepsReal` comes from `live_coverage`, i.e. the phone pedometer or
+      // a live 100 Hz session. Both of the guards below protect the 1 Hz
+      // MOVEMENT computation, and if the step assignment sat after them a day
+      // with real measured phone steps but a thin band substrate (a day the
+      // band barely synced, or a fresh install) would silently report no steps
+      // at all — discarding a real measurement because an unrelated signal was
+      // missing. Assign steps before anything can return early.
+      _writeSteps(bundle, scMap, liveStepsReal);
+
       if (daySub.length < 60) return;
       final motion = _motionMinutes(daySub);
       if (motion.isEmpty) return;
@@ -3134,46 +3246,6 @@ class DerivationEngine {
         pooledMinutesAvailable: dynHistoryDays,
       );
       final v = est.present ? est.value : null;
-
-      // STEPS ARE REAL-MEASURED ONLY. The 1 Hz substrate contributes NOTHING to
-      // this number and must never do so again.
-      //
-      // The removed estimate multiplied 1 Hz "active minutes" by a walking
-      // cadence band. On a real user day it reported 2,645 steps against a true
-      // count under 400. Both halves of that conversion are invalid at 1 Hz:
-      //   * cadence is not identifiable (gait 1.4-2.3 Hz is sub-Nyquist; 80/100/
-      //     140/160 spm all alias to the same 0.333 Hz), and
-      //   * the minutes being counted are not specifically ambulation — at the
-      //     wrist, arm work out-accelerates walking (stirring ~104 mg, chopping
-      //     ~139 mg vs walking ~66 mg ENMO), which is why wrist devices are
-      //     documented emitting 22-27 false steps/min during dishes and driving
-      //     (O'Connell 2017) while missing slow walking at sensitivity 0.05.
-      // Two errors of OPPOSITE sign: no gain constant fixes both.
-      //
-      // So `steps` is now absent unless something that can actually see gait
-      // measured it: the Tier A 100 Hz pedometer, or the phone's own pedometer
-      // (both land in `live_coverage`). No real source -> no number, per the
-      // absent-input-means-null contract.
-      final haveRealSteps = liveStepsReal > 0;
-      if (haveRealSteps) {
-        scMap?['steps'] = liveStepsReal.toDouble();
-      } else {
-        scMap?.remove('steps');
-      }
-      bundle['steps'] = <String, dynamic>{
-        'value': haveRealSteps ? liveStepsReal : null,
-        'real_measured': liveStepsReal,
-        'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
-        'confidence': haveRealSteps ? 0.9 : 0.0,
-        'tier': haveRealSteps ? 'HIGH' : 'ESTIMATE',
-        'inputs_used': const ['live_coverage_pedometer'],
-        'note': haveRealSteps
-            ? 'real pedometer count over measured windows only; time outside '
-                'those windows is not counted rather than estimated'
-            : 'no step count: nothing that can resolve gait measured this day. '
-                'A 1 Hz wrist stream cannot count steps, so no number is shown '
-                'instead of an invented one',
-      };
 
       // Movement minutes stay, as an explicitly non-locomotion activity index.
       if (v != null) {

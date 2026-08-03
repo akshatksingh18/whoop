@@ -231,8 +231,12 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
-    // Steps only exist if a real pedometer measured them, so pull the phone's
-    // counts early — before the first derive sweep reads `live_coverage`.
+    // Steps only exist if a real pedometer measured them, so kick the phone
+    // pull early. This is BEST-EFFORT and establishes no ordering: it is
+    // unawaited, so a derive pass can read `live_coverage` while the sync is
+    // still in flight and that day then derives without phone steps. It
+    // self-heals on the next light pass, and awaiting here would put up to
+    // `7 x 24` platform round trips in front of app start.
     if (phoneStepsEnabled) unawaited(syncPhoneSteps());
     // Best-effort, no prompt: learn the current health-permission state so the
     // Profile toggle reflects reality on open.
@@ -392,7 +396,13 @@ class AppState extends ChangeNotifier {
   /// Export all finalized-but-unexported days now. Returns days written.
   Future<int> healthSyncNow() async {
     final n = await _healthExport.exportAll();
-    unawaited(syncPhoneSteps());
+    // Gate on the user's own preference. `disablePhoneSteps` deliberately does
+    // NOT revoke the platform permission (that is the user's to do in
+    // Settings), so an unconditional sync here would write phone rows straight
+    // back after the user turned the feature off — and since `liveStepsForDay`
+    // prefers phone rows outright, it would re-suppress the band count, the
+    // exact outcome `disablePhoneSteps` exists to prevent.
+    if (phoneStepsEnabled) unawaited(syncPhoneSteps());
     return n;
   }
 
@@ -424,6 +434,15 @@ class AppState extends ChangeNotifier {
   /// rows over band rows — so a stale row would keep overriding the band
   /// indefinitely. Revoking the platform permission is the user's to do in
   /// Settings; all we can do is stop reading and forget what we read.
+  ///
+  /// KNOWN LIMIT — already-derived days keep their phone-sourced step values.
+  /// The screens read the scalars persisted in `day_result`/`metric_series`,
+  /// not `live_coverage`, so clearing the rows changes what FUTURE derives
+  /// compute, not what is already stored. Recent days correct themselves on
+  /// their next derive; days past the 48 h finalization window never re-derive
+  /// and keep the phone-sourced number permanently. Forcing a full re-derive
+  /// here would be a multi-minute background job triggered by a settings
+  /// toggle, which is worse than the staleness.
   Future<void> disablePhoneSteps() async {
     phoneStepsEnabled = false;
     final prefs = await SharedPreferences.getInstance();

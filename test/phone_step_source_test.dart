@@ -126,4 +126,68 @@ void main() {
     await LocalDb.clearPhoneCoverage();
     expect(await LocalDb.liveStepsForDay(day), 64);
   });
+
+  group('v27 migration — the path EVERY existing install takes', () {
+    // Every other test here opens a fresh DB, so `onCreate` emits the `source`
+    // column directly and the `if (oldV < 27)` step never runs. That upgrade
+    // path carries a load-bearing assumption: pre-v27 rows must default to
+    // 'band'. If they defaulted to 'phone', every existing band count would be
+    // read as a phone count and would suppress the real band fallback. An
+    // unguarded ALTER TABLE has also bricked this file's upgrades twice.
+
+    Future<void> seedV26() async {
+      final dir = await databaseFactory.getDatabasesPath();
+      final db = await databaseFactory.openDatabase(
+        p.join(dir, LocalDb.dbName),
+        options: OpenDatabaseOptions(
+          version: 26,
+          onCreate: (db, _) async {
+            await db.execute('CREATE TABLE live_coverage ('
+                'id INTEGER PRIMARY KEY AUTOINCREMENT,'
+                'start_ts INTEGER NOT NULL,'
+                'end_ts INTEGER NOT NULL,'
+                'steps INTEGER NOT NULL,'
+                'day TEXT NOT NULL)');
+          },
+        ),
+      );
+      await db.insert('live_coverage', {
+        'start_ts': 1000,
+        'end_ts': 1600,
+        'steps': 137,
+        'day': day,
+      });
+      await db.close();
+    }
+
+    test('a pre-v27 row survives the upgrade and counts as BAND', () async {
+      await seedV26();
+
+      // Reopening through LocalDb runs the real migration ladder.
+      expect(await LocalDb.liveStepsForDay(day), 137,
+          reason: 'the legacy row must still count after upgrading');
+
+      // ...and it must be BAND, so a phone sync can still take precedence.
+      await LocalDb.replacePhoneCoverageForDay(
+        day,
+        [(startTs: 1000, endTs: 4600, steps: 900)],
+      );
+      expect(await LocalDb.liveStepsForDay(day), 900,
+          reason: 'legacy rows defaulting to phone would block this override');
+
+      // Dropping the phone rows reveals the legacy band row again — proof it
+      // was never silently relabelled.
+      await LocalDb.clearPhoneCoverage();
+      expect(await LocalDb.liveStepsForDay(day), 137);
+    });
+
+    test('the migration is idempotent across repeated opens', () async {
+      await seedV26();
+      expect(await LocalDb.liveStepsForDay(day), 137);
+      await LocalDb.close();
+      // The second open re-runs `_repairOpenSchema`, which also calls
+      // `_ensureLiveCoverageSource`. An unguarded ALTER would throw here.
+      expect(await LocalDb.liveStepsForDay(day), 137);
+    });
+  });
 }

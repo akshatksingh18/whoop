@@ -260,31 +260,46 @@ class DeviceAlerts {
     _lowArmed = lowArmed;
 
     // ── ACT ───────────────────────────────────────────────────────────────────
+    // Each step is isolated, because presentation and persistence must not be
+    // able to take each other down. Sequencing them plainly forces a choice
+    // between two bad failure modes: show-then-persist means a throwing plugin
+    // skips the write, so the session re-announces after a restart; persist-
+    // then-show means a throwing store swallows the alert entirely. Neither is
+    // acceptable, and neither step reads the other's result — so all of them are
+    // attempted independently.
     if (cancelChargingCard) {
-      await _notes.cancel(NotificationService.idCharging);
+      await _io(() => _notes.cancel(NotificationService.idCharging));
     }
     if (announce) {
-      await _notes.show(
-        id: NotificationService.idCharging,
-        title: 'Charging',
-        body: 'Your band is on the charger.',
-      );
-      await _store.writeInt(_kLastChargeWall, nowSec);
+      await _io(() => _notes.show(
+            id: NotificationService.idCharging,
+            title: 'Charging',
+            body: 'Your band is on the charger.',
+          ));
+      await _io(() => _store.writeInt(_kLastChargeWall, nowSec));
       if (persistEventTs != null) {
-        await _store.writeInt(_kLastChargeTs, persistEventTs);
+        await _io(() => _store.writeInt(_kLastChargeTs, persistEventTs!));
       }
       // A real plug-in clears any stale low alert.
-      await _notes.cancel(NotificationService.idLowBattery);
+      await _io(() => _notes.cancel(NotificationService.idLowBattery));
     }
     if (fireLow) {
-      await _notes.show(
-        id: NotificationService.idLowBattery,
-        title: 'Low battery',
-        body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
-      );
+      await _io(() => _notes.show(
+            id: NotificationService.idLowBattery,
+            title: 'Low battery',
+            body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
+          ));
     }
     if (lowArmedChanged) {
-      await _store.writeInt(_kLowArmed, lowArmed ? 1 : 0);
+      await _io(() => _store.writeInt(_kLowArmed, lowArmed ? 1 : 0));
     }
+  }
+
+  /// Run one presentation/persistence step, absorbing its failure. See the ACT
+  /// block above for why these are isolated rather than sequenced.
+  Future<void> _io(Future<void> Function() step) async {
+    try {
+      await step();
+    } catch (_) {}
   }
 }

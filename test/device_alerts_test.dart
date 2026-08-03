@@ -329,10 +329,34 @@ void main() {
       await a.settled;
       expect(sink.countOf(NotificationService.idCharging), 0);
 
+      // A stale chargingOn re-opens the cancel latch; the stale chargingOff that
+      // follows must still not clear a card. Pinned because the interaction
+      // between the two latches is subtle enough to break silently.
+      expect(sink.cancelled, isNot(contains(NotificationService.idCharging)));
+
       // The band really goes on the charger now.
       a.onDeviceState(charging: true, chargingTs: tsAged(2));
       await a.settled;
       expect(sink.countOf(NotificationService.idCharging), 1);
+    });
+
+    test('a failing sink still lets the announcement persist', () async {
+      // Presentation and persistence must not take each other down: a throwing
+      // plugin used to skip the writes below it, so the session re-announced
+      // after a restart.
+      final failing = _ThrowingSink();
+      final a = DeviceAlerts(sink: failing, store: store);
+      a.onDeviceState(charging: true, chargingTs: tsAged(3));
+      await a.settled;
+      expect(failing.attempts, 1);
+      expect(store.values[DeviceAlerts.debugLastChargeWallKey], isNotNull);
+      expect(store.values[DeviceAlerts.debugLastChargeTsKey], isNotNull);
+
+      // A restart therefore knows the session was already announced.
+      final restarted = DeviceAlerts(sink: sink, store: store);
+      restarted.onDeviceState(charging: true, chargingTs: tsAged(3));
+      await restarted.settled;
+      expect(sink.countOf(NotificationService.idCharging), 0);
     });
 
     test('an untimed announce clears the identity high-water', () async {

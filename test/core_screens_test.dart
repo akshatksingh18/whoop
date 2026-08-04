@@ -438,6 +438,69 @@ void main() {
         expect(t.takeException(), isNull);
       }
     });
+
+    // The detector reports a session's hard-effort CORE, so a real hour can
+    // land as ~25 minutes. Retiming is how that gets fixed, and the window
+    // itself is the affordance — a start time alone can't show the clipping.
+    testWidgets('the time window is shown end-to-end and opens the retime form',
+        (t) async {
+      t.view.physicalSize = const Size(390, 2400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      AppColors.active = kLightPalette;
+      var tapped = 0;
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildOpenStrapTheme(kLightPalette),
+          home: Scaffold(
+            body: WorkoutDetailContent(
+              d: detail(),
+              route: null,
+              maxHr: 190,
+              onEditTimes: () => tapped++,
+            ),
+          ),
+        ),
+      );
+      await t.pump(const Duration(milliseconds: 1200));
+
+      // A range, not just the start — "Today · 4:00 PM – 4:42 PM".
+      final window = find.textContaining('–');
+      expect(window, findsWidgets);
+
+      await t.tap(window.first);
+      await t.pump();
+      expect(tapped, 1);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('a live session offers no retime affordance', (t) async {
+      t.view.physicalSize = const Size(390, 2400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      AppColors.active = kLightPalette;
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildOpenStrapTheme(kLightPalette),
+          home: Scaffold(
+            body: WorkoutDetailContent(
+              d: detail(),
+              route: null,
+              maxHr: 190,
+              // What _WorkoutDetailBody passes for status == 'live'.
+              onEditTimes: null,
+            ),
+          ),
+        ),
+      );
+      await t.pump(const Duration(milliseconds: 1200));
+      // The window still renders; it just isn't a button.
+      expect(
+        find.bySemanticsLabel(RegExp('Edit workout times')),
+        findsNothing,
+      );
+      expect(t.takeException(), isNull);
+    });
   });
 
   group('SleepNightContent', () {

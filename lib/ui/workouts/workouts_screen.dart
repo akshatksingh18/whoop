@@ -23,6 +23,7 @@ import '../design/design.dart';
 import '../kit/route_map.dart';
 import '../screens/detail_cards.dart' show hm;
 import '../../gps/route_models.dart';
+import 'manual_workout_screen.dart';
 import 'workout_types.dart';
 
 const _ranges = ['Today', 'Week', 'Month', '3M'];
@@ -77,6 +78,15 @@ String _whenLabel(int? startTs) {
 }
 
 /// Bottom-sheet exercise picker → starts a workout → opens the live screen.
+///
+/// NOTE — do not grow this sheet. `showModalBottomSheet` defaults to
+/// `isScrollControlled: false`, which caps it at 9/16 of the screen (~475 pt on
+/// a 390x844 device). The nine type tiles already wrap to three rows (~294 pt)
+/// and, with the title and gutters, land close to that ceiling. A fourth child
+/// was added here once and was clipped clean off the bottom — invisible and
+/// untappable in release, where there are no overflow stripes to give it away.
+/// Logging a PAST workout is a header action ([_AddButton]) for exactly that
+/// reason.
 Future<void> startWorkoutFlow(BuildContext context) async {
   final type = await showModalBottomSheet<String>(
     context: context,
@@ -115,33 +125,6 @@ Future<void> startWorkoutFlow(BuildContext context) async {
   } catch (_) {
     /* surfaced as no-op; user can retry */
   }
-}
-
-/// Bottom-sheet type picker (no workout start) — used to confirm/correct an
-/// auto-detected workout's type. Returns the chosen type, or null if dismissed.
-Future<String?> pickWorkoutType(
-  BuildContext context, {
-  String title = 'Set workout type',
-}) {
-  return showModalBottomSheet<String>(
-    context: context,
-    builder: (_) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(Sp.x5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: AppText.h2),
-            const SizedBox(height: Sp.x4),
-            Builder(builder: workoutTypeGrid),
-            const SizedBox(height: Sp.x4),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 class WorkoutsScreen extends StatefulWidget {
@@ -208,6 +191,13 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     await _load();
   }
 
+  /// Log a session that is already over — one the strap missed, or only caught
+  /// part of (the detector reports an effort's hard-effort core, not its
+  /// wall-clock, so an hour of training routinely surfaces as ~25 minutes).
+  Future<void> _logPastWorkout() async {
+    if (await showManualWorkoutScreen(context) && mounted) await _load();
+  }
+
   // LOCAL calendar day — "today's workouts" must match the local day model
   // (a UTC comparison shifted early-morning sessions into yesterday's bucket).
   bool _isToday(int startTs) =>
@@ -226,7 +216,14 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
 
     return AppScaffold(
       title: 'Workouts',
-      actions: [_StartButton(onTap: () => startWorkoutFlow(context).then((_) => _load()))],
+      // AppScaffold already inserts Sp.x2 before EACH action — no manual
+      // spacer between these two, or the gap comes out at three times the
+      // intended width.
+      actions: [
+        _AddButton(onTap: _logPastWorkout),
+        _StartButton(
+            onTap: () => startWorkoutFlow(context).then((_) => _load())),
+      ],
       header: SegmentedControl(
         options: _ranges,
         index: _range,
@@ -279,7 +276,8 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                 StateCard(
                   icon: OsIcon.run,
                   title: 'No workouts',
-                  message: 'Tap Start, or an effort will be auto-detected.',
+                  message: 'Tap Start, or an effort will be auto-detected. '
+                      'You can also log one you already finished.',
                   actionLabel: 'Start a workout',
                   onAction: () => startWorkoutFlow(context).then((_) => _load()),
                 )
@@ -471,6 +469,45 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   }
 }
 
+/// Tonal Add pill — logs a workout that is already finished.
+///
+/// Deliberately the QUIETER sibling of [_StartButton]: starting a live session
+/// is the primary action and keeps the solid accent fill, while back-filling
+/// one sits on a tonal fill at the same size. Same pill geometry so the pair
+/// reads as one control group rather than two unrelated buttons.
+class _AddButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Log a past workout',
+      child: Pressable(
+        pressedScale: 0.94,
+        onTap: onTap,
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
+          decoration: BoxDecoration(
+            color: AppColors.tonalFill(AppColors.accent),
+            borderRadius: BorderRadius.circular(R.pill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add_rounded, size: 18, color: AppColors.accent),
+              const SizedBox(width: Sp.x1),
+              Text('Add',
+                  style: AppText.label.copyWith(color: AppColors.accent)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Solid ember Start pill — top-right of the Workouts header. Restrained:
 /// brand accent + standard elevation, no gradient/glow.
 class _StartButton extends StatelessWidget {
@@ -512,11 +549,35 @@ class _StartButton extends StatelessWidget {
 Future<void> _logDetectedSession(Map<String, dynamic> s,
     [AppState? appState]) async {
   final start = (s['start_ts'] as num?)?.toInt() ?? 0;
+  final end = (s['end_ts'] as num?)?.toInt();
+  final type = (s['sport'] as String?) ?? 'cardio';
+
+  // Score it over the bout window through the SAME path a manually logged
+  // session uses. This used to hand-build a row with no `strain` and no
+  // `calories`, so every confirmed suggestion landed in the log showing
+  // blanks — the numbers were computable from the 1 Hz substrate the whole
+  // time, nothing was ever asking for them.
+  final api = appState?.repo;
+  if (api != null && end != null && end > start) {
+    try {
+      await api.logDetectedWorkout(startTs: start, endTs: end, type: type);
+      await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+      final saved = await LocalDb.session('auto:$start');
+      if (saved != null && appState!.healthSyncEnabled) {
+        unawaited(appState.exportWorkoutToHealth(saved));
+      }
+      return;
+    } catch (_) {
+      // Fall through to the unscored write — a suggestion the athlete has
+      // explicitly accepted must land in the log either way.
+    }
+  }
+
   final row = {
     'id': 'auto:$start',
     'start_ts': start,
-    'end_ts': (s['end_ts'] as num?)?.toInt(),
-    'type': (s['sport'] as String?) ?? 'cardio',
+    'end_ts': end,
+    'type': type,
     'status': 'done',
     'duration_min': (s['duration_min'] as num?)?.toInt(),
     'max_hr': (s['peak_bpm'] as num?)?.toInt(),
@@ -532,6 +593,54 @@ Future<void> _logDetectedSession(Map<String, dynamic> s,
 
 /// An opt-in auto-detected workout the user can confirm (→ logs a session) or
 /// dismiss. We never auto-log: this is "did you work out?", not a silent write.
+/// The session's time window on the detail hero — and, when [onTap] is given,
+/// the way into the retime form.
+///
+/// Renders "Today · 6:30 PM – 7:31 PM" rather than just the start, because the
+/// window is exactly what the athlete is here to check: an effort the detector
+/// clipped to its hard-effort core reads as an hour that finished 35 minutes
+/// early, and you cannot see that from a start time alone.
+class _WindowLabel extends StatelessWidget {
+  final int? startTs;
+  final int? endTs;
+  final VoidCallback? onTap;
+  final ToneColors tone;
+  const _WindowLabel({
+    required this.startTs,
+    required this.endTs,
+    required this.onTap,
+    required this.tone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _whenLabel(startTs);
+    final end = endTs == null || endTs == 0 ? null : _clockLabel(endTs);
+    final text = end == null ? start : '$start – $end';
+    final label = Text(
+      text,
+      style: AppText.captionMuted.copyWith(color: tone.fgMuted),
+    );
+    if (onTap == null) return label;
+    return Semantics(
+      button: true,
+      label: 'Edit workout times. Currently $text',
+      child: Pressable(
+        pressedScale: 0.98,
+        onTap: onTap,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(child: label),
+            const SizedBox(width: Sp.x1),
+            AppIcon(OsIcon.edit, size: 12, color: tone.fgFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SuggestionCard extends StatelessWidget {
   final Map<String, dynamic> s;
   final VoidCallback onConfirm;
@@ -1102,6 +1211,14 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
     } catch (_) {}
   }
 
+  /// Retime this session and re-score it over the new window.
+  Future<void> _editTimes() async {
+    final d = _d;
+    if (d == null || d['id'] == null) return;
+    final saved = await showManualWorkoutScreen(context, editing: d);
+    if (saved && mounted) await _go();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1130,6 +1247,11 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
           ? units.distance(route.distanceMeters)
           : null,
       onCorrectType: d['source'] == 'auto' ? _correctType : null,
+      // Any finished session can be retimed. The common case is widening an
+      // auto-detected fragment to the real window, but a live session stopped
+      // late (or early) is just as wrong and just as fixable. A still-running
+      // workout has no end to edit yet.
+      onEditTimes: d['status'] == 'live' ? null : _editTimes,
     );
   }
 }
@@ -1149,6 +1271,9 @@ class WorkoutDetailContent extends StatelessWidget {
   /// Non-null only for auto-detected sessions (shows the "fix type" affordance).
   final VoidCallback? onCorrectType;
 
+  /// Non-null for any finished session — opens the retime form.
+  final VoidCallback? onEditTimes;
+
   const WorkoutDetailContent({
     super.key,
     required this.d,
@@ -1156,6 +1281,7 @@ class WorkoutDetailContent extends StatelessWidget {
     required this.maxHr,
     this.distanceLabel,
     this.onCorrectType,
+    this.onEditTimes,
   });
 
   num? _n(Object? v) => v is num ? v : null;
@@ -1288,9 +1414,15 @@ class WorkoutDetailContent extends StatelessWidget {
                         workoutTypeLabel(d['type'] as String?).toUpperCase(),
                         style: AppText.overline.copyWith(color: tone.fgFaint),
                       ),
-                      Text(
-                        _whenLabel(d['start_ts'] as int?),
-                        style: AppText.captionMuted.copyWith(color: tone.fgMuted),
+                      // The window doubles as the retime affordance — you tap
+                      // the times to change the times. Tapping through to a
+                      // form is what makes a too-narrow auto-detected window
+                      // fixable at all.
+                      _WindowLabel(
+                        startTs: d['start_ts'] as int?,
+                        endTs: d['end_ts'] as int?,
+                        onTap: onEditTimes,
+                        tone: tone,
                       ),
                     ],
                   ),

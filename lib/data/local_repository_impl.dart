@@ -19,6 +19,8 @@ import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
 import '../compute/hr_max.dart';
+import '../compute/manual_session.dart';
+import '../compute/profile.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -2027,10 +2029,204 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<List<SessionSpan>> savedSessionSpans() async {
+    // Everything ever logged — the overlap check has to see a session from any
+    // date the athlete might be back-filling into, not just a recent window.
+    final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    return [
+      for (final r in rows)
+        if (r['id'] is String && r['start_ts'] is int && r['end_ts'] is int)
+          SessionSpan(
+            r['id'] as String,
+            (r['start_ts'] as num).toInt(),
+            (r['end_ts'] as num).toInt(),
+          ),
+    ];
+  }
+
+  @override
+  Future<Map<String, dynamic>> logManualWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      _writeManualSession(
+        startTs: startTs,
+        endTs: endTs,
+        type: type,
+        // A manual row's id is derived from its start second, so re-logging the
+        // same window is an UPDATE of that row, not a collision with it. Pass
+        // the id we are about to write as the one to skip in the overlap check.
+        validateAgainstId: manualSessionId(startTs),
+      );
+
+  @override
+  Future<Map<String, dynamic>> logDetectedWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      _writeManualSession(
+        startTs: startTs,
+        endTs: endTs,
+        type: type,
+        sessionId: 'auto:$startTs',
+        source: 'auto',
+        validateAgainstId: 'auto:$startTs',
+      );
+
+  @override
+  Future<Map<String, dynamic>> setWorkoutWindow(
+    String id, {
+    required int startTs,
+    required int endTs,
+  }) async {
+    final existing = await LocalDb.session(id);
+    if (existing == null) {
+      throw StateError('setWorkoutWindow: no session $id');
+    }
+    // A retimed session keeps its id, so the OLD row is replaced rather than
+    // orphaned — including its GPS route, which still belongs to it.
+    return _writeManualSession(
+      startTs: startTs,
+      endTs: endTs,
+      type: (existing['type'] as String?) ?? 'other',
+      existing: existing,
+      validateAgainstId: id,
+    );
+  }
+
+  /// Shared writer for both user-timed paths: score the window from the 1 Hz
+  /// substrate, persist, and retire any auto-detect suggestion it covers.
+  ///
+  /// Deliberately does NOT force a day re-derive. Sessions do not feed
+  /// `day_result` — the derivation engine reads them only as `savedSpans`
+  /// (auto-detect exclusion) and to back-fill `hrr_bpm`, while day strain and
+  /// calories come from the whole-day substrate independently. So there is no
+  /// analytics output to invalidate here and no `kAlgoVersion` bump to make;
+  /// the next ordinary derive picks up the exclusion on its own.
+  Future<Map<String, dynamic>> _writeManualSession({
+    required int startTs,
+    required int endTs,
+    required String type,
+    required String validateAgainstId,
+    Map<String, dynamic>? existing,
+    String? sessionId,
+    String source = 'manual',
+  }) async {
+    // Re-check at the write seam. The form validates live, but its snapshot of
+    // saved spans can be stale by the time save is tapped (a background derive
+    // can log an auto-detected session mid-edit), and the form is not the only
+    // possible caller. Throwing beats silently writing an overlapping row.
+    final invalid = validateManualWindow(
+      startSec: startTs,
+      endSec: endTs,
+      nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      existing: await savedSessionSpans(),
+      editingId: validateAgainstId,
+    );
+    if (invalid != null) throw ManualWindowException(invalid);
+
+    final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+    final hrTs = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+    final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+
+    final profile = Profile.fromMap(getProfileMap());
+    // Prefer the measured nightly RHR; fall back to the user-supplied one.
+    // Both are real inputs — absent both, strain stays null rather than
+    // leaning on a 60 bpm stand-in.
+    final restingHr = await _recentRestingHr() ??
+        profile.restingHrManual?.toDouble();
+
+    final stats = computeManualSessionStats(
+      hrTs: hrTs,
+      hrBpm: hrBpm,
+      profile: profile,
+      zoneMaxHr: _profileMaxHr().toDouble(),
+      restingHr: restingHr,
+    );
+
+    final row = buildManualSessionRow(
+      startSec: startTs,
+      endSec: endTs,
+      type: type,
+      stats: stats,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      existing: existing,
+      sessionId: sessionId,
+      source: source,
+    );
+    await LocalDb.putSession(row);
+
+    // Retire the fragment(s) this window supersedes, so the athlete isn't
+    // asked "did you work out?" about the session they just logged.
+    try {
+      final sug = await LocalDb.activeWorkoutSuggestions();
+      for (final id in supersededSuggestionIds(sug,
+          startSec: startTs, endSec: endTs)) {
+        await LocalDb.dismissWorkoutSuggestion(id);
+      }
+    } catch (_) {
+      /* suggestion cleanup is best-effort — the session is already saved */
+    }
+
+    return {
+      'workout_id': row['id'],
+      'unscored': stats.isUnscored,
+      'hr_samples': stats.hrSampleCount,
+    };
+  }
+
+  /// Most recent nightly resting HR from `metric_series`, or null. Bounded to
+  /// the last week so a stale figure from a long gap can't anchor TRIMP.
+  Future<double?> _recentRestingHr() async {
+    try {
+      // 'rhr' is the `metric_series` key the derivation engine writes nightly
+      // resting HR under (see _BaselineHistoryCache.keys).
+      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      if (vals.isEmpty) return null;
+      return vals.last;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Tolerance when clipping route points to their session's window. GPS
+  /// timestamps are millisecond-stamped while the session window is whole
+  /// seconds, so the very first and last fix can land a hair outside it.
+  static const int _routeClipPadSec = 5;
+
+  @override
   Future<WorkoutRoute?> getWorkoutRoute(String id) async {
     final rows = await LocalDb.routePoints(id);
     if (rows.length < 2) return null;
-    final points = [for (final r in rows) RoutePoint.fromRow(r)];
+    var points = [for (final r in rows) RoutePoint.fromRow(r)];
+
+    // Clip to the session's CURRENT window. A route point outside its
+    // session's window is not part of that session — which only became
+    // reachable once workouts could be retimed: narrowing a live run that was
+    // stopped late (say 90 min down to the 60 you actually ran) otherwise left
+    // the map, distance, moving time and splits describing the full original
+    // 90 minutes while the hero above them read "1h 00m". Two contradictory
+    // accounts of the same session on one card.
+    //
+    // Widening cannot conjure GPS that was never recorded, so the route simply
+    // stays as long as it is — correct, and honest about it.
+    final session = await LocalDb.session(id);
+    final startTs = (session?['start_ts'] as num?)?.toInt();
+    final endTs = (session?['end_ts'] as num?)?.toInt();
+    if (startTs != null && endTs != null && endTs > startTs) {
+      final lo = (startTs - _routeClipPadSec) * 1000;
+      final hi = (endTs + _routeClipPadSec) * 1000;
+      final clipped = [
+        for (final p in points)
+          if (p.tsMs >= lo && p.tsMs <= hi) p,
+      ];
+      // Fewer than two points is not a route — better no map than a single
+      // orphaned pin and a zero-length "distance".
+      if (clipped.length < 2) return null;
+      points = clipped;
+    }
 
     // 1 Hz HR over the route's own time window (± a small pad), for zone
     // colouring and per-split average HR.

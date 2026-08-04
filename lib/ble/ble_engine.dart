@@ -84,6 +84,82 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
+/// Plausible unix window for gen5 historical records (2020-01-01 .. 2030-01-01).
+@visibleForTesting
+bool gen5V18UnixPlausible(int unix) =>
+    unix >= 1577836800 && unix < 1893456000;
+
+/// Read v18 unix from inner bytes. Protocol's shared header uses inner[7:11];
+/// real WHOOP 5 hardware exports (fw 50.40.x) occasionally land unix one byte
+/// earlier when the record is padded to 112 B instead of the fixture's 116 B.
+@visibleForTesting
+int? gen5V18UnixFromInner(Uint8List inner) {
+  if (inner.length < 11) return null;
+  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
+  final at7 = view.getUint32(7, Endian.little);
+  if (gen5V18UnixPlausible(at7)) return at7;
+  if (inner.length >= 10) {
+    final at6 = view.getUint32(6, Endian.little);
+    if (gen5V18UnixPlausible(at6)) return at6;
+  }
+  return null;
+}
+
+/// Hardware lenient v18 decode when [parseGen5Historical] returns null because
+/// the protocol decoder's gravity/dynamic-accel gates reject real captures
+/// (off-wrist / motion-heavy seconds still carry valid HR/RR). Never fabricates
+/// gravity — ax/ay/az stay null when the vector fails the magnitude gate.
+@visibleForTesting
+Sample? sampleFromGen5V18Lenient(Uint8List inner) {
+  if (inner.length < kGen5V18MinInnerLen || inner[1] != 18) return null;
+  final unix = gen5V18UnixFromInner(inner);
+  if (unix == null) return null;
+  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
+  final counter = view.getUint32(3, Endian.little);
+  final hr = inner[14];
+  if (hr != 0 && (hr < 25 || hr > 230)) return null;
+
+  const minRrMs = 200;
+  const maxRrMs = 2500;
+  final declaredRr = inner[15];
+  final rr = <int>[];
+  if (declaredRr <= 4) {
+    for (int i = 0; i < declaredRr && 16 + 2 * i + 2 <= inner.length; i++) {
+      final val = view.getInt16(16 + 2 * i, Endian.little);
+      if (val >= minRrMs && val <= maxRrMs) rr.add(val);
+    }
+  }
+
+  double? ax;
+  double? ay;
+  double? az;
+  if (inner.length >= 49) {
+    final gx = view.getFloat32(37, Endian.little);
+    final gy = view.getFloat32(41, Endian.little);
+    final gz = view.getFloat32(45, Endian.little);
+    if (gx.isFinite && gy.isFinite && gz.isFinite) {
+      final magSq = gx * gx + gy * gy + gz * gz;
+      // Same gate as protocol's Gen5V18Decoder — but abstain on ax/ay/az
+      // instead of rejecting the whole record (HR/RR are independent fields).
+      if (magSq >= 0.25 && magSq <= 2.25) {
+        ax = gx;
+        ay = gy;
+        az = gz;
+      }
+    }
+  }
+
+  return Sample(
+    tsEpoch: unix,
+    counter: counter,
+    hr: hr,
+    rrIntervalsMs: rr,
+    ax: ax,
+    ay: ay,
+    az: az,
+  );
+}
+
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
 ///
@@ -111,6 +187,17 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     ay: g.gravityG.length > 1 ? g.gravityG[1] : null,
     az: g.gravityG.length > 2 ? g.gravityG[2] : null,
   );
+}
+
+/// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
+@visibleForTesting
+Sample? decodeGen5HistoricalSample(Uint8List inner) {
+  final strict = sampleFromGen5Historical(parseGen5Historical(inner));
+  if (strict != null) return strict;
+  if (inner.length > 1 && inner[1] == 18) {
+    return sampleFromGen5V18Lenient(inner);
+  }
+  return null;
 }
 
 @visibleForTesting
@@ -1959,7 +2046,7 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
-      sample = sampleFromGen5Historical(parseGen5Historical(frame.inner));
+      sample = decodeGen5HistoricalSample(frame.inner);
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.

@@ -194,7 +194,28 @@ Map<String, dynamic> buildCrossDayBundle(
   final baselineNeedSec = ((osdH ?? 8.0).clamp(7.0, 9.5)) * 3600.0;
   final debtSec =
       (sleepDebt.present ? (sleepDebt.value!.debtHours ?? 0.0) : 0.0) * 3600.0;
-  final todayStrain = _lastNum(days, 'strain') ?? 0.0;
+  // TODAY's strain only. `_lastNum` walked backward to the last non-null, so a
+  // day whose strain compute abstained built tonight's bonus out of an EARLIER
+  // day's workout — imputation (AGENTS §3.3), and invisible, since the number
+  // lands inside `need_sec` with nothing surfacing it.
+  //
+  // Unlike the nap credit below, 0 here is NOT the cautious direction: strain is
+  // ADDED (up to 45 min via sleepNeed's strainBonusSec), so abstaining removes
+  // sleep from the recommendation rather than adding it. It is still right, on
+  // two grounds that are not "it's safe":
+  //   - Carrying yesterday forward is not a safety margin either. It inflates
+  //     need only when yesterday happened to be harder than today, and deflates
+  //     it when yesterday was a rest day — noise around the true value, not a
+  //     conservative bound, and forbidden regardless.
+  //   - Strain is a same-day ACCUMULATING quantity that starts at 0 and only
+  //     rises. Before today logs anything, 0 is where it genuinely sits, not a
+  //     substituted default. The bonus grows as the day's real strain arrives.
+  // Because that direction is not the cautious one, the substitution is not
+  // allowed to be silent: `strain_bonus_min` below reports what the bonus
+  // actually added, and stays NULL (never 0) when today produced no reading —
+  // which is the case where up to 45 min of need went missing.
+  final todayStrainNum = _todayNum(days, 'strain');
+  final todayStrain = todayStrainNum ?? 0.0;
   // TODAY's naps only, and minutes ASLEEP (the analytics detector reports TST
   // and in-bed separately now). No reading means NO credit — that leaves the
   // recommendation slightly high, which is the safe direction; reaching back a
@@ -222,6 +243,28 @@ Map<String, dynamic> buildCrossDayBundle(
           !needNoNap.present)
       ? null
       : ((needNoNap.value!.needSec - need.value!.needSec) / 60).round();
+  // What the strain bonus ACTUALLY added, measured the same way `nap_credit_min`
+  // measures the nap: re-run at the real operating point with the strain zeroed
+  // and diff. The [6 h, 11 h] clamp applies AFTER adding, so against a high
+  // baseline + debt the bonus is only partly realized — disclosing the raw
+  // (strain/21)*45 would state an increase `need_sec` never took.
+  //
+  // Null when today produced no strain reading. That is the ONE case that
+  // matters most here: a confident 0 says "you rested today", while null says
+  // "we could not measure today's strain, so tonight's need is short by up to
+  // 45 min". Collapsing the two would re-hide exactly what the today-scoping
+  // fix above exposed.
+  final needNoStrain = ana.sleepNeed(
+    baselineNeedSec: baselineNeedSec,
+    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
+    dayStrain: 0.0,
+    napCreditSec: todayNapSec,
+  );
+  final appliedStrainBonusMin = (todayStrainNum == null ||
+          !need.present ||
+          !needNoStrain.present)
+      ? null
+      : ((need.value!.needSec - needNoStrain.value!.needSec) / 60).round();
   // last night's TST (sec) for performance.
   final lastTstMin = _lastNum(days, 'tst_min');
   final perf = (need.present && lastTstMin != null)
@@ -356,6 +399,12 @@ Map<String, dynamic> buildCrossDayBundle(
       // no nap reading, which is different from a confident zero: the UI must
       // not render "−0m" for "we do not know".
       'nap_credit_min': appliedNapCreditMin,
+      // Minutes the strain bonus ACTUALLY added to `need`, same measure-what-
+      // was-applied rule as `nap_credit_min` (the clamp can swallow part of it).
+      // Null means today produced no strain reading — NOT a rest day. The UI
+      // must not render "+0m" for "we do not know", and the missing bonus is
+      // worth up to 45 min of need.
+      'strain_bonus_min': appliedStrainBonusMin,
       'performance': perf.toJson((v) => v.toJson()),
       'bedtime': bedtime.toJson((v) => v.toJson()),
       'wake': wakeRec.toJson((v) => v.toJson()),

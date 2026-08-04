@@ -34,6 +34,26 @@ String _dur(num sec) {
   return m == 0 ? '${h}h' : '${h}h ${m}m';
 }
 
+/// Caption for the strain bonus ALREADY folded into `sleep_coach.need_sec`.
+///
+/// [strainBonusMin] is `sleep_coach.strain_bonus_min` — the minutes the bonus
+/// actually ADDED, after `sleepNeed`'s 11 h ceiling took its cut, not the raw
+/// `(strain/21)*45`.
+///
+/// Null caption (no line) in two different situations, which the BUNDLE keeps
+/// apart even though the card does not:
+///   - `null` — today produced no strain reading, so no bonus was applied and
+///     tonight's need is short by up to 45 min. The card stays silent here to
+///     match the nap credit; surfacing it is a product decision, and
+///     `strain_bonus_min` carries the distinction for anything that wants it.
+///   - `0` — a measured rest day, or a bonus the ceiling swallowed whole.
+///     Nothing was added, so there is nothing to disclose; "+0m" would be noise.
+String? strainBonusCaption(num? strainBonusMin) {
+  final m = strainBonusMin?.round();
+  if (m == null || m <= 0) return null;
+  return '+${_dur(m * 60)} added for today\'s strain';
+}
+
 Map<String, dynamic>? _val(Object? metric) {
   if (metric is! Map) return null;
   final v = metric['value'];
@@ -176,6 +196,11 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ? '−${_dur(napCreditMin * 60)} credited from today\'s nap'
         : null;
 
+    // Same reasoning in the other direction: today's strain is already ADDED to
+    // `need_sec` (up to 45 min), so an unexplained bonus moves both the need and
+    // "% of need" at once. See strainBonusCaption for what silence means here.
+    final strainLine = strainBonusCaption(_coach?['strain_bonus_min'] as num?);
+
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -192,6 +217,10 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         // "Bedtime & alarm" and expand into an empty column.
         if (napLine != null) ...[
           Text(napLine, style: AppText.caption),
+          const SizedBox(height: Sp.x2),
+        ],
+        if (strainLine != null) ...[
+          Text(strainLine, style: AppText.caption),
           const SizedBox(height: Sp.x2),
         ],
         if (bedMin == null && wakeMin == null)

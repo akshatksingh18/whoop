@@ -42,7 +42,11 @@ List<Map<String, dynamic>> _days(
       'onset_sec': 23 * 3600,
       'wake_sec': 31 * 3600,
       'tst_min': 450,
-      'strain': 8.0,
+      // No `strain` anywhere. Strain is ALSO today-scoped, so stamping it on
+      // every row (as this fixture used to) made the strain bonus differ
+      // between a series with a today row and one without — coupling an
+      // unrelated input into the nap assertions below, which compare exactly
+      // those two shapes. The strain path is pinned in strain_bonus_test.dart.
       // Every day EXCEPT today reports a big nap. Today's is caller-controlled.
       if (!last) 'nap_min': 90.0,
       if (last && napMinToday != null) 'nap_min': napMinToday,

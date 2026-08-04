@@ -480,7 +480,39 @@ import 'substrate.dart';
 //     the coach card can show it instead of silently shrinking the ring.
 //
 // Days re-derive so naps, nap_min, sleep_periods and sleep need are rebuilt.
-const int kAlgoVersion = 55;
+// v56: the STRAIN half of the same today-scoping bug. v55 fixed `nap_min` but
+// left `sleep_coach.need`'s other today-scoped input reading through
+// `_lastNum`, so a day whose strain compute abstained built tonight's strain
+// bonus out of an EARLIER day's workout — the identical §3.3 imputation, in the
+// identical function, two lines apart. Measured on a 7-day fixture: a carried
+// strain of 18 inflated `need_sec` by 2314 s (38.6 min) over a today-abstained
+// day. Now `_todayNum`.
+//
+// Direction note, because it differs from v55 and the difference matters: naps
+// are SUBTRACTED and strain is ADDED, so while both inputs floor at 0, that
+// floor is an upper bound on need for naps and a LOWER bound for strain.
+// Abstaining to 0 strain therefore recommends up to 45 min LESS sleep, not
+// more. It is still correct — carrying yesterday forward is not a safety margin
+// but noise around the true value (it inflates need only when yesterday
+// happened to be harder than today), and strain is a same-day accumulating
+// quantity that genuinely starts at 0 — but it is not the cautious direction.
+// Because it is not, it is not allowed to be silent either:
+//   - `sleep_coach.strain_bonus_min` reports the minutes the bonus ACTUALLY
+//     added, measured like `nap_credit_min` (re-run with strain zeroed and
+//     diff), so the [6 h, 11 h] clamp cannot make the card claim an increase
+//     `need_sec` never took.
+//   - It is NULL, never 0, when today produced no strain reading. A confident 0
+//     says "you rested"; null says "we could not measure today's strain, so
+//     tonight's need is short by up to 45 min". Collapsing those would re-hide
+//     exactly what the today-scoping fix exposed.
+//   - The Sleep Coach card renders the applied bonus as a "+Xm added for
+//     today's strain" line (`strainBonusCaption`), mirroring the nap credit.
+//     The card stays SILENT on null, matching the nap precedent — surfacing
+//     "today's strain was not measured" to the user is a product decision, and
+//     the bundle carries the distinction for whoever takes it.
+//
+// Days re-derive so sleep need, bedtime, wake and sleep performance are rebuilt.
+const int kAlgoVersion = 56;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

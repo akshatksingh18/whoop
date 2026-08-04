@@ -53,9 +53,10 @@ void main() {
     });
 
     test('unix@7 garbage → abstain (do not invent offset-6 time)', () {
-      expect(gen5V18UnixFromInner(inner), isNull);
-      expect(sampleFromGen5V18Lenient(inner), isNull);
-      expect(decodeGen5HistoricalSample(inner), isNull);
+      const wallNow = 1785863370; // export capture era
+      expect(gen5V18UnixFromInner(inner, wallNow), isNull);
+      expect(sampleFromGen5V18Lenient(inner, wallNow), isNull);
+      expect(decodeGen5HistoricalSample(inner, wallNow), isNull);
     });
   });
 
@@ -81,7 +82,8 @@ void main() {
       inner.buffer.asByteData().setFloat32(45, 0.05, Endian.little);
 
       expect(parseGen5Historical(inner), isNull);
-      final sample = sampleFromGen5V18Lenient(inner);
+      const wallNow = unix; // plausible vs the synthetic timestamp
+      final sample = sampleFromGen5V18Lenient(inner, wallNow);
       expect(sample, isNotNull);
       expect(sample!.tsEpoch, unix);
       expect(sample.hr, 72);

@@ -11,6 +11,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -1856,32 +1857,51 @@ class LocalDb {
   static String _localDayLabelFromEpoch(int epochSec) =>
       _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
+  /// Gen4 historical R10-lite (hr-only, no accel/optical) must stay out of
+  /// `decoded_onehz` — they belong in the legacy `samples` table only.
+  static bool _isGen4R10LiteHistorical(Uint8List inner) =>
+      inner.isNotEmpty &&
+      inner[0] == proto.PacketType.historicalData &&
+      inner.length > 1 &&
+      inner[1] == proto.Record.r10;
+
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
     if (preferred != null && preferred.hasDecodedOneHz) return preferred;
+    Uint8List bytes;
+    try {
+      bytes = proto.hexToBytes(raw.hex);
+    } catch (_) {
+      return null;
+    }
     try {
       // Legacy decoder first, firmware-fallback chain second — see
       // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
       // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
       // fresh per-call instance is fine — no session state to preserve.
-      final r = proto.FirmwareAwareR24Decoder().decode(
-        proto.hexToBytes(raw.hex),
-      );
-      if (r == null || r.tsEpoch <= 0) return null;
-      return Sample(
-        tsEpoch: r.tsEpoch,
-        counter: r.counter,
-        hr: r.hr,
-        rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-        ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-        ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-        az: r.accelG.length > 2 ? r.accelG[2] : 0,
-        spo2RedRaw: r.spo2RedRaw,
-        spo2IrRaw: r.spo2IrRaw,
-        skinTempRaw: r.skinTempRaw,
-      );
-    } catch (_) {
-      return null;
+      final r = proto.FirmwareAwareR24Decoder().decode(bytes);
+      if (r != null && r.tsEpoch > 0) {
+        return Sample(
+          tsEpoch: r.tsEpoch,
+          counter: r.counter,
+          hr: r.hr,
+          rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+          ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
+          ay: r.accelG.length > 1 ? r.accelG[1] : 0,
+          az: r.accelG.length > 2 ? r.accelG[2] : 0,
+          spo2RedRaw: r.spo2RedRaw,
+          spo2IrRaw: r.spo2IrRaw,
+          skinTempRaw: r.skinTempRaw,
+        );
+      }
+    } catch (_) {}
+    // Gen5 v18 / lenient samples carry HR/RR/gravity but lack gen4 optics —
+    // `hasDecodedOneHz` stays false, yet they are honest 1 Hz substrate rows.
+    if (preferred != null &&
+        preferred.tsEpoch > 0 &&
+        !_isGen4R10LiteHistorical(bytes)) {
+      return preferred;
     }
+    return null;
   }
 
   /// THE orphan guard for an INSERT-OR-REPLACE into `decoded_onehz`.

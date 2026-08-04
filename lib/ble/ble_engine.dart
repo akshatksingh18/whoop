@@ -84,11 +84,6 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
-/// Plausible unix window for gen5 historical records (2020-01-01 .. 2030-01-01).
-@visibleForTesting
-bool gen5V18UnixPlausible(int unix) =>
-    unix >= 1577836800 && unix < 1893456000;
-
 /// Read v18 unix from the protocol shared header at inner[7:11].
 ///
 /// Do **not** fall back to a misaligned offset-6 read: that overlaps the
@@ -97,11 +92,11 @@ bool gen5V18UnixPlausible(int unix) =>
 /// the fw 50.40.1.0 export where unix@7 was garbage because SET_CLOCK never
 /// latched). Absent a plausible unix@7, abstain.
 @visibleForTesting
-int? gen5V18UnixFromInner(Uint8List inner) {
+int? gen5V18UnixFromInner(Uint8List inner, int wallNow) {
   if (inner.length < 11) return null;
   final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
   final at7 = view.getUint32(7, Endian.little);
-  return gen5V18UnixPlausible(at7) ? at7 : null;
+  return isPlausibleUnix(at7, wallNow) ? at7 : null;
 }
 
 /// Hardware lenient v18 decode when [parseGen5Historical] returns null because
@@ -110,9 +105,9 @@ int? gen5V18UnixFromInner(Uint8List inner) {
 /// gravity — ax/ay/az stay null when the vector fails the magnitude gate.
 /// Never fabricates time — requires a plausible unix@7.
 @visibleForTesting
-Sample? sampleFromGen5V18Lenient(Uint8List inner) {
+Sample? sampleFromGen5V18Lenient(Uint8List inner, int wallNow) {
   if (inner.length < kGen5V18MinInnerLen || inner[1] != 18) return null;
-  final unix = gen5V18UnixFromInner(inner);
+  final unix = gen5V18UnixFromInner(inner, wallNow);
   if (unix == null) return null;
   final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
   final counter = view.getUint32(3, Endian.little);
@@ -215,11 +210,11 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
 
 /// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
 @visibleForTesting
-Sample? decodeGen5HistoricalSample(Uint8List inner) {
+Sample? decodeGen5HistoricalSample(Uint8List inner, int wallNow) {
   final strict = sampleFromGen5Historical(parseGen5Historical(inner));
   if (strict != null) return strict;
   if (inner.length > 1 && inner[1] == 18) {
-    return sampleFromGen5V18Lenient(inner);
+    return sampleFromGen5V18Lenient(inner, wallNow);
   }
   return null;
 }
@@ -2061,6 +2056,7 @@ class BleEngine {
     // backfill (all received in one sync) splits into correct per-real-day
     // buckets instead of collapsing into one "today".
     Sample? sample;
+    final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
       // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
@@ -2070,7 +2066,7 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
-      sample = decodeGen5HistoricalSample(frame.inner);
+      sample = decodeGen5HistoricalSample(frame.inner, wallNow);
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
@@ -2134,7 +2130,7 @@ class BleEngine {
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
-      wallNow: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      wallNow: wallNow,
       sessionOldestUnix: _sessionOldestUnix,
       sessionNewestUnix: _sessionNewestUnix,
     )) {

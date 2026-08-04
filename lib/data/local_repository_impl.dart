@@ -605,8 +605,17 @@ class LocalRepositoryImpl extends LocalRepository {
       'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
       'regularity':
           null, // needs ≥several nights (honest null → "Need N nights")
-      // Sleep periods (main + naps) for the periods screen.
-      'periods': (b['sleep_periods'] as Map?)?['periods'] ?? const [],
+      // Sleep periods (main + naps) for the periods screen. The main period is
+      // enriched HERE with the hypnogram + stage minutes: derivation builds the
+      // periods in a second isolate that never receives `series.hypnogram`, so
+      // this is the first point where the whole bundle is in hand. Naps carry
+      // neither by design — no stage claim is made for them.
+      'periods': _periodsWithMainStages(b, {
+        'light_min': min('light_sec'),
+        'deep_min': min('deep_sec'),
+        'rem_min': min('rem_sec'),
+        'nrem_min': min('nrem_sec'),
+      }),
       'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
@@ -623,6 +632,38 @@ class LocalRepositoryImpl extends LocalRepository {
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
     };
+  }
+
+  /// The persisted sleep periods with the MAIN period's hypnogram and stage
+  /// minutes attached.
+  ///
+  /// Naps are returned untouched: they have no stages, and inventing an empty
+  /// stage map would make the card draw a stage bar for sleep we never
+  /// classified. Absent stage minutes are dropped rather than zeroed for the
+  /// same reason — `StageBars` renders 0 as an invisible gap, which reads as
+  /// "no deep sleep" instead of "not measured".
+  List<Map<String, dynamic>> _periodsWithMainStages(
+    Map<String, dynamic> b,
+    Map<String, int?> stageMin,
+  ) {
+    final raw = (b['sleep_periods'] as Map?)?['periods'];
+    if (raw is! List) return const [];
+    final hypno = _hypnoPoints(b);
+    final stages = <String, dynamic>{
+      for (final e in stageMin.entries)
+        if (e.value != null) e.key: e.value,
+    };
+    return [
+      for (final p in raw.whereType<Map>())
+        if (p['is_main'] != true)
+          p.cast<String, dynamic>()
+        else
+          {
+            ...p.cast<String, dynamic>(),
+            if (hypno.isNotEmpty) 'hypnogram': hypno,
+            if (stages.isNotEmpty) 'stages': stages,
+          },
+    ];
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.

@@ -404,7 +404,83 @@ import 'substrate.dart';
 // output moves. NOTE this bump does not retro-fix an existing import — imported
 // days are force-finalized snapshots with no stored raw to recompute from, so
 // an already-imported day needs a re-import to pick its steps up.
-const int kAlgoVersion = 54;
+// v55: NAPS. Daytime naps were "detected" by the NOCTURNAL detector, which
+// rejects them on purpose — `AdvancedSleepStager.minSleepMin = 60` exists so
+// "daytime naps and stray still-blocks stay excluded", and anything centred
+// 11:00–20:00 local additionally needed ≥90 min plus an HR dip. So the 20–45
+// min afternoon nap was STRUCTURALLY undetectable, and `detectNaps` advertised
+// a 20-min floor it could never reach, returning an empty list with a
+// reassuring (and false) "no qualifying naps (20 min–3 h)" note.
+//
+// SIBLING (analytics): new `sleep/nap.dart` — the only nap source. Enumerates
+// every van Hees z-angle immobility bout on the complement of the main sleep
+// window (an ANGLE, so it does not inherit the ~13% |accel| spread across
+// static postures), requires an HR dip against the AWAKE-DAYTIME baseline
+// rather than a night-dominated whole-day median, and reports TST and in-bed
+// separately. No sleep-stage claim: a 30-min nap holds no complete cycle and
+// the daytime HR duty cycle will not support a 4-class partition. The shared
+// immobility primitive is factored out as `immobilityMask` so night and nap
+// run one implementation. Specifics worth knowing:
+//   - The awake baseline excludes the main sleep AND every detected bout. It
+//     cannot include the candidate's own seconds or the hours of tonight's
+//     sleep the nap window borrows, or the dip gate becomes self-suppressing —
+//     the quieter the sleep, the lower the bar it must beat.
+//   - Under 10 min of awake HR, the day is not judged at all. A median over a
+//     handful of samples is not a baseline, and every verdict hangs off it.
+//   - Durations are WALL CLOCK, not sample counts. The substrate is a
+//     positional array with pruning/sync holes, so a run also breaks at a
+//     timestamp discontinuity; otherwise an unobserved hour reads as unbroken
+//     stillness and 20 min of evidence reports a 2 h nap.
+//   - Deferral is CHAIN-aware. Deferring only the bout that touches the array
+//     end is not enough: an ordinary 6-min awakening at 01:50 splits tonight's
+//     sleep, and only the trailing half touches the end. Every bout chained to
+//     an unfinished one (within napChainGapSec) is unfinished too.
+// Verify the analytics pin actually contains this before shipping the bump
+// (AGENTS §3.5).
+//
+// EDGE-LOCAL changes, which ship the moment this constant lands:
+//   - `_sleepPeriods` no longer runs its OWN nap detector (20-min stillness
+//     runs). That second notion disagreed with `detectNaps` on real days —
+//     the committed `payload.json` shows a 21-minute period alongside
+//     `naps.count: 0` — and fed a different screen. One source now (§3.8).
+//   - Periods speak the contract the Sleep-periods screen actually reads
+//     (`onset_ts`/`wake_ts`/`duration_min`/`efficiency`), which it never did:
+//     every nap card rendered "0m" with a red confidence dot regardless of
+//     what was detected. `duration_min` is minutes ASLEEP for both the main
+//     sleep and naps, which were previously different units under one label.
+//   - `nap_min` is TST, not the in-bed span. It is subtracted 1:1 from sleep
+//     need, so crediting in-bed minutes over-credited every nap by its awake
+//     time and always erred toward recommending LESS sleep.
+//   - An unfinished bout is DEFERRED, not emitted (see the sibling notes). With
+//     a 3 h post-midnight buffer the first hours of TONIGHT'S sleep were being
+//     written as a multi-hour "nap" for the day that was ending, then counted
+//     again as tomorrow's main sleep.
+//   - The main sleep period's TST/efficiency are carried into the day-blocks
+//     isolate. That isolate builds its own `scMap` seeded with `rhr` alone, so
+//     reading `scMap['tst_min']` there yields null forever — which would have
+//     made every main-sleep card read "—". Efficiency is normalized from the
+//     stored percent to the 0..1 the card contract uses.
+//   - `total_asleep_min` is null when any listed period's minutes are unknown.
+//     Summing a null as 0 printed a confident total short by exactly the part
+//     we could not measure, and the hero arc divides by it.
+//   - `sleep_coach.nap_credit_min` is the credit ACTUALLY applied, not the raw
+//     nap minutes: `sleepNeed` clamps to [6 h, 11 h] after subtracting, so a
+//     large credit is only partly realized.
+//   - Today-scoped reads require an explicit `is_today` stamp on the cross-day
+//     record. Taking the last record positionally is yesterday on any day whose
+//     row has not been derived yet.
+//   - Off-wrist and charging spans are passed to the detector from the strap's
+//     own WRIST_OFF/WRIST_ON and CHARGING_ON/OFF events. These were decoded
+//     and persisted to `band_events` all along and never used; a band on a
+//     table or charger is motionless and is the dominant nap false positive.
+//   - Absent ≠ zero: when nap detection cannot judge a day, `nap_min` is left
+//     UNWRITTEN, and the sleep-need credit reads TODAY only. It previously
+//     fell back through `_lastNum` to YESTERDAY's nap minutes (§3.3).
+//   - `sleep_coach.nap_credit_min` exposes the credit that was subtracted, so
+//     the coach card can show it instead of silently shrinking the ring.
+//
+// Days re-derive so naps, nap_min, sleep_periods and sleep need are rebuilt.
+const int kAlgoVersion = 55;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2148,6 +2224,17 @@ class DerivationEngine {
       final stepCalib = await LocalDb.getStepCalibration();
       final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
+      // Off-wrist / charging spans over the NAP window (which runs past this
+      // day's end), read here because the isolate has no DB handle. These are
+      // the strap's own reports: a band on a table or a charger is perfectly
+      // still and otherwise reads as deep rest to a motion-based detector.
+      final napLo =
+          day.napSub.length == 0 ? dayLo : day.napSub.tsSec.first;
+      final napHi =
+          day.napSub.length == 0 ? dayHi : day.napSub.tsSec.last + 60;
+      final wristOffSpans = await LocalDb.wristOffSpans(napLo, napHi);
+      final chargingSpans = await LocalDb.chargingSpans(napLo, napHi);
+
       // PERSONAL ambulatory floor, from days STRICTLY BEFORE this one (the same
       // self-exclusion every other baseline uses — a day must not help set the
       // threshold it is then scored against). Anchoring on trailing days is the
@@ -2174,6 +2261,15 @@ class DerivationEngine {
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
         savedSessions: savedSessions,
+        wristOffSpans: wristOffSpans,
+        chargingSpans: chargingSpans,
+        mainTstMin: (scMap?['tst_min'] as num?)?.round(),
+        // The scalar is a PERCENT (onehz_pipeline.dart:914); the period
+        // contract and the card both want 0..1, the same normalization
+        // `_daySleep` does on read.
+        mainEfficiency: (scMap?['efficiency'] as num?) == null
+            ? null
+            : (scMap!['efficiency'] as num).toDouble() / 100.0,
         date: day.date,
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
@@ -2628,6 +2724,11 @@ class DerivationEngine {
         if (row['day_id'] == today && (row['finalized'] as num?) != 1) {
           rec['unsettled'] = true;
         }
+        // Explicit identity for TODAY-scoped reads. `unsettled` cannot serve
+        // this purpose — it is only set while today is unfinalized. Without a
+        // flag, a today-scoped consumer can only take the LAST record
+        // positionally, which on a day with no derived row is YESTERDAY's.
+        if (row['day_id'] == today) rec['is_today'] = true;
         days.add(rec);
       }
       return (days, jsonEncode({'algo_version': kAlgoVersion, 'days': days}));
@@ -3611,99 +3712,95 @@ class DerivationEngine {
     };
   }
 
-  /// Sleep periods: the main sleep + any NAPS (still, on-wrist minute-runs ≥20
-  /// min OUTSIDE the main window). Conservative — naps need sustained stillness.
+  /// Sleep periods: the main sleep plus the naps [_attachNaps] already found.
+  ///
+  /// This used to run its OWN nap detector — 20-min runs of still, on-wrist
+  /// minutes — in parallel with `detectNaps`. Two detectors, two answers, two
+  /// screens: `payload.json` shipped a 21-minute period here on the very day
+  /// `naps` reported `count: 0`. One source per concern (AGENTS §3.8), so the
+  /// naps are now passed in rather than re-derived.
+  ///
+  /// Every period speaks the SAME contract the Sleep-periods screen reads
+  /// (`onset_ts`/`wake_ts`/`duration_min`/`efficiency`/`confidence`), and
+  /// `duration_min` is minutes ASLEEP for both the main sleep and naps — they
+  /// were previously different units under one label, then summed.
   static Map<String, dynamic> _sleepPeriods(
-    Substrate s,
     int onsetSec,
-    int offsetSec, {
-    int? attributionEndSec,
+    int offsetSec,
+    List<Map<String, dynamic>> naps, {
+    int? mainTstMin,
+    double? mainEfficiency,
   }) {
     final periods = <Map<String, dynamic>>[];
+    // Null-if-any-component-unknown. Summing a null duration as 0 would print a
+    // confident total that is short by exactly the part we could not measure —
+    // and the hero tile divides it by need, so the "% of need" arc understates
+    // too. An unknown component makes the SUM unknown.
     var totalAsleep = 0;
+    var totalKnown = true;
     if (offsetSec > onsetSec) {
-      final mainMin = (offsetSec - onsetSec) ~/ 60;
       periods.add({
         'is_main': true,
-        'start': onsetSec,
-        'end': offsetSec,
-        'asleep_min': mainMin,
+        'onset_ts': onsetSec,
+        'wake_ts': offsetSec,
+        // Null when staging did not produce a TST. The screen renders "—";
+        // substituting the in-bed span would silently relabel time in bed as
+        // time asleep, which is the same conflation this change removes.
+        'duration_min': mainTstMin,
+        'in_bed_min': (offsetSec - onsetSec) ~/ 60,
+        'efficiency': ?mainEfficiency,
+        // No hypnogram here on purpose: it lives in the isolate-1 bundle's
+        // `series.hypnogram`, which this isolate does not receive. The read
+        // seam attaches it (see `_daySleep`), where the whole bundle is in
+        // hand. Passing it from here would only ever have written null.
       });
-      totalAsleep += mainMin;
-    }
-    final n = s.length;
-    if (n >= 60) {
-      const moveDeg = 5.0;
-      // Per-minute "still + on-wrist", excluding the main window.
-      final still = <int, bool>{}; // minute → still
-      final mTot = <int, int>{}, mMove = <int, int>{}, mOn = <int, int>{};
-      for (var i = 1; i < n; i++) {
-        final t = s.tsSec[i];
-        if (offsetSec > onsetSec && t >= onsetSec && t < offsetSec) continue;
-        final m = t ~/ 60;
-        mTot[m] = (mTot[m] ?? 0) + 1;
-        if (s.hr[i] > 0) mOn[m] = (mOn[m] ?? 0) + 1;
-        final d =
-            (ana.zAngle(s.ax[i], s.ay[i], s.az[i]) -
-                    ana.zAngle(s.ax[i - 1], s.ay[i - 1], s.az[i - 1]))
-                .abs();
-        if (d > moveDeg) mMove[m] = (mMove[m] ?? 0) + 1;
-      }
-      final keys = mTot.keys.toList()..sort();
-      for (final m in keys) {
-        final tot = mTot[m] ?? 1;
-        still[m] = (mMove[m] ?? 0) / tot < 0.10 && (mOn[m] ?? 0) / tot > 0.5;
-      }
-      // Runs of ≥20 contiguous still minutes → a nap.
-      var i = 0;
-      while (i < keys.length) {
-        if (still[keys[i]] != true) {
-          i++;
-          continue;
-        }
-        var j = i;
-        while (j < keys.length &&
-            still[keys[j]] == true &&
-            keys[j] - keys[i] == j - i) {
-          j++;
-        }
-        final lenMin = j - i;
-        final start = keys[i] * 60;
-        // A run STARTING at/after the real day boundary belongs to tomorrow's
-        // own (unbuffered) window — only count runs that started today.
-        final startsToday =
-            attributionEndSec == null || start < attributionEndSec;
-        if (lenMin >= 20 && startsToday) {
-          final end = keys[j - 1] * 60 + 60;
-          periods.add({
-            'is_main': false,
-            'start': start,
-            'end': end,
-            'asleep_min': lenMin,
-          });
-          totalAsleep += lenMin;
-        }
-        i = j;
+      if (mainTstMin != null) {
+        totalAsleep += mainTstMin;
+      } else {
+        totalKnown = false;
       }
     }
-    return {'periods': periods, 'total_asleep_min': totalAsleep};
+    for (final nap in naps) {
+      periods.add(nap);
+      final d = (nap['duration_min'] as num?)?.toInt();
+      if (d != null) {
+        totalAsleep += d;
+      } else {
+        totalKnown = false;
+      }
+    }
+    return {
+      'periods': periods,
+      'total_asleep_min': totalKnown ? totalAsleep : null,
+    };
   }
 
-  /// Principled daytime naps via the analytics `detectNaps` (van Hees immobility
-  /// + HR-dip over the WAKE span, the main nocturnal window carved out). Writes a
-  /// rich `naps` block (per-nap start/end epoch-sec + duration + confidence) and a
-  /// `nap_min` scalar (total nap minutes) used by the Sleep Coach + Timeline.
-  static void _attachNaps(
+  /// Daytime naps via the analytics `detectNaps` — the ONLY nap source.
+  ///
+  /// Writes the `naps` block (per-nap epoch bounds + TST/TIB + confidence) and
+  /// the `nap_min` scalar (total minutes ASLEEP) used by the Sleep Coach and
+  /// Timeline, and returns period maps for [_sleepPeriods] so the Sleep-periods
+  /// screen lists exactly the same naps the Timeline draws. There used to be a
+  /// second, coarser nap notion in `_sleepPeriods` built from 20-min stillness
+  /// runs; the two disagreed on real days (`payload.json` shipped a 21-min
+  /// period alongside `naps.count: 0`) and fed two different screens.
+  ///
+  /// ABSENT is not ZERO. When the detector cannot judge the day, `nap_min` is
+  /// left UNWRITTEN rather than set to 0 — a written 0 is a claim that there
+  /// were no naps, and it would also be picked up as a real value downstream.
+  static List<Map<String, dynamic>> _attachNaps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate s,
     int onsetSec,
     int offsetSec, {
     int? attributionEndSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
   }) {
     try {
       final n = s.length;
-      if (n < 60) return;
+      if (n < 60) return const [];
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
           ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
@@ -3719,22 +3816,46 @@ class DerivationEngine {
         }
         if (lo >= 0 && hi > lo) main = ana.SleepWindowSpan(lo, hi);
       }
-      final m = ana.detectNaps(accel, hr, mainSleep: main);
+      final m = ana.detectNaps(
+        accel,
+        hr,
+        mainSleep: main,
+        wristOff: wristOff,
+        exclude: charging,
+      );
+
+      if (!m.present) {
+        bundle['naps'] = <String, dynamic>{
+          'value': null,
+          'count': null,
+          'confidence': 0,
+          'tier': m.tier,
+          'inputs_used': m.inputs_used,
+          'note': m.note,
+        };
+        return const [];
+      }
+
       final t0 = s.tsSec.first;
       // A nap STARTING at/after the real day boundary is tomorrow's — its own
       // (unbuffered) window finds it independently, so keeping it here too
       // would double-count it.
-      final naps = (m.value ?? const []).where((nap) {
+      final naps = m.value!.where((nap) {
         if (attributionEndSec == null) return true;
         return t0 + nap.startSec < attributionEndSec;
       }).toList();
+
       bundle['naps'] = <String, dynamic>{
         'value': [
           for (final nap in naps)
             {
               'start': t0 + nap.startSec,
               'end': t0 + nap.endSec,
-              'duration_min': (nap.durationSec / 60).round(),
+              // Minutes ASLEEP. `duration_min` kept as the asleep figure so
+              // existing readers do not silently switch to in-bed minutes.
+              'duration_min': (nap.tstSec / 60).round(),
+              'in_bed_min': (nap.tibSec / 60).round(),
+              'efficiency': nap.efficiency,
               'confidence': nap.confidence,
             },
         ],
@@ -3744,10 +3865,32 @@ class DerivationEngine {
         'inputs_used': m.inputs_used,
         'note': m.note,
       };
-      final napMin = naps.fold<int>(0, (a, nap) => a + (nap.durationSec ~/ 60));
+
+      // TST, never TIB. Crediting in-bed minutes against sleep need
+      // over-credits every nap by its awake time and always errs toward
+      // recommending LESS sleep than the user needs.
+      // Rounded, matching the two display paths exactly. Truncating here while
+      // the cards round made the credit disagree with the sum of the minutes
+      // shown — up to a minute per nap, in a number the user can add up.
+      final napMin =
+          naps.fold<int>(0, (a, nap) => a + (nap.tstSec / 60).round());
       scMap?['nap_min'] = napMin.toDouble();
+
+      return [
+        for (final nap in naps)
+          {
+            'is_main': false,
+            'onset_ts': t0 + nap.startSec,
+            'wake_ts': t0 + nap.endSec,
+            'duration_min': (nap.tstSec / 60).round(),
+            'in_bed_min': (nap.tibSec / 60).round(),
+            'efficiency': nap.efficiency,
+            'confidence': nap.confidence,
+          },
+      ];
     } catch (e) {
       if (kDebugMode) debugPrint('[derive] naps FAILED/skipped: $e');
+      return const [];
     }
   }
 
@@ -3972,10 +4115,25 @@ class DerivationEngine {
     // actually STARTS in that borrowed buffer belongs to tomorrow (which sees
     // it in its own regular window), so both helpers drop anything starting
     // at/after dayEndSec to avoid double-counting.
-    bundlePatch['sleep_periods'] =
-        _sleepPeriods(inp.napSub, onset, offset, attributionEndSec: inp.dayEndSec);
-    _attachNaps(bundlePatch, scMap, inp.napSub, onset, offset,
-        attributionEndSec: inp.dayEndSec);
+    // Naps FIRST — `_sleepPeriods` lists exactly these, so the Timeline bands
+    // and the Sleep-periods cards can never disagree again.
+    final napPeriods = _attachNaps(
+      bundlePatch,
+      scMap,
+      inp.napSub,
+      onset,
+      offset,
+      attributionEndSec: inp.dayEndSec,
+      wristOff: inp.wristOffSpans,
+      charging: inp.chargingSpans,
+    );
+    bundlePatch['sleep_periods'] = _sleepPeriods(
+      onset,
+      offset,
+      napPeriods,
+      mainTstMin: inp.mainTstMin,
+      mainEfficiency: inp.mainEfficiency,
+    );
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);
     bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
@@ -4364,6 +4522,24 @@ class _DayBlocksInput {
   /// How many trailing days backed [dynFloorG] — only for the cold-start note.
   final int dynHistoryDays;
   final List<Map<String, dynamic>> savedSessions;
+
+  /// Strap-reported off-wrist spans ([startSec, endSec]) over the nap window.
+  /// A band on a table is motionless and reads as deep rest — this is the
+  /// dominant nap false positive, and the strap already tells us about it.
+  final List<List<int>> wristOffSpans;
+
+  /// Strap-reported charging spans — off-wrist by definition, and motionless.
+  final List<List<int>> chargingSpans;
+
+  /// Main-sleep TST (minutes) and efficiency (0..1) from ISOLATE 1.
+  ///
+  /// Carried explicitly because `_computeDayBlocks` builds its own fresh
+  /// `scMap` seeded with `rhr` alone — reading `scMap['tst_min']` in there
+  /// silently yields null forever, which is how the main sleep period came to
+  /// report "—" for its duration.
+  final int? mainTstMin;
+  final double? mainEfficiency;
+
   final String date;
   final int dayEndSec;
   final int dataNowSec;
@@ -4382,6 +4558,10 @@ class _DayBlocksInput {
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,
+    required this.wristOffSpans,
+    required this.chargingSpans,
+    required this.mainTstMin,
+    required this.mainEfficiency,
     required this.date,
     required this.dayEndSec,
     required this.dataNowSec,

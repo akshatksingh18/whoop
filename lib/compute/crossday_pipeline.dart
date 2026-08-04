@@ -195,13 +195,33 @@ Map<String, dynamic> buildCrossDayBundle(
   final debtSec =
       (sleepDebt.present ? (sleepDebt.value!.debtHours ?? 0.0) : 0.0) * 3600.0;
   final todayStrain = _lastNum(days, 'strain') ?? 0.0;
-  final todayNapSec = (_lastNum(days, 'nap_min') ?? 0.0) * 60.0;
+  // TODAY's naps only, and minutes ASLEEP (the analytics detector reports TST
+  // and in-bed separately now). No reading means NO credit — that leaves the
+  // recommendation slightly high, which is the safe direction; reaching back a
+  // day to find a number would be the unsafe one.
+  final todayNapMin = _todayNum(days, 'nap_min');
+  final todayNapSec = (todayNapMin ?? 0.0) * 60.0;
   final need = ana.sleepNeed(
     baselineNeedSec: baselineNeedSec,
     sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
     dayStrain: todayStrain,
     napCreditSec: todayNapSec,
   );
+  // What the credit ACTUALLY changed. `sleepNeed` clamps to [6 h, 11 h] AFTER
+  // subtracting, so a large credit against a low baseline is only partly
+  // realized — a 3 h nap does not remove 3 h of need. Disclosing the raw nap
+  // minutes would state a reduction the number above never took.
+  final needNoNap = ana.sleepNeed(
+    baselineNeedSec: baselineNeedSec,
+    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
+    dayStrain: todayStrain,
+    napCreditSec: 0.0,
+  );
+  final appliedNapCreditMin = (todayNapMin == null ||
+          !need.present ||
+          !needNoNap.present)
+      ? null
+      : ((needNoNap.value!.needSec - need.value!.needSec) / 60).round();
   // last night's TST (sec) for performance.
   final lastTstMin = _lastNum(days, 'tst_min');
   final perf = (need.present && lastTstMin != null)
@@ -330,6 +350,12 @@ Map<String, dynamic> buildCrossDayBundle(
     // ── Coaching + fitness (forward-looking, today) ──
     'sleep_coach': <String, dynamic>{
       'need': need.toJson((v) => v.toJson()),
+      // Minutes the nap credit ACTUALLY removed from `need` — not the raw nap
+      // minutes, which the clamp can partly swallow. Lets the card show the
+      // adjustment instead of applying it invisibly. Null means today produced
+      // no nap reading, which is different from a confident zero: the UI must
+      // not render "−0m" for "we do not know".
+      'nap_credit_min': appliedNapCreditMin,
       'performance': perf.toJson((v) => v.toJson()),
       'bedtime': bedtime.toJson((v) => v.toJson()),
       'wake': wakeRec.toJson((v) => v.toJson()),
@@ -370,6 +396,26 @@ double? _median(List<double> xs) {
   final s = [...xs]..sort();
   final mid = s.length ~/ 2;
   return s.length.isOdd ? s[mid] : (s[mid - 1] + s[mid]) / 2.0;
+}
+
+/// The value of [key] on the MOST RECENT day only, or null if that day did not
+/// produce one.
+///
+/// Unlike [_lastNum] this never reaches back to an earlier day. For a
+/// TODAY-scoped quantity that is the difference between "we have no reading"
+/// and a fabricated one: `_lastNum(days, 'nap_min')` would credit YESTERDAY's
+/// naps against tonight's sleep need whenever today's nap detection abstained,
+/// which is imputation (AGENTS §3.3) and always errs toward recommending less
+/// sleep than the user needs.
+/// Requires the last record to be explicitly stamped `is_today` (see
+/// `_refreshCrossDayInputArtifact`). Taking `days.last` positionally is not
+/// enough: on a day with no derived row yet, the most recent record IS
+/// yesterday, so a positional read reproduces the very imputation this replaces.
+double? _todayNum(List<Map<String, dynamic>> days, String key) {
+  if (days.isEmpty) return null;
+  final last = days.last;
+  if (last['is_today'] != true) return null;
+  return _numOrNull(last[key]);
 }
 
 /// The last non-null value of [key] across the (oldest-first) day records.

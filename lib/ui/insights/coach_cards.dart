@@ -27,6 +27,10 @@ String _hhmm(num minOfDay) {
 String _dur(num sec) {
   final total = sec.round();
   final h = total ~/ 3600, m = (total % 3600) ~/ 60;
+  // Sub-hour durations read as "25m", not "0h 25m". The existing callers all
+  // pass a 6-11 h sleep need where h > 0, so this only affects the new
+  // sub-hour caller (the nap credit).
+  if (h == 0) return '${m}m';
   return m == 0 ? '${h}h' : '${h}h ${m}m';
 }
 
@@ -163,6 +167,15 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ? 'Tonight you need ${_dur(needSec)}'
         : 'Tonight you need ${_dur(needSec)} · $pct% of need';
 
+    // Naps are already SUBTRACTED from `need_sec`. Showing the adjustment is
+    // the difference between a number the user can reason about and one that
+    // silently shrank — a nap also inflates "% of need" through the same
+    // subtraction, so an unexplained credit moves both figures at once.
+    final napCreditMin = (_coach?['nap_credit_min'] as num?)?.round();
+    final napLine = (napCreditMin != null && napCreditMin > 0)
+        ? '−${_dur(napCreditMin * 60)} credited from today\'s nap'
+        : null;
+
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -177,6 +190,10 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         // behind it — with bedtime/wake both absent (need computed, but the
         // schedule recommendation isn't yet) a Disclosure here would show
         // "Bedtime & alarm" and expand into an empty column.
+        if (napLine != null) ...[
+          Text(napLine, style: AppText.caption),
+          const SizedBox(height: Sp.x2),
+        ],
         if (bedMin == null && wakeMin == null)
           _needSummary(needSec, pct, accent)
         else

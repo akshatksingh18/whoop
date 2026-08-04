@@ -148,11 +148,22 @@ void main() {
     expect(rows.first['az'], 0);
   });
 
-  test('R10-lite hr-only + preferred → no decoded_onehz row', () async {
+  test('R10-lite + complete preferred → no decoded_onehz row', () async {
     const ts = 1780000100;
     const counter = 99;
     final inner = _buildR10LiteInner(ts: ts, counter: counter, hr: 65);
-    final preferred = Sample(tsEpoch: ts, counter: counter, hr: 65);
+    final preferred = Sample(
+      tsEpoch: ts,
+      counter: counter,
+      hr: 65,
+      ax: 0.1,
+      ay: -0.2,
+      az: 0.95,
+      spo2RedRaw: 100,
+      spo2IrRaw: 200,
+      skinTempRaw: 300,
+    );
+    expect(preferred.hasDecodedOneHz, isTrue);
     final raw = RawRecord(
       counter: counter,
       packetType: PacketType.historicalData,

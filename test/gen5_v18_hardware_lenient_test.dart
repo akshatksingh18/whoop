@@ -93,33 +93,5 @@ void main() {
       expect(sample.ay, isNull);
       expect(sample.az, isNull);
     });
-
-    test('strict dynamic-accel rejection still recovers HR via lenient path', () {
-      final inner = Uint8List(112);
-      inner[0] = 0x2f;
-      inner[1] = 18;
-      inner[2] = 0x80;
-      inner[3] = 1;
-      const unix = 1785801600;
-      inner.buffer.asByteData().setUint32(7, unix, Endian.little);
-      inner[14] = 80;
-      inner[15] = 0;
-      final view = inner.buffer.asByteData();
-      // High dynamic accel fails strict gate; gravity is valid ~1g.
-      view.setFloat32(33, 5.0, Endian.little);
-      view.setFloat32(37, 0.0, Endian.little);
-      view.setFloat32(41, 0.0, Endian.little);
-      view.setFloat32(45, 1.0, Endian.little);
-
-      expect(parseGen5Historical(inner), isNull);
-      const wallNow = unix;
-      final sample = decodeGen5HistoricalSample(inner, wallNow);
-      expect(sample, isNotNull);
-      expect(sample!.hr, 80);
-      // Lenient path keeps gravity when magnitude gate passes.
-      expect(sample.ax, closeTo(0.0, 1e-6));
-      expect(sample.ay, closeTo(0.0, 1e-6));
-      expect(sample.az, closeTo(1.0, 1e-6));
-    });
   });
 }

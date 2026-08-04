@@ -38,6 +38,7 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -786,6 +787,26 @@ Future<void> runWithConcurrency<T>(
   }
 
   await Future.wait(List.generate(poolSize, (_) => lane()));
+}
+
+/// Minimal async mutex: serializes read-modify-write sections that concurrent
+/// day workers ([runWithConcurrency]) would otherwise interleave.
+///
+/// Dart's scheduler makes a single statement atomic, but NOT a
+/// read → decide → write sequence with `await`s in it: every lane can observe
+/// the pre-write state before any of them writes. The shared movement floor is
+/// exactly that shape, so it needs one.
+class _AsyncLock {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() action) {
+    final completer = Completer<void>();
+    final previous = _tail;
+    _tail = completer.future;
+    return previous
+        .then((_) => action())
+        .whenComplete(completer.complete);
+  }
 }
 
 class DerivationEngine {
@@ -2375,11 +2396,13 @@ class DerivationEngine {
         'stress': sc('stress'),
         'spo2': sc('spo2'),
         'calories': sc('calories'),
-        // Steps = real 100 Hz count + 1 Hz estimate over uncovered minutes
-        // (computed in _stepsAndEnergy; never double-counted).
+        // Steps = REAL pedometer counts only (band 100 Hz / phone / NOOP
+        // import, all via `live_coverage`). Absent — written as a NULL row, so
+        // a previously fabricated value is overwritten rather than left
+        // standing — on any day nothing gait-capable measured.
         'steps': sc('steps'),
-        // Ambulatory minutes — the quantity 1 Hz can actually resolve, and the
-        // unit public activity guidance uses. Steps are derived FROM this.
+        // Movement minutes: activity VOLUME, not locomotion. Steps are NOT
+        // derived from this and never will be again (see the v55/v56 note).
         'active_min': sc('active_min'),
         // This day's high quantile of the calibration-invariant dynamic accel
         // amplitude. Not a user-facing metric: it is the per-day summary the
@@ -3054,7 +3077,34 @@ class DerivationEngine {
   /// continuously-recomputed floor tracks the user and reports a near-constant
   /// number regardless of behaviour (measured: 37 active minutes at 1x, 1.5x,
   /// 2x AND 3x activity, versus 23 -> 254 with a frozen floor).
+  ///
+  /// ORDER-INDEPENDENCE. The floor is ONE persisted scalar shared by every day,
+  /// but `run()` dispatches days NEWEST-FIRST through a concurrent worker pool,
+  /// so this read-modify-write is reached by several days at once. Three things
+  /// keep the outcome from depending on which worker finishes last:
+  ///
+  ///   1. `_floorLock` serializes the whole read/decide/write, so two days can
+  ///      never both observe "nothing stored" and both commit.
+  ///   2. `daysSinceFrozen` is clamped at 0 (see [mfp.daysSinceFrozen]), so a
+  ///      backfill day never reads as a stale floor and never triggers a
+  ///      re-freeze just for being old.
+  ///   3. `mayCommitFloorOn` stops an older day overwriting a newer freeze.
+  ///
+  /// Without these, a `kAlgoVersion` bump — which this very change forces —
+  /// would re-derive the whole retained window and let sweep order decide every
+  /// day's `active_min`. That is precisely what `_BaselineHistoryCache`'s own
+  /// contract forbids for baselines.
   static Future<double?> _frozenMovementFloor(
+    _BaselineHistoryCache history,
+    String dayId,
+  ) =>
+      _floorLock.run(() => _resolveMovementFloor(history, dayId));
+
+  /// Serializes the shared-floor read-modify-write across concurrent day
+  /// workers. See [_frozenMovementFloor].
+  static final _AsyncLock _floorLock = _AsyncLock();
+
+  static Future<double?> _resolveMovementFloor(
     _BaselineHistoryCache history,
     String dayId,
   ) async {
@@ -3071,10 +3121,15 @@ class DerivationEngine {
       // `false` that reads like a checked condition. `wearGapDays` IS
       // derivable — a run of days with no `dyn_p90` row means the band was not
       // worn — so it is computed and passed.
-      final age = _daysBetweenLabels(stored.frozenOn, dayId);
       final refreeze = ana.shouldRefreezeFloor(
-        daysSinceFrozen: age,
-        wearGapDays: _wearGapDays(history, dayId),
+        daysSinceFrozen: mfp.daysSinceFrozen(
+          frozenOn: stored.frozenOn,
+          dayId: dayId,
+        ),
+        wearGapDays: mfp.wearGapDays(
+          have: history.datesFor('dyn_p90'),
+          dayId: dayId,
+        ),
       );
       if (!refreeze) return stored.floorG;
 
@@ -3092,6 +3147,13 @@ class DerivationEngine {
       return null;
     }
 
+    // A backfill day may CONSUME the shared floor but never move it — otherwise
+    // a newest-first sweep's oldest day could clobber the freeze its newest day
+    // just established.
+    if (!mfp.mayCommitFloorOn(frozenOn: stored?.frozenOn, dayId: dayId)) {
+      return stored?.floorG;
+    }
+
     final floor = ana.personalDynFloorFromDailySummaries(hist);
     if (floor == null) return stored?.floorG;
     await LocalDb.putMovementFloor(
@@ -3104,38 +3166,6 @@ class DerivationEngine {
           '${floor.toStringAsFixed(4)} g from ${hist.length} days ($dayId)');
     }
     return floor;
-  }
-
-  /// Consecutive days immediately before [dayId] with no `dyn_p90` row.
-  ///
-  /// A missing daily summary means the band produced no usable motion for that
-  /// day, i.e. it was not worn. Used only as a re-freeze trigger: a long gap
-  /// suggests the body/device relationship may have changed enough that the
-  /// frozen movement floor should be re-estimated.
-  static int _wearGapDays(_BaselineHistoryCache history, String dayId) {
-    final target = DateTime.tryParse(dayId);
-    if (target == null) return 0;
-    final have = history.datesFor('dyn_p90');
-    if (have.isEmpty) return 0;
-    var gap = 0;
-    for (var back = 1; back <= 60; back++) {
-      final d = target.subtract(Duration(days: back));
-      final label =
-          '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
-      if (have.contains(label)) break;
-      gap++;
-    }
-    return gap;
-  }
-
-  /// Whole days between two `YYYY-MM-DD` labels; 0 if either is unparseable.
-  static int _daysBetweenLabels(String a, String b) {
-    final da = DateTime.tryParse(a);
-    final db = DateTime.tryParse(b);
-    if (da == null || db == null) return 0;
-    return db.difference(da).inDays.abs();
   }
 
   /// Write the day's step count. REAL PEDOMETER MEASUREMENTS ONLY.
@@ -3248,11 +3278,16 @@ class DerivationEngine {
       final v = est.present ? est.value : null;
 
       // Movement minutes stay, as an explicitly non-locomotion activity index.
-      if (v != null) {
-        scMap?['active_min'] = v.activeMinutes.toDouble();
-      } else {
-        scMap?.remove('active_min');
-      }
+      //
+      // ONLY OVERWRITE ON SUCCESS — never remove. `_applyWakeDayFeatures` has
+      // already written `active_min` from `_activeMinutes` (ENMO over wake), a
+      // SEPARATE quantity that was never part of the fabricated step
+      // conversion. Removing it on abstention deleted a number the user
+      // previously had, for the whole enrollment window (every day a new user
+      // has before the floor freezes), and nulled its trend series with it.
+      // Abstaining from the new index is right; destroying the old independent
+      // measurement to do it is not.
+      if (v != null) scMap?['active_min'] = v.activeMinutes.toDouble();
       bundle['movement'] = <String, dynamic>{
         'active_min': v?.activeMinutes,
         'bout_count': v?.boutCount,
@@ -3260,7 +3295,9 @@ class DerivationEngine {
         'coverage': v?.coverage,
         'confidence': est.present ? est.confidence : 0.0,
         'tier': 'ESTIMATE',
-        'inputs_used': const ['dyn_amp_1hz', 'hr_1hz', 'personal_dyn_floor'],
+        // HR is NOT an input any more — the resting-HR gate was deleted in v56
+        // after it changed active minutes by exactly zero on every day tested.
+        'inputs_used': const ['dyn_amp_1hz', 'personal_dyn_floor'],
         'note': v == null
             ? (est.note ?? 'need_baseline')
             : 'minutes of sustained wrist movement — activity volume, NOT '
@@ -4556,7 +4593,7 @@ Future<R> runCancellableIsolate<R>(
 
 /// Sendable input for [DerivationEngine._computeDayBlocks] — crosses the
 /// `Isolate.run` boundary, so every field is plain data (Substrate is int/double
-/// lists; Profile/StepCalibration are primitive data classes). DB reads that the
+/// lists; Profile is a primitive data class). DB reads that the
 /// pure compute needs are performed by the caller and passed in here.
 class _DayBlocksInput {
   final Substrate daySub;

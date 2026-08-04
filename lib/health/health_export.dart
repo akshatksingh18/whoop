@@ -62,13 +62,13 @@ class HealthExporter {
         HealthDataType.HEART_RATE,
         HealthDataType.ACTIVE_ENERGY_BURNED,
         HealthDataType.BASAL_ENERGY_BURNED,
-        // STEPS is listed for DELETION ONLY — we no longer write steps (see the
-        // block further down for why). Keeping it here means the per-day delete
-        // pass below actively PURGES the fabricated step samples we wrote into
-        // Apple Health / Health Connect in earlier versions, instead of leaving
-        // them contaminating the system store forever. Deleting our own samples
-        // is a write-scope operation, which is why WRITE_STEPS stays in the
-        // Android manifest even though nothing writes steps any more.
+        // STEPS is requested for DELETE SCOPE ONLY — nothing writes steps any
+        // more (see the block further down for why). We still need the write
+        // permission to purge the fabricated step samples earlier versions put
+        // into Apple Health / Health Connect, which is why WRITE_STEPS stays in
+        // the Android manifest. That purge is a ONE-SHOT migration and does not
+        // belong in the per-day rewrite loop — see [_purgeLegacyStepsIfNeeded]
+        // and [_rewriteTypes].
         HealthDataType.STEPS,
         HealthDataType.SLEEP_DEEP,
         HealthDataType.SLEEP_REM,
@@ -77,6 +77,49 @@ class HealthExporter {
         HealthDataType.SLEEP_SESSION,
         HealthDataType.WORKOUT,
       ];
+
+  /// The types the per-day delete-then-write pass touches.
+  ///
+  /// STEPS is deliberately excluded. It is in [_types] only so `request()` asks
+  /// for the scope the legacy purge needs; including it here would run a delete
+  /// for a type nothing writes on every re-export of the recent (not-yet-
+  /// finalized) tail, forever, and would let that delete's failure flip a day's
+  /// export to unsuccessful.
+  List<HealthDataType> get _rewriteTypes =>
+      [for (final t in _types) if (t != HealthDataType.STEPS) t];
+
+  /// Cursor for the one-shot legacy-STEPS purge: the newest day already purged.
+  static const _kStepsPurgeCursor = 'health_steps_purged_through';
+  String? _stepsPurgedThrough;
+
+  /// Delete the fabricated STEPS samples earlier versions wrote for [date].
+  ///
+  /// ONE-SHOT, and deliberately not part of the day's success accounting: this
+  /// is a migration cleaning up data we should never have written, not part of
+  /// exporting the day. A failure here must not stall the export cursor for a
+  /// type nothing writes. Days are walked ascending, so the cursor advances
+  /// monotonically and a re-exported tail day is not re-purged.
+  Future<void> _purgeLegacyStepsIfNeeded(
+    String date,
+    DateTime dayStart,
+    DateTime dayEnd,
+  ) async {
+    _stepsPurgedThrough ??= await LocalDb.getCursor(_kStepsPurgeCursor) ?? '';
+    final through = _stepsPurgedThrough!;
+    if (through.isNotEmpty && date.compareTo(through) <= 0) return;
+    try {
+      await _health.delete(
+        type: HealthDataType.STEPS,
+        startTime: dayStart,
+        endTime: dayEnd,
+      );
+      _stepsPurgedThrough = date;
+      await LocalDb.setCursor(_kStepsPurgeCursor, date);
+    } catch (e) {
+      // Leave the cursor where it is so the next pass retries this day.
+      debugPrint('[health] purge legacy steps $date: $e');
+    }
+  }
 
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
   // design, and Health Connect's hasPermissions(WRITE) frequently returns
@@ -345,9 +388,13 @@ class HealthExporter {
     // write on failure (best-effort, idempotent re-export corrects it later).
     var success = true;
 
+    // One-shot cleanup of the fabricated step samples earlier versions wrote.
+    // Outside the success accounting on purpose — see the method doc.
+    await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
+
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
-    for (final t in _types) {
+    for (final t in _rewriteTypes) {
       try {
         await _health.delete(type: t, startTime: dayStart, endTime: dayEnd);
       } catch (e) {

@@ -24,7 +24,7 @@ const Map<String, String> kMetricInfo = {
   'load': 'Recent (7d) vs habitual (28d) load. 0.8–1.3 is the sweet spot.',
   'fitness': 'Direction of your fitness from resting-HR and recovery trends.',
   'calories': 'Active energy burned, estimated from your heart rate.',
-  'steps': 'Estimated steps from wrist motion.',
+  'steps': 'Real steps counted by your phone or the band\'s live sensor.',
   'sleep': 'Time actually asleep last night.',
   'efficiency': 'Share of time in bed actually spent asleep.',
   'regularity': 'How consistent your sleep timing is, 0–100.',

@@ -1124,6 +1124,17 @@ class _HealthSection extends StatelessWidget {
                 'Stays on your device.',
                 style: AppText.captionMuted,
               ),
+              // The failure mode this exists for: on iOS the permission prompt
+              // reports success even when the user denies READ access, so
+              // without a status line the toggle just sits on and no step count
+              // ever appears, with nothing for the user to act on.
+              if (app.phoneStepsEnabled) ...[
+                const SizedBox(height: 2),
+                Text(
+                  _phoneStepsStatus(app, store),
+                  style: AppText.captionMuted,
+                ),
+              ],
             ],
           ),
         ),
@@ -1145,6 +1156,23 @@ class _HealthSection extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// One line telling the user whether the read is actually producing anything.
+  static String _phoneStepsStatus(AppState app, String store) {
+    final days = app.phoneStepsLastSyncedDays;
+    if (days == null) return 'Reading…';
+    if (days == 0) {
+      return 'No data from $store yet. If you never saw a permission prompt, '
+          'allow Steps for OpenStrap in $store settings.';
+    }
+    final total = app.phoneStepsLastTotal ?? 0;
+    if (total == 0) {
+      return 'Connected to $store — no steps recorded in the last $days day'
+          '${days == 1 ? '' : 's'}.';
+    }
+    return 'Read $total steps from $store over $days day'
+        '${days == 1 ? '' : 's'}.';
   }
 
   Widget _statusRow(BuildContext context, HealthLinkState st, String store) {

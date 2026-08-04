@@ -12,7 +12,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -911,17 +910,31 @@ class LocalDb {
     return phone > 0 ? phone : band;
   }
 
-  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
-  /// exclude already-counted minutes from the 1 Hz estimate.
+  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec), for ONE
+  /// [source] (band by default).
+  ///
+  /// The 1 Hz-estimate exclusion this originally served is gone along with the
+  /// estimator. Its only remaining caller is the NOOP importer, which reads back
+  /// the spans it has already banked so `stepRuns` can clip them out and a
+  /// re-import over an overlapping span cannot double-count.
+  ///
+  /// THE SOURCE FILTER IS LOAD-BEARING for that caller. Phone-pedometer rows now
+  /// share this table and cover the same wall-clock hours, so an unfiltered read
+  /// let a user with phone steps enabled import a NOOP backup whose BAND step
+  /// runs were clipped against the PHONE's windows and silently dropped — the
+  /// import reporting success while banking nothing for those days. Band clips
+  /// against band. Phone coverage needs no clipping at all: it is replaced
+  /// wholesale per day (see [replacePhoneCoverageForDay]).
   static Future<List<List<int>>> coverageWindowsOverlapping(
     int loSec,
-    int hiSec,
-  ) async {
+    int hiSec, {
+    String source = kStepSourceBand,
+  }) async {
     final db = await instance;
     final rows = await db.query(
       'live_coverage',
-      where: 'end_ts >= ? AND start_ts < ?',
-      whereArgs: [loSec, hiSec],
+      where: 'end_ts >= ? AND start_ts < ? AND source = ?',
+      whereArgs: [loSec, hiSec, source],
     );
     return [
       for (final r in rows)
@@ -3951,22 +3964,6 @@ class LocalDb {
         jsonEncode({'floor_g': floorG, 'frozen_on': frozenOn, 'days': days}),
       );
 
-  static Future<ana.StepCalibration?> getStepCalibration() async {
-    final row = await baseline('step_calibration');
-    final raw = row?['payload_json'];
-    if (raw is! String || raw.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      return decoded is Map
-          ? ana.StepCalibration.fromJson(decoded.cast<String, dynamic>())
-          : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> putStepCalibration(ana.StepCalibration calibration) =>
-      putBaseline('step_calibration', jsonEncode(calibration.toJson()));
 
   /// A long-format metric series (oldest first) for trends/sparklines.
   static Future<List<Map<String, dynamic>>> metricSeries(

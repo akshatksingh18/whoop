@@ -4203,13 +4203,15 @@ class DerivationEngine {
       inp.dynFloorG,
       inp.dynHistoryDays,
     );
-    // _stepsAndEnergy just corrected `steps`/`calories_total` in bundlePatch +
-    // scMap using the hybrid real-100Hz + 1Hz-estimate count, but `wake` (built
-    // above by _buildWakeDayFeatures, before this correction ran) still holds
-    // the earlier 1Hz-only estimate. `wake` is what _persistWakeDayFeatures
-    // stores and what the Today repository reads while the full day result
-    // isn't ready yet, so copy the corrected values back in to avoid serving
-    // stale steps/calories from that early-read path.
+    // _stepsAndEnergy just wrote `steps` (REAL pedometer counts from
+    // `live_coverage` — band 100 Hz or phone, never an estimate) and
+    // `calories_total` into bundlePatch + scMap. `wake` was built above by
+    // _buildWakeDayFeatures BEFORE that ran, and deliberately leaves `steps`
+    // null: the early-read path has no gait-capable source of its own and must
+    // not invent one. `wake` is what _persistWakeDayFeatures stores and what
+    // the Today repository reads until the full day result exists, so copy the
+    // measured values back in — otherwise Today shows no step count on a day
+    // that really was measured.
     for (final key in const ['steps', 'calories_total']) {
       final value = scMap[key];
       if (value != null) wake[key] = value;

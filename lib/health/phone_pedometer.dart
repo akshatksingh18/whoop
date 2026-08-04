@@ -135,7 +135,6 @@ class PhonePedometer {
       final windows = <({int startTs, int endTs, int steps})>[];
       var total = 0;
       var anyRead = false;
-      final now = DateTime.now();
 
       // CALENDAR-AWARE hour walk. `Duration` arithmetic on a local DateTime is
       // ABSOLUTE, so `dayStartLocal.add(Duration(hours: h))` over a fixed 24
@@ -150,6 +149,12 @@ class PhonePedometer {
         dayStartLocal.day + 1,
       );
       for (var h = 0; h < 25; h++) {
+        // RE-READ THE CLOCK EACH ITERATION. Each bucket is an async platform
+        // query, so a whole day's walk can straddle an hour boundary. Captured
+        // once up front, `now` went stale mid-loop and the current hour was
+        // capped short — under-reporting today's most recent steps until some
+        // later sync happened to re-read the day.
+        final now = DateTime.now();
         final from = DateTime(dayStartLocal.year, dayStartLocal.month,
             dayStartLocal.day, h);
         if (!from.isBefore(nextMidnight)) break; // spring-forward short day

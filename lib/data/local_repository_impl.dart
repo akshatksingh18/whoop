@@ -2035,7 +2035,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final rows = await LocalDb.sessionsInRange(0, 1 << 40);
     return [
       for (final r in rows)
-        if (r['id'] is String && r['start_ts'] is int && r['end_ts'] is int)
+        if (r['id'] is String && r['start_ts'] is num && r['end_ts'] is num)
           SessionSpan(
             r['id'] as String,
             (r['start_ts'] as num).toInt(),
@@ -2084,6 +2084,14 @@ class LocalRepositoryImpl extends LocalRepository {
     final existing = await LocalDb.session(id);
     if (existing == null) {
       throw StateError('setWorkoutWindow: no session $id');
+    }
+    // A running session has no end to correct yet, and buildManualSessionRow
+    // always writes status 'done' — retiming one here would silently end it.
+    // The detail screen already passes onEditTimes:null for a live row, but
+    // the window is re-validated at this seam precisely because the form is
+    // not the only caller; the status deserves the same treatment.
+    if (existing['status'] == 'live') {
+      throw StateError('setWorkoutWindow: session $id is still live');
     }
     // A retimed session keeps its id, so the OLD row is replaced rather than
     // orphaned — including its GPS route, which still belongs to it.

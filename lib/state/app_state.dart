@@ -3531,7 +3531,16 @@ class AppState extends ChangeNotifier {
   Future<void> _refreshNightlyRhr() async {
     try {
       final vals = await LocalDb.trailingSeriesValues('rhr', 7);
-      if (vals.isNotEmpty) _nightlyRhr = vals.last;
+      if (vals.isEmpty) return;
+      _nightlyRhr = vals.last;
+      // Adopt it into a session that started before this read completed, but
+      // only to FILL A GAP — overwriting an anchor a running session was
+      // already scored against would move its number mid-workout.
+      final w = activeWorkout;
+      if (w != null && w.restingHr == null) {
+        w.restingHr = _liveRestingHr;
+        notifyListeners();
+      }
     } catch (_) {
       /* best effort — falls back to the user-supplied RHR, or abstains */
     }
@@ -3572,8 +3581,9 @@ class AppState extends ChangeNotifier {
       unawaited(engine.retryFullLiveStreams());
     }
     _workoutRawBase = _liveRaw;
-    // A first night may have been derived since init, so pick up a measured
-    // RHR before this session is scored against it.
+    // A first night may have been derived since init. This read finishes
+    // after the session below is constructed, so it back-fills the anchor on
+    // `activeWorkout` when it lands rather than blocking the start.
     unawaited(_refreshNightlyRhr());
     // Hold heavy derivation for the session — an isolate spawn mid-ride
     // competes with GPS, the live map and the BLE drain (see
@@ -3777,8 +3787,9 @@ class AppState extends ChangeNotifier {
           // snapshot: steps count from zero going forward, same as
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
-    // A first night may have been derived since init, so pick up a measured
-    // RHR before this session is scored against it.
+    // A first night may have been derived since init. This read finishes
+    // after the session below is constructed, so it back-fills the anchor on
+    // `activeWorkout` when it lands rather than blocking the start.
     unawaited(_refreshNightlyRhr());
           // Never overwrite a live timer reference without cancelling it.
           _workoutTimer?.cancel();
@@ -4100,7 +4111,14 @@ class LiveWorkoutState {
   /// must be scored against the profile it was performed under, not whatever
   /// the profile happens to say when the session ends.
   final Profile profile;
-  final double? restingHr;
+
+  /// Resting-HR anchor for the strain score. NOT final: the measured nightly
+  /// value is loaded asynchronously, so a session can begin before it lands.
+  /// [AppState._refreshNightlyRhr] back-fills it here when it arrives, and the
+  /// next HR sample re-scores through it — otherwise the session would be
+  /// stuck unscored for its whole duration over a read that finished a
+  /// fraction of a second after it started.
+  double? restingHr;
 
   /// Per-minute mean HR, the unit Banister TRIMP weights. Live HR arrives at
   /// 1 Hz, so it is folded into the current minute here rather than kept as

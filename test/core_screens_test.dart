@@ -464,11 +464,15 @@ void main() {
       );
       await t.pump(const Duration(milliseconds: 1200));
 
-      // A range, not just the start — "Today · 4:00 PM – 4:42 PM".
-      final window = find.textContaining('–');
-      expect(window, findsWidgets);
+      // Targeted by key, not by the en dash: the zone rows render
+      // "133–152 bpm" with the same character, so a text finder matched those
+      // too and the test had to lean on tree order to pick the right one.
+      final window = find.byKey(const Key('workout-window-edit'));
+      expect(window, findsOneWidget);
+      // The window really is rendered as a RANGE, which is the point of it.
+      expect(find.textContaining('–'), findsWidgets);
 
-      await t.tap(window.first);
+      await t.tap(window);
       await t.pump();
       expect(tapped, 1);
       expect(t.takeException(), isNull);
@@ -495,10 +499,9 @@ void main() {
       );
       await t.pump(const Duration(milliseconds: 1200));
       // The window still renders; it just isn't a button.
-      expect(
-        find.bySemanticsLabel(RegExp('Edit workout times')),
-        findsNothing,
-      );
+      expect(find.byKey(const Key('workout-window-edit')), findsNothing);
+      expect(find.textContaining('–'), findsWidgets,
+          reason: 'the window itself must still be shown');
       expect(t.takeException(), isNull);
     });
   });

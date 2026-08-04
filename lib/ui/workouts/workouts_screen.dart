@@ -15,6 +15,7 @@ import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../../models/payloads.dart';
 import '../../data/day_label.dart';
+import '../../compute/manual_session.dart' show ManualWindowException;
 import '../../data/db.dart';
 import '../activity/live_session_screen.dart';
 import '../activity/workout_share_card.dart';
@@ -567,6 +568,15 @@ Future<void> _logDetectedSession(Map<String, dynamic> s,
         unawaited(appState.exportWorkoutToHealth(saved));
       }
       return;
+    } on ManualWindowException {
+      // A REFUSAL is not a failure to retry differently. The window collides
+      // with a session already in the log, so those minutes are recorded
+      // already; falling through would write a duplicate under the same
+      // `auto:` id AND strip it back to the blank strain/calories this change
+      // set out to remove — bypassing the very rule the write seam enforces.
+      // The athlete acted on the card, so retire it and stop.
+      await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+      return;
     } catch (_) {
       // Fall through to the unscored write — a suggestion the athlete has
       // explicitly accepted must land in the log either way.
@@ -622,7 +632,21 @@ class _WindowLabel extends StatelessWidget {
       style: AppText.captionMuted.copyWith(color: tone.fgMuted),
     );
     if (onTap == null) return label;
+    // NOTE: this annotation merges into an ancestor card's semantics node
+    // rather than standing on its own, so the button flag and label here are
+    // contributions to that merged node, not a node of their own. `container:
+    // true` + `excludeSemantics: true` were tried to force a standalone node
+    // and could NOT be shown to work — tester.getSemantics still resolved to
+    // the ancestor. Excluding the child's semantics on that evidence would
+    // have risked dropping the window text from the merged announcement while
+    // gaining nothing, which is the same trap as excluding semantics without
+    // re-exposing the action. Left as a plain annotation until someone can
+    // demonstrate the improvement; the key below is what tests target.
     return Semantics(
+      // Stable handle for targeting the affordance itself — the window text
+      // alone is not distinguishing, since the zone rows render "133–152 bpm"
+      // with the same en dash.
+      key: const Key('workout-window-edit'),
       button: true,
       label: 'Edit workout times. Currently $text',
       child: Pressable(

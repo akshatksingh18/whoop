@@ -85,6 +85,7 @@ void main() {
               // What showModalBottomSheet imposes with isScrollControlled:false.
               constraints: BoxConstraints(maxHeight: _iphone14.height * 9 / 16),
               child: SafeArea(
+                key: const Key('sheet-body'),
                 top: false,
                 child: Padding(
                   padding: const EdgeInsets.all(Sp.x5),
@@ -126,7 +127,9 @@ void main() {
       // that makes adding a fourth child unsafe. If this ever goes slack
       // (fewer types, a tighter grid), the note in startWorkoutFlow can be
       // revisited; until then it stands.
-      final used = t.getSize(find.byType(SafeArea).last).height;
+      // By key: `find.byType(SafeArea).last` depended on how many SafeAreas
+      // the harness happened to nest, which is not what this asserts.
+      final used = t.getSize(find.byKey(const Key('sheet-body'))).height;
       expect(used, greaterThan(ceiling * 0.6),
           reason: 'sheet is nowhere near its cap — re-check the guidance in '
               'startWorkoutFlow before trusting it');

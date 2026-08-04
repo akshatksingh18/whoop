@@ -118,7 +118,7 @@ abstract class LocalRepository {
   /// Log a COMPLETED workout the athlete times themselves — one the band never
   /// detected, or detected too narrowly. Scored from the 1 Hz substrate over
   /// [startTs, endTs] (epoch SECONDS); a window with no substrate is still
-  /// saved, just unscored. Returns `{workout_id, unscored}`.
+  /// saved, just unscored. Returns `{workout_id, unscored, hr_samples}`.
   Future<Map<String, dynamic>> logManualWorkout({
     required int startTs,
     required int endTs,
@@ -130,6 +130,7 @@ abstract class LocalRepository {
   /// [logManualWorkout], but keeps the `auto:` id and `auto` attribution.
   /// Before this existed the confirm flow wrote no `strain` or `calories` at
   /// all, so every accepted suggestion showed blanks where the numbers go.
+  /// Returns `{workout_id, unscored, hr_samples}`.
   Future<Map<String, dynamic>> logDetectedWorkout({
     required int startTs,
     required int endTs,
@@ -139,7 +140,9 @@ abstract class LocalRepository {
 
   /// Retime an existing session and re-score it over the new window. Used to
   /// widen an auto-detected fragment to the real session. Returns
-  /// `{workout_id, unscored}`.
+  /// `{workout_id, unscored, hr_samples}`. Throws [StateError] when the id is
+  /// unknown or the session is still live, and [ManualWindowException] when
+  /// the proposed window is rejected.
   Future<Map<String, dynamic>> setWorkoutWindow(
     String id, {
     required int startTs,

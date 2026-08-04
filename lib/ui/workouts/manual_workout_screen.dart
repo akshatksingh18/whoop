@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../compute/manual_session.dart';
+import '../../data/day_label.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme_switcher.dart';
 import '../design/design.dart';
@@ -115,12 +116,18 @@ class _ManualWorkoutScreenState extends State<ManualWorkoutScreen> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
+    // Back to the start of last year is plenty for back-filling; forward is
+    // pointless — a future session is rejected anyway. But an EDIT can carry a
+    // session older than that floor (sessions are never pruned, and an import
+    // can bring in years of history), and showDatePicker asserts that
+    // initialDate is on or after firstDate. Widen the floor to admit whatever
+    // we are about to show rather than opening a picker that throws.
+    final floor = DateTime(now.year - 1, 1, 1);
+    final firstDate = _start.isBefore(floor) ? DateTime(_start.year, 1, 1) : floor;
     final picked = await showDatePicker(
       context: context,
       initialDate: _start,
-      // Back to the start of last year is plenty for back-filling; forward is
-      // pointless — a future session is rejected anyway.
-      firstDate: DateTime(now.year - 1, 1, 1),
+      firstDate: firstDate,
       lastDate: now,
       helpText: 'Which day?',
     );
@@ -336,17 +343,24 @@ class _ManualWorkoutScreenState extends State<ManualWorkoutScreen> {
   }
 }
 
+/// Local calendar-day label for the date row.
+///
+/// Compares day LABELS, not elapsed seconds. `today.difference(that).inDays`
+/// measures the gap between two local midnights, and a spring-forward day is
+/// 23 h — which truncates to 0, so yesterday renders as "Today"; a fall-back
+/// day is 25 h and pushes the label the other way. Day identity is calendar
+/// identity, which is what `dayLabelOf` encodes.
 String _dateLabel(DateTime d) {
   const mon = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
+  final label = dayLabelOf(d);
+  if (label == todayLabel()) return 'Today';
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final that = DateTime(d.year, d.month, d.day);
-  final diff = today.difference(that).inDays;
-  if (diff == 0) return 'Today';
-  if (diff == 1) return 'Yesterday';
+  if (label == dayLabelOf(DateTime(now.year, now.month, now.day - 1))) {
+    return 'Yesterday';
+  }
   return '${mon[d.month - 1]} ${d.day}';
 }
 

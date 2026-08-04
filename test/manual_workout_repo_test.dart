@@ -334,9 +334,28 @@ void main() {
 
     test('retiming preserves the route rows themselves (id is stable)',
         () async {
+      // Self-contained: this used to read the rows the narrowing test above
+      // happened to leave behind, so it failed the moment it ran alone.
+      final start = sessionStart - 46 * 86400;
+      await LocalDb.putSession({
+        'id': 'w-route-keep',
+        'start_ts': start,
+        'end_ts': start + 5400,
+        'type': 'run',
+        'status': 'done',
+        'duration_min': 90,
+        'source': 'manual',
+        'created_at': start * 1000,
+      });
+      await seedRoute('w-route-keep', start, 5400);
+      final before = (await LocalDb.routePoints('w-route-keep')).length;
+      await repo.setWorkoutWindow('w-route-keep',
+          startTs: start, endTs: start + 3600);
+
       // The cascade delete lives on deleteSession; putSession must not touch
       // workout_route, or widening back would silently lose the map forever.
-      final rows = await LocalDb.routePoints('w-route');
+      final rows = await LocalDb.routePoints('w-route-keep');
+      expect(rows.length, before);
       expect(rows.length, greaterThan(2),
           reason: 'the full route must survive a narrowing retime, so the '
               'athlete can widen the window back again');
@@ -345,8 +364,14 @@ void main() {
 
   test('savedSessionSpans surfaces saved windows for the overlap check',
       () async {
+    // Seed our own row rather than leaning on whatever earlier tests left.
+    final start = sessionStart - 50 * 86400;
+    await repo.logManualWorkout(
+        startTs: start, endTs: start + 1800, type: 'walk');
+
     final spans = await repo.savedSessionSpans();
     expect(spans, isNotEmpty);
+    expect(spans.map((e) => e.id), contains(manualSessionId(start)));
     // Every span is a real, ordered window.
     for (final s in spans) {
       expect(s.endSec, greaterThan(s.startSec));
@@ -361,7 +386,9 @@ void main() {
           startTs: start, endTs: start + 3600, type: 'run');
 
       // A second session landing in the middle of the first.
-      expect(
+      // await: expect() on an async callback returns before the future
+      // settles, so the "nothing was written" query below would race it.
+      await expectLater(
         () => repo.logManualWorkout(
             startTs: start + 1800, endTs: start + 5400, type: 'cycle'),
         throwsA(isA<ManualWindowException>().having(
@@ -375,7 +402,7 @@ void main() {
 
     test('a future window is refused', () async {
       final future = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 7200;
-      expect(
+      await expectLater(
         () => repo.logManualWorkout(
             startTs: future, endTs: future + 3600, type: 'run'),
         throwsA(isA<ManualWindowException>()
@@ -385,7 +412,7 @@ void main() {
 
     test('a sub-minute window is refused', () async {
       final start = sessionStart - 25 * 86400;
-      expect(
+      await expectLater(
         () => repo.logManualWorkout(
             startTs: start, endTs: start + 30, type: 'run'),
         throwsA(isA<ManualWindowException>()
@@ -393,15 +420,47 @@ void main() {
       );
     });
 
-    test('retiming a session never collides with its own existing span', () {
+    test('retiming a session never collides with its own existing span',
+        () async {
       // Regression: without editingId, widening ANY saved session overlaps
       // itself and would be permanently unfixable.
-      final start = sessionStart - 5 * 86400;
-      expect(
-        repo.setWorkoutWindow('auto:$start',
+      final start = sessionStart - 40 * 86400;
+      await LocalDb.putSession({
+        'id': 'w-self-overlap',
+        'start_ts': start,
+        'end_ts': start + 600,
+        'type': 'run',
+        'status': 'done',
+        'duration_min': 10,
+        'source': 'manual',
+        'created_at': start * 1000,
+      });
+      await expectLater(
+        repo.setWorkoutWindow('w-self-overlap',
             startTs: start, endTs: start + 7200),
         completes,
       );
+    });
+
+    test('a still-live session cannot be retimed', () async {
+      // buildManualSessionRow always writes status 'done', so retiming a
+      // running session would silently end it.
+      final start = sessionStart - 43 * 86400;
+      await LocalDb.putSession({
+        'id': 'w-live',
+        'start_ts': start,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': start * 1000,
+      });
+      await expectLater(
+        repo.setWorkoutWindow('w-live', startTs: start, endTs: start + 3600),
+        throwsA(isA<StateError>()),
+      );
+      final row = await LocalDb.session('w-live');
+      expect(row!['status'], 'live', reason: 'must not have been ended');
     });
   });
 

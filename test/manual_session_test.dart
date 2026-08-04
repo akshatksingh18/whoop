@@ -354,6 +354,22 @@ void main() {
       );
       expect(s.avgHr, 150);
       expect(s.hrSampleCount, 60);
+
+      // ...and neither may they dilute kcal. The estimator bills every sample
+      // below the active threshold at the RESTING rate, so a forwarded zero
+      // silently bought a second of basal burn that avgHr, strain and the zone
+      // bands had all correctly discarded. An identical window containing only
+      // the worn minute must score the same.
+      final wornOnly = computeManualSessionStats(
+        hrTs: [for (var i = 60; i < 120; i++) i],
+        hrBpm: List<int>.filled(60, 150),
+        profile: _profile,
+        zoneMaxHr: 190,
+        restingHr: 55,
+      );
+      expect(s.calories, wornOnly.calories);
+      expect(s.strain, wornOnly.strain);
+      expect(s.zoneMinutes, wornOnly.zoneMinutes);
     });
   });
 

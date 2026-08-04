@@ -281,12 +281,25 @@ ManualSessionStats computeManualSessionStats({
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
   }
-  final worn = <int>[for (final v in hrBpm) if (v > 0) v];
+  // Off-skin samples are dropped ONCE, here, and every scored field below is
+  // built from the survivors. `hrSamplesInRange` already filters `hr > 0` in
+  // SQL so production never sees a zero, but the filter must not depend on
+  // that: forwarding the raw list to the calorie estimator billed each dropped
+  // second at the resting rate, so a window with lost contact scored kcal that
+  // avgHr, strain and the zone bands had all correctly ignored.
+  final wornTs = <int>[];
+  final worn = <int>[];
+  for (var i = 0; i < hrBpm.length; i++) {
+    if (hrBpm[i] > 0) {
+      wornTs.add(hrTs[i]);
+      worn.add(hrBpm[i]);
+    }
+  }
   if (worn.isEmpty) return const ManualSessionStats();
 
   final avg = worn.reduce((a, b) => a + b) / worn.length;
   final peak = worn.reduce((a, b) => a > b ? a : b);
-  final perMin = hrPerMinute(hrTs, hrBpm);
+  final perMin = hrPerMinute(wornTs, worn);
 
   final age = profile.ageYears?.toDouble();
   final weightKg = profile.weightKg;
@@ -301,8 +314,8 @@ ManualSessionStats computeManualSessionStats({
     // Real anchors only — `usedDefaultAnchors` stays false, so we are never
     // persisting a kcal figure built on a fabricated 220/60.
     final bout = ana.Calories.estimateBoutCalories(
-      hrTs,
-      [for (final v in hrBpm) v.toDouble()],
+      wornTs,
+      [for (final v in worn) v.toDouble()],
       profile: ana.WorkoutUserProfile(
         weightKg: weightKg,
         heightCm: profile.heightCm ?? 170.0,
@@ -320,7 +333,7 @@ ManualSessionStats computeManualSessionStats({
     maxHr: peak,
     strain: strain,
     calories: calories,
-    zoneMinutes: zoneMinutesFor(hrBpm, zoneMaxHr),
+    zoneMinutes: zoneMinutesFor(worn, zoneMaxHr),
     hrSampleCount: worn.length,
   );
 }

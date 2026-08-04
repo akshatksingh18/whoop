@@ -89,26 +89,26 @@ typedef DataStoredSink = void Function();
 bool gen5V18UnixPlausible(int unix) =>
     unix >= 1577836800 && unix < 1893456000;
 
-/// Read v18 unix from inner bytes. Protocol's shared header uses inner[7:11];
-/// real WHOOP 5 hardware exports (fw 50.40.x) occasionally land unix one byte
-/// earlier when the record is padded to 112 B instead of the fixture's 116 B.
+/// Read v18 unix from the protocol shared header at inner[7:11].
+///
+/// Do **not** fall back to a misaligned offset-6 read: that overlaps the
+/// record-index high byte and can invent a year-window-plausible timestamp
+/// that is not monotonic with `recordIndex` (honesty violation — observed on
+/// the fw 50.40.1.0 export where unix@7 was garbage because SET_CLOCK never
+/// latched). Absent a plausible unix@7, abstain.
 @visibleForTesting
 int? gen5V18UnixFromInner(Uint8List inner) {
   if (inner.length < 11) return null;
   final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
   final at7 = view.getUint32(7, Endian.little);
-  if (gen5V18UnixPlausible(at7)) return at7;
-  if (inner.length >= 10) {
-    final at6 = view.getUint32(6, Endian.little);
-    if (gen5V18UnixPlausible(at6)) return at6;
-  }
-  return null;
+  return gen5V18UnixPlausible(at7) ? at7 : null;
 }
 
 /// Hardware lenient v18 decode when [parseGen5Historical] returns null because
 /// the protocol decoder's gravity/dynamic-accel gates reject real captures
 /// (off-wrist / motion-heavy seconds still carry valid HR/RR). Never fabricates
 /// gravity — ax/ay/az stay null when the vector fails the magnitude gate.
+/// Never fabricates time — requires a plausible unix@7.
 @visibleForTesting
 Sample? sampleFromGen5V18Lenient(Uint8List inner) {
   if (inner.length < kGen5V18MinInnerLen || inner[1] != 18) return null;
@@ -159,6 +159,30 @@ Sample? sampleFromGen5V18Lenient(Uint8List inner) {
     az: az,
   );
 }
+
+/// Build gen5 SET_CLOCK_MAVERICK (0x92) / GET_CLOCK_GEN5 (0x93) payloads.
+///
+/// Hardware evidence (fw 50.40.1.0 console): an empty GET_CLOCK body logs
+/// `Invalid revision for get clock: 0`, and SET_CLOCK without a leading
+/// form/revision byte logs `Invalid revision <sec&0xff>` — i.e. the strap
+/// treats body[0] as the command revision (same role as HELLO's `[0x01]` /
+/// Alec's gen5 `b3`). Prepend [revision1] so the 8-byte time field starts at
+/// body[1].
+@visibleForTesting
+List<int> gen5SetClockPayload({required int sec, required int subsec}) => [
+      revision1,
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+      0,
+      0,
+    ];
+
+@visibleForTesting
+List<int> gen5GetClockPayload() => const [revision1];
 
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
@@ -2977,26 +3001,26 @@ class BleEngine {
     final ms = DateTime.now().millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
     final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
-    final payload = <int>[
-      sec & 0xff,
-      (sec >> 8) & 0xff,
-      (sec >> 16) & 0xff,
-      (sec >> 24) & 0xff,
-      subsec & 0xff,
-      (subsec >> 8) & 0xff,
-      0,
-      0,
-    ];
-    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4 — the
-    // 8-byte payload shape is unchanged, only the opcode value differs (see
-    // Cmd.setClockMaverick's doc in protocol/constants.dart). Sending gen4's
-    // opcode 0x0A to a gen5 strap here would silently fail to latch the RTC,
-    // which then refuses to serve type-47 history — the exact symptom fixed.
+    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4, and
+    // (per fw 50.40.1.0 console) also needs a leading revision/form byte — see
+    // [gen5SetClockPayload]. Gen4 keeps the hardware-verified 8-byte body.
     final isGen5 = _session?.band.isGen5 ?? false;
+    final payload = isGen5
+        ? gen5SetClockPayload(sec: sec, subsec: subsec)
+        : <int>[
+            sec & 0xff,
+            (sec >> 8) & 0xff,
+            (sec >> 16) & 0xff,
+            (sec >> 24) & 0xff,
+            subsec & 0xff,
+            (subsec >> 8) & 0xff,
+            0,
+            0,
+          ];
     final opcode = isGen5 ? Cmd.setClockMaverick : Cmd.setClock;
     await _send(opcode, payload);
     _log('SET_CLOCK${isGen5 ? " (gen5 Maverick)" : ""} → sec=$sec '
-        'subsec=$subsec (WHOOP-exact 8B).');
+        'subsec=$subsec (${payload.length}B${isGen5 ? ", rev=$revision1" : ""}).');
     // Read the RTC back so the GET_CLOCK response handler can confirm it latched
     // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
     await getClock();
@@ -3004,11 +3028,15 @@ class BleEngine {
 
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
   /// verify drift and re-correlate the strap-RTC ↔ wall clock. gen5 uses its
-  /// own GET_CLOCK opcode (147) — see [setClock].
-  Future<void> getClock() => _send(
-        (_session?.band.isGen5 ?? false) ? Cmd.getClockGen5 : Cmd.getClock,
-        const <int>[],
-      );
+  /// own GET_CLOCK opcode (147) and needs a leading revision byte — see
+  /// [gen5GetClockPayload] / [setClock].
+  Future<void> getClock() {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    return _send(
+      isGen5 ? Cmd.getClockGen5 : Cmd.getClock,
+      isGen5 ? gen5GetClockPayload() : const <int>[],
+    );
+  }
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:

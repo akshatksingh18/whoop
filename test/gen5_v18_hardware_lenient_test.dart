@@ -1,7 +1,5 @@
-// Pins the WHOOP 5 hardware v18 lenient decode path against real captures
-// from openstrap_export_1785863370590.db (fw 50.40.1.0). Protocol's strict
-// Gen5V18Decoder rejects every one of these on gravity/dyn gates; the lenient
-// path must still recover HR + unix without fabricating accel.
+// Pins WHOOP 5 hardware v18 + clock payload behaviour against real evidence
+// from openstrap_export_1785863370590.db / openstrap_sync.log (fw 50.40.1.0).
 
 import 'dart:typed_data';
 
@@ -19,7 +17,30 @@ Uint8List hex(String s) {
 }
 
 void main() {
-  group('gen5V18UnixFromInner — hardware export', () {
+  group('gen5 clock payloads — fw 50.40.1.0 Invalid revision evidence', () {
+    test('SET_CLOCK prepends revision1 before the 8-byte time', () {
+      final p = gen5SetClockPayload(sec: 1785710096, subsec: 16351);
+      expect(p, hasLength(9));
+      expect(p[0], revision1);
+      // Seconds LE start at body[1] — not body[0] (that was read as "revision").
+      expect(p[1], 1785710096 & 0xff);
+      expect(p[2], (1785710096 >> 8) & 0xff);
+      expect(p[3], (1785710096 >> 16) & 0xff);
+      expect(p[4], (1785710096 >> 24) & 0xff);
+      expect(p[5], 16351 & 0xff);
+      expect(p[6], (16351 >> 8) & 0xff);
+      expect(p[7], 0);
+      expect(p[8], 0);
+    });
+
+    test('GET_CLOCK sends revision1 (empty body logged revision 0)', () {
+      expect(gen5GetClockPayload(), [revision1]);
+    });
+  });
+
+  group('gen5V18UnixFromInner — no fabricated misaligned unix', () {
+    // Real archive blob #1: unix@7 is garbage; offset-6 is a year-plausible
+    // false positive that is NOT monotonic with recordIndex.
     final inner = hex(
       '2f1280540df701737c6a915c2f004d0000000000000000000021fb608c4d0000'
       'c330ebf63ecd4ad43f854b653e5298863da3017400000000000000000039014401'
@@ -27,58 +48,46 @@ void main() {
       'bed68080000000a80372c0000000',
     );
 
-    test('strict protocol decode returns null (gravity gate)', () {
+    test('strict protocol decode returns null (gravity/dyn gate)', () {
       expect(parseGen5Historical(inner), isNull);
     });
 
-    test('unix lands at inner[6] on 112-byte padded captures', () {
-      expect(gen5V18UnixFromInner(inner), 1786540801);
-    });
-
-    test('lenient path recovers HR without fabricating gravity', () {
-      final sample = sampleFromGen5V18Lenient(inner);
-      expect(sample, isNotNull);
-      expect(sample!.tsEpoch, 1786540801);
-      expect(sample.hr, 77);
-      expect(sample.ax, isNull);
-      expect(sample.ay, isNull);
-      expect(sample.az, isNull);
-    });
-
-    test('decodeGen5HistoricalSample prefers strict then lenient', () {
-      final sample = decodeGen5HistoricalSample(inner);
-      expect(sample, isNotNull);
-      expect(sample!.hr, 77);
+    test('unix@7 garbage → abstain (do not invent offset-6 time)', () {
+      expect(gen5V18UnixFromInner(inner), isNull);
+      expect(sampleFromGen5V18Lenient(inner), isNull);
+      expect(decodeGen5HistoricalSample(inner), isNull);
     });
   });
 
-  group('sampleFromGen5V18Lenient — all hardware-export v18 fixtures', () {
-    // One row per undecodable_rec_v18 in the export DB (12 total).
-    final fixtures = <String>[
-      '2f1280540df701737c6a915c2f004d0000000000000000000021fb608c4d0000c330ebf63ecd4ad43f854b653e5298863da3017400000000000000000039014401040d6003010c020c3100000000000000000000000000000000000000000000011fbed68080000000a80372c0000000',
-      '2f1280fa2af70142716af39939004700000000000000000000606f0781470000d820abee3e52c0ac3e00a0b93dcdcc9abe8702dd0000000000000000003e0149013b0d6003010c020c0000000000000000000000000000000000000000000000010081b780800000006c5c6fc0000000',
-      '2f12805a3ef701a2846af35158004100000000000000000000008e0788410000ff80ba953e5220863e9a59163e33bbbf3ec403d3000000000000000000490154018b0d6003010c020c00000000000000000000000000000000000000000000000100c2fa80800000006b34a0c0000000',
-      '2f1280494af80140b26a9d8f02003a00000000000000000000217c4a833c000077a2902d3f661e96be14ae103c3d0ad4bd001c6e0000000000000000004c015101760d6003010c020c21000000000000000000000000000000000000000000000100b6fc8080000000fd4a97c0000000',
-      '2f1280924ff80189b76a9deb11003d0000000000000000000020f6468e3f00005de3ddef3f5caf89bde1ba29bec345463e091c6e0000000000000000004c015401920d6003010c020c20000000000000000000000000000000000000000000000100b0d78080000000d4c765c0000000',
-      '2f12806d62f801aa826a64e17a004e0000000000000000000071f40f884e0000d72a29613e854b70beec91d5beec515b3d4d1da60000000000000000003b014601260d6003010c020c0100000000000000000000000000000000000000000000010092e38080000000612677c0000000',
-      '2f1280877ff801f0746aa9cc4c004f0000000000000000000270d808874f0000cbd67d02414879723f852ba83ec305013e8d1e84000000000000000000460151017b0d6003010c020c0000000000000000000000000000000000000000000000010098d08080000000091711c0000000',
-      '2f12809ca1f80114886a974721005b000000000000000000006176078d5b0000bff0d53b3e29dc2d3e9aa19c3e33f3b53e4c207b0000000000000000003e014901480d6003010c020c01000000000000000000000000000000000000000000000100a1f58080000000f9b43ac0000000',
-      '2f128070d2f801e8b86a97146e00750000000000000000000078520883750000d8e038b23e1fb541becd6c953dc3f5483e1e25ff00000001000000000057015701600d6004010c020c08000000000000000000000000000000000000000000000100617d8080000000bf4c66c0000000',
-      '2f128069d4f801e1ba6a97eb71005e00000000000000000000615403805e0000d1fc60963ee17a053e0ae7753e52b8213e2027bd00000001000000000036014101f70c6004010c020c01000000000000000000000000000000000000000000000100617d808000000090aaa9bf000000',
-      '2f12809bd9f80113c06a97997900580000000000000000000061e10b86580000dad8ea093f9a49d5be00000bbcec01623ef427620000000100000000003b014901340d6004010c020c01000000000000000000000000000000000000000000000100689380800000001e8753c0000000',
-      '2f128071dbf801e9c16a97287c00650000000000000000000071420e87650000daa86c493f52b83cbe9a693b3e858b7f3e6d28ff00000000000000000041014c01340d6004010c020c01000000000000000000000000000000000000000000000100ecf88080000000af6201c0000000',
-    ];
+  group('sampleFromGen5V18Lenient — gravity-only abstention needs good unix', () {
+    // Synthetic: valid shared header unix@7 + HR, gravity out of gate range.
+    // Layout matches Gen5HistoricalHeader + HR @14.
+    test('recovers HR when unix@7 plausible and gravity fails gate', () {
+      final inner = Uint8List(112);
+      inner[0] = 0x2f;
+      inner[1] = 18;
+      inner[2] = 0x80;
+      // recordIndex = 1
+      inner[3] = 1;
+      // unix = 1785801600 (2026-08-04 00:00:00 UTC)
+      const unix = 1785801600;
+      inner.buffer.asByteData().setUint32(7, unix, Endian.little);
+      inner[14] = 72; // HR
+      inner[15] = 0; // no RR
+      // dynAccel = 0.5 (ok), gravity magnitude ~0.1 (fails 0.5..1.5 gate)
+      inner.buffer.asByteData().setFloat32(33, 0.5, Endian.little);
+      inner.buffer.asByteData().setFloat32(37, 0.05, Endian.little);
+      inner.buffer.asByteData().setFloat32(41, 0.05, Endian.little);
+      inner.buffer.asByteData().setFloat32(45, 0.05, Endian.little);
 
-    test('every export v18 decodes to a sample with plausible unix + hr', () {
-      for (final h in fixtures) {
-        final inner = hex(h);
-        expect(parseGen5Historical(inner), isNull,
-            reason: 'strict decode should still reject these fixtures');
-        final sample = sampleFromGen5V18Lenient(inner);
-        expect(sample, isNotNull, reason: 'lenient decode failed for $h');
-        expect(gen5V18UnixPlausible(sample!.tsEpoch), isTrue);
-        expect(sample.hr == 0 || (sample.hr >= 25 && sample.hr <= 230), isTrue);
-      }
+      expect(parseGen5Historical(inner), isNull);
+      final sample = sampleFromGen5V18Lenient(inner);
+      expect(sample, isNotNull);
+      expect(sample!.tsEpoch, unix);
+      expect(sample.hr, 72);
+      expect(sample.ax, isNull);
+      expect(sample.ay, isNull);
+      expect(sample.az, isNull);
     });
   });
 }

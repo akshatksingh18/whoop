@@ -1866,13 +1866,14 @@ class LocalDb {
       inner[1] == proto.Record.r10;
 
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
-    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
     Uint8List bytes;
     try {
       bytes = proto.hexToBytes(raw.hex);
     } catch (_) {
       return null;
     }
+    if (_isGen4R10LiteHistorical(bytes)) return null;
+    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
     try {
       // Legacy decoder first, firmware-fallback chain second — see
       // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
@@ -1896,9 +1897,7 @@ class LocalDb {
     } catch (_) {}
     // Gen5 v18 / lenient samples carry HR/RR/gravity but lack gen4 optics —
     // `hasDecodedOneHz` stays false, yet they are honest 1 Hz substrate rows.
-    if (preferred != null &&
-        preferred.tsEpoch > 0 &&
-        !_isGen4R10LiteHistorical(bytes)) {
+    if (preferred != null && preferred.tsEpoch > 0) {
       return preferred;
     }
     return null;

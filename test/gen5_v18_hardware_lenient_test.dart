@@ -60,10 +60,10 @@ void main() {
     });
   });
 
-  group('sampleFromGen5V18Lenient — gravity-only abstention needs good unix', () {
-    // Synthetic: valid shared header unix@7 + HR, gravity out of gate range.
+  group('decodeGen5HistoricalSample — lenient v18 production path', () {
+    // Synthetic: valid shared header unix@7 + HR + RR, gravity out of gate range.
     // Layout matches Gen5HistoricalHeader + HR @14.
-    test('recovers HR when unix@7 plausible and gravity fails gate', () {
+    test('recovers HR/RR when strict decode fails gravity gate only', () {
       final inner = Uint8List(112);
       inner[0] = 0x2f;
       inner[1] = 18;
@@ -74,7 +74,8 @@ void main() {
       const unix = 1785801600;
       inner.buffer.asByteData().setUint32(7, unix, Endian.little);
       inner[14] = 72; // HR
-      inner[15] = 0; // no RR
+      inner[15] = 1; // one RR interval
+      inner.buffer.asByteData().setInt16(16, 820, Endian.little);
       // dynAccel = 0.5 (ok), gravity magnitude ~0.1 (fails 0.5..1.5 gate)
       inner.buffer.asByteData().setFloat32(33, 0.5, Endian.little);
       inner.buffer.asByteData().setFloat32(37, 0.05, Endian.little);
@@ -83,10 +84,11 @@ void main() {
 
       expect(parseGen5Historical(inner), isNull);
       const wallNow = unix; // plausible vs the synthetic timestamp
-      final sample = sampleFromGen5V18Lenient(inner, wallNow);
+      final sample = decodeGen5HistoricalSample(inner, wallNow);
       expect(sample, isNotNull);
       expect(sample!.tsEpoch, unix);
       expect(sample.hr, 72);
+      expect(sample.rrIntervalsMs, [820]);
       expect(sample.ax, isNull);
       expect(sample.ay, isNull);
       expect(sample.az, isNull);

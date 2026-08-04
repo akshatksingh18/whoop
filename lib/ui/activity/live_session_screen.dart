@@ -309,7 +309,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
       duration: w?.elapsed ?? Duration.zero,
       peakHr: w?.maxHrSeen ?? 0,
       calories: w?.calories ?? 0,
-      strain: w?.strain ?? 0,
+      strain: w?.strain,
       steps: app.workoutSteps,
     );
     // AWAIT: stopWorkout flushes the GPS route tail; navigating before it
@@ -702,7 +702,11 @@ class WorkoutFinishSnapshot {
   final Duration duration;
   final int peakHr;
   final double calories;
-  final double strain;
+
+  /// Null when the profile lacked an anchor the Banister score needs. Kept
+  /// nullable all the way to the finish card: a `?? 0` here would print a
+  /// confident "0.0" for a session that was simply never scored.
+  final double? strain;
   final int steps;
   const WorkoutFinishSnapshot({
     required this.type,
@@ -832,8 +836,10 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
           final s = widget.snapshot;
           final strain = (d['strain'] as num?)?.toDouble() ?? s.strain;
           final tw = recs.record('top_workout');
-          _prWorkout =
-              tw != null && strain > 0 && (strain - tw.value).abs() < 0.15;
+          _prWorkout = tw != null &&
+              strain != null &&
+              strain > 0 &&
+              (strain - tw.value).abs() < 0.15;
           final ms = recs.record('most_steps');
           _prSteps = ms != null &&
               s.steps > 0 &&
@@ -1028,9 +1034,12 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
     );
   }
 
-  Widget _strainGauge(double strain) => Center(
+  /// The 0–21 strain dial. [strain] is null for a session the profile could
+  /// not anchor — the arc sits empty and the readout is a dash, rather than a
+  /// full-looking gauge over a fabricated number.
+  Widget _strainGauge(double? strain) => Center(
         child: ArcGauge(
-          value: (strain / 21).clamp(0.0, 1.0),
+          value: strain == null ? 0.0 : (strain / 21).clamp(0.0, 1.0),
           color: AppColors.accent,
           size: 176,
           stroke: 15,
@@ -1042,7 +1051,10 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
             builder: (context, _) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text((strain * _seg(0.0, 0.5)).toStringAsFixed(1),
+                Text(
+                    strain == null
+                        ? '—'
+                        : (strain * _seg(0.0, 0.5)).toStringAsFixed(1),
                     style: AppText.display),
                 Text('STRAIN', style: AppText.overline),
               ],
@@ -1376,7 +1388,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
       duration: s.duration,
       when: DateTime.now(),
       maxHr: _maxHr,
-      strain: (d?['strain'] as num?)?.toDouble() ?? s.strain,
+      strain: (d?['strain'] as num?)?.toDouble() ?? s.strain ?? 0,
       calories: (d?['calories'] as num?)?.toInt() ?? s.calories.round(),
       route: _route,
       avgHr: (d?['avg_hr'] as num?)?.toInt(),
@@ -2489,7 +2501,11 @@ class _SessionSheet extends StatelessWidget {
                   ),
                   Expanded(
                     child: _SheetStat(
-                      isRoute ? (pace ?? '—') : workout.strain.toStringAsFixed(1),
+                      isRoute
+                          ? (pace ?? '—')
+                          // Null until the profile carries the anchors
+                          // Banister needs — a dash, never a 0.0.
+                          : (workout.strain?.toStringAsFixed(1) ?? '—'),
                       isRoute ? 'PACE' : 'STRAIN',
                     ),
                   ),

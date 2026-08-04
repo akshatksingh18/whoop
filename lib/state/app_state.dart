@@ -36,6 +36,7 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
+import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
@@ -1421,6 +1422,7 @@ class AppState extends ChangeNotifier {
   Future<void> _init() async {
     paired = await PairedDevice.load();
     await _loadProfile();
+    await _refreshNightlyRhr();
     await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
     // The true data-edge frontier is the `rec_ts_hw` sync cursor, NOT
@@ -3511,6 +3513,39 @@ class AppState extends ChangeNotifier {
 
   int get _restingHr => (user?['resting_hr'] as num?)?.round() ?? 60;
 
+  /// Latest MEASURED nightly resting HR (`metric_series` key 'rhr'), or null
+  /// before the first night has been derived. Refreshed on init and whenever a
+  /// workout starts, since RHR moves on the scale of weeks.
+  double? _nightlyRhr;
+
+  /// The resting-HR anchor for SCORING a live session: the measured nightly
+  /// value, else a user-supplied one, else nothing.
+  ///
+  /// Deliberately not [_restingHr], which falls back to 60 bpm. That default is
+  /// fine for display copy, but as a term inside the Banister formula it would
+  /// turn an absent input into a confident-looking strain number — exactly the
+  /// fabrication the honesty contract forbids. No anchor, no score.
+  double? get _liveRestingHr =>
+      _nightlyRhr ?? (user?['resting_hr'] as num?)?.toDouble();
+
+  Future<void> _refreshNightlyRhr() async {
+    try {
+      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      if (vals.isEmpty) return;
+      _nightlyRhr = vals.last;
+      // Adopt it into a session that started before this read completed, but
+      // only to FILL A GAP — overwriting an anchor a running session was
+      // already scored against would move its number mid-workout.
+      final w = activeWorkout;
+      if (w != null && w.restingHr == null) {
+        w.restingHr = _liveRestingHr;
+        notifyListeners();
+      }
+    } catch (_) {
+      /* best effort — falls back to the user-supplied RHR, or abstains */
+    }
+  }
+
   /// HR → zone 0..5 (% of max HR), matching the app's zone bands.
   int _zoneFor(int hr) {
     if (hr <= 0 || _maxHr <= 0) return 0;
@@ -3546,6 +3581,10 @@ class AppState extends ChangeNotifier {
       unawaited(engine.retryFullLiveStreams());
     }
     _workoutRawBase = _liveRaw;
+    // A first night may have been derived since init. This read finishes
+    // after the session below is constructed, so it back-fills the anchor on
+    // `activeWorkout` when it lands rather than blocking the start.
+    unawaited(_refreshNightlyRhr());
     // Hold heavy derivation for the session — an isolate spawn mid-ride
     // competes with GPS, the live map and the BLE drain (see
     // DeriveScheduler.setWorkoutActive).
@@ -3561,6 +3600,9 @@ class AppState extends ChangeNotifier {
       workoutId: id,
       type: type,
       age: (user?['age'] as num?)?.round(),
+      // Score against the profile the session is performed under.
+      profile: Profile.fromMap(user),
+      restingHr: _liveRestingHr,
     );
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
     // inserted this id). Final stats are written on stop.
@@ -3735,6 +3777,8 @@ class AppState extends ChangeNotifier {
             workoutId: id,
             type: (row['type'] as String?) ?? 'other',
             age: (user?['age'] as num?)?.round(),
+            profile: Profile.fromMap(user),
+            restingHr: _liveRestingHr,
           );
           // Without this, `workoutSteps` (gated on _workoutRawBase != null)
           // stays 0 for the rest of this resumed session, and stopWorkout()
@@ -3743,6 +3787,10 @@ class AppState extends ChangeNotifier {
           // snapshot: steps count from zero going forward, same as
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
+    // A first night may have been derived since init. This read finishes
+    // after the session below is constructed, so it back-fills the anchor on
+    // `activeWorkout` when it lands rather than blocking the start.
+    unawaited(_refreshNightlyRhr());
           // Never overwrite a live timer reference without cancelling it.
           _workoutTimer?.cancel();
           _workoutTimer = Timer.periodic(
@@ -3992,14 +4040,10 @@ class AppState extends ChangeNotifier {
       // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
       w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
 
-      // Rough strain accumulation (experimental): HRR% (HR Reserve) → strain/sec.
-      final maxHr = 220.0 - age;
-      final rhr = (u['resting_hr'] as num?)?.toDouble() ?? 60.0;
-      final hrr = (w.currentHr - rhr) / (maxHr - rhr).clamp(1.0, 200.0);
-      if (hrr > 0) {
-        w.strain +=
-            (hrr * 0.01); // scales to ~15-20 strain over an hour of hard work
-      }
+      // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
+      // from the session's per-minute HR through the one shared Banister ->
+      // log-squash path, so the live gauge, a manually logged session and the
+      // day's own strain all mean the same thing on the same 0–21 scale.
     }
     // Push to the Live Activity at most ~every 4s (ActivityKit throttles; saves battery).
     if (DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
@@ -4007,7 +4051,9 @@ class AppState extends ChangeNotifier {
       LiveActivity.update(
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
-        strain: w.strain,
+        // The Live Activity widget has no absent state; the in-app gauge
+        // shows "—" when strain is null, this pushes 0.
+        strain: w.strain ?? 0,
         calories: w.calories.round(),
         maxHr: _maxHr,
         rhr: _restingHr,
@@ -4025,7 +4071,14 @@ class LiveWorkoutState {
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
   double calories = 0.0;
-  double strain = 0.0;
+
+  /// Headline 0–21 strain, or null when the profile lacks an anchor the
+  /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it
+  /// is NOT accrued incrementally any more. The old `strain += %HRR * 0.01`
+  /// per second was uncited and uncapped: it read 25.33 where the canonical
+  /// method reads 11.62 for the same hour, and passed the top of its own 0–21
+  /// scale after ~50 minutes of hard work, which the gauge silently clamped.
+  double? strain;
   int currentHr = 0;
   int maxHrSeen = 0; // spike-suppressed peak live HR this session (issue #127)
 
@@ -4054,18 +4107,70 @@ class LiveWorkoutState {
           double.parse((zoneSeconds[z] / 60.0).toStringAsFixed(2)),
       ];
 
+  /// Anchors for the live strain score. Held on the session because a workout
+  /// must be scored against the profile it was performed under, not whatever
+  /// the profile happens to say when the session ends.
+  final Profile profile;
+
+  /// Resting-HR anchor for the strain score. NOT final: the measured nightly
+  /// value is loaded asynchronously, so a session can begin before it lands.
+  /// [AppState._refreshNightlyRhr] back-fills it here when it arrives, and the
+  /// next HR sample re-scores through it — otherwise the session would be
+  /// stuck unscored for its whole duration over a read that finished a
+  /// fraction of a second after it started.
+  double? restingHr;
+
+  /// Per-minute mean HR, the unit Banister TRIMP weights. Live HR arrives at
+  /// 1 Hz, so it is folded into the current minute here rather than kept as
+  /// thousands of raw samples.
+  final List<double> _perMinuteHr = [];
+  int _minuteBucket = -1;
+  double _minuteSum = 0;
+  int _minuteCount = 0;
+
+  /// Per-minute means INCLUDING the minute still in progress, so the live
+  /// gauge moves within the first minute instead of sitting at zero for 60 s.
+  List<double> perMinuteHr() => [
+        ..._perMinuteHr,
+        if (_minuteCount > 0) _minuteSum / _minuteCount,
+      ];
+
   LiveWorkoutState({
     required this.startTime,
     required this.targetKcal,
     this.workoutId,
     this.type = 'other',
     int? age,
+    this.profile = const Profile(),
+    this.restingHr,
   }) : _hrPeak = RollingMaxHr(age: age);
 
-  /// Feed a live 1 Hz HR sample; updates the spike-suppressed [maxHrSeen].
+  /// Feed a live 1 Hz HR sample; updates the spike-suppressed [maxHrSeen], the
+  /// per-minute accumulator, and the Banister strain derived from it.
   void accrueHr(int hr) {
     if (hr <= 0) return;
     _hrPeak.add(hr);
     if (_hrPeak.max > maxHrSeen) maxHrSeen = _hrPeak.max;
+
+    // Fold into the current minute, measured from the session start so the
+    // buckets are the session's own minutes rather than wall-clock ones.
+    final minute = elapsed.inMinutes;
+    if (minute != _minuteBucket) {
+      if (_minuteCount > 0) _perMinuteHr.add(_minuteSum / _minuteCount);
+      _minuteBucket = minute;
+      _minuteSum = 0;
+      _minuteCount = 0;
+    }
+    _minuteSum += hr;
+    _minuteCount++;
+
+    // ONE strain method across the app (see strainFromPerMinuteHr). Null when
+    // an anchor is missing — the gauge shows "—" rather than a number built on
+    // an invented HRmax or resting HR.
+    strain = strainFromPerMinuteHr(
+      perMinuteHr(),
+      profile: profile,
+      restingHr: restingHr,
+    );
   }
 }

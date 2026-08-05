@@ -681,7 +681,8 @@ class AlarmPayloads {
   /// Same `[47, 152]` waveform pair as Find-band. Keep [overallLoop] at 1 for
   /// a short pulse — the wake-alarm's loop=7 feels like a stuck vibrate.
   static List<int> gen5MaverickBuzz({int overallLoop = 1}) {
-    final loop = overallLoop.clamp(0, 0xff);
+    // `& 0xff` keeps an int (unlike `clamp`, which widens to num).
+    final loop = overallLoop.clamp(0, 0xff).toInt();
     return <int>[0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, loop];
   }
 

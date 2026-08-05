@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,6 +140,20 @@ void main() {
         throwsA(isA<StateError>()),
       );
       expect(await gate.run(() async => 3), 3);
+    });
+
+    test('AppState centralizes every full health export behind one gate', () {
+      final source = File('lib/state/app_state.dart').readAsStringSync();
+      final directCalls = RegExp(
+        r'_healthExport\.exportAll\(',
+      ).allMatches(source);
+
+      expect(
+        directCalls,
+        hasLength(1),
+        reason: 'automatic and forced exports must share one guarded method',
+      );
+      expect(source, contains('Future<int> _runHealthExport('));
     });
 
     test('normalizes one complete cross-midnight session with every stage', () {

@@ -11,19 +11,20 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** Writes one Health Connect sleep parent containing all normalized stages. */
 object HealthConnectSleepWriter {
     private const val TAG = "OpenStrapSleepExport"
     private const val CHANNEL = "openstrap/health_connect_sleep"
     private const val REPLACE_SLEEP_SESSION = "replaceSleepSession"
-    private const val RECORDING_METHOD_AUTOMATIC = 2
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val replaceMutex = Mutex()
 
@@ -36,11 +37,13 @@ object HealthConnectSleepWriter {
                     return@setMethodCallHandler
                 }
                 scope.launch {
-                    result.success(replace(app, call))
+                    val replaced = withContext(Dispatchers.IO) { replace(app, call) }
+                    result.success(replaced)
                 }
             }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun replace(context: Context, call: MethodCall): Boolean {
         return replaceMutex.withLock {
             try {
@@ -63,7 +66,11 @@ object HealthConnectSleepWriter {
                         client.insertRecords(listOf(session)).recordIdsList.size == 1
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
+                // Health Connect may surface several unrelated platform and
+                // transport exceptions; the channel reports all of them as false.
                 Log.e(TAG, "SleepSessionRecord replace failed", error)
                 false
             }
@@ -71,12 +78,17 @@ object HealthConnectSleepWriter {
     }
 
     private fun buildSession(call: MethodCall): SleepSessionRecord? {
-        val start = call.argument<Long>("startTime")?.let(Instant::ofEpochMilli) ?: return null
-        val end = call.argument<Long>("endTime")?.let(Instant::ofEpochMilli) ?: return null
+        val start = (call.argument<Any>("startTime") as? Number)
+            ?.toLong()?.let(Instant::ofEpochMilli) ?: return null
+        val end = (call.argument<Any>("endTime") as? Number)
+            ?.toLong()?.let(Instant::ofEpochMilli) ?: return null
         if (!start.isBefore(end)) return null
 
-        val rawStages = call.argument<List<Map<String, Any?>>>("stages").orEmpty()
-        val stages = rawStages.mapNotNull(::buildStage).sortedBy { it.startTime }
+        val rawStages = call.argument<List<*>>("stages").orEmpty()
+        val stages = rawStages
+            .mapNotNull { (it as? Map<*, *>)?.let(::buildStage) }
+            .sortedBy { it.startTime }
+        if (stages.isEmpty()) return null
         var previousEnd = start
         for (stage in stages) {
             if (stage.startTime.isBefore(start) || stage.endTime.isAfter(end)) return null
@@ -93,11 +105,13 @@ object HealthConnectSleepWriter {
             endZoneOffset = zoneRules.getOffset(end),
             title = "OpenStrap sleep",
             stages = stages,
-            metadata = Metadata(recordingMethod = RECORDING_METHOD_AUTOMATIC),
+            metadata = Metadata(
+                recordingMethod = Metadata.RECORDING_METHOD_AUTOMATICALLY_RECORDED,
+            ),
         )
     }
 
-    private fun buildStage(raw: Map<String, Any?>): SleepSessionRecord.Stage? {
+    private fun buildStage(raw: Map<*, *>): SleepSessionRecord.Stage? {
         val start = (raw["startTime"] as? Number)?.toLong()?.let(Instant::ofEpochMilli)
             ?: return null
         val end = (raw["endTime"] as? Number)?.toLong()?.let(Instant::ofEpochMilli)

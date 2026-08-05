@@ -71,6 +71,16 @@ void main() {
       expect(types.where((type) => type.name.startsWith('SLEEP_')), isEmpty);
     });
 
+    test('Apple and Android share one hypnogram stage vocabulary', () {
+      expect(healthSleepStageOf('wake'), HealthSleepStage.awake);
+      expect(healthSleepStageOf('awake'), HealthSleepStage.awake);
+      expect(healthSleepStageOf('rem'), HealthSleepStage.rem);
+      expect(healthSleepStageOf('light'), HealthSleepStage.light);
+      expect(healthSleepStageOf('nrem'), HealthSleepStage.light);
+      expect(healthSleepStageOf('deep'), HealthSleepStage.deep);
+      expect(healthSleepStageOf('unknown'), isNull);
+    });
+
     test('manual sync bypasses retry backoff and attempt cap', () {
       final now = DateTime(2026, 8, 5, 13);
 
@@ -95,6 +105,40 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test(
+      'manual health exports are single-flight and reset after completion',
+      () async {
+        final gate = HealthExportSingleFlight();
+        final firstResult = Completer<int>();
+        var calls = 0;
+
+        Future<int> export() {
+          calls++;
+          return calls == 1 ? firstResult.future : Future<int>.value(2);
+        }
+
+        final first = gate.run(export);
+        final overlapping = gate.run(export);
+        expect(calls, 1);
+
+        firstResult.complete(1);
+        expect(await first, 1);
+        expect(await overlapping, 1);
+        expect(await gate.run(export), 2);
+        expect(calls, 2);
+      },
+    );
+
+    test('single-flight preserves synchronous errors and resets', () async {
+      final gate = HealthExportSingleFlight();
+
+      await expectLater(
+        gate.run(() => throw StateError('boom')),
+        throwsA(isA<StateError>()),
+      );
+      expect(await gate.run(() async => 3), 3);
     });
 
     test('normalizes one complete cross-midnight session with every stage', () {
@@ -216,6 +260,33 @@ void main() {
     });
 
     test(
+      'an empty normalized hypnogram is retryable and never replaces native data',
+      () async {
+        const channel = MethodChannel('openstrap/test_health_connect_empty');
+        var calls = 0;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls++;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthConnectSleepSessionExporter(
+          writer: MethodChannelHealthConnectSleepSessionWriter(
+            channel: channel,
+          ),
+        );
+        final bundle = _overnightBundle();
+        ((bundle['series'] as Map)['hypnogram'] as List).clear();
+
+        expect(await exporter.replace(bundle), isFalse);
+        expect(calls, 0, reason: 'empty stages must not delete native sleep');
+      },
+    );
+
+    test(
       're-export uses the replace operation and a false result propagates',
       () async {
         const channel = MethodChannel('openstrap/test_health_connect_replace');
@@ -242,7 +313,7 @@ void main() {
 
         expect(await exporter.replace(_overnightBundle()), isTrue);
         expect(await exporter.replace(_overnightBundle()), isFalse);
-        expect(storedParents, hasLength(1));
+        expect(writes, 2, reason: 'each export sends exactly one replace call');
         expect(storedParents.single['stages'] as List, hasLength(6));
       },
     );
@@ -283,7 +354,7 @@ void main() {
         final first = exporter.replace(_overnightBundle());
         await firstEntered.future;
         final second = exporter.replace(_overnightBundle());
-        await Future<void>.delayed(Duration.zero);
+        await pumpEventQueue();
 
         expect(calls, 1, reason: 'the second native replace must stay queued');
         releaseFirst.complete(true);

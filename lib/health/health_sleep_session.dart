@@ -60,7 +60,7 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
       if (raw is! Map) continue;
       final startSeconds = (raw['start'] as num?)?.toInt();
       final endSeconds = (raw['end'] as num?)?.toInt();
-      final stage = _stageOf(raw['stage']?.toString());
+      final stage = healthSleepStageOf(raw['stage']?.toString());
       if (startSeconds == null || endSeconds == null || stage == null) continue;
 
       final rawStart = DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
@@ -103,7 +103,7 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
   return HealthSleepSession(start: start, end: end, stages: normalized);
 }
 
-HealthSleepStage? _stageOf(String? stage) {
+HealthSleepStage? healthSleepStageOf(String? stage) {
   switch (stage) {
     case 'wake':
     case 'awake':
@@ -161,6 +161,7 @@ class HealthConnectSleepSessionExporter {
   Future<bool> replace(Map<String, dynamic> bundle) async {
     final session = normalizeHealthSleepSession(bundle);
     if (session == null) return true;
+    if (session.stages.isEmpty) return false;
     return writer.replace(session);
   }
 }

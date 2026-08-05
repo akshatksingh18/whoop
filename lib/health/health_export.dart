@@ -77,6 +77,22 @@ bool shouldAttemptHealthExport({
   return lastAttempt == null || now.difference(lastAttempt) >= backoff;
 }
 
+class HealthExportSingleFlight {
+  Future<int>? _inFlight;
+
+  Future<int> run(Future<int> Function() export) {
+    final current = _inFlight;
+    if (current != null) return current;
+
+    late final Future<int> operation;
+    operation = Future<int>.sync(export).whenComplete(() {
+      if (identical(_inFlight, operation)) _inFlight = null;
+    });
+    _inFlight = operation;
+    return operation;
+  }
+}
+
 class HealthExporter {
   final _health = Health();
   final _androidSleep = HealthConnectSleepSessionExporter(
@@ -618,16 +634,15 @@ class HealthExporter {
     // health 11.1.1 generic SLEEP_* writer instead creates one parent record
     // per call, fragmenting a night. Android therefore uses our typed native
     // replace API; Apple Health keeps its existing per-stage samples.
-    if (!Platform.isAndroid) {
+    if (isApple) {
       final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
       for (final s in segs) {
         if (s is! Map) continue;
         final st = (s['start'] as num?)?.toInt();
         final en = (s['end'] as num?)?.toInt();
-        final stage = s['stage']?.toString();
+        final stage = healthSleepStageOf(s['stage']?.toString());
         if (st == null || en == null || en <= st || stage == null) continue;
         final type = _sleepType(stage);
-        if (type == null) continue;
         try {
           final wrote = await _health.writeHealthData(
             value: 0,
@@ -747,20 +762,16 @@ class HealthExporter {
     }
   }
 
-  HealthDataType? _sleepType(String stage) {
+  HealthDataType _sleepType(HealthSleepStage stage) {
     switch (stage) {
-      case 'deep':
+      case HealthSleepStage.deep:
         return HealthDataType.SLEEP_DEEP;
-      case 'rem':
+      case HealthSleepStage.rem:
         return HealthDataType.SLEEP_REM;
-      case 'light':
-      case 'nrem':
+      case HealthSleepStage.light:
         return HealthDataType.SLEEP_LIGHT;
-      case 'wake':
-      case 'awake':
+      case HealthSleepStage.awake:
         return HealthDataType.SLEEP_AWAKE;
-      default:
-        return null;
     }
   }
 

@@ -194,6 +194,28 @@ class PhonePedometer {
       // produced no buckets at all). Nothing was read, so nothing is known.
       if (!anyRead) return null;
 
+      // AN ALL-ZERO DAY MUST NOT ERASE A DAY WE ALREADY BANKED WITH REAL
+      // COUNTS. Every hour returning 0 is indistinguishable at this layer from
+      // a genuinely sedentary day, and the one that matters is the failure the
+      // rest of this file already documents: on iOS `requestAuthorization`
+      // reports success even when the user denied READ, so reads come back
+      // *empty rather than null* forever after. Because
+      // `replacePhoneCoverageForDay` is delete-then-insert and phone rows win
+      // outright in `liveStepsForDay`, one such sync would wipe a real
+      // multi-thousand-step day and leave nothing — not even the band fallback
+      // that day had before phone steps were enabled.
+      //
+      // A day that legitimately went to zero after being non-zero is not a real
+      // trajectory (step counts only accumulate within a day), so keeping the
+      // banked value costs nothing. Returning null rather than 0 is the honest
+      // report: this day was NOT confirmed, so it must not count toward
+      // `daysRead` in the diagnostic the Profile screen shows.
+      if (total == 0 && await LocalDb.phoneStepsForDay(dayId) > 0) {
+        debugPrint('[phone_pedometer] $dayId read all-zero over a day that '
+            'already holds phone steps — keeping the banked day');
+        return null;
+      }
+
       await LocalDb.replacePhoneCoverageForDay(dayId, windows);
       return total;
     } catch (e) {

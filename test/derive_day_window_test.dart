@@ -14,6 +14,8 @@
 //    calories_total as real scalars — fabricated numbers wearing real numbers'
 //    clothes, against the never-impute contract the rest of the layer keeps.
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -222,9 +224,23 @@ void main() {
       // would drag every average and "most steps" record down.
       expect(await LocalDb.metricValueOn('2026-04-11', 'steps'), isNull);
 
-      // Movement minutes are still computable from 1 Hz and are unaffected.
-      expect(got.containsKey('steps'), isTrue,
-          reason: 'the key may exist; its VALUE must be null');
+      // The bundle's own `steps` block must be absent-shaped too, not just
+      // value-less. (The previous assertion here checked `got.containsKey`,
+      // which was VACUOUS: `got` is built by the local helper above, which
+      // seeds every key unconditionally, so it could never fail whatever the
+      // derivation did.)
+      final row = await LocalDb.dayResult('2026-04-11');
+      final bundle =
+          jsonDecode(row!['payload_json'] as String) as Map<String, dynamic>;
+      final steps = bundle['steps'] as Map<String, dynamic>;
+      expect(steps['value'], isNull);
+      expect(steps['confidence'], 0.0);
+      expect(steps['inputs_used'], isEmpty,
+          reason: 'nothing was used, because nothing was measured');
+      // NOT 'ESTIMATE': `Metric.parse` maps that tier to `beta: true` and would
+      // badge a card that has no number on it as an estimate. Nothing here
+      // estimates anything — that is the entire point of this change.
+      expect(steps['tier'], isNull);
     });
 
     test('a real profile still produces strain and calories', () async {

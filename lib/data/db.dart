@@ -870,6 +870,21 @@ class LocalDb {
     return r.isNotEmpty;
   }
 
+  /// Phone-sourced steps already banked for [day].
+  ///
+  /// Used by the pedometer sync to tell "this day really had no steps" from
+  /// "this read came back empty" before it replaces a day wholesale — see
+  /// [replacePhoneCoverageForDay], which is delete-then-insert.
+  static Future<int> phoneStepsForDay(String day) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage '
+      'WHERE day = ? AND source = ?',
+      [day, kStepSourcePhone],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
   /// Drop every phone-sourced coverage row (the user turned phone steps off).
   /// Band rows are untouched, so days fall back to the band count.
   static Future<int> clearPhoneCoverage() async {

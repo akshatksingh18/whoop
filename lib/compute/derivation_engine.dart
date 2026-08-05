@@ -472,7 +472,16 @@ import 'substrate.dart';
 //     artifact with zero signal. That is the true root cause of the original
 //     42,155-steps-at-gRef-0.97 / 0-at-1.02 collapse.
 // active_min moves on every day; steps are unaffected by this bump.
-const int kAlgoVersion = 56;
+//
+// v57 - review follow-up: the ABSENT `steps` block stops labelling itself. It
+//   carried `tier: 'ESTIMATE'` alongside `value: null`, and `Metric.parse` maps
+//   that tier to `beta: true`, so a day with no measurement at all rendered the
+//   estimate badge. Absent now means absent: `tier: null` (parsing to
+//   MetricTier.unknown) and an empty `inputs_used`. No VALUE changes, but the
+//   persisted bundle does, so days derived at v56 must be re-derived to pick it
+//   up. `ABSENT` was deliberately NOT invented as a fifth tier — `Tier.all` in
+//   analytics is a closed set of four published grades.
+const int kAlgoVersion = 57;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3208,8 +3217,18 @@ class DerivationEngine {
       'real_measured': liveStepsReal,
       'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
       'confidence': haveRealSteps ? 0.9 : 0.0,
-      'tier': haveRealSteps ? 'HIGH' : 'ESTIMATE',
-      'inputs_used': const ['live_coverage_pedometer'],
+      // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
+      // ways: this code path never estimates anything (that is the whole point
+      // of the change), and `Metric.parse` turns tier == ESTIMATE into
+      // `beta: true`, which paints the estimate/beta badge onto a card that has
+      // no number on it at all. `null` parses to `MetricTier.unknown`, which is
+      // what "we did not measure this" actually is. `ABSENT` is deliberately
+      // NOT invented: `Tier.all` in analytics is a closed set of four published
+      // grades and the edge must not widen it from here.
+      'tier': haveRealSteps ? 'HIGH' : null,
+      // Likewise, nothing was used when nothing was measured.
+      'inputs_used':
+          haveRealSteps ? const ['live_coverage_pedometer'] : const <String>[],
       'note': haveRealSteps
           ? 'real pedometer count over measured windows only; time outside '
               'those windows is not counted rather than estimated'

@@ -426,9 +426,16 @@ class AppState extends ChangeNotifier {
   /// them. Nothing is uploaded and nothing is written back.
   Future<bool> requestPhoneSteps() async {
     final ok = await _phonePedometer.requestPermission();
-    phoneStepsEnabled = ok;
+    // PERSIST BEFORE mutating in-memory state. Setting the field first and
+    // then awaiting the write leaves the two disagreeing if the write throws:
+    // the toggle reads ON for this run and OFF on the next launch, and the
+    // syncs below would bank phone rows the restored state says the user never
+    // enabled — rows that then keep overriding the band, since `disablePhone
+    // Steps` is the only thing that clears them and the user never sees the
+    // toggle on to turn it off.
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPhoneSteps, ok);
+    phoneStepsEnabled = ok;
     notifyListeners();
     // The user just asked for this, so pull the full backfill window rather
     // than the cheap routine one.
@@ -455,9 +462,10 @@ class AppState extends ChangeNotifier {
   /// phone-sourced value permanently — there is no substrate left to recompute
   /// them from, which is the same limit every other version bump has.
   Future<void> disablePhoneSteps() async {
-    phoneStepsEnabled = false;
+    // Persist first, for the reason in [requestPhoneSteps].
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPhoneSteps, false);
+    phoneStepsEnabled = false;
     phoneStepsLastSyncedDays = null;
     phoneStepsLastTotal = null;
     try {

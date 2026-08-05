@@ -124,6 +124,31 @@ void main() {
     expect(await LocalDb.liveStepsForDay(dayId), 777);
   });
 
+  test('an all-zero read never erases a day already banked with real steps',
+      () async {
+    final day = yesterday();
+    final dayId = _label(day);
+
+    // 1. A good sync banks a real day.
+    final good = PhonePedometer(stepReader: (from, to) async => 100);
+    final fullTotal = await good.syncDay(day);
+    expect(fullTotal, isNotNull);
+    expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+
+    // 2. Every hour now reads 0 WITHOUT failing — exactly what a silent iOS
+    //    READ denial looks like (`requestAuthorization` reports success even
+    //    when the user denied read, so queries return empty rather than null,
+    //    forever). Unguarded, `replacePhoneCoverageForDay`'s delete-then-insert
+    //    would wipe the day; and because phone rows win outright, not even the
+    //    band fallback would show.
+    final denied = PhonePedometer(stepReader: (from, to) async => 0);
+    expect(await denied.syncDay(day), isNull,
+        reason: 'unconfirmed, so it must not count toward daysRead either');
+
+    // 3. The banked day survives.
+    expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+  });
+
   test('the routine sync window is much smaller than the backfill window', () {
     // Each hourly bucket is one platform round trip, so the window IS the cost:
     // the 7-day default was up to 168 sequential calls on every launch and

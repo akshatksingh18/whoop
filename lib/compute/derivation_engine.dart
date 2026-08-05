@@ -3140,18 +3140,21 @@ class DerivationEngine {
       // `dyn_p90` history was pruned or is sparse). Keep serving the existing
       // floor until a replacement can actually be computed.
       if (hist.length < ana.enrollmentDaysForFrozenFloor) return stored.floorG;
+
+      // REACHABLE, and this is the case it exists for: an OLD backfill day that
+      // trips the re-freeze rule (a 30-day wear gap before it is the common
+      // one) and has enough prior history to recompute. Without this it would
+      // overwrite the freeze a NEWER day just established, and since the sweep
+      // runs newest-first and concurrently, sweep order would decide the floor.
+      // A backfill day may CONSUME the shared floor; it may never move it.
+      if (!mfp.mayCommitFloorOn(frozenOn: stored.frozenOn, dayId: dayId)) {
+        return stored.floorG;
+      }
     } else if (hist.length < ana.enrollmentDaysForFrozenFloor) {
       // Still enrolling, and nothing stored to fall back on. Return null so the
       // metric abstains and says so, rather than shipping a threshold we have
       // already proven will be re-derived.
       return null;
-    }
-
-    // A backfill day may CONSUME the shared floor but never move it — otherwise
-    // a newest-first sweep's oldest day could clobber the freeze its newest day
-    // just established.
-    if (!mfp.mayCommitFloorOn(frozenOn: stored?.frozenOn, dayId: dayId)) {
-      return stored?.floorG;
     }
 
     final floor = ana.personalDynFloorFromDailySummaries(hist);

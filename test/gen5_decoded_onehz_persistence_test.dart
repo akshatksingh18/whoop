@@ -43,7 +43,7 @@ Uint8List _buildGen5V18LenientInner({
   inner[6] = (counter >> 24) & 0xff;
   inner.buffer.asByteData().setUint32(7, unix, Endian.little);
   inner[14] = hr;
-  inner[15] = rrMs.length.clamp(0, 4);
+  inner[15] = rrMs.length.clamp(0, 4).toInt();
   final view = inner.buffer.asByteData();
   for (var i = 0; i < rrMs.length && i < 4; i++) {
     view.setInt16(16 + 2 * i, rrMs[i], Endian.little);

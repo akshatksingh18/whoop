@@ -1866,35 +1866,40 @@ class LocalDb {
       inner[1] == proto.Record.r10;
 
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
-    Uint8List bytes;
+    // Parse hex when possible so Gen4 R10-lite can be rejected even when a
+    // complete preferred Sample is supplied. Invalid/placeholder hex (test
+    // fixtures, corrupt imports) must NOT abort before the preferred paths —
+    // commit 1f85b10 returned null on hexToBytes failure and zeroed
+    // decoded_onehz for every insertRecord that used non-hex placeholders.
+    Uint8List? bytes;
     try {
       bytes = proto.hexToBytes(raw.hex);
-    } catch (_) {
-      return null;
-    }
-    if (_isGen4R10LiteHistorical(bytes)) return null;
-    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
-    try {
-      // Legacy decoder first, firmware-fallback chain second — see
-      // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
-      // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
-      // fresh per-call instance is fine — no session state to preserve.
-      final r = proto.FirmwareAwareR24Decoder().decode(bytes);
-      if (r != null && r.tsEpoch > 0) {
-        return Sample(
-          tsEpoch: r.tsEpoch,
-          counter: r.counter,
-          hr: r.hr,
-          rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-          ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-          ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-          az: r.accelG.length > 2 ? r.accelG[2] : 0,
-          spo2RedRaw: r.spo2RedRaw,
-          spo2IrRaw: r.spo2IrRaw,
-          skinTempRaw: r.skinTempRaw,
-        );
-      }
     } catch (_) {}
+    if (bytes != null && _isGen4R10LiteHistorical(bytes)) return null;
+    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
+    if (bytes != null) {
+      try {
+        // Legacy decoder first, firmware-fallback chain second — see
+        // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
+        // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
+        // fresh per-call instance is fine — no session state to preserve.
+        final r = proto.FirmwareAwareR24Decoder().decode(bytes);
+        if (r != null && r.tsEpoch > 0) {
+          return Sample(
+            tsEpoch: r.tsEpoch,
+            counter: r.counter,
+            hr: r.hr,
+            rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+            ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
+            ay: r.accelG.length > 1 ? r.accelG[1] : 0,
+            az: r.accelG.length > 2 ? r.accelG[2] : 0,
+            spo2RedRaw: r.spo2RedRaw,
+            spo2IrRaw: r.spo2IrRaw,
+            skinTempRaw: r.skinTempRaw,
+          );
+        }
+      } catch (_) {}
+    }
     // Gen5 v18 / lenient samples carry HR/RR/gravity but lack gen4 optics —
     // `hasDecodedOneHz` stays false, yet they are honest 1 Hz substrate rows.
     if (preferred != null && preferred.tsEpoch > 0) {

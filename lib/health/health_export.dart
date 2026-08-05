@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
 import '../data/db.dart';
+import 'health_sleep_session.dart';
 
 /// What we can do with the health store right now.
 enum HealthLinkState {
@@ -38,6 +39,8 @@ enum HealthLinkState {
 
 class HealthExporter {
   final _health = Health();
+  final _androidSleep = HealthConnectSleepSessionExporter(
+      writer: MethodChannelHealthConnectSleepSessionWriter());
   bool _configured = false;
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
@@ -56,20 +59,20 @@ class HealthExporter {
   String get _hrvScalarKey => isApple ? 'sdnn' : 'rmssd';
 
   List<HealthDataType> get _types => [
-        HealthDataType.RESTING_HEART_RATE,
-        _hrvType,
-        HealthDataType.RESPIRATORY_RATE,
-        HealthDataType.HEART_RATE,
-        HealthDataType.ACTIVE_ENERGY_BURNED,
-        HealthDataType.BASAL_ENERGY_BURNED,
-        HealthDataType.STEPS,
-        HealthDataType.SLEEP_DEEP,
-        HealthDataType.SLEEP_REM,
-        HealthDataType.SLEEP_LIGHT,
-        HealthDataType.SLEEP_AWAKE,
-        HealthDataType.SLEEP_SESSION,
-        HealthDataType.WORKOUT,
-      ];
+    HealthDataType.RESTING_HEART_RATE,
+    _hrvType,
+    HealthDataType.RESPIRATORY_RATE,
+    HealthDataType.HEART_RATE,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    HealthDataType.BASAL_ENERGY_BURNED,
+    HealthDataType.STEPS,
+    HealthDataType.SLEEP_DEEP,
+    HealthDataType.SLEEP_REM,
+    HealthDataType.SLEEP_LIGHT,
+    HealthDataType.SLEEP_AWAKE,
+    HealthDataType.SLEEP_SESSION,
+    HealthDataType.WORKOUT,
+  ];
 
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
   // design, and Health Connect's hasPermissions(WRITE) frequently returns
@@ -188,9 +191,8 @@ class HealthExporter {
   // convention: back off with growing spacing, and after _kMaxExportAttempts
   // give up on that specific day (log it, let the cursor advance past it)
   // rather than wedge the pipeline. Note this only matters for genuine
-  // thrown errors — an ungranted health permission doesn't throw (writes
-  // silently no-op, see the comment above _ensureConfigured), so it never
-  // enters this retry path or gets "given up on" by it.
+  // thrown errors or false results from the health-store APIs. A returned
+  // false is not success and must keep the day out of the exported prefix.
   static const _kRetryCursor = 'health_export_retry_state';
   static const _kMaxExportAttempts = 6;
   static const _kRetryBackoff = [
@@ -342,7 +344,12 @@ class HealthExporter {
     // Health Connect only let an app delete its own data), then re-write fresh.
     for (final t in _types) {
       try {
-        await _health.delete(type: t, startTime: dayStart, endTime: dayEnd);
+        final deleted = await _health.delete(
+          type: t,
+          startTime: dayStart,
+          endTime: dayEnd,
+        );
+        if (!deleted) success = false;
       } catch (e) {
         debugPrint('[health] delete ${t.name}: $e');
         success = false;
@@ -364,12 +371,14 @@ class HealthExporter {
         DateTime t) async {
       if (v == null || v <= 0) return; // absent input, not a failure
       try {
-        await _health.writeHealthData(
-            value: v.toDouble(),
-            type: type,
-            startTime: t,
-            endTime: t,
-            unit: unit);
+        final wrote = await _health.writeHealthData(
+          value: v.toDouble(),
+          type: type,
+          startTime: t,
+          endTime: t,
+          unit: unit,
+        );
+        if (!wrote) success = false;
       } catch (e) {
         debugPrint('[health] write ${type.name}: $e');
         success = false;
@@ -425,12 +434,14 @@ class HealthExporter {
       final calPerHour = cal / bucketCount;
       for (int i = 0; i < bucketCount; i++) {
         try {
-          await _health.writeHealthData(
-              value: calPerHour,
-              type: HealthDataType.ACTIVE_ENERGY_BURNED,
-              startTime: bucketBounds[i],
-              endTime: bucketBounds[i + 1],
-              unit: HealthDataUnit.KILOCALORIE);
+          final wrote = await _health.writeHealthData(
+            value: calPerHour,
+            type: HealthDataType.ACTIVE_ENERGY_BURNED,
+            startTime: bucketBounds[i],
+            endTime: bucketBounds[i + 1],
+            unit: HealthDataUnit.KILOCALORIE,
+          );
+          if (!wrote) success = false;
         } catch (e) {
           debugPrint('[health] write energy bucket $i: $e');
           success = false;
@@ -446,12 +457,14 @@ class HealthExporter {
       final basalPerHour = basal / bucketCount;
       for (int i = 0; i < bucketCount; i++) {
         try {
-          await _health.writeHealthData(
-              value: basalPerHour,
-              type: HealthDataType.BASAL_ENERGY_BURNED,
-              startTime: bucketBounds[i],
-              endTime: bucketBounds[i + 1],
-              unit: HealthDataUnit.KILOCALORIE);
+          final wrote = await _health.writeHealthData(
+            value: basalPerHour,
+            type: HealthDataType.BASAL_ENERGY_BURNED,
+            startTime: bucketBounds[i],
+            endTime: bucketBounds[i + 1],
+            unit: HealthDataUnit.KILOCALORIE,
+          );
+          if (!wrote) success = false;
         } catch (e) {
           debugPrint('[health] write basal energy bucket $i: $e');
           success = false;
@@ -467,10 +480,10 @@ class HealthExporter {
       final endTs = dayEnd.millisecondsSinceEpoch ~/ 1000;
       // Group by minute to downsample
       hrRows = await db.rawQuery(
-          'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
-          'FROM decoded_onehz '
-          'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
-          'GROUP BY minute_ts',
+        'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
+        'FROM decoded_onehz '
+        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
+        'GROUP BY minute_ts',
           [startTs, endTs]);
     } catch (e) {
       debugPrint('[health] query continuous hr: $e');
@@ -483,12 +496,14 @@ class HealthExporter {
         if (avgHr > 0) {
           final t = DateTime.fromMillisecondsSinceEpoch(minuteTs * 1000);
           try {
-            await _health.writeHealthData(
-                value: avgHr,
-                type: HealthDataType.HEART_RATE,
-                startTime: t,
-                endTime: t.add(const Duration(minutes: 1)),
-                unit: HealthDataUnit.BEATS_PER_MINUTE);
+            final wrote = await _health.writeHealthData(
+              value: avgHr,
+              type: HealthDataType.HEART_RATE,
+              startTime: t,
+              endTime: t.add(const Duration(minutes: 1)),
+              unit: HealthDataUnit.BEATS_PER_MINUTE,
+            );
+            if (!wrote) success = false;
           } catch (e) {
             debugPrint('[health] write continuous hr @$minuteTs: $e');
             success = false;
@@ -501,37 +516,53 @@ class HealthExporter {
     final steps = sc('steps');
     if (steps != null && steps > 0) {
       try {
-        await _health.writeHealthData(
-            value: steps.toDouble(),
-            type: HealthDataType.STEPS,
-            startTime: dayStart,
-            endTime: dayEnd,
-            unit: HealthDataUnit.COUNT);
+        final wrote = await _health.writeHealthData(
+          value: steps.toDouble(),
+          type: HealthDataType.STEPS,
+          startTime: dayStart,
+          endTime: dayEnd,
+          unit: HealthDataUnit.COUNT,
+        );
+        if (!wrote) success = false;
       } catch (e) {
         debugPrint('[health] write steps: $e');
         success = false;
       }
     }
 
-    // Sleep stages from the per-segment hypnogram (real time ranges).
-    final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
-    for (final s in segs) {
-      if (s is! Map) continue;
-      final st = (s['start'] as num?)?.toInt();
-      final en = (s['end'] as num?)?.toInt();
-      final stage = s['stage']?.toString();
-      if (st == null || en == null || en <= st || stage == null) continue;
-      final type = _sleepType(stage);
-      if (type == null) continue;
+    // Health Connect models stages as children of ONE SleepSessionRecord. The
+    // health 11.1.1 generic SLEEP_* writer instead creates one parent record
+    // per call, fragmenting a night. Android therefore uses our typed native
+    // replace API; Apple Health keeps its existing per-stage samples.
+    if (Platform.isAndroid) {
       try {
-        await _health.writeHealthData(
+        if (!await _androidSleep.replace(b)) success = false;
+      } catch (e) {
+        debugPrint('[health] write Android sleep session: $e');
+        success = false;
+      }
+    } else {
+      final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
+      for (final s in segs) {
+        if (s is! Map) continue;
+        final st = (s['start'] as num?)?.toInt();
+        final en = (s['end'] as num?)?.toInt();
+        final stage = s['stage']?.toString();
+        if (st == null || en == null || en <= st || stage == null) continue;
+        final type = _sleepType(stage);
+        if (type == null) continue;
+        try {
+          final wrote = await _health.writeHealthData(
             value: 0,
             type: type,
             startTime: DateTime.fromMillisecondsSinceEpoch(st * 1000),
-            endTime: DateTime.fromMillisecondsSinceEpoch(en * 1000));
-      } catch (e) {
-        debugPrint('[health] write sleep ${type.name}: $e');
-        success = false;
+            endTime: DateTime.fromMillisecondsSinceEpoch(en * 1000),
+          );
+          if (!wrote) success = false;
+        } catch (e) {
+          debugPrint('[health] write sleep ${type.name}: $e');
+          success = false;
+        }
       }
     }
 
@@ -569,18 +600,21 @@ class HealthExporter {
   /// eventually "giving up" on — and silently pausing — that WHOLE day's real
   /// health export (RHR/HRV/steps/sleep), not just the still-live workout.
   Future<bool?> _writeOneWorkout(Map<String, Object?> r) async {
-    if ((r['status']?.toString() ?? '') == 'live') return null; // skip, not a failure
+    if ((r['status']?.toString() ?? '') == 'live') {
+      return null; // skip, not a failure
+    }
     final st = (r['start_ts'] as num?)?.toInt();
     final en = (r['end_ts'] as num?)?.toInt();
-    if (st == null || en == null || en <= st) return null; // skip, not a failure
+    if (st == null || en == null || en <= st) {
+      return null; // skip, not a failure
+    }
     try {
-      await _health.writeWorkoutData(
+      return await _health.writeWorkoutData(
         activityType: _activity(r['type']?.toString()),
         start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
         totalEnergyBurned: (r['calories'] as num?)?.round(),
       );
-      return true;
     } catch (e) {
       debugPrint('[health] write workout @$st: $e');
       return false;
@@ -615,13 +649,20 @@ class HealthExporter {
       if (await _androidUnavailable() != null) return false;
       final start = DateTime.fromMillisecondsSinceEpoch(st * 1000);
       final end = DateTime.fromMillisecondsSinceEpoch(en * 1000);
+      var success = true;
       try {
-        await _health.delete(
-            type: HealthDataType.WORKOUT, startTime: start, endTime: end);
+        final deleted = await _health.delete(
+          type: HealthDataType.WORKOUT,
+          startTime: start,
+          endTime: end,
+        );
+        if (!deleted) success = false;
       } catch (e) {
         debugPrint('[health] delete workout @$st: $e');
+        success = false;
       }
-      return (await _writeOneWorkout(session)) ?? false;
+      final wrote = (await _writeOneWorkout(session)) ?? false;
+      return success && wrote;
     } catch (e) {
       debugPrint('[health] exportWorkout: $e');
       return false;

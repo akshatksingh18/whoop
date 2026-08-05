@@ -50,6 +50,8 @@ object NativeChannels {
     fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
 
+        HealthConnectSleepWriter.register(engine, app)
+
         MethodChannel(engine.dartExecutor.binaryMessenger, EDGE_TRACKING_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

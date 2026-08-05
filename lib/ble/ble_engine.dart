@@ -694,6 +694,12 @@ class BleEngine {
   // said" apart from "we correctly, silently rejected some as implausible
   // (stale-clock block) and never tallied them." See _handleSyncMarker.
   int _burstDroppedAtStart = 0;
+  // Consecutive HISTORY_END refuses where the burst banked nothing durable
+  // but the RecordGate dropped samples. After a short streak we re-issue
+  // SET_CLOCK and bounce — the usual cause is a bad post-reconnect window
+  // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
+  // re-deliver forever without ever correcting the clock).
+  int _noDurableTrimRefuseStreak = 0;
   // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
   // (see the comment at the validation site — treating a single mismatch as
   // fatal was actively harmful and was reverted), but a mismatch that keeps
@@ -1158,6 +1164,7 @@ class BleEngine {
       _autoContinue.end();
       _lastBackfillAt = 0;
       _successfulBursts = 0;
+      _noDurableTrimRefuseStreak = 0;
       _lastHpsTerminal = null;
       _sessionPacketCounts = _SessionPacketCounts.zero;
       _sessionGapSummary = _SessionGapSummary.zero;
@@ -1893,8 +1900,9 @@ class BleEngine {
     // Drop records whose unix is implausible vs wall-clock and (when known) the
     // strap's own GET_DATA_RANGE window — a previous owner's wandering-clock
     // pollution. Records with no decodable ts are kept (can't gate them).
-    // Rejected records are neither stored nor counted; the ACK still walks the
-    // band's cursor.
+    // Rejected records are neither stored nor counted. Mixed bursts (some
+    // rows banked) may still ACK; a drop-only empty burst must not — see
+    // TrimAckVerdict.blockedNoDurableProgress.
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
@@ -2233,6 +2241,51 @@ class BleEngine {
           );
         }
         return;
+      case TrimAckVerdict.blockedNoDurableProgress:
+        // Gate rejected every historical sample this burst and nothing was
+        // banked (no raws, no archives). Echoing the token would trim flash
+        // we never stored — the HR-gap / frozen-cursor failure mode after a
+        // reconnect with a bad plausibility window. Keep the chunk on the
+        // band; after a short streak, re-correlate the clock and bounce.
+        _noDurableTrimRefuseStreak++;
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex has no durable rows but the '
+          'plausibility gate dropped samples this burst — NOT ACKing '
+          '(streak=$_noDurableTrimRefuseStreak). The band keeps the chunk; '
+          'a SET_CLOCK/reconnect may clear a poisoned gate window.',
+        );
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'no_durable_progress',
+          metaPatch: {
+            'batch_id': batchId,
+            'records': d.records,
+            'no_durable_refuse_streak': _noDurableTrimRefuseStreak,
+          },
+        ));
+        if (_noDurableTrimRefuseStreak >= 3 && !_sessionIsStale(session)) {
+          _log(
+            '[SYNC] $_noDurableTrimRefuseStreak consecutive no-durable trim '
+            'refuses — defensive SET_CLOCK + bounce so the next session can '
+            're-admit the re-delivered chunk.',
+          );
+          _noDurableTrimRefuseStreak = 0;
+          try {
+            await setClock();
+          } catch (e) {
+            _log('[SYNC] defensive SET_CLOCK after no-durable refuse failed: $e');
+          }
+          if (!_sessionIsStale(session)) {
+            unawaited(
+              _teardownSession(intentional: false).then((_) {
+                _setPhase(BleConnState.idle);
+              }),
+            );
+          }
+        }
+        return;
     }
   }
 
@@ -2347,16 +2400,42 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      _successfulBursts++;
-      _mergeValidatedBurst(d);
       final r = d.bufferedRecTsRange;
+      final droppedThisBurstForLog = droppedThisBurst;
+      final hadDurableRows =
+          d.bufferedRecords > 0 || d.bufferedArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
+        'dropped_this_burst=$droppedThisBurstForLog '
+        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
+      // NO-PROGRESS GATE: refuse trim when this burst banked nothing durable
+      // but the RecordGate dropped samples. Echoing would delete flash we
+      // never stored (and used to also flip lastTrimAdvanced, feeding
+      // auto-continue while the cursor stayed frozen).
+      final progressVerdict = TrimAckPolicy.evaluate(
+        sessionCurrent: !_sessionIsStale(session),
+        burstDiscarded: d.burstDiscarded,
+        commitDurable: true,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
+      );
+      if (progressVerdict != TrimAckVerdict.send) {
+        await _refuseHistoryEndTrim(
+          progressVerdict,
+          d: d,
+          session: session,
+          tokenHex: tokenHex,
+          batchId: m.batchId,
+        );
+        return;
+      }
+      _successfulBursts++;
+      _mergeValidatedBurst(d);
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
       // once the ACK is link-layer confirmed, so a crash before the ACK
@@ -2372,6 +2451,8 @@ class BleEngine {
         sessionCurrent: !_sessionIsStale(session),
         burstDiscarded: d.burstDiscarded,
         commitDurable: durable,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
       );
       if (verdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -2451,6 +2532,7 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      _noDurableTrimRefuseStreak = 0;
       d.noteBatchAcked(); // ACKed and KEEP listening
       await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
@@ -3165,6 +3247,7 @@ class DrainController {
   bool _linkDown = false;
 
   int get bufferedRecords => _raws.length;
+  int get bufferedArchives => _archives.length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets
@@ -3189,7 +3272,10 @@ class DrainController {
   }
 
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
-  // whose 8-byte token differs from the last one means the cursor moved.
+  // whose 8-byte token differs from the last one means the cursor moved — but
+  // only when the burst also banked durable rows. An empty token-only ACK
+  // (console / drop-only) used to flip this true and feed auto-continue while
+  // the durable frontier stayed frozen.
   String? _lastAckedToken;
   bool lastTrimAdvanced = false;
   int consecutiveValidationFailures = 0;
@@ -3337,11 +3423,15 @@ class DrainController {
         .join();
     final previousAckedToken = _lastAckedToken;
     final previousTrimAdvanced = lastTrimAdvanced;
-    lastTrimAdvanced = tokenHex != null && tokenHex != _lastAckedToken;
-    if (tokenHex != null) _lastAckedToken = tokenHex;
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
     final archives = List<ArchiveRecord>.from(_archives);
+    final hadDurable = raws.isNotEmpty || archives.isNotEmpty;
+    // Token changed AND we actually banked something — empty ACKs must not
+    // look like cursor progress to auto-continue / stuck-strap.
+    lastTrimAdvanced =
+        tokenHex != null && tokenHex != _lastAckedToken && hadDurable;
+    if (tokenHex != null) _lastAckedToken = tokenHex;
     _raws.clear();
     _samples.clear();
     _archives.clear();

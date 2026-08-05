@@ -153,6 +153,9 @@ void main() {
         log: (_) {},
       );
 
+      // Empty token-only commits do not count as trim advance (would feed
+      // auto-continue while the durable frontier stayed frozen).
+      d.onHistoricalRecord(_raw(0), _sample(0));
       expect(await d.commit(_tokenA), isTrue);
       expect(d.lastTrimAdvanced, isTrue);
 
@@ -168,6 +171,19 @@ void main() {
       // to auto-continue a drain that had in fact progressed.
       fail = false;
       expect(await d.commit(_tokenB), isTrue);
+      expect(d.lastTrimAdvanced, isTrue);
+    });
+
+    test('an empty buffer commit does not claim trim advanced', () async {
+      final d = _drainWith((raws, samples, token, {archives}) async {});
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isFalse);
+    });
+
+    test('archive-only commit still counts as trim advanced', () async {
+      final d = _drainWith((raws, samples, token, {archives}) async {});
+      d.onUndecodableRecord(_archive(1));
+      expect(await d.commit(_tokenA), isTrue);
       expect(d.lastTrimAdvanced, isTrue);
     });
 
@@ -245,6 +261,58 @@ void main() {
           commitDurable: true,
         ),
         TrimAckVerdict.send,
+      );
+    });
+
+    test('drop-only empty burst blocks the ACK (no durable progress)', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: false,
+          droppedThisBurst: 12,
+        ),
+        TrimAckVerdict.blockedNoDurableProgress,
+      );
+    });
+
+    test('empty burst with zero drops may still ACK (console-only)', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: false,
+          droppedThisBurst: 0,
+        ),
+        TrimAckVerdict.send,
+      );
+    });
+
+    test('archive-or-raw banked rows still ACK even when some were dropped', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: true,
+          droppedThisBurst: 5,
+        ),
+        TrimAckVerdict.send,
+      );
+    });
+
+    test('commit failure outranks the no-durable-progress rule', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: false,
+          hadDurableRows: false,
+          droppedThisBurst: 9,
+        ),
+        TrimAckVerdict.blockedCommitFailed,
       );
     });
   });

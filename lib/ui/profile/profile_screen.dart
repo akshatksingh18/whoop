@@ -1357,9 +1357,20 @@ class _DeviceSheet extends StatelessWidget {
     // blanket watch() before; select the fields actually used instead. (Prior
     // pass here missed `device`/`paired` — re-audited against every `live.`
     // touchpoint in this class after finding the same gap cost a real bug in
-    // the main ProfileScreen build above.)
-    context.select<AppState, (bool, int?, String?, dynamic, dynamic)>(
-      (a) => (a.isConnected, a.alarmEpoch, a.strapName, a.device, a.paired),
+    // the main ProfileScreen build above.) Also select confirmation flags:
+    // omitting them left the caption stuck on "Setting alarm…" after grace.
+    context.select<AppState,
+        (bool, int?, String?, dynamic, dynamic, bool, bool, bool)>(
+      (a) => (
+        a.isConnected,
+        a.alarmEpoch,
+        a.strapName,
+        a.device,
+        a.paired,
+        a.alarmConfirmed,
+        a.alarmPending,
+        a.alarmUnconfirmed,
+      ),
     );
     final live = context.read<AppState>();
     final connected = live.isConnected;

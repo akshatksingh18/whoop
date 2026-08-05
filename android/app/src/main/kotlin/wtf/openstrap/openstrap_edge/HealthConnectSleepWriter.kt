@@ -1,6 +1,7 @@
 package wtf.openstrap.openstrap_edge
 
 import android.content.Context
+import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.metadata.Metadata
@@ -19,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 
 /** Writes one Health Connect sleep parent containing all normalized stages. */
 object HealthConnectSleepWriter {
+    private const val TAG = "OpenStrapSleepExport"
     private const val CHANNEL = "openstrap/health_connect_sleep"
     private const val REPLACE_SLEEP_SESSION = "replaceSleepSession"
     private const val RECORDING_METHOD_AUTOMATIC = 2
@@ -61,7 +63,8 @@ object HealthConnectSleepWriter {
                         client.insertRecords(listOf(session)).recordIdsList.size == 1
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                Log.e(TAG, "SleepSessionRecord replace failed", error)
                 false
             }
         }

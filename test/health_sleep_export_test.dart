@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:health/health.dart';
+import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/health/health_sleep_session.dart';
 
 int _seconds(DateTime value) => value.millisecondsSinceEpoch ~/ 1000;
@@ -50,6 +52,51 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Health Connect sleep-session export regression', () {
+    test('Android generic cleanup never deletes sleep records', () {
+      final types = healthDeleteTypes(isApplePlatform: false);
+
+      expect(types, contains(HealthDataType.STEPS));
+      expect(
+        types,
+        isNot(
+          containsAll(<HealthDataType>[
+            HealthDataType.SLEEP_DEEP,
+            HealthDataType.SLEEP_REM,
+            HealthDataType.SLEEP_LIGHT,
+            HealthDataType.SLEEP_AWAKE,
+            HealthDataType.SLEEP_SESSION,
+          ]),
+        ),
+      );
+      expect(types.where((type) => type.name.startsWith('SLEEP_')), isEmpty);
+    });
+
+    test('manual sync bypasses retry backoff and attempt cap', () {
+      final now = DateTime(2026, 8, 5, 13);
+
+      expect(
+        shouldAttemptHealthExport(
+          attempts: 6,
+          maxAttempts: 6,
+          now: now,
+          lastAttempt: now.subtract(const Duration(seconds: 1)),
+          backoff: const Duration(hours: 1),
+        ),
+        isFalse,
+      );
+      expect(
+        shouldAttemptHealthExport(
+          attempts: 6,
+          maxAttempts: 6,
+          now: now,
+          lastAttempt: now.subtract(const Duration(seconds: 1)),
+          backoff: const Duration(hours: 1),
+          force: true,
+        ),
+        isTrue,
+      );
+    });
+
     test('normalizes one complete cross-midnight session with every stage', () {
       final session = normalizeHealthSleepSession(_overnightBundle());
 

@@ -387,7 +387,7 @@ class AppState extends ChangeNotifier {
 
   /// Export all finalized-but-unexported days now. Returns days written.
   Future<int> healthSyncNow() async {
-    final n = await _healthExport.exportAll();
+    final n = await _healthExport.exportAll(forceRetry: true);
     return n;
   }
 

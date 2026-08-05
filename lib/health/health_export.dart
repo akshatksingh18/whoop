@@ -37,10 +37,51 @@ enum HealthLinkState {
   unsupported, // no health store on this device (iPad / simulator)
 }
 
+const _sleepHealthTypes = <HealthDataType>{
+  HealthDataType.SLEEP_DEEP,
+  HealthDataType.SLEEP_REM,
+  HealthDataType.SLEEP_LIGHT,
+  HealthDataType.SLEEP_AWAKE,
+  HealthDataType.SLEEP_SESSION,
+};
+
+List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
+  final types = <HealthDataType>[
+    HealthDataType.RESTING_HEART_RATE,
+    isApplePlatform
+        ? HealthDataType.HEART_RATE_VARIABILITY_SDNN
+        : HealthDataType.HEART_RATE_VARIABILITY_RMSSD,
+    HealthDataType.RESPIRATORY_RATE,
+    HealthDataType.HEART_RATE,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    HealthDataType.BASAL_ENERGY_BURNED,
+    HealthDataType.STEPS,
+    ..._sleepHealthTypes,
+    HealthDataType.WORKOUT,
+  ];
+  return isApplePlatform
+      ? types
+      : types.where((type) => !_sleepHealthTypes.contains(type)).toList();
+}
+
+bool shouldAttemptHealthExport({
+  required int attempts,
+  required int maxAttempts,
+  required DateTime now,
+  required DateTime? lastAttempt,
+  required Duration backoff,
+  bool force = false,
+}) {
+  if (force) return true;
+  if (attempts >= maxAttempts) return false;
+  return lastAttempt == null || now.difference(lastAttempt) >= backoff;
+}
+
 class HealthExporter {
   final _health = Health();
   final _androidSleep = HealthConnectSleepSessionExporter(
-      writer: MethodChannelHealthConnectSleepSessionWriter());
+    writer: MethodChannelHealthConnectSleepSessionWriter(),
+  );
   bool _configured = false;
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
@@ -128,8 +169,10 @@ class HealthExporter {
     final un = await _androidUnavailable();
     if (un != null) return un;
     try {
-      await _health.requestAuthorization(_types,
-          permissions: _types.map((_) => HealthDataAccess.WRITE).toList());
+      await _health.requestAuthorization(
+        _types,
+        permissions: _types.map((_) => HealthDataAccess.WRITE).toList(),
+      );
     } catch (e) {
       debugPrint('[health] requestAuthorization: $e');
     }
@@ -217,7 +260,11 @@ class HealthExporter {
     }
   }
 
-  Future<int> exportAll({bool reset = false, void Function(int days)? onProgress}) async {
+  Future<int> exportAll({
+    bool reset = false,
+    bool forceRetry = false,
+    void Function(int days)? onProgress,
+  }) async {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     try {
@@ -264,10 +311,19 @@ class HealthExporter {
 
         var ok = false;
         var giveUp = false;
-        if (attempts >= _kMaxExportAttempts) {
+        final shouldAttempt = shouldAttemptHealthExport(
+          attempts: attempts,
+          maxAttempts: _kMaxExportAttempts,
+          now: DateTime.fromMillisecondsSinceEpoch(nowMs),
+          lastAttempt: lastAttemptMs == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
+          backoff: _backoffFor(attempts),
+          force: forceRetry,
+        );
+        if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
           giveUp = true;
-        } else if (lastAttemptMs != null &&
-            nowMs - lastAttemptMs < _backoffFor(attempts).inMilliseconds) {
+        } else if (!shouldAttempt) {
           // Not due for retry yet — don't hammer the health store on every
           // drain/derive pass; counts as "not done" for the cursor below.
         } else {
@@ -286,10 +342,12 @@ class HealthExporter {
             };
             retryStateDirty = true;
             debugPrint(
-                '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)');
+              '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)',
+            );
             if (nextAttempts >= _kMaxExportAttempts) {
               debugPrint(
-                  '[health] day $date exceeded $_kMaxExportAttempts export attempts — giving up, will stop blocking newer days');
+                '[health] day $date exceeded $_kMaxExportAttempts export attempts — giving up, will stop blocking newer days',
+              );
             }
           }
         }
@@ -340,9 +398,21 @@ class HealthExporter {
     // write on failure (best-effort, idempotent re-export corrects it later).
     var success = true;
 
+    // Sleep is the smallest, highest-value Android write. Do it before the
+    // high-volume minute-HR export can consume Health Connect's API quota.
+    // The native replace owns SleepSessionRecord cleanup on Android.
+    if (Platform.isAndroid) {
+      try {
+        if (!await _androidSleep.replace(b)) success = false;
+      } catch (e) {
+        debugPrint('[health] write Android sleep session: $e');
+        success = false;
+      }
+    }
+
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
-    for (final t in _types) {
+    for (final t in healthDeleteTypes(isApplePlatform: isApple)) {
       try {
         final deleted = await _health.delete(
           type: t,
@@ -367,8 +437,12 @@ class HealthExporter {
         ? DateTime.fromMillisecondsSinceEpoch(((onMs + offMs) / 2).round())
         : dayStart.add(const Duration(hours: 12));
 
-    Future<void> writeAt(HealthDataType type, num? v, HealthDataUnit unit,
-        DateTime t) async {
+    Future<void> writeAt(
+      HealthDataType type,
+      num? v,
+      HealthDataUnit unit,
+      DateTime t,
+    ) async {
       if (v == null || v <= 0) return; // absent input, not a failure
       try {
         final wrote = await _health.writeHealthData(
@@ -386,11 +460,19 @@ class HealthExporter {
     }
 
     // Nightly cardiac/respiratory scalars (single sample at the sleep midpoint).
-    await writeAt(HealthDataType.RESTING_HEART_RATE, sc('rhr'),
-        HealthDataUnit.BEATS_PER_MINUTE, mid);
+    await writeAt(
+      HealthDataType.RESTING_HEART_RATE,
+      sc('rhr'),
+      HealthDataUnit.BEATS_PER_MINUTE,
+      mid,
+    );
     await writeAt(_hrvType, sc(_hrvScalarKey), HealthDataUnit.MILLISECOND, mid);
-    await writeAt(HealthDataType.RESPIRATORY_RATE, sc('resp_rate'),
-        HealthDataUnit.RESPIRATIONS_PER_MINUTE, mid);
+    await writeAt(
+      HealthDataType.RESPIRATORY_RATE,
+      sc('resp_rate'),
+      HealthDataUnit.RESPIRATIONS_PER_MINUTE,
+      mid,
+    );
 
     // Hourly buckets spanning [dayStart, dayEnd), shared by the active/basal
     // energy writers below. Each bucket is a real elapsed clock-hour (not
@@ -414,8 +496,9 @@ class HealthExporter {
     var cal = sc('calories')?.toDouble() ?? 0.0;
     try {
       final rows = await LocalDb.sessionsInRange(
-          dayStart.millisecondsSinceEpoch ~/ 1000,
-          (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1);
+        dayStart.millisecondsSinceEpoch ~/ 1000,
+        (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1,
+      );
       var workoutCal = 0.0;
       for (final r in rows) {
         if ((r['status']?.toString() ?? '') == 'live') continue;
@@ -484,7 +567,8 @@ class HealthExporter {
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
         'GROUP BY minute_ts',
-          [startTs, endTs]);
+        [startTs, endTs],
+      );
     } catch (e) {
       debugPrint('[health] query continuous hr: $e');
       success = false;
@@ -534,14 +618,7 @@ class HealthExporter {
     // health 11.1.1 generic SLEEP_* writer instead creates one parent record
     // per call, fragmenting a night. Android therefore uses our typed native
     // replace API; Apple Health keeps its existing per-stage samples.
-    if (Platform.isAndroid) {
-      try {
-        if (!await _androidSleep.replace(b)) success = false;
-      } catch (e) {
-        debugPrint('[health] write Android sleep session: $e');
-        success = false;
-      }
-    } else {
+    if (!Platform.isAndroid) {
       final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
       for (final s in segs) {
         if (s is! Map) continue;
@@ -574,8 +651,9 @@ class HealthExporter {
       List<Map<String, Object?>>? rows;
       try {
         rows = await LocalDb.sessionsInRange(
-            dayStart.millisecondsSinceEpoch ~/ 1000,
-            (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1);
+          dayStart.millisecondsSinceEpoch ~/ 1000,
+          (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1,
+        );
       } catch (e) {
         debugPrint('[health] query workouts: $e');
         success = false;
@@ -738,7 +816,9 @@ class HealthExporter {
   static DateTime? _localMidnight(String ymd) {
     final p = ymd.split('-');
     if (p.length != 3) return null;
-    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    final y = int.tryParse(p[0]),
+        m = int.tryParse(p[1]),
+        d = int.tryParse(p[2]);
     if (y == null || m == null || d == null) return null;
     return DateTime(y, m, d);
   }

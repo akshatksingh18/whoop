@@ -184,6 +184,17 @@ bool burstPacketCountMatches({
 }) =>
     expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
 
+/// IMU_SET_DATA_STREAM (0x6A) body — gen4 is a bare on/off byte; gen5 requires
+/// a leading [revision1] (fw 50.40.1.0 console: `Invalid rev (0) for
+/// WSBLE_CMD_IMU_SET_DATA_STREAM` when body is `[0x01]` / `[0x00]` alone).
+/// Same revision role as optical. Without this the live IMU stream never arms
+/// (gen4: 0x33; gen5 Maverick: 0x2B rec 0x15), so step calibration / live
+/// workout steps stay 0.
+@visibleForTesting
+List<int> imuModePayload(bool on, {required bool isGen5}) => isGen5
+    ? <int>[revision1, on ? 0x01 : 0x00]
+    : <int>[on ? 0x01 : 0x00];
+
 /// Fired for every LIVE high-rate frame (0x28/0x2B/0x33). These are EPHEMERAL —
 /// they are NOT persisted to raw_records (that bloated storage ~50x and stalled
 /// derivation). The caller routes them to an in-memory sink for the live UI /
@@ -1347,8 +1358,14 @@ class BleEngine {
       // Re-arm ONLY what the current live mode wants: re-sending the high-rate
       // R10/R11 toggle while in HR-only mode (background downgrade) or under the
       // marginal-radio fallback would silently undo the downgrade every 30 s.
+      // gen5: 0x3F is Unknown/Unhandled — re-arm IMU instead when full live.
+      final isGen5 = _session?.band.isGen5 ?? false;
       if (!_liveHrOnly && !state.standardHrFallback) {
-        _send(Cmd.sendR10R11Realtime, const [0x01]);
+        if (isGen5) {
+          _send(Cmd.toggleImuMode, imuModePayload(true, isGen5: true));
+        } else {
+          _send(Cmd.sendR10R11Realtime, const [0x01]);
+        }
       }
       _send(Cmd.toggleRealtimeHr, const [0x01]);
     }
@@ -3057,6 +3074,7 @@ class BleEngine {
     _liveHrOnly = false;
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
+    final isGen5 = _session?.band.isGen5 ?? false;
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     // MARGINAL-RADIO FALLBACK: a weak radio can't sustain the high-rate R10/R11 +
     // IMU + optical flood, so once the detector trips we arm HR only.
@@ -3065,12 +3083,19 @@ class BleEngine {
       return;
     }
     await Future.delayed(const Duration(milliseconds: 100));
-    await _send(Cmd.sendR10R11Realtime, const [0x01]);
-    await Future.delayed(const Duration(milliseconds: 100));
-    await _send(Cmd.toggleImuMode, const [0x01]);
+    // gen5 console: 0x3F (R10/R11 realtime) is Unknown/Unhandled — skip it.
+    // Live steps ride toggleImuMode (gen5: 0x2B rec 0x15; gen4: 0x33).
+    if (!isGen5) {
+      await _send(Cmd.sendR10R11Realtime, const [0x01]);
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    await _send(Cmd.toggleImuMode, imuModePayload(true, isGen5: isGen5));
     await Future.delayed(const Duration(milliseconds: 100));
     await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
-    _log('Live streams enabled (optical: wrist-gated).');
+    _log(
+      'Live streams enabled (optical: wrist-gated'
+      '${isGen5 ? "; gen5 IMU rev1" : ""}).',
+    );
   }
 
   /// Clear the sticky standard-HR fallback and give the full live set another
@@ -3102,6 +3127,7 @@ class BleEngine {
     if (_session?.connected != true) return;
     _liveEnabled = true;
     _liveHrOnly = true;
+    final isGen5 = _session?.band.isGen5 ?? false;
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     final offOps = <List<dynamic>>[
       [
@@ -3112,13 +3138,14 @@ class BleEngine {
         Cmd.enableOpticalData,
         [revision1, 0x00],
       ],
-      [
-        Cmd.sendR10R11Realtime,
-        [0x00],
-      ],
+      if (!isGen5)
+        [
+          Cmd.sendR10R11Realtime,
+          [0x00],
+        ],
       [
         Cmd.toggleImuMode,
-        [0x00],
+        imuModePayload(false, isGen5: isGen5),
       ],
     ];
     for (final op in offOps) {
@@ -3130,6 +3157,7 @@ class BleEngine {
 
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
   Future<void> disableLiveStreams() async {
+    final isGen5 = _session?.band.isGen5 ?? false;
     final ops = <List<dynamic>>[
       [
         Cmd.toggleOpticalMode,
@@ -3139,13 +3167,14 @@ class BleEngine {
         Cmd.enableOpticalData,
         [revision1, 0x00],
       ],
-      [
-        Cmd.sendR10R11Realtime,
-        [0x00],
-      ],
+      if (!isGen5)
+        [
+          Cmd.sendR10R11Realtime,
+          [0x00],
+        ],
       [
         Cmd.toggleImuMode,
-        [0x00],
+        imuModePayload(false, isGen5: isGen5),
       ],
       [
         Cmd.toggleRealtimeHr,

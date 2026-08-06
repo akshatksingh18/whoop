@@ -451,7 +451,8 @@ void main() {
     });
 
     test(
-      'an empty normalized hypnogram is retryable and never replaces native data',
+      'an empty normalized hypnogram is a benign no-op — it never replaces '
+      'native data, and it must not fail the whole day\'s export',
       () async {
         const channel = MethodChannel('openstrap/test_health_connect_empty');
         var calls = 0;
@@ -472,8 +473,77 @@ void main() {
         final bundle = _overnightBundle();
         ((bundle['series'] as Map)['hypnogram'] as List).clear();
 
-        expect(await exporter.replace(bundle), isFalse);
+        expect(
+          await exporter.replace(bundle),
+          isTrue,
+          reason:
+              'false is a HARD failure for the entire day in health_export.dart '
+              '(success = false stops the cursor advancing), so a missing '
+              'hypnogram used to withhold steps/calories/HR too. Imported days '
+              'carry a sleep window with no substrate to stage from, so they '
+              'could never export at all.',
+        );
         expect(calls, 0, reason: 'empty stages must not delete native sleep');
+      },
+    );
+
+    test(
+      'an IMPORTED-shaped day (sleep window, no series at all) is a no-op, '
+      'not a failure — this is the case that never exported',
+      () async {
+        const channel = MethodChannel('openstrap/test_health_connect_imported');
+        var calls = 0;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls++;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthConnectSleepSessionExporter(
+          writer: MethodChannelHealthConnectSleepSessionWriter(
+            channel: channel,
+          ),
+        );
+        // A CSV import gives a window but no per-second substrate to stage
+        // from, so `series` is absent entirely rather than merely empty.
+        final bundle = _overnightBundle();
+        bundle.remove('series');
+
+        expect(await exporter.replace(bundle), isTrue);
+        expect(calls, 0);
+      },
+    );
+
+    test(
+      'a day with NO sleep window and a day with a window but no stages agree '
+      '— both are "nothing to write", so both report the same way',
+      () async {
+        const channel = MethodChannel('openstrap/test_health_connect_symmetry');
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async => true);
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthConnectSleepSessionExporter(
+          writer: MethodChannelHealthConnectSleepSessionWriter(
+            channel: channel,
+          ),
+        );
+
+        final noWindow = _overnightBundle()..remove('sleep');
+        final noStages = _overnightBundle();
+        ((noStages['series'] as Map)['hypnogram'] as List).clear();
+
+        expect(await exporter.replace(noWindow), isTrue);
+        expect(
+          await exporter.replace(noStages),
+          isTrue,
+          reason: 'the asymmetry between these two WAS the bug',
+        );
       },
     );
 

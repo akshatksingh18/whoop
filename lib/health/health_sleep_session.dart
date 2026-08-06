@@ -160,8 +160,27 @@ class HealthConnectSleepSessionExporter {
 
   Future<bool> replace(Map<String, dynamic> bundle) async {
     final session = normalizeHealthSleepSession(bundle);
+    // No sleep window at all — nothing to write, and that is not a failure.
     if (session == null) return true;
-    if (session.stages.isEmpty) return false;
+    // A window WITH NO STAGES is the same kind of "nothing to write", and has
+    // to report the same way. It used to return false, and the caller treats
+    // false as a hard failure of the ENTIRE day: `success = false` in
+    // health_export.dart stops the cursor advancing, so steps, calories, heart
+    // rate — every unrelated metric for that day — is withheld and retried on
+    // backoff because one hypnogram was missing.
+    //
+    // Not a corner case either. Days without staging are ordinary: an IMPORTED
+    // day (NOOP / WHOOP CSV) carries a sleep window but no per-second substrate
+    // to stage from, and a night where staging failed keeps its window too.
+    // Under the old behaviour those days could never complete an export at all.
+    //
+    // Deliberately conservative: this does NOT invent a stage-less
+    // SleepSessionRecord, it only stops a missing hypnogram from failing
+    // everything else. Writing the bare session span — so imported days still
+    // contribute sleep DURATION — is a real improvement, but it depends on how
+    // Health Connect handles a stage-less record and belongs in its own change,
+    // verified on a device.
+    if (session.stages.isEmpty) return true;
     return writer.replace(session);
   }
 }

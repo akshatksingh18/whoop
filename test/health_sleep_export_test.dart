@@ -53,6 +53,77 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Health Connect sleep-session export regression', () {
+    test(
+      'newest detected sleep is written before bulk and only once',
+      () async {
+        final writes = <Map<String, dynamic>>[];
+        final newestSleep = _overnightBundle();
+
+        final result = await exportNewestPrioritySleep(
+          newestFirstDays: [
+            MapEntry('2026-08-06', <String, dynamic>{}),
+            MapEntry('2026-08-05', newestSleep),
+            MapEntry('2026-08-04', _overnightBundle()),
+          ],
+          write: (bundle) async {
+            writes.add(bundle);
+            return true;
+          },
+        );
+
+        expect(result.date, '2026-08-05');
+        expect(result.succeeded, isTrue);
+        expect(writes, hasLength(1));
+        expect(writes.single, same(newestSleep));
+      },
+    );
+
+    test('failed priority sleep write reports failure', () async {
+      var writes = 0;
+
+      final result = await exportNewestPrioritySleep(
+        newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
+        write: (bundle) async {
+          writes++;
+          return false;
+        },
+      );
+
+      expect(result.date, '2026-08-05');
+      expect(result.succeeded, isFalse);
+      expect(writes, 1);
+    });
+
+    test(
+      'failed priority sleep stops bulk export and avoids duplicate sleep',
+      () {
+        final source = File('lib/health/health_export.dart').readAsStringSync();
+        final exportAll = source.substring(
+          source.indexOf('Future<int> exportAll'),
+        );
+        final priority = exportAll.indexOf('exportNewestPrioritySleep(');
+        final bulkLoop = exportAll.indexOf(
+          'for (final day in pendingDays.reversed)',
+        );
+
+        expect(priority, greaterThanOrEqualTo(0));
+        expect(bulkLoop, greaterThan(priority));
+        expect(
+          exportAll.indexOf('if (!priorityResult.succeeded)', priority),
+          greaterThan(priority),
+        );
+        expect(exportAll.indexOf('return 0;', priority), greaterThan(priority));
+        expect(
+          source,
+          contains('androidSleepAlreadyWritten: date == priorityResult.date'),
+        );
+        expect(
+          source,
+          contains('if (Platform.isAndroid && !androidSleepAlreadyWritten)'),
+        );
+      },
+    );
+
     test('Android generic cleanup never deletes sleep records', () {
       final types = healthDeleteTypes(isApplePlatform: false);
 

@@ -77,6 +77,30 @@ bool shouldAttemptHealthExport({
   return lastAttempt == null || now.difference(lastAttempt) >= backoff;
 }
 
+class PrioritySleepExportResult {
+  const PrioritySleepExportResult({
+    required this.date,
+    required this.succeeded,
+  });
+
+  final String? date;
+  final bool succeeded;
+}
+
+Future<PrioritySleepExportResult> exportNewestPrioritySleep({
+  required Iterable<MapEntry<String, Map<String, dynamic>>> newestFirstDays,
+  required Future<bool> Function(Map<String, dynamic>) write,
+}) async {
+  for (final day in newestFirstDays) {
+    if (normalizeHealthSleepSession(day.value) == null) continue;
+    return PrioritySleepExportResult(
+      date: day.key,
+      succeeded: await write(day.value),
+    );
+  }
+  return const PrioritySleepExportResult(date: null, succeeded: true);
+}
+
 class HealthExportSingleFlight {
   Future<int>? _inFlight;
 
@@ -292,18 +316,74 @@ class HealthExporter {
       final retryState = await _loadRetryState();
       var retryStateDirty = false;
       final rows = await LocalDb.recentDayResults(400); // newest-first
-      final ascending = rows.reversed.toList();
+      final pendingDays =
+          <({String date, bool finalized, Map<String, dynamic>? bundle})>[];
+      for (final row in rows) {
+        final date = (row['day_id'] ?? row['date'])?.toString();
+        if (date == null || date.isEmpty) continue;
+        if (cursor.isNotEmpty && date.compareTo(cursor) <= 0) continue;
+        pendingDays.add((
+          date: date,
+          finalized: (row['finalized'] as num?)?.toInt() == 1,
+          bundle: _decode(row['payload_json']),
+        ));
+      }
+
+      var priorityResult = const PrioritySleepExportResult(
+        date: null,
+        succeeded: true,
+      );
+      if (Platform.isAndroid) {
+        final priorityDays = pendingDays
+            .where(
+              (day) => day.bundle != null && day.bundle!['skipped'] != true,
+            )
+            .map((day) => MapEntry(day.date, day.bundle!))
+            .toList();
+        Future<void> recordPriorityFailure(String date) async {
+          final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
+          retryState[date] = {
+            'attempts': ((entry?['attempts'] as num?)?.toInt() ?? 0) + 1,
+            'last_ms': DateTime.now().millisecondsSinceEpoch,
+            'finalized': pendingDays
+                .firstWhere((pending) => pending.date == date)
+                .finalized,
+          };
+          await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
+        }
+
+        String? priorityDate;
+        try {
+          priorityResult = await exportNewestPrioritySleep(
+            newestFirstDays: priorityDays,
+            write: (bundle) {
+              priorityDate = priorityDays
+                  .firstWhere((day) => identical(day.value, bundle))
+                  .key;
+              return _androidSleep.replace(bundle);
+            },
+          );
+        } catch (e) {
+          debugPrint('[health] write priority Android sleep session: $e');
+          final failedPriorityDate = priorityDate;
+          if (failedPriorityDate != null) {
+            await recordPriorityFailure(failedPriorityDate);
+          }
+          return 0;
+        }
+        if (!priorityResult.succeeded) {
+          await recordPriorityFailure(priorityResult.date!);
+          return 0;
+        }
+      }
+
       var done = 0;
       var newCursor = cursor;
       var prefixContiguous = true; // still extending the finalized prefix?
-      for (final row in ascending) {
-        final date = (row['day_id'] ?? row['date'])?.toString();
-        if (date == null || date.isEmpty) continue;
-        if (cursor.isNotEmpty && date.compareTo(cursor) <= 0) {
-          continue; // immutable finalized prefix — already exported
-        }
-        final finalized = (row['finalized'] as num?)?.toInt() == 1;
-        final bundle = _decode(row['payload_json']);
+      for (final day in pendingDays.reversed) {
+        final date = day.date;
+        final finalized = day.finalized;
+        final bundle = day.bundle;
         if (bundle == null || bundle['skipped'] == true) {
           if (!finalized) prefixContiguous = false;
           continue;
@@ -343,7 +423,11 @@ class HealthExporter {
           // Not due for retry yet — don't hammer the health store on every
           // drain/derive pass; counts as "not done" for the cursor below.
         } else {
-          ok = await _exportDay(date, bundle); // delete-then-write (idempotent)
+          ok = await _exportDay(
+            date,
+            bundle,
+            androidSleepAlreadyWritten: date == priorityResult.date,
+          ); // delete-then-write (idempotent)
           if (ok) {
             if (entry != null) {
               retryState.remove(date);
@@ -399,7 +483,11 @@ class HealthExporter {
 
   /// Write one day's metrics. DELETES our prior samples for the day window first
   /// (so a re-derive overwrites instead of duplicating). Best-effort; never throws.
-  Future<bool> _exportDay(String date, Map<String, dynamic> b) async {
+  Future<bool> _exportDay(
+    String date,
+    Map<String, dynamic> b, {
+    bool androidSleepAlreadyWritten = false,
+  }) async {
     final dayStart = _localMidnight(date);
     if (dayStart == null) return false;
     // DST-safe next local midnight (calendar-field construction, NOT +24h of
@@ -417,7 +505,7 @@ class HealthExporter {
     // Sleep is the smallest, highest-value Android write. Do it before the
     // high-volume minute-HR export can consume Health Connect's API quota.
     // The native replace owns SleepSessionRecord cleanup on Android.
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && !androidSleepAlreadyWritten) {
       try {
         if (!await _androidSleep.replace(b)) success = false;
       } catch (e) {

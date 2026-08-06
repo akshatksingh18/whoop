@@ -63,11 +63,34 @@ class _GatedSink {
   void release() => _gate.complete();
 }
 
+/// TODAY's label, never a hardcoded date.
+///
+/// These keys are date-PREFIXED, and `FiredKeyStore` prunes dated flags older
+/// than [FiredKeyStore.retentionDays] (14). A literal date is therefore a time
+/// bomb: it works while it is recent, then on one particular morning ages out
+/// of the retention window and every dedupe assertion in this file starts
+/// failing at once -- with no code change and nothing to point at.
+///
+/// That is exactly what happened. This suite was written around a fixed date in
+/// July, passed CI on 2026-08-04 while it was 12 days old, and began failing
+/// once it fell outside the window. Anchoring to `todayLabel()` keeps the keys
+/// inside the retention window permanently, which is the condition the dedupe
+/// guard is actually specified against.
+final String _today = todayLabel();
+final String _tomorrow = _dayLabelOffset(1);
+
+String _dayLabelOffset(int days) {
+  final d = DateTime.now().add(Duration(days: days));
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
 NotificationEvent _ev(
   String dedupeKey, {
   NotifCategory category = NotifCategory.health,
   NotifPriority priority = NotifPriority.critical,
-  String date = '2026-07-23',
+  String? date,
 }) =>
     NotificationEvent(
       dedupeKey: dedupeKey,
@@ -75,7 +98,7 @@ NotificationEvent _ev(
       priority: priority,
       title: 't',
       body: 'b',
-      date: date,
+      date: date ?? _today,
     );
 
 void main() {
@@ -101,7 +124,7 @@ void main() {
       final sink = _FakeSink();
       center.presentSink = sink.call;
 
-      final e = _ev('2026-07-23:irregular');
+      final e = _ev('$_today:irregular');
       await center.emit(e);
       await center.emit(e); // re-derive would re-emit the same key
       await center.emit(e);
@@ -113,13 +136,13 @@ void main() {
       final sink = _FakeSink();
       center.presentSink = sink.call;
 
-      await center.emit(_ev('2026-07-23:irregular', date: '2026-07-23'));
-      await center.emit(_ev('2026-07-24:irregular', date: '2026-07-24'));
+      await center.emit(_ev('$_today:irregular', date: _today));
+      await center.emit(_ev('$_tomorrow:irregular', date: _tomorrow));
 
       expect(sink.shown.length, 2);
       expect(
         sink.shown.map((e) => e.dedupeKey),
-        containsAll(['2026-07-23:irregular', '2026-07-24:irregular']),
+        containsAll(['$_today:irregular', '$_tomorrow:irregular']),
       );
     });
 
@@ -128,14 +151,14 @@ void main() {
       // the same on-disk store that survives an app restart on-device.
       final sink1 = _FakeSink();
       center.presentSink = sink1.call;
-      await center.emit(_ev('2026-07-23:illness'));
+      await center.emit(_ev('$_today:illness'));
       expect(sink1.shown.length, 1);
 
       // Second "session": same persisted store — the key is still remembered,
       // so it must NOT fire again.
       final sink2 = _FakeSink();
       center.presentSink = sink2.call;
-      await center.emit(_ev('2026-07-23:illness'));
+      await center.emit(_ev('$_today:illness'));
       expect(sink2.shown, isEmpty);
     });
 
@@ -144,11 +167,11 @@ void main() {
       // still lets it fire.
       final denied = _FakeSink(grant: false);
       center.presentSink = denied.call;
-      await center.emit(_ev('2026-07-23:temp'));
+      await center.emit(_ev('$_today:temp'));
 
       final granted = _FakeSink();
       center.presentSink = granted.call;
-      await center.emit(_ev('2026-07-23:temp'));
+      await center.emit(_ev('$_today:temp'));
       expect(granted.shown.length, 1);
     });
   });
@@ -159,12 +182,12 @@ void main() {
       final sink = _FakeSink();
       center.presentSink = sink.call;
 
-      await center.emit(_ev('2026-07-23:illness', category: NotifCategory.health));
+      await center.emit(_ev('$_today:illness', category: NotifCategory.health));
       expect(sink.shown, isEmpty);
 
       // Re-enabling the category later must let the key fire — the gate, not the
       // dedupe guard, suppressed it, so no key should have been recorded.
-      expect(await const FiredKeyStore().hasFired('2026-07-23:illness'), isFalse);
+      expect(await const FiredKeyStore().hasFired('$_today:illness'), isFalse);
     });
 
     test('quiet hours suppress a non-critical event', () async {
@@ -178,7 +201,7 @@ void main() {
       center.presentSink = sink.call;
 
       await center.emit(_ev(
-        '2026-07-23:recovery',
+        '$_today:recovery',
         category: NotifCategory.recovery,
         priority: NotifPriority.normal,
       ));
@@ -195,7 +218,7 @@ void main() {
       final sink = _FakeSink();
       center.presentSink = sink.call;
 
-      final e = _ev('2026-07-23:illness', priority: NotifPriority.critical);
+      final e = _ev('$_today:illness', priority: NotifPriority.critical);
       await center.emit(e);
       await center.emit(e);
       expect(sink.shown.length, 1);
@@ -208,7 +231,7 @@ void main() {
       final sink = _GatedSink();
       center.presentSink = sink.call;
 
-      final e = _ev('2026-07-23:irregular');
+      final e = _ev('$_today:irregular');
       final f1 = center.emit(e);
       final f2 = center.emit(e);
       // Order on the sink's entry signal, not a timer: once the first emit is
@@ -228,8 +251,8 @@ void main() {
       final sink = _GatedSink();
       center.presentSink = sink.call;
 
-      final f1 = center.emit(_ev('2026-07-23:a'));
-      final f2 = center.emit(_ev('2026-07-23:b'));
+      final f1 = center.emit(_ev('$_today:a'));
+      final f2 = center.emit(_ev('$_today:b'));
       // First emit is parked inside present; the second is held on the lock, so
       // its record-key write can only run after the first's — no interleaving.
       await sink.entered;
@@ -239,8 +262,8 @@ void main() {
       expect(sink.calls, 2);
       // Independent per-key flags: neither key clobbered the other.
       const store = FiredKeyStore();
-      expect(await store.hasFired('2026-07-23:a'), isTrue);
-      expect(await store.hasFired('2026-07-23:b'), isTrue);
+      expect(await store.hasFired('$_today:a'), isTrue);
+      expect(await store.hasFired('$_today:b'), isTrue);
     });
   });
 
@@ -249,11 +272,11 @@ void main() {
     // (normal) priority, no route. It used to call presentEvent directly,
     // bypassing both the gate and the dedupe guard — now it goes through emit.
     NotificationEvent highStress() => NotificationEvent(
-          dedupeKey: '2026-07-23:high_stress',
+          dedupeKey: '$_today:high_stress',
           category: NotifCategory.health,
           title: 'High Stress Detected',
           body: 'Your stress score is 82. Consider taking a moment to breathe.',
-          date: '2026-07-23',
+          date: _today,
         );
 
     test('dedupes on repeat (was previously re-alerting per screen visit)',

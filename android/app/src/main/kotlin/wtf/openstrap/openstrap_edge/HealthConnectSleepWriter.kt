@@ -10,7 +10,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +21,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+internal data class SleepCleanupRange(val start: Instant, val end: Instant)
+
+internal fun sleepCleanupRange(start: Instant, end: Instant, zoneId: ZoneId): SleepCleanupRange {
+    require(start.isBefore(end))
+    val localEnd = end.atZone(zoneId)
+    val endDate = if (localEnd.toLocalTime().isBefore(LocalTime.NOON)) {
+        localEnd.toLocalDate()
+    } else {
+        localEnd.toLocalDate().plusDays(1)
+    }
+    val cleanupEnd = endDate.atTime(LocalTime.NOON).atZone(zoneId).toInstant()
+    val calculatedStart = endDate.minusDays(1).atTime(LocalTime.NOON).atZone(zoneId).toInstant()
+    val cleanupStart = if (start.isBefore(calculatedStart)) start else calculatedStart
+    return SleepCleanupRange(cleanupStart, cleanupEnd)
+}
 
 /** Writes one Health Connect sleep parent containing all normalized stages. */
 object HealthConnectSleepWriter {
@@ -55,13 +73,18 @@ object HealthConnectSleepWriter {
                         false
                     } else {
                         val client = HealthConnectClient.getOrCreate(context)
+                        val cleanupRange = sleepCleanupRange(
+                            session.startTime,
+                            session.endTime,
+                            ZoneId.systemDefault(),
+                        )
 
                         // This removes both records created by this writer and legacy
                         // one-stage fragments whose intervals fall inside the real
                         // overnight window, including the portion before midnight.
                         client.deleteRecords(
                             SleepSessionRecord::class,
-                            TimeRangeFilter.between(session.startTime, session.endTime),
+                            TimeRangeFilter.between(cleanupRange.start, cleanupRange.end),
                         )
                         client.insertRecords(listOf(session)).recordIdsList.size == 1
                     }

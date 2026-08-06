@@ -54,6 +54,47 @@ void main() {
 
   group('Health Connect sleep-session export regression', () {
     test(
+      'successful priority sleep bypasses retry backoff and cap for same-day bulk',
+      () {
+        final now = DateTime(2026, 8, 6, 12);
+
+        expect(
+          shouldAttemptHealthBulkExport(
+            attempts: 2,
+            maxAttempts: 6,
+            now: now,
+            lastAttempt: now.subtract(const Duration(seconds: 1)),
+            backoff: const Duration(hours: 2),
+            prioritySleepAlreadyWritten: true,
+          ),
+          isTrue,
+        );
+        expect(
+          shouldAttemptHealthBulkExport(
+            attempts: 6,
+            maxAttempts: 6,
+            now: now,
+            lastAttempt: now.subtract(const Duration(seconds: 1)),
+            backoff: const Duration(hours: 2),
+            prioritySleepAlreadyWritten: false,
+          ),
+          isFalse,
+        );
+        expect(
+          shouldAttemptHealthBulkExport(
+            attempts: 6,
+            maxAttempts: 6,
+            now: now,
+            lastAttempt: now.subtract(const Duration(days: 1)),
+            backoff: const Duration(hours: 2),
+            prioritySleepAlreadyWritten: true,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
       'newest detected sleep is written before bulk and only once',
       () async {
         final writes = <Map<String, dynamic>>[];

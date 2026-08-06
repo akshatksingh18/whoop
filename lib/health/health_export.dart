@@ -84,6 +84,23 @@ bool shouldAttemptHealthExport({
   return lastAttempt == null || now.difference(lastAttempt) >= backoff;
 }
 
+bool shouldAttemptHealthBulkExport({
+  required int attempts,
+  required int maxAttempts,
+  required DateTime now,
+  required DateTime? lastAttempt,
+  required Duration backoff,
+  required bool prioritySleepAlreadyWritten,
+  bool force = false,
+}) => shouldAttemptHealthExport(
+  attempts: attempts,
+  maxAttempts: maxAttempts,
+  now: now,
+  lastAttempt: lastAttempt,
+  backoff: backoff,
+  force: force || prioritySleepAlreadyWritten,
+);
+
 class PrioritySleepExportResult {
   const PrioritySleepExportResult({
     required this.date,
@@ -464,7 +481,7 @@ class HealthExporter {
 
           var ok = false;
           var giveUp = false;
-          final shouldAttempt = shouldAttemptHealthExport(
+          final shouldAttempt = shouldAttemptHealthBulkExport(
             attempts: attempts,
             maxAttempts: _kMaxExportAttempts,
             now: DateTime.fromMillisecondsSinceEpoch(nowMs),
@@ -472,6 +489,7 @@ class HealthExporter {
                 ? null
                 : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
             backoff: _backoffFor(attempts),
+            prioritySleepAlreadyWritten: date == androidSleepAlreadyWritten,
             force: forceRetry,
           );
           if (!shouldAttempt && attempts >= _kMaxExportAttempts) {

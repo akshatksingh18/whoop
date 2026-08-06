@@ -16,6 +16,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/crossday_pipeline.dart';
+import 'package:openstrap_edge/ui/insights/coach_cards.dart';
 
 /// Minimal oldest-first day series with the fields sleep need actually reads.
 ///
@@ -124,6 +125,25 @@ void main() {
       expect(credit * 60, closeTo(applied, 60));
       expect(credit, lessThan(600),
           reason: '10 h of nap cannot remove 10 h of need — the floor binds');
+    });
+  });
+
+  group('napCreditCaption — what the coach card actually says', () {
+    test('an applied credit is spelled out with its sign', () {
+      expect(napCreditCaption(45), "−45m credited from today's nap");
+    });
+
+    test('an hour-plus credit reads in h/m', () {
+      expect(napCreditCaption(90), "−1h 30m credited from today's nap");
+    });
+
+    test('no nap reading today produces no line', () {
+      expect(napCreditCaption(null), isNull);
+    });
+
+    test('a day with no nap produces no line', () {
+      // Zero credit is nothing to disclose; "−0m" would be noise.
+      expect(napCreditCaption(0), isNull);
     });
   });
 

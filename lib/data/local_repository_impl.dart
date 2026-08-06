@@ -610,12 +610,21 @@ class LocalRepositoryImpl extends LocalRepository {
       // periods in a second isolate that never receives `series.hypnogram`, so
       // this is the first point where the whole bundle is in hand. Naps carry
       // neither by design — no stage claim is made for them.
-      'periods': _periodsWithMainStages(b, {
-        'light_min': min('light_sec'),
-        'deep_min': min('deep_sec'),
-        'rem_min': min('rem_sec'),
-        'nrem_min': min('nrem_sec'),
-      }),
+      'periods': _periodsWithMainStages(
+        b,
+        {
+          'light_min': min('light_sec'),
+          'deep_min': min('deep_sec'),
+          'rem_min': min('rem_sec'),
+          'nrem_min': min('nrem_sec'),
+        },
+        // Naps carry their own confidence and the screen draws a ConfDot for
+        // any period that has one, so omitting the main period's left the main
+        // card as the ONLY one with no dot — reading as "unknown" for the
+        // best-evidenced period on the screen. Stays null when accounting had
+        // no confidence, which correctly draws nothing.
+        mainConfidence: sleepConf,
+      ),
       'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
@@ -644,8 +653,9 @@ class LocalRepositoryImpl extends LocalRepository {
   /// "no deep sleep" instead of "not measured".
   List<Map<String, dynamic>> _periodsWithMainStages(
     Map<String, dynamic> b,
-    Map<String, int?> stageMin,
-  ) {
+    Map<String, int?> stageMin, {
+    num? mainConfidence,
+  }) {
     final raw = (b['sleep_periods'] as Map?)?['periods'];
     if (raw is! List) return const [];
     final hypno = _hypnoPoints(b);
@@ -662,6 +672,7 @@ class LocalRepositoryImpl extends LocalRepository {
             ...p.cast<String, dynamic>(),
             if (hypno.isNotEmpty) 'hypnogram': hypno,
             if (stages.isNotEmpty) 'stages': stages,
+            'confidence': ?mainConfidence,
           },
     ];
   }

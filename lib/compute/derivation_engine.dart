@@ -2676,6 +2676,32 @@ class DerivationEngine {
   static const Duration _crossDayTimeout = Duration(seconds: 30);
   static const int _crossDayWindow = 90;
 
+  /// Whether a persisted `crossday_input` artifact may be reused AS-IS today.
+  ///
+  /// Pure, so it is unit-testable without a database — the seam that consumes it
+  /// ([_crossDayInputDays]) cannot be.
+  ///
+  /// The artifact stamps `is_today: true` on the row that was today WHEN IT WAS
+  /// BUILT. That is a fact about a day stored as a bare boolean, in a DURABLE
+  /// row, so a cached artifact served on a later day hands `_todayNum` a record
+  /// that still claims to be today — and yesterday's strain and nap minutes land
+  /// inside tonight's `need_sec`. That is the exact imputation the stamp exists
+  /// to prevent (§3.3), arriving through the cache instead of through `_lastNum`.
+  ///
+  /// Every current `_runCrossDay` call site refreshes the artifact immediately
+  /// beforehand, so the stale read is not reachable today. That is an unenforced
+  /// ordering coincidence and not something to rely on: one new caller, or one
+  /// early return inside `_refreshBaselines`, makes it live and silent.
+  ///
+  /// An artifact with no `built_for_day` (written before this field existed)
+  /// cannot be SHOWN to be fresh, so it is rebuilt rather than assumed fresh.
+  static bool crossDayArtifactUsableToday(Object? decoded, String today) {
+    if (decoded is! Map) return false;
+    if (decoded['days'] is! List) return false;
+    final builtFor = decoded['built_for_day'];
+    return builtFor is String && builtFor.isNotEmpty && builtFor == today;
+  }
+
   Future<void> _runCrossDay(Profile profile) async {
     try {
       final days = await _crossDayInputDays();
@@ -2708,14 +2734,16 @@ class DerivationEngine {
     if (raw is String && raw.isNotEmpty) {
       try {
         final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          final rows = decoded['days'];
-          if (rows is List) {
-            return [
-              for (final row in rows)
-                if (row is Map) row.cast<String, dynamic>(),
-            ];
-          }
+        // Day-gated, NOT just well-formed. The rows carry `is_today`, which is a
+        // fact about the day the artifact was BUILT on; serving them on a later
+        // day makes `_todayNum` read yesterday's strain and nap minutes as
+        // today's (§3.3). See [crossDayArtifactUsableToday].
+        if (crossDayArtifactUsableToday(decoded, LocalDb.localDayLabelNow())) {
+          final rows = (decoded as Map)['days'] as List;
+          return [
+            for (final row in rows)
+              if (row is Map) row.cast<String, dynamic>(),
+          ];
         }
       } catch (_) {
         // Fall through to rebuild from day_result.
@@ -2763,7 +2791,17 @@ class DerivationEngine {
         if (row['day_id'] == today) rec['is_today'] = true;
         days.add(rec);
       }
-      return (days, jsonEncode({'algo_version': kAlgoVersion, 'days': days}));
+      // `built_for_day` is what makes the `is_today` stamps inside `days`
+      // interpretable later. Without it the envelope carries day-relative facts
+      // with no day attached, and any reader has to assume freshness.
+      return (
+        days,
+        jsonEncode({
+          'algo_version': kAlgoVersion,
+          'built_for_day': today,
+          'days': days,
+        })
+      );
     }, _crossDayTimeout, label: 'crossday-input');
     await LocalDb.putBaseline('crossday_input', json);
     return days;

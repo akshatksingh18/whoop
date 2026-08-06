@@ -34,6 +34,21 @@ String _dur(num sec) {
   return m == 0 ? '${h}h' : '${h}h ${m}m';
 }
 
+/// Caption for the nap credit ALREADY folded into `sleep_coach.need_sec`.
+///
+/// [napCreditMin] is `sleep_coach.nap_credit_min` — the minutes the credit
+/// actually REMOVED, after `sleepNeed`'s 6 h floor took its cut, not the raw
+/// nap minutes.
+///
+/// Null caption (no line) when today produced no nap reading (`null`) or when
+/// nothing was subtracted (`0`). Same silence rule as [strainBonusCaption], and
+/// the bundle keeps null and 0 apart even though the card does not.
+String? napCreditCaption(num? napCreditMin) {
+  final m = napCreditMin?.round();
+  if (m == null || m <= 0) return null;
+  return '−${_dur(m * 60)} credited from today\'s nap';
+}
+
 /// Caption for the strain bonus ALREADY folded into `sleep_coach.need_sec`.
 ///
 /// [strainBonusMin] is `sleep_coach.strain_bonus_min` — the minutes the bonus
@@ -191,10 +206,7 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     // the difference between a number the user can reason about and one that
     // silently shrank — a nap also inflates "% of need" through the same
     // subtraction, so an unexplained credit moves both figures at once.
-    final napCreditMin = (_coach?['nap_credit_min'] as num?)?.round();
-    final napLine = (napCreditMin != null && napCreditMin > 0)
-        ? '−${_dur(napCreditMin * 60)} credited from today\'s nap'
-        : null;
+    final napLine = napCreditCaption(_coach?['nap_credit_min'] as num?);
 
     // Same reasoning in the other direction: today's strain is already ADDED to
     // `need_sec` (up to 45 min), so an unexplained bonus moves both the need and

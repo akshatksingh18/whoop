@@ -317,6 +317,76 @@ void main() {
     });
   });
 
+  group('P0 — DrainController wiring must not allow latent safe-trim holes', () {
+    test('onRecordsBatch without onCommit is rejected at construction', () {
+      expect(
+        () => DrainController(
+          onRecord: (sample, raw) async {},
+          onRecordsBatch: (raws, samples) async {},
+          onCommit: null,
+          onArchive: null,
+          log: (_) {},
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('supportsSafeTrim is true only when onCommit is wired', () {
+      final withCommit = _drainWith((raws, samples, token, {archives}) async {});
+      expect(withCommit.supportsSafeTrim, isTrue);
+
+      final unbuffered = DrainController(
+        onRecord: (sample, raw) async {},
+        onRecordsBatch: null,
+        onCommit: null,
+        onArchive: null,
+        log: (_) {},
+      );
+      expect(unbuffered.supportsSafeTrim, isFalse);
+    });
+
+    test('token commit without onCommit fails closed (no false durable)', () async {
+      final d = DrainController(
+        onRecord: (sample, raw) async {},
+        onRecordsBatch: null,
+        onCommit: null,
+        onArchive: null,
+        log: (_) {},
+      );
+      expect(await d.commit(_tokenA), isFalse);
+      expect(d.lastTrimAdvanced, isFalse);
+    });
+
+    test('archive-only + onCommit still persists before success', () async {
+      final seen = <String>[];
+      final ok = _drainWith((raws, samples, token, {archives}) async {
+        seen.addAll((archives ?? const []).map((a) => a.hex));
+      });
+      ok.onUndecodableRecord(_archive(9));
+      expect(await ok.commit(_tokenA), isTrue);
+      expect(seen, [_hex(9)]);
+      expect(ok.bufferedArchives, 0);
+      expect(ok.lastTrimAdvanced, isTrue);
+    });
+
+    test('unbuffered mode does not treat fire-and-forget rows as buffered', () {
+      var wrote = 0;
+      final d = DrainController(
+        onRecord: (sample, raw) async {
+          wrote++;
+        },
+        onRecordsBatch: null,
+        onCommit: null,
+        onArchive: null,
+        log: (_) {},
+      );
+      d.onHistoricalRecord(_raw(1), _sample(1));
+      expect(d.bufferedRecords, 0);
+      expect(d.supportsSafeTrim, isFalse);
+      expect(wrote, 1);
+    });
+  });
+
   group('P0 — a discarded burst poisons its HISTORY_END token', () {
     test('discardOpenChunk marks the open burst un-ACKable', () async {
       final d = _drainWith((raws, samples, token, {archives}) async {});

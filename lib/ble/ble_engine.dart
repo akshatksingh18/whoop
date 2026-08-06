@@ -2443,6 +2443,15 @@ class BleEngine {
         'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
+      // Non-trimmable wiring (no onCommit): unbuffered fire-and-forget cannot
+      // prove durability before ACK. Production always sets onCommitBatch.
+      if (!d.supportsSafeTrim) {
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex refused — drain has no onCommit '
+          '(non-trimmable / test-only wiring); band keeps the chunk.',
+        );
+        return;
+      }
       // NO-PROGRESS GATE: refuse trim when this burst banked nothing durable
       // but the RecordGate dropped samples. Echoing would delete flash we
       // never stored (and used to also flip lastTrimAdvanced, feeding
@@ -3259,7 +3268,26 @@ class DrainController {
     required this.onCommit,
     required this.onArchive,
     required this.log,
-  });
+  }) {
+    // Safe-trim requires the atomic commit sink: onRecordsBatch alone cannot
+    // persist archives or the trim cursor. Production always wires onCommit;
+    // forbid the latent hole where archive-only chunks would ACK and trim
+    // flash that was never stored.
+    if (onRecordsBatch != null && onCommit == null) {
+      throw ArgumentError(
+        'DrainController: onRecordsBatch without onCommit cannot persist '
+        'archives or the trim cursor — buffered historical drains require '
+        'onCommit',
+      );
+    }
+  }
+
+  /// Whether HISTORY_END may be ACKed under the safe-trim invariant.
+  ///
+  /// Only [onCommit] can bank raws + archives + cursor in one transaction.
+  /// Both-sinks-null (unbuffered / test-only) fire-and-forgets via [onRecord]
+  /// and must not trim.
+  bool get supportsSafeTrim => onCommit != null;
 
   final List<RawRecord> _raws = [];
   final List<Sample?> _samples = [];
@@ -3323,7 +3351,9 @@ class DrainController {
   /// Bursts poisoned this connection (diagnostics).
   int get poisonedBursts => _trimGuard.poisonedBursts;
 
-  bool get _buffering => onCommit != null || onRecordsBatch != null;
+  /// Buffer only when the atomic commit path exists. Unbuffered mode
+  /// (test-only) must not look like it banked durable rows for trim.
+  bool get _buffering => onCommit != null;
   int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
   int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
@@ -3468,10 +3498,18 @@ class DrainController {
     _samples.clear();
     _archives.clear();
     try {
-      if (onCommit != null) {
-        await onCommit!(raws, samples, tokenHex, archives: archives);
-      } else if (onRecordsBatch != null && raws.isNotEmpty) {
-        await onRecordsBatch!(raws, samples);
+      // Defense in depth (constructor already rejects onRecordsBatch-only):
+      // never report durable success for buffered content without onCommit.
+      if (raws.isNotEmpty || archives.isNotEmpty || tokenHex != null) {
+        final commit = onCommit;
+        if (commit == null) {
+          throw StateError(
+            'DrainController.commit requires onCommit to persist buffered '
+            'rows / archives / trim cursor (had raws=${raws.length}, '
+            'archives=${archives.length}, token=${tokenHex != null})',
+          );
+        }
+        await commit(raws, samples, tokenHex, archives: archives);
       }
       return true;
     } catch (e) {

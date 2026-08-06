@@ -587,7 +587,10 @@ class HealthExporter {
     // The native replace owns SleepSessionRecord cleanup on Android.
     if (Platform.isAndroid && !androidSleepAlreadyWritten) {
       try {
-        if (!await _androidSleep.replace(b)) success = false;
+        if (!await _androidSleep.replace(b)) {
+          debugPrint('[health] write Android sleep session returned false');
+          success = false;
+        }
       } catch (e) {
         debugPrint('[health] write Android sleep session: $e');
         success = false;
@@ -603,7 +606,10 @@ class HealthExporter {
           startTime: dayStart,
           endTime: dayEnd,
         );
-        if (!deleted) success = false;
+        if (!deleted) {
+          debugPrint('[health] delete ${t.name} returned false');
+          success = false;
+        }
       } catch (e) {
         debugPrint('[health] delete ${t.name}: $e');
         success = false;
@@ -636,7 +642,10 @@ class HealthExporter {
           endTime: t,
           unit: unit,
         );
-        if (!wrote) success = false;
+        if (!wrote) {
+          debugPrint('[health] write ${type.name} returned false');
+          success = false;
+        }
       } catch (e) {
         debugPrint('[health] write ${type.name}: $e');
         success = false;
@@ -708,7 +717,10 @@ class HealthExporter {
             endTime: bucketBounds[i + 1],
             unit: HealthDataUnit.KILOCALORIE,
           );
-          if (!wrote) success = false;
+          if (!wrote) {
+            debugPrint('[health] write active energy bucket $i returned false');
+            success = false;
+          }
         } catch (e) {
           debugPrint('[health] write energy bucket $i: $e');
           success = false;
@@ -731,7 +743,10 @@ class HealthExporter {
             endTime: bucketBounds[i + 1],
             unit: HealthDataUnit.KILOCALORIE,
           );
-          if (!wrote) success = false;
+          if (!wrote) {
+            debugPrint('[health] write basal energy bucket $i returned false');
+            success = false;
+          }
         } catch (e) {
           debugPrint('[health] write basal energy bucket $i: $e');
           success = false;
@@ -757,22 +772,25 @@ class HealthExporter {
       debugPrint('[health] query continuous hr: $e');
       success = false;
     }
-    if (hrRows != null &&
-        !await exportContinuousHeartRateDay(
-          rows: hrRows,
-          start: dayStart,
-          end: dayEnd,
-          useAndroidBatch: Platform.isAndroid,
-          androidWriter: _androidHeartRate,
-          writeGeneric: (sample, sampleEnd) => _health.writeHealthData(
-            value: sample.beatsPerMinute.toDouble(),
-            type: HealthDataType.HEART_RATE,
-            startTime: sample.time,
-            endTime: sampleEnd,
-            unit: HealthDataUnit.BEATS_PER_MINUTE,
-          ),
-        )) {
-      success = false;
+    if (hrRows != null) {
+      final wroteHeartRate = await exportContinuousHeartRateDay(
+        rows: hrRows,
+        start: dayStart,
+        end: dayEnd,
+        useAndroidBatch: Platform.isAndroid,
+        androidWriter: _androidHeartRate,
+        writeGeneric: (sample, sampleEnd) => _health.writeHealthData(
+          value: sample.beatsPerMinute.toDouble(),
+          type: HealthDataType.HEART_RATE,
+          startTime: sample.time,
+          endTime: sampleEnd,
+          unit: HealthDataUnit.BEATS_PER_MINUTE,
+        ),
+      );
+      if (!wroteHeartRate) {
+        debugPrint('[health] write continuous heart rate returned false');
+        success = false;
+      }
     }
 
     // Steps (24/7 estimate) over the whole day.
@@ -786,7 +804,10 @@ class HealthExporter {
           endTime: dayEnd,
           unit: HealthDataUnit.COUNT,
         );
-        if (!wrote) success = false;
+        if (!wrote) {
+          debugPrint('[health] write steps returned false');
+          success = false;
+        }
       } catch (e) {
         debugPrint('[health] write steps: $e');
         success = false;
@@ -838,7 +859,10 @@ class HealthExporter {
       }
       if (rows != null) {
         for (final r in rows) {
-          if (await _writeOneWorkout(r) == false) success = false;
+          if (await _writeOneWorkout(r) == false) {
+            debugPrint('[health] write workout returned false');
+            success = false;
+          }
         }
       }
     }

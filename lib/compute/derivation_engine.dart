@@ -2303,6 +2303,12 @@ class DerivationEngine {
             ? null
             : (scMap!['efficiency'] as num).toDouble() / 100.0,
         date: day.date,
+        // Local midnight from the day LABEL, not from the substrate — this has
+        // to be where `napSub`'s slice window opens (`_localDayLabelToSec`),
+        // not where its first surviving sample happens to land, or the
+        // contiguity test compares a timestamp against itself and is
+        // vacuously true on every day with a gap at the boundary.
+        dayStartSec: _localDayLabelToSec(day.date),
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
       );
@@ -3794,10 +3800,18 @@ class DerivationEngine {
   /// (`onset_ts`/`wake_ts`/`duration_min`/`efficiency`/`confidence`), and
   /// `duration_min` is minutes ASLEEP for both the main sleep and naps — they
   /// were previously different units under one label, then summed.
+  ///
+  /// [naps] is NULL when the nap detector could not judge the day at all (as
+  /// opposed to an empty list, which means "judged, and there were none"). An
+  /// unjudged day has an unknown NUMBER of periods, not just unknown durations,
+  /// so the total is unknown for exactly the same reason a null `duration_min`
+  /// makes it unknown — and `nap_min` is already left unwritten in that case.
+  /// Publishing `total_asleep_min = mainTstMin` there would state a complete
+  /// day total while `naps.value` is null, which is internally inconsistent.
   static Map<String, dynamic> _sleepPeriods(
     int onsetSec,
     int offsetSec,
-    List<Map<String, dynamic>> naps, {
+    List<Map<String, dynamic>>? naps, {
     int? mainTstMin,
     double? mainEfficiency,
   }) {
@@ -3830,13 +3844,20 @@ class DerivationEngine {
         totalKnown = false;
       }
     }
-    for (final nap in naps) {
-      periods.add(nap);
-      final d = (nap['duration_min'] as num?)?.toInt();
-      if (d != null) {
-        totalAsleep += d;
-      } else {
-        totalKnown = false;
+    if (naps == null) {
+      // Not judged. The day may hold any number of unmeasured naps, so no
+      // total can be stated — the screen renders "—" rather than a confident
+      // figure that silently omits them.
+      totalKnown = false;
+    } else {
+      for (final nap in naps) {
+        periods.add(nap);
+        final d = (nap['duration_min'] as num?)?.toInt();
+        if (d != null) {
+          totalAsleep += d;
+        } else {
+          totalKnown = false;
+        }
       }
     }
     return {
@@ -3858,19 +3879,23 @@ class DerivationEngine {
   /// ABSENT is not ZERO. When the detector cannot judge the day, `nap_min` is
   /// left UNWRITTEN rather than set to 0 — a written 0 is a claim that there
   /// were no naps, and it would also be picked up as a real value downstream.
-  static List<Map<String, dynamic>> _attachNaps(
+  /// Returns NULL for that unjudged case and a (possibly empty) list when the
+  /// day really was judged, so [_sleepPeriods] can make the same distinction
+  /// instead of reading "no naps returned" as "no naps happened".
+  static List<Map<String, dynamic>>? _attachNaps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate s,
     int onsetSec,
     int offsetSec, {
+    int? attributionStartSec,
     int? attributionEndSec,
     List<List<int>> wristOff = const [],
     List<List<int>> charging = const [],
   }) {
     try {
       final n = s.length;
-      if (n < 60) return const [];
+      if (n < 60) return null;
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
           ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
@@ -3903,14 +3928,34 @@ class DerivationEngine {
           'inputs_used': m.inputs_used,
           'note': m.note,
         };
-        return const [];
+        return null;
       }
 
       final t0 = s.tsSec.first;
+      // The window opens AT local midnight and is contiguous into it, so a bout
+      // that begins at the very first sample was already in progress when we
+      // started looking — it is the tail of something that started YESTERDAY,
+      // and yesterday's buffered window (which runs `napBoundaryBufferSec` past
+      // its own midnight) saw it whole and emitted it whole.
+      //
+      // Analytics guards the trailing edge only: `unfinished` walks BACKWARD
+      // from the array end (nap.dart), while `stillAt(0)` short-circuits its
+      // discontinuity check at `k == 0` — so a bout at index 0 is always
+      // emitted, with no way for the detector to know what preceded it. Before
+      // `minNapSec` dropped to 15 min this was unreachable (the old nocturnal
+      // detector needed 60+ min and an HR dip); it is reachable now.
+      //
+      // Gated on contiguity, NOT on index alone: if the record only STARTS
+      // hours into the day (band off overnight), yesterday's detector broke on
+      // that same discontinuity and dropped the bout too, so dropping it here
+      // as well would lose a real nap rather than de-duplicate one.
+      final leadingEdgeOwnedByYesterday = attributionStartSec != null &&
+          t0 <= attributionStartSec + napLeadingEdgeContiguitySec;
       // A nap STARTING at/after the real day boundary is tomorrow's — its own
       // (unbuffered) window finds it independently, so keeping it here too
       // would double-count it.
       final naps = m.value!.where((nap) {
+        if (leadingEdgeOwnedByYesterday && nap.startSec == 0) return false;
         if (attributionEndSec == null) return true;
         return t0 + nap.startSec < attributionEndSec;
       }).toList();
@@ -3960,7 +4005,7 @@ class DerivationEngine {
       ];
     } catch (e) {
       if (kDebugMode) debugPrint('[derive] naps FAILED/skipped: $e');
-      return const [];
+      return null;
     }
   }
 
@@ -4193,6 +4238,7 @@ class DerivationEngine {
       inp.napSub,
       onset,
       offset,
+      attributionStartSec: inp.dayStartSec,
       attributionEndSec: inp.dayEndSec,
       wristOff: inp.wristOffSpans,
       charging: inp.chargingSpans,
@@ -4541,6 +4587,52 @@ class DerivationEngine {
   @visibleForTesting
   (int, int) debugTargetDayWindow(String dayId) => _targetDayWindow(dayId);
 
+  /// Test seam for [_sleepPeriods] — "an unjudged day publishes no total" is a
+  /// one-line invariant guarding a user-visible number, so it is pinned
+  /// directly rather than through a full derive pass.
+  @visibleForTesting
+  static Map<String, dynamic> debugSleepPeriods(
+    int onsetSec,
+    int offsetSec,
+    List<Map<String, dynamic>>? naps, {
+    int? mainTstMin,
+    double? mainEfficiency,
+  }) =>
+      _sleepPeriods(
+        onsetSec,
+        offsetSec,
+        naps,
+        mainTstMin: mainTstMin,
+        mainEfficiency: mainEfficiency,
+      );
+
+  /// Test seam for [_attachNaps] — the day-boundary attribution rules (drop
+  /// tomorrow's leading nap, drop yesterday's trailing one) decide which day a
+  /// nap's minutes are credited to, and are cheap to state directly.
+  @visibleForTesting
+  static List<Map<String, dynamic>>? debugAttachNaps(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    Substrate s,
+    int onsetSec,
+    int offsetSec, {
+    int? attributionStartSec,
+    int? attributionEndSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
+  }) =>
+      _attachNaps(
+        bundle,
+        scMap,
+        s,
+        onsetSec,
+        offsetSec,
+        attributionStartSec: attributionStartSec,
+        attributionEndSec: attributionEndSec,
+        wristOff: wristOff,
+        charging: charging,
+      );
+
   void _log(String m) {
     if (kDebugMode) debugPrint('[derive] $m');
     log?.call('[derive] $m');
@@ -4611,6 +4703,12 @@ class _DayBlocksInput {
   final double? mainEfficiency;
 
   final String date;
+
+  /// Local midnight opening this calendar day — where `napSub` starts. Nap
+  /// attribution needs BOTH boundaries: [dayEndSec] pushes a nap starting in
+  /// the borrowed buffer onto tomorrow, and this one drops the tail of a nap
+  /// yesterday already owns. See `_attachNaps`.
+  final int dayStartSec;
   final int dayEndSec;
   final int dataNowSec;
   const _DayBlocksInput({
@@ -4633,6 +4731,7 @@ class _DayBlocksInput {
     required this.mainTstMin,
     required this.mainEfficiency,
     required this.date,
+    required this.dayStartSec,
     required this.dayEndSec,
     required this.dataNowSec,
   });

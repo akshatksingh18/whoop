@@ -666,15 +666,41 @@ class LocalRepositoryImpl extends LocalRepository {
     return [
       for (final p in raw.whereType<Map>())
         if (p['is_main'] != true)
-          p.cast<String, dynamic>()
+          _canonicalPeriod(p)
         else
           {
-            ...p.cast<String, dynamic>(),
+            ..._canonicalPeriod(p),
             if (hypno.isNotEmpty) 'hypnogram': hypno,
             if (stages.isNotEmpty) 'stages': stages,
             'confidence': ?mainConfidence,
           },
     ];
+  }
+
+  /// Reads a persisted period under EITHER key vocabulary.
+  ///
+  /// The producer emits `onset_ts`/`wake_ts`/`duration_min`, but day results
+  /// written before that change hold `start`/`end`/`asleep_min` and are never
+  /// rewritten: a day finalizes ~48 h behind the data edge and raw is pruned
+  /// after `rawRetentionDays`, so once its substrate is gone a kAlgoVersion
+  /// bump cannot re-derive it — the old payload is what that day will serve
+  /// forever. Without this the Sleep-periods cards for every such day render
+  /// "—" for onset, wake AND duration, underneath a hero total that is still
+  /// confident, which reads as data loss rather than an old schema.
+  ///
+  /// Translating on READ (rather than migrating on write) also means this and
+  /// the parallel fix at the other end of the seam are order-independent.
+  Map<String, dynamic> _canonicalPeriod(Map p) {
+    final m = p.cast<String, dynamic>();
+    // Only fill what's missing — a period already speaking the current
+    // vocabulary passes through byte-for-byte.
+    return {
+      ...m,
+      if (m['onset_ts'] == null && m['start'] != null) 'onset_ts': m['start'],
+      if (m['wake_ts'] == null && m['end'] != null) 'wake_ts': m['end'],
+      if (m['duration_min'] == null && m['asleep_min'] != null)
+        'duration_min': m['asleep_min'],
+    };
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.

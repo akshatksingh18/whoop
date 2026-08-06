@@ -94,33 +94,69 @@ void main() {
       expect(writes, 1);
     });
 
+    test('failed priority sleep never invokes the bulk callback', () async {
+      var priorityWrites = 0;
+      var bulkWrites = 0;
+
+      final result = await exportPrioritySleepBeforeBulk(
+        newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
+        write: (bundle) async {
+          priorityWrites++;
+          return false;
+        },
+        exportBulk: (androidSleepAlreadyWritten) async {
+          bulkWrites++;
+        },
+      );
+
+      expect(result.date, '2026-08-05');
+      expect(result.succeeded, isFalse);
+      expect(priorityWrites, 1);
+      expect(bulkWrites, 0);
+    });
+
+    test('thrown priority sleep never invokes the bulk callback', () async {
+      var bulkWrites = 0;
+
+      await expectLater(
+        exportPrioritySleepBeforeBulk(
+          newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
+          write: (bundle) async => throw StateError('priority write failed'),
+          exportBulk: (androidSleepAlreadyWritten) async {
+            bulkWrites++;
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(bulkWrites, 0);
+    });
+
     test(
-      'failed priority sleep stops bulk export and avoids duplicate sleep',
-      () {
-        final source = File('lib/health/health_export.dart').readAsStringSync();
-        final exportAll = source.substring(
-          source.indexOf('Future<int> exportAll'),
-        );
-        final priority = exportAll.indexOf('exportNewestPrioritySleep(');
-        final bulkLoop = exportAll.indexOf(
-          'for (final day in pendingDays.reversed)',
+      'successful priority sleep invokes bulk once without another sleep',
+      () async {
+        var priorityWrites = 0;
+        var totalSleepWrites = 0;
+        final bulkPriorityDates = <String?>[];
+
+        final result = await exportPrioritySleepBeforeBulk(
+          newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
+          write: (bundle) async {
+            priorityWrites++;
+            totalSleepWrites++;
+            return true;
+          },
+          exportBulk: (androidSleepAlreadyWritten) async {
+            bulkPriorityDates.add(androidSleepAlreadyWritten);
+            if (androidSleepAlreadyWritten == null) totalSleepWrites++;
+          },
         );
 
-        expect(priority, greaterThanOrEqualTo(0));
-        expect(bulkLoop, greaterThan(priority));
-        expect(
-          exportAll.indexOf('if (!priorityResult.succeeded)', priority),
-          greaterThan(priority),
-        );
-        expect(exportAll.indexOf('return 0;', priority), greaterThan(priority));
-        expect(
-          source,
-          contains('androidSleepAlreadyWritten: date == priorityResult.date'),
-        );
-        expect(
-          source,
-          contains('if (Platform.isAndroid && !androidSleepAlreadyWritten)'),
-        );
+        expect(result.date, '2026-08-05');
+        expect(result.succeeded, isTrue);
+        expect(priorityWrites, 1);
+        expect(totalSleepWrites, 1);
+        expect(bulkPriorityDates, ['2026-08-05']);
       },
     );
 

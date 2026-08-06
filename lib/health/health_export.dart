@@ -101,6 +101,20 @@ Future<PrioritySleepExportResult> exportNewestPrioritySleep({
   return const PrioritySleepExportResult(date: null, succeeded: true);
 }
 
+Future<PrioritySleepExportResult> exportPrioritySleepBeforeBulk({
+  required Iterable<MapEntry<String, Map<String, dynamic>>> newestFirstDays,
+  required Future<bool> Function(Map<String, dynamic>) write,
+  required Future<void> Function(String? androidSleepAlreadyWritten) exportBulk,
+}) async {
+  final priorityResult = await exportNewestPrioritySleep(
+    newestFirstDays: newestFirstDays,
+    write: write,
+  );
+  if (!priorityResult.succeeded) return priorityResult;
+  await exportBulk(priorityResult.date);
+  return priorityResult;
+}
+
 class HealthExportSingleFlight {
   Future<int>? _inFlight;
 
@@ -329,152 +343,192 @@ class HealthExporter {
         ));
       }
 
-      var priorityResult = const PrioritySleepExportResult(
-        date: null,
-        succeeded: true,
-      );
-      if (Platform.isAndroid) {
-        final priorityDays = pendingDays
-            .where(
-              (day) => day.bundle != null && day.bundle!['skipped'] != true,
-            )
-            .map((day) => MapEntry(day.date, day.bundle!))
-            .toList();
-        Future<void> recordPriorityFailure(String date) async {
+      late final Future<int> Function(String? androidSleepAlreadyWritten)
+      exportBulk;
+      Future<int> exportPriorityOrBulk() async {
+        if (Platform.isAndroid) {
+          final priorityDays = pendingDays
+              .where(
+                (day) => day.bundle != null && day.bundle!['skipped'] != true,
+              )
+              .map((day) => MapEntry(day.date, day.bundle!))
+              .toList();
+          MapEntry<String, Map<String, dynamic>>? priorityDay;
+          for (final day in priorityDays) {
+            if (normalizeHealthSleepSession(day.value) != null) {
+              priorityDay = day;
+              break;
+            }
+          }
+          if (priorityDay != null) {
+            final pendingPriorityDay = pendingDays.firstWhere(
+              (pending) => pending.date == priorityDay!.key,
+            );
+            final entry = (retryState[priorityDay.key] as Map?)
+                ?.cast<String, dynamic>();
+            var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
+            var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+            final wasFinalized = entry?['finalized'] as bool? ?? false;
+            if (pendingPriorityDay.finalized && !wasFinalized && attempts > 0) {
+              attempts = 0;
+              lastAttemptMs = null;
+            }
+            final nowMs = DateTime.now().millisecondsSinceEpoch;
+            final shouldAttempt = shouldAttemptHealthExport(
+              attempts: attempts,
+              maxAttempts: _kMaxExportAttempts,
+              now: DateTime.fromMillisecondsSinceEpoch(nowMs),
+              lastAttempt: lastAttemptMs == null
+                  ? null
+                  : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
+              backoff: _backoffFor(attempts),
+              force: forceRetry,
+            );
+            if (!shouldAttempt) {
+              if (attempts >= _kMaxExportAttempts) return exportBulk(null);
+              return 0;
+            }
+            Future<void> recordPriorityFailure() async {
+              retryState[priorityDay!.key] = {
+                'attempts': attempts + 1,
+                'last_ms': nowMs,
+                'finalized': pendingPriorityDay.finalized,
+              };
+              await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
+            }
+
+            var bulkDone = 0;
+            try {
+              final priorityResult = await exportPrioritySleepBeforeBulk(
+                newestFirstDays: priorityDays,
+                write: _androidSleep.replace,
+                exportBulk: (androidSleepAlreadyWritten) async {
+                  if (entry != null) {
+                    retryState.remove(priorityDay!.key);
+                    retryStateDirty = true;
+                  }
+                  bulkDone = await exportBulk(androidSleepAlreadyWritten);
+                },
+              );
+              if (!priorityResult.succeeded) {
+                await recordPriorityFailure();
+                return 0;
+              }
+              return bulkDone;
+            } catch (e) {
+              debugPrint('[health] write priority Android sleep session: $e');
+              await recordPriorityFailure();
+              return 0;
+            }
+          }
+        }
+        return exportBulk(null);
+      }
+
+      exportBulk = (String? androidSleepAlreadyWritten) async {
+        var done = 0;
+        var newCursor = cursor;
+        var prefixContiguous = true; // still extending the finalized prefix?
+        for (final day in pendingDays.reversed) {
+          final date = day.date;
+          final finalized = day.finalized;
+          final bundle = day.bundle;
+          if (bundle == null || bundle['skipped'] == true) {
+            if (!finalized) prefixContiguous = false;
+            continue;
+          }
+
           final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
-          retryState[date] = {
-            'attempts': ((entry?['attempts'] as num?)?.toInt() ?? 0) + 1,
-            'last_ms': DateTime.now().millisecondsSinceEpoch,
-            'finalized': pendingDays
-                .firstWhere((pending) => pending.date == date)
-                .finalized,
-          };
+          var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
+          var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+          final wasFinalized = entry?['finalized'] as bool? ?? false;
+          if (finalized && !wasFinalized && attempts > 0) {
+            // The day just transitioned non-finalized -> finalized: a
+            // materially different (complete, now-immutable) payload than
+            // whatever was still re-deriving during the "recent tail" attempts
+            // that accrued this cap/backoff. Give it a clean attempt budget so
+            // a newly-finalized day is never skipped because of a cap earned
+            // against the old mutable version.
+            attempts = 0;
+            lastAttemptMs = null;
+          }
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+          var ok = false;
+          var giveUp = false;
+          final shouldAttempt = shouldAttemptHealthExport(
+            attempts: attempts,
+            maxAttempts: _kMaxExportAttempts,
+            now: DateTime.fromMillisecondsSinceEpoch(nowMs),
+            lastAttempt: lastAttemptMs == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
+            backoff: _backoffFor(attempts),
+            force: forceRetry,
+          );
+          if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
+            giveUp = true;
+          } else if (!shouldAttempt) {
+            // Not due for retry yet — don't hammer the health store on every
+            // drain/derive pass; counts as "not done" for the cursor below.
+          } else {
+            ok = await _exportDay(
+              date,
+              bundle,
+              androidSleepAlreadyWritten: date == androidSleepAlreadyWritten,
+            ); // delete-then-write (idempotent)
+            if (ok) {
+              if (entry != null) {
+                retryState.remove(date);
+                retryStateDirty = true;
+              }
+            } else {
+              final nextAttempts = attempts + 1;
+              retryState[date] = {
+                'attempts': nextAttempts,
+                'last_ms': nowMs,
+                'finalized': finalized,
+              };
+              retryStateDirty = true;
+              debugPrint(
+                '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)',
+              );
+              if (nextAttempts >= _kMaxExportAttempts) {
+                debugPrint(
+                  '[health] day $date exceeded $_kMaxExportAttempts export attempts — giving up, will stop blocking newer days',
+                );
+              }
+            }
+          }
+
+          if (ok) {
+            done++;
+            onProgress?.call(done);
+          }
+          // Advance the cursor only while the finalized prefix stays unbroken —
+          // a non-finalized day, a still-backing-off retry, or a day still
+          // under the attempt cap all stop it (re-checked next pass); a
+          // given-up day counts alongside a genuine success so it can't wedge
+          // every later day's cursor forever.
+          if (prefixContiguous && finalized && (ok || giveUp)) {
+            newCursor = date;
+          } else {
+            prefixContiguous = false;
+          }
+        }
+        if (newCursor != cursor) {
+          await LocalDb.setCursor('health_export_through', newCursor);
+        }
+        if (retryStateDirty) {
           await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
         }
-
-        String? priorityDate;
-        try {
-          priorityResult = await exportNewestPrioritySleep(
-            newestFirstDays: priorityDays,
-            write: (bundle) {
-              priorityDate = priorityDays
-                  .firstWhere((day) => identical(day.value, bundle))
-                  .key;
-              return _androidSleep.replace(bundle);
-            },
-          );
-        } catch (e) {
-          debugPrint('[health] write priority Android sleep session: $e');
-          final failedPriorityDate = priorityDate;
-          if (failedPriorityDate != null) {
-            await recordPriorityFailure(failedPriorityDate);
-          }
-          return 0;
-        }
-        if (!priorityResult.succeeded) {
-          await recordPriorityFailure(priorityResult.date!);
-          return 0;
-        }
-      }
-
-      var done = 0;
-      var newCursor = cursor;
-      var prefixContiguous = true; // still extending the finalized prefix?
-      for (final day in pendingDays.reversed) {
-        final date = day.date;
-        final finalized = day.finalized;
-        final bundle = day.bundle;
-        if (bundle == null || bundle['skipped'] == true) {
-          if (!finalized) prefixContiguous = false;
-          continue;
-        }
-
-        final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
-        var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
-        var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
-        final wasFinalized = entry?['finalized'] as bool? ?? false;
-        if (finalized && !wasFinalized && attempts > 0) {
-          // The day just transitioned non-finalized -> finalized: a
-          // materially different (complete, now-immutable) payload than
-          // whatever was still re-deriving during the "recent tail" attempts
-          // that accrued this cap/backoff. Give it a clean attempt budget so
-          // a newly-finalized day is never skipped because of a cap earned
-          // against the old mutable version.
-          attempts = 0;
-          lastAttemptMs = null;
-        }
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-        var ok = false;
-        var giveUp = false;
-        final shouldAttempt = shouldAttemptHealthExport(
-          attempts: attempts,
-          maxAttempts: _kMaxExportAttempts,
-          now: DateTime.fromMillisecondsSinceEpoch(nowMs),
-          lastAttempt: lastAttemptMs == null
-              ? null
-              : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
-          backoff: _backoffFor(attempts),
-          force: forceRetry,
+        debugPrint(
+          '[health] exported $done day(s); finalized-cursor=$newCursor',
         );
-        if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
-          giveUp = true;
-        } else if (!shouldAttempt) {
-          // Not due for retry yet — don't hammer the health store on every
-          // drain/derive pass; counts as "not done" for the cursor below.
-        } else {
-          ok = await _exportDay(
-            date,
-            bundle,
-            androidSleepAlreadyWritten: date == priorityResult.date,
-          ); // delete-then-write (idempotent)
-          if (ok) {
-            if (entry != null) {
-              retryState.remove(date);
-              retryStateDirty = true;
-            }
-          } else {
-            final nextAttempts = attempts + 1;
-            retryState[date] = {
-              'attempts': nextAttempts,
-              'last_ms': nowMs,
-              'finalized': finalized,
-            };
-            retryStateDirty = true;
-            debugPrint(
-              '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)',
-            );
-            if (nextAttempts >= _kMaxExportAttempts) {
-              debugPrint(
-                '[health] day $date exceeded $_kMaxExportAttempts export attempts — giving up, will stop blocking newer days',
-              );
-            }
-          }
-        }
+        return done;
+      };
 
-        if (ok) {
-          done++;
-          onProgress?.call(done);
-        }
-        // Advance the cursor only while the finalized prefix stays unbroken —
-        // a non-finalized day, a still-backing-off retry, or a day still
-        // under the attempt cap all stop it (re-checked next pass); a
-        // given-up day counts alongside a genuine success so it can't wedge
-        // every later day's cursor forever.
-        if (prefixContiguous && finalized && (ok || giveUp)) {
-          newCursor = date;
-        } else {
-          prefixContiguous = false;
-        }
-      }
-      if (newCursor != cursor) {
-        await LocalDb.setCursor('health_export_through', newCursor);
-      }
-      if (retryStateDirty) {
-        await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
-      }
-      debugPrint('[health] exported $done day(s); finalized-cursor=$newCursor');
-      return done;
+      return exportPriorityOrBulk();
     } catch (e) {
       debugPrint('[health] exportAll: $e');
       return 0;

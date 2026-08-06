@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
 import '../data/db.dart';
+import 'health_heart_rate_batch.dart';
 import 'health_sleep_session.dart';
 
 /// What we can do with the health store right now.
@@ -136,7 +137,12 @@ class HealthExporter {
   final _androidSleep = HealthConnectSleepSessionExporter(
     writer: MethodChannelHealthConnectSleepSessionWriter(),
   );
+  final HealthConnectHeartRateWriter _androidHeartRate;
   bool _configured = false;
+
+  HealthExporter({HealthConnectHeartRateWriter? androidHeartRate})
+    : _androidHeartRate =
+          androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter();
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
   static bool get isApple => Platform.isIOS || Platform.isMacOS;
@@ -727,27 +733,22 @@ class HealthExporter {
       debugPrint('[health] query continuous hr: $e');
       success = false;
     }
-    if (hrRows != null) {
-      for (final r in hrRows) {
-        final minuteTs = (r['minute_ts'] as num).toInt();
-        final avgHr = (r['avg_hr'] as num).toDouble();
-        if (avgHr > 0) {
-          final t = DateTime.fromMillisecondsSinceEpoch(minuteTs * 1000);
-          try {
-            final wrote = await _health.writeHealthData(
-              value: avgHr,
-              type: HealthDataType.HEART_RATE,
-              startTime: t,
-              endTime: t.add(const Duration(minutes: 1)),
-              unit: HealthDataUnit.BEATS_PER_MINUTE,
-            );
-            if (!wrote) success = false;
-          } catch (e) {
-            debugPrint('[health] write continuous hr @$minuteTs: $e');
-            success = false;
-          }
-        }
-      }
+    if (hrRows != null &&
+        !await exportContinuousHeartRateDay(
+          rows: hrRows,
+          start: dayStart,
+          end: dayEnd,
+          useAndroidBatch: Platform.isAndroid,
+          androidWriter: _androidHeartRate,
+          writeGeneric: (sample, sampleEnd) => _health.writeHealthData(
+            value: sample.beatsPerMinute.toDouble(),
+            type: HealthDataType.HEART_RATE,
+            startTime: sample.time,
+            endTime: sampleEnd,
+            unit: HealthDataUnit.BEATS_PER_MINUTE,
+          ),
+        )) {
+      success = false;
     }
 
     // Steps (24/7 estimate) over the whole day.

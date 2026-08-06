@@ -51,6 +51,7 @@ object NativeChannels {
         val app = context.applicationContext
 
         HealthConnectSleepWriter.register(engine, app)
+        HealthConnectHeartRateWriter.register(engine, app)
 
         MethodChannel(engine.dartExecutor.binaryMessenger, EDGE_TRACKING_CHANNEL)
             .setMethodCallHandler { call, result ->

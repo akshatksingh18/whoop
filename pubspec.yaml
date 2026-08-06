@@ -68,7 +68,36 @@ dependencies:
       # DREAMT-optimal values under-called REM badly on real WHOOP data.
       # Verified present: `git show <sha>:lib/src/onehz/sleep/cardio_stager.dart
       #   | grep -E 'classifyCardioEpochs|_remScoreCut = 0.5'`.
-      ref: f0d115308aa5e9e3c82ee113c3d52e59756121d4
+      #
+      # analytics main @ #38 merge — the nap detector this release is built on.
+      # kAlgoVersion 55 and 56 BOTH cite it, and until this line moved neither
+      # was backed: edge called `detectNaps(..., wristOff:, exclude:)` and read
+      # `NapWindow.tstSec`/`tibSec`/`efficiency`, none of which exist at #34.
+      # This was not a silently-missing behaviour like v43's — it was a hard
+      # compile break (10 analyzer errors), masked locally by the gitignored
+      # pubspec_overrides.yaml pointing at a working copy. Repinning here is
+      # what makes v55/v56 real rather than aspirational (§3.5).
+      #
+      # #38 adds `sleep/nap.dart` as the ONLY nap source: van Hees z-angle
+      # immobility on the complement of the main sleep window, corroborated by
+      # an HR dip against the AWAKE-DAYTIME baseline, reporting TST and in-bed
+      # SEPARATELY. The old path delegated to the nocturnal stager, whose
+      # `minSleepMin = 60` exists to REJECT naps, so the 20-45 min afternoon nap
+      # was structurally undetectable. `immobilityMask` is factored out of
+      # van_hees.dart so night and nap share one primitive.
+      #
+      # Also carries the #38 review pass: the scoring harness compared `tstSec`
+      # against interval labels (which are in-bed spans), charging every matched
+      # nap its own awake time as error, and abstained days were excluded from
+      # sensitivity/PPV without saying so. Neither affects shipped output — both
+      # are measurement-tool fixes — but they are why the accuracy figures in
+      # #38's description differ from its first revision.
+      #
+      # Verified present: `git show <sha>:lib/src/onehz/sleep/nap.dart
+      #   | grep -E 'wristOff|exclude|tibSec'` (16 hits) and
+      #   `git show <sha>:lib/src/onehz/sleep/van_hees.dart
+      #   | grep -c immobilityMask` (2).
+      ref: c3a30be1e36e33426c83cead9ea106fa3071b082
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

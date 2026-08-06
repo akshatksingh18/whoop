@@ -692,13 +692,21 @@ class LocalRepositoryImpl extends LocalRepository {
   /// the parallel fix at the other end of the seam are order-independent.
   Map<String, dynamic> _canonicalPeriod(Map p) {
     final m = p.cast<String, dynamic>();
-    // Only fill what's missing — a period already speaking the current
-    // vocabulary passes through byte-for-byte.
+    // Fill only keys that are genuinely ABSENT — `containsKey`, never a null
+    // check. A current-schema key present with an explicit null is an honest
+    // "we did not measure this", and a null test cannot tell that apart from a
+    // missing key. On a mixed payload (`duration_min: null` sitting alongside a
+    // stale `asleep_min: 40`) a null test promotes an unknown into a
+    // measurement — the precise dishonesty this seam exists to remove.
+    //
+    // A period already speaking the current vocabulary passes through
+    // byte-for-byte either way.
     return {
       ...m,
-      if (m['onset_ts'] == null && m['start'] != null) 'onset_ts': m['start'],
-      if (m['wake_ts'] == null && m['end'] != null) 'wake_ts': m['end'],
-      if (m['duration_min'] == null && m['asleep_min'] != null)
+      if (!m.containsKey('onset_ts') && m['start'] != null)
+        'onset_ts': m['start'],
+      if (!m.containsKey('wake_ts') && m['end'] != null) 'wake_ts': m['end'],
+      if (!m.containsKey('duration_min') && m['asleep_min'] != null)
         'duration_min': m['asleep_min'],
     };
   }

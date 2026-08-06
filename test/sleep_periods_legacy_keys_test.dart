@@ -178,4 +178,61 @@ void main() {
       expect(sleep['total_asleep_min'], isNull);
     },
   );
+
+  test(
+    'an EXPLICIT null current-schema field is never back-filled from a legacy '
+    'key that does have a value',
+    () async {
+      // The mixed-payload case: the current producer recorded an honest
+      // "not measured", and a stale legacy value sits beside it. A null test
+      // (rather than containsKey) would promote 40 into a measurement --
+      // exactly the dishonesty this whole seam removes.
+      await seed({
+        'periods': [
+          {
+            'is_main': true,
+            'onset_ts': onset,
+            'wake_ts': wake,
+            'duration_min': null, // honest unknown
+            'asleep_min': 40, // stale legacy value
+          },
+        ],
+        'total_asleep_min': null,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+
+      expect(
+        periods.first['duration_min'],
+        isNull,
+        reason: 'unknown must stay unknown; the card renders "-"',
+      );
+    },
+  );
+
+  test(
+    'an explicit null onset/wake is likewise preserved over legacy start/end',
+    () async {
+      await seed({
+        'periods': [
+          {
+            'is_main': true,
+            'onset_ts': null,
+            'wake_ts': null,
+            'start': onset,
+            'end': wake,
+            'duration_min': 420,
+          },
+        ],
+        'total_asleep_min': 420,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+
+      expect(periods.first['onset_ts'], isNull);
+      expect(periods.first['wake_ts'], isNull);
+    },
+  );
 }

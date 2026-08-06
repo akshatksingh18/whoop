@@ -3882,6 +3882,30 @@ class DerivationEngine {
   /// Returns NULL for that unjudged case and a (possibly empty) list when the
   /// day really was judged, so [_sleepPeriods] can make the same distinction
   /// instead of reading "no naps returned" as "no naps happened".
+  /// The explicit "nap assessment unknown" envelope.
+  ///
+  /// Every abstention path must publish this, not just the detector's own
+  /// `!m.present` branch. `_computeDayBlocks` starts from an EMPTY bundlePatch
+  /// and `_attachNaps` is the only writer of `naps`, so a path that returns
+  /// without writing leaves the key missing entirely — and "key absent" and
+  /// "judged, value null" are then two different encodings of the same fact,
+  /// distinguishable only by HOW the abstention happened. A reader that checks
+  /// `bundle['naps']?['value'] == null` and one that checks
+  /// `bundle.containsKey('naps')` would disagree.
+  static void _writeUnknownNaps(
+    Map<String, dynamic> bundle,
+    String note,
+  ) {
+    bundle['naps'] = <String, dynamic>{
+      'value': null,
+      'count': null,
+      'confidence': 0,
+      'tier': 'ESTIMATE',
+      'inputs_used': const <String>[],
+      'note': note,
+    };
+  }
+
   static List<Map<String, dynamic>>? _attachNaps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
@@ -3895,7 +3919,10 @@ class DerivationEngine {
   }) {
     try {
       final n = s.length;
-      if (n < 60) return null;
+      if (n < 60) {
+        _writeUnknownNaps(bundle, 'too little 1 Hz data to assess naps');
+        return null;
+      }
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
           ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
@@ -4005,6 +4032,7 @@ class DerivationEngine {
       ];
     } catch (e) {
       if (kDebugMode) debugPrint('[derive] naps FAILED/skipped: $e');
+      _writeUnknownNaps(bundle, 'nap detection failed for this day');
       return null;
     }
   }

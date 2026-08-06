@@ -260,5 +260,91 @@ void main() {
         );
       },
     );
+
+
+    // CodeRabbit, on the first version of this commit: the abstention paths
+    // disagreed about how they encode "unknown". `!m.present` wrote
+    // `naps.value: null`; the short-input and error paths returned without
+    // writing `naps` at all, so the key was simply missing. Two encodings of
+    // one fact, told apart only by HOW the abstention happened.
+    test(
+      'EVERY abstention publishes the same explicit unknown envelope',
+      () {
+        final s = _daySubstrate(
+          startSec: midnight,
+          lengthSec: 30, // below the 60-sample floor
+          napFromSec: 0,
+          napToSec: 0,
+        );
+        final bundle = <String, dynamic>{};
+        expect(
+          DerivationEngine.debugAttachNaps(bundle, <String, dynamic>{}, s, 0, 0),
+          isNull,
+        );
+        expect(
+          bundle.containsKey('naps'),
+          isTrue,
+          reason: 'the key must exist, not be silently missing',
+        );
+        final naps = bundle['naps'] as Map<String, dynamic>;
+        expect(naps['value'], isNull);
+        expect(naps['count'], isNull);
+        expect(naps['confidence'], 0);
+        expect(naps['note'], isNotNull);
+      },
+    );
+
+    // Also CodeRabbit: the PR threads wristOff/charging into detectNaps but
+    // nothing exercised either. A band on a charger is perfectly still and is
+    // the dominant nap false positive, so this is the guard doing real work.
+    test('a nap-shaped block fully inside an OFF-WRIST span is not a nap', () {
+      final s = _daySubstrate(
+        startSec: midnight,
+        lengthSec: 6 * 3600,
+        napFromSec: 2 * 3600,
+        napToSec: 2 * 3600 + napLen,
+      );
+      final sc = <String, dynamic>{};
+      final periods = DerivationEngine.debugAttachNaps(
+        <String, dynamic>{},
+        sc,
+        s,
+        0,
+        0,
+        attributionStartSec: midnight,
+        attributionEndSec: midnight + 86400,
+        wristOff: [
+          [midnight + 2 * 3600 - 60, midnight + 2 * 3600 + napLen + 60],
+        ],
+      );
+      expect(periods, isNotNull, reason: 'judged — the day had data');
+      expect(periods, isEmpty, reason: 'a band off the wrist is not asleep');
+      expect(sc['nap_min'], 0.0);
+    });
+
+    test('a nap-shaped block fully inside a CHARGING span is not a nap', () {
+      final s = _daySubstrate(
+        startSec: midnight,
+        lengthSec: 6 * 3600,
+        napFromSec: 2 * 3600,
+        napToSec: 2 * 3600 + napLen,
+      );
+      final sc = <String, dynamic>{};
+      final periods = DerivationEngine.debugAttachNaps(
+        <String, dynamic>{},
+        sc,
+        s,
+        0,
+        0,
+        attributionStartSec: midnight,
+        attributionEndSec: midnight + 86400,
+        charging: [
+          [midnight + 2 * 3600 - 60, midnight + 2 * 3600 + napLen + 60],
+        ],
+      );
+      expect(periods, isNotNull);
+      expect(periods, isEmpty, reason: 'a band on a charger is not asleep');
+      expect(sc['nap_min'], 0.0);
+    });
   });
 }

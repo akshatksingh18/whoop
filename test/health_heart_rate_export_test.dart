@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -173,6 +174,25 @@ void main() {
       );
       expect(androidWriter.calls, 0);
       expect(genericCalls, 0);
+    });
+
+    test('native empty request completes before Health Connect availability', () {
+      final source = File(
+        'android/app/src/main/kotlin/wtf/openstrap/openstrap_edge/HealthConnectHeartRateWriter.kt',
+      ).readAsStringSync();
+      final replace = source.substring(
+        source.indexOf('private suspend fun replace'),
+        source.indexOf('private data class Request'),
+      );
+
+      expect(
+        replace.indexOf('val request = buildRequest(call)'),
+        lessThan(replace.indexOf('HealthConnectClient.getSdkStatus(context)')),
+      );
+      expect(
+        replace.indexOf('if (request.samples.isEmpty()) return@withLock true'),
+        lessThan(replace.indexOf('HealthConnectClient.getSdkStatus(context)')),
+      );
     });
   });
 }

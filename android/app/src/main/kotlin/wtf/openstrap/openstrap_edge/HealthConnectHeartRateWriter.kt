@@ -47,12 +47,11 @@ object HealthConnectHeartRateWriter {
     private suspend fun replace(context: Context, call: MethodCall): Boolean {
         return replaceMutex.withLock {
             try {
+                val request = buildRequest(call) ?: return@withLock false
+                if (request.samples.isEmpty()) return@withLock true
                 if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) {
                     false
                 } else {
-                    val request = buildRequest(call) ?: return@withLock false
-                    if (request.samples.isEmpty()) return@withLock true
-
                     val client = HealthConnectClient.getOrCreate(context)
                     client.deleteRecords(
                         HeartRateRecord::class,

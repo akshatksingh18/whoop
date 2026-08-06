@@ -182,6 +182,11 @@ void main() {
       expect(types, contains(HealthDataType.STEPS));
       expect(
         types,
+        isNot(contains(HealthDataType.HEART_RATE)),
+        reason: 'Android native replacement owns heart-rate cleanup',
+      );
+      expect(
+        types,
         isNot(
           containsAll(<HealthDataType>[
             HealthDataType.SLEEP_DEEP,
@@ -193,6 +198,13 @@ void main() {
         ),
       );
       expect(types.where((type) => type.name.startsWith('SLEEP_')), isEmpty);
+    });
+
+    test('Apple generic cleanup retains heart-rate records', () {
+      expect(
+        healthDeleteTypes(isApplePlatform: true),
+        contains(HealthDataType.HEART_RATE),
+      );
     });
 
     test('Apple and Android share one hypnogram stage vocabulary', () {

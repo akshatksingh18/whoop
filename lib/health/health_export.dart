@@ -62,7 +62,13 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
   ];
   return isApplePlatform
       ? types
-      : types.where((type) => !_sleepHealthTypes.contains(type)).toList();
+      : types
+            .where(
+              (type) =>
+                  !_sleepHealthTypes.contains(type) &&
+                  type != HealthDataType.HEART_RATE,
+            )
+            .toList();
 }
 
 bool shouldAttemptHealthExport({

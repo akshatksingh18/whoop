@@ -132,6 +132,22 @@ void main() {
       expect(bulkWrites, 0);
     });
 
+    test('priority success leaves shared retry state for the bulk export', () {
+      final source = File('lib/health/health_export.dart').readAsStringSync();
+      final priorityCallback = source.substring(
+        source.indexOf(
+          'final priorityResult = await exportPrioritySleepBeforeBulk(',
+        ),
+        source.indexOf('exportBulk = (String? androidSleepAlreadyWritten)'),
+      );
+
+      expect(
+        priorityCallback,
+        isNot(contains('retryState.remove(priorityDay!.key)')),
+        reason: 'only the full-day bulk result may clear a shared retry entry',
+      );
+    });
+
     test(
       'successful priority sleep invokes bulk once without another sleep',
       () async {

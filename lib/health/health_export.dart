@@ -403,10 +403,6 @@ class HealthExporter {
                 newestFirstDays: priorityDays,
                 write: _androidSleep.replace,
                 exportBulk: (androidSleepAlreadyWritten) async {
-                  if (entry != null) {
-                    retryState.remove(priorityDay!.key);
-                    retryStateDirty = true;
-                  }
                   bulkDone = await exportBulk(androidSleepAlreadyWritten);
                 },
               );

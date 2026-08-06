@@ -699,7 +699,14 @@ class BleEngine {
   // SET_CLOCK and bounce — the usual cause is a bad post-reconnect window
   // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
   // re-deliver forever without ever correcting the clock).
-  int _noDurableTrimRefuseStreak = 0;
+  //
+  // NOT reset per connection (unlike _emptySync / _stuckStrap). The remedy IS
+  // a reconnect, so a per-connection reset made the escalation unreachable:
+  // the idle watchdog tears the session down after a refuse-only burst, the
+  // next connect zeroed the count, and the loop ran forever at streak 1.
+  // See NoDurableProgressEscalation for the full derivation.
+  final NoDurableProgressEscalation _noDurableProgress =
+      NoDurableProgressEscalation();
   // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
   // (see the comment at the validation site — treating a single mismatch as
   // fatal was actively harmful and was reverted), but a mismatch that keeps
@@ -1164,7 +1171,11 @@ class BleEngine {
       _autoContinue.end();
       _lastBackfillAt = 0;
       _successfulBursts = 0;
-      _noDurableTrimRefuseStreak = 0;
+      // _noDurableProgress is deliberately NOT reset here — like _marginalRadio
+      // and _postBondLoop above, it counts consecutive bad cycles ACROSS
+      // reconnects. Resetting per connection made the escalation unreachable,
+      // because the escalation's own remedy is a reconnect. It clears on a
+      // successful trim ACK, the only thing that proves the condition is over.
       _lastHpsTerminal = null;
       _sessionPacketCounts = _SessionPacketCounts.zero;
       _sessionGapSummary = _SessionGapSummary.zero;
@@ -2247,11 +2258,12 @@ class BleEngine {
         // we never stored — the HR-gap / frozen-cursor failure mode after a
         // reconnect with a bad plausibility window. Keep the chunk on the
         // band; after a short streak, re-correlate the clock and bounce.
-        _noDurableTrimRefuseStreak++;
+        final runRemedy = _noDurableProgress.trimRefused();
         _log(
           '[SYNC] HISTORY_END token=$tokenHex has no durable rows but the '
           'plausibility gate dropped samples this burst — NOT ACKing '
-          '(streak=$_noDurableTrimRefuseStreak). The band keeps the chunk; '
+          '(refusals=${_noDurableProgress.refusals} '
+          'remedies=${_noDurableProgress.remedies}). The band keeps the chunk; '
           'a SET_CLOCK/reconnect may clear a poisoned gate window.',
         );
         await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
@@ -2262,16 +2274,34 @@ class BleEngine {
           metaPatch: {
             'batch_id': batchId,
             'records': d.records,
-            'no_durable_refuse_streak': _noDurableTrimRefuseStreak,
+            'no_durable_refuse_streak': _noDurableProgress.refusals,
+            'no_durable_remedy_cycles': _noDurableProgress.remedies,
           },
         ));
-        if (_noDurableTrimRefuseStreak >= 3 && !_sessionIsStale(session)) {
+        if (runRemedy && !_sessionIsStale(session)) {
           _log(
-            '[SYNC] $_noDurableTrimRefuseStreak consecutive no-durable trim '
-            'refuses — defensive SET_CLOCK + bounce so the next session can '
-            're-admit the re-delivered chunk.',
+            '[SYNC] no-durable trim refuses hit the remedy threshold — '
+            'defensive SET_CLOCK + bounce so the next session can re-admit '
+            'the re-delivered chunk.',
           );
-          _noDurableTrimRefuseStreak = 0;
+          if (_noDurableProgress.shouldSurfaceGiveUp()) {
+            // The remedy has now failed repeatedly. We still do NOT ACK —
+            // trimming flash we never banked is unrecoverable, so "keep the
+            // data" stays the right answer. What changes is that this stops
+            // being INVISIBLE: previously it refused, bounced and retried
+            // forever behind a debug log, because the two detectors that would
+            // otherwise catch it (`EmptySyncTracker` -> `syncClockLost`,
+            // `StuckStrapDetector`) are only evaluated in
+            // `_onOffloadFinished`, and HISTORY_COMPLETE never arrives here.
+            state.syncClockLost = true;
+            onState(state);
+            _log(
+              '[SYNC] ${_noDurableProgress.remedies} SET_CLOCK+bounce remedies '
+              'have not cleared the no-durable-progress loop — surfacing '
+              'syncClockLost. The chunk is still SAFE on the band; we are '
+              'refusing the trim, not losing data.',
+            );
+          }
           try {
             await setClock();
           } catch (e) {
@@ -2532,7 +2562,9 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
-      _noDurableTrimRefuseStreak = 0;
+      // A trim ACK is the only real proof the no-durable-progress condition is
+      // over — records were banked and the band may advance.
+      _noDurableProgress.trimAcked();
       d.noteBatchAcked(); // ACKed and KEEP listening
       await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -68,7 +67,7 @@ void main() {
         androidWriter: MethodChannelHealthConnectHeartRateWriter(
           channel: channel,
         ),
-        writeGeneric: (_, __) async => throw StateError('not Apple'),
+        writeGeneric: (_, _) async => throw StateError('not Apple'),
       );
 
       expect(wrote, isTrue);
@@ -109,7 +108,7 @@ void main() {
           androidWriter: MethodChannelHealthConnectHeartRateWriter(
             channel: channel,
           ),
-          writeGeneric: (_, __) async => true,
+          writeGeneric: (_, _) async => true,
         ),
         isFalse,
       );
@@ -165,7 +164,7 @@ void main() {
           end: end,
           useAndroidBatch: true,
           androidWriter: androidWriter,
-          writeGeneric: (_, __) async {
+          writeGeneric: (_, _) async {
             genericCalls++;
             return true;
           },

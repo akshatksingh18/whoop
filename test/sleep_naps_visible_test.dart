@@ -90,6 +90,15 @@ void main() {
       expect(nap.containsKey('confidence'), isFalse);
     });
 
+    test('a length outside its own window falls back to the window', () {
+      final p = sleepPeriodsForScreen([
+        {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': -30},
+        {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': 900},
+        {'is_main': false, 'start': 1060000, 'end': 1066060},
+      ]);
+      expect(p.map((e) => e['duration_min']), everyElement(101));
+    });
+
     test('drops junk instead of rendering a zero-length card', () {
       final p = sleepPeriodsForScreen([
         {'is_main': false, 'start': 1060000, 'end': 1060000},

@@ -2781,8 +2781,14 @@ List<Map<String, dynamic>> sleepPeriodsForScreen(
     final end = asNum(p['end'])?.toInt();
     if (start == null || end == null || end <= start) continue;
     final isMain = p['is_main'] == true;
-    final asleepMin =
-        asNum(p['asleep_min'])?.toInt() ?? ((end - start) / 60).round();
+    // A length outside the window it came from is malformed: it would print a
+    // negative duration on the card and skew the day total. Fall back to the
+    // window, which the period's own start/end already vouch for.
+    final windowMin = ((end - start) / 60).round();
+    final reported = asNum(p['asleep_min'])?.toInt();
+    final asleepMin = (reported != null && reported >= 0 && reported <= windowMin)
+        ? reported
+        : windowMin;
     // The main card shows TST (what the Sleep screen shows). A nap has no
     // asleep/awake accounting of its own, so its window IS its length.
     final durationMin = isMain

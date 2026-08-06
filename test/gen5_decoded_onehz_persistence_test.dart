@@ -118,6 +118,14 @@ void main() {
     expect([for (final r in rr) r['rr_ms']], containsAll([602, 613]));
   });
 
+  // NOTE what this pins, and what it does NOT. `decoded_onehz.ax/ay/az` are
+  // REAL NOT NULL, so absent gravity has to be STORED as 0 — that is a schema
+  // constraint, not a claim about the wrist. Exact (0,0,0) is therefore the
+  // ABSENT marker (no real gravity vector has zero magnitude, and every decoder
+  // that emits one gates on magSq >= 0.25); `Substrate.accelPresentAt` is what
+  // stops it being read back as a measurement. See
+  // substrate_accel_absence_test.dart — without that, a night of these scores
+  // as perfect immobility and fabricates a fully-staged sleep window.
   test('lenient v18 with null accel still persists (stored as 0)', () async {
     const unix = 1785801600;
     const counter = 42;

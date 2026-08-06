@@ -2035,6 +2035,32 @@ class BleEngine {
   /// path is deliberate: the previous duplicate had drifted, silently losing
   /// the plausibility gate and freezing the frontier the stuck-strap /
   /// auto-continue policies read.
+  /// Set a historical frame aside in `raw_archive` — the never-pruned store for
+  /// bytes this build could not fully turn into a [Sample].
+  ///
+  /// Routed through the drain when one is active so the write lands inside the
+  /// SAME transaction as the batch commit (safe-trim invariant: nothing the
+  /// band is told it may trim has been discarded).
+  void _archiveHistoricalFrame(
+    Frame frame,
+    int counter, {
+    required String reason,
+  }) {
+    final archive = ArchiveRecord(
+      counter: counter,
+      hex: _innerHex(frame.inner),
+      packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
+      capturedAt: DateTime.now().millisecondsSinceEpoch,
+      reason: reason,
+    );
+    final d = _drain;
+    if (d != null) {
+      d.onUndecodableRecord(archive);
+    } else {
+      unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
+    }
+  }
+
   void _ingestHistoricalFrame(Frame frame) {
     final pt = frame.packetType;
     if (pt != PacketType.historicalData) return;
@@ -2067,6 +2093,21 @@ class BleEngine {
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
       sample = decodeGen5HistoricalSample(frame.inner, wallNow);
+      // PARTIAL decode is not a full decode. The lenient v18 path deliberately
+      // keeps HR/RR while ABSTAINING on a gravity vector that failed the
+      // magnitude gate — but `raw_records` is gone and `decoded_onehz` has
+      // nowhere to put a null accel, so those gravity bytes would be discarded
+      // the moment we ACK the trim. Archive the frame as WELL as keeping the
+      // sample: same safe-trim transaction, and a future decoder can still
+      // recover what this one could not. Nothing is double-counted —
+      // `raw_archive` is a diagnostic store, never a derivation input.
+      if (sample != null && sample.ax == null) {
+        _archiveHistoricalFrame(
+          frame,
+          counter,
+          reason: 'partial_decode_v${recType}_no_gravity',
+        );
+      }
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
@@ -2106,19 +2147,11 @@ class BleEngine {
     // archive rides the SAME commit that runs before the batch-ACK, so nothing the
     // band trims has been discarded (safe-trim invariant intact).
     if (sample == null) {
-      final archive = ArchiveRecord(
-        counter: counter,
-        hex: _innerHex(frame.inner),
-        packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
-        capturedAt: DateTime.now().millisecondsSinceEpoch,
+      _archiveHistoricalFrame(
+        frame,
+        counter,
         reason: 'undecodable_rec_v$recType',
       );
-      final d = _drain;
-      if (d != null) {
-        d.onUndecodableRecord(archive);
-      } else {
-        unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
-      }
       return;
     }
     // PLAUSIBILITY GATE + FRONTIER (RecordGate, shared with the detectors).

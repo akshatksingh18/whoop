@@ -201,6 +201,16 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     await _runOverride(() => app.clearSleepOverride(widget.date));
   }
 
+  /// Every sleep of this day, naps included. The Sleep tab renders this screen
+  /// embedded, so the AppScaffold action below never builds there — without a
+  /// second entry point the periods screen was unreachable in the shipped app.
+  void _openPeriods() {
+    Navigator.of(context).push(
+      themedRoute((_) => SleepPeriodsScreen(date: widget.date),
+          name: 'SleepPeriodsScreen'),
+    );
+  }
+
   /// Run a sleep-override change with a busy state, then reload this night.
   Future<void> _runOverride(Future<void> Function() action) async {
     setState(() => _phase = _Phase.loading);
@@ -247,6 +257,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         onEditTimes: _editSleepTimes,
         onConfirmFallback: _confirmFallback,
         onClearOverride: _clearOverride,
+        onOpenPeriods: _openPeriods,
         showSleepCoach: widget.showSleepCoach,
       ),
     ];
@@ -266,13 +277,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       subtitle: _prettyDate(),
       actions: [
         // All sleeps of the day (naps included) — the multi-period view.
-        RoundIconButton(
-          OsIcon.bedtime,
-          onTap: () => Navigator.of(context).push(
-            themedRoute((_) => SleepPeriodsScreen(date: widget.date),
-                name: 'SleepPeriodsScreen'),
-          ),
-        ),
+        RoundIconButton(OsIcon.bedtime, onTap: _openPeriods),
       ],
       body: RefreshIndicator(
         onRefresh: _load,
@@ -310,6 +315,10 @@ class SleepNightContent extends StatelessWidget {
   final VoidCallback onConfirmFallback;
   final VoidCallback onClearOverride;
 
+  /// Open the per-period breakdown (main sleep + naps). Null in tests and
+  /// anywhere navigation isn't available; the naps row then stays hidden.
+  final VoidCallback? onOpenPeriods;
+
   /// Render the Sleep Coach card (tonight's need/bedtime/wake/alarm) inline,
   /// between the Cycles and Nocturnal-heart sections — it only makes sense
   /// for TODAY's night, so only the Today segment's caller sets this true
@@ -325,6 +334,7 @@ class SleepNightContent extends StatelessWidget {
     required this.onEditTimes,
     required this.onConfirmFallback,
     required this.onClearOverride,
+    this.onOpenPeriods,
     this.showSleepCoach = false,
   });
 
@@ -366,6 +376,20 @@ class SleepNightContent extends StatelessWidget {
   }
 
   num? get _cyclesMean => _num(data['cycles_mean_min']);
+
+  /// Naps this day: the non-main sleep periods. This screen shows the night
+  /// only, so without a row for them a daytime sleep is invisible here.
+  List<Map<String, dynamic>> get _naps {
+    final raw = data['periods'];
+    if (raw is! List) return const [];
+    return raw
+        .map((e) => _map(e))
+        .where((m) => m.isNotEmpty && m['is_main'] != true)
+        .toList();
+  }
+
+  num get _napMin => _naps.fold<num>(
+      0, (a, p) => a + (_num(p['duration_min']) ?? 0));
 
   List<MapEntry<int, double>> get _cycleSeries {
     final raw = data['cycle_series'];
@@ -450,6 +474,10 @@ class SleepNightContent extends StatelessWidget {
         _hero(context),
         const SizedBox(height: Sp.x4),
         _summaryBento(context),
+        if (onOpenPeriods != null && _naps.isNotEmpty) ...[
+          const SizedBox(height: Sp.x3),
+          _napsRow(),
+        ],
         // ── ESTIMATED STAGE BLOCK (below the trustworthy numbers) ──
         const SizedBox(height: Sp.x6),
         _stagesHeader(),
@@ -553,6 +581,24 @@ class SleepNightContent extends StatelessWidget {
         TextButton(onPressed: onEditTimes, child: const Text('Edit')),
         TextButton(onPressed: onClearOverride, child: const Text('Use auto')),
       ]),
+    );
+  }
+
+  /// Daytime sleep, on the way to the per-period breakdown. The numbers above
+  /// are the night only, so the row says so rather than implying the nap is in
+  /// them: it isn't in TST, and it doesn't move readiness. It does count toward
+  /// tonight's sleep need (nap credit, Sleep Coach).
+  Widget _napsRow() {
+    final n = _naps.length;
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: ListRow(
+        icon: OsIcon.bedtime,
+        title: n == 1 ? 'Daytime nap' : '$n daytime naps',
+        subtitle: 'Not included in the night above',
+        value: _hm(_napMin),
+        onTap: onOpenPeriods,
+      ),
     );
   }
 

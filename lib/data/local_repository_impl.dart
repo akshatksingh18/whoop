@@ -573,7 +573,7 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
-    return {
+    final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
       'sleep_source': sleepSource,
@@ -643,6 +643,22 @@ class LocalRepositoryImpl extends LocalRepository {
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
     };
+    // Sleep periods (main + naps) for the periods screen, mapped onto the key
+    // names that screen actually reads. The day total is the sum of what the
+    // cards show, so the hero can't disagree with them.
+    final periods = sleepPeriodsForScreen(
+      (b['sleep_periods'] as Map?)?['periods'],
+      night: night,
+    );
+    final bundleTotal = (b['sleep_periods'] as Map?)?['total_asleep_min'];
+    night['periods'] = periods;
+    night['total_asleep_min'] = periods.isEmpty
+        ? bundleTotal
+        : periods.fold<int>(
+            0,
+            (a, p) => a + ((p['duration_min'] as num?)?.toInt() ?? 0),
+          );
+    return night;
   }
 
   /// The persisted sleep periods with the MAIN period's hypnogram and stage
@@ -2737,6 +2753,60 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
+}
+
+/// The `periods` list the Sleep-periods screen reads, mapped from the engine's
+/// `sleep_periods` block. The engine writes `is_main` / `start` / `end` /
+/// `asleep_min`; the screen reads `onset_ts` / `wake_ts` / `duration_min`, so
+/// every card used to render as `0m` with no time range under it.
+///
+/// The main period carries the night's own numbers (TST, efficiency, stage
+/// minutes, hypnogram) so the two sleep screens can't print different totals
+/// for the same night. A nap carries only what we actually have for it: start,
+/// end, length. No stages, no efficiency, and no confidence — a nap detected by
+/// stillness has no confidence value, and 0 would read as "we're sure it's bad".
+/// Pure + public so the mapping is unit-testable without a database.
+List<Map<String, dynamic>> sleepPeriodsForScreen(
+  Object? rawPeriods, {
+  Map<String, dynamic> night = const {},
+}) {
+  if (rawPeriods is! List) return const [];
+  num? asNum(Object? v) =>
+      v is num ? v : (v is String ? num.tryParse(v) : null);
+  final out = <Map<String, dynamic>>[];
+  for (final raw in rawPeriods) {
+    if (raw is! Map) continue;
+    final p = raw.cast<String, dynamic>();
+    final start = asNum(p['start'])?.toInt();
+    final end = asNum(p['end'])?.toInt();
+    if (start == null || end == null || end <= start) continue;
+    final isMain = p['is_main'] == true;
+    final asleepMin =
+        asNum(p['asleep_min'])?.toInt() ?? ((end - start) / 60).round();
+    // The main card shows TST (what the Sleep screen shows). A nap has no
+    // asleep/awake accounting of its own, so its window IS its length.
+    final durationMin = isMain
+        ? (asNum(night['duration_min'])?.toInt() ?? asleepMin)
+        : asleepMin;
+    final stages = <String, dynamic>{
+      if (isMain)
+        for (final k in const ['light_min', 'deep_min', 'rem_min', 'nrem_min'])
+          if (night[k] != null) k: night[k],
+    };
+    out.add({
+      'is_main': isMain,
+      'onset_ts': start,
+      'wake_ts': end,
+      'duration_min': durationMin,
+      if (isMain && night['efficiency'] != null)
+        'efficiency': night['efficiency'],
+      if (isMain && night['stages_confidence'] != null)
+        'confidence': night['stages_confidence'],
+      if (isMain && night['hypnogram'] is List) 'hypnogram': night['hypnogram'],
+      if (stages.isNotEmpty) 'stages': stages,
+    });
+  }
+  return out;
 }
 
 /// The /today `stress` block from a day bundle — the pipeline's Baevsky block,

@@ -279,4 +279,73 @@ void main() {
     expect(periods, hasLength(1), reason: 'only the real main sleep survives');
     expect(periods.single['is_main'], isTrue);
   });
+
+  test(
+    'the hero total equals the sum of the CARDS after a period is clamped',
+    () async {
+      await seed({
+        'periods': [
+          {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+          // Claims 101 min of sleep inside a 30-minute window.
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napOnset + 30 * 60,
+            'duration_min': 101,
+          },
+        ],
+        'total_asleep_min': 521, // what the producer summed, pre-clamp
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      final cardSum = periods.fold<int>(
+        0,
+        (a, p) => a + ((p['duration_min'] as num?)?.toInt() ?? 0),
+      );
+      expect(cardSum, 450);
+      expect(
+        sleep['total_asleep_min'],
+        450,
+        reason: 'a user can add the cards up; the hero must not disagree',
+      );
+    },
+  );
+
+  test(
+    'an ABSENT stored total is NOT recomputed into a confident number',
+    () async {
+      // total_asleep_min null = nap detection abstained, so the day holds an
+      // unknown NUMBER of unmeasured naps (#204). Summing the periods we do
+      // have would silently omit them.
+      await seed({
+        'periods': [
+          {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+        ],
+        'total_asleep_min': null,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect((sleep['periods'] as List), hasLength(1));
+      expect(
+        sleep['total_asleep_min'],
+        isNull,
+        reason: 'absent stays absent — the screen renders "—"',
+      );
+    },
+  );
+
+  test('a period with an unknown duration makes the total unknown again',
+      () async {
+    await seed({
+      'periods': [
+        {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': null},
+        {'is_main': false, 'onset_ts': napOnset, 'wake_ts': napWake, 'duration_min': 38},
+      ],
+      'total_asleep_min': 38,
+    });
+
+    final sleep = await repo.getDaySleep('2026-06-15');
+    expect(sleep['total_asleep_min'], isNull);
+  });
 }

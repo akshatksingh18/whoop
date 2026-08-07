@@ -573,6 +573,27 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
+    // Sleep periods (main + naps) for the periods screen. The main period is
+    // enriched HERE with the hypnogram + stage minutes: derivation builds the
+    // periods in a second isolate that never receives `series.hypnogram`, so
+    // this is the first point where the whole bundle is in hand. Naps carry
+    // neither by design — no stage claim is made for them.
+    //
+    // Naps carry their own confidence and the screen draws a ConfDot for any
+    // period that has one, so omitting the main period's left the main card as
+    // the ONLY one with no dot — reading as "unknown" for the best-evidenced
+    // period on the screen. Stays null when accounting had no confidence,
+    // which correctly draws nothing.
+    final periods = _periodsWithMainStages(
+      b,
+      {
+        'light_min': min('light_sec'),
+        'deep_min': min('deep_sec'),
+        'rem_min': min('rem_sec'),
+        'nrem_min': min('nrem_sec'),
+      },
+      mainConfidence: sleepConf,
+    );
     final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
@@ -612,22 +633,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // periods in a second isolate that never receives `series.hypnogram`, so
       // this is the first point where the whole bundle is in hand. Naps carry
       // neither by design — no stage claim is made for them.
-      'periods': _periodsWithMainStages(
-        b,
-        {
-          'light_min': min('light_sec'),
-          'deep_min': min('deep_sec'),
-          'rem_min': min('rem_sec'),
-          'nrem_min': min('nrem_sec'),
-        },
-        // Naps carry their own confidence and the screen draws a ConfDot for
-        // any period that has one, so omitting the main period's left the main
-        // card as the ONLY one with no dot — reading as "unknown" for the
-        // best-evidenced period on the screen. Stays null when accounting had
-        // no confidence, which correctly draws nothing.
-        mainConfidence: sleepConf,
-      ),
-      'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
+      'periods': periods,
+      // The hero total must equal the sum of the cards under it — a user can
+      // add them up. `_boundedPeriod` can CORRECT a period on read (clamping a
+      // duration to its own window, dropping a degenerate one), which makes the
+      // stored total stale, so it is recomputed from what is actually
+      // rendered. See [_totalAsleepMin] for why an absent stored total stays
+      // absent rather than being recomputed into a confident number.
+      'total_asleep_min': _totalAsleepMin(b, periods),
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
       'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
@@ -750,6 +763,35 @@ class LocalRepositoryImpl extends LocalRepository {
     final dur = (m['duration_min'] as num?)?.toInt();
     if (dur == null || dur <= windowMin) return m;
     return {...m, 'duration_min': windowMin};
+  }
+
+  /// The day's total asleep minutes, consistent with the cards on screen.
+  ///
+  /// ABSENT STAYS ABSENT. A null stored total means the producer could not
+  /// state one — most often because nap detection abstained, so the day holds
+  /// an unknown NUMBER of unmeasured naps (see `_sleepPeriods`). Recomputing a
+  /// sum from the periods we happen to have would turn that honest "—" into a
+  /// confident figure that silently omits them, which is the exact claim the
+  /// producer refused to make.
+  ///
+  /// Otherwise the total is recomputed from the RENDERED periods rather than
+  /// trusted verbatim, because `_boundedPeriod` may have corrected one on read
+  /// and the stored sum would then be stale — leaving the hero disagreeing with
+  /// the cards a user can add up. A period whose own duration is unknown makes
+  /// the sum unknown again, for the same reason it does at the writer.
+  num? _totalAsleepMin(
+    Map<String, dynamic> b,
+    List<Map<String, dynamic>> periods,
+  ) {
+    final stored = (b['sleep_periods'] as Map?)?['total_asleep_min'];
+    if (stored == null) return null;
+    var sum = 0;
+    for (final p in periods) {
+      final d = (p['duration_min'] as num?)?.toInt();
+      if (d == null) return null;
+      sum += d;
+    }
+    return sum;
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.

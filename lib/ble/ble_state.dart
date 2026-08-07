@@ -600,9 +600,10 @@ class DeriveDebouncer {
 /// keeping the exact byte layout here makes it unit-testable without a real band.
 ///
 /// Alarm opcodes: SET_ALARM_TIME 0x42, GET_ALARM_TIME 0x43, RUN_ALARM 0x44,
-/// DISABLE_ALARM 0x45. The RICH SET form (a haptic waveform + time) is the one
-/// that actually FIRES on WHOOP 4.0; the SHORT time-only form is ACKed but never
-/// buzzes (no waveform to play).
+/// DISABLE_ALARM 0x45. The RICH SET form (haptic waveform + time) is the one
+/// that actually FIRES: WHOOP 4 uses alarm slot index 0; WHOOP 5 uses index 1
+/// (official-app HCI capture). The SHORT time-only form is ACKed but never
+/// buzzes (no waveform to play). Prefer [setPayloadForBand] for arming.
 class AlarmPayloads {
   /// The strap's stock 12-byte wake-buzz haptic pattern:
   ///   [0..7]  eight waveform-effect slots (two active: 47, 152; six idle)
@@ -642,7 +643,7 @@ class AlarmPayloads {
   }
 
   /// SHORT 7-byte time-only SET_ALARM_TIME payload (ACKs but does NOT fire):
-  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`.
+  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Prefer [setPayloadForBand].
   static List<int> simple(DateTime when) {
     final ms = when.millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
@@ -656,6 +657,33 @@ class AlarmPayloads {
       subsec & 0xff,
       (subsec >> 8) & 0xff,
     ];
+  }
+
+  /// Generation-correct SET_ALARM_TIME body (rich 20-byte firing form).
+  ///
+  /// WHOOP 4: slot index 0 (HW-verified). WHOOP 5: slot **index 1** — captured
+  /// from the official WHOOP Android app on fw 50.40.1.0. Index 0 is rejected
+  /// with console `arm info is invalid, error 0xb`. On gen5 the [index]
+  /// argument is ignored so callers cannot accidentally arm slot 0.
+  static List<int> setPayloadForBand(
+    DateTime when, {
+    required bool isGen5,
+    int index = 0,
+    List<int>? haptics,
+  }) =>
+      rich(
+        when,
+        index: isGen5 ? 1 : index,
+        haptics: haptics,
+      );
+
+  /// Gen5 Maverick test-buzz body (RUN_HAPTIC_PATTERN_MAVERICK = 0x13).
+  /// Same `[47, 152]` waveform pair as Find-band. Keep [overallLoop] at 1 for
+  /// a short pulse — the wake-alarm's loop=7 feels like a stuck vibrate.
+  static List<int> gen5MaverickBuzz({int overallLoop = 1}) {
+    // `& 0xff` keeps an int (unlike `clamp`, which widens to num).
+    final loop = overallLoop.clamp(0, 0xff).toInt();
+    return <int>[0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, loop];
   }
 
   /// RUN_ALARM (0x44) body — fire the haptics immediately ("test buzz").

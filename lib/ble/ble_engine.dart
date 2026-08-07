@@ -3068,47 +3068,60 @@ class BleEngine {
   }
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
-  /// actually FIRES on WHOOP 4.0:
+  /// actually FIRES:
   /// ```
   ///   [0]      0x04              rich-form marker
-  ///   [1]      u8  index         alarm slot (default 0)
+  ///   [1]      u8  index         alarm slot (gen4: 0; gen5: 1)
   ///   [2..6]   u32 epoch-sec LE  the wake time
   ///   [6..8]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
   ///   [8..20]  12-byte haptic pattern (see [AlarmPayloads.defaultHaptics])
   /// ```
-  /// The short 7-byte time-only form ([setAlarmSimple]) is accepted and ACKed by
-  /// the band but carries no waveform, so the strap never buzzes it — our earlier
-  /// short-form attempts silently failed for exactly this reason. The strap
-  /// confirms the alarm latched via event 56 (STRAP_DRIVEN_ALARM_SET) and reports
-  /// firing via events 57/58 + 60. Byte layout lives in the pure [AlarmPayloads].
-  /// Returns whether the arm write actually reached the band, so the caller can
-  /// avoid persisting / confirming a phantom alarm on a failed write.
-  Future<bool> setAlarm(
+  /// WHOOP 5 requires slot index 1 (official-app HCI capture): index 0 is
+  /// rejected with `arm info is invalid, error 0xb`. The short 7-byte
+  /// time-only form ([setAlarmSimple]) is ACKed but never buzzes. The strap
+  /// confirms via event 56 and reports firing via 57/58 + 60.
+  ///
+  /// Returns the wall-clock instant armed, or null if the write failed (so the
+  /// caller does not persist a phantom alarm).
+  Future<DateTime?> setAlarm(
     DateTime when, {
     int index = 0,
     List<int>? haptics,
   }) async {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    if (isGen5) {
+      // Official WHOOP app SET_CLOCKs before SET_ALARM; refresh RTC drift first.
+      await setClock();
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
     // Arm in the STRAP's RTC frame. The strap fires the wake alarm autonomously
     // on its OWN clock, so if that clock is offset from wall time (SET_CLOCK not
     // latched / drift) the raw wall epoch fires at the wrong strap-time — or
     // never (a raw wall epoch is decades ahead of a strap clock still near its
-    // factory epoch, which is exactly why an immediate RUN_ALARM buzz works but a
-    // scheduled alarm never fires). Shift the target by the GET_CLOCK drift; fall
-    // back to the raw epoch when we have no correlation yet (e.g. just after a
-    // reconnect, before this session's GET_CLOCK reply). Byte layout + the frame
-    // conversion both live in the pure [AlarmPayloads].
+    // factory epoch, which is exactly why an immediate RUN_ALARM / Maverick buzz
+    // works but a scheduled alarm never fires). Shift the target by the
+    // GET_CLOCK drift; fall back to the raw epoch when we have no correlation
+    // yet (e.g. just after a reconnect, before this session's GET_CLOCK reply).
+    // Byte layout + the frame conversion both live in the pure [AlarmPayloads].
     final ref = _clockRef;
     final driftSec = ref?.driftSec ?? 0;
     final armWhen = AlarmPayloads.toStrapFrame(when, driftSec);
-    final ok = await _send(
-      Cmd.setAlarmTime,
-      AlarmPayloads.rich(armWhen, index: index, haptics: haptics),
+    final payload = AlarmPayloads.setPayloadForBand(
+      armWhen,
+      isGen5: isGen5,
+      index: index,
+      haptics: haptics,
     );
-    _log('SET_ALARM_TIME (rich 20B) → wallSec=${when.millisecondsSinceEpoch ~/ 1000} '
-        'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
-        'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
-        'write=${ok ? 'ok' : 'FAILED'}');
-    return ok;
+    final ok = await _send(Cmd.setAlarmTime, payload);
+    _log(
+      'SET_ALARM_TIME (${isGen5 ? "gen5 rich index1" : "rich"} ${payload.length}B) '
+      '→ wallSec=${when.millisecondsSinceEpoch ~/ 1000} '
+      'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
+      'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
+      'idx=${payload.length >= 2 ? payload[1] : -1} '
+      'write=${ok ? 'ok' : 'FAILED'}',
+    );
+    return ok ? when : null;
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -3122,10 +3135,23 @@ class BleEngine {
 
   Future<void> getAlarm() => _send(Cmd.getAlarmTime, const [revision1]);
 
-  /// Fire the alarm haptics IMMEDIATELY (RUN_ALARM = 0x44), payload `[0x01]`.
-  /// A "test buzz" so the user can confirm the strap actually fires before
-  /// trusting the scheduled wake.
-  Future<void> runAlarm() => _send(Cmd.runAlarm, AlarmPayloads.runNow);
+  /// Fire the alarm haptics IMMEDIATELY — a "test buzz" so the user can confirm
+  /// the strap actually fires before trusting the scheduled wake.
+  ///
+  /// WHOOP 4: RUN_ALARM (0x44) `[0x01]`.
+  /// WHOOP 5: RUN_ALARM does not buzz on hardware we tested; use the same
+  /// Maverick `0x13` short pulse as Find-band. Do NOT STOP_HAPTICS first —
+  /// on gen5 that can race and swallow the buzz.
+  Future<void> runAlarm() async {
+    if (_session?.band.isGen5 ?? false) {
+      await _send(
+        Cmd.runHapticPatternMaverick,
+        AlarmPayloads.gen5MaverickBuzz(),
+      );
+      return;
+    }
+    await _send(Cmd.runAlarm, AlarmPayloads.runNow);
+  }
 
   /// Cancel the on-device alarm (DISABLE_ALARM = 0x45), payload `[0x01]`.
   /// (The earlier `[0x00]` body was ACKed but did not clear the alarm.)
@@ -3162,7 +3188,7 @@ class BleEngine {
     if (_session?.band.isGen5 ?? false) {
       return _send(
         Cmd.runHapticPatternMaverick,
-        const [0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        AlarmPayloads.gen5MaverickBuzz(),
       );
     }
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);

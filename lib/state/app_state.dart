@@ -2374,20 +2374,18 @@ class AppState extends ChangeNotifier {
 
   Future<void> setAlarm(DateTime when) async {
     if (!isConnected) throw Exception('Connect to your strap first');
-    final epoch =
-        when.millisecondsSinceEpoch ~/ 1000; // local wall-clock → unix
     // Pass the DateTime through so the engine computes REAL sub-seconds for the
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
-    // engine owns the exact on-wire layout).
-    final ok = await engine.setAlarm(when);
-    if (!ok) {
-      // The arm write never reached the band — do NOT persist or start the
-      // confirmation machine, or we'd strand a phantom alarm "waiting for the
-      // strap to confirm" that can never fire. Surface it so the UI reflects
-      // "couldn't send" (the coach/profile callers snackbar on a throw).
+    // engine owns the exact on-wire layout). Persist the wall instant the
+    // engine reports armed (null = write never reached the band).
+    final armed = await engine.setAlarm(when);
+    if (armed == null) {
+      // Do NOT persist or start the confirmation machine, or we'd strand a
+      // phantom alarm "waiting for the strap to confirm" that can never fire.
       _log('[alarm] arm write FAILED — not persisting; alarm not set.');
       throw Exception('Alarm not sent — the strap did not accept the write');
     }
+    final epoch = armed.millisecondsSinceEpoch ~/ 1000;
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch); // await event 56

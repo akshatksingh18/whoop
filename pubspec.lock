@@ -964,8 +964,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: f0d115308aa5e9e3c82ee113c3d52e59756121d4
-      resolved-ref: f0d115308aa5e9e3c82ee113c3d52e59756121d4
+      ref: c3a30be1e36e33426c83cead9ea106fa3071b082
+      resolved-ref: c3a30be1e36e33426c83cead9ea106fa3071b082
       url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"

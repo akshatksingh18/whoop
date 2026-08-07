@@ -87,9 +87,24 @@ class PreparedDerivationDay {
 /// How far past a day's calendar end nap detection is allowed to look, so a
 /// nap/secondary-sleep block spanning midnight is seen whole by the day it
 /// started on. Naps starting inside this buffer belong to tomorrow, which
-/// sees them anyway in its own regular (unbuffered) window — so this can't
-/// double-count.
+/// sees them anyway in its own regular (unbuffered) window.
+///
+/// That buffer stops the day that OWNS the nap from bisecting it, but it does
+/// NOT by itself stop the double-count: tomorrow re-detects the post-midnight
+/// remainder as a fresh bout starting at index 0 of its own window. See
+/// [napLeadingEdgeContiguitySec] for the guard that drops it.
 const int napBoundaryBufferSec = 3 * 3600;
+
+/// How close a day's first sample must be to local midnight for the record to
+/// count as CONTIGUOUS into the day boundary.
+///
+/// Within this tolerance, a nap bout beginning at the very first sample is the
+/// tail of one yesterday already saw (through [napBoundaryBufferSec]) and
+/// emitted whole, so today must not count it again. Beyond it there is a real
+/// recording gap at the boundary — yesterday's detector broke on that same
+/// discontinuity and dropped the bout too, so today is its only chance to be
+/// counted at all.
+const int napLeadingEdgeContiguitySec = 60;
 
 class PreparedDerivationPayload {
   final int dataNowSec;

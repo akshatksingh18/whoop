@@ -27,7 +27,46 @@ String _hhmm(num minOfDay) {
 String _dur(num sec) {
   final total = sec.round();
   final h = total ~/ 3600, m = (total % 3600) ~/ 60;
+  // Sub-hour durations read as "25m", not "0h 25m". The existing callers all
+  // pass a 6-11 h sleep need where h > 0, so this only affects the new
+  // sub-hour caller (the nap credit).
+  if (h == 0) return '${m}m';
   return m == 0 ? '${h}h' : '${h}h ${m}m';
+}
+
+/// Caption for the nap credit ALREADY folded into `sleep_coach.need_sec`.
+///
+/// [napCreditMin] is `sleep_coach.nap_credit_min` — the minutes the credit
+/// actually REMOVED, after `sleepNeed`'s 6 h floor took its cut, not the raw
+/// nap minutes.
+///
+/// Null caption (no line) when today produced no nap reading (`null`) or when
+/// nothing was subtracted (`0`). Same silence rule as [strainBonusCaption], and
+/// the bundle keeps null and 0 apart even though the card does not.
+String? napCreditCaption(num? napCreditMin) {
+  final m = napCreditMin?.round();
+  if (m == null || m <= 0) return null;
+  return '−${_dur(m * 60)} credited from today\'s nap';
+}
+
+/// Caption for the strain bonus ALREADY folded into `sleep_coach.need_sec`.
+///
+/// [strainBonusMin] is `sleep_coach.strain_bonus_min` — the minutes the bonus
+/// actually ADDED, after `sleepNeed`'s 11 h ceiling took its cut, not the raw
+/// `(strain/21)*45`.
+///
+/// Null caption (no line) in two different situations, which the BUNDLE keeps
+/// apart even though the card does not:
+///   - `null` — today produced no strain reading, so no bonus was applied and
+///     tonight's need is short by up to 45 min. The card stays silent here to
+///     match the nap credit; surfacing it is a product decision, and
+///     `strain_bonus_min` carries the distinction for anything that wants it.
+///   - `0` — a measured rest day, or a bonus the ceiling swallowed whole.
+///     Nothing was added, so there is nothing to disclose; "+0m" would be noise.
+String? strainBonusCaption(num? strainBonusMin) {
+  final m = strainBonusMin?.round();
+  if (m == null || m <= 0) return null;
+  return '+${_dur(m * 60)} added for today\'s strain';
 }
 
 Map<String, dynamic>? _val(Object? metric) {
@@ -163,6 +202,17 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ? 'Tonight you need ${_dur(needSec)}'
         : 'Tonight you need ${_dur(needSec)} · $pct% of need';
 
+    // Naps are already SUBTRACTED from `need_sec`. Showing the adjustment is
+    // the difference between a number the user can reason about and one that
+    // silently shrank — a nap also inflates "% of need" through the same
+    // subtraction, so an unexplained credit moves both figures at once.
+    final napLine = napCreditCaption(_coach?['nap_credit_min'] as num?);
+
+    // Same reasoning in the other direction: today's strain is already ADDED to
+    // `need_sec` (up to 45 min), so an unexplained bonus moves both the need and
+    // "% of need" at once. See strainBonusCaption for what silence means here.
+    final strainLine = strainBonusCaption(_coach?['strain_bonus_min'] as num?);
+
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -177,6 +227,14 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         // behind it — with bedtime/wake both absent (need computed, but the
         // schedule recommendation isn't yet) a Disclosure here would show
         // "Bedtime & alarm" and expand into an empty column.
+        if (napLine != null) ...[
+          Text(napLine, style: AppText.caption),
+          const SizedBox(height: Sp.x2),
+        ],
+        if (strainLine != null) ...[
+          Text(strainLine, style: AppText.caption),
+          const SizedBox(height: Sp.x2),
+        ],
         if (bedMin == null && wakeMin == null)
           _needSummary(needSec, pct, accent)
         else

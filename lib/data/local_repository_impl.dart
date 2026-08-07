@@ -607,8 +607,26 @@ class LocalRepositoryImpl extends LocalRepository {
       'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
       'regularity':
           null, // needs ≥several nights (honest null → "Need N nights")
-      // Sleep periods (main + naps) for the periods screen.
-      'periods': (b['sleep_periods'] as Map?)?['periods'] ?? const [],
+      // Sleep periods (main + naps) for the periods screen. The main period is
+      // enriched HERE with the hypnogram + stage minutes: derivation builds the
+      // periods in a second isolate that never receives `series.hypnogram`, so
+      // this is the first point where the whole bundle is in hand. Naps carry
+      // neither by design — no stage claim is made for them.
+      'periods': _periodsWithMainStages(
+        b,
+        {
+          'light_min': min('light_sec'),
+          'deep_min': min('deep_sec'),
+          'rem_min': min('rem_sec'),
+          'nrem_min': min('nrem_sec'),
+        },
+        // Naps carry their own confidence and the screen draws a ConfDot for
+        // any period that has one, so omitting the main period's left the main
+        // card as the ONLY one with no dot — reading as "unknown" for the
+        // best-evidenced period on the screen. Stays null when accounting had
+        // no confidence, which correctly draws nothing.
+        mainConfidence: sleepConf,
+      ),
       'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
@@ -624,6 +642,74 @@ class LocalRepositoryImpl extends LocalRepository {
       // Low-confidence WRIST orientation (gravity-tilt) during sleep — a body-
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
+    };
+  }
+
+  /// The persisted sleep periods with the MAIN period's hypnogram and stage
+  /// minutes attached.
+  ///
+  /// Naps are returned untouched: they have no stages, and inventing an empty
+  /// stage map would make the card draw a stage bar for sleep we never
+  /// classified. Absent stage minutes are dropped rather than zeroed for the
+  /// same reason — `StageBars` renders 0 as an invisible gap, which reads as
+  /// "no deep sleep" instead of "not measured".
+  List<Map<String, dynamic>> _periodsWithMainStages(
+    Map<String, dynamic> b,
+    Map<String, int?> stageMin, {
+    num? mainConfidence,
+  }) {
+    final raw = (b['sleep_periods'] as Map?)?['periods'];
+    if (raw is! List) return const [];
+    final hypno = _hypnoPoints(b);
+    final stages = <String, dynamic>{
+      for (final e in stageMin.entries)
+        if (e.value != null) e.key: e.value,
+    };
+    return [
+      for (final p in raw.whereType<Map>())
+        if (p['is_main'] != true)
+          _canonicalPeriod(p)
+        else
+          {
+            ..._canonicalPeriod(p),
+            if (hypno.isNotEmpty) 'hypnogram': hypno,
+            if (stages.isNotEmpty) 'stages': stages,
+            'confidence': ?mainConfidence,
+          },
+    ];
+  }
+
+  /// Reads a persisted period under EITHER key vocabulary.
+  ///
+  /// The producer emits `onset_ts`/`wake_ts`/`duration_min`, but day results
+  /// written before that change hold `start`/`end`/`asleep_min` and are never
+  /// rewritten: a day finalizes ~48 h behind the data edge and raw is pruned
+  /// after `rawRetentionDays`, so once its substrate is gone a kAlgoVersion
+  /// bump cannot re-derive it — the old payload is what that day will serve
+  /// forever. Without this the Sleep-periods cards for every such day render
+  /// "—" for onset, wake AND duration, underneath a hero total that is still
+  /// confident, which reads as data loss rather than an old schema.
+  ///
+  /// Translating on READ (rather than migrating on write) also means this and
+  /// the parallel fix at the other end of the seam are order-independent.
+  Map<String, dynamic> _canonicalPeriod(Map p) {
+    final m = p.cast<String, dynamic>();
+    // Fill only keys that are genuinely ABSENT — `containsKey`, never a null
+    // check. A current-schema key present with an explicit null is an honest
+    // "we did not measure this", and a null test cannot tell that apart from a
+    // missing key. On a mixed payload (`duration_min: null` sitting alongside a
+    // stale `asleep_min: 40`) a null test promotes an unknown into a
+    // measurement — the precise dishonesty this seam exists to remove.
+    //
+    // A period already speaking the current vocabulary passes through
+    // byte-for-byte either way.
+    return {
+      ...m,
+      if (!m.containsKey('onset_ts') && m['start'] != null)
+        'onset_ts': m['start'],
+      if (!m.containsKey('wake_ts') && m['end'] != null) 'wake_ts': m['end'],
+      if (!m.containsKey('duration_min') && m['asleep_min'] != null)
+        'duration_min': m['asleep_min'],
     };
   }
 

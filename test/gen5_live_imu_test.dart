@@ -32,7 +32,7 @@ void main() {
     });
 
     test('abstains on gen4-shaped short 0x33', () {
-      expect(frameAccelGen5Live('33' + ('00' * 80)), isNull);
+      expect(frameAccelGen5Live('33${'00' * 80}'), isNull);
     });
   });
 

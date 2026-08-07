@@ -12,18 +12,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:openstrap_edge/data/local_repository_impl.dart'
-    show sleepPeriodsForScreen;
 import 'package:openstrap_edge/theme/theme.dart';
 import 'package:openstrap_edge/theme/tokens.dart';
 import 'package:openstrap_edge/ui/sleep/sleep_detail_screen.dart'
     show SleepNightContent;
 
-/// Periods exactly as `_sleepPeriods` writes them into the bundle.
-const _rawPeriods = [
-  {'is_main': true, 'start': 1000000, 'end': 1024600, 'asleep_min': 410},
-  {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': 101},
-];
 
 /// The night payload the mapping enriches the main period from.
 const _night = <String, dynamic>{
@@ -60,70 +53,31 @@ Map<String, dynamic> _nightWithNap() => {
       'need_min': 480,
       'onset_ts': 1000000,
       'wake_ts': 1024600,
-      'periods': sleepPeriodsForScreen(_rawPeriods, night: _night),
+      // The vocabulary the producer emits since #204. This used to be built by
+      // `sleepPeriodsForScreen`, which translated the old
+      // start/end/asleep_min shape; that translator is gone because the writer
+      // now emits these keys directly and `_periodsWithMainStages` enriches
+      // them on read.
+      'periods': const [
+        {
+          'is_main': true,
+          'onset_ts': 1000000,
+          'wake_ts': 1024600,
+          'duration_min': 400,
+          'efficiency': 0.93,
+          'confidence': 0.62,
+          'stages': {'light_min': 220, 'deep_min': 60, 'rem_min': 120},
+        },
+        {
+          'is_main': false,
+          'onset_ts': 1060000,
+          'wake_ts': 1066060,
+          'duration_min': 101,
+        },
+      ],
     };
 
 void main() {
-  group('sleepPeriodsForScreen', () {
-    test('maps the engine keys onto the ones the screen reads', () {
-      final p = sleepPeriodsForScreen(_rawPeriods, night: _night);
-      expect(p, hasLength(2));
-      expect(p[0]['onset_ts'], 1000000);
-      expect(p[0]['wake_ts'], 1024600);
-      expect(p[1]['onset_ts'], 1060000);
-      expect(p[1]['duration_min'], 101);
-    });
-
-    test('main period shows TST, not the window length', () {
-      final main = sleepPeriodsForScreen(_rawPeriods, night: _night).first;
-      expect(main['duration_min'], 400);
-      expect(main['efficiency'], 0.93);
-      expect(main['confidence'], 0.62);
-      expect((main['stages'] as Map)['deep_min'], 60);
-      expect(main['hypnogram'], isA<List>());
-    });
-
-    test('a nap carries no invented stages, efficiency or confidence', () {
-      final nap = sleepPeriodsForScreen(_rawPeriods, night: _night)[1];
-      expect(nap.containsKey('stages'), isFalse);
-      expect(nap.containsKey('efficiency'), isFalse);
-      expect(nap.containsKey('confidence'), isFalse);
-    });
-
-    test('a nap length outside its own window falls back to the window', () {
-      final p = sleepPeriodsForScreen([
-        {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': -30},
-        {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': 900},
-        {'is_main': false, 'start': 1060000, 'end': 1066060},
-      ]);
-      // hasLength first: everyElement passes vacuously on an empty list, so
-      // dropping all three inputs would look like a pass.
-      expect(p, hasLength(3));
-      expect(p.map((e) => e['duration_min']), everyElement(101));
-    });
-
-    test('a TST longer than the window falls back to the window', () {
-      for (final tst in const [-30, 900]) {
-        final main = sleepPeriodsForScreen(
-          [_rawPeriods.first],
-          night: {..._night, 'duration_min': tst},
-        );
-        expect(main, hasLength(1));
-        expect(main.first['duration_min'], 410);
-      }
-    });
-
-    test('drops junk instead of rendering a zero-length card', () {
-      final p = sleepPeriodsForScreen([
-        {'is_main': false, 'start': 1060000, 'end': 1060000},
-        {'is_main': false, 'end': 1066060},
-        'not a period',
-      ]);
-      expect(p, isEmpty);
-      expect(sleepPeriodsForScreen(null), isEmpty);
-    });
-  });
-
   group('SleepNightContent naps row', () {
     testWidgets('a nap is visible on the night screen and opens the breakdown',
         (t) async {
@@ -156,10 +110,9 @@ void main() {
       addTearDown(t.view.reset);
 
       final data = _nightWithNap();
-      data['periods'] = sleepPeriodsForScreen(
-        [_rawPeriods.first],
-        night: _night,
-      );
+      // Main sleep only — the nap row must not appear.
+      data['periods'] =
+          [(data['periods'] as List).first as Map<String, dynamic>];
       await t.pumpWidget(_host(SleepNightContent(
         data: data,
         date: _today(),

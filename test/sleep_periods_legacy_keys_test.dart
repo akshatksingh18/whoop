@@ -235,4 +235,48 @@ void main() {
       expect(periods.first['wake_ts'], isNull);
     },
   );
+
+  // Ported from #205, which added these at its (now-removed) screen-side
+  // translator. They are real invariants and belong at the surviving seam.
+  test(
+    'a period cannot report more asleep minutes than its own window',
+    () async {
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napOnset + 30 * 60, // a 30-minute window
+            'duration_min': 101, // ...claiming 101 minutes of sleep
+          },
+        ],
+        'total_asleep_min': 101,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      expect(
+        periods.single['duration_min'],
+        30,
+        reason: 'clamped to the window, which is the trustworthy half',
+      );
+    },
+  );
+
+  test('a degenerate window is dropped, not rendered as a zero-length card',
+      () async {
+    await seed({
+      'periods': [
+        {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+        {'is_main': false, 'onset_ts': napOnset, 'wake_ts': napOnset},
+        {'is_main': false, 'onset_ts': napWake, 'wake_ts': napOnset},
+      ],
+      'total_asleep_min': 420,
+    });
+
+    final sleep = await repo.getDaySleep('2026-06-15');
+    final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+    expect(periods, hasLength(1), reason: 'only the real main sleep survives');
+    expect(periods.single['is_main'], isTrue);
+  });
 }

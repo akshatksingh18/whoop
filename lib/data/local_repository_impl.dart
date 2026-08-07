@@ -643,21 +643,18 @@ class LocalRepositoryImpl extends LocalRepository {
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
     };
-    // Sleep periods (main + naps) for the periods screen, mapped onto the key
-    // names that screen actually reads. The day total is the sum of what the
-    // cards show, so the hero can't disagree with them.
-    final periods = sleepPeriodsForScreen(
-      (b['sleep_periods'] as Map?)?['periods'],
-      night: night,
-    );
-    final bundleTotal = (b['sleep_periods'] as Map?)?['total_asleep_min'];
-    night['periods'] = periods;
-    night['total_asleep_min'] = periods.isEmpty
-        ? bundleTotal
-        : periods.fold<int>(
-            0,
-            (a, p) => a + ((p['duration_min'] as num?)?.toInt() ?? 0),
-          );
+    // NOTE: this used to re-map the periods here through
+    // `sleepPeriodsForScreen` and overwrite `night['periods']`. That translator
+    // read `start`/`end`/`asleep_min` -- the vocabulary the producer emitted
+    // when this branch was written. Since #204 the producer emits
+    // `onset_ts`/`wake_ts`/`duration_min` directly, and `_periodsWithMainStages`
+    // (above) already attaches the hypnogram, stage minutes and the main
+    // period's confidence, translating any legacy payload on read.
+    //
+    // Keeping the overwrite after that rebase would have read every period
+    // under keys that no longer exist, produced an EMPTY list, and blanked the
+    // whole screen -- main sleep included -- while the hero still showed a
+    // total. One source per concern: the writer-side seam owns this now.
     return night;
   }
 
@@ -683,15 +680,16 @@ class LocalRepositoryImpl extends LocalRepository {
     };
     return [
       for (final p in raw.whereType<Map>())
-        if (p['is_main'] != true)
-          _canonicalPeriod(p)
-        else
-          {
-            ..._canonicalPeriod(p),
-            if (hypno.isNotEmpty) 'hypnogram': hypno,
-            if (stages.isNotEmpty) 'stages': stages,
-            'confidence': ?mainConfidence,
-          },
+        if (_boundedPeriod(_canonicalPeriod(p)) case final bp?)
+          if (bp['is_main'] != true)
+            bp
+          else
+            {
+              ...bp,
+              if (hypno.isNotEmpty) 'hypnogram': hypno,
+              if (stages.isNotEmpty) 'stages': stages,
+              'confidence': ?mainConfidence,
+            },
     ];
   }
 
@@ -727,6 +725,31 @@ class LocalRepositoryImpl extends LocalRepository {
       if (!m.containsKey('duration_min') && m['asleep_min'] != null)
         'duration_min': m['asleep_min'],
     };
+  }
+
+  /// A period's reported asleep minutes can never exceed its own window.
+  ///
+  /// Ported from #205, which added it at the (now-removed) screen-side
+  /// translator. It is a real invariant and belongs here, at the one seam the
+  /// screen reads: `duration_min` and the window come from different producers
+  /// (staging TST vs the detected bounds), so nothing else stops a card
+  /// claiming more sleep than the period it sits in. Clamped, not dropped —
+  /// the window is the trustworthy half.
+  ///
+  /// Returns null for a period with no usable window at all, so the caller can
+  /// drop it rather than render a zero-length card.
+  Map<String, dynamic>? _boundedPeriod(Map<String, dynamic> m) {
+    final onset = (m['onset_ts'] as num?)?.toInt();
+    final wake = (m['wake_ts'] as num?)?.toInt();
+    if (onset == null || wake == null || wake <= onset) {
+      // Keep it only if it carries no window claim at all; a period whose
+      // window is present but degenerate is junk.
+      return (onset == null && wake == null) ? m : null;
+    }
+    final windowMin = ((wake - onset) / 60).round();
+    final dur = (m['duration_min'] as num?)?.toInt();
+    if (dur == null || dur <= windowMin) return m;
+    return {...m, 'duration_min': windowMin};
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.
@@ -2753,69 +2776,6 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
-}
-
-/// The `periods` list the Sleep-periods screen reads, mapped from the engine's
-/// `sleep_periods` block. The engine writes `is_main` / `start` / `end` /
-/// `asleep_min`; the screen reads `onset_ts` / `wake_ts` / `duration_min`, so
-/// every card used to render as `0m` with no time range under it.
-///
-/// The main period carries the night's own numbers (TST, efficiency, stage
-/// minutes, hypnogram) so the two sleep screens can't print different totals
-/// for the same night. A nap carries only what we actually have for it: start,
-/// end, length. No stages, no efficiency, and no confidence — a nap detected by
-/// stillness has no confidence value, and 0 would read as "we're sure it's bad".
-/// Pure + public so the mapping is unit-testable without a database.
-List<Map<String, dynamic>> sleepPeriodsForScreen(
-  Object? rawPeriods, {
-  Map<String, dynamic> night = const {},
-}) {
-  if (rawPeriods is! List) return const [];
-  num? asNum(Object? v) =>
-      v is num ? v : (v is String ? num.tryParse(v) : null);
-  final out = <Map<String, dynamic>>[];
-  for (final raw in rawPeriods) {
-    if (raw is! Map) continue;
-    final p = raw.cast<String, dynamic>();
-    final start = asNum(p['start'])?.toInt();
-    final end = asNum(p['end'])?.toInt();
-    if (start == null || end == null || end <= start) continue;
-    final isMain = p['is_main'] == true;
-    // A length outside the window it came from is malformed: it would print a
-    // negative duration on the card and skew the day total. Fall back to the
-    // window, which the period's own start/end already vouch for.
-    final windowMin = ((end - start) / 60).round();
-    final reported = asNum(p['asleep_min'])?.toInt();
-    final asleepMin = (reported != null && reported >= 0 && reported <= windowMin)
-        ? reported
-        : windowMin;
-    // The main card shows TST (what the Sleep screen shows). A nap has no
-    // asleep/awake accounting of its own, so its window IS its length. TST gets
-    // the same bound: nobody sleeps longer than the window they slept in.
-    final tstMin = asNum(night['duration_min'])?.toInt();
-    final durationMin =
-        isMain && tstMin != null && tstMin >= 0 && tstMin <= windowMin
-            ? tstMin
-            : asleepMin;
-    final stages = <String, dynamic>{
-      if (isMain)
-        for (final k in const ['light_min', 'deep_min', 'rem_min', 'nrem_min'])
-          if (night[k] != null) k: night[k],
-    };
-    out.add({
-      'is_main': isMain,
-      'onset_ts': start,
-      'wake_ts': end,
-      'duration_min': durationMin,
-      if (isMain && night['efficiency'] != null)
-        'efficiency': night['efficiency'],
-      if (isMain && night['stages_confidence'] != null)
-        'confidence': night['stages_confidence'],
-      if (isMain && night['hypnogram'] is List) 'hypnogram': night['hypnogram'],
-      if (stages.isNotEmpty) 'stages': stages,
-    });
-  }
-  return out;
 }
 
 /// The /today `stress` block from a day bundle — the pipeline's Baevsky block,

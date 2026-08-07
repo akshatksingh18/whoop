@@ -385,4 +385,36 @@ void main() {
       expect(sleep['periods'], isNull, reason: 'nothing to show, nothing added');
     });
   });
+
+  test(
+    'a NEGATIVE duration is corrupt, not small — it becomes unknown, and is '
+    'never clamped up into a full night',
+    () async {
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': onset,
+            'wake_ts': wake, // a 7-hour window
+            'duration_min': -50,
+          },
+        ],
+        'total_asleep_min': -50,
+      }, night: false);
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      expect(periods.single['duration_min'], isNull);
+      expect(
+        periods.single['duration_min'],
+        isNot(420),
+        reason: 'clamping up would invent a full night out of garbage',
+      );
+      expect(
+        sleep['total_asleep_min'],
+        isNull,
+        reason: 'unknown propagates — the hero reads "—"',
+      );
+    },
+  );
 }

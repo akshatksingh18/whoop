@@ -783,7 +783,15 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     final windowMin = ((wake - onset) / 60).round();
     final dur = (m['duration_min'] as num?)?.toInt();
-    if (dur == null || dur <= windowMin) return m;
+    if (dur == null || (dur >= 0 && dur <= windowMin)) return m;
+    // NEGATIVE is not "too small", it is CORRUPT — there is no such thing as
+    // minus fifty minutes of sleep. It is dropped to unknown rather than
+    // clamped to either end: clamping UP to the window would invent a full
+    // night out of garbage, and clamping DOWN to 0 would state "you did not
+    // sleep", which is a measurement we do not have. Unknown then propagates
+    // through `_totalAsleepMin`, so the hero reads "—" instead of a total
+    // built on a value we know is nonsense.
+    if (dur < 0) return {...m, 'duration_min': null};
     return {...m, 'duration_min': windowMin};
   }
 

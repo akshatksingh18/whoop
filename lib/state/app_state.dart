@@ -341,6 +341,8 @@ class AppState extends ChangeNotifier {
 
   // ── platform health export (Apple Health / Health Connect) ──────────────────
   final HealthExporter _healthExport = HealthExporter();
+  final HealthExportSingleFlight _healthExportSingleFlight =
+      HealthExportSingleFlight();
   HealthLinkState healthState = HealthLinkState.unknown;
   bool healthSyncEnabled = false;
   static const String _kHealthSync = 'health_sync';
@@ -386,10 +388,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// Export all finalized-but-unexported days now. Returns days written.
-  Future<int> healthSyncNow() async {
-    final n = await _healthExport.exportAll();
-    return n;
-  }
+  Future<int> healthSyncNow() => _runHealthExport(forceRetry: true);
+
+  Future<int> _runHealthExport({bool forceRetry = false}) =>
+      _healthExportSingleFlight.run(
+        () => _healthExport.exportAll(forceRetry: forceRetry),
+      );
 
   /// Session-triggered Health export for one just-finished workout (issue
   /// #130) — used by callers outside this class (e.g. confirming an
@@ -921,7 +925,7 @@ class AppState extends ChangeNotifier {
       if (healthSyncEnabled) {
         unawaited(() async {
           try {
-            final n = await _healthExport.exportAll();
+            final n = await _runHealthExport();
             if (n > 0) _log('[health] exported $n day(s)');
           } catch (e) {
             _log('[health] export failed: $e');

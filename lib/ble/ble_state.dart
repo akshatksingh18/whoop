@@ -187,7 +187,9 @@ class DrainStopEvaluator {
 ///   - plausibility gate: reject records whose embedded unix time is
 ///     implausible vs wall-clock / the strap's own GET_DATA_RANGE window
 ///     (a previous owner's wandering-clock pollution). Rejected records are
-///     neither stored nor counted; the batch ACK still walks the cursor.
+///     neither stored nor counted. A burst that banks at least one durable
+///     row may still ACK (cursor walks past mixed pollution); a drop-only
+///     empty burst must NOT ACK — see [TrimAckVerdict.blockedNoDurableProgress].
 ///   - frontier: track the highest plausible rec_ts admitted so far — the
 ///     durable high-water the StuckStrapDetector / BackfillContinuation read.
 ///   - drop counter: how many records the gate rejected (diagnostics).
@@ -319,6 +321,15 @@ enum TrimAckVerdict {
   /// The durable commit did NOT complete. The records are not in the database,
   /// so the band must keep them.
   blockedCommitFailed,
+
+  /// This burst's HISTORY_END would trim flash we neither decoded nor archived:
+  /// the plausibility gate rejected every historical record (`droppedThisBurst >
+  /// 0`) and the buffer is empty. Echoing the token used to "walk the cursor"
+  /// past wandering-clock pollution, but after a reconnect / bad session window
+  /// the same path permanently deleted good samples (HR frozen until a manual
+  /// reconnect). Refuse the trim so the band re-delivers; the engine should
+  /// re-correlate the clock and retry.
+  blockedNoDurableProgress,
 }
 
 /// THE gate on the one irreversible act in the whole offload protocol: echoing
@@ -334,7 +345,7 @@ enum TrimAckVerdict {
 /// and the band was then told to trim — those records existed nowhere,
 /// permanently and silently.
 ///
-/// Pure and total: the engine supplies three observations, this decides. The
+/// Pure and total: the engine supplies observations, this decides. The
 /// engine must call it AGAIN after the commit await (the commit can take
 /// seconds on a large batch — long enough for the session to die under it).
 class TrimAckPolicy {
@@ -346,10 +357,18 @@ class TrimAckPolicy {
   /// [commitDurable]   — the atomic commit completed (pass `true` when asking
   ///                     the pre-commit question "should I even commit this
   ///                     token?").
+  /// [hadDurableRows]  — this burst buffered at least one raw/sample or archive
+  ///                     row to bank before ACK. Pass `true` when unknown
+  ///                     (pre-commit stale/discard checks only).
+  /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
+  ///                     `!hadDurableRows`, refuses trim so gate-only bursts
+  ///                     cannot delete flash we never stored.
   static TrimAckVerdict evaluate({
     required bool sessionCurrent,
     required bool burstDiscarded,
     required bool commitDurable,
+    bool hadDurableRows = true,
+    int droppedThisBurst = 0,
   }) {
     // Order is deliberate: a stale session must be refused before anything
     // else touches the (new) link, and a poisoned burst must be refused before
@@ -357,6 +376,9 @@ class TrimAckPolicy {
     if (!sessionCurrent) return TrimAckVerdict.blockedStaleSession;
     if (burstDiscarded) return TrimAckVerdict.blockedDiscardedBurst;
     if (!commitDurable) return TrimAckVerdict.blockedCommitFailed;
+    if (!hadDurableRows && droppedThisBurst > 0) {
+      return TrimAckVerdict.blockedNoDurableProgress;
+    }
     return TrimAckVerdict.send;
   }
 }

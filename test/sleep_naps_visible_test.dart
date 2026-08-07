@@ -90,13 +90,27 @@ void main() {
       expect(nap.containsKey('confidence'), isFalse);
     });
 
-    test('a length outside its own window falls back to the window', () {
+    test('a nap length outside its own window falls back to the window', () {
       final p = sleepPeriodsForScreen([
         {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': -30},
         {'is_main': false, 'start': 1060000, 'end': 1066060, 'asleep_min': 900},
         {'is_main': false, 'start': 1060000, 'end': 1066060},
       ]);
+      // hasLength first: everyElement passes vacuously on an empty list, so
+      // dropping all three inputs would look like a pass.
+      expect(p, hasLength(3));
       expect(p.map((e) => e['duration_min']), everyElement(101));
+    });
+
+    test('a TST longer than the window falls back to the window', () {
+      for (final tst in const [-30, 900]) {
+        final main = sleepPeriodsForScreen(
+          [_rawPeriods.first],
+          night: {..._night, 'duration_min': tst},
+        );
+        expect(main, hasLength(1));
+        expect(main.first['duration_min'], 410);
+      }
     });
 
     test('drops junk instead of rendering a zero-length card', () {

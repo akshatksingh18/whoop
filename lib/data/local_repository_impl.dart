@@ -2790,10 +2790,13 @@ List<Map<String, dynamic>> sleepPeriodsForScreen(
         ? reported
         : windowMin;
     // The main card shows TST (what the Sleep screen shows). A nap has no
-    // asleep/awake accounting of its own, so its window IS its length.
-    final durationMin = isMain
-        ? (asNum(night['duration_min'])?.toInt() ?? asleepMin)
-        : asleepMin;
+    // asleep/awake accounting of its own, so its window IS its length. TST gets
+    // the same bound: nobody sleeps longer than the window they slept in.
+    final tstMin = asNum(night['duration_min'])?.toInt();
+    final durationMin =
+        isMain && tstMin != null && tstMin >= 0 && tstMin <= windowMin
+            ? tstMin
+            : asleepMin;
     final stages = <String, dynamic>{
       if (isMain)
         for (final k in const ['light_min', 'deep_min', 'rem_min', 'nrem_min'])

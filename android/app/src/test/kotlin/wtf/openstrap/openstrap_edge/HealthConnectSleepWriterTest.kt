@@ -1,0 +1,42 @@
+package wtf.openstrap.openstrap_edge
+
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class HealthConnectSleepWriterTest {
+    private val berlin = ZoneId.of("Europe/Berlin")
+
+    private fun localInstant(year: Int, month: Int, day: Int, hour: Int, minute: Int): Instant =
+        ZonedDateTime.of(year, month, day, hour, minute, 0, 0, berlin).toInstant()
+
+    @Test
+    fun cleanupRangeIncludesLegacyFragmentThatStartsBeforeRecomputedSession() {
+        val sessionStart = localInstant(2026, 8, 6, 1, 36)
+        val sessionEnd = localInstant(2026, 8, 6, 8, 20)
+        val staleFragmentStart = localInstant(2026, 8, 5, 23, 34)
+
+        val range = sleepCleanupRange(sessionStart, sessionEnd, berlin)
+
+        assertEquals(localInstant(2026, 8, 5, 12, 0), range.start)
+        assertEquals(localInstant(2026, 8, 6, 12, 0), range.end)
+        assertTrue(!staleFragmentStart.isBefore(range.start))
+        assertTrue(staleFragmentStart.isBefore(range.end))
+    }
+
+    @Test
+    fun cleanupRangeUsesLocalNoonAcrossDstTransition() {
+        val sessionStart = localInstant(2026, 10, 25, 1, 30)
+        val sessionEnd = localInstant(2026, 10, 25, 9, 0)
+
+        val range = sleepCleanupRange(sessionStart, sessionEnd, berlin)
+
+        assertEquals(localInstant(2026, 10, 24, 12, 0), range.start)
+        assertEquals(localInstant(2026, 10, 25, 12, 0), range.end)
+        assertEquals(25, Duration.between(range.start, range.end).toHours())
+    }
+}

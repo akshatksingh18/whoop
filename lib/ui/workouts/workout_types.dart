@@ -93,3 +93,34 @@ Widget workoutTypeGrid(BuildContext context) => Wrap(
       ),
   ],
 );
+
+/// Bottom-sheet type picker (no workout start) — used to confirm/correct an
+/// auto-detected workout's type and to set the type on a manually logged one.
+/// Returns the chosen type, or null if dismissed.
+///
+/// Lives here rather than in workouts_screen.dart so the manual-entry form can
+/// reach it without the two screen files importing each other.
+Future<String?> pickWorkoutType(
+  BuildContext context, {
+  String title = 'Set workout type',
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    builder: (_) => SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: AppText.h2),
+            const SizedBox(height: Sp.x4),
+            Builder(builder: workoutTypeGrid),
+            const SizedBox(height: Sp.x4),
+          ],
+        ),
+      ),
+    ),
+  );
+}

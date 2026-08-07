@@ -694,6 +694,19 @@ class BleEngine {
   // said" apart from "we correctly, silently rejected some as implausible
   // (stale-clock block) and never tallied them." See _handleSyncMarker.
   int _burstDroppedAtStart = 0;
+  // Consecutive HISTORY_END refuses where the burst banked nothing durable
+  // but the RecordGate dropped samples. After a short streak we re-issue
+  // SET_CLOCK and bounce — the usual cause is a bad post-reconnect window
+  // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
+  // re-deliver forever without ever correcting the clock).
+  //
+  // NOT reset per connection (unlike _emptySync / _stuckStrap). The remedy IS
+  // a reconnect, so a per-connection reset made the escalation unreachable:
+  // the idle watchdog tears the session down after a refuse-only burst, the
+  // next connect zeroed the count, and the loop ran forever at streak 1.
+  // See NoDurableProgressEscalation for the full derivation.
+  final NoDurableProgressEscalation _noDurableProgress =
+      NoDurableProgressEscalation();
   // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
   // (see the comment at the validation site — treating a single mismatch as
   // fatal was actively harmful and was reverted), but a mismatch that keeps
@@ -1158,6 +1171,11 @@ class BleEngine {
       _autoContinue.end();
       _lastBackfillAt = 0;
       _successfulBursts = 0;
+      // _noDurableProgress is deliberately NOT reset here — like _marginalRadio
+      // and _postBondLoop above, it counts consecutive bad cycles ACROSS
+      // reconnects. Resetting per connection made the escalation unreachable,
+      // because the escalation's own remedy is a reconnect. It clears on a
+      // successful trim ACK, the only thing that proves the condition is over.
       _lastHpsTerminal = null;
       _sessionPacketCounts = _SessionPacketCounts.zero;
       _sessionGapSummary = _SessionGapSummary.zero;
@@ -1893,8 +1911,9 @@ class BleEngine {
     // Drop records whose unix is implausible vs wall-clock and (when known) the
     // strap's own GET_DATA_RANGE window — a previous owner's wandering-clock
     // pollution. Records with no decodable ts are kept (can't gate them).
-    // Rejected records are neither stored nor counted; the ACK still walks the
-    // band's cursor.
+    // Rejected records are neither stored nor counted. Mixed bursts (some
+    // rows banked) may still ACK; a drop-only empty burst must not — see
+    // TrimAckVerdict.blockedNoDurableProgress.
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
@@ -1965,6 +1984,12 @@ class BleEngine {
     }
     if (f.containsKey('charging')) {
       state.charging = f['charging'] as bool;
+      // Carry the EVENT's own strap timestamp alongside the flag. The strap
+      // dumps its buffered event log on connect and re-sends events it has
+      // already delivered, so a chargingOn frame is not evidence that the puck
+      // went on just now — only its timestamp is. Consumers that treat the
+      // transition as live (DeviceAlerts) gate on this; see #179.
+      state.chargingTs = (f['ts_epoch'] as num?)?.toInt();
       onState(state);
     }
     if (f.containsKey('on_wrist')) {
@@ -2227,6 +2252,70 @@ class BleEngine {
           );
         }
         return;
+      case TrimAckVerdict.blockedNoDurableProgress:
+        // Gate rejected every historical sample this burst and nothing was
+        // banked (no raws, no archives). Echoing the token would trim flash
+        // we never stored — the HR-gap / frozen-cursor failure mode after a
+        // reconnect with a bad plausibility window. Keep the chunk on the
+        // band; after a short streak, re-correlate the clock and bounce.
+        final runRemedy = _noDurableProgress.trimRefused();
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex has no durable rows but the '
+          'plausibility gate dropped samples this burst — NOT ACKing '
+          '(refusals=${_noDurableProgress.refusals} '
+          'remedies=${_noDurableProgress.remedies}). The band keeps the chunk; '
+          'a SET_CLOCK/reconnect may clear a poisoned gate window.',
+        );
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'no_durable_progress',
+          metaPatch: {
+            'batch_id': batchId,
+            'records': d.records,
+            'no_durable_refuse_streak': _noDurableProgress.refusals,
+            'no_durable_remedy_cycles': _noDurableProgress.remedies,
+          },
+        ));
+        if (runRemedy && !_sessionIsStale(session)) {
+          _log(
+            '[SYNC] no-durable trim refuses hit the remedy threshold — '
+            'defensive SET_CLOCK + bounce so the next session can re-admit '
+            'the re-delivered chunk.',
+          );
+          if (_noDurableProgress.shouldSurfaceGiveUp()) {
+            // The remedy has now failed repeatedly. We still do NOT ACK —
+            // trimming flash we never banked is unrecoverable, so "keep the
+            // data" stays the right answer. What changes is that this stops
+            // being INVISIBLE: previously it refused, bounced and retried
+            // forever behind a debug log, because the two detectors that would
+            // otherwise catch it (`EmptySyncTracker` -> `syncClockLost`,
+            // `StuckStrapDetector`) are only evaluated in
+            // `_onOffloadFinished`, and HISTORY_COMPLETE never arrives here.
+            state.syncClockLost = true;
+            onState(state);
+            _log(
+              '[SYNC] ${_noDurableProgress.remedies} SET_CLOCK+bounce remedies '
+              'have not cleared the no-durable-progress loop — surfacing '
+              'syncClockLost. The chunk is still SAFE on the band; we are '
+              'refusing the trim, not losing data.',
+            );
+          }
+          try {
+            await setClock();
+          } catch (e) {
+            _log('[SYNC] defensive SET_CLOCK after no-durable refuse failed: $e');
+          }
+          if (!_sessionIsStale(session)) {
+            unawaited(
+              _teardownSession(intentional: false).then((_) {
+                _setPhase(BleConnState.idle);
+              }),
+            );
+          }
+        }
+        return;
     }
   }
 
@@ -2341,16 +2430,51 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      _successfulBursts++;
-      _mergeValidatedBurst(d);
       final r = d.bufferedRecTsRange;
+      final droppedThisBurstForLog = droppedThisBurst;
+      final hadDurableRows =
+          d.bufferedRecords > 0 || d.bufferedArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
+        'dropped_this_burst=$droppedThisBurstForLog '
+        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
+      // Non-trimmable wiring (no onCommit): unbuffered fire-and-forget cannot
+      // prove durability before ACK. Production always sets onCommitBatch.
+      if (!d.supportsSafeTrim) {
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex refused — drain has no onCommit '
+          '(non-trimmable / test-only wiring); band keeps the chunk.',
+        );
+        return;
+      }
+      // NO-PROGRESS GATE: refuse trim when this burst banked nothing durable
+      // but the RecordGate dropped samples. Echoing would delete flash we
+      // never stored (and used to also flip lastTrimAdvanced, feeding
+      // auto-continue while the cursor stayed frozen).
+      final progressVerdict = TrimAckPolicy.evaluate(
+        sessionCurrent: !_sessionIsStale(session),
+        burstDiscarded: d.burstDiscarded,
+        commitDurable: true,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
+      );
+      if (progressVerdict != TrimAckVerdict.send) {
+        await _refuseHistoryEndTrim(
+          progressVerdict,
+          d: d,
+          session: session,
+          tokenHex: tokenHex,
+          batchId: m.batchId,
+        );
+        return;
+      }
+      _successfulBursts++;
+      _mergeValidatedBurst(d);
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
       // once the ACK is link-layer confirmed, so a crash before the ACK
@@ -2366,6 +2490,8 @@ class BleEngine {
         sessionCurrent: !_sessionIsStale(session),
         burstDiscarded: d.burstDiscarded,
         commitDurable: durable,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
       );
       if (verdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -2445,6 +2571,9 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      // A trim ACK is the only real proof the no-durable-progress condition is
+      // over — records were banked and the band may advance.
+      _noDurableProgress.trimAcked();
       d.noteBatchAcked(); // ACKed and KEEP listening
       await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
@@ -3139,7 +3268,26 @@ class DrainController {
     required this.onCommit,
     required this.onArchive,
     required this.log,
-  });
+  }) {
+    // Safe-trim requires the atomic commit sink: onRecordsBatch alone cannot
+    // persist archives or the trim cursor. Production always wires onCommit;
+    // forbid the latent hole where archive-only chunks would ACK and trim
+    // flash that was never stored.
+    if (onRecordsBatch != null && onCommit == null) {
+      throw ArgumentError(
+        'DrainController: onRecordsBatch without onCommit cannot persist '
+        'archives or the trim cursor — buffered historical drains require '
+        'onCommit',
+      );
+    }
+  }
+
+  /// Whether HISTORY_END may be ACKed under the safe-trim invariant.
+  ///
+  /// Only [onCommit] can bank raws + archives + cursor in one transaction.
+  /// Both-sinks-null (unbuffered / test-only) fire-and-forgets via [onRecord]
+  /// and must not trim.
+  bool get supportsSafeTrim => onCommit != null;
 
   final List<RawRecord> _raws = [];
   final List<Sample?> _samples = [];
@@ -3159,6 +3307,7 @@ class DrainController {
   bool _linkDown = false;
 
   int get bufferedRecords => _raws.length;
+  int get bufferedArchives => _archives.length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets
@@ -3183,7 +3332,10 @@ class DrainController {
   }
 
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
-  // whose 8-byte token differs from the last one means the cursor moved.
+  // whose 8-byte token differs from the last one means the cursor moved — but
+  // only when the burst also banked durable rows. An empty token-only ACK
+  // (console / drop-only) used to flip this true and feed auto-continue while
+  // the durable frontier stayed frozen.
   String? _lastAckedToken;
   bool lastTrimAdvanced = false;
   int consecutiveValidationFailures = 0;
@@ -3199,7 +3351,9 @@ class DrainController {
   /// Bursts poisoned this connection (diagnostics).
   int get poisonedBursts => _trimGuard.poisonedBursts;
 
-  bool get _buffering => onCommit != null || onRecordsBatch != null;
+  /// Buffer only when the atomic commit path exists. Unbuffered mode
+  /// (test-only) must not look like it banked durable rows for trim.
+  bool get _buffering => onCommit != null;
   int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
   int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
@@ -3331,19 +3485,31 @@ class DrainController {
         .join();
     final previousAckedToken = _lastAckedToken;
     final previousTrimAdvanced = lastTrimAdvanced;
-    lastTrimAdvanced = tokenHex != null && tokenHex != _lastAckedToken;
-    if (tokenHex != null) _lastAckedToken = tokenHex;
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
     final archives = List<ArchiveRecord>.from(_archives);
+    final hadDurable = raws.isNotEmpty || archives.isNotEmpty;
+    // Token changed AND we actually banked something — empty ACKs must not
+    // look like cursor progress to auto-continue / stuck-strap.
+    lastTrimAdvanced =
+        tokenHex != null && tokenHex != _lastAckedToken && hadDurable;
+    if (tokenHex != null) _lastAckedToken = tokenHex;
     _raws.clear();
     _samples.clear();
     _archives.clear();
     try {
-      if (onCommit != null) {
-        await onCommit!(raws, samples, tokenHex, archives: archives);
-      } else if (onRecordsBatch != null && raws.isNotEmpty) {
-        await onRecordsBatch!(raws, samples);
+      // Defense in depth (constructor already rejects onRecordsBatch-only):
+      // never report durable success for buffered content without onCommit.
+      if (raws.isNotEmpty || archives.isNotEmpty || tokenHex != null) {
+        final commit = onCommit;
+        if (commit == null) {
+          throw StateError(
+            'DrainController.commit requires onCommit to persist buffered '
+            'rows / archives / trim cursor (had raws=${raws.length}, '
+            'archives=${archives.length}, token=${tokenHex != null})',
+          );
+        }
+        await commit(raws, samples, tokenHex, archives: archives);
       }
       return true;
     } catch (e) {

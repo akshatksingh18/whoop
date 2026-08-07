@@ -957,6 +957,82 @@ class LocalDb {
     ];
   }
 
+  /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was NOT
+  /// on the wrist, from the strap's own WRIST_OFF/WRIST_ON events.
+  ///
+  /// A band sitting on a table is PERFECTLY still and reads as deep rest to any
+  /// motion-based detector — it is the dominant nap false positive. The strap
+  /// already tells us; these events have been decoded and persisted all along,
+  /// and `AdvancedSleepStager.detectSleep` has always accepted a `wristOff`
+  /// argument, but nothing ever supplied one.
+  ///
+  /// State is carried in from BEFORE [loSec] so a window that opens mid-removal
+  /// is still covered, and an unterminated removal extends to [hiSec] rather
+  /// than being dropped (absent evidence of return is not evidence of return).
+  static Future<List<List<int>>> wristOffSpans(int loSec, int hiSec) =>
+      _toggleSpans(
+        loSec,
+        hiSec,
+        onId: proto.EventId.wristOn,
+        offId: proto.EventId.wristOff,
+      );
+
+  /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was on
+  /// the charger — off-wrist by definition, and motionless.
+  static Future<List<List<int>>> chargingSpans(int loSec, int hiSec) =>
+      _toggleSpans(
+        loSec,
+        hiSec,
+        onId: proto.EventId.chargingOff,
+        offId: proto.EventId.chargingOn,
+      );
+
+  /// Build "state active" spans from a pair of toggle events, clipped to
+  /// [loSec, hiSec). [offId] opens a span; [onId] closes it.
+  static Future<List<List<int>>> _toggleSpans(
+    int loSec,
+    int hiSec, {
+    required int onId,
+    required int offId,
+  }) async {
+    if (hiSec <= loSec) return const [];
+    final db = await instance;
+    // One row before the window establishes the state we open in.
+    final prior = await db.query(
+      'band_events',
+      columns: ['ts', 'event_id'],
+      where: 'ts < ? AND event_id IN (?, ?)',
+      whereArgs: [loSec, onId, offId],
+      orderBy: 'ts DESC',
+      limit: 1,
+    );
+    final rows = await db.query(
+      'band_events',
+      columns: ['ts', 'event_id'],
+      where: 'ts >= ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [loSec, hiSec, onId, offId],
+      orderBy: 'ts ASC',
+    );
+
+    final spans = <List<int>>[];
+    int? openAt =
+        (prior.isNotEmpty && (prior.first['event_id'] as num).toInt() == offId)
+            ? loSec
+            : null;
+    for (final r in rows) {
+      final ts = (r['ts'] as num).toInt();
+      final id = (r['event_id'] as num).toInt();
+      if (id == offId) {
+        openAt ??= ts;
+      } else if (openAt != null) {
+        if (ts > openAt) spans.add([openAt, ts]);
+        openAt = null;
+      }
+    }
+    if (openAt != null && hiSec > openAt) spans.add([openAt, hiSec]);
+    return spans;
+  }
+
   /// Read a sync-cursor value (null if unset).
   static Future<String?> getCursor(String name) async {
     final db = await instance;

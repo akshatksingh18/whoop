@@ -617,3 +617,65 @@ bool shouldRenotifyStaleness(
   if (lastNotifiedAt == null) return true;
   return now.difference(lastNotifiedAt) >= renotifyAfter;
 }
+
+/// Escalation for a `TrimAckVerdict.blockedNoDurableProgress` loop.
+///
+/// Refusing the trim is ALWAYS the right call: echoing the token would let the
+/// band delete flash we never banked, the one irreversible act in this
+/// protocol. But refusing forever means sync silently stops making progress,
+/// and nothing surfaced it — `EmptySyncTracker` (→ `syncClockLost`) and
+/// `StuckStrapDetector` are both only evaluated in `_onOffloadFinished`, which
+/// needs a HISTORY_COMPLETE that this loop never reaches, because the band
+/// keeps re-delivering the same un-trimmed chunk.
+///
+/// Two thresholds, because there are two different questions:
+///   * [remedyAfter] refusals in a row ⇒ try the remedy (SET_CLOCK + bounce).
+///     The usual cause is a poisoned post-reconnect plausibility window.
+///   * [giveUpAfter] remedies that did NOT work ⇒ stop assuming the next
+///     SET_CLOCK will fix it and tell the user. Still never ACKs.
+///
+/// Counting must span RECONNECTS. The remedy IS a reconnect, so a
+/// per-connection reset makes the escalation unreachable — the session is torn
+/// down at streak 1 and the next connect zeroes it. Only a successful trim ACK
+/// proves the condition is over ([trimAcked]).
+class NoDurableProgressEscalation {
+  final int remedyAfter;
+  final int giveUpAfter;
+
+  NoDurableProgressEscalation({this.remedyAfter = 3, this.giveUpAfter = 3});
+
+  int _refusals = 0;
+  int _remedies = 0;
+  bool _gaveUp = false;
+
+  int get refusals => _refusals;
+  int get remedies => _remedies;
+  bool get gaveUp => _gaveUp;
+
+  /// Feed one refused HISTORY_END. Returns true when the caller should run the
+  /// remedy (and resets the refusal streak so the next run needs a fresh one).
+  bool trimRefused() {
+    _refusals++;
+    if (_refusals < remedyAfter) return false;
+    _refusals = 0;
+    _remedies++;
+    return true;
+  }
+
+  /// True EXACTLY ONCE, on the remedy that crosses [giveUpAfter] — the caller
+  /// then surfaces `syncClockLost`. Latched so it can't re-notify every cycle.
+  bool shouldSurfaceGiveUp() {
+    if (_gaveUp || _remedies < giveUpAfter) return false;
+    _gaveUp = true;
+    return true;
+  }
+
+  /// A trim ACK: records were banked and the band may advance. The only real
+  /// proof the condition is over — clears the streak, the remedy count AND the
+  /// give-up latch, so a later run can escalate again.
+  void trimAcked() {
+    _refusals = 0;
+    _remedies = 0;
+    _gaveUp = false;
+  }
+}

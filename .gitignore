@@ -86,3 +86,7 @@ scratch_*
 /fetch_apps.js
 #adding firebase_options back so that we dont commit it accidentally in future releases
 lib/firebase_options.dart 
+
+# Local agent worktrees and execution ledgers.
+/.worktrees/
+/.superpowers/

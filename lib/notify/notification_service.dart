@@ -298,6 +298,14 @@ class NotificationService {
         importance: _importanceFor(c),
         priority: _priorityFor(c),
         icon: '@mipmap/launcher_icon',
+        // Device alerts reuse FIXED ids (idLowBattery/idCharging), so a re-post
+        // is an UPDATE of a card the user is already looking at — it shouldn't
+        // buzz again. Android only, and deliberately NOT load-bearing: the flag
+        // suppresses sound only while a notification with that id is still
+        // showing, so dismissing the card re-arms it. The real de-dupe lives in
+        // DeviceAlerts/ChargeAlertPolicy; this just stops a redundant update
+        // from making noise. iOS has no equivalent on DarwinNotificationDetails.
+        onlyAlertOnce: c == NotifCategory.device,
       ),
       iOS: const DarwinNotificationDetails(),
     );

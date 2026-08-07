@@ -69,21 +69,17 @@ dependencies:
       # Verified present: `git show <sha>:lib/src/onehz/sleep/cardio_stager.dart
       #   | grep -E 'classifyCardioEpochs|_remScoreCut = 0.5'`.
       #
-      # ⚠️ TEMPORARY PR PIN — points at the HEAD of OpenStrap/analytics#35, NOT
-      # at main. This edge branch calls `dailyActiveMinutes`,
-      # `shouldRefreezeFloor` and `enrollmentDaysForFrozenFloor`, none of which
-      # exist on analytics main yet, so pinning main here would fail to COMPILE
-      # in CI (the exact drift class that shipped broken v42/v43 builds).
+      # analytics main @ #35 merge (1fb34dc). Neither side of this conflict was
+      # right: HEAD had #35's PR-BRANCH head (38a8636, never on main) and main
+      # had the older #38 merge (c3a30be). This SHA is analytics main and carries
+      # all three hops this release needs -- #38 (nap detector), #39 (the awake-HR
+      # baseline P0 that shipped inside #38), and #35 (the 1 Hz step estimate
+      # deleted + movement minutes on measured evidence), the sibling half of
+      # THIS branch.
       #
-      # RE-PIN TO THE analytics MAIN SHA BEFORE MERGING THIS PR.
-      #
-      # analytics#35 deletes the 1 Hz step estimate (`dailyStepEstimate` ->
-      # `dailyActiveMinutes`: movement minutes only, no steps, no cadence),
-      # removes the proven-dead HR gate and x3 ceiling, and adds the frozen-floor
-      # policy this branch consumes.
-      # Verified present: `git show <sha>:lib/src/onehz/motion/steps.dart
-      #   | grep -E 'dailyActiveMinutes|shouldRefreezeFloor'`.
-      ref: 38a8636ae676888bc062cd9b0163b2de90ef02de
+      # Verified against the SHA: `dailyStepEstimate` absent,
+      # `dailyActiveMinutes` present in lib/src/onehz/motion/steps.dart.
+      ref: 1fb34dce64e6df833f583ee60cbccfff6751571f
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

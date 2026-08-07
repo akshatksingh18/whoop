@@ -219,22 +219,17 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   }
 
   Widget _emptyStateNapsCard(List<Map<String, dynamic>> naps) {
-    var known = 0;
-    var anyUnknown = false;
-    for (final n in naps) {
-      final d = (n['duration_min'] as num?)?.toInt();
-      if (d == null) {
-        anyUnknown = true;
-      } else {
-        known += d;
-      }
-    }
-    // An unknown duration makes the TOTAL unknown — the same rule the producer
-    // and the periods screen use. A partial sum presented as the total would
-    // under-report by exactly the part we could not measure.
-    final value = anyUnknown
+    // ONE authoritative total, not a second one computed here. The repository
+    // already decides this (`_totalAsleepMin`) and deliberately returns null
+    // when the producer could not state a complete figure — most often because
+    // nap detection abstained, so the day holds an unknown NUMBER of naps.
+    // Re-summing the periods that happen to be present would present a partial
+    // figure as the day's total, which is exactly the claim the layer below
+    // refused to make.
+    final total = (_data['total_asleep_min'] as num?)?.toInt();
+    final value = total == null
         ? '—'
-        : (known >= 60 ? '${known ~/ 60}h ${known % 60}m' : '${known}m');
+        : (total >= 60 ? '${total ~/ 60}h ${total % 60}m' : '${total}m');
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
       child: ListRow(
@@ -446,8 +441,21 @@ class SleepNightContent extends StatelessWidget {
         .toList();
   }
 
-  num get _napMin => _naps.fold<num>(
-      0, (a, p) => a + (_num(p['duration_min']) ?? 0));
+  /// Minutes asleep across this day's naps, or NULL if any nap's duration is
+  /// unknown.
+  ///
+  /// `?? 0` here would silently under-report by exactly the part we could not
+  /// measure, and present the remainder as the full nap total — the same
+  /// absent-is-not-zero rule the producer and the periods screen follow.
+  num? get _napMin {
+    num sum = 0;
+    for (final p in _naps) {
+      final d = _num(p['duration_min']);
+      if (d == null) return null;
+      sum += d;
+    }
+    return sum;
+  }
 
   List<MapEntry<int, double>> get _cycleSeries {
     final raw = data['cycle_series'];

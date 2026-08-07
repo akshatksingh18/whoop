@@ -126,4 +126,38 @@ void main() {
       expect(find.text('Daytime nap'), findsNothing);
     });
   });
+
+  group('an unknown nap duration is never rendered as zero', () {
+    testWidgets('the naps row shows "—" when a nap duration is unknown',
+        (t) async {
+      t.view.physicalSize = const Size(390, 3600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+
+      final data = _nightWithNap();
+      final periods = (data['periods'] as List).cast<Map<String, dynamic>>();
+      data['periods'] = [
+        periods.first,
+        {...periods[1], 'duration_min': null},
+      ];
+
+      await t.pumpWidget(_host(SleepNightContent(
+        data: data,
+        date: _today(),
+        onEditTimes: () {},
+        onConfirmFallback: () {},
+        onClearOverride: () {},
+        onOpenPeriods: () {},
+      )));
+      await t.pumpAndSettle();
+
+      expect(find.text('Daytime nap'), findsOneWidget);
+      expect(
+        find.text('—'),
+        findsWidgets,
+        reason: 'summing an unknown as 0 would under-report the nap total',
+      );
+      expect(find.text('0m'), findsNothing);
+    });
+  });
 }

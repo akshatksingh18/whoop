@@ -12,7 +12,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -91,7 +90,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 26;
+  static const int schemaVersion = 27;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -391,11 +390,23 @@ class LocalDb {
           // use by FiredKeyStore, so nothing is lost on upgrade.
           await _createNotifFired(db);
         }
+        if (oldV < 27) {
+          // `live_coverage` gains a `source` column so a phone-pedometer count
+          // can be told apart from the band's 100 Hz wrist count. Existing rows
+          // default to 'band', which is what they are.
+          //
+          // This matters because the two sources must NEVER be summed: they
+          // both count the same walk from different places on the body. The
+          // reader prefers phone rows for a day when any exist (a
+          // pocket-carried pedometer sees gait; a wrist one confuses arm work
+          // for steps), and falls back to band rows otherwise.
+          await _ensureLiveCoverageSource(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 26,
+      version: schemaVersion,
     );
   }
 
@@ -435,6 +446,7 @@ class LocalDb {
       await db.execute('DROP INDEX IF EXISTS $ix');
     }
     await _createLiveCoverage(db);
+    await _ensureLiveCoverageSource(db);
     await _createCycleSymptom(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
@@ -755,13 +767,33 @@ class LocalDb {
         start_ts INTEGER NOT NULL,
         end_ts INTEGER NOT NULL,
         steps INTEGER NOT NULL,
-        day TEXT NOT NULL
+        day TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '$kStepSourceBand'
       )
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
     );
   }
+
+  /// Ensure `live_coverage.source` exists (v27).
+  ///
+  /// Uses the shared guarded helper — an unguarded ALTER TABLE on an
+  /// already-migrated db bricks the upgrade (that has bitten this file twice).
+  static Future<void> _ensureLiveCoverageSource(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'live_coverage',
+      'source',
+      "TEXT NOT NULL DEFAULT '$kStepSourceBand'",
+    );
+  }
+
+  /// Step-count provenance for a `live_coverage` row.
+  ///
+  /// These are never summed together — see [liveStepsForDay].
+  static const String kStepSourceBand = 'band'; // band 100 Hz AN-2554 (wrist)
+  static const String kStepSourcePhone = 'phone'; // phone pedometer (pocket)
 
   /// Record a real 100 Hz step window (device-time seconds) + its step count.
   ///
@@ -777,8 +809,9 @@ class LocalDb {
     int startTs,
     int endTs,
     int steps,
-    String day,
-  ) async {
+    String day, {
+    String source = kStepSourceBand,
+  }) async {
     final w = sanitizeCoverageWindow(startTs, endTs, steps);
     if (w == null) return;
     final db = await instance;
@@ -787,6 +820,37 @@ class LocalDb {
       'end_ts': w.endTs,
       'steps': steps,
       'day': day,
+      'source': source,
+    });
+  }
+
+  /// Replace ALL phone-pedometer rows for [day] with [windows], atomically.
+  ///
+  /// Phone step data is a re-readable snapshot, not an append-only stream: the
+  /// same day can be synced repeatedly as it fills in. So the phone sync is
+  /// delete-then-insert scoped to `source = 'phone'`, which is idempotent by
+  /// construction and needs no window-clipping. Band rows are untouched.
+  static Future<void> replacePhoneCoverageForDay(
+    String day,
+    List<({int startTs, int endTs, int steps})> windows,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'live_coverage',
+        where: 'day = ? AND source = ?',
+        whereArgs: [day, kStepSourcePhone],
+      );
+      for (final w in windows) {
+        if (w.steps <= 0 || w.endTs <= w.startTs) continue;
+        await txn.insert('live_coverage', {
+          'start_ts': w.startTs,
+          'end_ts': w.endTs,
+          'steps': w.steps,
+          'day': day,
+          'source': kStepSourcePhone,
+        });
+      }
     });
   }
 
@@ -806,27 +870,86 @@ class LocalDb {
     return r.isNotEmpty;
   }
 
-  /// Real (100 Hz) steps attributed to [day].
-  static Future<int> liveStepsForDay(String day) async {
+  /// Phone-sourced steps already banked for [day].
+  ///
+  /// Used by the pedometer sync to tell "this day really had no steps" from
+  /// "this read came back empty" before it replaces a day wholesale — see
+  /// [replacePhoneCoverageForDay], which is delete-then-insert.
+  static Future<int> phoneStepsForDay(String day) async {
     final db = await instance;
     final r = await db.rawQuery(
-      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?',
-      [day],
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage '
+      'WHERE day = ? AND source = ?',
+      [day, kStepSourcePhone],
     );
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
-  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
-  /// exclude already-counted minutes from the 1 Hz estimate.
+  /// Drop every phone-sourced coverage row (the user turned phone steps off).
+  /// Band rows are untouched, so days fall back to the band count.
+  static Future<int> clearPhoneCoverage() async {
+    final db = await instance;
+    return db.delete(
+      'live_coverage',
+      where: 'source = ?',
+      whereArgs: [kStepSourcePhone],
+    );
+  }
+
+  /// Real pedometer steps attributed to [day], from ONE source.
+  ///
+  /// Phone and band counts are never added together: both count the same walk,
+  /// one from the pocket and one from the wrist, so summing them roughly
+  /// doubles a day. When the phone has any data for the day it wins outright —
+  /// a pocket/waist pedometer observes trunk motion (real gait), whereas a
+  /// wrist one is documented emitting 22-27 false steps/min during dishes,
+  /// reaching and driving while missing slow walking (O'Connell 2017,
+  /// doi:10.1371/journal.pone.0169616). Band rows are the fallback.
+  static Future<int> liveStepsForDay(String day) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT source, COALESCE(SUM(steps),0) s FROM live_coverage '
+      'WHERE day = ? GROUP BY source',
+      [day],
+    );
+    var band = 0;
+    var phone = 0;
+    for (final row in r) {
+      final n = (row['s'] as num?)?.toInt() ?? 0;
+      if (row['source'] == kStepSourcePhone) {
+        phone += n;
+      } else {
+        band += n;
+      }
+    }
+    return phone > 0 ? phone : band;
+  }
+
+  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec), for ONE
+  /// [source] (band by default).
+  ///
+  /// The 1 Hz-estimate exclusion this originally served is gone along with the
+  /// estimator. Its only remaining caller is the NOOP importer, which reads back
+  /// the spans it has already banked so `stepRuns` can clip them out and a
+  /// re-import over an overlapping span cannot double-count.
+  ///
+  /// THE SOURCE FILTER IS LOAD-BEARING for that caller. Phone-pedometer rows now
+  /// share this table and cover the same wall-clock hours, so an unfiltered read
+  /// let a user with phone steps enabled import a NOOP backup whose BAND step
+  /// runs were clipped against the PHONE's windows and silently dropped — the
+  /// import reporting success while banking nothing for those days. Band clips
+  /// against band. Phone coverage needs no clipping at all: it is replaced
+  /// wholesale per day (see [replacePhoneCoverageForDay]).
   static Future<List<List<int>>> coverageWindowsOverlapping(
     int loSec,
-    int hiSec,
-  ) async {
+    int hiSec, {
+    String source = kStepSourceBand,
+  }) async {
     final db = await instance;
     final rows = await db.query(
       'live_coverage',
-      where: 'end_ts >= ? AND start_ts < ?',
-      whereArgs: [loSec, hiSec],
+      where: 'end_ts >= ? AND start_ts < ? AND source = ?',
+      whereArgs: [loSec, hiSec, source],
     );
     return [
       for (final r in rows)
@@ -3899,22 +4022,39 @@ class LocalDb {
     return (rows.first['value'] as num?)?.toDouble();
   }
 
-  static Future<ana.StepCalibration?> getStepCalibration() async {
-    final row = await baseline('step_calibration');
+  /// The FROZEN personal movement floor (g, dynAmp units) + when it was frozen.
+  ///
+  /// Persisted rather than recomputed because a floor that keeps tracking the
+  /// user cancels the trend it exists to report — see the derivation-engine
+  /// comment for the measured before/after. Returns null until enrollment
+  /// completes, which is the estimator's signal to abstain.
+  static Future<({double floorG, String frozenOn, int days})?>
+      getMovementFloor() async {
+    final row = await baseline('movement_floor');
     final raw = row?['payload_json'];
     if (raw is! String || raw.isEmpty) return null;
     try {
-      final decoded = jsonDecode(raw);
-      return decoded is Map
-          ? ana.StepCalibration.fromJson(decoded.cast<String, dynamic>())
-          : null;
+      final d = jsonDecode(raw);
+      if (d is! Map) return null;
+      final f = (d['floor_g'] as num?)?.toDouble();
+      final on = d['frozen_on'] as String?;
+      if (f == null || !f.isFinite || f <= 0 || on == null) return null;
+      return (floorG: f, frozenOn: on, days: (d['days'] as num?)?.toInt() ?? 0);
     } catch (_) {
       return null;
     }
   }
 
-  static Future<void> putStepCalibration(ana.StepCalibration calibration) =>
-      putBaseline('step_calibration', jsonEncode(calibration.toJson()));
+  static Future<void> putMovementFloor({
+    required double floorG,
+    required String frozenOn,
+    required int days,
+  }) =>
+      putBaseline(
+        'movement_floor',
+        jsonEncode({'floor_g': floorG, 'frozen_on': frozenOn, 'days': days}),
+      );
+
 
   /// A long-format metric series (oldest first) for trends/sparklines.
   static Future<List<Map<String, dynamic>>> metricSeries(

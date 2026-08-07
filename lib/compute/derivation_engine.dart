@@ -38,6 +38,7 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -512,7 +513,91 @@ import 'substrate.dart';
 //     the bundle carries the distinction for whoever takes it.
 //
 // Days re-derive so sleep need, bedtime, wake and sleep performance are rebuilt.
-const int kAlgoVersion = 56;
+
+// NOTE ON NUMBERING: v55 and v56 above are the nap/strain work (PR #204),
+// which merged first. The three entries below are this branch's, renumbered
+// from 55/56/57 to 57/58/59 so the constant stays STRICTLY MONOTONIC. That is
+// load-bearing, not cosmetic: the derive gate matches algo_version EXACTLY
+// while the read seam serves MAX(algo_version), so a version that goes
+// backwards writes rows nobody reads and re-derives forever.
+//
+// v57: THE 1 Hz STEP ESTIMATE IS DELETED. Steps are now real-measured only.
+//
+// Diagnosis on a real user DB (2026-08-03): the app reported 2,645 steps for a
+// day the user took under 400. It was 23 "active minutes" x an assumed 115 spm.
+// Both halves of that conversion are invalid at 1 Hz, and neither is fixable by
+// re-tuning:
+//   * Cadence is NOT IDENTIFIABLE. Gait is 1.4-2.3 Hz (Straczkiewicz 2023,
+//     doi:10.1038/s41746-022-00745-z); at 1 Hz every fundamental is sub-Nyquist
+//     and 80/100/140/160 spm alias to the same 0.333 Hz. No published step
+//     detector exists below 10 Hz.
+//   * The minutes were never specifically ambulation. At the wrist, arm work
+//     out-accelerates walking (stirring ~104 mg, chopping ~139 mg vs walking
+//     ~66 mg ENMO), so a movement threshold cannot isolate gait even at full
+//     rate: wrist devices emit 22-27 false steps/min during dishes, reaching
+//     and driving (O'Connell 2017, doi:10.1371/journal.pone.0169616) while
+//     detecting slow walking at sensitivity 0.05. The two errors have OPPOSITE
+//     sign, so no gain constant corrects both.
+// Confirmed against this DB's own ground truth: the single window where the
+// 100 Hz pedometer and 1 Hz overlap had HR 95->108 and dynAmp 0.31-0.40 g, and
+// the REAL count was 11 steps in 3.1 min (3.5 spm) where the estimator would
+// have assigned ~115 spm.
+//
+// What changes: `scalars.steps` is now ABSENT unless a gait-capable source
+// measured the day (band 100 Hz, phone pedometer, or a NOOP import — all in
+// `live_coverage`). Days with no such source lose their step number entirely
+// rather than showing an invented one. `active_min` survives as an explicitly
+// NON-locomotion movement-volume index (bundle key `movement`) and is no longer
+// coverage-excluded, since there is no longer a step total it could double-count
+// into. Steps also stopped being written to Apple Health / Health Connect, both
+// because the old value was fabricated and because we now READ the phone's own
+// pedometer from that store and must not feed our copy back to ourselves.
+// Every day's steps/active_min move, so every day must re-derive.
+// v58: movement minutes rebuilt on MEASURED evidence. Every change below was
+// proven against 4 days of this user's real 1 Hz substrate before being made;
+// two proposals were REFUTED by the same tests and deliberately NOT built.
+//
+//   * HR GATE DELETED. `restingHr + 8 bpm` changed active minutes by exactly
+//     ZERO on every day tested. At RHR ~62 it sits at ~6% of heart-rate
+//     reserve — below every ACSM band — and 73-100% of covered minutes already
+//     cleared it. It also failed in the wrong direction: PPG HR is least
+//     reliable during the motion being gated, so a dropout deleted minutes the
+//     accelerometer measured fine. `dailyActiveMinutes` no longer accepts HR.
+//   * x3 CEILING DELETED. It rejected ZERO minutes on all 4 days with
+//     0.42-0.55 g of headroom, and cannot fire on artifacts (a 3 s knock
+//     averages ~0.23 g, below the FLOOR). The only thing it could ever exclude
+//     was a genuinely hard session.
+//   * FLOOR IS NOW FROZEN after a 14-day enrollment, not recomputed daily. A
+//     threshold derived from the signal it thresholds cancels the trend it
+//     exists to report: scaling a real day's dynAmp gave 37 active minutes at
+//     1x, 1.5x, 2x AND 3x activity when recomputed, versus 23 -> 254 frozen.
+//     Re-freezes only on device/wrist change, a 30-day wear gap, or 365 days.
+//   * NOT BUILT (proven unnecessary): accel autocalibration — offset and
+//     uniform gain cancel exactly through the high-pass and the floor
+//     normalisation (+5% gain moves the gate decision by 0.0000); only
+//     anisotropic gain survives at ~1-3%. And gravity/forearm orientation —
+//     it solved the ambulation problem v55 deleted. A sleep-anchored floor was
+//     also tested and REFUTED: CV 138.6% across days vs 9.3%, and on one night
+//     it landed above the entire day's range (would report zero).
+//   * SEMANTICS CORRECTED. The R24 1 Hz accel field is a fused GRAVITY vector,
+//     not acceleration: across 269,486 real samples ||a|| is p50 1.027 g with
+//     0.030% above 1.3 g, and during the single most vigorous minute of a day
+//     it was 1.033 g +- 0.006 (0 of 420 samples above 1.2 g). So `dynAmp`
+//     measures how fast the wrist RE-ORIENTS, not how hard it accelerates, and
+//     ENMO/MAD over this substrate are ~(1.03 - gRef): a pure calibration
+//     artifact with zero signal. That is the true root cause of the original
+//     42,155-steps-at-gRef-0.97 / 0-at-1.02 collapse.
+// active_min moves on every day; steps are unaffected by this bump.
+//
+// v59 - review follow-up: the ABSENT `steps` block stops labelling itself. It
+//   carried `tier: 'ESTIMATE'` alongside `value: null`, and `Metric.parse` maps
+//   that tier to `beta: true`, so a day with no measurement at all rendered the
+//   estimate badge. Absent now means absent: `tier: null` (parsing to
+//   MetricTier.unknown) and an empty `inputs_used`. No VALUE changes, but the
+//   persisted bundle does, so days derived at v58 must be re-derived to pick it
+//   up. `ABSENT` was deliberately NOT invented as a fifth tier — `Tier.all` in
+//   analytics is a closed set of four published grades.
+const int kAlgoVersion = 59;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -718,6 +803,14 @@ class _BaselineHistoryCache {
   /// AFTER the target are excluded too: a baseline is prior days, and a backfill
   /// sweep must not let later days leak into an older day's baseline (which
   /// would also make the result depend on sweep order).
+  /// The set of dates that actually have a stored value for [key].
+  ///
+  /// Used to detect wear GAPS: a date with no `dyn_p90` row means the band
+  /// produced no usable motion that day.
+  Set<String> datesFor(String key) => {
+        for (final s in _series[key] ?? const <_DatedValue>[]) s.date,
+      };
+
   List<double> valuesBefore(String key, String beforeDate) => _trailing([
         for (final s in _series[key] ?? const <_DatedValue>[])
           if (s.date.compareTo(beforeDate) < 0) s,
@@ -819,6 +912,26 @@ Future<void> runWithConcurrency<T>(
   }
 
   await Future.wait(List.generate(poolSize, (_) => lane()));
+}
+
+/// Minimal async mutex: serializes read-modify-write sections that concurrent
+/// day workers ([runWithConcurrency]) would otherwise interleave.
+///
+/// Dart's scheduler makes a single statement atomic, but NOT a
+/// read → decide → write sequence with `await`s in it: every lane can observe
+/// the pre-write state before any of them writes. The shared movement floor is
+/// exactly that shape, so it needs one.
+class _AsyncLock {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() action) {
+    final completer = Completer<void>();
+    final previous = _tail;
+    _tail = completer.future;
+    return previous
+        .then((_) => action())
+        .whenComplete(completer.complete);
+  }
 }
 
 class DerivationEngine {
@@ -2250,10 +2363,7 @@ class DerivationEngine {
     try {
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-      final coverageWindows =
-          await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
       final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
-      final stepCalib = await LocalDb.getStepCalibration();
       final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
       // Off-wrist / charging spans over the NAP window (which runs past this
@@ -2267,14 +2377,31 @@ class DerivationEngine {
       final wristOffSpans = await LocalDb.wristOffSpans(napLo, napHi);
       final chargingSpans = await LocalDb.chargingSpans(napLo, napHi);
 
-      // PERSONAL ambulatory floor, from days STRICTLY BEFORE this one (the same
-      // self-exclusion every other baseline uses — a day must not help set the
-      // threshold it is then scored against). Anchoring on trailing days is the
-      // whole point: an absolute g constant is destroyed by a few-percent
-      // gravity-reference excursion, and a same-day floor collapses on a quiet
-      // day. Below the minimum history this is null and the estimator abstains.
+      // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
+      //
+      // Freezing is the whole point and it is not an optimisation. This
+      // threshold is derived from the same signal it thresholds, so a floor
+      // that keeps tracking the user cancels the trend it exists to report.
+      // Measured by scaling a real day's dynAmp and recomputing both ways:
+      //
+      //     activity x     FROZEN     recomputed
+      //          1.00          23             37
+      //          1.50          66             37
+      //          2.00         128             37
+      //          3.00         254             37
+      //
+      // A recomputed floor reports the SAME number whether the user tripled
+      // their activity or did nothing at all. So: accumulate `dyn_p90` for an
+      // enrollment window, commit the median, and keep using it. It re-freezes
+      // only on events that genuinely change the signal's scale (see
+      // `ana.shouldRefreezeFloor`) — never merely because time passed.
+      //
+      // Self-exclusion (days STRICTLY BEFORE this one) is retained for the
+      // enrollment estimate: a day must not help set the threshold it is then
+      // scored against. Below the minimum history the floor is null and the
+      // estimator abstains rather than substituting a constant.
+      final dynFloorG = await _frozenMovementFloor(history, day.date);
       final dynHistory = history.valuesBefore('dyn_p90', day.date);
-      final dynFloorG = ana.personalDynFloorFromDailySummaries(dynHistory);
 
       // Built on THIS isolate so the Isolate.run closure captures only this plain
       // sendable object (never `this`, `day`, or `bundle`).
@@ -2287,9 +2414,7 @@ class DerivationEngine {
         offsetSec: day.sleepOffsetSec,
         rhr: (scMap?['rhr'] as num?)?.toDouble(),
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
-        coverageWindows: coverageWindows,
         liveStepsReal: liveStepsReal,
-        stepCalib: stepCalib,
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
         savedSessions: savedSessions,
@@ -2422,11 +2547,13 @@ class DerivationEngine {
         'stress': sc('stress'),
         'spo2': sc('spo2'),
         'calories': sc('calories'),
-        // Steps = real 100 Hz count + 1 Hz estimate over uncovered minutes
-        // (computed in _stepsAndEnergy; never double-counted).
+        // Steps = REAL pedometer counts only (band 100 Hz / phone / NOOP
+        // import, all via `live_coverage`). Absent — written as a NULL row, so
+        // a previously fabricated value is overwritten rather than left
+        // standing — on any day nothing gait-capable measured.
         'steps': sc('steps'),
-        // Ambulatory minutes — the quantity 1 Hz can actually resolve, and the
-        // unit public activity guidance uses. Steps are derived FROM this.
+        // Movement minutes: activity VOLUME, not locomotion. Steps are NOT
+        // derived from this and never will be again (see the v55/v56 note).
         'active_min': sc('active_min'),
         // This day's high quantile of the calibration-invariant dynamic accel
         // amplitude. Not a user-facing metric: it is the per-day summary the
@@ -3133,26 +3260,203 @@ class DerivationEngine {
     bundle['wear'] = wake['wear'];
   }
 
-  /// STEPS (hybrid: real 100 Hz count + bounded 1 Hz estimate) + total daily
-  /// energy (TDEE), written into the bundle's `steps` block + `scalars`.
+  /// The personal movement floor, estimated ONCE and then frozen.
   ///
-  /// Steps = [liveStepsReal] (AN-2554 over the band's 100 Hz windows — the real
-  /// count, always preferred) + a 1 Hz estimate over the minutes those windows do
-  /// NOT cover ([coverageWindows], device-time sec). So a minute is counted by
-  /// 100 Hz OR estimated by 1 Hz, never both. TDEE = HR-flex (Mifflin BMR floor +
-  /// active Keytel surplus). Best-effort.
+  /// Returns the persisted value if one exists. Otherwise, once enough trailing
+  /// `dyn_p90` days have accumulated, commits the median and returns it. Below
+  /// that it returns null and the estimator abstains — deliberately, since a
+  /// constant fallback is the exact failure this design removes.
+  ///
+  /// Why frozen: the floor is derived from the same signal it thresholds, so a
+  /// continuously-recomputed floor tracks the user and reports a near-constant
+  /// number regardless of behaviour (measured: 37 active minutes at 1x, 1.5x,
+  /// 2x AND 3x activity, versus 23 -> 254 with a frozen floor).
+  ///
+  /// ORDER-INDEPENDENCE. The floor is ONE persisted scalar shared by every day,
+  /// but `run()` dispatches days NEWEST-FIRST through a concurrent worker pool,
+  /// so this read-modify-write is reached by several days at once. Three things
+  /// keep the outcome from depending on which worker finishes last:
+  ///
+  ///   1. `_floorLock` serializes the whole read/decide/write, so two days can
+  ///      never both observe "nothing stored" and both commit.
+  ///   2. `daysSinceFrozen` is clamped at 0 (see [mfp.daysSinceFrozen]), so a
+  ///      backfill day never reads as a stale floor and never triggers a
+  ///      re-freeze just for being old.
+  ///   3. `mayCommitFloorOn` stops an older day overwriting a newer freeze.
+  ///
+  /// Without these, a `kAlgoVersion` bump — which this very change forces —
+  /// would re-derive the whole retained window and let sweep order decide every
+  /// day's `active_min`. That is precisely what `_BaselineHistoryCache`'s own
+  /// contract forbids for baselines.
+  static Future<double?> _frozenMovementFloor(
+    _BaselineHistoryCache history,
+    String dayId,
+  ) =>
+      _floorLock.run(() => _resolveMovementFloor(history, dayId));
+
+  /// Serializes the shared-floor read-modify-write across concurrent day
+  /// workers. See [_frozenMovementFloor].
+  static final _AsyncLock _floorLock = _AsyncLock();
+
+  static Future<double?> _resolveMovementFloor(
+    _BaselineHistoryCache history,
+    String dayId,
+  ) async {
+    final stored = await LocalDb.getMovementFloor();
+    final hist = history.valuesBefore('dyn_p90', dayId);
+
+    if (stored != null) {
+      // Re-freeze only on a real change of scale, never on elapsed time alone.
+      //
+      // NOTE on the unwired signals: `shouldRefreezeFloor` also accepts
+      // `deviceChanged` and `wristChanged`, and edge has no reliable source for
+      // either yet (no persisted device identity, no wrist-selection history),
+      // so they are deliberately NOT passed rather than passed as a fabricated
+      // `false` that reads like a checked condition. `wearGapDays` IS
+      // derivable — a run of days with no `dyn_p90` row means the band was not
+      // worn — so it is computed and passed.
+      final refreeze = ana.shouldRefreezeFloor(
+        daysSinceFrozen: mfp.daysSinceFrozen(
+          frozenOn: stored.frozenOn,
+          dayId: dayId,
+        ),
+        wearGapDays: mfp.wearGapDays(
+          have: history.datesFor('dyn_p90'),
+          dayId: dayId,
+        ),
+      );
+      if (!refreeze) return stored.floorG;
+
+      // A re-freeze that CANNOT be satisfied must not destroy what we have.
+      // Falling through to enrollment with thin history would return null and
+      // make `active_min` vanish for the day — and that is reachable exactly
+      // when re-freezing matters most (an old floor on a user whose recent
+      // `dyn_p90` history was pruned or is sparse). Keep serving the existing
+      // floor until a replacement can actually be computed.
+      if (hist.length < ana.enrollmentDaysForFrozenFloor) return stored.floorG;
+
+      // REACHABLE, and this is the case it exists for: an OLD backfill day that
+      // trips the re-freeze rule (a 30-day wear gap before it is the common
+      // one) and has enough prior history to recompute. Without this it would
+      // overwrite the freeze a NEWER day just established, and since the sweep
+      // runs newest-first and concurrently, sweep order would decide the floor.
+      // A backfill day may CONSUME the shared floor; it may never move it.
+      if (!mfp.mayCommitFloorOn(frozenOn: stored.frozenOn, dayId: dayId)) {
+        return stored.floorG;
+      }
+    } else if (hist.length < ana.enrollmentDaysForFrozenFloor) {
+      // Still enrolling, and nothing stored to fall back on. Return null so the
+      // metric abstains and says so, rather than shipping a threshold we have
+      // already proven will be re-derived.
+      return null;
+    }
+
+    final floor = ana.personalDynFloorFromDailySummaries(hist);
+    if (floor == null) return stored?.floorG;
+    await LocalDb.putMovementFloor(
+      floorG: floor,
+      frozenOn: dayId,
+      days: hist.length,
+    );
+    if (kDebugMode) {
+      debugPrint('[derive] movement floor FROZEN at '
+          '${floor.toStringAsFixed(4)} g from ${hist.length} days ($dayId)');
+    }
+    return floor;
+  }
+
+  /// Write the day's step count. REAL PEDOMETER MEASUREMENTS ONLY.
+  ///
+  /// The 1 Hz substrate contributes NOTHING here and must never do so again.
+  /// The removed estimate multiplied 1 Hz "active minutes" by a walking cadence
+  /// band; on a real user day it reported 2,645 steps against a true count
+  /// under 400. Both halves of that conversion are invalid at 1 Hz:
+  ///   * cadence is not identifiable (gait 1.4-2.3 Hz is sub-Nyquist; 80/100/
+  ///     140/160 spm all alias to the same 0.333 Hz), and
+  ///   * the minutes counted were never specifically ambulation — at the wrist,
+  ///     arm work out-accelerates walking (stirring ~104 mg, chopping ~139 mg
+  ///     vs walking ~66 mg ENMO), which is why wrist devices are documented
+  ///     emitting 22-27 false steps/min during dishes and driving (O'Connell
+  ///     2017) while missing slow walking at sensitivity 0.05.
+  /// Two errors of OPPOSITE sign: no gain constant fixes both.
+  ///
+  /// So `steps` is absent unless something that can actually see gait measured
+  /// it: the Tier A 100 Hz pedometer, or the phone's own pedometer (both land
+  /// in `live_coverage`). No real source -> no number.
+  ///
+  /// Called BEFORE the movement-substrate guards, because it depends on none of
+  /// them — see the call site.
+  static void _writeSteps(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    int liveStepsReal,
+  ) {
+    final haveRealSteps = liveStepsReal > 0;
+    if (haveRealSteps) {
+      scMap?['steps'] = liveStepsReal.toDouble();
+    } else {
+      scMap?.remove('steps');
+    }
+    bundle['steps'] = <String, dynamic>{
+      'value': haveRealSteps ? liveStepsReal : null,
+      'real_measured': liveStepsReal,
+      'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
+      'confidence': haveRealSteps ? 0.9 : 0.0,
+      // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
+      // ways: this code path never estimates anything (that is the whole point
+      // of the change), and `Metric.parse` turns tier == ESTIMATE into
+      // `beta: true`, which paints the estimate/beta badge onto a card that has
+      // no number on it at all. `null` parses to `MetricTier.unknown`, which is
+      // what "we did not measure this" actually is. `ABSENT` is deliberately
+      // NOT invented: `Tier.all` in analytics is a closed set of four published
+      // grades and the edge must not widen it from here.
+      'tier': haveRealSteps ? 'HIGH' : null,
+      // Likewise, nothing was used when nothing was measured.
+      'inputs_used':
+          haveRealSteps ? const ['live_coverage_pedometer'] : const <String>[],
+      'note': haveRealSteps
+          ? 'real pedometer count over measured windows only; time outside '
+              'those windows is not counted rather than estimated'
+          : 'no step count: nothing that can resolve gait measured this day. '
+              'A 1 Hz wrist stream cannot count steps, so no number is shown '
+              'instead of an invented one',
+    };
+  }
+
+  /// STEPS (real pedometer counts ONLY) + movement minutes + total daily energy
+  /// (TDEE), written into the bundle's `steps`/`movement` blocks + `scalars`.
+  ///
+  /// Steps = [liveStepsReal] and nothing else — the pedometer counts banked in
+  /// `live_coverage` by a source that can actually resolve gait (the band's
+  /// 100 Hz AN-2554 stream, or the phone's own pedometer). Time outside those
+  /// windows is NOT counted and NOT estimated: with no real count the day has
+  /// no step number at all. See the long note at the call site for why the old
+  /// 1 Hz estimate was removed rather than recalibrated.
+  ///
+  /// Movement minutes are a separate, explicitly non-locomotion activity index
+  /// computed over the whole day. TDEE = HR-flex (Mifflin BMR floor + active
+  /// Keytel surplus). Best-effort.
   static void _stepsAndEnergy(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate daySub,
     Profile profile,
-    List<List<int>> coverageWindows,
     int liveStepsReal,
-    ana.StepCalibration? stepCalib,
     double? dynFloorG,
     int dynHistoryDays,
   ) {
     try {
+      // STEPS FIRST — they depend on NOTHING from the band substrate.
+      //
+      // `liveStepsReal` comes from `live_coverage`, i.e. the phone pedometer or
+      // a live 100 Hz session. Both of the guards below protect the 1 Hz
+      // MOVEMENT computation, and if the step assignment sat after them a day
+      // with real measured phone steps but a thin band substrate (a day the
+      // band barely synced, or a fresh install) would silently report no steps
+      // at all — discarding a real measurement because an unrelated signal was
+      // missing. Assign steps before anything can return early.
+      _writeSteps(bundle, scMap, liveStepsReal);
+
       if (daySub.length < 60) return;
       final motion = _motionMinutes(daySub);
       if (motion.isEmpty) return;
@@ -3164,73 +3468,48 @@ class DerivationEngine {
       final dynSummary = ana.dailyDynSummary(motion);
       if (dynSummary != null) scMap?['dyn_p90'] = dynSummary;
 
-      // STEPS — hybrid, no double-count. Drop any minute already covered by a
-      // 100 Hz window (real count wins), estimate steps for the rest from 1 Hz.
-      bool covered(double tsMinStartMs) {
-        final s = (tsMinStartMs / 1000).round();
-        for (final w in coverageWindows) {
-          if (s + 60 > w[0] && s < w[1]) return true;
-        }
-        return false;
-      }
-
-      final motionUn = <ana.MotionMinute>[];
-      final hrUn = <double>[];
-      for (var i = 0; i < motion.length; i++) {
-        if (covered(motion[i].tsMinStartMs)) continue;
-        motionUn.add(motion[i]);
-        hrUn.add(hrPerMin[i]);
-      }
-
-      final rhr = (scMap?['rhr'] as num?)?.toDouble();
-      final est = ana.dailyStepEstimate(
-        motionUn,
+      // MOVEMENT MINUTES run over the WHOLE day — no coverage exclusion.
+      //
+      // Minutes covered by a pedometer window used to be dropped here, because
+      // steps were "real count over covered time + 1 Hz estimate over the rest"
+      // and including both would double-count. That hybrid is gone: steps are
+      // real-measured only and movement minutes are a separate quantity in a
+      // different unit, so there is nothing to double-count. Excluding covered
+      // minutes now would just silently under-report movement for exactly the
+      // periods we know the user was active.
+      final est = ana.dailyActiveMinutes(
+        motion,
         personalDynFloorG: dynFloorG,
-        hrPerMin: hrUn,
-        restingHr: rhr,
-        calib: stepCalib,
         pooledMinutesAvailable: dynHistoryDays,
       );
       final v = est.present ? est.value : null;
-      final estSteps = v?.steps ?? 0;
-      final daySteps = liveStepsReal + estSteps;
-      scMap?['steps'] = daySteps.toDouble();
-      // ACTIVE MINUTES is the primary, honest quantity here: 1 Hz cannot count
-      // steps (gait is 1.4-2.5 Hz and 120 spm aliases to DC at this rate), but
-      // it can resolve ambulatory MINUTES, which is also the unit public
-      // activity guidance is written in. The step figures are a RANGE over the
-      // free-living cadence band, and are absent entirely when the personal
-      // floor has not been established yet.
-      bundle['steps'] = <String, dynamic>{
-        'value': daySteps,
-        'real_100hz': liveStepsReal, // AN-2554 over live windows (real count)
-        'estimated_1hz': estSteps, // midpoint of the 1 Hz range
-        'estimated_1hz_low': v?.stepsLow,
-        'estimated_1hz_high': v?.stepsHigh,
-        'active_min': v?.activeMinutes ?? 0,
-        'cadence_low_spm': v?.cadenceLowSpm,
-        'cadence_high_spm': v?.cadenceHighSpm,
-        'dyn_floor_g': v?.dynFloorG,
-        'estimate_present': v != null,
-        'confidence': liveStepsReal > 0
-            ? 0.7
-            : (est.present ? est.confidence : 0.2),
-        'tier': liveStepsReal > 0 && estSteps == 0 ? 'HIGH' : 'ESTIMATE',
-        'inputs_used': const [
-          'live_100hz_pedometer',
-          'dyn_amp_1hz',
-          'hr_1hz',
-          'personal_dyn_floor',
-        ],
-        'note': v == null
-            ? 'real 100 Hz count only — the 1 Hz activity estimate needs a '
-                'personal movement baseline from several days of wear '
-                '(${est.note ?? 'need_baseline'})'
-            : 'real 100 Hz count for streamed time + ${v.activeMinutes} active '
-                'minutes estimated from 1 Hz for the rest (1 Hz cannot count '
-                'steps directly, so the step figure is a range)',
-      };
+
+      // Movement minutes stay, as an explicitly non-locomotion activity index.
+      //
+      // ONLY OVERWRITE ON SUCCESS — never remove. `_applyWakeDayFeatures` has
+      // already written `active_min` from `_activeMinutes` (ENMO over wake), a
+      // SEPARATE quantity that was never part of the fabricated step
+      // conversion. Removing it on abstention deleted a number the user
+      // previously had, for the whole enrollment window (every day a new user
+      // has before the floor freezes), and nulled its trend series with it.
+      // Abstaining from the new index is right; destroying the old independent
+      // measurement to do it is not.
       if (v != null) scMap?['active_min'] = v.activeMinutes.toDouble();
+      bundle['movement'] = <String, dynamic>{
+        'active_min': v?.activeMinutes,
+        'bout_count': v?.boutCount,
+        'dyn_floor_g': v?.dynFloorG,
+        'coverage': v?.coverage,
+        'confidence': est.present ? est.confidence : 0.0,
+        'tier': 'ESTIMATE',
+        // HR is NOT an input any more — the resting-HR gate was deleted in v56
+        // after it changed active minutes by exactly zero on every day tested.
+        'inputs_used': const ['dyn_amp_1hz', 'personal_dyn_floor'],
+        'note': v == null
+            ? (est.note ?? 'need_baseline')
+            : 'minutes of sustained wrist movement — activity volume, NOT '
+                'walking, and deliberately not converted to steps',
+      };
       if (profile.isComplete) {
         final perMinFull = <double>[
           for (final h in hrPerMin)
@@ -3314,7 +3593,8 @@ class DerivationEngine {
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
     double? strain;
     double? calories;
-    double? steps;
+    double? steps; // stays null here — real counts only, see below
+    double? movementMin;
     double? caloriesTotal;
     Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
@@ -3340,23 +3620,25 @@ class DerivationEngine {
       }
     }
     if (motion.isNotEmpty) {
-      // Steps do NOT need a profile: `dailyStepEstimate` falls back to the day's
-      // own 10th-percentile HR when `restingHr` is null, which is data-derived,
-      // not imputed. Pass the real value or nothing — never the old 60.0.
+      // STEPS ARE NOT COMPUTED HERE. This is the EARLY-READ path (what Today
+      // shows before the full day result exists), and there is no gait-capable
+      // source available to it — the real pedometer counts live in
+      // `live_coverage` and are summed by `_stepsAndEnergy`, which overwrites
+      // this artifact moments later via the copy-back below.
       //
-      // This is the EARLY-READ path (what Today shows before the full day result
-      // exists); `_stepsAndEnergy` recomputes and overwrites it with the hybrid
-      // real-100 Hz + 1 Hz figure moments later. Without a personal floor the
-      // estimator abstains and `steps` stays null here, which is correct — the
-      // early read then shows no step figure rather than a fabricated one.
-      final stepMetric = ana.dailyStepEstimate(
+      // It used to seed `steps` from the 1 Hz estimate so Today had something
+      // to show immediately. That is exactly the fabrication being removed:
+      // "something to show" is not a reason to invent a measurement. `steps`
+      // stays null here and Today renders no step figure until a real count
+      // exists.
+      //
+      // Movement minutes ARE computable from 1 Hz and are emitted below.
+      final movementMetric = ana.dailyActiveMinutes(
         motion,
         personalDynFloorG: dynFloorG,
-        hrPerMin: hrPerMinAll,
-        restingHr: rhrForTrimp,
       );
-      if (stepMetric.present && stepMetric.value != null) {
-        steps = stepMetric.value!.steps.toDouble();
+      if (movementMetric.present && movementMetric.value != null) {
+        movementMin = movementMetric.value!.activeMinutes.toDouble();
       }
       // TDEE needs the full anthropometric set (Mifflin BMR + Keytel surplus).
       if (age != null &&
@@ -3387,6 +3669,7 @@ class DerivationEngine {
           };
     return {
       'active_min': activeMin,
+      'movement_min': movementMin,
       'strain': strain,
       'calories': calories,
       'steps': steps,
@@ -3395,12 +3678,14 @@ class DerivationEngine {
       'activity': {
         'value': activeMin,
         'active_min': activeMin,
+        'movement_min': movementMin,
         'confidence': 0.6,
         'tier': 'ESTIMATE',
         'inputs_used': const ['accel_1hz'],
-        'note':
-            'active minutes (1 Hz ENMO over wake); 1 Hz cannot count steps — '
-            'true step counts come from live workout streaming',
+        'note': 'minutes of wrist movement over wake (1 Hz). This is activity '
+            'volume, NOT walking, and is never converted to steps: at the '
+            'wrist, arm work registers as strongly as ambulation. Real step '
+            'counts come only from the 100 Hz or phone pedometer',
       },
       'activity_curve': _activityCurve(daySub),
       'zones': zones,
@@ -4230,19 +4515,19 @@ class DerivationEngine {
       scMap,
       daySub,
       inp.profile,
-      inp.coverageWindows,
       inp.liveStepsReal,
-      inp.stepCalib,
       inp.dynFloorG,
       inp.dynHistoryDays,
     );
-    // _stepsAndEnergy just corrected `steps`/`calories_total` in bundlePatch +
-    // scMap using the hybrid real-100Hz + 1Hz-estimate count, but `wake` (built
-    // above by _buildWakeDayFeatures, before this correction ran) still holds
-    // the earlier 1Hz-only estimate. `wake` is what _persistWakeDayFeatures
-    // stores and what the Today repository reads while the full day result
-    // isn't ready yet, so copy the corrected values back in to avoid serving
-    // stale steps/calories from that early-read path.
+    // _stepsAndEnergy just wrote `steps` (REAL pedometer counts from
+    // `live_coverage` — band 100 Hz or phone, never an estimate) and
+    // `calories_total` into bundlePatch + scMap. `wake` was built above by
+    // _buildWakeDayFeatures BEFORE that ran, and deliberately leaves `steps`
+    // null: the early-read path has no gait-capable source of its own and must
+    // not invent one. `wake` is what _persistWakeDayFeatures stores and what
+    // the Today repository reads until the full day result exists, so copy the
+    // measured values back in — otherwise Today shows no step count on a day
+    // that really was measured.
     for (final key in const ['steps', 'calories_total']) {
       final value = scMap[key];
       if (value != null) wake[key] = value;
@@ -4688,7 +4973,7 @@ Future<R> runCancellableIsolate<R>(
 
 /// Sendable input for [DerivationEngine._computeDayBlocks] — crosses the
 /// `Isolate.run` boundary, so every field is plain data (Substrate is int/double
-/// lists; Profile/StepCalibration are primitive data classes). DB reads that the
+/// lists; Profile is a primitive data class). DB reads that the
 /// pure compute needs are performed by the caller and passed in here.
 class _DayBlocksInput {
   final Substrate daySub;
@@ -4699,9 +4984,7 @@ class _DayBlocksInput {
   final int offsetSec;
   final double? rhr;
   final int? maxHrUsed;
-  final List<List<int>> coverageWindows;
   final int liveStepsReal;
-  final ana.StepCalibration? stepCalib;
 
   /// PERSONAL ambulatory floor (g, dynAmp units) from trailing days, or null
   /// when there isn't enough history yet — in which case the 1 Hz estimator
@@ -4748,9 +5031,7 @@ class _DayBlocksInput {
     required this.offsetSec,
     required this.rhr,
     required this.maxHrUsed,
-    required this.coverageWindows,
     required this.liveStepsReal,
-    required this.stepCalib,
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,

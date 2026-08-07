@@ -412,10 +412,11 @@ class NoopImporter {
     return out;
   }
 
-  /// Bank [date]'s step runs into `live_coverage` so the derivation picks them up
-  /// as REAL steps (`liveStepsForDay`) and excludes those minutes from the 1 Hz
-  /// estimate (`coverageWindowsOverlapping`) — the same contract the live 100 Hz
-  /// pedometer uses, so imported and live days are counted identically.
+  /// Bank [date]'s step runs into `live_coverage` so the derivation picks them
+  /// up as REAL steps (`liveStepsForDay`) — the same contract the live 100 Hz
+  /// pedometer uses, so imported and live days are counted identically. These
+  /// are BAND-sourced counts (the strap's own step counter), which is what makes
+  /// them a real gait measurement rather than the deleted 1 Hz estimate.
   ///
   /// IDEMPOTENT BY TIME SPAN, not by exact window: `live_coverage` is an
   /// append-only SUM with no uniqueness constraint, so anything already banked

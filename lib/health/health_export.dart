@@ -183,20 +183,82 @@ class HealthExporter {
   String get _hrvScalarKey => isApple ? 'sdnn' : 'rmssd';
 
   List<HealthDataType> get _types => [
-    HealthDataType.RESTING_HEART_RATE,
-    _hrvType,
-    HealthDataType.RESPIRATORY_RATE,
-    HealthDataType.HEART_RATE,
-    HealthDataType.ACTIVE_ENERGY_BURNED,
-    HealthDataType.BASAL_ENERGY_BURNED,
-    HealthDataType.STEPS,
-    HealthDataType.SLEEP_DEEP,
-    HealthDataType.SLEEP_REM,
-    HealthDataType.SLEEP_LIGHT,
-    HealthDataType.SLEEP_AWAKE,
-    HealthDataType.SLEEP_SESSION,
-    HealthDataType.WORKOUT,
-  ];
+        HealthDataType.RESTING_HEART_RATE,
+        _hrvType,
+        HealthDataType.RESPIRATORY_RATE,
+        HealthDataType.HEART_RATE,
+        HealthDataType.ACTIVE_ENERGY_BURNED,
+        HealthDataType.BASAL_ENERGY_BURNED,
+        // STEPS is requested for DELETE SCOPE ONLY — nothing writes steps any
+        // more (see the block further down for why). We still need the write
+        // permission to purge the fabricated step samples earlier versions put
+        // into Apple Health / Health Connect, which is why WRITE_STEPS stays in
+        // the Android manifest. That purge is a ONE-SHOT migration and does not
+        // belong in the per-day rewrite loop — see [_purgeLegacyStepsIfNeeded]
+        // and [_rewriteTypes].
+        HealthDataType.STEPS,
+        HealthDataType.SLEEP_DEEP,
+        HealthDataType.SLEEP_REM,
+        HealthDataType.SLEEP_LIGHT,
+        HealthDataType.SLEEP_AWAKE,
+        HealthDataType.SLEEP_SESSION,
+        HealthDataType.WORKOUT,
+      ];
+
+  /// The types the per-day delete-then-write pass touches.
+  ///
+  /// STEPS is deliberately excluded. It is in [_types] only so `request()` asks
+  /// for the scope the legacy purge needs; including it here would run a delete
+  /// for a type nothing writes on every re-export of the recent (not-yet-
+  /// finalized) tail, forever, and would let that delete's failure flip a day's
+  /// export to unsuccessful.
+  /// Composes both intents on this seam:
+  ///   * `healthDeleteTypes` (platform-aware) drops the sleep types and
+  ///     HEART_RATE on Android, because the native SleepSessionRecord writer
+  ///     and the minute-HR batch own their own cleanup there.
+  ///   * STEPS is then removed on top, because NOTHING writes steps any more.
+  ///     Deleting a type we never write would run on every re-export of the
+  ///     not-yet-finalized tail forever, and — since a false `delete()` flips
+  ///     `success` — could permanently stall a day's export cursor. The
+  ///     historical fabricated samples are handled once by
+  ///     [_purgeLegacyStepsIfNeeded] instead, outside the success accounting.
+  List<HealthDataType> get _rewriteTypes => [
+        for (final t in healthDeleteTypes(isApplePlatform: isApple))
+          if (t != HealthDataType.STEPS) t,
+      ];
+
+  /// Cursor for the one-shot legacy-STEPS purge: the newest day already purged.
+  static const _kStepsPurgeCursor = 'health_steps_purged_through';
+  String? _stepsPurgedThrough;
+
+  /// Delete the fabricated STEPS samples earlier versions wrote for [date].
+  ///
+  /// ONE-SHOT, and deliberately not part of the day's success accounting: this
+  /// is a migration cleaning up data we should never have written, not part of
+  /// exporting the day. A failure here must not stall the export cursor for a
+  /// type nothing writes. Days are walked ascending, so the cursor advances
+  /// monotonically and a re-exported tail day is not re-purged.
+  Future<void> _purgeLegacyStepsIfNeeded(
+    String date,
+    DateTime dayStart,
+    DateTime dayEnd,
+  ) async {
+    _stepsPurgedThrough ??= await LocalDb.getCursor(_kStepsPurgeCursor) ?? '';
+    final through = _stepsPurgedThrough!;
+    if (through.isNotEmpty && date.compareTo(through) <= 0) return;
+    try {
+      await _health.delete(
+        type: HealthDataType.STEPS,
+        startTime: dayStart,
+        endTime: dayEnd,
+      );
+      _stepsPurgedThrough = date;
+      await LocalDb.setCursor(_kStepsPurgeCursor, date);
+    } catch (e) {
+      // Leave the cursor where it is so the next pass retries this day.
+      debugPrint('[health] purge legacy steps $date: $e');
+    }
+  }
 
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
   // design, and Health Connect's hasPermissions(WRITE) frequently returns
@@ -597,9 +659,13 @@ class HealthExporter {
       }
     }
 
+    // One-shot cleanup of the fabricated step samples earlier versions wrote.
+    // Outside the success accounting on purpose — see the method doc.
+    await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
+
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
-    for (final t in healthDeleteTypes(isApplePlatform: isApple)) {
+    for (final t in _rewriteTypes) {
       try {
         final deleted = await _health.delete(
           type: t,
@@ -793,26 +859,22 @@ class HealthExporter {
       }
     }
 
-    // Steps (24/7 estimate) over the whole day.
-    final steps = sc('steps');
-    if (steps != null && steps > 0) {
-      try {
-        final wrote = await _health.writeHealthData(
-          value: steps.toDouble(),
-          type: HealthDataType.STEPS,
-          startTime: dayStart,
-          endTime: dayEnd,
-          unit: HealthDataUnit.COUNT,
-        );
-        if (!wrote) {
-          debugPrint('[health] write steps returned false');
-          success = false;
-        }
-      } catch (e) {
-        debugPrint('[health] write steps: $e');
-        success = false;
-      }
-    }
+    // STEPS ARE DELIBERATELY NOT EXPORTED.
+    //
+    // We used to write `scalars.steps` here as a plain HealthDataType.STEPS
+    // sample. Two reasons that had to stop:
+    //
+    //   1. The value was a 1 Hz fabrication (active minutes x an assumed
+    //      cadence) — measured at 2,645 against a true count under 400.
+    //   2. Even now that `steps` is real-pedometer-only, exporting it is
+    //      wrong: on iOS the phone ALREADY writes its own pedometer steps to
+    //      HealthKit, and we now READ those (see PhonePedometer). Writing our
+    //      derived copy back would double-count into the system store and
+    //      then feed our own number back to us on the next read.
+    //
+    // The "estimate" qualifier every in-app surface carries is also lost the
+    // moment a sample lands in Apple Health as a bare STEPS count, so a wrong
+    // number here contaminates every other app on the device.
 
     // Health Connect models stages as children of ONE SleepSessionRecord. The
     // health 11.1.1 generic SLEEP_* writer instead creates one parent record

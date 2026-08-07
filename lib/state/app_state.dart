@@ -53,6 +53,7 @@ import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/health_export.dart';
+import '../health/phone_pedometer.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
@@ -230,6 +231,18 @@ class AppState extends ChangeNotifier {
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
+    // Steps only exist if a real pedometer measured them, so kick the phone
+    // pull early. This is BEST-EFFORT and establishes no ordering: it is
+    // unawaited, so a derive pass can read `live_coverage` while the sync is
+    // still in flight and that day then derives without phone steps. It
+    // self-heals on the next light pass.
+    //
+    // ROUTINE window only (2 days, ~48 platform round trips). Each hourly
+    // bucket is one platform call, so the 7-day backfill window is up to 168 of
+    // them; only today can still change, and only yesterday if the app did not
+    // run then. The full window runs on the explicit gestures instead.
+    if (phoneStepsEnabled) unawaited(syncPhoneSteps());
     // Best-effort, no prompt: learn the current health-permission state so the
     // Profile toggle reflects reality on open.
     if (healthSyncEnabled) unawaited(checkHealth());
@@ -388,12 +401,121 @@ class AppState extends ChangeNotifier {
   }
 
   /// Export all finalized-but-unexported days now. Returns days written.
-  Future<int> healthSyncNow() => _runHealthExport(forceRetry: true);
+  Future<int> healthSyncNow() async {
+    // Both halves of this seam matter and neither subsumes the other: the
+    // export runs through the single-flight guard (main), and the phone-steps
+    // sync stays gated on the user's preference (this branch).
+    final n = await _runHealthExport(forceRetry: true);
+    // Gate on the user's own preference. `disablePhoneSteps` deliberately does
+    // NOT revoke the platform permission (that is the user's to do in
+    // Settings), so an unconditional sync here would write phone rows straight
+    // back after the user turned the feature off — and since `liveStepsForDay`
+    // prefers phone rows outright, it would re-suppress the band count, the
+    // exact outcome `disablePhoneSteps` exists to prevent.
+    // An explicit health sync is a user gesture — take the full window.
+    if (phoneStepsEnabled) {
+      unawaited(syncPhoneSteps(days: PhonePedometer.fullSyncDays));
+    }
+    return n;
+  }
 
   Future<int> _runHealthExport({bool forceRetry = false}) =>
       _healthExportSingleFlight.run(
         () => _healthExport.exportAll(forceRetry: forceRetry),
       );
+
+  // ── phone pedometer (the ONLY source of real 24/7 step counts) ─────────────
+  final PhonePedometer _phonePedometer = PhonePedometer();
+  bool phoneStepsEnabled = false;
+  static const String _kPhoneSteps = 'phone_steps';
+
+  /// Ask for READ access to the phone's own step counts (user gesture).
+  ///
+  /// The band cannot count steps: it is on the wrist, and its 24/7 stream is
+  /// 1 Hz, where gait is sub-Nyquist. The phone rides in a pocket and already
+  /// counts steps continuously into the on-device health store — this reads
+  /// them. Nothing is uploaded and nothing is written back.
+  Future<bool> requestPhoneSteps() async {
+    final ok = await _phonePedometer.requestPermission();
+    // PERSIST BEFORE mutating in-memory state. Setting the field first and
+    // then awaiting the write leaves the two disagreeing if the write throws:
+    // the toggle reads ON for this run and OFF on the next launch, and the
+    // syncs below would bank phone rows the restored state says the user never
+    // enabled — rows that then keep overriding the band, since `disablePhone
+    // Steps` is the only thing that clears them and the user never sees the
+    // toggle on to turn it off.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPhoneSteps, ok);
+    phoneStepsEnabled = ok;
+    notifyListeners();
+    // The user just asked for this, so pull the full backfill window rather
+    // than the cheap routine one.
+    if (ok) unawaited(syncPhoneSteps(days: PhonePedometer.fullSyncDays));
+    return ok;
+  }
+
+  /// Turn phone steps off and DROP the counts we pulled.
+  ///
+  /// Leaving the rows behind would keep serving phone-sourced steps from a
+  /// source the user just switched off, and `liveStepsForDay` prefers phone
+  /// rows over band rows — so a stale row would keep overriding the band
+  /// indefinitely. Revoking the platform permission is the user's to do in
+  /// Settings; all we can do is stop reading and forget what we read.
+  ///
+  /// Clearing `live_coverage` only changes what FUTURE derives compute — the
+  /// screens read scalars persisted in `day_result`/`metric_series`. So this
+  /// also re-derives, exactly as `setSleepOverride` does for the equivalent
+  /// case; without it the user turns the toggle off and keeps seeing
+  /// phone-sourced counts.
+  ///
+  /// The re-derive is bounded: its scope is days that still hold raw
+  /// (`rawRetentionDays`), not the whole history. Older days keep their
+  /// phone-sourced value permanently — there is no substrate left to recompute
+  /// them from, which is the same limit every other version bump has.
+  Future<void> disablePhoneSteps() async {
+    // Persist first, for the reason in [requestPhoneSteps].
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPhoneSteps, false);
+    phoneStepsEnabled = false;
+    phoneStepsLastSyncedDays = null;
+    phoneStepsLastTotal = null;
+    try {
+      await LocalDb.clearPhoneCoverage();
+    } catch (e) {
+      debugPrint('[phone_steps] clear: $e');
+    }
+    notifyListeners();
+    unawaited(_reanalyzeForOverride());
+  }
+
+  /// Days successfully read on the last phone-step sync, and the total banked.
+  ///
+  /// Surfaced in Profile because the failure mode is otherwise INVISIBLE: on
+  /// iOS `requestAuthorization` returns true even when the user denies READ
+  /// (HealthKit hides read denial by design), so the toggle sits on, every read
+  /// comes back empty, and no step count ever appears with nothing to act on.
+  int? phoneStepsLastSyncedDays;
+  int? phoneStepsLastTotal;
+
+  /// Pull the last [days] days of phone step counts into `live_coverage`.
+  ///
+  /// Idempotent (delete-then-insert per day, scoped to the phone source), so
+  /// calling it repeatedly — on launch, after a sync, from a background pass —
+  /// can never accumulate. Best-effort; never throws.
+  Future<int> syncPhoneSteps({
+    int days = PhonePedometer.routineSyncDays,
+  }) async {
+    try {
+      final r = await _phonePedometer.syncRecent(days: days);
+      phoneStepsLastSyncedDays = r.daysRead;
+      phoneStepsLastTotal = r.totalSteps;
+      notifyListeners();
+      return r.daysRead;
+    } catch (e) {
+      debugPrint('[phone_steps] sync: $e');
+      return 0;
+    }
+  }
 
   /// Session-triggered Health export for one just-finished workout (issue
   /// #130) — used by callers outside this class (e.g. confirming an
@@ -1694,9 +1816,9 @@ class AppState extends ChangeNotifier {
   }
 
   /// True while some foreground feature is actively consuming the live streams
-  /// (workout coach, HRV spot check, step-calibration walk, breathing session).
+  /// (workout coach, HRV spot check, breathing session).
   bool get _hasLiveConsumer =>
-      activeWorkout != null || spotActive || _stepCalActive || breathingActive;
+      activeWorkout != null || spotActive || breathingActive;
 
   /// Downgrade live to HR-only when backgrounded with no live consumer. The
   /// keep-alive re-arm respects the HR-only mode, so the downgrade sticks until
@@ -1786,8 +1908,6 @@ class AppState extends ChangeNotifier {
   final List<double> _magMin = []; // current minute's magnitude signal
   int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
   int _liveSamples = 0; // total 100 Hz samples streamed this session
-  double _liveEnmoSum = 0; // 1 Hz-equivalent ENMO accumulator (for calibration)
-  int _liveEnmoN = 0;
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
   int _lastWalkMs = 0; // last time steps were accumulated
@@ -1879,8 +1999,11 @@ class AppState extends ChangeNotifier {
     final mags = f.mags;
     if (mags.isEmpty) return;
     // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
-    // threshold rides the ~1 g baseline). Also accumulate a 1 Hz-equivalent ENMO
-    // sample (mean |a| − 1 g) for cadence calibration.
+    // threshold rides the ~1 g baseline). `e` is this frame's 1 Hz-equivalent
+    // ENMO (mean |a| − 1 g), read below by the stillness nudge and the posture
+    // check. It no longer feeds a cadence calibration — that was deleted along
+    // with the 1 Hz step estimator that was its only consumer (kAlgoVersion
+    // v55).
     var magSum = 0.0;
     for (final m in mags) {
       _magMin.add(m);
@@ -1888,8 +2011,6 @@ class AppState extends ChangeNotifier {
     }
     _liveSamples += mags.length;
     final e = (magSum / mags.length) - 1.0;
-    _liveEnmoSum += e > 0 ? e : 0.0;
-    _liveEnmoN++;
     // Phone-clock extent of the ingested stream — the only observation that
     // reports how long this session actually ran (the band's record timestamp
     // typically repeats). Used as a DURATION only; see [_liveCoverageWindow].
@@ -1952,9 +2073,7 @@ class AppState extends ChangeNotifier {
     _magMin.clear();
     _committedRaw = 0;
     _liveSamples = 0;
-    _liveEnmoSum = 0;
     _lastLiveUiNotifyMs = 0;
-    _liveEnmoN = 0;
     _imuStreamSeen = false;
     _liveCoverStartTs = null;
     _liveCoverEndTs = 0;
@@ -1962,15 +2081,15 @@ class AppState extends ChangeNotifier {
     _liveLastIngestMs = null;
   }
 
-  /// End-of-session: if the bout is credible walking, fold it into the personal
-  /// cadence calibration (persisted) so the 24/7 estimate gets more accurate.
+  /// End-of-session: bank the REAL 100 Hz step window into `live_coverage`.
+  ///
+  /// No cadence calibration any more — its only consumer was the deleted 1 Hz
+  /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
     // RAW, never the cushioned display value: a second short session ending
     // inside the first one's grace window would otherwise persist the FIRST
     // session's total again (double-counted coverage + a nonsense cadence).
     final steps = _rawSessionSteps; // gain-applied
-    final durS = _liveSamples / 100.0;
-    final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
     // Derive the coverage window BEFORE resetting (it reads session counters).
     final window = _liveCoverageWindow(steps);
     if (steps > 0) {
@@ -1985,9 +2104,9 @@ class AppState extends ChangeNotifier {
       _sessionCushionSetAtMs = DateTime.now().millisecondsSinceEpoch;
     }
     _resetLivePedometer();
-    // Record the REAL 100 Hz step window (device time). The derivation pass adds
-    // it to the day's steps AND excludes those minutes from the 1 Hz estimate, so
-    // 100 Hz always wins and a minute is never counted twice.
+    // Record the REAL 100 Hz step window (device time). This is BAND-sourced
+    // coverage; the derivation reads it via `liveStepsForDay`, which prefers a
+    // phone count for the day when one exists and never sums the two.
     if (window != null) {
       final day = dayLabelOf(
         DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
@@ -1998,25 +2117,6 @@ class AppState extends ChangeNotifier {
     // that would otherwise let a killed-process session recover is no longer
     // needed.
     await _clearLiveSessionCheckpoint();
-    if (steps <= 0 || durS < 20) return;
-    final cadence = steps / (durS / 60.0);
-    // Any nonzero AN-2554 count is CONFIRM-gated gait; confidence is high when
-    // the cadence lands in a walking band (else let calibrateCadence reject it).
-    final conf = (cadence >= 60 && cadence <= 200) ? 0.85 : 0.4;
-    final result = ana.PedometerResult(steps, durS, cadence, 0.0, conf);
-    try {
-      final prior = await LocalDb.getStepCalibration();
-      final next = ana.calibrateCadence(prior, result, enmo);
-      if (next != null && !identical(next, prior)) {
-        await LocalDb.putStepCalibration(next);
-        _log(
-          '[steps] cadence calibrated → '
-          '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})',
-        );
-      }
-    } catch (e) {
-      _log('[steps] calibration skipped: $e');
-    }
   }
 
   // Whatever accrued via _committedRaw/_magMin between minute-commits is
@@ -3394,103 +3494,15 @@ class AppState extends ChangeNotifier {
     _breathingEnabledStreams = false;
   }
 
-  // ── guided step calibration (open-road walk) ────────────────────────────────
-  // A short live 100 Hz walk teaches the user's real walking signature (refEnmo)
-  // + cadence, which anchors the 1 Hz daily estimate. Target a step count with a
-  // buffer so the AN-2554 confirm-gate has settled.
-  static const int stepCalTargetSteps = 200; // steps to learn a stable cadence
-  static const int stepCalBuffer = 50; // ask the user to walk a bit more
-  bool _stepCalEnabledStreams = false;
-  bool _stepCalActive = false; // a calibration walk is in progress
-
-  /// Begin a calibration walk: turn on the live IMU stream and count from zero.
-  Future<void> startStepCalibration() async {
-    if (!isConnected) throw Exception('Connect to your strap first');
-    // LATCH SAFELY. `_stepCalActive` is set true BEFORE the stream arming
-    // below, and the arming can throw (the link dropping mid-write propagates
-    // straight out to the UI). With no try/finally the latch stuck true for the
-    // rest of the process — the only reset is _endStepCalStreams(), reachable
-    // solely from finish/cancel, which the user never gets to because the walk
-    // never started. A stuck latch pins [_hasLiveConsumer] true, so
-    // [_maybeDowngradeLiveForBackground] never downgrades and the 100 Hz raw
-    // flood keeps streaming while backgrounded — exactly the R24-offload
-    // starvation the downgrade exists to prevent.
-    _stepCalActive = true;
-    var armed = false;
-    try {
-      // OWNERSHIP: same rule as the spot check — only claim "we enabled it"
-      // when live was actually OFF, so ending the walk can never turn off
-      // streams the open session still expects on. If the background downgrade
-      // left live in HR-only, upgrade to full (the walk needs the 100 Hz IMU
-      // stream) without taking ownership.
-      //
-      // retryFullLiveStreams (not enableLiveStreams): the walk NEEDS the 100 Hz
-      // IMU stream, and the sticky standard-HR fallback silently vetoes it —
-      // every calibration after a fallback trip counted 0 steps forever. An
-      // explicit user-initiated walk is exactly the moment to give the full
-      // flood another chance; the detectors re-trip if the radio can't cope.
-      if (!engine.liveEnabled) {
-        await engine.retryFullLiveStreams();
-        _stepCalEnabledStreams = true;
-      } else if (engine.liveHrOnly || device.standardHrFallback) {
-        await engine.retryFullLiveStreams();
-      }
-      armed = true;
-    } finally {
-      if (!armed) _stepCalActive = false;
-    }
-    _resetLivePedometer(); // count this walk from 0
-    notifyListeners();
-  }
-
-  /// Finish the calibration walk: fold the live bout into the personal cadence
-  /// model (refEnmo + cadence). Returns the learned cadence (spm), or null if the
-  /// walk wasn't credible. Stops the stream we turned on.
-  Future<double?> finishStepCalibration() async {
-    final steps = _rawSessionSteps; // raw, never the display cushion
-    final durS = _liveSamples / 100.0;
-    final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
-    double? learned;
-    if (steps > 0 && durS >= 20) {
-      final cadence = steps / (durS / 60.0);
-      final conf = (cadence >= 60 && cadence <= 200) ? 0.9 : 0.4;
-      final result = ana.PedometerResult(steps, durS, cadence, 0.0, conf);
-      try {
-        final prior = await LocalDb.getStepCalibration();
-        final next = ana.calibrateCadence(prior, result, enmo);
-        if (next != null) {
-          await LocalDb.putStepCalibration(next);
-          learned = next.cadenceSpm;
-          _log(
-            '[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
-            '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})',
-          );
-        }
-      } catch (e) {
-        _log('[steps] calibration failed: $e');
-      }
-    }
-    _endStepCalStreams();
-    _resetLivePedometer();
-    notifyListeners();
-    return learned;
-  }
-
-  /// Cancel a calibration walk without saving.
-  void cancelStepCalibration() {
-    _endStepCalStreams();
-    _resetLivePedometer();
-    notifyListeners();
-  }
-
-  /// Release the streams a calibration walk armed — ONLY if we armed them.
-  void _endStepCalStreams() {
-    _stepCalActive = false;
-    if (_stepCalEnabledStreams && activeWorkout == null) {
-      unawaited(engine.disableLiveStreams());
-    }
-    _stepCalEnabledStreams = false;
-  }
+  // GUIDED STEP CALIBRATION REMOVED (v56).
+  //
+  // A short live walk used to teach a personal `refEnmo` + cadence, which was
+  // consumed by ONE caller: the 1 Hz `dailyStepEstimate`. That estimator is
+  // gone (1 Hz cannot resolve gait — see the kAlgoVersion v55 note), so the
+  // calibration had no reader left. It kept a "Calibrate steps" row on the
+  // Steps screen that told the user their walk had taught the app something
+  // when nothing read the result. The Tier-A 100 Hz AN-2554 pedometer is
+  // threshold-based and never needed it.
 
   // ── live session coach ───────────────────────────────────────────────────────
   LiveWorkoutState? activeWorkout;

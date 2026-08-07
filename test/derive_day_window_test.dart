@@ -14,6 +14,8 @@
 //    calories_total as real scalars — fabricated numbers wearing real numbers'
 //    clothes, against the never-impute contract the rest of the layer keeps.
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -203,14 +205,42 @@ void main() {
           reason: 'Mifflin BMR needs real anthropometrics');
     });
 
-    test('steps still compute without a profile (data-derived, not imputed)',
+    test('a day with no gait-capable source has NO step count at all',
         () async {
-      // `dailyStepEstimate` falls back to the day's own 10th-percentile HR when
-      // no resting HR is known — that is derived from the data, so abstaining
-      // would be over-correction.
+      // This test used to assert the opposite ("steps still compute without a
+      // profile"), and it passed only because the old code persisted a hard
+      // 0.0 for an abstaining estimator — a fabricated measurement dressed as
+      // data. There is no `live_coverage` row in this fixture, so nothing that
+      // can resolve gait measured this day, so the honest output is nothing.
+      //
+      // A 1 Hz wrist stream cannot count steps: gait is sub-Nyquist there, and
+      // wrist amplitude ranks arm work above walking. See kAlgoVersion v55.
       final got = await deriveWith(const Profile(), '2026-04-11',
           DateTime(2026, 4, 11).millisecondsSinceEpoch ~/ 1000);
-      expect(got['steps'], isNotNull);
+      expect(got['steps'], isNull,
+          reason: 'no real pedometer covered this day — absent, not zero');
+
+      // ...and it must be ABSENT, not a zero sitting in the series where it
+      // would drag every average and "most steps" record down.
+      expect(await LocalDb.metricValueOn('2026-04-11', 'steps'), isNull);
+
+      // The bundle's own `steps` block must be absent-shaped too, not just
+      // value-less. (The previous assertion here checked `got.containsKey`,
+      // which was VACUOUS: `got` is built by the local helper above, which
+      // seeds every key unconditionally, so it could never fail whatever the
+      // derivation did.)
+      final row = await LocalDb.dayResult('2026-04-11');
+      final bundle =
+          jsonDecode(row!['payload_json'] as String) as Map<String, dynamic>;
+      final steps = bundle['steps'] as Map<String, dynamic>;
+      expect(steps['value'], isNull);
+      expect(steps['confidence'], 0.0);
+      expect(steps['inputs_used'], isEmpty,
+          reason: 'nothing was used, because nothing was measured');
+      // NOT 'ESTIMATE': `Metric.parse` maps that tier to `beta: true` and would
+      // badge a card that has no number on it as an estimate. Nothing here
+      // estimates anything — that is the entire point of this change.
+      expect(steps['tier'], isNull);
     });
 
     test('a real profile still produces strain and calories', () async {

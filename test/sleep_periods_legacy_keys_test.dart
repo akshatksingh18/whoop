@@ -54,25 +54,27 @@ void main() {
   const napOnset = onset + 14 * 3600;
   const napWake = napOnset + 40 * 60;
 
-  Future<void> seed(Map<String, dynamic> sleepPeriods) async {
+  Future<void> seed(Map<String, dynamic> sleepPeriods, {bool night = true}) async {
     await LocalDb.putDayResult(
       dayId: '2026-06-15',
       algoVersion: 1, // a pre-rename generation
       payloadJson: jsonEncode({
         'scalars': {'tst_min': 420.0},
-        'sleep': {
-          'accounting': {
-            'confidence': 0.7,
-            'value': {'tst_sec': 420 * 60, 'efficiency_pct': 92.0},
-          },
-          'window': {
-            'value': {
-              'onset_ms': onset * 1000,
-              'offset_ms': wake * 1000,
-              'spt_sec': 7 * 3600,
-            },
-          },
-        },
+        'sleep': night
+            ? {
+                'accounting': {
+                  'confidence': 0.7,
+                  'value': {'tst_sec': 420 * 60, 'efficiency_pct': 92.0},
+                },
+                'window': {
+                  'value': {
+                    'onset_ms': onset * 1000,
+                    'offset_ms': wake * 1000,
+                    'spt_sec': 7 * 3600,
+                  },
+                },
+              }
+            : const <String, dynamic>{},
         'sleep_periods': sleepPeriods,
       }),
       windowJson: '{}',
@@ -233,6 +235,186 @@ void main() {
 
       expect(periods.first['onset_ts'], isNull);
       expect(periods.first['wake_ts'], isNull);
+    },
+  );
+
+  // Ported from #205, which added these at its (now-removed) screen-side
+  // translator. They are real invariants and belong at the surviving seam.
+  test(
+    'a period cannot report more asleep minutes than its own window',
+    () async {
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napOnset + 30 * 60, // a 30-minute window
+            'duration_min': 101, // ...claiming 101 minutes of sleep
+          },
+        ],
+        'total_asleep_min': 101,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      expect(
+        periods.single['duration_min'],
+        30,
+        reason: 'clamped to the window, which is the trustworthy half',
+      );
+    },
+  );
+
+  test('a degenerate window is dropped, not rendered as a zero-length card',
+      () async {
+    await seed({
+      'periods': [
+        {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+        {'is_main': false, 'onset_ts': napOnset, 'wake_ts': napOnset},
+        {'is_main': false, 'onset_ts': napWake, 'wake_ts': napOnset},
+      ],
+      'total_asleep_min': 420,
+    });
+
+    final sleep = await repo.getDaySleep('2026-06-15');
+    final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+    expect(periods, hasLength(1), reason: 'only the real main sleep survives');
+    expect(periods.single['is_main'], isTrue);
+  });
+
+  test(
+    'the hero total equals the sum of the CARDS after a period is clamped',
+    () async {
+      await seed({
+        'periods': [
+          {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+          // Claims 101 min of sleep inside a 30-minute window.
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napOnset + 30 * 60,
+            'duration_min': 101,
+          },
+        ],
+        'total_asleep_min': 521, // what the producer summed, pre-clamp
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      final cardSum = periods.fold<int>(
+        0,
+        (a, p) => a + ((p['duration_min'] as num?)?.toInt() ?? 0),
+      );
+      expect(cardSum, 450);
+      expect(
+        sleep['total_asleep_min'],
+        450,
+        reason: 'a user can add the cards up; the hero must not disagree',
+      );
+    },
+  );
+
+  test(
+    'an ABSENT stored total is NOT recomputed into a confident number',
+    () async {
+      // total_asleep_min null = nap detection abstained, so the day holds an
+      // unknown NUMBER of unmeasured naps (#204). Summing the periods we do
+      // have would silently omit them.
+      await seed({
+        'periods': [
+          {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': 420},
+        ],
+        'total_asleep_min': null,
+      });
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect((sleep['periods'] as List), hasLength(1));
+      expect(
+        sleep['total_asleep_min'],
+        isNull,
+        reason: 'absent stays absent — the screen renders "—"',
+      );
+    },
+  );
+
+  test('a period with an unknown duration makes the total unknown again',
+      () async {
+    await seed({
+      'periods': [
+        {'is_main': true, 'onset_ts': onset, 'wake_ts': wake, 'duration_min': null},
+        {'is_main': false, 'onset_ts': napOnset, 'wake_ts': napWake, 'duration_min': 38},
+      ],
+      'total_asleep_min': 38,
+    });
+
+    final sleep = await repo.getDaySleep('2026-06-15');
+    expect(sleep['total_asleep_min'], isNull);
+  });
+
+  group('nap-only day — no detected night', () {
+    test('the naps are attached instead of being dropped on the floor', () async {
+      // The `tst == null` early return used to drop these, so the screen said
+      // "No sleep recorded for this night" while the same nap was credited
+      // against sleep need and drawn on the Timeline.
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napWake,
+            'duration_min': 38,
+          },
+        ],
+        'total_asleep_min': 38,
+      }, night: false);
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect(
+        sleep['has_sleep'],
+        isFalse,
+        reason: 'there is genuinely no NIGHT to stage — that stays honest',
+      );
+      expect((sleep['periods'] as List), hasLength(1));
+      expect(sleep['total_asleep_min'], 38);
+    });
+
+    test('a day with neither night nor naps is unchanged', () async {
+      await seed({'periods': const [], 'total_asleep_min': null}, night: false);
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect(sleep['has_sleep'], isFalse);
+      expect(sleep['periods'], isNull, reason: 'nothing to show, nothing added');
+    });
+  });
+
+  test(
+    'a NEGATIVE duration is corrupt, not small — it becomes unknown, and is '
+    'never clamped up into a full night',
+    () async {
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': onset,
+            'wake_ts': wake, // a 7-hour window
+            'duration_min': -50,
+          },
+        ],
+        'total_asleep_min': -50,
+      }, night: false);
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      final periods = (sleep['periods'] as List).cast<Map<String, dynamic>>();
+      expect(periods.single['duration_min'], isNull);
+      expect(
+        periods.single['duration_min'],
+        isNot(420),
+        reason: 'clamping up would invent a full night out of garbage',
+      );
+      expect(
+        sleep['total_asleep_min'],
+        isNull,
+        reason: 'unknown propagates — the hero reads "—"',
+      );
     },
   );
 }

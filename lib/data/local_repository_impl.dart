@@ -558,7 +558,29 @@ class LocalRepositoryImpl extends LocalRepository {
     // confirmed / none — drives the Sleep screen's confirm prompt + edit affordance.
     final sleepSource = (b['sleep_source'] as String?) ?? 'auto';
     if (tst == null) {
-      return {'has_sleep': false, 'sleep_source': sleepSource};
+      // NO NIGHT SLEEP — but that is not the same as no sleep at all.
+      //
+      // A nap-only or night-shift day still has detected daytime periods, and
+      // this early return used to drop them on the floor: the screen showed
+      // "No sleep recorded for this night" while the very same nap was stored,
+      // credited against sleep need, and drawn as a band on the Timeline.
+      // Three surfaces, two answers.
+      //
+      // `has_sleep` stays FALSE — it means what it says, that there is no
+      // NIGHT to render a hypnogram, stages or efficiency for, and inventing
+      // one from a nap would be exactly the conflation this file avoids
+      // elsewhere. The periods ride along so the screen can show what it does
+      // know instead of claiming nothing happened.
+      final napPeriods = _periodsWithMainStages(b, const {});
+      if (napPeriods.isEmpty) {
+        return {'has_sleep': false, 'sleep_source': sleepSource};
+      }
+      return {
+        'has_sleep': false,
+        'sleep_source': sleepSource,
+        'periods': napPeriods,
+        'total_asleep_min': _totalAsleepMin(b, napPeriods),
+      };
     }
     final spt = (win?['spt_sec'] as num?);
     final waso = (acct?['waso_sec'] as num?);
@@ -573,7 +595,28 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
-    return {
+    // Sleep periods (main + naps) for the periods screen. The main period is
+    // enriched HERE with the hypnogram + stage minutes: derivation builds the
+    // periods in a second isolate that never receives `series.hypnogram`, so
+    // this is the first point where the whole bundle is in hand. Naps carry
+    // neither by design — no stage claim is made for them.
+    //
+    // Naps carry their own confidence and the screen draws a ConfDot for any
+    // period that has one, so omitting the main period's left the main card as
+    // the ONLY one with no dot — reading as "unknown" for the best-evidenced
+    // period on the screen. Stays null when accounting had no confidence,
+    // which correctly draws nothing.
+    final periods = _periodsWithMainStages(
+      b,
+      {
+        'light_min': min('light_sec'),
+        'deep_min': min('deep_sec'),
+        'rem_min': min('rem_sec'),
+        'nrem_min': min('nrem_sec'),
+      },
+      mainConfidence: sleepConf,
+    );
+    final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
       'sleep_source': sleepSource,
@@ -612,22 +655,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // periods in a second isolate that never receives `series.hypnogram`, so
       // this is the first point where the whole bundle is in hand. Naps carry
       // neither by design — no stage claim is made for them.
-      'periods': _periodsWithMainStages(
-        b,
-        {
-          'light_min': min('light_sec'),
-          'deep_min': min('deep_sec'),
-          'rem_min': min('rem_sec'),
-          'nrem_min': min('nrem_sec'),
-        },
-        // Naps carry their own confidence and the screen draws a ConfDot for
-        // any period that has one, so omitting the main period's left the main
-        // card as the ONLY one with no dot — reading as "unknown" for the
-        // best-evidenced period on the screen. Stays null when accounting had
-        // no confidence, which correctly draws nothing.
-        mainConfidence: sleepConf,
-      ),
-      'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
+      'periods': periods,
+      // The hero total must equal the sum of the cards under it — a user can
+      // add them up. `_boundedPeriod` can CORRECT a period on read (clamping a
+      // duration to its own window, dropping a degenerate one), which makes the
+      // stored total stale, so it is recomputed from what is actually
+      // rendered. See [_totalAsleepMin] for why an absent stored total stays
+      // absent rather than being recomputed into a confident number.
+      'total_asleep_min': _totalAsleepMin(b, periods),
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
       'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
@@ -643,6 +678,19 @@ class LocalRepositoryImpl extends LocalRepository {
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
     };
+    // NOTE: this used to re-map the periods here through
+    // `sleepPeriodsForScreen` and overwrite `night['periods']`. That translator
+    // read `start`/`end`/`asleep_min` -- the vocabulary the producer emitted
+    // when this branch was written. Since #204 the producer emits
+    // `onset_ts`/`wake_ts`/`duration_min` directly, and `_periodsWithMainStages`
+    // (above) already attaches the hypnogram, stage minutes and the main
+    // period's confidence, translating any legacy payload on read.
+    //
+    // Keeping the overwrite after that rebase would have read every period
+    // under keys that no longer exist, produced an EMPTY list, and blanked the
+    // whole screen -- main sleep included -- while the hero still showed a
+    // total. One source per concern: the writer-side seam owns this now.
+    return night;
   }
 
   /// The persisted sleep periods with the MAIN period's hypnogram and stage
@@ -667,15 +715,16 @@ class LocalRepositoryImpl extends LocalRepository {
     };
     return [
       for (final p in raw.whereType<Map>())
-        if (p['is_main'] != true)
-          _canonicalPeriod(p)
-        else
-          {
-            ..._canonicalPeriod(p),
-            if (hypno.isNotEmpty) 'hypnogram': hypno,
-            if (stages.isNotEmpty) 'stages': stages,
-            'confidence': ?mainConfidence,
-          },
+        if (_boundedPeriod(_canonicalPeriod(p)) case final bp?)
+          if (bp['is_main'] != true)
+            bp
+          else
+            {
+              ...bp,
+              if (hypno.isNotEmpty) 'hypnogram': hypno,
+              if (stages.isNotEmpty) 'stages': stages,
+              'confidence': ?mainConfidence,
+            },
     ];
   }
 
@@ -711,6 +760,68 @@ class LocalRepositoryImpl extends LocalRepository {
       if (!m.containsKey('duration_min') && m['asleep_min'] != null)
         'duration_min': m['asleep_min'],
     };
+  }
+
+  /// A period's reported asleep minutes can never exceed its own window.
+  ///
+  /// Ported from #205, which added it at the (now-removed) screen-side
+  /// translator. It is a real invariant and belongs here, at the one seam the
+  /// screen reads: `duration_min` and the window come from different producers
+  /// (staging TST vs the detected bounds), so nothing else stops a card
+  /// claiming more sleep than the period it sits in. Clamped, not dropped —
+  /// the window is the trustworthy half.
+  ///
+  /// Returns null for a period with no usable window at all, so the caller can
+  /// drop it rather than render a zero-length card.
+  Map<String, dynamic>? _boundedPeriod(Map<String, dynamic> m) {
+    final onset = (m['onset_ts'] as num?)?.toInt();
+    final wake = (m['wake_ts'] as num?)?.toInt();
+    if (onset == null || wake == null || wake <= onset) {
+      // Keep it only if it carries no window claim at all; a period whose
+      // window is present but degenerate is junk.
+      return (onset == null && wake == null) ? m : null;
+    }
+    final windowMin = ((wake - onset) / 60).round();
+    final dur = (m['duration_min'] as num?)?.toInt();
+    if (dur == null || (dur >= 0 && dur <= windowMin)) return m;
+    // NEGATIVE is not "too small", it is CORRUPT — there is no such thing as
+    // minus fifty minutes of sleep. It is dropped to unknown rather than
+    // clamped to either end: clamping UP to the window would invent a full
+    // night out of garbage, and clamping DOWN to 0 would state "you did not
+    // sleep", which is a measurement we do not have. Unknown then propagates
+    // through `_totalAsleepMin`, so the hero reads "—" instead of a total
+    // built on a value we know is nonsense.
+    if (dur < 0) return {...m, 'duration_min': null};
+    return {...m, 'duration_min': windowMin};
+  }
+
+  /// The day's total asleep minutes, consistent with the cards on screen.
+  ///
+  /// ABSENT STAYS ABSENT. A null stored total means the producer could not
+  /// state one — most often because nap detection abstained, so the day holds
+  /// an unknown NUMBER of unmeasured naps (see `_sleepPeriods`). Recomputing a
+  /// sum from the periods we happen to have would turn that honest "—" into a
+  /// confident figure that silently omits them, which is the exact claim the
+  /// producer refused to make.
+  ///
+  /// Otherwise the total is recomputed from the RENDERED periods rather than
+  /// trusted verbatim, because `_boundedPeriod` may have corrected one on read
+  /// and the stored sum would then be stale — leaving the hero disagreeing with
+  /// the cards a user can add up. A period whose own duration is unknown makes
+  /// the sum unknown again, for the same reason it does at the writer.
+  num? _totalAsleepMin(
+    Map<String, dynamic> b,
+    List<Map<String, dynamic>> periods,
+  ) {
+    final stored = (b['sleep_periods'] as Map?)?['total_asleep_min'];
+    if (stored == null) return null;
+    var sum = 0;
+    for (final p in periods) {
+      final d = (p['duration_min'] as num?)?.toInt();
+      if (d == null) return null;
+      sum += d;
+    }
+    return sum;
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.

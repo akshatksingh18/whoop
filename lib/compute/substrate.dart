@@ -16,6 +16,16 @@ import 'dart:math' as math;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
+/// Minimum fraction of a nocturnal search window that must carry a REAL
+/// gravity vector before accel-led (van Hees) sleep detection is trusted.
+///
+/// Below this we do not run it at all and fall through to the HR-led window,
+/// which is already the honest low-confidence degraded mode. Set at a half
+/// rather than something tiny on purpose: van Hees picks the LONGEST immobile
+/// block, and absent seconds are maximally "immobile", so a window that is
+/// mostly absent would reliably hand the answer to the missing data.
+const double kMinAccelCoverageForVanHees = 0.5;
+
 /// The decoded 1 Hz substrate — the only decoded form (ARCHITECTURE_V2).
 ///
 /// All HR/accel/ADC arrays are parallel and 1:1 with [tsSec] (one sample per
@@ -81,6 +91,36 @@ class Substrate {
         for (var i = 0; i < tsSec.length; i++)
           ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i])
       ];
+
+  /// Whether second [i] carries a REAL gravity vector.
+  ///
+  /// `decoded_onehz.ax/ay/az` are `REAL NOT NULL`, so a record decoded without
+  /// a usable gravity vector (the gen5 v18 lenient path, which deliberately
+  /// abstains on accel while keeping HR/RR) is stored as exact `(0, 0, 0)`.
+  /// That is not a reading a real device can produce — a gravity vector always
+  /// has magnitude ~1 g, and every decoder that emits one gates on
+  /// `magSq >= 0.25` — so exact zero is an unambiguous ABSENT marker rather
+  /// than a measurement.
+  ///
+  /// This matters because absent accel does not merely go unused: a run of
+  /// `(0, 0, 0)` has a constant z-angle of exactly 0.0°, which the van Hees
+  /// rule reads as PERFECT IMMOBILITY. Eight hours of missing accel scores
+  /// 28 501 immobile seconds and yields a fabricated ~7.9 h sleep window,
+  /// fully staged. Absent input must produce no claim, never a confident one.
+  bool accelPresentAt(int i) => !(ax[i] == 0 && ay[i] == 0 && az[i] == 0);
+
+  /// Fraction of [lo, hi) seconds carrying a real gravity vector (0..1).
+  /// Returns 0 for an empty range — no evidence, not "all present".
+  double accelPresentFraction(int lo, int hi) {
+    final a = lo < 0 ? 0 : lo;
+    final b = hi > tsSec.length ? tsSec.length : hi;
+    if (b <= a) return 0;
+    var present = 0;
+    for (var i = a; i < b; i++) {
+      if (accelPresentAt(i)) present++;
+    }
+    return present / (b - a);
+  }
 
   /// 1 Hz HR as doubles (0 = off-skin). Parallel to [tsSec] / [accelSamples].
   List<double> hr1hz() => [for (final h in hr) h.toDouble()];
@@ -531,14 +571,33 @@ List<PhysioDay> calendarDays(
         );
         src = ov.source; // 'manual' | 'confirmed'
       } else {
-        s = ana.segmentSleep(
-          accelSlice,
-          hrSlice,
-          hrBaseline: hrBaseline,
-          rrMs: rrMsSeg,
-          rrTsMs: rrTsSeg,
-          habitualMidsleepSec: habitualMidsleepSec,
-        );
+        // Accel-led detection is only meaningful if we actually HAVE accel.
+        // Absent gravity is stored as exact (0,0,0) (see `accelPresentAt`) and
+        // van Hees scores a run of it as perfect immobility, so a night whose
+        // records all decoded without a gravity vector would otherwise produce
+        // a confident, fully-staged sleep window built entirely out of missing
+        // data. `immobilityMask` has no validity input to tell it otherwise —
+        // it is a pure index-wise angle rule, so neither a NaN sentinel (NaN
+        // comparisons are false, so the "angle changed" test never trips and
+        // it reads as immobile) nor omitting the seconds (no gap awareness)
+        // reaches it. The only honest move at this layer is not to let it
+        // anchor the window in the first place.
+        final accelCoverage = sub.accelPresentFraction(loS, hiS);
+        if (accelCoverage >= kMinAccelCoverageForVanHees) {
+          s = ana.segmentSleep(
+            accelSlice,
+            hrSlice,
+            hrBaseline: hrBaseline,
+            rrMs: rrMsSeg,
+            rrTsMs: rrTsSeg,
+            habitualMidsleepSec: habitualMidsleepSec,
+          );
+        } else {
+          // Not an error and not "no sleep" — just no accel evidence. Fall
+          // through to the HR-led path below, which is exactly the degraded
+          // mode for this and is already marked low-confidence.
+          s = ana.SleepSegmentation.absent;
+        }
         src = 'auto';
         if (!s.present) {
           // Approach 2: accel-led detection found nothing → HR-led fallback.

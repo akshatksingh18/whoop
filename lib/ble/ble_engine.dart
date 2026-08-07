@@ -84,6 +84,101 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
+/// Read v18 unix from the protocol shared header at inner[7:11].
+///
+/// Do **not** fall back to a misaligned offset-6 read: that overlaps the
+/// record-index high byte and can invent a year-window-plausible timestamp
+/// that is not monotonic with `recordIndex` (honesty violation — observed on
+/// the fw 50.40.1.0 export where unix@7 was garbage because SET_CLOCK never
+/// latched). Absent a plausible unix@7, abstain.
+@visibleForTesting
+int? gen5V18UnixFromInner(Uint8List inner, int wallNow) {
+  if (inner.length < 11) return null;
+  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
+  final at7 = view.getUint32(7, Endian.little);
+  return isPlausibleUnix(at7, wallNow) ? at7 : null;
+}
+
+/// Hardware lenient v18 decode when [parseGen5Historical] returns null because
+/// the protocol decoder's gravity/dynamic-accel gates reject real captures
+/// (off-wrist / motion-heavy seconds still carry valid HR/RR). Never fabricates
+/// gravity — ax/ay/az stay null when the vector fails the magnitude gate.
+/// Never fabricates time — requires a plausible unix@7.
+@visibleForTesting
+Sample? sampleFromGen5V18Lenient(Uint8List inner, int wallNow) {
+  if (inner.length < kGen5V18MinInnerLen || inner[1] != 18) return null;
+  final unix = gen5V18UnixFromInner(inner, wallNow);
+  if (unix == null) return null;
+  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
+  final counter = view.getUint32(3, Endian.little);
+  final hr = inner[14];
+  if (hr != 0 && (hr < 25 || hr > 230)) return null;
+
+  const minRrMs = 200;
+  const maxRrMs = 2500;
+  final declaredRr = inner[15];
+  final rr = <int>[];
+  if (declaredRr <= 4) {
+    for (int i = 0; i < declaredRr && 16 + 2 * i + 2 <= inner.length; i++) {
+      final val = view.getInt16(16 + 2 * i, Endian.little);
+      if (val >= minRrMs && val <= maxRrMs) rr.add(val);
+    }
+  }
+
+  double? ax;
+  double? ay;
+  double? az;
+  if (inner.length >= 49) {
+    final gx = view.getFloat32(37, Endian.little);
+    final gy = view.getFloat32(41, Endian.little);
+    final gz = view.getFloat32(45, Endian.little);
+    if (gx.isFinite && gy.isFinite && gz.isFinite) {
+      final magSq = gx * gx + gy * gy + gz * gz;
+      // Same gate as protocol's Gen5V18Decoder — but abstain on ax/ay/az
+      // instead of rejecting the whole record (HR/RR are independent fields).
+      if (magSq >= 0.25 && magSq <= 2.25) {
+        ax = gx;
+        ay = gy;
+        az = gz;
+      }
+    }
+  }
+
+  return Sample(
+    tsEpoch: unix,
+    counter: counter,
+    hr: hr,
+    rrIntervalsMs: rr,
+    ax: ax,
+    ay: ay,
+    az: az,
+  );
+}
+
+/// Build gen5 SET_CLOCK_MAVERICK (0x92) / GET_CLOCK_GEN5 (0x93) payloads.
+///
+/// Hardware evidence (fw 50.40.1.0 console): an empty GET_CLOCK body logs
+/// `Invalid revision for get clock: 0`, and SET_CLOCK without a leading
+/// form/revision byte logs `Invalid revision <sec&0xff>` — i.e. the strap
+/// treats body[0] as the command revision (same role as HELLO's `[0x01]` /
+/// Alec's gen5 `b3`). Prepend [revision1] so the 8-byte time field starts at
+/// body[1].
+@visibleForTesting
+List<int> gen5SetClockPayload({required int sec, required int subsec}) => [
+      revision1,
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+      0,
+      0,
+    ];
+
+@visibleForTesting
+List<int> gen5GetClockPayload() => const [revision1];
+
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
 ///
@@ -111,6 +206,17 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     ay: g.gravityG.length > 1 ? g.gravityG[1] : null,
     az: g.gravityG.length > 2 ? g.gravityG[2] : null,
   );
+}
+
+/// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
+@visibleForTesting
+Sample? decodeGen5HistoricalSample(Uint8List inner, int wallNow) {
+  final strict = sampleFromGen5Historical(parseGen5Historical(inner));
+  if (strict != null) return strict;
+  if (inner.length > 1 && inner[1] == 18) {
+    return sampleFromGen5V18Lenient(inner, wallNow);
+  }
+  return null;
 }
 
 @visibleForTesting
@@ -1929,6 +2035,32 @@ class BleEngine {
   /// path is deliberate: the previous duplicate had drifted, silently losing
   /// the plausibility gate and freezing the frontier the stuck-strap /
   /// auto-continue policies read.
+  /// Set a historical frame aside in `raw_archive` — the never-pruned store for
+  /// bytes this build could not fully turn into a [Sample].
+  ///
+  /// Routed through the drain when one is active so the write lands inside the
+  /// SAME transaction as the batch commit (safe-trim invariant: nothing the
+  /// band is told it may trim has been discarded).
+  void _archiveHistoricalFrame(
+    Frame frame,
+    int counter, {
+    required String reason,
+  }) {
+    final archive = ArchiveRecord(
+      counter: counter,
+      hex: _innerHex(frame.inner),
+      packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
+      capturedAt: DateTime.now().millisecondsSinceEpoch,
+      reason: reason,
+    );
+    final d = _drain;
+    if (d != null) {
+      d.onUndecodableRecord(archive);
+    } else {
+      unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
+    }
+  }
+
   void _ingestHistoricalFrame(Frame frame) {
     final pt = frame.packetType;
     if (pt != PacketType.historicalData) return;
@@ -1950,6 +2082,7 @@ class BleEngine {
     // backfill (all received in one sync) splits into correct per-real-day
     // buckets instead of collapsing into one "today".
     Sample? sample;
+    final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
       // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
@@ -1959,7 +2092,22 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
-      sample = sampleFromGen5Historical(parseGen5Historical(frame.inner));
+      sample = decodeGen5HistoricalSample(frame.inner, wallNow);
+      // PARTIAL decode is not a full decode. The lenient v18 path deliberately
+      // keeps HR/RR while ABSTAINING on a gravity vector that failed the
+      // magnitude gate — but `raw_records` is gone and `decoded_onehz` has
+      // nowhere to put a null accel, so those gravity bytes would be discarded
+      // the moment we ACK the trim. Archive the frame as WELL as keeping the
+      // sample: same safe-trim transaction, and a future decoder can still
+      // recover what this one could not. Nothing is double-counted —
+      // `raw_archive` is a diagnostic store, never a derivation input.
+      if (sample != null && sample.ax == null) {
+        _archiveHistoricalFrame(
+          frame,
+          counter,
+          reason: 'partial_decode_v${recType}_no_gravity',
+        );
+      }
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
@@ -1999,19 +2147,11 @@ class BleEngine {
     // archive rides the SAME commit that runs before the batch-ACK, so nothing the
     // band trims has been discarded (safe-trim invariant intact).
     if (sample == null) {
-      final archive = ArchiveRecord(
-        counter: counter,
-        hex: _innerHex(frame.inner),
-        packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
-        capturedAt: DateTime.now().millisecondsSinceEpoch,
+      _archiveHistoricalFrame(
+        frame,
+        counter,
         reason: 'undecodable_rec_v$recType',
       );
-      final d = _drain;
-      if (d != null) {
-        d.onUndecodableRecord(archive);
-      } else {
-        unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
-      }
       return;
     }
     // PLAUSIBILITY GATE + FRONTIER (RecordGate, shared with the detectors).
@@ -2023,7 +2163,7 @@ class BleEngine {
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
-      wallNow: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      wallNow: wallNow,
       sessionOldestUnix: _sessionOldestUnix,
       sessionNewestUnix: _sessionNewestUnix,
     )) {
@@ -2890,26 +3030,26 @@ class BleEngine {
     final ms = DateTime.now().millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
     final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
-    final payload = <int>[
-      sec & 0xff,
-      (sec >> 8) & 0xff,
-      (sec >> 16) & 0xff,
-      (sec >> 24) & 0xff,
-      subsec & 0xff,
-      (subsec >> 8) & 0xff,
-      0,
-      0,
-    ];
-    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4 — the
-    // 8-byte payload shape is unchanged, only the opcode value differs (see
-    // Cmd.setClockMaverick's doc in protocol/constants.dart). Sending gen4's
-    // opcode 0x0A to a gen5 strap here would silently fail to latch the RTC,
-    // which then refuses to serve type-47 history — the exact symptom fixed.
+    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4, and
+    // (per fw 50.40.1.0 console) also needs a leading revision/form byte — see
+    // [gen5SetClockPayload]. Gen4 keeps the hardware-verified 8-byte body.
     final isGen5 = _session?.band.isGen5 ?? false;
+    final payload = isGen5
+        ? gen5SetClockPayload(sec: sec, subsec: subsec)
+        : <int>[
+            sec & 0xff,
+            (sec >> 8) & 0xff,
+            (sec >> 16) & 0xff,
+            (sec >> 24) & 0xff,
+            subsec & 0xff,
+            (subsec >> 8) & 0xff,
+            0,
+            0,
+          ];
     final opcode = isGen5 ? Cmd.setClockMaverick : Cmd.setClock;
     await _send(opcode, payload);
     _log('SET_CLOCK${isGen5 ? " (gen5 Maverick)" : ""} → sec=$sec '
-        'subsec=$subsec (WHOOP-exact 8B).');
+        'subsec=$subsec (${payload.length}B${isGen5 ? ", rev=$revision1" : ""}).');
     // Read the RTC back so the GET_CLOCK response handler can confirm it latched
     // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
     await getClock();
@@ -2917,11 +3057,15 @@ class BleEngine {
 
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
   /// verify drift and re-correlate the strap-RTC ↔ wall clock. gen5 uses its
-  /// own GET_CLOCK opcode (147) — see [setClock].
-  Future<void> getClock() => _send(
-        (_session?.band.isGen5 ?? false) ? Cmd.getClockGen5 : Cmd.getClock,
-        const <int>[],
-      );
+  /// own GET_CLOCK opcode (147) and needs a leading revision byte — see
+  /// [gen5GetClockPayload] / [setClock].
+  Future<void> getClock() {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    return _send(
+      isGen5 ? Cmd.getClockGen5 : Cmd.getClock,
+      isGen5 ? gen5GetClockPayload() : const <int>[],
+    );
+  }
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:

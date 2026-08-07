@@ -54,25 +54,27 @@ void main() {
   const napOnset = onset + 14 * 3600;
   const napWake = napOnset + 40 * 60;
 
-  Future<void> seed(Map<String, dynamic> sleepPeriods) async {
+  Future<void> seed(Map<String, dynamic> sleepPeriods, {bool night = true}) async {
     await LocalDb.putDayResult(
       dayId: '2026-06-15',
       algoVersion: 1, // a pre-rename generation
       payloadJson: jsonEncode({
         'scalars': {'tst_min': 420.0},
-        'sleep': {
-          'accounting': {
-            'confidence': 0.7,
-            'value': {'tst_sec': 420 * 60, 'efficiency_pct': 92.0},
-          },
-          'window': {
-            'value': {
-              'onset_ms': onset * 1000,
-              'offset_ms': wake * 1000,
-              'spt_sec': 7 * 3600,
-            },
-          },
-        },
+        'sleep': night
+            ? {
+                'accounting': {
+                  'confidence': 0.7,
+                  'value': {'tst_sec': 420 * 60, 'efficiency_pct': 92.0},
+                },
+                'window': {
+                  'value': {
+                    'onset_ms': onset * 1000,
+                    'offset_ms': wake * 1000,
+                    'spt_sec': 7 * 3600,
+                  },
+                },
+              }
+            : const <String, dynamic>{},
         'sleep_periods': sleepPeriods,
       }),
       windowJson: '{}',
@@ -347,5 +349,40 @@ void main() {
 
     final sleep = await repo.getDaySleep('2026-06-15');
     expect(sleep['total_asleep_min'], isNull);
+  });
+
+  group('nap-only day — no detected night', () {
+    test('the naps are attached instead of being dropped on the floor', () async {
+      // The `tst == null` early return used to drop these, so the screen said
+      // "No sleep recorded for this night" while the same nap was credited
+      // against sleep need and drawn on the Timeline.
+      await seed({
+        'periods': [
+          {
+            'is_main': false,
+            'onset_ts': napOnset,
+            'wake_ts': napWake,
+            'duration_min': 38,
+          },
+        ],
+        'total_asleep_min': 38,
+      }, night: false);
+
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect(
+        sleep['has_sleep'],
+        isFalse,
+        reason: 'there is genuinely no NIGHT to stage — that stays honest',
+      );
+      expect((sleep['periods'] as List), hasLength(1));
+      expect(sleep['total_asleep_min'], 38);
+    });
+
+    test('a day with neither night nor naps is unchanged', () async {
+      await seed({'periods': const [], 'total_asleep_min': null}, night: false);
+      final sleep = await repo.getDaySleep('2026-06-15');
+      expect(sleep['has_sleep'], isFalse);
+      expect(sleep['periods'], isNull, reason: 'nothing to show, nothing added');
+    });
   });
 }

@@ -558,7 +558,29 @@ class LocalRepositoryImpl extends LocalRepository {
     // confirmed / none — drives the Sleep screen's confirm prompt + edit affordance.
     final sleepSource = (b['sleep_source'] as String?) ?? 'auto';
     if (tst == null) {
-      return {'has_sleep': false, 'sleep_source': sleepSource};
+      // NO NIGHT SLEEP — but that is not the same as no sleep at all.
+      //
+      // A nap-only or night-shift day still has detected daytime periods, and
+      // this early return used to drop them on the floor: the screen showed
+      // "No sleep recorded for this night" while the very same nap was stored,
+      // credited against sleep need, and drawn as a band on the Timeline.
+      // Three surfaces, two answers.
+      //
+      // `has_sleep` stays FALSE — it means what it says, that there is no
+      // NIGHT to render a hypnogram, stages or efficiency for, and inventing
+      // one from a nap would be exactly the conflation this file avoids
+      // elsewhere. The periods ride along so the screen can show what it does
+      // know instead of claiming nothing happened.
+      final napPeriods = _periodsWithMainStages(b, const {});
+      if (napPeriods.isEmpty) {
+        return {'has_sleep': false, 'sleep_source': sleepSource};
+      }
+      return {
+        'has_sleep': false,
+        'sleep_source': sleepSource,
+        'periods': napPeriods,
+        'total_asleep_min': _totalAsleepMin(b, napPeriods),
+      };
     }
     final spt = (win?['spt_sec'] as num?);
     final waso = (acct?['waso_sec'] as num?);

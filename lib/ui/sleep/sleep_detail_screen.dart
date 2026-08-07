@@ -204,6 +204,49 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   /// Every sleep of this day, naps included. The Sleep tab renders this screen
   /// embedded, so the AppScaffold action below never builds there — without a
   /// second entry point the periods screen was unreachable in the shipped app.
+
+  /// Daytime periods on a day with no detected night, for the empty state.
+  ///
+  /// Read straight from the repository payload rather than through
+  /// [SleepNightContent], which is not built in this phase.
+  List<Map<String, dynamic>> _emptyStateNaps() {
+    final raw = _data['periods'];
+    if (raw is! List) return const [];
+    return [
+      for (final e in raw)
+        if (e is Map && e['is_main'] != true) e.cast<String, dynamic>(),
+    ];
+  }
+
+  Widget _emptyStateNapsCard(List<Map<String, dynamic>> naps) {
+    var known = 0;
+    var anyUnknown = false;
+    for (final n in naps) {
+      final d = (n['duration_min'] as num?)?.toInt();
+      if (d == null) {
+        anyUnknown = true;
+      } else {
+        known += d;
+      }
+    }
+    // An unknown duration makes the TOTAL unknown — the same rule the producer
+    // and the periods screen use. A partial sum presented as the total would
+    // under-report by exactly the part we could not measure.
+    final value = anyUnknown
+        ? '—'
+        : (known >= 60 ? '${known ~/ 60}h ${known % 60}m' : '${known}m');
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: ListRow(
+        icon: OsIcon.bedtime,
+        title: naps.length == 1 ? 'Daytime nap' : '${naps.length} daytime naps',
+        subtitle: 'Tap for the full breakdown',
+        value: value,
+        onTap: _openPeriods,
+      ),
+    );
+  }
+
   void _openPeriods() {
     Navigator.of(context).push(
       themedRoute((_) => SleepPeriodsScreen(date: widget.date),
@@ -228,15 +271,30 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   List<Widget> _sections() {
     if (_phase == _Phase.loading) return [_loading()];
     if (_phase == _Phase.empty) {
+      // "No NIGHT" is not "no sleep". A nap-only or night-shift day has
+      // detected daytime periods, and showing the bare empty card while the
+      // same nap is credited against sleep need and drawn on the Timeline is
+      // the screen contradicting the rest of the app. The night breakdown is
+      // still genuinely absent — there is no hypnogram, no stages, no
+      // efficiency — so the card stays; the naps are shown alongside it rather
+      // than dressed up as a night.
+      final naps = _emptyStateNaps();
       return [
         StateCard(
           icon: OsIcon.sleep,
           title: 'No sleep recorded for this night',
-          message: 'Wear your strap overnight and sync — your breakdown '
-              'appears once a night has been recorded.',
+          message: naps.isEmpty
+              ? 'Wear your strap overnight and sync — your breakdown '
+                  'appears once a night has been recorded.'
+              : 'No overnight sleep was detected, so there is no stage '
+                  'breakdown for this day. Daytime sleep is listed below.',
           actionLabel: 'Add sleep times',
           onAction: _editSleepTimes,
         ),
+        if (naps.isNotEmpty) ...[
+          const SizedBox(height: Sp.x3),
+          _emptyStateNapsCard(naps),
+        ],
       ];
     }
     if (_phase == _Phase.error) {

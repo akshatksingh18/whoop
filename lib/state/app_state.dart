@@ -32,6 +32,7 @@ import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart' show AlarmConfirmation, AlarmEffect;
+import '../ble/gen5_live_imu.dart';
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -1722,12 +1723,11 @@ class AppState extends ChangeNotifier {
     if (breathingActive && (pt == 0x28 || pt == 0x2B)) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
-    // LIVE STEP COUNTER. The dedicated 0x33 IMU stream is the high-rate live
-    // accel — it arrives ~10 frames/s (10 samples each), so it drives a smooth,
-    // responsive count. Full R10 (0x2B) is only a fallback when the IMU stream
-    // isn't flowing (and live 0x2B is often R10-LITE, which carries no accel).
-    // `frameAccel` returns |a|(g) samples for both; once 0x33 is seen we ignore
-    // 0x2B to avoid double-counting the same motion from two stream formats.
+    // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
+    // is preferred; full R10 (0x2B) is only a fallback when 0x33 isn't flowing.
+    // Gen5 Maverick: live IMU is 0x2B (rec 0x15, 100 Hz planar) — see
+    // gen5_live_imu.dart. Once gen4 0x33 is seen we ignore 0x2B to avoid
+    // double-counting the same motion from two stream formats.
     if (pt == 0x33) {
       _imuStreamSeen = true;
       final f = _safeFrameAccel(hex);
@@ -1736,6 +1736,7 @@ class AppState extends ChangeNotifier {
         _trackCoverage(recTs);
       }
     } else if (pt == 0x2B && !_imuStreamSeen) {
+      // Gen5 Maverick live IMU is 0x2B (100 Hz planar), not top-level 0x33.
       final f = _safeFrameAccel(hex);
       if (f != null) {
         _ingestLiveMags(f);
@@ -1746,7 +1747,9 @@ class AppState extends ChangeNotifier {
 
   proto.ImuFrame? _safeFrameAccel(String hex) {
     try {
-      return proto.frameAccel(hex);
+      // Gen5 Maverick live IMU is 0x2B; gen4 stays on frameAccel (0x33 / R10).
+      // See gen5_live_imu.dart — gen5 path abstains unless rec=0x15.
+      return frameAccelForBand(hex);
     } catch (_) {
       return null;
     }

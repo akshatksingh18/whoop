@@ -108,6 +108,19 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getWorkout');
   Future<void> deleteWorkout(String id) =>
       throw UnimplementedError('re-layer: deleteWorkout');
+
+  /// Re-score recent finished sessions against the 1 Hz substrate now in the
+  /// DB, correcting a live session whose in-RAM tallies missed the part of the
+  /// workout the app slept through (issue #206). Returns the number of rows
+  /// whose strain changed. Best-effort — never throws.
+  ///
+  /// The default MUST match the implementation's: Dart resolves an omitted
+  /// optional from the STATIC receiver type, and every caller holds this
+  /// interface — so a different default here is the one that actually runs.
+  /// Three days is the raw-retention horizon; nothing older has substrate left
+  /// to re-score from.
+  Future<int> rescoreRecentSessions({int sinceDays = 3}) =>
+      throw UnimplementedError('re-layer: rescoreRecentSessions');
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) =>
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>

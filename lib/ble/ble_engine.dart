@@ -603,6 +603,125 @@ class BleEngine {
 
   /// True while live is in the background HR-only downgrade.
   bool get liveHrOnly => _liveEnabled && _liveHrOnly;
+
+  // ── link power (issue #200) ─────────────────────────────────────────────────
+  // Android's connection priority was requested ONCE at connect setup and never
+  // stepped back down, so an ~11.25 ms interval was held for the entire life of
+  // a deliberately-permanent connection. [desiredLinkPriority] decides what the
+  // link should be running at; [_applyLinkPriority] is the one place that talks
+  // to the radio, and it is a no-op when nothing changed.
+  bool _backgrounded = false;
+  LinkPriority? _appliedPriority;
+  bool _priorityInFlight = false;
+  bool _priorityRestale = false;
+
+  /// Bumped by every teardown. Captured before a priority request and re-checked
+  /// after it: `_teardownSession` clears `_appliedPriority` at its top but nulls
+  /// `_session` only after awaiting subscription cancels, so an identity check
+  /// on the session alone still passes inside that window — and the reply then
+  /// restores the value teardown had just cleared, leaving the NEXT connection
+  /// convinced it had already asked.
+  int _linkGeneration = 0;
+
+  /// True from the start of connect setup until INIT has been sent. Setup is
+  /// discovery + subscribes + SET_CLOCK + INIT and is immediately followed by
+  /// the first flash drain, so it wants the fast interval for the same reason
+  /// an offload does — but it must ask for it through [_applyLinkPriority] like
+  /// everything else, or the direct request races the serialized ones and
+  /// leaves `_appliedPriority` describing a target the radio never got.
+  bool _connectSetup = false;
+
+  /// What the link should be running at given the engine's CURRENT state. The
+  /// wiring under test: that `_connectSetup` counts as offload-grade traffic,
+  /// and that `sendInit` clears it again.
+  @visibleForTesting
+  LinkPriority linkPriorityForCurrentState() => desiredLinkPriority(
+        offloadActive: _offloadActive || _connectSetup,
+        background: _backgrounded,
+        hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+      );
+
+  @visibleForTesting
+  void debugBeginConnectSetup() => _connectSetup = true;
+
+  /// Told by AppState on every foreground/background transition. Drives the
+  /// connection interval — see [desiredLinkPriority].
+  void setBackground(bool value) {
+    if (_backgrounded == value) return;
+    _backgrounded = value;
+    unawaited(_applyLinkPriority());
+  }
+
+  /// Bring the link to the priority the current state calls for.
+  ///
+  /// SERIALIZED, and the target is recomputed inside the loop rather than at
+  /// call time. Every caller fires this unawaited from a state transition
+  /// (background, live mode, offload), so two can overlap; if they did, the
+  /// slower one's completion would write ITS target into `_appliedPriority`
+  /// last. The radio would then sit at one interval while the field claimed
+  /// another, and the `want == _appliedPriority` check below — the thing that
+  /// keeps this from spamming the radio — would skip the next legitimate
+  /// step-down, leaving the link fast exactly when it should go quiet.
+  Future<void> _applyLinkPriority() async {
+    if (!Platform.isAndroid) return; // iOS picks its own interval
+    if (_priorityInFlight) {
+      // Someone is mid-request; make them re-evaluate when they land rather
+      // than issuing a competing one.
+      _priorityRestale = true;
+      return;
+    }
+    _priorityInFlight = true;
+    try {
+      do {
+        _priorityRestale = false;
+        final session = _session;
+        if (session == null || !session.connected) return;
+        final want = desiredLinkPriority(
+          offloadActive: _offloadActive || _connectSetup,
+          background: _backgrounded,
+          hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+        );
+        if (want == _appliedPriority) continue;
+        final generation = _linkGeneration;
+        try {
+          await session.device.requestConnectionPriority(
+            connectionPriorityRequest: switch (want) {
+              LinkPriority.high => ConnectionPriority.high,
+              LinkPriority.balanced => ConnectionPriority.balanced,
+              LinkPriority.lowPower => ConnectionPriority.lowPower,
+            },
+          );
+          // Only remember it if the link we asked is still the live one. A
+          // teardown during the await clears `_appliedPriority` precisely so
+          // the next session re-requests from scratch (Android resets the
+          // interval per GATT connection); writing this session's target in
+          // afterwards would make the new link skip its own request.
+          if (generation != _linkGeneration ||
+              !identical(_session, session) ||
+              !session.connected) {
+            // Do not record it against the dead link, and do not swallow a
+            // transition that arrived while we were waiting: loop once more so
+            // the replacement session (if there is one) gets its own target.
+            _log('Link priority reply arrived after teardown — discarded.');
+            _priorityRestale = true;
+            continue;
+          }
+          _appliedPriority = want;
+          _log('Link priority → ${want.name}.');
+        } catch (e) {
+          // Leave `_appliedPriority` alone so this is retried. The retry is the
+          // keep-alive tick calling back in, NOT this loop — spinning here
+          // against a radio that just refused would hammer it. Without a
+          // retry at all, a failed step-DOWN would hold the fast interval
+          // until the next state change, which overnight means until morning.
+          _log('requestConnectionPriority(${want.name}) failed: $e');
+        }
+      } while (_priorityRestale);
+    } finally {
+      _priorityInFlight = false;
+    }
+  }
+
   bool _offloadActive = false;
   final List<Frame> _offloadFrames = [];
   bool _drainingOffloadFrames = false;
@@ -632,6 +751,30 @@ class BleEngine {
   // caller pauses the auto-reconnect loop instead of pinning the radio forever.
   // A single successful bond clears it (see the createBond block below).
   final BondRefusalGiveUp _bondGiveUp = BondRefusalGiveUp();
+
+  /// Clear a bond-refusal auto-reconnect pause whose cooldown has expired, and
+  /// report whether the pause is still in force (issue #208).
+  ///
+  /// The pause was previously cleared in exactly ONE place: the `createBond()`
+  /// success branch. That branch is inside the connect path, which the pause
+  /// itself stops from ever running — so the flag latched for the life of the
+  /// process, and the Android foreground service made sure the process outlived
+  /// any reason for it. [BondRefusalGiveUp.stillPaused] expires it after a
+  /// cooldown; a band that genuinely will not bond simply re-trips.
+  bool refreshAutoReconnectPause() {
+    if (!state.autoReconnectPaused) return false;
+    if (_bondGiveUp.stillPaused(DateTime.now())) return true;
+    state.autoReconnectPaused = false;
+    // Clear what the pause put on screen, too. Leaving `needsRepairGuide` set
+    // tells the user to re-pair while auto-reconnect has quietly re-armed
+    // behind the message, and a `bondRefusals` count that keeps climbing while
+    // the give-up streak restarts at 1 no longer means anything.
+    state.needsRepairGuide = false;
+    state.bondRefusals = 0;
+    _log('[RECONNECT] bond-refusal pause expired — auto-reconnect re-armed.');
+    onState(state);
+    return false;
+  }
   // Real per-chunk failure tracking (see ChunkFailureLedger doc) — persists
   // across reconnects like marginal-radio/post-bond-loop/bond-give-up, since
   // the whole point is catching the SAME token failing across sessions.
@@ -1096,13 +1239,14 @@ class BleEngine {
       } catch (e) {
         _log('requestMtu failed: $e — MTU stays at the connection default.');
       }
-      if (Platform.isAndroid) {
-        try {
-          await device.requestConnectionPriority(
-            connectionPriorityRequest: ConnectionPriority.high,
-          );
-        } catch (_) {}
-      }
+      // Setup is immediately followed by INIT + the first flash drain, which is
+      // exactly when throughput matters, so `_connectSetup` asks for the fast
+      // interval — through the SAME serialized helper as every other
+      // transition. `_applyLinkPriority` steps it back down once the offload
+      // ends (issue #200); before that, `high` was requested here and then held
+      // for the entire life of a deliberately-permanent connection.
+      _connectSetup = true;
+      await _applyLinkPriority();
 
       if (!session.connected) {
         _log('connect: link dropped during setup.');
@@ -1290,7 +1434,50 @@ class BleEngine {
       }
       _send(Cmd.toggleRealtimeHr, const [0x01]);
     }
-    _send(Cmd.getBatteryLevel, const []);
+    // Battery is a DISPLAY value that moves over hours. Polling it on every
+    // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
+    // real changes (issue #200).
+    //
+    // BUT it is also load-bearing for liveness: `_lastRx` only advances on an
+    // inbound notification, and with no live stream armed the battery REPLY is
+    // the only inbound traffic this link generates (LINK_VALID is a write; the
+    // band is not known to answer it). Left purely on a 5-minute cadence, a
+    // quiet link would sail past the 120 s fuse and get bounced — trading a
+    // power win for a reconnect storm. So: poll on the slow cadence normally,
+    // and force one as soon as silence approaches the fuse.
+    unawaited(
+      _pollBatteryIfDue(
+        force: sinceLastRx.inSeconds > kLivenessFuseSeconds ~/ 2,
+      ),
+    );
+    // Cheap retry hook for a priority request that failed earlier: a no-op
+    // whenever the link already sits at the wanted interval.
+    unawaited(_applyLinkPriority());
+  }
+
+  DateTime? _lastBatteryPollAt;
+
+  /// Ask the band for its battery level, at most once per
+  /// [kBatteryPollIntervalSeconds].
+  ///
+  /// The stamp moves only after the write actually goes out, so a failed write
+  /// does not buy five minutes of silence — and [getBattery] shares this path
+  /// so the read AppState does right after connecting isn't immediately
+  /// followed by a duplicate from the first keep-alive tick.
+  Future<void> _pollBatteryIfDue({bool force = false}) async {
+    final last = _lastBatteryPollAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last).inSeconds <
+            kBatteryPollIntervalSeconds) {
+      return;
+    }
+    // `_send` swallows write failures and reports them as false. Stamping
+    // regardless would buy five minutes of silence off a write that never left
+    // the phone.
+    if (await _send(Cmd.getBatteryLevel, const [])) {
+      _lastBatteryPollAt = DateTime.now();
+    }
   }
 
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /
@@ -2731,9 +2918,19 @@ class BleEngine {
   // ── high-level flows ─────────────────────────────────────────────────────────────
   Future<void> sendInit() async {
     _log('Sending 5-packet INIT…');
-    for (final pkt in initPackets) {
-      await _write(pkt);
-      await Future.delayed(const Duration(milliseconds: 120));
+    try {
+      for (final pkt in initPackets) {
+        await _write(pkt);
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+    } finally {
+      // Setup is over. The flood INIT triggers raises the link on its own via
+      // `_setOffloadActive`, so from here the ordinary rules apply — and an
+      // idle link stops paying for the fast interval.
+      if (_connectSetup) {
+        _connectSetup = false;
+        unawaited(_applyLinkPriority());
+      }
     }
   }
 
@@ -2925,7 +3122,7 @@ class BleEngine {
     _log('SET_ADVERTISING_NAME → "$name"');
   }
 
-  Future<void> getBattery() => _send(Cmd.getBatteryLevel, const []);
+  Future<void> getBattery() => _pollBatteryIfDue(force: true);
   Future<void> getHello() => _send(Cmd.getHelloHarvard, const [0x00]);
   Future<void> buzz() => buzzPattern(hapticShortPulse);
 
@@ -2963,6 +3160,7 @@ class BleEngine {
   Future<void> enableLiveStreams() async {
     _liveEnabled = true;
     _liveHrOnly = false;
+    unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
@@ -3010,6 +3208,7 @@ class BleEngine {
     if (_session?.connected != true) return;
     _liveEnabled = true;
     _liveHrOnly = true;
+    unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     final offOps = <List<dynamic>>[
       [
@@ -3066,6 +3265,7 @@ class BleEngine {
     }
     _liveEnabled = false;
     _liveHrOnly = false;
+    unawaited(_applyLinkPriority()); // no live consumer left
     _armTime = null;
     state.liveHr = null;
     // No phase change — we stay `listening`; only the live R10/R11/optical streams
@@ -3102,6 +3302,17 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    // Per-link state: Android resets the connection interval on every new GATT
+    // connection, so a remembered priority would make the next link skip its
+    // request. The battery stamp resets too — a fresh session should read the
+    // level once rather than inheriting the last link's 5-minute cooldown.
+    _appliedPriority = null;
+    _lastBatteryPollAt = null;
+    // Every failure exit in `_doConnect` between setting this and `sendInit`
+    // skips the clear in sendInit's finally, which would leave the target
+    // pinned at `high` for the life of the process.
+    _connectSetup = false;
+    _linkGeneration++;
     _drain?.onLinkDown();
     _drain = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
@@ -3133,6 +3344,9 @@ class BleEngine {
   void _setOffloadActive(bool active) {
     if (_offloadActive == active) return;
     _offloadActive = active;
+    // An offload is the one thing that genuinely needs the fast interval; as
+    // soon as it ends the link steps back down (issue #200).
+    unawaited(_applyLinkPriority());
     onOffloadState?.call(active);
   }
 

@@ -310,7 +310,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
       peakHr: w?.maxHrSeen ?? 0,
       calories: w?.calories ?? 0,
       strain: w?.strain,
-      steps: app.workoutSteps,
+      steps: app.workoutStepsMeasured,
     );
     // AWAIT: stopWorkout flushes the GPS route tail; navigating before it
     // completes raced the finish screen's route load (missing tail / no map).
@@ -707,7 +707,9 @@ class WorkoutFinishSnapshot {
   /// nullable all the way to the finish card: a `?? 0` here would print a
   /// confident "0.0" for a session that was simply never scored.
   final double? strain;
-  final int steps;
+  /// Null when nothing gait-capable was measured for the workout — the finish
+  /// card omits the stat rather than showing a zero.
+  final int? steps;
   const WorkoutFinishSnapshot({
     required this.type,
     required this.duration,
@@ -841,9 +843,14 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
               strain > 0 &&
               (strain - tw.value).abs() < 0.15;
           final ms = recs.record('most_steps');
+          // Prefer the PERSISTED count, like the build path does — the snapshot
+          // can be empty for a workout whose row already carries real steps.
+          final steps = (d['steps'] as num?)?.toInt() ?? s.steps;
+          // An unmeasured workout can't set a step record.
           _prSteps = ms != null &&
-              s.steps > 0 &&
-              (s.steps - ms.value).abs() < 1.5;
+              steps != null &&
+              steps > 0 &&
+              (steps - ms.value).abs() < 1.5;
         }
       });
     } catch (_) {}
@@ -1066,7 +1073,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
   /// These figures COUNT UP with the reveal, so unlike the other sections they
   /// legitimately rebuild per frame — but it is a handful of Text widgets, not
   /// a map or a route re-derivation.
-  Widget _heroStats(int peak, int? avg, int kcal, int steps) {
+  Widget _heroStats(int peak, int? avg, int kcal, int? steps) {
     Widget stat(String v, String label) =>
         Expanded(child: _FinishStat(v, label));
     return AnimatedBuilder(
@@ -1082,7 +1089,8 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
                 stat(peak > 0 ? '${(peak * p).round()}' : '—', 'PEAK BPM'),
                 stat(avg != null ? '${(avg * p).round()}' : '—', 'AVG BPM'),
                 stat('${(kcal * p).round()}', 'KCAL'),
-                if (steps > 0) stat('${(steps * p).round()}', 'STEPS'),
+                if (steps != null && steps > 0)
+                  stat('${(steps * p).round()}', 'STEPS'),
               ],
             ),
           ),
@@ -1388,7 +1396,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
       duration: s.duration,
       when: DateTime.now(),
       maxHr: _maxHr,
-      strain: (d?['strain'] as num?)?.toDouble() ?? s.strain ?? 0,
+      strain: (d?['strain'] as num?)?.toDouble() ?? s.strain,
       calories: (d?['calories'] as num?)?.toInt() ?? s.calories.round(),
       route: _route,
       avgHr: (d?['avg_hr'] as num?)?.toInt(),
@@ -2449,7 +2457,11 @@ class _SessionSheet extends StatelessWidget {
     final zone = zoneIndex.clamp(0, 5);
     final zoneColor = AppColors.zoneOnDark(zone);
     final isRoute = distance != null;
-    final steps = context.select<AppState, int>((a) => a.workoutSteps);
+    // Nullable: the band's 100 Hz accel stream is routinely absent during a
+    // perfectly good workout (standard-HR fallback, background downgrade), and
+    // printing a confident "0 STEPS" next to a real distance and a real HR is a
+    // fabricated measurement — issue #183 screenshotted exactly that.
+    final steps = context.select<AppState, int?>((a) => a.workoutStepsMeasured);
 
     return Container(
       decoration: BoxDecoration(
@@ -2511,7 +2523,9 @@ class _SessionSheet extends StatelessWidget {
                   ),
                   Expanded(
                     child: _SheetStat(
-                      isRoute ? '${workout.calories.round()}' : '$steps',
+                      isRoute
+                          ? '${workout.calories.round()}'
+                          : (steps?.toString() ?? '—'),
                       isRoute ? 'KCAL' : 'STEPS',
                     ),
                   ),

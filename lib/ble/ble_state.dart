@@ -553,6 +553,89 @@ class ChunkFailureLedger {
 /// With continuous listening there is no discrete "sync done" signal, so we can't
 /// fire the DerivationEngine off a SyncReport anymore. Instead, every time records
 /// are persisted we mark them as dirty; once the inbound record stream goes quiet
+/// Whether band records are landing RIGHT NOW.
+///
+/// Answers the TestFlight report "don't get to know if syncing is happening or
+/// not" without adding a spinner: records arrive in bursts with gaps, so the
+/// answer has to hold for a moment after each batch or an indicator would
+/// strobe — and it has to expire, or a finished drain would look like a running
+/// one forever.
+///
+/// Pure, so the window is testable without a band or a clock.
+class SyncActivityWindow {
+  SyncActivityWindow({this.windowMs = 6000});
+
+  /// How long one batch keeps the answer true.
+  final int windowMs;
+
+  int _lastMs = 0;
+
+  /// Records just landed.
+  void mark(int nowMs) => _lastMs = nowMs;
+
+  /// True while the last batch is still within [windowMs].
+  bool isActive(int nowMs) => _lastMs > 0 && nowMs - _lastMs < windowMs;
+
+  /// When the current window closes, or null if nothing has arrived.
+  int? expiresAtMs() => _lastMs > 0 ? _lastMs + windowMs : null;
+}
+
+/// Steps accrued since LOCAL MIDNIGHT, from a counter that counts since the BLE
+/// connection began.
+///
+/// The Today tile shows `derived day total + live session steps`, and the live
+/// half is "since this connection started". This app deliberately holds ONE
+/// continuous connection — the whole engine is built around never dropping it —
+/// so that counter routinely spans midnight, and at 00:01 the tile showed
+/// yesterday's steps plus today's and kept climbing from there. Reported from
+/// TestFlight as "steps and calories are not resetting every day, it's
+/// accumulating".
+///
+/// Rebasing at the day boundary is the fix: steps taken before midnight belong
+/// to yesterday, and yesterday's derived total already contains them.
+///
+/// Pure so the boundary behaviour is testable without a clock or a band.
+class LiveStepDayWindow {
+  String? _day;
+  int _base = 0;
+
+  /// [sessionTotal] is the connection-lifetime count; [today] is the local day
+  /// label. Returns what belongs to [today].
+  int stepsToday(int rawSessionTotal, String today) {
+    // A counter cannot be negative. Letting one through would seat `_base`
+    // below zero, and the next ordinary reading would then report the
+    // difference as steps that were never taken.
+    final sessionTotal = rawSessionTotal > 0 ? rawSessionTotal : 0;
+    if (_day == null) {
+      // First observation. The session counter is per-connection and per-
+      // process, so whatever it holds now was walked during this session — on
+      // this day. Rebasing here instead would DISCARD a real walk, which is
+      // what the live-coverage tests caught.
+      _day = today;
+      _base = 0;
+    } else if (_day != today) {
+      // A day boundary crossed while this window was watching: everything the
+      // counter holds belongs to the day that just ended.
+      _day = today;
+      _base = sessionTotal;
+    }
+    // A reconnect zeroes the session counter. Without this the stale, larger
+    // base would make every subsequent reading negative — clamped to 0 below,
+    // so a walk after a reconnect on the same day would silently stop counting.
+    if (sessionTotal < _base) _base = sessionTotal;
+    final n = sessionTotal - _base;
+    return n > 0 ? n : 0;
+  }
+
+  /// The day this window is currently based on — null until first use.
+  ///
+  /// Kept current from the SAMPLE path, not just from the widget that displays
+  /// it: a phone parked on another tab across midnight would otherwise make its
+  /// first post-midnight read the first observation of any day, and count
+  /// yesterday's whole session as today's.
+  String? get day => _day;
+}
+
 /// for [quietPeriod] (or [maxWait] elapses since the first un-derived record so a
 /// never-quiet stream still derives periodically) a derive is scheduled, coalescing
 /// the burst into a single pass. Pure + deterministic so it's unit-testable without

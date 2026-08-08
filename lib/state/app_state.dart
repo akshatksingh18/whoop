@@ -31,7 +31,8 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
-import '../ble/ble_state.dart' show AlarmConfirmation, AlarmEffect;
+import '../ble/ble_state.dart'
+    show AlarmConfirmation, AlarmEffect, LiveStepDayWindow, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -1011,6 +1012,8 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _syncQuietTimer?.cancel();
+    _syncQuietTimer = null;
     _disposed = true;
     // EVERY timer this object owns, not just three of them. _spotTimer,
     // _breathingRecomputeTimer and _workoutTimer used to survive dispose, and
@@ -1654,6 +1657,9 @@ class AppState extends ChangeNotifier {
   /// drain, live-triggered store) after the write is durable, so it can't
   /// race it — same guarantee dbCounts already relies on above.
   void _onDataStored() {
+    // Synchronously, before the async read below: this is the moment records
+    // became durable, and it is the only path that sees every commit.
+    _markSyncActivity();
     unawaited(() async {
       dbCounts = await LocalDb.counts();
       final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
@@ -2100,8 +2106,19 @@ class AppState extends ChangeNotifier {
   /// double-count into `live_coverage` and poison the cadence model.
   int get _rawSessionSteps => (_liveRaw * ana.StepParams.gain).round();
 
+  /// Rebases the connection-lifetime counter at local midnight — see
+  /// [LiveStepDayWindow] for why a permanently-connected band made the Today
+  /// tile carry yesterday's steps into today.
+  final LiveStepDayWindow _liveStepDay = LiveStepDayWindow();
+
   int get liveSteps {
-    final raw = _rawSessionSteps;
+    final today = todayLabel();
+    final dayChanged = _liveStepDay.day != null && _liveStepDay.day != today;
+    final raw = _liveStepDay.stepsToday(_rawSessionSteps, today);
+    // The cushion holds a PRE-midnight session total for a few seconds so the
+    // tile doesn't visibly dip on a reconnect. Carried across the boundary it
+    // would re-introduce exactly the number we just rebased away.
+    if (dayChanged) _sessionStepsCushion = 0;
     if (_sessionStepsCushion <= 0) return raw;
     if (DateTime.now().millisecondsSinceEpoch - _sessionCushionSetAtMs >=
         _sessionCushionGraceMs) {
@@ -2218,6 +2235,12 @@ class AppState extends ChangeNotifier {
     // a killed process doesn't lose the whole session — only whatever hasn't
     // completed a minute yet. See _recoverOrphanedLiveSession.
     if (committedThisTick) unawaited(_checkpointLiveSession());
+    // Keep the day window current from the SAMPLE path. Reading it only when
+    // the Today tile is built would make the first read after midnight the
+    // window's first observation of any day — and a first observation counts
+    // in full, so a phone parked on another tab across midnight would carry
+    // the whole of yesterday's session into today.
+    if (committedThisTick) _liveStepDay.stepsToday(_rawSessionSteps, todayLabel());
     if (nowMs - _lastLiveUiNotifyMs >= 1000) {
       _lastLiveUiNotifyMs = nowMs;
       notifyListeners(); // live readout re-counts the partial minute on read
@@ -3567,6 +3590,40 @@ class AppState extends ChangeNotifier {
     'reanalyzing': reanalyzing,
     'reanalyze_progress': reanalyzeProgress,
   };
+
+  final SyncActivityWindow _syncActivity = SyncActivityWindow();
+
+  /// Fires once when the activity window closes. `syncingNow` decays on
+  /// wall-clock time, and nothing else necessarily notifies at that moment — a
+  /// band that goes quiet after its last batch would leave the indicator lit
+  /// until some unrelated state change happened along.
+  Timer? _syncQuietTimer;
+
+  /// Band data is arriving right now. Deliberately narrow: it is not "connected"
+  /// and not "we would like to sync" — it is only true while records are
+  /// actually landing, so a quiet indicator means a quiet link rather than a
+  /// broken one.
+  ///
+  /// From TestFlight: "don't get to know if syncing is happening or not".
+  bool get syncingNow =>
+      _syncActivity.isActive(DateTime.now().millisecondsSinceEpoch);
+
+  /// Records reached durable storage. Called from the durable-write callback —
+  /// NOT inferred from a sync burst finishing, because `_onDataStored` has
+  /// already advanced the frontier by then, so the burst's own "did the
+  /// frontier move" test is false exactly when data has just landed.
+  void _markSyncActivity() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _syncActivity.mark(now);
+    _syncQuietTimer?.cancel();
+    _syncQuietTimer = Timer(
+      Duration(milliseconds: _syncActivity.windowMs),
+      () {
+        _syncQuietTimer = null;
+        notifyListeners();
+      },
+    );
+  }
 
   /// REAL device timestamp of the newest record we hold (the band's own clock),
   /// NOT when the BLE frame arrived. This is what "last data: …" displays — a

@@ -30,6 +30,12 @@ class _ImportScreenState extends State<ImportScreen> {
   bool _picking = false;
   String? _progress;
   String? _result;
+
+  /// A partial success — the import worked but cost something the user needs to
+  /// know about. Distinct from [_result] and [_error] because it is neither: a
+  /// green tick beside "these days could not be re-analysed" reads as approval
+  /// of the loss, and an error card would claim the whole import failed.
+  String? _warning;
   String? _error;
 
   /// The option cards are inert while EITHER a picker is open or an import is
@@ -71,11 +77,19 @@ class _ImportScreenState extends State<ImportScreen> {
       // still up and will deliver the user's choice, so say nothing. Anything
       // else is worth showing.
       if (e.code != 'already_active') {
-        _set(() => _error = 'Could not open the file picker: ${e.message ?? e.code}');
+        _set(() {
+          _error = 'Could not open the file picker: ${e.message ?? e.code}';
+          _result = null;
+          _warning = null;
+        });
       }
       return const [];
     } catch (e) {
-      _set(() => _error = 'Could not open the file picker: $e');
+      _set(() {
+        _error = 'Could not open the file picker: $e';
+        _result = null;
+        _warning = null;
+      });
       return const [];
     } finally {
       _set(() => _picking = false);
@@ -88,6 +102,7 @@ class _ImportScreenState extends State<ImportScreen> {
       _busy = true;
       _progress = 'Importing…';
       _result = null;
+      _warning = null;
       _error = null;
     });
     try {
@@ -112,6 +127,13 @@ class _ImportScreenState extends State<ImportScreen> {
     if (paths.isEmpty) return;
     await _run('NOOP', () => app.importNoopCsv(paths.first,
         onProgress: (d) => _set(() => _progress = 'Re-deriving day $d…')));
+    final stranded = app.lastNoopImport?.strandedDates ?? const <String>{};
+    if (stranded.isNotEmpty && _error == null) {
+      final shown = (stranded.toList()..sort()).take(3).join(', ');
+      _set(() => _warning = '${stranded.length} day'
+          '${stranded.length == 1 ? '' : 's'} came through out of order and '
+          'could not be re-analysed ($shown${stranded.length > 3 ? '…' : ''}).');
+    }
   }
 
   Future<void> _importEdge() async {
@@ -150,7 +172,8 @@ class _ImportScreenState extends State<ImportScreen> {
           ImportOptionCard(
             icon: OsIcon.heartRate,
             title: 'Import from NOOP',
-            body: 'Raw 1 Hz CSV — re-analyzed end-to-end on this phone.',
+            body: 'A .noopbak backup or the raw 1 Hz CSV — re-analyzed '
+                'end-to-end on this phone.',
             onTap: _locked ? null : _importNoop,
           ),
           const SizedBox(height: Sp.x3),
@@ -210,6 +233,21 @@ class _ImportScreenState extends State<ImportScreen> {
                       Text(_progress ?? 'Importing…', style: AppText.bodySoft)),
             ]),
           ),
+        if (_warning != null) ...[
+          SurfaceCard(
+            level: 0,
+            color: AppColors.warnSoft,
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Row(children: [
+              AppIcon(OsIcon.info, size: 18, color: AppColors.warn),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                  child: Text(_warning!,
+                      style: AppText.body.copyWith(color: AppColors.warn))),
+            ]),
+          ).dsPop(),
+          const SizedBox(height: Sp.x3),
+        ],
         if (_result != null) ...[
           SurfaceCard(
             level: 0,
@@ -234,7 +272,17 @@ class _ImportScreenState extends State<ImportScreen> {
           const SizedBox(height: Sp.x2),
           Center(
             child: TextButton(
-              onPressed: _busy ? null : () => _set(() => _result = null),
+              onPressed: _busy
+                  ? null
+                  // The warning is cleared WITH the result: they describe the
+                  // same import, and clearing only one left an orphaned
+                  // "days could not be re-analysed" card with no way to dismiss
+                  // it — the button that would have dismissed it disappears
+                  // along with the result card.
+                  : () => _set(() {
+                        _result = null;
+                        _warning = null;
+                      }),
               child: const Text('Import another file'),
             ),
           ),

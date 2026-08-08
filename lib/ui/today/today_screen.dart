@@ -242,7 +242,8 @@ class _TodayScreenState extends State<TodayScreen>
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),
-          padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, 120),
+          padding: EdgeInsets.fromLTRB(
+              Sp.screen, Sp.x2, Sp.screen, dsBottomGutter(context)),
           children: [
             // OTA update prompt + admin alert banner (self-hiding).
             const StatusBanner(),

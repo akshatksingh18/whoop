@@ -148,6 +148,144 @@ class ResolvedImportFiles {
   }
 }
 
+/// True for a ZIP member that is a database rather than a CSV.
+bool _isDbMember(String name) {
+  final base = p.basename(name).toLowerCase();
+  return (base.endsWith('.sqlite') ||
+          base.endsWith('.db') ||
+          base.endsWith('.sqlite3')) &&
+      !base.startsWith('._') &&
+      !name.startsWith('__MACOSX/');
+}
+
+/// A NOOP database ready to read, plus the temp directory holding it (if it had
+/// to be unpacked). The caller MUST [dispose] once it has finished reading.
+class ResolvedNoopDatabase {
+  ResolvedNoopDatabase(this.path, this._tempDir);
+
+  final String path;
+  final Directory? _tempDir;
+
+  Future<void> dispose() async {
+    final dir = _tempDir;
+    if (dir == null) return;
+    try {
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (_) {
+      /* the OS reclaims the temp dir eventually */
+    }
+  }
+}
+
+/// If [path] is a NOOP full backup, return its database ready to open.
+///
+/// Handles both shapes users arrive with: the `.noopbak` itself (a ZIP whose
+/// only member is `noop-backup.sqlite`) and a database someone already unpacked
+/// by hand. Returns null for anything else, so the caller falls through to the
+/// CSV path.
+///
+/// The database is EXTRACTED to a temp directory rather than read in place: a
+/// ZIP member is deflated, and sqlite needs a real file it can seek in.
+Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
+  switch (await sniffFile(path)) {
+    case ImportContainer.sqlite:
+      return ResolvedNoopDatabase(path, null);
+    case ImportContainer.zip:
+      break;
+    default:
+      return null;
+  }
+
+  final input = InputFileStream(path);
+  Archive archive;
+  try {
+    archive = ZipDecoder().decodeStream(input);
+  } catch (e) {
+    await input.close();
+    throw ImportFormatException(
+      'Could not read “${p.basename(path)}” as an archive: $e',
+    );
+  }
+  try {
+    ArchiveFile? db;
+    for (final f in archive.files) {
+      if (f.isFile && _isDbMember(f.name)) {
+        // Largest member wins: a backup can ship the database alongside a small
+        // sidecar (`-wal`, a manifest), and picking the first match could take
+        // the wrong one.
+        if (db == null || f.size > db.size) db = f;
+      }
+    }
+    if (db == null) return null; // not a backup — let the CSV path try.
+
+    if (db.size > _kMaxUncompressedBytes) {
+      throw ImportFormatException(
+        '“${p.basename(path)}” unpacks to '
+        '${(db.size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB, which is '
+        'not something we can import.',
+      );
+    }
+    final tempDir = await Directory.systemTemp.createTemp('openstrap_noopbak_');
+    // Everything past this point owns `tempDir`. An IO failure here is a
+    // hundreds-of-megabytes partial copy, so nothing may escape without
+    // deleting it — the caller has no handle to clean up with, because the
+    // handle is what this function failed to return.
+    try {
+      final destPath = p.join(tempDir.path, p.basename(db.name));
+      final sink = OutputFileStream(destPath);
+      try {
+        db.writeContent(sink);
+      } finally {
+        await sink.close();
+      }
+    // A 260 MB backup unpacks to a full second copy, and a phone that runs out
+    // of space mid-write leaves a TRUNCATED file — which still opens as a valid
+    // database and would import a fraction of the history as if that were all
+    // of it. Silent partial history is the worst outcome here, so verify the
+    // whole member landed. (Dart has no portable free-space API, hence checking
+    // after rather than before.)
+      // The size is checked in BOTH directions, AFTER the write. Short means it
+      // ran out of space, and a truncated database still opens — importing a
+      // fraction of someone's history as if it were all of it. Long means the
+      // archive's declared size is not what it actually holds, so the ceiling
+      // above was checked against a number that turned out to be fiction. Note
+      // this REPORTS an over-run rather than preventing it: the bytes are on
+      // disk by the time we can compare, and bounding that would need a
+      // size-limited sink around the decoder. Rejecting after the fact is still
+      // worth it — the file is deleted below and never imported.
+      final written = await File(destPath).length();
+      if (db.size > 0 && written < db.size) {
+        throw ImportFormatException(
+          'Unpacking that backup stopped at '
+          '${(written / (1024 * 1024)).round()} MB of '
+          '${(db.size / (1024 * 1024)).round()} MB — the phone is probably out '
+          'of space. Free some up and try again.',
+        );
+      }
+      if (db.size > 0 && written > db.size) {
+        throw ImportFormatException(
+          '“${p.basename(path)}” does not hold what it says it does — its '
+          'database unpacked to more than the archive declared. It is likely '
+          'damaged; export it again.',
+        );
+      }
+      return ResolvedNoopDatabase(destPath, tempDir);
+    } catch (_) {
+      // Delete the partial copy directly, and never let a cleanup failure
+      // replace the real exception — the out-of-space message above is the one
+      // the user can act on.
+      try {
+        if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+      } catch (_) {
+        /* the OS reclaims the temp dir eventually */
+      }
+      rethrow;
+    }
+  } finally {
+    await input.close();
+  }
+}
+
 /// Resolve the picked paths into CSV files on disk, unwrapping ZIP archives.
 ///
 /// [flavor] names the importer in error messages ('NOOP', 'WHOOP'). Extracted
@@ -183,10 +321,11 @@ Future<ResolvedImportFiles> resolveImportCsvPaths(
             await _extractCsvMembers(path, flavor: flavor, dir: into),
           );
         case ImportContainer.sqlite:
+          // Only reachable for WHOOP now — a NOOP database (loose or inside a
+          // `.noopbak`) is claimed by [resolveNoopDatabase] before this runs.
           throw ImportFormatException(
             '“${p.basename(path)}” is a database file, not a $flavor CSV '
-            'export. In NOOP, use Export → raw sensor CSV and pick the '
-            '“noop-raw-sensors-….csv” file it writes.',
+            'export.',
           );
         case ImportContainer.gzip:
           throw ImportFormatException(
@@ -258,22 +397,6 @@ Future<List<String>> _extractCsvMembers(
   }
 
   if (csvFiles.isEmpty) {
-    // The `.noopbak` case, and the single most-reported one: an archive whose
-    // payload is a SQLite database. Name the file we actually want rather than
-    // failing on its bytes.
-    final hasDb = archive.files.any(
-      (f) =>
-          f.isFile &&
-          (f.name.toLowerCase().endsWith('.sqlite') ||
-              f.name.toLowerCase().endsWith('.db')),
-    );
-    if (hasDb) {
-      throw ImportFormatException(
-        '“$name” is a full NOOP backup — it holds NOOP\'s own database, which '
-        'we can\'t read. In NOOP, open Export and choose the raw 1 Hz sensor '
-        'CSV (“noop-raw-sensors-….csv”), then import that file here.',
-      );
-    }
     throw ImportFormatException(
       '“$name” is an archive with no CSV files inside '
       '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '

@@ -350,9 +350,16 @@ class AppState extends ChangeNotifier {
       _derive,
       onProgress: onProgress,
     );
+    lastNoopImport = res;
     notifyListeners();
     return res.days;
   }
+
+  /// The most recent NOOP import, so the import screen can report what the
+  /// source cost us — days it presented out of order were folded in as context
+  /// for the following day but never derived, and "imported N days" alone would
+  /// hide that.
+  NoopImportResult? lastNoopImport;
 
   /// WHOOP export CSV(s) → derived-snapshot days (+ workouts). BETA.
   Future<int> importWhoopCsvs(

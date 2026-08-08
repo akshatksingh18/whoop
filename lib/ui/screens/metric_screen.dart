@@ -82,7 +82,8 @@ class _MetricScreenState extends State<MetricScreen> {
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),
-          padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x3, Sp.screen, 120),
+          padding: EdgeInsets.fromLTRB(
+              Sp.screen, Sp.x3, Sp.screen, dsBottomGutter(context)),
           children: [
             if (_tab == 0)
               KeyedSubtree(

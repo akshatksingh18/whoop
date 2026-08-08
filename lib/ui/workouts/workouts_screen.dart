@@ -242,7 +242,8 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),
-          padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, 120),
+          padding: EdgeInsets.fromLTRB(
+              Sp.screen, Sp.x2, Sp.screen, dsBottomGutter(context)),
           children: [
             if (!_loading && _suggestions.isNotEmpty) ...[
               const SectionHeader('Suggested workouts'),

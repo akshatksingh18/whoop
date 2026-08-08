@@ -74,6 +74,12 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // to latch for the whole process, silencing every notification and
       // scheduled reminder until a full app restart.
       NotificationService.instance.invalidatePermissionCache();
+      // A background relaunch while the phone was locked cannot read the
+      // keychain, so the BYOK key can be missing from an otherwise healthy
+      // process. Coming to the foreground means the phone is unlocked — take
+      // the chance to read it. No-op unless a key is known to exist and is
+      // currently unreadable.
+      unawaited(context.read<CoachConfig>().refreshKeyOnResume());
       app.maybeFinishFromLiveActivity();
       unawaited(app.maybeStopBreathingFromLiveActivity());
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground

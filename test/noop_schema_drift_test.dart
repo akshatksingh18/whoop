@@ -12,6 +12,7 @@
 // There was no test that parsed a real NOOP CSV at all — only the pure
 // `decideRow` ordering contract — which is why the drift shipped unnoticed.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +46,29 @@ String _row(int ts, String stream,
     '$ts', iso, stream, hr, rr, gx, gy, gz, stepCounter, '', '', '', '',
     skinTemp, '', sleepState, eventKind, eventPayload,
   ].join(',');
+}
+
+
+/// `payload_json` nests some sections as encoded strings and some as maps,
+/// depending on which writer produced them — decode either shape.
+Map<String, dynamic>? _section(Object? v) {
+  if (v is Map<String, dynamic>) return v;
+  if (v is String) {
+    try {
+      final d = jsonDecode(v);
+      if (d is Map<String, dynamic>) return d;
+    } on FormatException {
+      // A rendered value ("—"), not an encoded section.
+    }
+  }
+  return null;
+}
+
+/// Beats the RR pipeline actually used for [day], or null if it did not run.
+int? _beatsUsed(Map<String, Object?> row) {
+  final payload = _section(row['payload_json']);
+  final irregular = _section(_section(payload?['clinical'])?['irregular_24h']);
+  return _section(irregular?['value'])?['n_beats'] as int?;
 }
 
 void main() {
@@ -296,6 +320,53 @@ void main() {
           f.path, const Profile(), DerivationEngine());
       expect(res.steps, 0);
       expect(res.days, greaterThan(0));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('an rr_ms of NaN or Infinity is not a beat', () async {
+      // `double.tryParse('NaN')` really does return NaN, and NaN fails every
+      // comparison — so a `ms <= 0` guard passes it straight into the
+      // Substrate, where one bad beat poisons the whole day's HRV.
+      const t0 = 1786262400; // 2026-08-09
+      final b = StringBuffer()..writeln(_header);
+      for (var i = 0; i < 600; i++) {
+        final ts = t0 + i;
+        b.writeln(_row(ts, 'hr', hr: '${60 + (i % 10)}'));
+        b.writeln(_row(ts, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'));
+        b.writeln(_row(ts, 'rr',
+            rr: i == 100
+                ? 'NaN'
+                : i == 200
+                    ? 'Infinity'
+                    : '900'));
+      }
+      final f = File(p.join(tmp.path, 'nan.csv'))
+        ..writeAsStringSync(b.toString());
+
+      final res = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(res.days, greaterThan(0));
+
+      // Assert on the BEAT COUNT the pipeline actually used, not on the row's
+      // typed columns: every derived metric lives inside `payload_json`, so a
+      // `whereType<double>` sweep over the row finds nothing and passes however
+      // broken the guard is. 600 beats were written, two of them non-finite.
+      final d = DateTime.fromMillisecondsSinceEpoch(t0 * 1000);
+      final day = '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+      final db = await LocalDb.instance;
+      final rows =
+          await db.query('day_result', where: 'day_id = ?', whereArgs: [day]);
+      expect(rows, isNotEmpty);
+      var checked = 0;
+      for (final r in rows) {
+        final n = _beatsUsed(r);
+        if (n == null) continue;
+        expect(n, 598,
+            reason: 'the NaN and the Infinity are dropped, not counted');
+        checked++;
+      }
+      expect(checked, greaterThan(0), reason: 'the assertion must have run');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('an UNKNOWN future stream is skipped, not fatal', () async {

@@ -229,4 +229,64 @@ void main() {
     expect(rows.first['spo2_red_raw'], 100);
   });
   });
+
+  // CodeRabbit: the R10-lite case asserted only ABSENCE from `decoded_onehz`,
+  // which would also pass if the record were dropped entirely. Retention in
+  // `samples` is the other half of that contract.
+  test('an R10-lite record is excluded from decoded_onehz but RETAINED in samples',
+      () async {
+    const ts = 1780000300;
+    const counter = 4242;
+    final inner = _buildR10LiteInner(ts: ts, counter: counter, hr: 71);
+    final sample = Sample(tsEpoch: ts, counter: counter, hr: 71);
+    final raw = RawRecord(
+      counter: counter,
+      packetType: PacketType.historicalData,
+      hex: _bytesToHex(inner),
+      capturedAt: ts * 1000,
+      recTs: ts,
+    );
+    await LocalDb.commitSyncBatch([raw], [sample]);
+
+    final db = await LocalDb.instance;
+    expect(
+      await db.query('decoded_onehz', where: 'rec_ts = ?', whereArgs: [ts]),
+      isEmpty,
+      reason: 'hr-only R10-lite is not 1 Hz substrate',
+    );
+    expect(
+      await db.query('samples', where: 'counter = ?', whereArgs: [counter]),
+      hasLength(1),
+      reason: 'excluded from the substrate is NOT the same as discarded',
+    );
+  });
+
+  // Protects the hex-conversion fallback in `LocalDb._decodeOneHzSample`: when
+  // the raw hex cannot be parsed, a timestamp-valid preferred Sample must still
+  // reach `decoded_onehz` rather than the record being lost.
+  test('unparseable raw hex still persists a timestamp-valid preferred Sample',
+      () async {
+    const ts = 1780000400;
+    const counter = 5150;
+    final raw = RawRecord(
+      counter: counter,
+      packetType: PacketType.historicalData,
+      hex: 'zzzz-not-hex',
+      capturedAt: ts * 1000,
+      recTs: ts,
+    );
+    final sample = Sample(
+      tsEpoch: ts,
+      counter: counter,
+      hr: 66,
+      rrIntervalsMs: const [910],
+    );
+    await LocalDb.commitSyncBatch([raw], [sample]);
+
+    final db = await LocalDb.instance;
+    final rows =
+        await db.query('decoded_onehz', where: 'rec_ts = ?', whereArgs: [ts]);
+    expect(rows, hasLength(1));
+    expect(rows.first['hr'], 66);
+  });
 }

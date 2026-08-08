@@ -163,4 +163,127 @@ void main() {
       },
     );
   });
+
+  // CodeRabbit, correctly: everything above tests the PREDICATE
+  // (`accelPresentFraction`) and never executes the gate it feeds. That made
+  // this a vacuous guard for a P0 -- the coverage floor could have been deleted
+  // and every assertion here would still pass. These drive `calendarDays`, the
+  // real entry point, and assert on the SLEEP RESULT.
+  group('the coverage floor actually gates accel-led detection', () {
+    /// A full night of the given accel presence, with a plausible nocturnal HR
+    /// dip so the HR-led fallback has something to find.
+    Substrate night({required bool accelPresent, double presentFraction = 1.0}) {
+      // 22:00 -> 08:00 local, 1 Hz.
+      final start = _localMidnightOf(1750000000) + 22 * 3600;
+      const n = 10 * 3600;
+      final ts = <int>[];
+      final hr = <int>[];
+      final ax = <double>[];
+      final ay = <double>[];
+      final az = <double>[];
+      for (var i = 0; i < n; i++) {
+        ts.add(start + i);
+        // Awake ~70, asleep ~50 between 23:00 and 07:00.
+        final inNight = i > 3600 && i < 9 * 3600;
+        hr.add(inNight ? 50 : 70);
+        final present = accelPresent && (i / n) < presentFraction;
+        if (present) {
+          if (inNight) {
+            // Asleep: a constant gravity vector — a genuine immobile block for
+            // van Hees to find.
+            ax.add(0.0);
+            ay.add(0.0);
+            az.add(1.0);
+          } else {
+            // Awake: a 10 deg/s sweep. It has to be a RAMP, not an
+            // alternation — the mask smooths the z-angle with a 5-second
+            // rolling MEDIAN, which erases a 1 Hz square wave entirely and
+            // would make the whole record read immobile.
+            final deg = (i % 9) * 10.0;
+            final rad = deg * math.pi / 180.0;
+            ax.add(math.cos(rad));
+            ay.add(0.0);
+            az.add(math.sin(rad));
+          }
+        } else {
+          ax.add(0.0);
+          ay.add(0.0);
+          az.add(0.0);
+        }
+      }
+      return Substrate(
+        tsSec: ts,
+        hr: hr,
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: ax,
+        ay: ay,
+        az: az,
+        spo2Red: List<int>.filled(n, 0),
+        spo2Ir: List<int>.filled(n, 0),
+        skinTemp: List<int>.filled(n, 0),
+        skinContact: List<int>.filled(n, 0),
+      );
+    }
+
+    test(
+      'when the NIGHT\'s own records carry no gravity, no accel-led `auto` '
+      'sleep is produced — the fabricated window never reaches a PhysioDay',
+      () {
+        // The discriminating shape, and the realistic one: the evening has
+        // real accel, the night's records decoded without a gravity vector.
+        // Coverage lands below the floor, and the zeros would otherwise form a
+        // clean multi-hour "immobile" block for van Hees to anchor on. With
+        // the gate removed this test FAILS — verified by mutation.
+        final days = calendarDays(night(accelPresent: true, presentFraction: 0.15));
+        for (final d in days) {
+          expect(
+            d.sleepSource,
+            isNot('auto'),
+            reason: 'accel-led detection ran on data that does not exist',
+          );
+        }
+      },
+    );
+
+    test(
+      'a night with NO gravity at all is likewise never accel-led',
+      () {
+        // The pure gen5-lenient case: every record decoded without gravity.
+        // Kept as documentation of the headline scenario — note it is not
+        // independently discriminating, because a record that is immobile end
+        // to end is also rejected downstream. The test above is the one that
+        // pins the gate.
+        final days = calendarDays(night(accelPresent: false));
+        for (final d in days) {
+          expect(d.sleepSource, isNot('auto'));
+        }
+      },
+    );
+
+    test('a fully-measured night still detects accel-led sleep normally', () {
+      final days = calendarDays(night(accelPresent: true));
+      expect(
+        days.any((d) => d.sleepSource == 'auto'),
+        isTrue,
+        reason: 'the gate must not suppress a night we CAN measure',
+      );
+    });
+
+    test('the boundary: just below the floor gates, at/above it does not', () {
+      final below = calendarDays(
+          night(accelPresent: true, presentFraction: kMinAccelCoverageForVanHees - 0.1));
+      expect(below.any((d) => d.sleepSource == 'auto'), isFalse);
+
+      final atOrAbove = calendarDays(
+          night(accelPresent: true, presentFraction: kMinAccelCoverageForVanHees + 0.1));
+      expect(atOrAbove.any((d) => d.sleepSource == 'auto'), isTrue);
+    });
+  });
+}
+
+/// Local midnight for [epochSec], matching `substrate.dart`'s own day anchor.
+int _localMidnightOf(int epochSec) {
+  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
 }

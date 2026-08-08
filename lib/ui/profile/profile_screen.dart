@@ -922,13 +922,20 @@ class _DeviceTileState extends State<DeviceTile> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: Sp.x2),
-                      Row(
+                      // Wrap, not Row: these are two intrinsically-sized chips
+                      // with no flex, and the second one carries a long label
+                      // ("WHOOP 5 (experimental)"). At large text scales, or on
+                      // a narrow device, their combined width exceeds the
+                      // Expanded column and a Row overflows. Wrapping degrades
+                      // to a second line instead.
+                      Wrap(
+                        spacing: Sp.x2,
+                        runSpacing: Sp.x2,
                         children: [
                           StatusChip(widget.statusText, tone: widget.statusTone),
-                          if (widget.generation != null) ...[
-                            const SizedBox(width: Sp.x2),
-                            StatusChip(widget.generation!, tone: ChipTone.neutral),
-                          ],
+                          if (widget.generation != null)
+                            StatusChip(widget.generation!,
+                                tone: ChipTone.neutral),
                         ],
                       ),
                     ],
@@ -1359,14 +1366,20 @@ class _DeviceSheet extends StatelessWidget {
     // touchpoint in this class after finding the same gap cost a real bug in
     // the main ProfileScreen build above.) Also select confirmation flags:
     // omitting them left the caption stuck on "Setting alarm…" after grace.
+    //
+    // Select the SERIAL VALUE, not the `device`/`paired` OBJECTS. `select`
+    // compares with `==`, `DeviceState` declares no `==`/`hashCode` (so it is
+    // identity equality), and `BleEngine` mutates `state.serial` IN PLACE —
+    // the selector therefore returns the same reference before and after, no
+    // change is detected, and this row can sit on a stale serial indefinitely.
+    // Selecting the string the row actually renders makes the dependency real.
     context.select<AppState,
-        (bool, int?, String?, dynamic, dynamic, bool, bool, bool)>(
+        (bool, int?, String?, String?, bool, bool, bool)>(
       (a) => (
         a.isConnected,
         a.alarmEpoch,
         a.strapName,
-        a.device,
-        a.paired,
+        a.device.serial ?? a.paired?.serial,
         a.alarmConfirmed,
         a.alarmPending,
         a.alarmUnconfirmed,

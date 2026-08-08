@@ -27,8 +27,17 @@ dependencies:
   # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
   # Bump these SHAs deliberately, as part of a reviewed edge change. Local dev
   # still builds against ../analytics and ../protocol via pubspec_overrides.yaml.
-  # NOTE: this branch is intentionally WHOOP-4-only — protocol stays on `main`,
-  # NOT the gen5/multiband branch.
+  # NOTE: this branch is the gen5/multiband one — protocol is pinned to the
+  # multiband work, NOT to a WHOOP-4-only main. (This line previously claimed
+  # the opposite and contradicted the pin twelve lines below it.)
+  #
+  # FOLLOW-UP before this merges: protocol#16 has since landed, so the pinned
+  # SHA below is now reachable from protocol `main` (367d22b). It should be
+  # repointed at that merge commit — the current pin is a PR-BRANCH head on
+  # `feat/multiband-whoop5`, i.e. the very branch deleted when this PR merges,
+  # which is exactly the orphaning the paragraph above warns about. Left as-is
+  # here only because repinning belongs with the main-merge, not with this
+  # review pass.
   # Both are now MERGE COMMITS ON `main`, not PR-branch heads — the PR-branch
   # SHAs these briefly pointed at are no longer the canonical location of the
   # change, and a branch deletion could orphan them.

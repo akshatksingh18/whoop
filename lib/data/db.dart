@@ -91,7 +91,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 28;
+  static const int schemaVersion = 29;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -410,6 +410,11 @@ class LocalDb {
           // notes, and a day with only tags simply has no metric rows.
           await _createJournalMetric(db);
           await _createJournalFieldDef(db);
+        }
+        if (oldV < 29) {
+          // Hand-entered blood work. Purely new tables; nothing existing is
+          // read or rewritten.
+          await _createLabTables(db);
         }
       },
       onOpen: (db) async {
@@ -1364,6 +1369,55 @@ class LocalDb {
     ''');
   }
 
+  /// lab_result — hand-entered blood work, and definitions for user-defined
+  /// markers.
+  ///
+  /// Keyed on (marker, taken_on) so re-entering the same draw corrects it
+  /// rather than stacking duplicates; two genuinely different draws on one day
+  /// are rare enough that correcting a typo is the case worth optimising for.
+  ///
+  /// `unit` is stored per row rather than looked up from the catalogue, so a
+  /// value keeps the unit it was entered under even if a later release changes
+  /// the marker's canonical unit. Silently reinterpreting 400 ng/mL as
+  /// 400 nmol/L would be a fabrication of the worst kind.
+  ///
+  /// NOT day-scoped, NOT pruned, and deliberately NOT removed by `deleteDays`.
+  /// A lab result belongs to the date the blood was drawn, not to a band-data
+  /// day. "Delete this day" in the data manager is about reclaiming space from
+  /// sensor data; a blood test is neither sensor data nor large, it was typed
+  /// in by hand on a different screen, and it has its own delete there. Losing
+  /// a year-old blood panel because the band data from that date was cleared
+  /// would be a genuinely surprising deletion.
+  ///
+  /// Indexed by its PRIMARY KEY alone — `(marker, taken_on)` already gives
+  /// SQLite an implicit index on exactly the columns every read here filters
+  /// and orders by, so a second one would only be another b-tree to maintain.
+  static Future<void> _createLabTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lab_result (
+        marker TEXT NOT NULL,
+        taken_on TEXT NOT NULL,
+        value REAL NOT NULL,
+        unit TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (marker, taken_on)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lab_marker_def (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        category TEXT NOT NULL,
+        decimals INTEGER NOT NULL DEFAULT 1,
+        ref_low REAL,
+        ref_high REAL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
   // On-device user-entered + locally-generated data. All keyed for idempotent
   // upserts; none of it round-trips to a server (cloud excised).
@@ -1379,6 +1433,7 @@ class LocalDb {
     ''');
     await _createJournalMetric(db);
     await _createJournalFieldDef(db);
+    await _createLabTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -3613,6 +3668,8 @@ class LocalDb {
       'journal',
       'journal_metric',
       'journal_field_def',
+      'lab_result',
+      'lab_marker_def',
       'cycle_log',
       'notifications',
       'baselines',
@@ -3921,6 +3978,8 @@ class LocalDb {
       'journal',
       'journal_metric',
       'journal_field_def',
+      'lab_result',
+      'lab_marker_def',
       'cycle_log',
       'notifications',
       'sync_cursor',
@@ -4714,12 +4773,76 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  // ── lab results ───────────────────────────────────────────────────────────
+
+  /// Upsert one result. Idempotent on (marker, date drawn), so re-entering a
+  /// value corrects it instead of stacking a near-duplicate.
+  static Future<void> putLabResult({
+    required String marker,
+    required String takenOn,
+    required double value,
+    required String unit,
+    String note = '',
+  }) async {
+    final db = await instance;
+    await db.insert('lab_result', {
+      'marker': marker,
+      'taken_on': takenOn,
+      'value': value,
+      'unit': unit,
+      'note': note,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> deleteLabResult(String marker, String takenOn) async {
+    final db = await instance;
+    await db.delete(
+      'lab_result',
+      where: 'marker = ? AND taken_on = ?',
+      whereArgs: [marker, takenOn],
+    );
+  }
+
+  /// Every result, newest draw first. [marker] narrows to one series.
+  static Future<List<Map<String, dynamic>>> labResults({String? marker}) async {
+    final db = await instance;
+    return db.query(
+      'lab_result',
+      where: marker == null ? null : 'marker = ?',
+      whereArgs: marker == null ? null : [marker],
+      orderBy: 'taken_on DESC',
+    );
+  }
+
+  /// Custom marker definitions, by label.
+  static Future<List<Map<String, dynamic>>> labMarkerDefs() async {
+    final db = await instance;
+    return db.query('lab_marker_def', orderBy: 'label ASC');
+  }
+
+  static Future<void> putLabMarkerDef(Map<String, dynamic> row) async {
+    final db = await instance;
+    await db.insert('lab_marker_def', {
+      ...row,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   /// Forget a custom field's DEFINITION. Its recorded values are deliberately
   /// left alone — they were real readings, and deleting a label should not
   /// delete history.
   static Future<void> deleteJournalFieldDef(String key) async {
     final db = await instance;
     await db.delete('journal_field_def', where: 'key = ?', whereArgs: [key]);
+  }
+
+  /// Forget a custom marker's DEFINITION. Its results are left alone — those
+  /// were real draws, and each row already carries its own unit, so they stay
+  /// readable without it.
+  static Future<void> deleteLabMarkerDef(String key) async {
+    final db = await instance;
+    await db.delete('lab_marker_def', where: 'key = ?', whereArgs: [key]);
   }
 
   // ── cycle log I/O ─────────────────────────────────────────────────────────────

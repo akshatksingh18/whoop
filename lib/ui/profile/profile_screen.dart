@@ -32,10 +32,20 @@ import '../import/import_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'about_screen.dart';
 import 'advanced_data_screen.dart';
+import '../../data/csv_export.dart';
+import '../labs/labs_screen.dart';
 import 'data_history_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 import 'notification_settings_screen.dart';
+
+/// True while a CSV export is being handed to the share sheet.
+///
+/// File-scoped rather than widget state on purpose: the resource being guarded
+/// is the export directory on disk, which is global, and `ProfileScreen` is
+/// stateless and rebuilt freely. Two Profile screens on the navigation stack
+/// must not be able to clean up each other's in-flight export.
+bool _csvExportInFlight = false;
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -238,6 +248,76 @@ class ProfileScreen extends StatelessWidget {
                     messenger.showSnackBar(
                       SnackBar(content: Text('Export failed: $e')),
                     );
+                  }
+                },
+                divider: true,
+              ),
+            ),
+            // Blood work lives here rather than on a daily screen: it is a
+            // record you consult, not a number that changes overnight.
+            ListRow(
+              icon: OsIcon.ecgRhythm,
+              title: 'Labs',
+              value: 'Blood work',
+              divider: true,
+              onTap: () => Navigator.of(context).push(
+                themedRoute((_) => const LabsScreen(), name: 'LabsScreen'),
+              ),
+            ),
+            // CSV alongside the .db export: "open it in a spreadsheet" and
+            // "restore it onto another phone" are different jobs, and a SQLite
+            // file only does the second.
+            Builder(
+              builder: (rowCtx) => ListRow(
+                icon: OsIcon.share,
+                title: 'Export data (.csv)',
+                value: 'Share',
+                onTap: () async {
+                  // A second export while the first share sheet is still open
+                  // would start cleaning up run directories underneath it. The
+                  // share is awaited, so this flag covers exactly that window.
+                  if (_csvExportInFlight) return;
+                  _csvExportInFlight = true;
+                  final messenger = ScaffoldMessenger.of(rowCtx);
+                  final origin = shareOriginFor(rowCtx);
+                  try {
+                    final result = await exportCsvFiles(kCsvExportSets);
+                    if (!rowCtx.mounted) return;
+                    if (result.isEmpty) {
+                      // "Nothing to export" and "the export broke" are
+                      // different answers and must not share a message.
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            result.hasFailures
+                                ? 'Export failed'
+                                : 'Nothing to export yet',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    if (result.hasFailures) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Exported all but ${result.failed.join(', ')}',
+                          ),
+                        ),
+                      );
+                    }
+                    await Share.shareXFiles(
+                      [for (final p in result.paths) XFile(p)],
+                      text: 'OpenStrap CSV export',
+                      sharePositionOrigin: origin,
+                    );
+                  } catch (e) {
+                    if (!rowCtx.mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Export failed: $e')),
+                    );
+                  } finally {
+                    _csvExportInFlight = false;
                   }
                 },
                 divider: true,

@@ -17,6 +17,7 @@ import '../../models/payloads.dart';
 import '../../data/day_label.dart';
 import '../../compute/manual_session.dart' show ManualWindowException;
 import '../../data/db.dart';
+import 'calorie_heatmap.dart';
 import '../activity/live_session_screen.dart';
 import '../activity/workout_share_card.dart';
 import '../../theme/theme_switcher.dart';
@@ -165,6 +166,18 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   RecordsData? _records; // for inline PR badges in the feed
   bool _loading = true;
 
+  /// The activity heatmap's own 13-week window — deliberately independent of
+  /// the range selector above, so the board stays a fixed reference point
+  /// while the feed below it filters.
+  List<HeatDay>? _heat;
+
+  /// The day `_heat` was built against. The card has to be handed THIS, not a
+  /// fresh clock read: the two agree only until the next local midnight, and a
+  /// screen left open across it would flag the new day as still-in-the-future,
+  /// draw no cell for it, put the "today" ring on nothing, and count the streak
+  /// against a day the board does not contain.
+  DateTime? _heatToday;
+
   @override
   void initState() {
     super.initState();
@@ -185,11 +198,55 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       try {
         recs = RecordsData.fromJson(await api.getRecords());
       } catch (_) {}
+
+      // The heatmap needs 13 Monday-aligned weeks — up to 97 days once the
+      // alignment is counted — which getWorkouts(range: 'quarter') cannot
+      // reach: that tops out at 90 and would leave the oldest column silently
+      // short of data. getSessions takes an explicit window and skips the
+      // per-session HR enrichment the grid has no use for. Fetched wide; days
+      // outside the board simply match no cell.
+      //
+      // includeDetected: false because the grid shades saved sessions only.
+      // Leaving it on would read every recent day bundle — the whole hr_curve /
+      // hypnogram / HRV payload — on every load and every pull-to-refresh, just
+      // to build detections loggedForHeatmap discards a line later.
+      //
+      // Read on EVERY load, including a range-selector tap. The window doesn't
+      // depend on the selector but the table does, and a tap is one of the few
+      // paths that re-reads at all: a suggestion confirmed from the pushed
+      // "did you work out?" screen never reloads this one, so skipping the read
+      // would refresh the feed and leave the board still calling that day a
+      // rest day — the feed/board disagreement loggedForHeatmap exists to
+      // prevent, arriving from the caching side instead. What remains is one
+      // indexed query over sessions; the expensive part was the day-bundle
+      // decode, and includeDetected: false already removed it.
+      List<HeatDay>? heat;
+      DateTime? heatToday;
+      try {
+        final now = DateTime.now();
+        final from = DateTime(now.year, now.month, now.day - 105);
+        final sessions = await api.getSessions(
+          from: from.millisecondsSinceEpoch ~/ 1000,
+          to: now.millisecondsSinceEpoch ~/ 1000,
+          includeDetected: false,
+        );
+        heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
+        heatToday = now;
+      } catch (_) {
+        /* the board is an enrichment — the log still renders without it */
+      }
+
       if (mounted) {
         setState(() {
           _data = d;
           _suggestions = sug;
           _records = recs;
+          // Grid and anchor move together or not at all — a board carrying one
+          // day's future flags under another day's clock is the bug.
+          if (heat != null) {
+            _heat = heat;
+            _heatToday = heatToday;
+          }
           _loading = false;
         });
       }
@@ -327,6 +384,19 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                   summary: summary,
                   range: _ranges[_range],
                   workouts: list,
+                ).dsEnter(),
+                const SizedBox(height: Sp.x4),
+              ],
+              // Sits above the feed and OUTSIDE the range filter, so on the
+              // Today tab you still see the quarter's rhythm rather than only
+              // an empty state. Hidden entirely until there is something to
+              // shade — an all-empty board says nothing.
+              if (_heat != null &&
+                  _heatToday != null &&
+                  _heat!.any((d) => d.kcal > 0)) ...[
+                CalorieHeatmapCard(
+                  days: _heat!,
+                  today: _heatToday!,
                 ).dsEnter(),
                 const SizedBox(height: Sp.x4),
               ],

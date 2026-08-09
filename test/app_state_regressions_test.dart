@@ -10,28 +10,11 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
-
-/// A BleEngine whose live-stream arming always fails — the "link dropped
-/// mid-write" case that used to latch _stepCalActive true forever.
-class _ThrowingEngine extends BleEngine {
-  _ThrowingEngine()
-      : super(
-          onRecord: _noRecord,
-          onState: _noState,
-        );
-  static Future<void> _noRecord(Object? sample, Object? raw) async {}
-  static void _noState(Object state) {}
-
-  @override
-  Future<void> retryFullLiveStreams() async =>
-      throw StateError('link dropped mid-write');
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -95,24 +78,11 @@ void main() {
     });
   });
 
-  // ── 5. _stepCalActive must not latch true when the arming throws ────────────
-  group('startStepCalibration (live-consumer latch)', () {
-    test('a throwing stream arm leaves no phantom live consumer', () async {
-      final engine = _ThrowingEngine();
-      engine.state.connection = 'connected';
-      final app = AppState.forTesting(engine: engine);
-      addTearDown(app.dispose);
-
-      expect(app.debugHasLiveConsumer, isFalse);
-      await expectLater(
-          app.startStepCalibration(), throwsA(isA<StateError>()));
-      // Pre-fix this stayed true for the rest of the process, pinning
-      // _hasLiveConsumer and permanently disabling
-      // _maybeDowngradeLiveForBackground — the 100 Hz raw flood then kept
-      // streaming while backgrounded and starved the R24 offload.
-      expect(app.debugHasLiveConsumer, isFalse);
-    });
-  });
+  // ── 5. (removed) the step-calibration live-consumer latch ─────────────────
+  // The guided calibration walk was deleted in v56 along with the 1 Hz step
+  // estimator that was its only consumer, so there is no longer an arming path
+  // that can latch `_hasLiveConsumer`. The spot-check and workout consumers
+  // keep their own latch coverage.
 
   // ── 6. `busy` must not latch true forever ──────────────────────────────────
   group('openSession (busy latch)', () {

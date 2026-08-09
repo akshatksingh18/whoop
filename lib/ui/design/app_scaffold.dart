@@ -59,6 +59,22 @@ class AppBackButton extends StatelessWidget {
   }
 }
 
+/// Bottom padding a scrolling screen needs so its last card clears the shell's
+/// floating chrome, plus [gap] of breathing room.
+///
+/// MEASURED, not guessed. The shell renders its nav pill through
+/// `Scaffold(extendBody: true)`, and Flutter reports the real height of that
+/// bottom chrome — pill, safe-area inset, and the live-workout banner stacked
+/// above it — as `MediaQuery.padding.bottom` inside the body. Screens used to
+/// carry a hardcoded `120`, which on an iPhone 17 Pro leaves 14 pt of clearance
+/// over a 106 pt chrome and goes NEGATIVE the moment a workout is running and
+/// the banner appears: the last card of every tab disappears behind it, exactly
+/// when the user is most likely to be looking. A pushed sub-screen has no pill,
+/// so its inset is just the home indicator and this returns the smaller number
+/// on its own.
+double dsBottomGutter(BuildContext context, {double gap = Sp.x6}) =>
+    MediaQuery.paddingOf(context).bottom + gap;
+
 class AppScaffold extends StatelessWidget {
   final String? title;
 
@@ -131,7 +147,9 @@ class AppScaffold extends StatelessWidget {
           Sp.screen,
           Sp.x2,
           Sp.screen,
-          bottomBar == null ? Sp.x8 : 120,
+          // A local [bottomBar] floats over this list too, so its height is
+          // added on top of whatever the shell already claims.
+          dsBottomGutter(context, gap: bottomBar == null ? Sp.x8 : 96),
         ),
         children: children!,
       );

@@ -72,7 +72,10 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   }
 
   int get _needMin => (_num(_data['need_min'])?.toInt()) ?? 480;
-  int get _totalAsleep => (_num(_data['total_asleep_min'])?.toInt()) ?? 0;
+
+  /// Null when any listed period's asleep minutes are unknown — the total is
+  /// then unknown too, not zero.
+  int? get _totalAsleep => _num(_data['total_asleep_min'])?.toInt();
   bool get _beta => _data['stages_beta'] == true;
 
   @override
@@ -130,9 +133,10 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   // Day hero: total asleep across all periods vs need — the board's ink tile.
   Widget _summary() {
     final n = _periods.length;
-    final t = _needMin <= 0
+    final total = _totalAsleep;
+    final t = (total == null || _needMin <= 0)
         ? double.nan
-        : (_totalAsleep / _needMin).clamp(0.0, 1.0).toDouble();
+        : (total / _needMin).clamp(0.0, 1.0).toDouble();
     return BentoTile(
       tone: BentoTone.ink,
       accent: DomainAccent.sleep,
@@ -147,7 +151,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
                 const TileHeader('Total sleep'),
                 const SizedBox(height: Sp.x2),
                 BigStat(
-                  value: _hm(_totalAsleep),
+                  value: total == null ? '—' : _hm(total),
                   size: BigStatSize.xl,
                   caption: 'need ${_hm(_needMin)} · $n sleep${n == 1 ? '' : 's'}',
                 ),
@@ -174,9 +178,12 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     final isMain = p['is_main'] == true;
     final onset = _num(p['onset_ts'])?.toInt();
     final wake = _num(p['wake_ts'])?.toInt();
-    final dur = _num(p['duration_min'])?.toInt() ?? 0;
+    // Null, NOT 0. A period whose asleep minutes we don't have renders "—";
+    // defaulting to 0 printed a confident "0m" on every real nap for as long
+    // as the producer and this screen disagreed about the key name.
+    final dur = _num(p['duration_min'])?.toInt();
     final eff = _num(p['efficiency'])?.toDouble();
-    final conf = _num(p['confidence'])?.toDouble() ?? 0;
+    final conf = _num(p['confidence'])?.toDouble();
     final stages = (p['stages'] is Map)
         ? (p['stages'] as Map).cast<String, dynamic>()
         : null;
@@ -199,12 +206,20 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
                   trailing: _beta ? const Tag('est') : null,
                 ),
               ),
-              ConfDot(conf),
+              // No dot at all when confidence is unknown — a ConfDot(0) is a
+              // red "we are sure this is bad" dot, which is a claim.
+              if (conf != null) ConfDot(conf),
               InfoDot(
                 title: isMain ? 'Main sleep' : 'Nap',
-                body:
-                    'Stages are a wrist estimate from heart rate + motion (no '
-                    'EEG). The dot shows detection confidence for this window.',
+                body: isMain
+                    ? 'Stages are a wrist estimate from heart rate + motion '
+                        '(no EEG).'
+                    : 'Detected from wrist stillness plus a drop in heart '
+                        'rate against your awake daytime baseline. Time '
+                        'asleep excludes brief wake-ups. No stage breakdown: '
+                        'a short nap has no complete sleep cycle, and daytime '
+                        'heart rate is too intermittent to split one. The dot '
+                        'shows detection confidence.',
               ),
             ],
           ),
@@ -214,7 +229,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
             children: [
               Expanded(
                 child: BigStat(
-                  value: _hm(dur),
+                  value: dur == null ? '—' : _hm(dur),
                   caption: (onset != null && wake != null)
                       ? '${_clock(onset)} – ${_clock(wake)}'
                       : null,

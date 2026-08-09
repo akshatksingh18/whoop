@@ -178,30 +178,51 @@ class _TodayScreenState extends State<TodayScreen>
 
   @override
   Widget build(BuildContext context) {
-    // SELECT the 3 fields _emptyOrProcessing actually reads, not the whole
-    // AppState — this screen used to fully rebuild on EVERY notifyListeners()
-    // (67 call sites incl. per-second timers and every derive-day callback),
-    // which is exactly what made a multi-day backfill/reanalyze visibly
-    // freeze this screen (several notifications in quick succession, each one
-    // forcing a full ListView rebuild while a screen switch might also be
-    // in flight). `app` itself is still the live, same-instance object (read,
-    // not watch) — only the REBUILD TRIGGER is now scoped.
-    context.select<AppState, (Map<String, int>, bool, String)>(
-      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress),
+    // SELECT the fields this screen actually reads, not the whole AppState —
+    // it used to fully rebuild on EVERY notifyListeners() (67 call sites incl.
+    // per-second timers and every derive-day callback), which is exactly what
+    // made a multi-day backfill/reanalyze visibly freeze this screen. `app`
+    // itself is still the live, same-instance object (read, not watch) — only
+    // the REBUILD TRIGGER is scoped. liveSteps is included (already rate-
+    // limited to ~1/s at the source) so the steps tile doesn't freeze mid-walk
+    // while waiting on an unrelated dbCounts change.
+    context.select<AppState, (Map<String, int>, bool, String, int, bool, bool)>(
+      (a) => (
+        a.dbCounts,
+        a.reanalyzing,
+        a.reanalyzeProgress,
+        a.liveSteps,
+        a.syncingNow,
+        // The steps tile stops adding the band's live count the moment the
+        // phone owns the day, so a flip has to rebuild it.
+        a.todayStepsFromPhone,
+      ),
     );
     final app = context.read<AppState>();
     final t = TodayData.fromJson(data);
 
     return AppScaffold(
       // Brand wordmark — a confident title, not a greeting.
-      titleWidget: Text(
-        'Edge',
-        style: AppText.h1.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.9,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      titleWidget: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              'Edge',
+              style: AppText.h1.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.9,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: Sp.x2),
+          // Breathes only while records are actually landing. See sync_dot.dart
+          // for why this is the whole of the answer to "is it syncing".
+          SyncDot(active: context.select<AppState, bool>((a) => a.syncingNow)),
+        ],
       ),
       actions: [
         RoundIconButton(
@@ -234,7 +255,8 @@ class _TodayScreenState extends State<TodayScreen>
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),
-          padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, 120),
+          padding: EdgeInsets.fromLTRB(
+              Sp.screen, Sp.x2, Sp.screen, dsBottomGutter(context)),
           children: [
             // OTA update prompt + admin alert banner (self-hiding).
             const StatusBanner(),
@@ -349,7 +371,18 @@ class _TodayScreenState extends State<TodayScreen>
             t: t,
             sparks: _sparks,
             stepsWeek: _stepsWeek,
-            liveSteps: context.read<AppState>().liveSteps,
+            // Band-derived live steps are an addend to the day metric ONLY
+            // while the band is the day's step source. `liveStepsForDay`
+            // deliberately lets phone rows WIN OUTRIGHT over band rows rather
+            // than summing them (both count the same walk — one from the
+            // pocket, one from the wrist), so adding the wrist's live count on
+            // top of a phone-sourced day total re-introduces exactly the
+            // double count that rule exists to prevent. `todayStepsFromPhone`
+            // mirrors the DB's own rule, so a day the phone did not actually
+            // cover still shows the band's live count.
+            liveSteps: context.read<AppState>().todayStepsFromPhone
+                ? 0
+                : context.read<AppState>().liveSteps,
             onOpen: _open,
             hasAiBriefing: hasAiBriefing,
             aiBriefing: hasAiBriefing ? BriefingStore.read(period) : null,
@@ -1137,7 +1170,16 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Steps', trailing: Tag('est')),
+          // 'measured', not 'est' — nothing estimates steps any more. The 1 Hz
+          // estimator was removed (a per-day gravity reference dominated by the
+          // sleep block put its SNR at ~1); what is left is a real pedometer,
+          // the phone's or the band's 100 Hz stream, and a day with neither
+          // shows no number rather than a guess. The detail screen was updated
+          // to say so and this tile was missed.
+          // Same tag, same colour as the steps detail screen — `Tag`'s default
+          // is the warning amber, which reads as a caution rather than a
+          // statement of confidence.
+          TileHeader('Steps', trailing: Tag('measured', color: DomainAccent.steps)),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: steps > 0 ? '$steps' : null,

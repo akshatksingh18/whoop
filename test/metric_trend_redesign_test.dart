@@ -386,7 +386,7 @@ void main() {
     ) async {
       _phone(t, height: 2200);
       for (final p in [kLightPalette, kDarkPalette]) {
-        var goals = 0, cals = 0;
+        var goals = 0;
         await t.pumpWidget(
           _host(
             StepsDayContent(
@@ -395,7 +395,6 @@ void main() {
               weekValues: const [9000, 12000, null, 4000, 8000, 10000, 8412],
               weekLabels: const ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
               onSetGoal: () => goals++,
-              onCalibrate: () => cals++,
             ),
             palette: p,
           ),
@@ -405,12 +404,12 @@ void main() {
         expect(find.text('goal 10000'), findsOneWidget);
         expect(find.text('84%'), findsOneWidget); // of goal gauge
         expect(find.text('THIS WEEK'), findsOneWidget);
-        expect(find.text('EST'), findsOneWidget); // honesty tag
+        // Honesty tag: steps are real-measured only now, never estimated.
+        expect(find.text('MEASURED'), findsOneWidget);
+        expect(find.text('Calibrate steps'), findsNothing);
         await t.tap(find.text('Daily step goal'));
-        await t.tap(find.text('Calibrate steps'));
         await t.pump(const Duration(milliseconds: 300));
         expect(goals, 1);
-        expect(cals, 1);
         expect(t.takeException(), isNull);
       }
     });

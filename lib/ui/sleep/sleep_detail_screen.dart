@@ -201,6 +201,54 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     await _runOverride(() => app.clearSleepOverride(widget.date));
   }
 
+  /// Every sleep of this day, naps included. The Sleep tab renders this screen
+  /// embedded, so the AppScaffold action below never builds there — without a
+  /// second entry point the periods screen was unreachable in the shipped app.
+
+  /// Daytime periods on a day with no detected night, for the empty state.
+  ///
+  /// Read straight from the repository payload rather than through
+  /// [SleepNightContent], which is not built in this phase.
+  List<Map<String, dynamic>> _emptyStateNaps() {
+    final raw = _data['periods'];
+    if (raw is! List) return const [];
+    return [
+      for (final e in raw)
+        if (e is Map && e['is_main'] != true) e.cast<String, dynamic>(),
+    ];
+  }
+
+  Widget _emptyStateNapsCard(List<Map<String, dynamic>> naps) {
+    // ONE authoritative total, not a second one computed here. The repository
+    // already decides this (`_totalAsleepMin`) and deliberately returns null
+    // when the producer could not state a complete figure — most often because
+    // nap detection abstained, so the day holds an unknown NUMBER of naps.
+    // Re-summing the periods that happen to be present would present a partial
+    // figure as the day's total, which is exactly the claim the layer below
+    // refused to make.
+    final total = (_data['total_asleep_min'] as num?)?.toInt();
+    final value = total == null
+        ? '—'
+        : (total >= 60 ? '${total ~/ 60}h ${total % 60}m' : '${total}m');
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: ListRow(
+        icon: OsIcon.bedtime,
+        title: naps.length == 1 ? 'Daytime nap' : '${naps.length} daytime naps',
+        subtitle: 'Tap for the full breakdown',
+        value: value,
+        onTap: _openPeriods,
+      ),
+    );
+  }
+
+  void _openPeriods() {
+    Navigator.of(context).push(
+      themedRoute((_) => SleepPeriodsScreen(date: widget.date),
+          name: 'SleepPeriodsScreen'),
+    );
+  }
+
   /// Run a sleep-override change with a busy state, then reload this night.
   Future<void> _runOverride(Future<void> Function() action) async {
     setState(() => _phase = _Phase.loading);
@@ -218,15 +266,30 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   List<Widget> _sections() {
     if (_phase == _Phase.loading) return [_loading()];
     if (_phase == _Phase.empty) {
+      // "No NIGHT" is not "no sleep". A nap-only or night-shift day has
+      // detected daytime periods, and showing the bare empty card while the
+      // same nap is credited against sleep need and drawn on the Timeline is
+      // the screen contradicting the rest of the app. The night breakdown is
+      // still genuinely absent — there is no hypnogram, no stages, no
+      // efficiency — so the card stays; the naps are shown alongside it rather
+      // than dressed up as a night.
+      final naps = _emptyStateNaps();
       return [
         StateCard(
           icon: OsIcon.sleep,
           title: 'No sleep recorded for this night',
-          message: 'Wear your strap overnight and sync — your breakdown '
-              'appears once a night has been recorded.',
+          message: naps.isEmpty
+              ? 'Wear your strap overnight and sync — your breakdown '
+                  'appears once a night has been recorded.'
+              : 'No overnight sleep was detected, so there is no stage '
+                  'breakdown for this day. Daytime sleep is listed below.',
           actionLabel: 'Add sleep times',
           onAction: _editSleepTimes,
         ),
+        if (naps.isNotEmpty) ...[
+          const SizedBox(height: Sp.x3),
+          _emptyStateNapsCard(naps),
+        ],
       ];
     }
     if (_phase == _Phase.error) {
@@ -247,6 +310,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         onEditTimes: _editSleepTimes,
         onConfirmFallback: _confirmFallback,
         onClearOverride: _clearOverride,
+        onOpenPeriods: _openPeriods,
         showSleepCoach: widget.showSleepCoach,
       ),
     ];
@@ -266,13 +330,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       subtitle: _prettyDate(),
       actions: [
         // All sleeps of the day (naps included) — the multi-period view.
-        RoundIconButton(
-          OsIcon.bedtime,
-          onTap: () => Navigator.of(context).push(
-            themedRoute((_) => SleepPeriodsScreen(date: widget.date),
-                name: 'SleepPeriodsScreen'),
-          ),
-        ),
+        RoundIconButton(OsIcon.bedtime, onTap: _openPeriods),
       ],
       body: RefreshIndicator(
         onRefresh: _load,
@@ -310,6 +368,10 @@ class SleepNightContent extends StatelessWidget {
   final VoidCallback onConfirmFallback;
   final VoidCallback onClearOverride;
 
+  /// Open the per-period breakdown (main sleep + naps). Null in tests and
+  /// anywhere navigation isn't available; the naps row then stays hidden.
+  final VoidCallback? onOpenPeriods;
+
   /// Render the Sleep Coach card (tonight's need/bedtime/wake/alarm) inline,
   /// between the Cycles and Nocturnal-heart sections — it only makes sense
   /// for TODAY's night, so only the Today segment's caller sets this true
@@ -325,6 +387,7 @@ class SleepNightContent extends StatelessWidget {
     required this.onEditTimes,
     required this.onConfirmFallback,
     required this.onClearOverride,
+    this.onOpenPeriods,
     this.showSleepCoach = false,
   });
 
@@ -366,6 +429,33 @@ class SleepNightContent extends StatelessWidget {
   }
 
   num? get _cyclesMean => _num(data['cycles_mean_min']);
+
+  /// Naps this day: the non-main sleep periods. This screen shows the night
+  /// only, so without a row for them a daytime sleep is invisible here.
+  List<Map<String, dynamic>> get _naps {
+    final raw = data['periods'];
+    if (raw is! List) return const [];
+    return raw
+        .map((e) => _map(e))
+        .where((m) => m.isNotEmpty && m['is_main'] != true)
+        .toList();
+  }
+
+  /// Minutes asleep across this day's naps, or NULL if any nap's duration is
+  /// unknown.
+  ///
+  /// `?? 0` here would silently under-report by exactly the part we could not
+  /// measure, and present the remainder as the full nap total — the same
+  /// absent-is-not-zero rule the producer and the periods screen follow.
+  num? get _napMin {
+    num sum = 0;
+    for (final p in _naps) {
+      final d = _num(p['duration_min']);
+      if (d == null) return null;
+      sum += d;
+    }
+    return sum;
+  }
 
   List<MapEntry<int, double>> get _cycleSeries {
     final raw = data['cycle_series'];
@@ -450,6 +540,10 @@ class SleepNightContent extends StatelessWidget {
         _hero(context),
         const SizedBox(height: Sp.x4),
         _summaryBento(context),
+        if (onOpenPeriods != null && _naps.isNotEmpty) ...[
+          const SizedBox(height: Sp.x3),
+          _napsRow(),
+        ],
         // ── ESTIMATED STAGE BLOCK (below the trustworthy numbers) ──
         const SizedBox(height: Sp.x6),
         _stagesHeader(),
@@ -553,6 +647,24 @@ class SleepNightContent extends StatelessWidget {
         TextButton(onPressed: onEditTimes, child: const Text('Edit')),
         TextButton(onPressed: onClearOverride, child: const Text('Use auto')),
       ]),
+    );
+  }
+
+  /// Daytime sleep, on the way to the per-period breakdown. The numbers above
+  /// are the night only, so the row says so rather than implying the nap is in
+  /// them: it isn't in TST, and it doesn't move readiness. It does count toward
+  /// tonight's sleep need (nap credit, Sleep Coach).
+  Widget _napsRow() {
+    final n = _naps.length;
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: ListRow(
+        icon: OsIcon.bedtime,
+        title: n == 1 ? 'Daytime nap' : '$n daytime naps',
+        subtitle: 'Not included in the night above',
+        value: _hm(_napMin),
+        onTap: onOpenPeriods,
+      ),
     );
   }
 

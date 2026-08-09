@@ -13,7 +13,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -92,7 +91,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 26;
+  static const int schemaVersion = 27;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -392,11 +391,23 @@ class LocalDb {
           // use by FiredKeyStore, so nothing is lost on upgrade.
           await _createNotifFired(db);
         }
+        if (oldV < 27) {
+          // `live_coverage` gains a `source` column so a phone-pedometer count
+          // can be told apart from the band's 100 Hz wrist count. Existing rows
+          // default to 'band', which is what they are.
+          //
+          // This matters because the two sources must NEVER be summed: they
+          // both count the same walk from different places on the body. The
+          // reader prefers phone rows for a day when any exist (a
+          // pocket-carried pedometer sees gait; a wrist one confuses arm work
+          // for steps), and falls back to band rows otherwise.
+          await _ensureLiveCoverageSource(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 26,
+      version: schemaVersion,
     );
   }
 
@@ -436,6 +447,7 @@ class LocalDb {
       await db.execute('DROP INDEX IF EXISTS $ix');
     }
     await _createLiveCoverage(db);
+    await _ensureLiveCoverageSource(db);
     await _createCycleSymptom(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
@@ -756,13 +768,33 @@ class LocalDb {
         start_ts INTEGER NOT NULL,
         end_ts INTEGER NOT NULL,
         steps INTEGER NOT NULL,
-        day TEXT NOT NULL
+        day TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '$kStepSourceBand'
       )
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
     );
   }
+
+  /// Ensure `live_coverage.source` exists (v27).
+  ///
+  /// Uses the shared guarded helper — an unguarded ALTER TABLE on an
+  /// already-migrated db bricks the upgrade (that has bitten this file twice).
+  static Future<void> _ensureLiveCoverageSource(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'live_coverage',
+      'source',
+      "TEXT NOT NULL DEFAULT '$kStepSourceBand'",
+    );
+  }
+
+  /// Step-count provenance for a `live_coverage` row.
+  ///
+  /// These are never summed together — see [liveStepsForDay].
+  static const String kStepSourceBand = 'band'; // band 100 Hz AN-2554 (wrist)
+  static const String kStepSourcePhone = 'phone'; // phone pedometer (pocket)
 
   /// Record a real 100 Hz step window (device-time seconds) + its step count.
   ///
@@ -778,8 +810,9 @@ class LocalDb {
     int startTs,
     int endTs,
     int steps,
-    String day,
-  ) async {
+    String day, {
+    String source = kStepSourceBand,
+  }) async {
     final w = sanitizeCoverageWindow(startTs, endTs, steps);
     if (w == null) return;
     final db = await instance;
@@ -788,35 +821,223 @@ class LocalDb {
       'end_ts': w.endTs,
       'steps': steps,
       'day': day,
+      'source': source,
     });
   }
 
-  /// Real (100 Hz) steps attributed to [day].
-  static Future<int> liveStepsForDay(String day) async {
+  /// Replace ALL phone-pedometer rows for [day] with [windows], atomically.
+  ///
+  /// Phone step data is a re-readable snapshot, not an append-only stream: the
+  /// same day can be synced repeatedly as it fills in. So the phone sync is
+  /// delete-then-insert scoped to `source = 'phone'`, which is idempotent by
+  /// construction and needs no window-clipping. Band rows are untouched.
+  static Future<void> replacePhoneCoverageForDay(
+    String day,
+    List<({int startTs, int endTs, int steps})> windows,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'live_coverage',
+        where: 'day = ? AND source = ?',
+        whereArgs: [day, kStepSourcePhone],
+      );
+      for (final w in windows) {
+        if (w.steps <= 0 || w.endTs <= w.startTs) continue;
+        await txn.insert('live_coverage', {
+          'start_ts': w.startTs,
+          'end_ts': w.endTs,
+          'steps': w.steps,
+          'day': day,
+          'source': kStepSourcePhone,
+        });
+      }
+    });
+  }
+
+  /// True when a coverage row for exactly this window already exists.
+  ///
+  /// `live_coverage` is an append-only SUM (no uniqueness on the window), so a
+  /// replayed write double-counts the day's real steps. The orphaned-session
+  /// recovery uses this to stay idempotent: a process killed AFTER
+  /// `_finalizeLivePedometer` wrote coverage but BEFORE it cleared the
+  /// checkpoint would otherwise re-add the same bout on the next launch.
+  static Future<bool> hasLiveCoverageWindow(int startTs, int endTs) async {
     final db = await instance;
     final r = await db.rawQuery(
-      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?',
-      [day],
+      'SELECT 1 FROM live_coverage WHERE start_ts = ? AND end_ts = ? LIMIT 1',
+      [startTs, endTs],
+    );
+    return r.isNotEmpty;
+  }
+
+  /// Phone-sourced steps already banked for [day].
+  ///
+  /// Used by the pedometer sync to tell "this day really had no steps" from
+  /// "this read came back empty" before it replaces a day wholesale — see
+  /// [replacePhoneCoverageForDay], which is delete-then-insert.
+  ///
+  /// Also the UI's source discriminator: it is the same quantity
+  /// [liveStepsForDay] tests to decide which source owns the day, so a screen
+  /// can ask "did the phone actually cover today?" instead of approximating it
+  /// with "is the toggle on". Those differ exactly when the toggle is on and
+  /// the phone has no data, where the band still owns the day.
+  static Future<int> phoneStepsForDay(String day) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage '
+      'WHERE day = ? AND source = ?',
+      [day, kStepSourcePhone],
     );
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
-  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
-  /// exclude already-counted minutes from the 1 Hz estimate.
+  /// Drop every phone-sourced coverage row (the user turned phone steps off).
+  /// Band rows are untouched, so days fall back to the band count.
+  static Future<int> clearPhoneCoverage() async {
+    final db = await instance;
+    return db.delete(
+      'live_coverage',
+      where: 'source = ?',
+      whereArgs: [kStepSourcePhone],
+    );
+  }
+
+  /// Real pedometer steps attributed to [day], from ONE source.
+  ///
+  /// Phone and band counts are never added together: both count the same walk,
+  /// one from the pocket and one from the wrist, so summing them roughly
+  /// doubles a day. When the phone has any data for the day it wins outright —
+  /// a pocket/waist pedometer observes trunk motion (real gait), whereas a
+  /// wrist one is documented emitting 22-27 false steps/min during dishes,
+  /// reaching and driving while missing slow walking (O'Connell 2017,
+  /// doi:10.1371/journal.pone.0169616). Band rows are the fallback.
+  static Future<int> liveStepsForDay(String day) async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      'SELECT source, COALESCE(SUM(steps),0) s FROM live_coverage '
+      'WHERE day = ? GROUP BY source',
+      [day],
+    );
+    var band = 0;
+    var phone = 0;
+    for (final row in r) {
+      final n = (row['s'] as num?)?.toInt() ?? 0;
+      if (row['source'] == kStepSourcePhone) {
+        phone += n;
+      } else {
+        band += n;
+      }
+    }
+    return phone > 0 ? phone : band;
+  }
+
+  /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec), for ONE
+  /// [source] (band by default).
+  ///
+  /// The 1 Hz-estimate exclusion this originally served is gone along with the
+  /// estimator. Its only remaining caller is the NOOP importer, which reads back
+  /// the spans it has already banked so `stepRuns` can clip them out and a
+  /// re-import over an overlapping span cannot double-count.
+  ///
+  /// THE SOURCE FILTER IS LOAD-BEARING for that caller. Phone-pedometer rows now
+  /// share this table and cover the same wall-clock hours, so an unfiltered read
+  /// let a user with phone steps enabled import a NOOP backup whose BAND step
+  /// runs were clipped against the PHONE's windows and silently dropped — the
+  /// import reporting success while banking nothing for those days. Band clips
+  /// against band. Phone coverage needs no clipping at all: it is replaced
+  /// wholesale per day (see [replacePhoneCoverageForDay]).
   static Future<List<List<int>>> coverageWindowsOverlapping(
     int loSec,
-    int hiSec,
-  ) async {
+    int hiSec, {
+    String source = kStepSourceBand,
+  }) async {
     final db = await instance;
     final rows = await db.query(
       'live_coverage',
-      where: 'end_ts >= ? AND start_ts < ?',
-      whereArgs: [loSec, hiSec],
+      where: 'end_ts >= ? AND start_ts < ? AND source = ?',
+      whereArgs: [loSec, hiSec, source],
     );
     return [
       for (final r in rows)
         [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],
     ];
+  }
+
+  /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was NOT
+  /// on the wrist, from the strap's own WRIST_OFF/WRIST_ON events.
+  ///
+  /// A band sitting on a table is PERFECTLY still and reads as deep rest to any
+  /// motion-based detector — it is the dominant nap false positive. The strap
+  /// already tells us; these events have been decoded and persisted all along,
+  /// and `AdvancedSleepStager.detectSleep` has always accepted a `wristOff`
+  /// argument, but nothing ever supplied one.
+  ///
+  /// State is carried in from BEFORE [loSec] so a window that opens mid-removal
+  /// is still covered, and an unterminated removal extends to [hiSec] rather
+  /// than being dropped (absent evidence of return is not evidence of return).
+  static Future<List<List<int>>> wristOffSpans(int loSec, int hiSec) =>
+      _toggleSpans(
+        loSec,
+        hiSec,
+        onId: proto.EventId.wristOn,
+        offId: proto.EventId.wristOff,
+      );
+
+  /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was on
+  /// the charger — off-wrist by definition, and motionless.
+  static Future<List<List<int>>> chargingSpans(int loSec, int hiSec) =>
+      _toggleSpans(
+        loSec,
+        hiSec,
+        onId: proto.EventId.chargingOff,
+        offId: proto.EventId.chargingOn,
+      );
+
+  /// Build "state active" spans from a pair of toggle events, clipped to
+  /// [loSec, hiSec). [offId] opens a span; [onId] closes it.
+  static Future<List<List<int>>> _toggleSpans(
+    int loSec,
+    int hiSec, {
+    required int onId,
+    required int offId,
+  }) async {
+    if (hiSec <= loSec) return const [];
+    final db = await instance;
+    // One row before the window establishes the state we open in.
+    final prior = await db.query(
+      'band_events',
+      columns: ['ts', 'event_id'],
+      where: 'ts < ? AND event_id IN (?, ?)',
+      whereArgs: [loSec, onId, offId],
+      orderBy: 'ts DESC',
+      limit: 1,
+    );
+    final rows = await db.query(
+      'band_events',
+      columns: ['ts', 'event_id'],
+      where: 'ts >= ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [loSec, hiSec, onId, offId],
+      orderBy: 'ts ASC',
+    );
+
+    final spans = <List<int>>[];
+    int? openAt =
+        (prior.isNotEmpty && (prior.first['event_id'] as num).toInt() == offId)
+            ? loSec
+            : null;
+    for (final r in rows) {
+      final ts = (r['ts'] as num).toInt();
+      final id = (r['event_id'] as num).toInt();
+      if (id == offId) {
+        openAt ??= ts;
+      } else if (openAt != null) {
+        if (ts > openAt) spans.add([openAt, ts]);
+        openAt = null;
+      }
+    }
+    if (openAt != null && hiSec > openAt) spans.add([openAt, hiSec]);
+    return spans;
   }
 
   /// Read a sync-cursor value (null if unset).
@@ -2736,12 +2957,20 @@ class LocalDb {
         'rmssd': rmssd,
         'readiness': readiness,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      for (final e in series.entries) {
-        await txn.insert('metric_series', {
-          'date': dayId,
-          'key': e.key,
-          'value': e.value,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      // A `partial` row already doesn't count as "derived" for the raw-pruning
+      // guard (see above) — extend the same caution to the rolling baselines:
+      // don't let a day whose second-half compute failed/timed out overwrite
+      // (or seed, for a brand-new day) the value tomorrow's readiness/illness
+      // baseline reads via metric_series. The next successful (non-partial)
+      // pass writes the real value once it lands.
+      if (!partial) {
+        for (final e in series.entries) {
+          await txn.insert('metric_series', {
+            'date': dayId,
+            'key': e.key,
+            'value': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
       }
     });
   }
@@ -3823,22 +4052,39 @@ class LocalDb {
     return (rows.first['value'] as num?)?.toDouble();
   }
 
-  static Future<ana.StepCalibration?> getStepCalibration() async {
-    final row = await baseline('step_calibration');
+  /// The FROZEN personal movement floor (g, dynAmp units) + when it was frozen.
+  ///
+  /// Persisted rather than recomputed because a floor that keeps tracking the
+  /// user cancels the trend it exists to report — see the derivation-engine
+  /// comment for the measured before/after. Returns null until enrollment
+  /// completes, which is the estimator's signal to abstain.
+  static Future<({double floorG, String frozenOn, int days})?>
+      getMovementFloor() async {
+    final row = await baseline('movement_floor');
     final raw = row?['payload_json'];
     if (raw is! String || raw.isEmpty) return null;
     try {
-      final decoded = jsonDecode(raw);
-      return decoded is Map
-          ? ana.StepCalibration.fromJson(decoded.cast<String, dynamic>())
-          : null;
+      final d = jsonDecode(raw);
+      if (d is! Map) return null;
+      final f = (d['floor_g'] as num?)?.toDouble();
+      final on = d['frozen_on'] as String?;
+      if (f == null || !f.isFinite || f <= 0 || on == null) return null;
+      return (floorG: f, frozenOn: on, days: (d['days'] as num?)?.toInt() ?? 0);
     } catch (_) {
       return null;
     }
   }
 
-  static Future<void> putStepCalibration(ana.StepCalibration calibration) =>
-      putBaseline('step_calibration', jsonEncode(calibration.toJson()));
+  static Future<void> putMovementFloor({
+    required double floorG,
+    required String frozenOn,
+    required int days,
+  }) =>
+      putBaseline(
+        'movement_floor',
+        jsonEncode({'floor_g': floorG, 'frozen_on': frozenOn, 'days': days}),
+      );
+
 
   /// A long-format metric series (oldest first) for trends/sparklines.
   static Future<List<Map<String, dynamic>>> metricSeries(
@@ -3889,6 +4135,51 @@ class LocalDb {
       'payload_json': payloadJson,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Atomically read-modify-write one `baselines` row.
+  ///
+  /// [transform] receives the current `payload_json` (null when the row does
+  /// not exist) and returns the replacement, or null to leave the row alone.
+  ///
+  /// Needed because a Dart-level lock CANNOT serialize this. Derivation runs in
+  /// more than one isolate — `derivationDispatcher` is a `vm:entry-point`
+  /// WorkManager entry that constructs its own `DerivationEngine` in a separate
+  /// background isolate — and a `static` mutex has one copy per isolate. Two
+  /// isolates would each read the same payload, merge into it, and write back,
+  /// dropping the other's changes. That matters most for accumulator payloads
+  /// like `sleep_user_profile`, where a lost write also loses the record of
+  /// which days were already folded.
+  ///
+  /// `exclusive: true` issues BEGIN IMMEDIATE, taking SQLite's write lock up
+  /// front rather than on first write. Without it a deferred transaction that
+  /// reads and then writes can fail to upgrade under WAL when another
+  /// connection holds the write lock. The lock is cross-connection and
+  /// therefore cross-isolate, which is exactly the guarantee a Dart static
+  /// cannot give.
+  static Future<void> updateBaseline(
+    String key,
+    String? Function(String? current) transform,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'baselines',
+        columns: ['payload_json'],
+        where: 'key = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
+      final current =
+          rows.isEmpty ? null : rows.first['payload_json'] as String?;
+      final next = transform(current);
+      if (next == null) return;
+      await txn.insert('baselines', {
+        'key': key,
+        'payload_json': next,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }, exclusive: true);
   }
 
   static Future<Map<String, dynamic>?> computeFreshness(String key) async {
@@ -4275,6 +4566,35 @@ class LocalDb {
       'sessions',
       row,
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Update ONLY a session's derived score columns.
+  ///
+  /// Deliberately not `putSession`: that is INSERT-OR-REPLACE over the whole
+  /// row, so a re-score computed from a snapshot would also rewrite columns it
+  /// never read — `hrr_bpm` (backfilled by the derivation engine) and `type`
+  /// (the athlete correcting a mislabelled workout) are both written by their
+  /// own narrow UPDATEs and would be reverted. Returns the number of rows
+  /// changed (0 when the session has since been deleted).
+  static Future<int> setSessionScores(
+    String id, {
+    required double? strain,
+    required double? calories,
+    required int? maxHr,
+    required String zoneMinJson,
+  }) async {
+    final db = await instance;
+    return db.update(
+      'sessions',
+      {
+        'strain': strain,
+        'calories': calories,
+        'max_hr': maxHr,
+        'zone_min_json': zoneMinJson,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 

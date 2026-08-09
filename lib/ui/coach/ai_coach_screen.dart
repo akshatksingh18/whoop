@@ -282,7 +282,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
         children: [
           Expanded(
             child: !cfg.configured
-                ? _setupPrompt()
+                ? (cfg.keyUnreadable ? _lockedKeyNotice(cfg) : _setupPrompt())
                 : !signedIn
                     ? _centered('Pair your strap to use the coach.')
                     : _items.isEmpty
@@ -295,6 +295,29 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
       ),
     );
   }
+
+  /// The key IS saved, this process just could not read it — the phone was
+  /// locked when a background relaunch went looking. Showing the "bring your own
+  /// AI" setup wall here would tell the user their key is gone and invite them
+  /// to paste it again, which is both wrong and the thing they reported.
+  Widget _lockedKeyNotice(CoachConfig cfg) => ListView(
+        padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x6),
+        children: [
+          StateCard(
+            icon: OsIcon.ai,
+            title: 'Your key is still saved',
+            message:
+                'It could not be read from the keychain this time — that '
+                'happens when the app is woken while the phone is locked. '
+                'Retry, or reopen the app once the phone has been unlocked.',
+            actionLabel: 'Retry',
+            onAction: () async {
+              await cfg.refreshKeyOnResume();
+              if (mounted) setState(() {});
+            },
+          ).dsEnter(),
+        ],
+      );
 
   Widget _setupPrompt() => ListView(
         padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x6),

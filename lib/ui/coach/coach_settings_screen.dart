@@ -53,11 +53,13 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
     setState(() { _loadingModels = true; _msg = null; });
     try {
       final ids = await CoachEngine.fetchModels(_base.text, _key.text);
+      if (!mounted) return;
       setState(() {
         _models = ids;
         _msg = ids.isEmpty ? 'Provider returned no models — type one manually.' : '${ids.length} models found. Search and tap to pick.';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _msg = e is CoachException ? e.message : 'Could not list models: $e');
     } finally {
       if (mounted) setState(() => _loadingModels = false);
@@ -80,10 +82,36 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
     // completed — being `mounted` doesn't guarantee a poppable route.
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    await cfg.save(baseUrl: _base.text, apiKey: _key.text, model: _chosen);
+    // An EMPTY field means "delete my key" only when we could actually show the
+    // user what they are deleting. When the stored key could not be read — a
+    // locked keychain, or the startup read still in flight — the field seeds
+    // empty through no fault of the user, and saving would delete a key they
+    // never touched and cannot see. Send null instead: leave it exactly as it
+    // is. A user who wants it gone can clear it once it has loaded.
+    final typed = _key.text.trim();
+    final blindClear = typed.isEmpty && cfg.apiKey == null;
+    try {
+      await cfg.save(
+        baseUrl: _base.text,
+        apiKey: blindClear ? null : _key.text,
+        model: _chosen,
+      );
+    } catch (e) {
+      // The keychain refused it. Saying "saved" here is the silent loss this
+      // whole path exists to prevent.
+      if (!mounted) return;
+      setState(() => _msg = 'Could not save your key to the keychain: $e');
+      return;
+    }
     if (!mounted) return;
     messenger.showSnackBar(
-      const SnackBar(content: Text('AI Coach settings saved.')),
+      SnackBar(
+        // Neutral on purpose: `blindClear` is also true when there is no key at
+        // all, and claiming an existing one was preserved would be a fiction.
+        content: Text(blindClear
+            ? 'Settings saved. Your API key was not changed.'
+            : 'AI Coach settings saved.'),
+      ),
     );
     if (navigator.canPop()) navigator.pop();
   }

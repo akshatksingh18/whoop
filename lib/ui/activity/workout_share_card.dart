@@ -40,6 +40,7 @@ import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart' show AppIcon, OsIcon;
+import '../kit/share_origin.dart';
 import '../kit/route_map.dart';
 
 /// Where the image is going. Strava-style: a feed post and a story, because
@@ -337,6 +338,10 @@ class _WorkoutSharePreviewScreenState extends State<WorkoutSharePreviewScreen> {
 
   Future<void> _share() async {
     if (_sharing) return;
+    // Measured before the capture/encode/write awaits below, per shareOriginFor:
+    // after an async gap this widget may have been relaid out and the rect would
+    // describe a box that has moved.
+    final origin = shareOriginFor(context);
     setState(() => _sharing = true);
     try {
       final boundary = _captureKey.currentContext?.findRenderObject()
@@ -382,10 +387,6 @@ class _WorkoutSharePreviewScreenState extends State<WorkoutSharePreviewScreen> {
       await file.writeAsBytes(bytes.buffer.asUint8List());
 
       if (!mounted) return;
-      final box = context.findRenderObject() as RenderBox?;
-      final origin = (box != null && box.hasSize)
-          ? (box.localToGlobal(Offset.zero) & box.size)
-          : null;
       // No caption text: the image carries everything, and a canned
       // "My OpenStrap workout" string is exactly the kind of filler that makes
       // a share feel automated.
@@ -547,12 +548,19 @@ WorkoutShareData buildWorkoutShareData({
   required Duration duration,
   required DateTime when,
   required int maxHr,
-  required double strain,
+
+  /// Null when the session was never scored (a profile anchor the Banister
+  /// formula needs is missing, or no HR was ever captured for the window).
+  /// Nullable all the way to the card: a `?? 0` at the call site prints a
+  /// confident "0.0 Strain" for a workout we simply could not score, which is
+  /// the same fabrication issue #206 reported on the detail gauge.
+  required double? strain,
   required int calories,
   WorkoutRoute? route,
   int? avgHr,
 }) {
   final hasRoute = route != null && route.hasPath;
+  final strainText = strain?.toStringAsFixed(1) ?? '—';
   final title = type.isEmpty
       ? 'Workout'
       : type[0].toUpperCase() + type.substring(1);
@@ -568,13 +576,13 @@ WorkoutShareData buildWorkoutShareData({
       (_shareDuration(duration), 'Time'),
       // Moving pace, like everywhere else — see the note in _GpsControlPanel.
       (units.pace(route.distanceMeters, route.movingSec), 'Pace'),
-      (strain.toStringAsFixed(1), 'Strain'),
+      (strainText, 'Strain'),
     ];
   } else {
     heroValue = _shareDuration(duration);
     heroUnit = '';
     stats = [
-      (strain.toStringAsFixed(1), 'Strain'),
+      (strainText, 'Strain'),
       ('$calories', 'Kcal'),
       (avgHr != null && avgHr > 0 ? '$avgHr' : '—', 'Avg bpm'),
     ];

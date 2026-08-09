@@ -777,6 +777,137 @@ class BleEngine {
 
   /// True while live is in the background HR-only downgrade.
   bool get liveHrOnly => _liveEnabled && _liveHrOnly;
+
+  // ── link power (issue #200) ─────────────────────────────────────────────────
+  // Android's connection priority was requested ONCE at connect setup and never
+  // stepped back down, so an ~11.25 ms interval was held for the entire life of
+  // a deliberately-permanent connection. [desiredLinkPriority] decides what the
+  // link should be running at; [_applyLinkPriority] is the one place that talks
+  // to the radio, and it is a no-op when nothing changed.
+  bool _backgrounded = false;
+  LinkPriority? _appliedPriority;
+  bool _priorityInFlight = false;
+  bool _priorityRestale = false;
+
+  /// Bumped by every teardown. Captured before a priority request and re-checked
+  /// after it: `_teardownSession` clears `_appliedPriority` at its top but nulls
+  /// `_session` only after awaiting subscription cancels, so an identity check
+  /// on the session alone still passes inside that window — and the reply then
+  /// restores the value teardown had just cleared, leaving the NEXT connection
+  /// convinced it had already asked.
+  int _linkGeneration = 0;
+
+  /// True from the start of connect setup until INIT has been sent. Setup is
+  /// discovery + subscribes + SET_CLOCK + INIT and is immediately followed by
+  /// the first flash drain, so it wants the fast interval for the same reason
+  /// an offload does — but it must ask for it through [_applyLinkPriority] like
+  /// everything else, or the direct request races the serialized ones and
+  /// leaves `_appliedPriority` describing a target the radio never got.
+  bool _connectSetup = false;
+
+  /// What the link should be running at given the engine's CURRENT state. The
+  /// wiring under test: that `_connectSetup` counts as offload-grade traffic,
+  /// and that `sendInit` clears it again.
+  @visibleForTesting
+  LinkPriority linkPriorityForCurrentState() => desiredLinkPriority(
+        offloadActive: _offloadActive || _connectSetup,
+        background: _backgrounded,
+        hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+      );
+
+  /// The last hop: the policy's [LinkPriority] as the radio's own enum.
+  ///
+  /// Lifted out of [_applyLinkPriority] because inline it was the one step
+  /// nothing covered. `desiredLinkPriority` could keep returning exactly the
+  /// right answer while every arm here mapped to `ConnectionPriority.high` —
+  /// which IS issue #200, the link pinned at ~11.25 ms overnight — and the
+  /// whole suite stayed green. Arm-by-arm coverage is in
+  /// `link_priority_policy_test.dart`.
+  @visibleForTesting
+  static ConnectionPriority connectionPriorityFor(LinkPriority want) =>
+      switch (want) {
+        LinkPriority.high => ConnectionPriority.high,
+        LinkPriority.balanced => ConnectionPriority.balanced,
+        LinkPriority.lowPower => ConnectionPriority.lowPower,
+      };
+
+  @visibleForTesting
+  void debugBeginConnectSetup() => _connectSetup = true;
+
+  /// Told by AppState on every foreground/background transition. Drives the
+  /// connection interval — see [desiredLinkPriority].
+  void setBackground(bool value) {
+    if (_backgrounded == value) return;
+    _backgrounded = value;
+    unawaited(_applyLinkPriority());
+  }
+
+  /// Bring the link to the priority the current state calls for.
+  ///
+  /// SERIALIZED, and the target is recomputed inside the loop rather than at
+  /// call time. Every caller fires this unawaited from a state transition
+  /// (background, live mode, offload), so two can overlap; if they did, the
+  /// slower one's completion would write ITS target into `_appliedPriority`
+  /// last. The radio would then sit at one interval while the field claimed
+  /// another, and the `want == _appliedPriority` check below — the thing that
+  /// keeps this from spamming the radio — would skip the next legitimate
+  /// step-down, leaving the link fast exactly when it should go quiet.
+  Future<void> _applyLinkPriority() async {
+    if (!Platform.isAndroid) return; // iOS picks its own interval
+    if (_priorityInFlight) {
+      // Someone is mid-request; make them re-evaluate when they land rather
+      // than issuing a competing one.
+      _priorityRestale = true;
+      return;
+    }
+    _priorityInFlight = true;
+    try {
+      do {
+        _priorityRestale = false;
+        final session = _session;
+        if (session == null || !session.connected) return;
+        final want = desiredLinkPriority(
+          offloadActive: _offloadActive || _connectSetup,
+          background: _backgrounded,
+          hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+        );
+        if (want == _appliedPriority) continue;
+        final generation = _linkGeneration;
+        try {
+          await session.device.requestConnectionPriority(
+            connectionPriorityRequest: connectionPriorityFor(want),
+          );
+          // Only remember it if the link we asked is still the live one. A
+          // teardown during the await clears `_appliedPriority` precisely so
+          // the next session re-requests from scratch (Android resets the
+          // interval per GATT connection); writing this session's target in
+          // afterwards would make the new link skip its own request.
+          if (generation != _linkGeneration ||
+              !identical(_session, session) ||
+              !session.connected) {
+            // Do not record it against the dead link, and do not swallow a
+            // transition that arrived while we were waiting: loop once more so
+            // the replacement session (if there is one) gets its own target.
+            _log('Link priority reply arrived after teardown — discarded.');
+            _priorityRestale = true;
+            continue;
+          }
+          _appliedPriority = want;
+          _log('Link priority → ${want.name}.');
+        } catch (e) {
+          // Leave `_appliedPriority` alone so this is retried. The retry is the
+          // keep-alive tick calling back in, NOT this loop — spinning here
+          // against a radio that just refused would hammer it. Without a
+          // retry at all, a failed step-DOWN would hold the fast interval
+          // until the next state change, which overnight means until morning.
+          _log('requestConnectionPriority(${want.name}) failed: $e');
+        }
+      } while (_priorityRestale);
+    } finally {
+      _priorityInFlight = false;
+    }
+  }
+
   bool _offloadActive = false;
   final List<Frame> _offloadFrames = [];
   bool _drainingOffloadFrames = false;
@@ -806,6 +937,30 @@ class BleEngine {
   // caller pauses the auto-reconnect loop instead of pinning the radio forever.
   // A single successful bond clears it (see the createBond block below).
   final BondRefusalGiveUp _bondGiveUp = BondRefusalGiveUp();
+
+  /// Clear a bond-refusal auto-reconnect pause whose cooldown has expired, and
+  /// report whether the pause is still in force (issue #208).
+  ///
+  /// The pause was previously cleared in exactly ONE place: the `createBond()`
+  /// success branch. That branch is inside the connect path, which the pause
+  /// itself stops from ever running — so the flag latched for the life of the
+  /// process, and the Android foreground service made sure the process outlived
+  /// any reason for it. [BondRefusalGiveUp.stillPaused] expires it after a
+  /// cooldown; a band that genuinely will not bond simply re-trips.
+  bool refreshAutoReconnectPause() {
+    if (!state.autoReconnectPaused) return false;
+    if (_bondGiveUp.stillPaused(DateTime.now())) return true;
+    state.autoReconnectPaused = false;
+    // Clear what the pause put on screen, too. Leaving `needsRepairGuide` set
+    // tells the user to re-pair while auto-reconnect has quietly re-armed
+    // behind the message, and a `bondRefusals` count that keeps climbing while
+    // the give-up streak restarts at 1 no longer means anything.
+    state.needsRepairGuide = false;
+    state.bondRefusals = 0;
+    _log('[RECONNECT] bond-refusal pause expired — auto-reconnect re-armed.');
+    onState(state);
+    return false;
+  }
   // Real per-chunk failure tracking (see ChunkFailureLedger doc) — persists
   // across reconnects like marginal-radio/post-bond-loop/bond-give-up, since
   // the whole point is catching the SAME token failing across sessions.
@@ -868,6 +1023,19 @@ class BleEngine {
   // said" apart from "we correctly, silently rejected some as implausible
   // (stale-clock block) and never tallied them." See _handleSyncMarker.
   int _burstDroppedAtStart = 0;
+  // Consecutive HISTORY_END refuses where the burst banked nothing durable
+  // but the RecordGate dropped samples. After a short streak we re-issue
+  // SET_CLOCK and bounce — the usual cause is a bad post-reconnect window
+  // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
+  // re-deliver forever without ever correcting the clock).
+  //
+  // NOT reset per connection (unlike _emptySync / _stuckStrap). The remedy IS
+  // a reconnect, so a per-connection reset made the escalation unreachable:
+  // the idle watchdog tears the session down after a refuse-only burst, the
+  // next connect zeroed the count, and the loop ran forever at streak 1.
+  // See NoDurableProgressEscalation for the full derivation.
+  final NoDurableProgressEscalation _noDurableProgress =
+      NoDurableProgressEscalation();
   // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
   // (see the comment at the validation site — treating a single mismatch as
   // fatal was actively harmful and was reverted), but a mismatch that keeps
@@ -1262,13 +1430,14 @@ class BleEngine {
       } catch (e) {
         _log('requestMtu failed: $e — MTU stays at the connection default.');
       }
-      if (Platform.isAndroid) {
-        try {
-          await device.requestConnectionPriority(
-            connectionPriorityRequest: ConnectionPriority.high,
-          );
-        } catch (_) {}
-      }
+      // Setup is immediately followed by INIT + the first flash drain, which is
+      // exactly when throughput matters, so `_connectSetup` asks for the fast
+      // interval — through the SAME serialized helper as every other
+      // transition. `_applyLinkPriority` steps it back down once the offload
+      // ends (issue #200); before that, `high` was requested here and then held
+      // for the entire life of a deliberately-permanent connection.
+      _connectSetup = true;
+      await _applyLinkPriority();
 
       if (!session.connected) {
         _log('connect: link dropped during setup.');
@@ -1355,6 +1524,11 @@ class BleEngine {
       _autoContinue.end();
       _lastBackfillAt = 0;
       _successfulBursts = 0;
+      // _noDurableProgress is deliberately NOT reset here — like _marginalRadio
+      // and _postBondLoop above, it counts consecutive bad cycles ACROSS
+      // reconnects. Resetting per connection made the escalation unreachable,
+      // because the escalation's own remedy is a reconnect. It clears on a
+      // successful trim ACK, the only thing that proves the condition is over.
       _lastHpsTerminal = null;
       _sessionPacketCounts = _SessionPacketCounts.zero;
       _sessionGapSummary = _SessionGapSummary.zero;
@@ -1475,7 +1649,50 @@ class BleEngine {
       }
       _send(Cmd.toggleRealtimeHr, const [0x01]);
     }
-    _send(Cmd.getBatteryLevel, const []);
+    // Battery is a DISPLAY value that moves over hours. Polling it on every
+    // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
+    // real changes (issue #200).
+    //
+    // BUT it is also load-bearing for liveness: `_lastRx` only advances on an
+    // inbound notification, and with no live stream armed the battery REPLY is
+    // the only inbound traffic this link generates (LINK_VALID is a write; the
+    // band is not known to answer it). Left purely on a 5-minute cadence, a
+    // quiet link would sail past the 120 s fuse and get bounced — trading a
+    // power win for a reconnect storm. So: poll on the slow cadence normally,
+    // and force one as soon as silence approaches the fuse.
+    unawaited(
+      _pollBatteryIfDue(
+        force: sinceLastRx.inSeconds > kLivenessFuseSeconds ~/ 2,
+      ),
+    );
+    // Cheap retry hook for a priority request that failed earlier: a no-op
+    // whenever the link already sits at the wanted interval.
+    unawaited(_applyLinkPriority());
+  }
+
+  DateTime? _lastBatteryPollAt;
+
+  /// Ask the band for its battery level, at most once per
+  /// [kBatteryPollIntervalSeconds].
+  ///
+  /// The stamp moves only after the write actually goes out, so a failed write
+  /// does not buy five minutes of silence — and [getBattery] shares this path
+  /// so the read AppState does right after connecting isn't immediately
+  /// followed by a duplicate from the first keep-alive tick.
+  Future<void> _pollBatteryIfDue({bool force = false}) async {
+    final last = _lastBatteryPollAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last).inSeconds <
+            kBatteryPollIntervalSeconds) {
+      return;
+    }
+    // `_send` swallows write failures and reports them as false. Stamping
+    // regardless would buy five minutes of silence off a write that never left
+    // the phone.
+    if (await _send(Cmd.getBatteryLevel, const [])) {
+      _lastBatteryPollAt = DateTime.now();
+    }
   }
 
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /
@@ -2175,8 +2392,9 @@ class BleEngine {
     // Drop records whose unix is implausible vs wall-clock and (when known) the
     // strap's own GET_DATA_RANGE window — a previous owner's wandering-clock
     // pollution. Records with no decodable ts are kept (can't gate them).
-    // Rejected records are neither stored nor counted; the ACK still walks the
-    // band's cursor.
+    // Rejected records are neither stored nor counted. Mixed bursts (some
+    // rows banked) may still ACK; a drop-only empty burst must not — see
+    // TrimAckVerdict.blockedNoDurableProgress.
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
@@ -2247,6 +2465,12 @@ class BleEngine {
     }
     if (f.containsKey('charging')) {
       state.charging = f['charging'] as bool;
+      // Carry the EVENT's own strap timestamp alongside the flag. The strap
+      // dumps its buffered event log on connect and re-sends events it has
+      // already delivered, so a chargingOn frame is not evidence that the puck
+      // went on just now — only its timestamp is. Consumers that treat the
+      // transition as live (DeviceAlerts) gate on this; see #179.
+      state.chargingTs = (f['ts_epoch'] as num?)?.toInt();
       onState(state);
     }
     if (f.containsKey('on_wrist')) {
@@ -2519,6 +2743,70 @@ class BleEngine {
           );
         }
         return;
+      case TrimAckVerdict.blockedNoDurableProgress:
+        // Gate rejected every historical sample this burst and nothing was
+        // banked (no raws, no archives). Echoing the token would trim flash
+        // we never stored — the HR-gap / frozen-cursor failure mode after a
+        // reconnect with a bad plausibility window. Keep the chunk on the
+        // band; after a short streak, re-correlate the clock and bounce.
+        final runRemedy = _noDurableProgress.trimRefused();
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex has no durable rows but the '
+          'plausibility gate dropped samples this burst — NOT ACKing '
+          '(refusals=${_noDurableProgress.refusals} '
+          'remedies=${_noDurableProgress.remedies}). The band keeps the chunk; '
+          'a SET_CLOCK/reconnect may clear a poisoned gate window.',
+        );
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'no_durable_progress',
+          metaPatch: {
+            'batch_id': batchId,
+            'records': d.records,
+            'no_durable_refuse_streak': _noDurableProgress.refusals,
+            'no_durable_remedy_cycles': _noDurableProgress.remedies,
+          },
+        ));
+        if (runRemedy && !_sessionIsStale(session)) {
+          _log(
+            '[SYNC] no-durable trim refuses hit the remedy threshold — '
+            'defensive SET_CLOCK + bounce so the next session can re-admit '
+            'the re-delivered chunk.',
+          );
+          if (_noDurableProgress.shouldSurfaceGiveUp()) {
+            // The remedy has now failed repeatedly. We still do NOT ACK —
+            // trimming flash we never banked is unrecoverable, so "keep the
+            // data" stays the right answer. What changes is that this stops
+            // being INVISIBLE: previously it refused, bounced and retried
+            // forever behind a debug log, because the two detectors that would
+            // otherwise catch it (`EmptySyncTracker` -> `syncClockLost`,
+            // `StuckStrapDetector`) are only evaluated in
+            // `_onOffloadFinished`, and HISTORY_COMPLETE never arrives here.
+            state.syncClockLost = true;
+            onState(state);
+            _log(
+              '[SYNC] ${_noDurableProgress.remedies} SET_CLOCK+bounce remedies '
+              'have not cleared the no-durable-progress loop — surfacing '
+              'syncClockLost. The chunk is still SAFE on the band; we are '
+              'refusing the trim, not losing data.',
+            );
+          }
+          try {
+            await setClock();
+          } catch (e) {
+            _log('[SYNC] defensive SET_CLOCK after no-durable refuse failed: $e');
+          }
+          if (!_sessionIsStale(session)) {
+            unawaited(
+              _teardownSession(intentional: false).then((_) {
+                _setPhase(BleConnState.idle);
+              }),
+            );
+          }
+        }
+        return;
     }
   }
 
@@ -2633,16 +2921,51 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      _successfulBursts++;
-      _mergeValidatedBurst(d);
       final r = d.bufferedRecTsRange;
+      final droppedThisBurstForLog = droppedThisBurst;
+      final hadDurableRows =
+          d.bufferedRecords > 0 || d.bufferedArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
+        'dropped_this_burst=$droppedThisBurstForLog '
+        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
+      // Non-trimmable wiring (no onCommit): unbuffered fire-and-forget cannot
+      // prove durability before ACK. Production always sets onCommitBatch.
+      if (!d.supportsSafeTrim) {
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex refused — drain has no onCommit '
+          '(non-trimmable / test-only wiring); band keeps the chunk.',
+        );
+        return;
+      }
+      // NO-PROGRESS GATE: refuse trim when this burst banked nothing durable
+      // but the RecordGate dropped samples. Echoing would delete flash we
+      // never stored (and used to also flip lastTrimAdvanced, feeding
+      // auto-continue while the cursor stayed frozen).
+      final progressVerdict = TrimAckPolicy.evaluate(
+        sessionCurrent: !_sessionIsStale(session),
+        burstDiscarded: d.burstDiscarded,
+        commitDurable: true,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
+      );
+      if (progressVerdict != TrimAckVerdict.send) {
+        await _refuseHistoryEndTrim(
+          progressVerdict,
+          d: d,
+          session: session,
+          tokenHex: tokenHex,
+          batchId: m.batchId,
+        );
+        return;
+      }
+      _successfulBursts++;
+      _mergeValidatedBurst(d);
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
       // once the ACK is link-layer confirmed, so a crash before the ACK
@@ -2658,6 +2981,8 @@ class BleEngine {
         sessionCurrent: !_sessionIsStale(session),
         burstDiscarded: d.burstDiscarded,
         commitDurable: durable,
+        hadDurableRows: hadDurableRows,
+        droppedThisBurst: droppedThisBurst,
       );
       if (verdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -2738,6 +3063,9 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      // A trim ACK is the only real proof the no-durable-progress condition is
+      // over — records were banked and the band may advance.
+      _noDurableProgress.trimAcked();
       d.noteBatchAcked(); // ACKed and KEEP listening
       await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
@@ -2954,9 +3282,19 @@ class BleEngine {
       return;
     }
     _log('Sending 5-packet INIT…');
-    for (final pkt in initPackets) {
-      await _write(pkt);
-      await Future.delayed(const Duration(milliseconds: 120));
+    try {
+      for (final pkt in initPackets) {
+        await _write(pkt);
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+    } finally {
+      // Setup is over. The flood INIT triggers raises the link on its own via
+      // `_setOffloadActive`, so from here the ordinary rules apply — and an
+      // idle link stops paying for the fast interval.
+      if (_connectSetup) {
+        _connectSetup = false;
+        unawaited(_applyLinkPriority());
+      }
     }
   }
 
@@ -3190,7 +3528,9 @@ class BleEngine {
     _log('SET_ADVERTISING_NAME → "$name"');
   }
 
-  Future<void> getBattery() => _send(Cmd.getBatteryLevel, const []);
+  // main's throttled poll (a raw send here was 2,880 round-trips a day), and
+  // the branch's gen5 HELLO, which is a different opcode on Maverick.
+  Future<void> getBattery() => _pollBatteryIfDue(force: true);
   Future<void> getHello() => (_session?.band.isGen5 ?? false)
       ? _send(Cmd.getHello, const [0x01])
       : _send(Cmd.getHelloHarvard, const [0x00]);
@@ -3242,6 +3582,7 @@ class BleEngine {
   Future<void> enableLiveStreams() async {
     _liveEnabled = true;
     _liveHrOnly = false;
+    unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
     final isGen5 = _session?.band.isGen5 ?? false;
@@ -3298,6 +3639,7 @@ class BleEngine {
     _liveEnabled = true;
     _liveHrOnly = true;
     final isGen5 = _session?.band.isGen5 ?? false;
+    unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     final offOps = <List<dynamic>>[
       [
@@ -3357,6 +3699,7 @@ class BleEngine {
     }
     _liveEnabled = false;
     _liveHrOnly = false;
+    unawaited(_applyLinkPriority()); // no live consumer left
     _armTime = null;
     state.liveHr = null;
     // No phase change — we stay `listening`; only the live R10/R11/optical streams
@@ -3393,6 +3736,17 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    // Per-link state: Android resets the connection interval on every new GATT
+    // connection, so a remembered priority would make the next link skip its
+    // request. The battery stamp resets too — a fresh session should read the
+    // level once rather than inheriting the last link's 5-minute cooldown.
+    _appliedPriority = null;
+    _lastBatteryPollAt = null;
+    // Every failure exit in `_doConnect` between setting this and `sendInit`
+    // skips the clear in sendInit's finally, which would leave the target
+    // pinned at `high` for the life of the process.
+    _connectSetup = false;
+    _linkGeneration++;
     _drain?.onLinkDown();
     _drain = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
@@ -3424,6 +3778,9 @@ class BleEngine {
   void _setOffloadActive(bool active) {
     if (_offloadActive == active) return;
     _offloadActive = active;
+    // An offload is the one thing that genuinely needs the fast interval; as
+    // soon as it ends the link steps back down (issue #200).
+    unawaited(_applyLinkPriority());
     onOffloadState?.call(active);
   }
 
@@ -3586,7 +3943,26 @@ class DrainController {
     required this.onCommit,
     required this.onArchive,
     required this.log,
-  });
+  }) {
+    // Safe-trim requires the atomic commit sink: onRecordsBatch alone cannot
+    // persist archives or the trim cursor. Production always wires onCommit;
+    // forbid the latent hole where archive-only chunks would ACK and trim
+    // flash that was never stored.
+    if (onRecordsBatch != null && onCommit == null) {
+      throw ArgumentError(
+        'DrainController: onRecordsBatch without onCommit cannot persist '
+        'archives or the trim cursor — buffered historical drains require '
+        'onCommit',
+      );
+    }
+  }
+
+  /// Whether HISTORY_END may be ACKed under the safe-trim invariant.
+  ///
+  /// Only [onCommit] can bank raws + archives + cursor in one transaction.
+  /// Both-sinks-null (unbuffered / test-only) fire-and-forgets via [onRecord]
+  /// and must not trim.
+  bool get supportsSafeTrim => onCommit != null;
 
   final List<RawRecord> _raws = [];
   final List<Sample?> _samples = [];
@@ -3606,6 +3982,7 @@ class DrainController {
   bool _linkDown = false;
 
   int get bufferedRecords => _raws.length;
+  int get bufferedArchives => _archives.length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets
@@ -3630,7 +4007,10 @@ class DrainController {
   }
 
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
-  // whose 8-byte token differs from the last one means the cursor moved.
+  // whose 8-byte token differs from the last one means the cursor moved — but
+  // only when the burst also banked durable rows. An empty token-only ACK
+  // (console / drop-only) used to flip this true and feed auto-continue while
+  // the durable frontier stayed frozen.
   String? _lastAckedToken;
   bool lastTrimAdvanced = false;
   int consecutiveValidationFailures = 0;
@@ -3646,7 +4026,9 @@ class DrainController {
   /// Bursts poisoned this connection (diagnostics).
   int get poisonedBursts => _trimGuard.poisonedBursts;
 
-  bool get _buffering => onCommit != null || onRecordsBatch != null;
+  /// Buffer only when the atomic commit path exists. Unbuffered mode
+  /// (test-only) must not look like it banked durable rows for trim.
+  bool get _buffering => onCommit != null;
   int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
   int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
@@ -3778,19 +4160,31 @@ class DrainController {
         .join();
     final previousAckedToken = _lastAckedToken;
     final previousTrimAdvanced = lastTrimAdvanced;
-    lastTrimAdvanced = tokenHex != null && tokenHex != _lastAckedToken;
-    if (tokenHex != null) _lastAckedToken = tokenHex;
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
     final archives = List<ArchiveRecord>.from(_archives);
+    final hadDurable = raws.isNotEmpty || archives.isNotEmpty;
+    // Token changed AND we actually banked something — empty ACKs must not
+    // look like cursor progress to auto-continue / stuck-strap.
+    lastTrimAdvanced =
+        tokenHex != null && tokenHex != _lastAckedToken && hadDurable;
+    if (tokenHex != null) _lastAckedToken = tokenHex;
     _raws.clear();
     _samples.clear();
     _archives.clear();
     try {
-      if (onCommit != null) {
-        await onCommit!(raws, samples, tokenHex, archives: archives);
-      } else if (onRecordsBatch != null && raws.isNotEmpty) {
-        await onRecordsBatch!(raws, samples);
+      // Defense in depth (constructor already rejects onRecordsBatch-only):
+      // never report durable success for buffered content without onCommit.
+      if (raws.isNotEmpty || archives.isNotEmpty || tokenHex != null) {
+        final commit = onCommit;
+        if (commit == null) {
+          throw StateError(
+            'DrainController.commit requires onCommit to persist buffered '
+            'rows / archives / trim cursor (had raws=${raws.length}, '
+            'archives=${archives.length}, token=${tokenHex != null})',
+          );
+        }
+        await commit(raws, samples, tokenHex, archives: archives);
       }
       return true;
     } catch (e) {

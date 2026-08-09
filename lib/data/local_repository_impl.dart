@@ -19,6 +19,8 @@ import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
 import '../compute/hr_max.dart';
+import '../compute/manual_session.dart';
+import '../compute/profile.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -556,7 +558,29 @@ class LocalRepositoryImpl extends LocalRepository {
     // confirmed / none — drives the Sleep screen's confirm prompt + edit affordance.
     final sleepSource = (b['sleep_source'] as String?) ?? 'auto';
     if (tst == null) {
-      return {'has_sleep': false, 'sleep_source': sleepSource};
+      // NO NIGHT SLEEP — but that is not the same as no sleep at all.
+      //
+      // A nap-only or night-shift day still has detected daytime periods, and
+      // this early return used to drop them on the floor: the screen showed
+      // "No sleep recorded for this night" while the very same nap was stored,
+      // credited against sleep need, and drawn as a band on the Timeline.
+      // Three surfaces, two answers.
+      //
+      // `has_sleep` stays FALSE — it means what it says, that there is no
+      // NIGHT to render a hypnogram, stages or efficiency for, and inventing
+      // one from a nap would be exactly the conflation this file avoids
+      // elsewhere. The periods ride along so the screen can show what it does
+      // know instead of claiming nothing happened.
+      final napPeriods = _periodsWithMainStages(b, const {});
+      if (napPeriods.isEmpty) {
+        return {'has_sleep': false, 'sleep_source': sleepSource};
+      }
+      return {
+        'has_sleep': false,
+        'sleep_source': sleepSource,
+        'periods': napPeriods,
+        'total_asleep_min': _totalAsleepMin(b, napPeriods),
+      };
     }
     final spt = (win?['spt_sec'] as num?);
     final waso = (acct?['waso_sec'] as num?);
@@ -571,7 +595,28 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
-    return {
+    // Sleep periods (main + naps) for the periods screen. The main period is
+    // enriched HERE with the hypnogram + stage minutes: derivation builds the
+    // periods in a second isolate that never receives `series.hypnogram`, so
+    // this is the first point where the whole bundle is in hand. Naps carry
+    // neither by design — no stage claim is made for them.
+    //
+    // Naps carry their own confidence and the screen draws a ConfDot for any
+    // period that has one, so omitting the main period's left the main card as
+    // the ONLY one with no dot — reading as "unknown" for the best-evidenced
+    // period on the screen. Stays null when accounting had no confidence,
+    // which correctly draws nothing.
+    final periods = _periodsWithMainStages(
+      b,
+      {
+        'light_min': min('light_sec'),
+        'deep_min': min('deep_sec'),
+        'rem_min': min('rem_sec'),
+        'nrem_min': min('nrem_sec'),
+      },
+      mainConfidence: sleepConf,
+    );
+    final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
       'sleep_source': sleepSource,
@@ -605,9 +650,19 @@ class LocalRepositoryImpl extends LocalRepository {
       'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
       'regularity':
           null, // needs ≥several nights (honest null → "Need N nights")
-      // Sleep periods (main + naps) for the periods screen.
-      'periods': (b['sleep_periods'] as Map?)?['periods'] ?? const [],
-      'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
+      // Sleep periods (main + naps) for the periods screen. The main period is
+      // enriched HERE with the hypnogram + stage minutes: derivation builds the
+      // periods in a second isolate that never receives `series.hypnogram`, so
+      // this is the first point where the whole bundle is in hand. Naps carry
+      // neither by design — no stage claim is made for them.
+      'periods': periods,
+      // The hero total must equal the sum of the cards under it — a user can
+      // add them up. `_boundedPeriod` can CORRECT a period on read (clamping a
+      // duration to its own window, dropping a degenerate one), which makes the
+      // stored total stale, so it is recomputed from what is actually
+      // rendered. See [_totalAsleepMin] for why an absent stored total stays
+      // absent rather than being recomputed into a confident number.
+      'total_asleep_min': _totalAsleepMin(b, periods),
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
       'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
@@ -623,6 +678,150 @@ class LocalRepositoryImpl extends LocalRepository {
       // position PROXY, NOT supine/side/prone body position.
       'wrist_orientation': b['wrist_orientation'],
     };
+    // NOTE: this used to re-map the periods here through
+    // `sleepPeriodsForScreen` and overwrite `night['periods']`. That translator
+    // read `start`/`end`/`asleep_min` -- the vocabulary the producer emitted
+    // when this branch was written. Since #204 the producer emits
+    // `onset_ts`/`wake_ts`/`duration_min` directly, and `_periodsWithMainStages`
+    // (above) already attaches the hypnogram, stage minutes and the main
+    // period's confidence, translating any legacy payload on read.
+    //
+    // Keeping the overwrite after that rebase would have read every period
+    // under keys that no longer exist, produced an EMPTY list, and blanked the
+    // whole screen -- main sleep included -- while the hero still showed a
+    // total. One source per concern: the writer-side seam owns this now.
+    return night;
+  }
+
+  /// The persisted sleep periods with the MAIN period's hypnogram and stage
+  /// minutes attached.
+  ///
+  /// Naps are returned untouched: they have no stages, and inventing an empty
+  /// stage map would make the card draw a stage bar for sleep we never
+  /// classified. Absent stage minutes are dropped rather than zeroed for the
+  /// same reason — `StageBars` renders 0 as an invisible gap, which reads as
+  /// "no deep sleep" instead of "not measured".
+  List<Map<String, dynamic>> _periodsWithMainStages(
+    Map<String, dynamic> b,
+    Map<String, int?> stageMin, {
+    num? mainConfidence,
+  }) {
+    final raw = (b['sleep_periods'] as Map?)?['periods'];
+    if (raw is! List) return const [];
+    final hypno = _hypnoPoints(b);
+    final stages = <String, dynamic>{
+      for (final e in stageMin.entries)
+        if (e.value != null) e.key: e.value,
+    };
+    return [
+      for (final p in raw.whereType<Map>())
+        if (_boundedPeriod(_canonicalPeriod(p)) case final bp?)
+          if (bp['is_main'] != true)
+            bp
+          else
+            {
+              ...bp,
+              if (hypno.isNotEmpty) 'hypnogram': hypno,
+              if (stages.isNotEmpty) 'stages': stages,
+              'confidence': ?mainConfidence,
+            },
+    ];
+  }
+
+  /// Reads a persisted period under EITHER key vocabulary.
+  ///
+  /// The producer emits `onset_ts`/`wake_ts`/`duration_min`, but day results
+  /// written before that change hold `start`/`end`/`asleep_min` and are never
+  /// rewritten: a day finalizes ~48 h behind the data edge and raw is pruned
+  /// after `rawRetentionDays`, so once its substrate is gone a kAlgoVersion
+  /// bump cannot re-derive it — the old payload is what that day will serve
+  /// forever. Without this the Sleep-periods cards for every such day render
+  /// "—" for onset, wake AND duration, underneath a hero total that is still
+  /// confident, which reads as data loss rather than an old schema.
+  ///
+  /// Translating on READ (rather than migrating on write) also means this and
+  /// the parallel fix at the other end of the seam are order-independent.
+  Map<String, dynamic> _canonicalPeriod(Map p) {
+    final m = p.cast<String, dynamic>();
+    // Fill only keys that are genuinely ABSENT — `containsKey`, never a null
+    // check. A current-schema key present with an explicit null is an honest
+    // "we did not measure this", and a null test cannot tell that apart from a
+    // missing key. On a mixed payload (`duration_min: null` sitting alongside a
+    // stale `asleep_min: 40`) a null test promotes an unknown into a
+    // measurement — the precise dishonesty this seam exists to remove.
+    //
+    // A period already speaking the current vocabulary passes through
+    // byte-for-byte either way.
+    return {
+      ...m,
+      if (!m.containsKey('onset_ts') && m['start'] != null)
+        'onset_ts': m['start'],
+      if (!m.containsKey('wake_ts') && m['end'] != null) 'wake_ts': m['end'],
+      if (!m.containsKey('duration_min') && m['asleep_min'] != null)
+        'duration_min': m['asleep_min'],
+    };
+  }
+
+  /// A period's reported asleep minutes can never exceed its own window.
+  ///
+  /// Ported from #205, which added it at the (now-removed) screen-side
+  /// translator. It is a real invariant and belongs here, at the one seam the
+  /// screen reads: `duration_min` and the window come from different producers
+  /// (staging TST vs the detected bounds), so nothing else stops a card
+  /// claiming more sleep than the period it sits in. Clamped, not dropped —
+  /// the window is the trustworthy half.
+  ///
+  /// Returns null for a period with no usable window at all, so the caller can
+  /// drop it rather than render a zero-length card.
+  Map<String, dynamic>? _boundedPeriod(Map<String, dynamic> m) {
+    final onset = (m['onset_ts'] as num?)?.toInt();
+    final wake = (m['wake_ts'] as num?)?.toInt();
+    if (onset == null || wake == null || wake <= onset) {
+      // Keep it only if it carries no window claim at all; a period whose
+      // window is present but degenerate is junk.
+      return (onset == null && wake == null) ? m : null;
+    }
+    final windowMin = ((wake - onset) / 60).round();
+    final dur = (m['duration_min'] as num?)?.toInt();
+    if (dur == null || (dur >= 0 && dur <= windowMin)) return m;
+    // NEGATIVE is not "too small", it is CORRUPT — there is no such thing as
+    // minus fifty minutes of sleep. It is dropped to unknown rather than
+    // clamped to either end: clamping UP to the window would invent a full
+    // night out of garbage, and clamping DOWN to 0 would state "you did not
+    // sleep", which is a measurement we do not have. Unknown then propagates
+    // through `_totalAsleepMin`, so the hero reads "—" instead of a total
+    // built on a value we know is nonsense.
+    if (dur < 0) return {...m, 'duration_min': null};
+    return {...m, 'duration_min': windowMin};
+  }
+
+  /// The day's total asleep minutes, consistent with the cards on screen.
+  ///
+  /// ABSENT STAYS ABSENT. A null stored total means the producer could not
+  /// state one — most often because nap detection abstained, so the day holds
+  /// an unknown NUMBER of unmeasured naps (see `_sleepPeriods`). Recomputing a
+  /// sum from the periods we happen to have would turn that honest "—" into a
+  /// confident figure that silently omits them, which is the exact claim the
+  /// producer refused to make.
+  ///
+  /// Otherwise the total is recomputed from the RENDERED periods rather than
+  /// trusted verbatim, because `_boundedPeriod` may have corrected one on read
+  /// and the stored sum would then be stale — leaving the hero disagreeing with
+  /// the cards a user can add up. A period whose own duration is unknown makes
+  /// the sum unknown again, for the same reason it does at the writer.
+  num? _totalAsleepMin(
+    Map<String, dynamic> b,
+    List<Map<String, dynamic>> periods,
+  ) {
+    final stored = (b['sleep_periods'] as Map?)?['total_asleep_min'];
+    if (stored == null) return null;
+    var sum = 0;
+    for (final p in periods) {
+      final d = (p['duration_min'] as num?)?.toInt();
+      if (d == null) return null;
+      sum += d;
+    }
+    return sum;
   }
 
   /// Mean completed-cycle length (min), or null when no cycles.
@@ -1817,9 +2016,14 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getWorkout(String id) async {
-    final r = await LocalDb.session(id);
-    if (r == null) return const {};
-    final w = _workoutOf(r);
+    final stored = await LocalDb.session(id);
+    if (stored == null) return const {};
+    // Reconcile the live tallies against the substrate BEFORE projecting the
+    // row (issue #206) — a session the app slept through stores a strain built
+    // from the few minutes it was awake for. Persists on improvement, so the
+    // list and the share card see the corrected value too.
+    final rescored = await _rescoreSessionFromSubstrate(stored);
+    final w = _workoutOf(rescored.row);
     final startTs = w['start_ts'] as int?;
     if (startTs == null) return w;
     final endTs =
@@ -1831,7 +2035,10 @@ class LocalRepositoryImpl extends LocalRepository {
     // hr / avg_hr / min_hr / zone_bands / recovery_curve / hr_drift_pct /
     // time_to_peak_min; without a producer they were blank everywhere.
     try {
-      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      // Reuse the rows the rescore above already read for this exact window
+      // rather than scanning it a second time on every detail open.
+      final hrRows = rescored.hrRows ??
+          await LocalDb.hrSamplesInRange(startTs, endTs);
       if (hrRows.isNotEmpty) {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
@@ -2027,10 +2234,430 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<List<SessionSpan>> savedSessionSpans() async {
+    // Everything ever logged — the overlap check has to see a session from any
+    // date the athlete might be back-filling into, not just a recent window.
+    final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    return [
+      for (final r in rows)
+        if (r['id'] is String && r['start_ts'] is num && r['end_ts'] is num)
+          SessionSpan(
+            r['id'] as String,
+            (r['start_ts'] as num).toInt(),
+            (r['end_ts'] as num).toInt(),
+          ),
+    ];
+  }
+
+  @override
+  Future<Map<String, dynamic>> logManualWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      _writeManualSession(
+        startTs: startTs,
+        endTs: endTs,
+        type: type,
+        // A manual row's id is derived from its start second, so re-logging the
+        // same window is an UPDATE of that row, not a collision with it. Pass
+        // the id we are about to write as the one to skip in the overlap check.
+        validateAgainstId: manualSessionId(startTs),
+      );
+
+  @override
+  Future<Map<String, dynamic>> logDetectedWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      _writeManualSession(
+        startTs: startTs,
+        endTs: endTs,
+        type: type,
+        sessionId: 'auto:$startTs',
+        source: 'auto',
+        validateAgainstId: 'auto:$startTs',
+      );
+
+  @override
+  Future<Map<String, dynamic>> setWorkoutWindow(
+    String id, {
+    required int startTs,
+    required int endTs,
+  }) async {
+    final existing = await LocalDb.session(id);
+    if (existing == null) {
+      throw StateError('setWorkoutWindow: no session $id');
+    }
+    // A running session has no end to correct yet, and buildManualSessionRow
+    // always writes status 'done' — retiming one here would silently end it.
+    // The detail screen already passes onEditTimes:null for a live row, but
+    // the window is re-validated at this seam precisely because the form is
+    // not the only caller; the status deserves the same treatment.
+    if (existing['status'] == 'live') {
+      throw StateError('setWorkoutWindow: session $id is still live');
+    }
+    // A retimed session keeps its id, so the OLD row is replaced rather than
+    // orphaned — including its GPS route, which still belongs to it.
+    return _writeManualSession(
+      startTs: startTs,
+      endTs: endTs,
+      type: (existing['type'] as String?) ?? 'other',
+      existing: existing,
+      validateAgainstId: id,
+    );
+  }
+
+  /// Shared writer for both user-timed paths: score the window from the 1 Hz
+  /// substrate, persist, and retire any auto-detect suggestion it covers.
+  ///
+  /// Deliberately does NOT force a day re-derive. Sessions do not feed
+  /// `day_result` — the derivation engine reads them only as `savedSpans`
+  /// (auto-detect exclusion) and to back-fill `hrr_bpm`, while day strain and
+  /// calories come from the whole-day substrate independently. So there is no
+  /// analytics output to invalidate here and no `kAlgoVersion` bump to make;
+  /// the next ordinary derive picks up the exclusion on its own.
+  Future<Map<String, dynamic>> _writeManualSession({
+    required int startTs,
+    required int endTs,
+    required String type,
+    required String validateAgainstId,
+    Map<String, dynamic>? existing,
+    String? sessionId,
+    String source = 'manual',
+  }) async {
+    // Re-check at the write seam. The form validates live, but its snapshot of
+    // saved spans can be stale by the time save is tapped (a background derive
+    // can log an auto-detected session mid-edit), and the form is not the only
+    // possible caller. Throwing beats silently writing an overlapping row.
+    final invalid = validateManualWindow(
+      startSec: startTs,
+      endSec: endTs,
+      nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      existing: await savedSessionSpans(),
+      editingId: validateAgainstId,
+    );
+    if (invalid != null) throw ManualWindowException(invalid);
+
+    final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+    final hrTs = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+    final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+
+    final profile = Profile.fromMap(getProfileMap());
+    // Prefer the measured nightly RHR; fall back to the user-supplied one.
+    // Both are real inputs — absent both, strain stays null rather than
+    // leaning on a 60 bpm stand-in.
+    final restingHr = await _recentRestingHr() ??
+        profile.restingHrManual?.toDouble();
+
+    final stats = computeManualSessionStats(
+      hrTs: hrTs,
+      hrBpm: hrBpm,
+      profile: profile,
+      zoneMaxHr: _profileMaxHr().toDouble(),
+      restingHr: restingHr,
+    );
+
+    final row = buildManualSessionRow(
+      startSec: startTs,
+      endSec: endTs,
+      type: type,
+      stats: stats,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      existing: existing,
+      sessionId: sessionId,
+      source: source,
+    );
+    await LocalDb.putSession(row);
+
+    // Retire the fragment(s) this window supersedes, so the athlete isn't
+    // asked "did you work out?" about the session they just logged.
+    try {
+      final sug = await LocalDb.activeWorkoutSuggestions();
+      for (final id in supersededSuggestionIds(sug,
+          startSec: startTs, endSec: endTs)) {
+        await LocalDb.dismissWorkoutSuggestion(id);
+      }
+    } catch (_) {
+      /* suggestion cleanup is best-effort — the session is already saved */
+    }
+
+    return {
+      'workout_id': row['id'],
+      'unscored': stats.isUnscored,
+      'hr_samples': stats.hrSampleCount,
+    };
+  }
+
+  /// Re-score a finished session's strain/calories/max-HR/zone-minutes from the
+  /// 1 Hz substrate and persist the result when the substrate improves on what
+  /// the live accumulator managed to see (issue #206).
+  ///
+  /// The live tallies only cover the minutes the foreground app was awake for;
+  /// an app suspended or killed mid-workout stores a strain covering a fraction
+  /// of the window — often a few sub-resting minutes, which score a confident
+  /// `0.0`. Once the band offloads that window, the substrate holds the whole
+  /// thing. [reconcileSessionScore] documents why merging the two by `max` is
+  /// the correct rule; the short version is that both are lower bounds over
+  /// subsets of the same window's minutes.
+  ///
+  /// Self-healing by construction: it re-runs whenever the row is read or a
+  /// drain lands, and the merge is monotone, so a partially-drained window
+  /// improves on each pass and converges. Returns the row with the reconciled
+  /// values applied (never null-out a stored value), writing back only on a
+  /// real change. Best-effort — never throws into a read path.
+  Future<({Map<String, dynamic> row, List<Map<String, dynamic>>? hrRows})>
+      _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
+    final id = row['id'];
+    final startTs = (row['start_ts'] as num?)?.toInt();
+    final endTs = (row['end_ts'] as num?)?.toInt();
+    // A live row is still accumulating; scoring it here would race the tally.
+    if (id is! String ||
+        startTs == null ||
+        endTs == null ||
+        endTs <= startTs ||
+        (row['status']?.toString() ?? '') != 'done') {
+      return (row: row, hrRows: null);
+    }
+    try {
+      // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window
+      // straight after this, and a two-hour session is ~7200 rows to scan twice.
+      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      if (hrRows.isEmpty) return (row: row, hrRows: hrRows);
+
+      final profile = Profile.fromMap(getProfileMap());
+      final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final raw = computeManualSessionStats(
+        hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
+        hrBpm: hrBpm,
+        profile: profile,
+        zoneMaxHr: _profileMaxHr().toDouble(),
+        restingHr:
+            await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+      );
+      // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
+      // writes a PPG spike into the column `getWorkout` deliberately refuses to
+      // floor against (issue #127) — and once raw ages out past retention the
+      // list has no smoothed value left to prefer, so the artefact would become
+      // permanent. Store the spike-suppressed peak instead.
+      final stats = ManualSessionStats(
+        avgHr: raw.avgHr,
+        maxHr: smoothedMaxHr(hrBpm, age: _profileAge()) ?? raw.maxHr,
+        strain: raw.strain,
+        calories: raw.calories,
+        zoneMinutes: raw.zoneMinutes,
+        hrSampleCount: raw.hrSampleCount,
+      );
+
+      // "Complete" = the band has handed over essentially the whole window.
+      // 1 Hz means one sample per second, so sample count vs window seconds is
+      // the coverage ratio; 90% absorbs the usual handful of dropped seconds.
+      final windowSec = endTs - startTs;
+      final complete =
+          windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
+
+      final merged = reconcileSessionScore(
+        substrateIsComplete: complete,
+        liveStrain: (row['strain'] as num?)?.toDouble(),
+        liveCalories: (row['calories'] as num?)?.toDouble(),
+        liveMaxHr: (row['max_hr'] as num?)?.toInt(),
+        liveZoneMinutes: [
+          for (final v in _decodeList(row['zone_min_json']))
+            if (v is num) v.toDouble(),
+        ],
+        substrate: stats,
+      );
+      if (!merged.changed) return (row: row, hrRows: hrRows);
+
+      // `putSession` is INSERT-OR-REPLACE on the whole row, and everything
+      // above this point awaited (two substrate reads). A retime or a
+      // `stopWorkout` finalize landing in that window would be silently
+      // reverted — old start/end/status written back over the new ones. Re-read
+      // and bail if the row moved under us; the next sweep (or the next open)
+      // scores the new window.
+      final current = await LocalDb.session(id);
+      if (current == null ||
+          (current['start_ts'] as num?)?.toInt() != startTs ||
+          (current['end_ts'] as num?)?.toInt() != endTs ||
+          current['status']?.toString() != row['status']?.toString()) {
+        // The row moved under us. Return the fresh row but NOT the rows we
+        // read — they describe the old window, and `getWorkout` would enrich
+        // the new one with them (a negative time-to-peak, zones over the wrong
+        // span). The next pass scores the new window.
+        return (row: current ?? row, hrRows: null);
+      }
+
+      final zoneJson = jsonEncode(
+        merged.zoneMinutes.any((v) => v > 0) ? merged.zoneMinutes : const <num>[],
+      );
+      // Score columns ONLY, via a targeted UPDATE. `putSession` is
+      // INSERT-OR-REPLACE over the whole row, so it also rewrites columns this
+      // code never looked at — `hrr_bpm` (backfilled by the derive) and `type`
+      // (the user's own correction) are both written by narrow UPDATEs that
+      // the re-read above cannot detect.
+      await LocalDb.setSessionScores(
+        id,
+        strain: merged.strain,
+        calories: merged.calories,
+        maxHr: merged.maxHr,
+        zoneMinJson: zoneJson,
+      );
+      final updated = {
+        ...current,
+        'strain': merged.strain,
+        'calories': merged.calories,
+        'max_hr': merged.maxHr,
+        'zone_min_json': zoneJson,
+      };
+      return (row: updated, hrRows: hrRows);
+    } catch (_) {
+      return (row: row, hrRows: null); // best-effort: the stored row renders
+    }
+  }
+
+  /// Sessions this process has already scored as FINISHED, keyed by id and the
+  /// window they had at the time (`id@endTs`).
+  ///
+  /// The skip cannot key on the window alone: a session that was still `live`
+  /// during an earlier sweep is skipped by [_rescoreSessionFromSubstrate] (its
+  /// tally is still accumulating), and once the frontier moved past its end a
+  /// window-only rule would skip it forever after it finished — leaving the
+  /// list showing the stale live-tally strain until someone opened it. Keying
+  /// on the window too means a retimed session is rescored rather than assumed
+  /// settled.
+  final Set<String> _rescoredSessions = <String>{};
+
+  /// Re-score recent finished sessions against the substrate now in the DB.
+  /// Called after a drain lands, so a workout whose window arrived late is
+  /// corrected on the LIST too, not only when its detail screen is opened.
+  /// Returns how many rows changed.
+  ///
+  /// Runs on the DB-owning (main) isolate by necessity — the sqflite handle is
+  /// not portable to another isolate — so it is bounded rather than offloaded:
+  /// the window is the raw-retention horizon (older windows are pruned and can
+  /// never improve) and anything already covered by a previous pass is skipped
+  /// outright, which leaves an ordinary drain doing no substrate reads at all.
+
+  @override
+  Future<int> rescoreRecentSessions({int sinceDays = 3}) async {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    var changed = 0;
+    try {
+      // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
+      // hours, so a flat day-length silently moves the window by an hour.
+      final fromTs =
+          localDayStartSec(dayLabelOf(DateTime.now().subtract(
+                Duration(days: sinceDays),
+              ))) ??
+              (nowSec - sinceDays * 86400);
+      final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
+      // Where the durable record frontier stands NOW. A finished session whose
+      // window sits behind it has all the substrate it is ever going to get.
+      // Falls back to the newest decoded row so an import-only install (no
+      // band, so no `rec_ts_hw` cursor) still gets the skip rather than
+      // re-scanning every session's window on every pass.
+      final frontier = await LocalDb.getCursorInt('rec_ts_hw') ??
+          await LocalDb.lastDecodedRecTs() ??
+          0;
+      final seen = <String>{};
+      for (final r in rows) {
+        final id = r['id']?.toString();
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        final key = (id == null || endTs == null) ? null : '$id@$endTs';
+        if (key != null) seen.add(key);
+        // Settled: finished, fully covered, and already scored in that state.
+        if (key != null &&
+            endTs! <= frontier &&
+            _rescoredSessions.contains(key)) {
+          continue;
+        }
+        final after = await _rescoreSessionFromSubstrate(r);
+        // Count only what THIS pass wrote (the bail path returns a re-read row
+        // whose values may differ for reasons we had nothing to do with), and
+        // count ALL the scored columns — a pass that fixes calories or the zone
+        // split without moving strain still changed what the list shows.
+        const scored = ['strain', 'calories', 'max_hr', 'zone_min_json'];
+        if (after.hrRows != null &&
+            scored.any((k) => '${after.row[k]}' != '${r[k]}')) {
+          changed++;
+        }
+        // Record it only once it is genuinely finished AND actually scored: a
+        // live row is skipped by the helper and must be revisited after it
+        // ends, and a row whose read threw (null rows) would otherwise be
+        // written off for the rest of the process on a transient DB error.
+        // The insertion condition MUST match the skip condition, `endTs <=
+        // frontier` included. Without it, a workout scored while the band had
+        // only handed over part of its window got stamped as settled, and the
+        // next drain — the one carrying the REST of that window — skipped it.
+        // The partial score then stood on the list until someone opened the
+        // detail screen, which is exactly the case the sweep exists for.
+        if (key != null &&
+            endTs! <= frontier &&
+            after.hrRows != null &&
+            (r['status']?.toString() ?? '') == 'done') {
+          _rescoredSessions.add(key);
+        }
+      }
+      // Drop anything that aged out of the window so the set can't grow
+      // without bound across a long-lived process.
+      _rescoredSessions.retainWhere(seen.contains);
+    } catch (_) {
+      /* best-effort */
+    }
+    return changed;
+  }
+
+  /// Most recent nightly resting HR from `metric_series`, or null. Bounded to
+  /// the last week so a stale figure from a long gap can't anchor TRIMP.
+  Future<double?> _recentRestingHr() async {
+    try {
+      // 'rhr' is the `metric_series` key the derivation engine writes nightly
+      // resting HR under (see _BaselineHistoryCache.keys).
+      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      if (vals.isEmpty) return null;
+      return vals.last;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Tolerance when clipping route points to their session's window. GPS
+  /// timestamps are millisecond-stamped while the session window is whole
+  /// seconds, so the very first and last fix can land a hair outside it.
+  static const int _routeClipPadSec = 5;
+
+  @override
   Future<WorkoutRoute?> getWorkoutRoute(String id) async {
     final rows = await LocalDb.routePoints(id);
     if (rows.length < 2) return null;
-    final points = [for (final r in rows) RoutePoint.fromRow(r)];
+    var points = [for (final r in rows) RoutePoint.fromRow(r)];
+
+    // Clip to the session's CURRENT window. A route point outside its
+    // session's window is not part of that session — which only became
+    // reachable once workouts could be retimed: narrowing a live run that was
+    // stopped late (say 90 min down to the 60 you actually ran) otherwise left
+    // the map, distance, moving time and splits describing the full original
+    // 90 minutes while the hero above them read "1h 00m". Two contradictory
+    // accounts of the same session on one card.
+    //
+    // Widening cannot conjure GPS that was never recorded, so the route simply
+    // stays as long as it is — correct, and honest about it.
+    final session = await LocalDb.session(id);
+    final startTs = (session?['start_ts'] as num?)?.toInt();
+    final endTs = (session?['end_ts'] as num?)?.toInt();
+    if (startTs != null && endTs != null && endTs > startTs) {
+      final lo = (startTs - _routeClipPadSec) * 1000;
+      final hi = (endTs + _routeClipPadSec) * 1000;
+      final clipped = [
+        for (final p in points)
+          if (p.tsMs >= lo && p.tsMs <= hi) p,
+      ];
+      // Fewer than two points is not a route — better no map than a single
+      // orphaned pin and a zero-length "distance".
+      if (clipped.length < 2) return null;
+      points = clipped;
+    }
 
     // 1 Hz HR over the route's own time window (± a small pad), for zone
     // colouring and per-split average HR.

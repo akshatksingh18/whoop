@@ -12,6 +12,7 @@
 // run server-side. The screen DATA layer is therefore a clean, localized seam:
 // nothing above this file references HTTP, JWT, or a backend URL anymore.
 
+import '../compute/manual_session.dart' show SessionSpan;
 import '../gps/route_models.dart';
 
 /// The single source of truth for "no step goal configured yet" (8k/day is
@@ -107,12 +108,65 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getWorkout');
   Future<void> deleteWorkout(String id) =>
       throw UnimplementedError('re-layer: deleteWorkout');
+
+  /// Re-score recent finished sessions against the 1 Hz substrate now in the
+  /// DB, correcting a live session whose in-RAM tallies missed the part of the
+  /// workout the app slept through (issue #206). Returns the number of rows
+  /// whose strain changed. Best-effort — never throws.
+  ///
+  /// The default MUST match the implementation's: Dart resolves an omitted
+  /// optional from the STATIC receiver type, and every caller holds this
+  /// interface — so a different default here is the one that actually runs.
+  /// Three days is the raw-retention horizon; nothing older has substrate left
+  /// to re-score from.
+  Future<int> rescoreRecentSessions({int sinceDays = 3}) =>
+      throw UnimplementedError('re-layer: rescoreRecentSessions');
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) =>
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>
       throw UnimplementedError('re-layer: endWorkout');
   Future<Map<String, dynamic>> setWorkoutType(String id, String type) =>
       throw UnimplementedError('re-layer: setWorkoutType');
+
+  /// Log a COMPLETED workout the athlete times themselves — one the band never
+  /// detected, or detected too narrowly. Scored from the 1 Hz substrate over
+  /// [startTs, endTs] (epoch SECONDS); a window with no substrate is still
+  /// saved, just unscored. Returns `{workout_id, unscored, hr_samples}`.
+  Future<Map<String, dynamic>> logManualWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      throw UnimplementedError('re-layer: logManualWorkout');
+
+  /// Log a confirmed auto-detected bout. Same scoring path as
+  /// [logManualWorkout], but keeps the `auto:` id and `auto` attribution.
+  /// Before this existed the confirm flow wrote no `strain` or `calories` at
+  /// all, so every accepted suggestion showed blanks where the numbers go.
+  /// Returns `{workout_id, unscored, hr_samples}`.
+  Future<Map<String, dynamic>> logDetectedWorkout({
+    required int startTs,
+    required int endTs,
+    required String type,
+  }) =>
+      throw UnimplementedError('re-layer: logDetectedWorkout');
+
+  /// Retime an existing session and re-score it over the new window. Used to
+  /// widen an auto-detected fragment to the real session. Returns
+  /// `{workout_id, unscored, hr_samples}`. Throws [StateError] when the id is
+  /// unknown or the session is still live, and [ManualWindowException] when
+  /// the proposed window is rejected.
+  Future<Map<String, dynamic>> setWorkoutWindow(
+    String id, {
+    required int startTs,
+    required int endTs,
+  }) =>
+      throw UnimplementedError('re-layer: setWorkoutWindow');
+
+  /// Saved session spans (excluding stranded live rows), for the manual-entry
+  /// form's overlap check.
+  Future<List<SessionSpan>> savedSessionSpans() =>
+      throw UnimplementedError('re-layer: savedSessionSpans');
   // GPS route for a run/ride/walk (on-device only). Null when none recorded.
   Future<WorkoutRoute?> getWorkoutRoute(String id) =>
       throw UnimplementedError('re-layer: getWorkoutRoute');

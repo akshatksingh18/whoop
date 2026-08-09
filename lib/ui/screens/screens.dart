@@ -24,7 +24,6 @@ import '../heart/live_hr_tile.dart';
 import '../insights/coach_cards.dart';
 import '../sleep/sleep_detail_screen.dart';
 import '../spotcheck/spot_check_screen.dart';
-import '../today/step_calibration_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'detail_cards.dart';
 import 'metric_screen.dart';
@@ -278,9 +277,15 @@ class _ActivityDetailState extends State<_ActivityDetail> {
 
   @override
   Widget build(BuildContext context) {
-    // Live steps from the in-flight session count toward TODAY only.
+    // Live steps from the in-flight session count toward TODAY only — and only
+    // when the BAND is the day's step source. With phone steps on, the day
+    // total is already the phone's count of the same walk (`liveStepsForDay`
+    // prefers phone rows outright rather than summing), so adding the wrist's
+    // live count would double-count it.
     final live = _isToday
-        ? context.select<AppState, int>((a) => a.liveSteps)
+        ? context.select<AppState, int>(
+            (a) => a.todayStepsFromPhone ? 0 : a.liveSteps,
+          )
         : 0;
     // Was context.watch<AppState>() — rebuilt this whole board on every one of
     // AppState's 67 notifyListeners() sources. Only `user` (for step_goal) is
@@ -295,9 +300,6 @@ class _ActivityDetailState extends State<_ActivityDetail> {
       onSetGoal: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => StepGoalScreen(goal: goal)),
       ),
-      onCalibrate: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const StepCalibrationScreen()),
-      ),
     );
   }
 }
@@ -311,7 +313,6 @@ class StepsDayContent extends StatelessWidget {
   final List<double?> weekValues; // raw step counts (nulls = no data)
   final List<String> weekLabels;
   final VoidCallback? onSetGoal;
-  final VoidCallback? onCalibrate;
 
   const StepsDayContent({
     super.key,
@@ -320,7 +321,6 @@ class StepsDayContent extends StatelessWidget {
     this.weekValues = const [],
     this.weekLabels = const [],
     this.onSetGoal,
-    this.onCalibrate,
   });
 
   @override
@@ -360,17 +360,22 @@ class StepsDayContent extends StatelessWidget {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Tag('est', color: accent),
+                    Tag('measured', color: accent),
                     InfoDot(
                       title: 'How steps are counted',
                       body:
-                          'While the band streams live (a workout or with the '
-                          'app open) we count REAL steps from its 100 Hz motion '
-                          'sensor. The rest of the day the sensor samples too '
-                          'slowly to count each step, so those hours are '
-                          'ESTIMATED from your walking minutes and cadence.',
+                          'Only by something that can actually see your gait: '
+                          'your phone\'s own pedometer, or the band\'s 100 Hz '
+                          'sensor while it streams live (a workout, or with the '
+                          'app open). We never add the two together — they are '
+                          'the same walk seen from your pocket and your wrist.\n\n'
+                          'The rest of the day the band samples once a second, '
+                          'which is too slow to resolve individual steps. Those '
+                          'hours are left uncounted rather than estimated, so a '
+                          'day with no real measurement shows no number at all.',
                       methodNote:
-                          'Walk with the app open to sharpen the estimate.',
+                          'Turn on “Use phone step count” in Profile → Health '
+                          'for all-day steps.',
                     ),
                   ],
                 ),
@@ -382,7 +387,10 @@ class StepsDayContent extends StatelessWidget {
                   Expanded(
                     child: BigStat(
                       value: steps > 0 ? '$steps' : null,
-                      caption: steps > 0 ? 'goal $g' : 'no steps yet',
+                      // NOT "no steps yet" — absent means nothing that can
+                      // resolve gait measured this day, which is a different
+                      // statement from "you took zero steps".
+                      caption: steps > 0 ? 'goal $g' : 'not measured',
                       size: BigStatSize.xl,
                     ),
                   ),
@@ -425,7 +433,7 @@ class StepsDayContent extends StatelessWidget {
           ).dsEnter(index: 1),
         ],
 
-        // ── goal + calibration ───────────────────────────────────────────────
+        // ── goal ───────────────────────────────────────────────
         const SizedBox(height: Sp.x3),
         SurfaceCard(
           padding: const EdgeInsets.symmetric(
@@ -439,15 +447,7 @@ class StepsDayContent extends StatelessWidget {
                 iconColor: accent,
                 title: 'Daily step goal',
                 value: goal == null ? 'Set' : '$goal',
-                divider: true,
                 onTap: onSetGoal,
-              ),
-              ListRow(
-                icon: OsIcon.run,
-                iconColor: accent,
-                title: 'Calibrate steps',
-                subtitle: 'Walk ~250 steps with the app open',
-                onTap: onCalibrate,
               ),
             ],
           ),

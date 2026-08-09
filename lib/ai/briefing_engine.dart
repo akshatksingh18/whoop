@@ -134,10 +134,12 @@ Future<Map<String, dynamic>> collectBriefingInputs(
 
 // ── prompt building (PURE — unit-tested on sample data) ───────────────────────
 
-/// The reader's local time of day — used only for the briefing's greeting, and
-/// deliberately distinct from [BriefingPeriod]: the morning briefing (last
-/// night's sleep + recovery) is shown right up to 17:00, so a reader opening it
-/// in the afternoon must be greeted for the afternoon, never the "morning".
+/// The reader's local time of day at GENERATION time — passed into the prompt
+/// as context only (the model is told not to write a greeting off it; the app
+/// renders its own greeting fresh at read time, since a cached briefing can be
+/// read hours after it was generated). Deliberately distinct from
+/// [BriefingPeriod]: the morning briefing (last night's sleep + recovery) is
+/// shown right up to 17:00.
 String partOfDay(DateTime now) {
   final h = now.hour;
   if (h < 12) return 'morning';
@@ -164,15 +166,17 @@ String readinessBand(num v) {
   return 'good';
 }
 
-String briefingSystemPrompt(BriefingPeriod period, String timeOfDay) {
+String briefingSystemPrompt(BriefingPeriod period) {
   final scope = period == BriefingPeriod.morning
       ? 'last night\'s sleep and recovery, and what they mean for the day ahead'
       : 'today\'s activity, strain and stress, and how the day landed';
   return 'You write a health briefing for a local-first fitness band app. '
-      'It is currently $timeOfDay for the reader — if you open with a greeting, '
-      'greet for the $timeOfDay and never assume a different time of day. '
       'Summarize $scope.\n'
       'HARD RULES:\n'
+      '- Do NOT open with a greeting or any reference to the time of day — '
+      'the app shows its own greeting separately, computed at the moment the '
+      'reader actually opens it, and this text may be read hours after it was '
+      'written. Start straight with the substance.\n'
       '- Use ONLY the numbers provided. Never invent, estimate or mention a '
       'metric that is not in the data. No medical advice or diagnosis.\n'
       '- If a "readiness" value is given, its parenthesized band label '
@@ -286,7 +290,7 @@ class BriefingEngine {
         (({required String system, required String user}) =>
             CoachEngine.completeText(
                 config: config, system: system, user: user)))(
-      system: briefingSystemPrompt(period, tod),
+      system: briefingSystemPrompt(period),
       user: buildBriefingUserPrompt(period, day, inputs, tod),
     );
     if (raw.trim().isEmpty) {

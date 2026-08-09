@@ -306,4 +306,46 @@ void main() {
       expect((load['atl'] as num).toDouble(), greaterThan(50.0));
     });
   });
+  group('unsettled (today, not finalized) day scoping', () {
+    // Regression: today's unfinalized row used to be DROPPED from the input
+    // list entirely to keep it out of the illness CUSUM. That also removed it
+    // from readiness/glass-box, the resting-HR trend-shift CUSUM feed, load,
+    // sleep debt and `recent` — whose last row dates every notification. It
+    // must now stay in the series and only be nulled out of the alert inputs.
+    test('stays in `recent` (so notifications date to today)', () {
+      final days = _synthDays(30);
+      final lastDate = days.last['date'] as String;
+      days.last['unsettled'] = true;
+
+      final bundle = buildCrossDayBundle(days, const {});
+      final recent = bundle['recent'] as List;
+
+      expect(recent.length, days.length);
+      expect((recent.last as Map)['date'], lastDate);
+      // The resting-HR trend-shift CUSUM reads `rhr` back off these rows.
+      expect((recent.last as Map)['rhr'], isNotNull);
+    });
+
+    test('does not drive the illness/anomaly alert', () {
+      // A sustained spike on the final days trips the flag when settled...
+      final settled = _synthDays(30, rhrSpikeLast: true);
+      expect(buildCrossDayBundle(settled, const {})['illness'], isNotNull);
+
+      // ...and the SAME spike on a still-syncing today must not, because its
+      // inputs are withheld from the CUSUMs.
+      final unsettled = _synthDays(30, rhrSpikeLast: true);
+      unsettled.last['unsettled'] = true;
+      final bundle = buildCrossDayBundle(unsettled, const {});
+
+      final last = (bundle['recent'] as List).last as Map;
+      expect(last['illness'], isFalse);
+      expect(last['anomaly'], isFalse);
+    });
+
+    test('an all-settled series is unaffected by the flag plumbing', () {
+      final bundle = buildCrossDayBundle(_synthDays(30), const {});
+      expect((bundle['recent'] as List).length, 30);
+      expect(bundle['n_days'], 30);
+    });
+  });
 }

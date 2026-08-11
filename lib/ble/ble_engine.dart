@@ -847,6 +847,13 @@ class BleEngine {
   // Lifetime count of GET_CLOCK `clock_epoch` reads rejected by the same gate
   // (ClockPolicy.acceptsClockRead) — see the clock_epoch handler below.
   int _corruptClockReadCount = 0;
+  // True when the last GET_CLOCK showed a plausible strap RTC reading > 1 day in
+  // the FUTURE relative to the phone — the phone clock is likely wrong (slow), so
+  // history offload is DEFERRED (not drained-and-trimmed) until the clocks agree.
+  // See ClockPolicy.phoneClockSuspect and _startHistoricalRefresh.
+  bool _phoneClockSuspect = false;
+  bool get historyPausedForClock => _phoneClockSuspect;
+  int _clockPausedOffloads = 0; // diagnostics: offloads deferred for this reason
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   // Run-state for a chain of auto-continued offload rounds: how many
@@ -1592,6 +1599,27 @@ class BleEngine {
       // has time to emit the range response before we request another drain.
       await Future.delayed(const Duration(milliseconds: 120));
     }
+    // Data-safety gate: never drain-and-trim history under an untrustworthy phone
+    // clock. Poll the strap RTC and compare; if the phone clock looks slow (strap
+    // plausible but > 1 day ahead), DEFER — draining now would drop the strap's
+    // real records as "future" and the ACK would trim them off the band forever.
+    // The strap retains everything; we drain on a later refresh once the clocks
+    // agree (the phone's clock almost always self-corrects via NTP). SET_CLOCK is
+    // deliberately NOT issued here — pushing the strap back to the slow phone
+    // would corrupt a correct RTC (see ClockPolicy.phoneClockSuspect).
+    await _send(Cmd.getClock, const <int>[]);
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (_session?.connected != true) return;
+    if (_phoneClockSuspect) {
+      _clockPausedOffloads++;
+      _log(
+        '[SYNC] refresh($reason) DEFERRED — phone clock appears wrong relative '
+        'to the strap RTC; not draining history until they agree '
+        '(deferred_total=$_clockPausedOffloads).',
+      );
+      _setOffloadActive(false);
+      return;
+    }
     final wait = HistoricalSyncCommandPolicy.waitSeconds(
       _lastHistoricalSendAt,
       _wallSecs(),
@@ -2236,6 +2264,21 @@ class BleEngine {
     if (f.containsKey('clock_epoch')) {
       final dev = f['clock_epoch'] as int;
       final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Assess phone-clock trust from the RAW read, before the alarm-safety gate
+      // below diverts a future reading. A plausible strap RTC that reads > 1 day
+      // ahead of the phone means the phone clock is likely slow — history offload
+      // then DEFERS (see _startHistoricalRefresh) instead of dropping the strap's
+      // real records as "future" and trimming them off the band. Cleared the
+      // moment a read agrees (the phone almost always self-corrects via NTP).
+      final wasSuspect = _phoneClockSuspect;
+      _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
+      if (_phoneClockSuspect != wasSuspect) {
+        _log(_phoneClockSuspect
+            ? '[SYNC] Phone clock appears wrong: strap RTC=$dev is > 1 day ahead '
+                'of phone wall=$wall — DEFERRING history offload until they agree.'
+            : '[SYNC] Phone/strap clocks agree again (strap=$dev wall=$wall) — '
+                'history offload may resume.');
+      }
       // SANITY GATE, mirroring the one `range_newest` gets below. An
       // implausibly far-future `clock_epoch` yields a large NEGATIVE driftSec,
       // and setAlarm arms at `when - driftSec` — years out, where the alarm

@@ -77,6 +77,24 @@ void main() {
       expect(ClockPolicy.shouldSetClock(wall + 86400 + 1, wall), isTrue);
       expect(ClockPolicy.shouldSetClock(1000, wall), isTrue); // frozen/unset
     });
+
+    test('flags a slow PHONE clock: a plausible strap RTC > 1d in the future', () {
+      // Clocks agree → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall, wall), isFalse);
+      // Strap up to +1 day ahead is within margin → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall + kFutureMargin, wall), isFalse);
+      // Plausible strap RTC > 1 day ahead → the phone is likely slow → DEFER
+      // offload (the P1: draining would drop-then-trim real records).
+      expect(
+          ClockPolicy.phoneClockSuspect(wall + kFutureMargin + 1, wall), isTrue);
+      expect(ClockPolicy.phoneClockSuspect(wall + 2 * 86400, wall), isTrue);
+      // Strap BEHIND the phone is a plausible-past time — not dropped as future,
+      // and corrected forward by shouldSetClock — so NOT a phone problem.
+      expect(ClockPolicy.phoneClockSuspect(wall - 2 * 86400, wall), isFalse);
+      // An unset/garbage-low RTC is a STRAP problem (shouldSetClock), not the
+      // phone — must not trip the phone-suspect defer.
+      expect(ClockPolicy.phoneClockSuspect(1000, wall), isFalse);
+    });
   });
 
   group('BackfillPolicy', () {

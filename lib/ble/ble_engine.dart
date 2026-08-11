@@ -155,6 +155,33 @@ bool burstPacketCountMatches({
 }) =>
     expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
 
+/// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
+/// commit/ACK decision (see the log-only call site).
+///
+/// [receivedTrafficCount] is every frame we actually received this burst, ALL
+/// types (historical R24 data + interleaved console/event/unknown) — i.e.
+/// [BurstStats.totalTrafficPacketCount], NOT the banked historical subset. The
+/// band's [expectedPacketCount] (num_packets) likewise counts every frame it
+/// transmitted, so comparing the two all-types totals is type-agnostic and
+/// interleaving-immune: benign console/event frames riding along cannot fake a
+/// shortfall the way comparing against the R24-only subset did.
+///
+/// [droppedThisBurst] (RecordGate plausibility rejections this burst) is added
+/// back because the band counted those frames but they never entered
+/// [receivedTrafficCount]. A POSITIVE result is frames the band counted that we
+/// did NOT count as valid received traffic — i.e. missing OR corrupted traffic
+/// (would-flag / potential loss): CRC-failed frames also never enter
+/// [receivedTrafficCount], so a positive shortfall cannot by itself prove a
+/// frame never arrived. Zero is complete; negative just means we tallied more
+/// than expected (retried/duplicate frames), which is not loss.
+@visibleForTesting
+int burstPacketShortfall({
+  required int expectedPacketCount,
+  required int receivedTrafficCount,
+  int droppedThisBurst = 0,
+}) =>
+    expectedPacketCount - (receivedTrafficCount + droppedThisBurst);
+
 /// Fired for every LIVE high-rate frame (0x28/0x2B/0x33). These are EPHEMERAL —
 /// they are NOT persisted to raw_records (that bloated storage ~50x and stalled
 /// derivation). The caller routes them to an in-memory sink for the live UI /
@@ -2596,6 +2623,20 @@ class BleEngine {
             expectedPacketCount: expected,
             droppedThisBurst: droppedThisBurst,
           );
+      // Honest, LOG-ONLY completeness signal (never gates the ACK). Compares
+      // num_packets against the ALL-TYPES received total (currentBurstTrafficCount),
+      // not the banked R24 subset — see burstPacketShortfall. Only a POSITIVE
+      // shortfall means frames the band counted that we did not count as valid
+      // received traffic (missing OR CRC-corrupted — potential loss); this is
+      // the signal we want visible in telemetry BEFORE ever wiring a FAIL gate
+      // (which needs its own design + field validation to avoid re-flood).
+      final shortfall = expected == null
+          ? 0
+          : burstPacketShortfall(
+              expectedPacketCount: expected,
+              receivedTrafficCount: d.currentBurstTrafficCount,
+              droppedThisBurst: droppedThisBurst,
+            );
       // ADVISORY ONLY, never a gate: `expectedPacketCount`'s exact semantics
       // (which transport packet types the band itself counts — command
       // responses interleaved with the burst? retried/duplicate frames?) are
@@ -2635,10 +2676,26 @@ class BleEngine {
             'traffic_burst_packets': d.currentBurstTrafficCount,
             'burst_validation_failures': d.consecutiveValidationFailures,
             'burst_breakdown': d.currentBurstBreakdown,
+            'burst_shortfall': shortfall,
           },
         ));
       } else {
         _burstMismatchStreak = 0;
+      }
+      // Would-flag: the correct-signal completeness diagnostic. LOG-ONLY — the
+      // commit + verbatim-token ACK below are unchanged. A positive shortfall
+      // is the honest missing/corrupted-traffic telemetry we want to watch
+      // before a later, field-validated FAIL gate ever acts on it.
+      if (shortfall > 0) {
+        _log(
+          '[SYNC] burst completeness would-flag (LOG-ONLY, commit+ACK '
+          'unchanged): expected=$expected '
+          'received=${d.currentBurstTrafficCount} '
+          'dropped_this_burst=$droppedThisBurst shortfall=$shortfall '
+          '(all-types received total — frames the band counted that we did '
+          'not; missing or CRC-corrupted, potential loss; groundwork for a '
+          'future FAIL gate, NOT gating today)',
+        );
       }
       final r = d.bufferedRecTsRange;
       final droppedThisBurstForLog = droppedThisBurst;

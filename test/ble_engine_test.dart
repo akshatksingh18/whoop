@@ -122,6 +122,103 @@ void main() {
     });
   });
 
+  group('burst completeness shortfall (log-only would-flag signal)', () {
+    test('no shortfall when all-types received total equals num_packets', () {
+      // Band sent 49 frames (30 R24 + 17 console + 2 event); we received all.
+      final received = countBurstTrafficPackets(
+        dataPacketCountsByRevision: const {24: 30},
+        consoleCount: 17,
+        eventCount: 2,
+      );
+      expect(
+        burstPacketShortfall(
+          expectedPacketCount: 49,
+          receivedTrafficCount: received,
+        ),
+        0,
+      );
+    });
+
+    test(
+      'interleaved console/event frames do NOT false-positive: comparing '
+      'against the all-types received total (not the banked R24 subset) '
+      'keeps shortfall at zero',
+      () {
+        final received = countBurstTrafficPackets(
+          dataPacketCountsByRevision: const {24: 15},
+          consoleCount: 37,
+          eventCount: 2,
+        );
+        // Banked R24 subset alone is 15 — comparing THAT to num_packets=54
+        // would fabricate a 39-frame "loss". The correct all-types total is 54.
+        expect(received, 54);
+        expect(
+          burstPacketShortfall(
+            expectedPacketCount: 54,
+            receivedTrafficCount: received,
+          ),
+          0,
+        );
+      },
+    );
+
+    test(
+        'positive shortfall flags missing-or-corrupted traffic (band counted '
+        'more than we did)', () {
+      final received = countBurstTrafficPackets(
+        dataPacketCountsByRevision: const {24: 20},
+        consoleCount: 3,
+      );
+      // Band reported 30, we counted 23 all-types, nothing gate-dropped → 7
+      // frames the band sent that we did not count (never arrived or CRC-failed).
+      expect(
+        burstPacketShortfall(
+          expectedPacketCount: 30,
+          receivedTrafficCount: received,
+        ),
+        7,
+      );
+    });
+
+    test('gate-dropped records are added back so they never read as loss', () {
+      // 26 all-types received, 24 legitimately gate-dropped, band expected 50 →
+      // fully explained, no true loss.
+      expect(
+        burstPacketShortfall(
+          expectedPacketCount: 50,
+          receivedTrafficCount: 26,
+          droppedThisBurst: 24,
+        ),
+        0,
+      );
+    });
+
+    test('negative shortfall (retries/dupes counted extra) is not loss', () {
+      expect(
+        burstPacketShortfall(
+          expectedPacketCount: 26,
+          receivedTrafficCount: 28,
+        ),
+        lessThan(0),
+      );
+    });
+
+    test('shortfall==0 is exactly burstPacketCountMatches', () {
+      const expected = 50, received = 26, dropped = 24;
+      final matches = burstPacketCountMatches(
+        expectedPacketCount: expected,
+        actualBurstPacketCount: received,
+        droppedThisBurst: dropped,
+      );
+      final shortfall = burstPacketShortfall(
+        expectedPacketCount: expected,
+        receivedTrafficCount: received,
+        droppedThisBurst: dropped,
+      );
+      expect(matches, (shortfall == 0));
+    });
+  });
+
   group('maintenance traffic gating', () {
     test('maintenance traffic is paused while offload is active', () {
       expect(shouldPauseMaintenanceTraffic(offloadActive: true), isTrue);

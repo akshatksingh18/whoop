@@ -63,3 +63,30 @@ class Profile {
   bool get hasCalorieAnchors =>
       ageYears != null && weightKg != null && sex != null;
 }
+
+/// Normalise every sex spelling the app can persist onto the three names the
+/// analytics coefficient tables key on: 'male' | 'female' | 'nonbinary'.
+///
+/// Two writers disagree. Onboarding (`profile_setup_screen`) stores 'm'/'f';
+/// the profile screen offers 'male'/'female'/'other'. Every scored path — day
+/// calories, TRIMP, the live tick, a manually logged session — has to land on
+/// the same coefficient block for the same stored value, or one field of one
+/// profile scores as two different people. It happened: TRIMP tested `== 'f'`
+/// while the calorie path accepted 'female' too, so a profile written by the
+/// profile screen got female calories and male TRIMP.
+///
+/// 'other' and anything unrecognised map to `nonbinary`, which the analytics
+/// tables define as the mean of the two published sex constants rather than a
+/// guess at one of them.
+String workoutSex(String? sex) {
+  switch ((sex ?? '').toLowerCase()) {
+    case 'm':
+    case 'male':
+      return 'male';
+    case 'f':
+    case 'female':
+      return 'female';
+    default:
+      return 'nonbinary';
+  }
+}

@@ -253,7 +253,7 @@ double? strainFromPerMinuteHr(
     perMinuteHr,
     restingHr: restingHr,
     maxHr: hrMax,
-    sex: sex == 'f' || sex == 'female' ? ana.Sex.female : ana.Sex.male,
+    sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
   );
   if (!trimp.present || trimp.value == null) return null;
   final score = ana.strainScoreMetric(trimp.value);
@@ -324,7 +324,7 @@ ManualSessionStats computeManualSessionStats({
         weightKg: weightKg,
         heightCm: profile.heightCm ?? 170.0,
         age: age,
-        sex: sex == 'f' || sex == 'female' ? 'female' : 'male',
+        sex: workoutSex(sex),
       ),
       hrmax: hrMax,
       restingHr: restingHr,

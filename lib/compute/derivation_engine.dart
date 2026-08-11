@@ -624,7 +624,80 @@ import 'substrate.dart';
 //   was the explicit product decision, not an accident of where the code sat.
 //   Days carrying an edit are force-derived alongside sleep-override days, so
 //   an edit to an already-finalized day actually takes effect.
-const int kAlgoVersion = 61;
+// v62 - ONE CALORIE PASS PER DAY, with the wake/whole-day split made explicit.
+//   The day's energy figures were produced twice, by two different pieces of
+//   code, and the two did not agree.
+//
+//   * `calories` was summed by a derivation-local copy of Keytel
+//     (`_keytelCaloriesWake`) that billed the FULL Keytel rate on every active
+//     minute, while `Calories.dailyEnergy`'s active component nets the basal
+//     minute out because the total already counts it. The same minute was paid
+//     for twice — `calories` high by basalPerMin x active-minutes, ~70 kcal on
+//     a day with one hard hour, scaling with active time.
+//   * `calories_total` was then OVERWRITTEN further down the day block by a
+//     second `dailyEnergy` call with different gating and a different span (a
+//     flat 1440 minutes of BMR rather than the minutes actually covered), so
+//     the persisted pair came from two different estimates.
+//   * Both propagated: the Health export writes BASAL_ENERGY_BURNED as
+//     `calories_total - calories`, so the exported basal was wrong by tens of
+//     kcal/day, in either direction.
+//
+//   Both scalars and the TDEE bundle block now come from ONE `wakeDayEnergy`
+//   pass, published in one place, so `total - active == basal` holds by
+//   construction. The local Keytel copy is deleted and the duplicate
+//   `dailyEnergy` is gone.
+//
+//   THE SPLIT, stated once so it stops drifting. `calories` is ACTIVE energy
+//   over the WAKE span. `calories_total` is TDEE: Mifflin BMR pro-rated over
+//   the minutes of the calendar day the substrate actually covers — sleep
+//   included, because basal metabolism does not stop overnight — plus that same
+//   active surplus. Feeding the whole-day series to the active term bills sleep
+//   as exercise: `dailyEnergy`'s HR-flex gate is 0.50 x Tanaka HRmax, i.e.
+//   104 - 0.35*age bpm, only 79.5 bpm at age 70, so an older sleeper's ordinary
+//   nocturnal heart rate clears it for the whole night. `onehz_pipeline`'s
+//   early-read `calories` is the same active-over-wake quantity off the same
+//   series; `wakeDayEnergy` is canonical and the pipeline mirrors it.
+//
+//   SAME BUMP, second change: the day's calories now require a real HEIGHT and
+//   go absent without one. `dailyEnergy` defines active as the SURPLUS over the
+//   Mifflin basal minute, so the Mifflin height term sits inside the active
+//   figure as well as the total — standing 170 cm in for an unknown height
+//   moves both. On a 35 y / 80 kg male with 600 wake minutes at 130 bpm, 150 cm
+//   against 195 cm is active 6500 vs 6383 and total 8068 vs 8232 kcal. Those
+//   are persisted scalars and they are exported to Apple Health / Health
+//   Connect, so the stand-in writes a body the user does not have into their
+//   health record. An absent input makes the dependent metric absent. A
+//   height-less profile that used to get an active figure now gets none until
+//   height is filled in; nothing else about the day changes.
+//
+//   SAME BUMP, third change: TRIMP's sex constant read `sex == 'f'` while the
+//   calorie path beside it accepted 'female' too, so a profile written by the
+//   profile screen (whose options are male/female/other) scored female calories
+//   and MALE strain off one field. Both now go through `workoutSex`. This moves
+//   strain, not just calories, for anyone stored as 'female'.
+//
+//   There is no fitness model here and no sleep gate on the calorie path. An
+//   earlier cut of this change fed a resting-HR-derived VO2max into Keytel's
+//   fitness-adjusted variant, gated on the day having produced a sleep-derived
+//   resting HR. Both are gone: the estimator's error exceeds the spread of the
+//   quantity it estimates, and running it made a trait metric move by tens of
+//   kcal/day on ordinary night-to-night resting-HR noise. The published
+//   age/mass/sex model is the only one used.
+//
+//   Each of these moves numbers on a derived day, hence the bump; finalized
+//   days recompute onto the corrected figures.
+//
+//   The SESSION paths changed alongside them and carry no algo version of their
+//   own, which is NOT the same as being recomputed on read. `stopWorkout`
+//   writes the live figure into `sessions.calories`, and the substrate re-score
+//   only replaces it when the band handed over at least 90% of the window; a
+//   session whose stream came back sparse keeps the live number permanently.
+//   That number changed here: the tick used to bill a bare Keytel rate every
+//   second the band reported a heart rate, with no activity gate and no resting
+//   floor, and now bills through the same per-sample gate, resting floor and
+//   gap cap as the re-score. Already-stored sessions are left alone — they are
+//   not re-derived — so the change applies from this version forward.
+const int kAlgoVersion = 62;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3403,22 +3476,84 @@ class DerivationEngine {
     return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
   }
 
-  static double _keytelCaloriesWake(
-    List<double> perMin,
-    double age,
-    double weight,
-    double hrMax,
-    bool female,
-  ) {
-    var kcal = 0.0;
-    for (final hr in perMin) {
-      if (hr < 0.50 * hrMax) continue;
-      final kjMin = female
-          ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
-          : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
-      if (kjMin > 0) kcal += kjMin;
-    }
-    return kcal;
+  /// ONE HR-flex pass, returning the day's active, basal and total figures
+  /// TOGETHER so they cannot disagree. THE canonical day calorie computation —
+  /// every other day-level site mirrors this one, never re-derives it.
+  ///
+  /// [wakeHrPerMin] is the per-minute mean HR over the WAKE span only, and
+  /// [dayMinutes] is how many minutes of the whole calendar day the substrate
+  /// actually covers. That split is deliberate and is the whole semantic:
+  ///
+  ///   * active = Keytel surplus over the wake minutes. Sleep is not exercise.
+  ///     Passing the whole-day series here bills the night as active energy:
+  ///     `dailyEnergy`'s flex gate is 0.50*HRmax = 104 - 0.35*age bpm, which is
+  ///     79.5 bpm at age 70, so an older sleeper whose nocturnal HR sits above
+  ///     it gains thousands of fabricated active kcal per night.
+  ///   * basal = Mifflin BMR pro-rated over [dayMinutes] — the WHOLE day,
+  ///     sleep included, because basal metabolism does not stop overnight.
+  ///   * total = basal + active, i.e. TDEE.
+  ///
+  /// This replaces a derivation-local Keytel sum (`_keytelCaloriesWake`) that
+  /// billed the full Keytel rate on every active minute while `calories_total`
+  /// came from a SECOND, separately-gated `ana.Calories.dailyEnergy` call whose
+  /// active component nets out the basal minute already counted inside the
+  /// total. The same minute was paid for twice, so `calories` read high by
+  /// basalPerMin x active-minutes and the basal the Health export derives as
+  /// `total - active` read low by the same amount. Active and total now come
+  /// from a single call, and `total - active == basal` holds by construction.
+  ///
+  /// Returns null when the profile lacks an anchor Keytel actually reads
+  /// ([Profile.hasCalorieAnchors]), when it carries no HEIGHT, or when no wake
+  /// heart rate was recorded — absent beats fabricated, and "no HR at all" is
+  /// not the same claim as "this day burned exactly your BMR".
+  ///
+  /// HEIGHT IS REQUIRED even though Keytel does not read it, and all three
+  /// figures go absent without it. That is not the shape I wanted: height only
+  /// enters through the Mifflin basal floor, so in principle the ACTIVE figure
+  /// could still be published for a height-less profile. It cannot, because of
+  /// how `dailyEnergy` defines active — the SURPLUS of the Keytel rate over the
+  /// basal minute, `Σ max(0, keytel(HR) − bmrDay/1440)`. The Mifflin term is
+  /// inside active, not just inside total, so standing a height in moves the
+  /// active scalar too: 35 y / 80 kg male, 600 wake minutes at 130 bpm, gives
+  /// active 6500 kcal at 150 cm against 6383 at 195 cm, and total 8068 against
+  /// 8232. Both are persisted to `day_result` and both are exported to Apple
+  /// Health / Health Connect, so a 170 cm stand-in silently writes someone
+  /// else's body into the user's health record — larger than the double-count
+  /// this pass exists to remove, and against the rule that an absent input
+  /// makes the dependent metric absent rather than imputed. Recovering an
+  /// active figure with no height would mean not netting the basal minute out,
+  /// which is precisely the double-count. So: real height, or no calories.
+  ///
+  /// The 1 Hz pipeline's early-read `calories` gates on height for the same
+  /// reason, so Today does not show a figure the derived day then withdraws.
+  @visibleForTesting
+  static ({double active, double basal, double total})? wakeDayEnergy(
+    List<double> wakeHrPerMin, {
+    required Profile profile,
+    int? dayMinutes,
+  }) {
+    if (!profile.hasCalorieAnchors) return null;
+    final heightCm = profile.heightCm;
+    if (heightCm == null) return null;
+    // Off-skin samples are the package's 0 sentinel; billing them would credit
+    // lost contact at the resting rate.
+    final hr = <double>[
+      for (final h in wakeHrPerMin)
+        if (h > 0) h,
+    ];
+    if (hr.isEmpty) return null;
+    final e = ana.Calories.dailyEnergy(
+      hr,
+      profile: ana.WorkoutUserProfile(
+        weightKg: profile.weightKg!,
+        heightCm: heightCm,
+        age: profile.ageYears!.toDouble(),
+        sex: _workoutSex(profile.sex),
+      ),
+      hrmax: profile.hrMaxTanaka,
+      dayMinutes: dayMinutes ?? 1440,
+    );
+    return (active: e.active, basal: e.basal, total: e.total);
   }
 
   static double? _meanWake(List<double> xs) {
@@ -3428,6 +3563,62 @@ class DerivationEngine {
       s += x;
     }
     return s / xs.length;
+  }
+
+  /// The whole activity half of a day: wake features, then the real-pedometer
+  /// step and movement overrides, applied to [bundle] and [scalars] in the
+  /// order production applies them. Returns the wake-features payload with the
+  /// measured step count copied back in.
+  ///
+  /// Exists as one named method rather than three calls inline in
+  /// [_computeDayBlocks] so a test can assert on the SCALAR PAIR a persisted
+  /// day actually carries. The calorie invariant held in `wakeDayEnergy` and
+  /// broke on the way out of it — a second `dailyEnergy` further down the
+  /// sequence overwrote `calories_total` — and a test that only exercised the
+  /// helper could not see that.
+  @visibleForTesting
+  static Map<String, dynamic> applyDayActivity({
+    required Map<String, dynamic> bundle,
+    required Map<String, dynamic> scalars,
+    required Substrate daySub,
+    required Profile profile,
+    required int sleepOnsetSec,
+    required int sleepOffsetSec,
+    double? restingHr,
+    double? dynFloorG,
+    int liveStepsReal = 0,
+    int dynHistoryDays = 0,
+  }) {
+    final wake = _buildWakeDayFeatures(
+      daySub,
+      profile,
+      sleepOnsetSec: sleepOnsetSec,
+      sleepOffsetSec: sleepOffsetSec,
+      restingHr: restingHr,
+      dynFloorG: dynFloorG,
+    );
+    _applyWakeDayFeatures(bundle, scalars, wake);
+    _stepsAndEnergy(
+      bundle,
+      scalars,
+      daySub,
+      profile,
+      liveStepsReal,
+      dynFloorG,
+      dynHistoryDays,
+    );
+    // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
+    // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
+    // built before that ran and deliberately leaves `steps` null: the
+    // early-read path has no gait-capable source of its own and must not invent
+    // one. `wake` is what `_persistWakeDayFeatures` stores and what the Today
+    // repository reads until the full day result exists, so copy the measured
+    // count back in — otherwise Today shows no steps on a day that really was
+    // measured. `calories_total` is NOT in this list any more: it is written
+    // once, by `_applyWakeDayFeatures`, and is already in `wake`.
+    final measuredSteps = scalars['steps'];
+    if (measuredSteps != null) wake['steps'] = measuredSteps;
+    return wake;
   }
 
   static void _applyWakeDayFeatures(
@@ -3445,6 +3636,36 @@ class DerivationEngine {
     if (steps != null) scMap?['steps'] = steps;
     final caloriesTotal = (wake['calories_total'] as num?)?.toDouble();
     if (caloriesTotal != null) scMap?['calories_total'] = caloriesTotal;
+    // The TDEE block is published HERE, from the same `wakeDayEnergy` result
+    // that produced the two scalars above. `_stepsAndEnergy` used to emit it
+    // from a SECOND `ana.Calories.dailyEnergy` call of its own — differently
+    // gated, and over the whole 1440-minute day rather than the covered span —
+    // so it silently overwrote `calories_total` with a figure that did not
+    // belong to the same estimate as `calories`. `total - active` then handed
+    // the Health export a basal that was wrong by tens of kcal/day in either
+    // direction. One pass, one block.
+    //
+    // `calories_basal` is the third component of that one pass, and its
+    // consumer is the `basal` field just below: publishing the figure the pass
+    // actually produced, rather than re-deriving it as `total - active`, is
+    // what makes the Health export's subtraction and this block agree by
+    // construction instead of by arithmetic luck. It is deliberately NOT copied
+    // into `scMap` — `day_result` carries the two scalars the app and the
+    // export read, and a third one with no reader is a thing to keep in sync
+    // for nothing.
+    final caloriesBasal = (wake['calories_basal'] as num?)?.toDouble();
+    if (caloriesTotal != null && calories != null && caloriesBasal != null) {
+      bundle['calories_total'] = <String, dynamic>{
+        'value': caloriesTotal.round(),
+        'active': calories.round(),
+        'basal': caloriesBasal.round(),
+        'confidence': 0.5,
+        'tier': 'ESTIMATE',
+        'inputs_used': const ['hr_1hz', 'profile'],
+        'note': 'total daily energy: Mifflin BMR floor over the covered day + '
+            'active Keytel surplus over the wake span (HR-flex)',
+      };
+    }
     bundle['activity'] = wake['activity'];
     bundle['activity_curve'] = wake['activity_curve'];
     bundle['zones'] = wake['zones'];
@@ -3626,8 +3847,8 @@ class DerivationEngine {
   /// 1 Hz estimate was removed rather than recalibrated.
   ///
   /// Movement minutes are a separate, explicitly non-locomotion activity index
-  /// computed over the whole day. TDEE = HR-flex (Mifflin BMR floor + active
-  /// Keytel surplus). Best-effort.
+  /// computed over the whole day. Best-effort. Calories are NOT computed here —
+  /// `_applyWakeDayFeatures` owns them, from one `wakeDayEnergy` pass.
   static void _stepsAndEnergy(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
@@ -3652,7 +3873,6 @@ class DerivationEngine {
       if (daySub.length < 60) return;
       final motion = _motionMinutes(daySub);
       if (motion.isEmpty) return;
-      final hrPerMin = _hrPerMinuteAligned(motion, daySub);
 
       // This day's own contribution to the personal floor, persisted to
       // metric_series so tomorrow's derive can anchor on it. Null for a day too
@@ -3702,39 +3922,13 @@ class DerivationEngine {
             : 'minutes of sustained wrist movement — activity volume, NOT '
                 'walking, and deliberately not converted to steps',
       };
-      if (profile.isComplete) {
-        final perMinFull = <double>[
-          for (final h in hrPerMin)
-            if (h > 0) h,
-        ];
-        if (perMinFull.isNotEmpty) {
-          final sexStr = profile.sex == 'm'
-              ? 'male'
-              : (profile.sex == 'f' ? 'female' : 'nonbinary');
-          final e = ana.Calories.dailyEnergy(
-            perMinFull,
-            profile: ana.WorkoutUserProfile(
-              weightKg: profile.weightKg!,
-              heightCm: profile.heightCm!,
-              age: profile.ageYears!.toDouble(),
-              sex: sexStr,
-            ),
-            hrmax: profile.hrMaxTanaka,
-          );
-          scMap?['calories_total'] = e.total.roundToDouble();
-          bundle['calories_total'] = <String, dynamic>{
-            'value': e.total.round(),
-            'active': e.active.round(),
-            'basal': e.basal.round(),
-            'confidence': 0.5,
-            'tier': 'ESTIMATE',
-            'inputs_used': const ['hr_1hz', 'profile'],
-            'note':
-                'total daily energy: Mifflin BMR floor + active Keytel surplus '
-                '(HR-flex)',
-          };
-        }
-      }
+      // ENERGY IS NOT COMPUTED HERE. `_applyWakeDayFeatures` has already
+      // published `calories`, `calories_total` and the TDEE block from the
+      // single `wakeDayEnergy` pass, and this method must not touch any of
+      // them. It used to run a second, differently-gated `dailyEnergy` of its
+      // own and overwrite `calories_total` with it, which broke the one thing
+      // the pair is supposed to guarantee: that `calories_total - calories` is
+      // the day's basal. See the note in `_applyWakeDayFeatures`.
     } catch (e) {
       if (kDebugMode) debugPrint('[derive] steps/energy skipped: $e');
     }
@@ -3764,7 +3958,6 @@ class DerivationEngine {
     final wear = _wearBlock(daySub);
     final perMin = _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
     final motion = _motionMinutes(daySub);
-    final hrPerMinAll = _hrPerMinuteAligned(motion, daySub);
     final dayHrValid = <double>[
       for (final h in daySub.hr)
         if (h > 0) h.toDouble(),
@@ -3778,8 +3971,8 @@ class DerivationEngine {
     // `Profile`'s own doc, and the pure `onehz_pipeline` which already gates on
     // exactly these fields) enforces. A missing input now makes the DEPENDENT
     // metric absent — the UI already renders "—" correctly.
-    final age = profile.ageYears?.toDouble();
-    final weightKg = profile.weightKg;
+    // age/weight are read by `wakeDayEnergy` straight off the profile now, so
+    // they are no longer unpacked here — TRIMP only needs the sex constant.
     final sex = profile.sex?.toLowerCase();
     final hrMax = profile.hrMaxTanaka; // null when age is unknown
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
@@ -3788,6 +3981,7 @@ class DerivationEngine {
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
     double? caloriesTotal;
+    double? caloriesBasal;
     Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
       // TRIMP needs a real resting HR (nightly or user-supplied) and a real sex
@@ -3797,7 +3991,12 @@ class DerivationEngine {
           perMin,
           restingHr: rhrForTrimp,
           maxHr: hrMax,
-          sex: sex == 'f' ? ana.Sex.female : ana.Sex.male,
+          // Same sex normalisation the calorie path uses. This read `sex == 'f'`
+          // alone, so a profile stored as 'female' (which the profile screen can
+          // write) got female calorie coefficients and MALE TRIMP off the same
+          // field. Banister publishes only two constants, so `nonbinary` has
+          // nowhere else to go here.
+          sex: _workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
         );
         if (trimp.present && trimp.value != null) {
           final score = ana.strainScoreMetric(trimp.value);
@@ -3806,10 +4005,10 @@ class DerivationEngine {
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
-      // Keytel takes age, weight and sex directly.
-      if (age != null && weightKg != null && sex != null) {
-        calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
-      }
+      // Calories are NOT computed here any more. Active and total both come
+      // from the single `wakeDayEnergy` pass below, off this same wake series —
+      // scoring active separately here, without the basal netting, is exactly
+      // how the two figures drifted apart.
     }
     if (motion.isNotEmpty) {
       // STEPS ARE NOT COMPUTED HERE. This is the EARLY-READ path (what Today
@@ -3832,24 +4031,25 @@ class DerivationEngine {
       if (movementMetric.present && movementMetric.value != null) {
         movementMin = movementMetric.value!.activeMinutes.toDouble();
       }
-      // TDEE needs the full anthropometric set (Mifflin BMR + Keytel surplus).
-      if (age != null &&
-          weightKg != null &&
-          sex != null &&
-          profile.heightCm != null) {
-        final energy = ana.Calories.dailyEnergy(
-          hrPerMinAll,
-          profile: ana.WorkoutUserProfile(
-            weightKg: weightKg,
-            heightCm: profile.heightCm!,
-            age: age,
-            sex: _workoutSex(profile.sex),
-          ),
-          hrmax: hrMax,
-          dayMinutes: motion.length,
-        );
+      // Mifflin BMR floor + Keytel active surplus, in ONE pass, so `calories`
+      // and `calories_total` are two components of the same estimate rather
+      // than two separate ones.
+      //
+      // ACTIVE reads the WAKE series and TOTAL's basal floor reads the whole
+      // covered day. Feeding the whole-day series to the active term bills
+      // sleep as exercise: `dailyEnergy`'s flex gate is 0.50*HRmax, i.e. only
+      // 79.5 bpm at age 70, so an older sleeper spends the night above it.
+      // `dayMinutes` pro-rates the basal floor over the span actually covered,
+      // so a partial day is not billed a full 24 h BMR.
+      final energy = wakeDayEnergy(
+        perMin,
+        profile: profile,
+        dayMinutes: motion.length,
+      );
+      if (energy != null) {
+        calories = energy.active;
         caloriesTotal = energy.total;
-        calories ??= energy.active;
+        caloriesBasal = energy.basal;
       }
     }
     final hrStats = dayHrValid.isEmpty
@@ -3866,6 +4066,12 @@ class DerivationEngine {
       'calories': calories,
       'steps': steps,
       'calories_total': caloriesTotal,
+      // Carried alongside so the TDEE block can be published from the same pass
+      // instead of being re-derived (or, as it once was, recomputed by a second
+      // caller with different gating). Not a user-facing scalar: the Health
+      // export derives basal as `calories_total - calories`, and this is here to
+      // make sure that subtraction and this figure are the same number.
+      'calories_basal': caloriesBasal,
       'wear_min': (wear['worn_min'] as num?)?.toDouble(),
       'activity': {
         'value': activeMin,
@@ -3932,31 +4138,9 @@ class DerivationEngine {
     return ana.enmoSeries(samples).minutes;
   }
 
-  static List<double> _hrPerMinuteAligned(List<ana.MotionMinute> motion, Substrate s) {
-    final buckets = <int, List<double>>{};
-    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
-      if (s.hr[i] <= 0) continue;
-      final minuteStartMs = (s.tsSec[i] ~/ 60) * 60000.0;
-      (buckets[minuteStartMs.toInt()] ??= <double>[]).add(s.hr[i].toDouble());
-    }
-    return [
-      for (final mm in motion)
-        _meanWake(buckets[mm.tsMinStartMs.toInt()] ?? const <double>[]) ?? 0.0,
-    ];
-  }
-
-  static String _workoutSex(String? sex) {
-    switch ((sex ?? '').toLowerCase()) {
-      case 'm':
-      case 'male':
-        return 'male';
-      case 'f':
-      case 'female':
-        return 'female';
-      default:
-        return 'nonbinary';
-    }
-  }
+  /// See `workoutSex` in profile.dart — the one definition, shared with the
+  /// pure pipeline, the live tick and manually logged sessions.
+  static String _workoutSex(String? sex) => workoutSex(sex);
 
   // NOTE: `detected_workouts` (`const []`) and `advanced_sleep`
   // (`{present:false}`) are currently constant stubs — they are now emitted
@@ -4802,39 +4986,18 @@ class DerivationEngine {
     // returned patch so we only write back the NEWLY computed scalars.
     final scMap = <String, dynamic>{'rhr': inp.rhr};
 
-    // Wake-day features (active min / strain / calories / steps / zones / wear),
-    // then the hybrid 100 Hz + 1 Hz steps + TDEE override (order preserved).
-    final wake = _buildWakeDayFeatures(
-      daySub,
-      inp.profile,
+    final wake = applyDayActivity(
+      bundle: bundlePatch,
+      scalars: scMap,
+      daySub: daySub,
+      profile: inp.profile,
       sleepOnsetSec: onset,
       sleepOffsetSec: offset,
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
+      liveStepsReal: inp.liveStepsReal,
+      dynHistoryDays: inp.dynHistoryDays,
     );
-    _applyWakeDayFeatures(bundlePatch, scMap, wake);
-    _stepsAndEnergy(
-      bundlePatch,
-      scMap,
-      daySub,
-      inp.profile,
-      inp.liveStepsReal,
-      inp.dynFloorG,
-      inp.dynHistoryDays,
-    );
-    // _stepsAndEnergy just wrote `steps` (REAL pedometer counts from
-    // `live_coverage` — band 100 Hz or phone, never an estimate) and
-    // `calories_total` into bundlePatch + scMap. `wake` was built above by
-    // _buildWakeDayFeatures BEFORE that ran, and deliberately leaves `steps`
-    // null: the early-read path has no gait-capable source of its own and must
-    // not invent one. `wake` is what _persistWakeDayFeatures stores and what
-    // the Today repository reads until the full day result exists, so copy the
-    // measured values back in — otherwise Today shows no step count on a day
-    // that really was measured.
-    for (final key in const ['steps', 'calories_total']) {
-      final value = scMap[key];
-      if (value != null) wake[key] = value;
-    }
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);

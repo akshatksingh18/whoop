@@ -25,6 +25,12 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart';
 
+// Pure value helper only — no DB, no IO, no Flutter binding — so importing it
+// does not compromise this file's isolate safety. It is here so the sex
+// normalisation has ONE definition across the pipeline and the coordinator
+// instead of two that can drift.
+import 'profile.dart' show workoutSex;
+
 const MetricCfg _skinTempAdcCfg = MetricCfg(
   minVal: 1.0,
   maxVal: 65535.0,
@@ -497,18 +503,36 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         perMin,
         restingHr: rhrForTrimp,
         maxHr: hrMax,
-        sex: sex == 'f' ? Sex.female : Sex.male,
+        sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
       );
     }
     hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
-    if (age != null && sex != null && weightKg != null) {
+    // ACTIVE energy only, over the WAKE series — the same quantity, from the
+    // same series, that `DerivationEngine.wakeDayEnergy` publishes as the day's
+    // `calories`. That method is canonical; this is the early-read mirror the
+    // pure pipeline can compute without the coordinator, and the two must stay
+    // on the same series AND the same gate. `basal`/`total` are deliberately
+    // not read here: the pipeline does not know how many minutes of the
+    // calendar day the substrate covers, so it cannot pro-rate the BMR floor
+    // honestly.
+    //
+    // HEIGHT IS REQUIRED, and it used to be defaulted to 170 cm. Keytel does
+    // not read height but `dailyEnergy`'s ACTIVE term is the surplus over the
+    // Mifflin basal minute, and Mifflin does — so a stand-in height moves the
+    // active figure this line publishes (about 117 kcal/day across a
+    // 150-195 cm profile). `wakeDayEnergy` abstains for that reason; so does
+    // this, or Today shows an imputed number the derived day then withdraws.
+    if (age != null &&
+        sex != null &&
+        weightKg != null &&
+        heightCm != null) {
       caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
           weightKg: weightKg,
-          heightCm: heightCm ?? 170.0,
+          heightCm: heightCm,
           age: age,
-          sex: sex == 'f' ? 'female' : (sex == 'm' ? 'male' : 'nonbinary'),
+          sex: workoutSex(sex),
         ),
         hrmax: hrMax,
       ).active; // active-energy component (Keytel surplus over basal)
@@ -1070,7 +1094,10 @@ List<Map<String, num>> _strainCurve(
       sex == null) {
     return const [];
   }
-  final b = sex == 'f' ? 1.67 : 1.92;
+  // Banister's sex constant, via the shared normalisation — a profile stored
+  // as 'female' by the profile screen used to fall through to the male value
+  // here while scoring female everywhere else.
+  final b = workoutSex(sex) == 'female' ? 1.67 : 1.92;
   final reserve = maxHr - restingHr;
   var trimp = 0.0;
   final out = <Map<String, num>>[];

@@ -168,10 +168,12 @@ bool burstPacketCountMatches({
 ///
 /// [droppedThisBurst] (RecordGate plausibility rejections this burst) is added
 /// back because the band counted those frames but they never entered
-/// [receivedTrafficCount] — so subtracting them isolates frames the band sent
-/// that NEVER reached us at all. A POSITIVE result is that true frame loss
-/// (would-flag); zero is complete; negative just means we tallied more than
-/// expected (retried/duplicate frames), which is not loss.
+/// [receivedTrafficCount]. A POSITIVE result is frames the band counted that we
+/// did NOT count as valid received traffic — i.e. missing OR corrupted traffic
+/// (would-flag / potential loss): CRC-failed frames also never enter
+/// [receivedTrafficCount], so a positive shortfall cannot by itself prove a
+/// frame never arrived. Zero is complete; negative just means we tallied more
+/// than expected (retried/duplicate frames), which is not loss.
 @visibleForTesting
 int burstPacketShortfall({
   required int expectedPacketCount,
@@ -2624,9 +2626,10 @@ class BleEngine {
       // Honest, LOG-ONLY completeness signal (never gates the ACK). Compares
       // num_packets against the ALL-TYPES received total (currentBurstTrafficCount),
       // not the banked R24 subset — see burstPacketShortfall. Only a POSITIVE
-      // shortfall means frames the band sent never reached us (true loss); this
-      // is the signal we want visible in telemetry BEFORE ever wiring a FAIL
-      // gate (which needs its own design + field validation to avoid re-flood).
+      // shortfall means frames the band counted that we did not count as valid
+      // received traffic (missing OR CRC-corrupted — potential loss); this is
+      // the signal we want visible in telemetry BEFORE ever wiring a FAIL gate
+      // (which needs its own design + field validation to avoid re-flood).
       final shortfall = expected == null
           ? 0
           : burstPacketShortfall(
@@ -2681,15 +2684,16 @@ class BleEngine {
       }
       // Would-flag: the correct-signal completeness diagnostic. LOG-ONLY — the
       // commit + verbatim-token ACK below are unchanged. A positive shortfall
-      // is the honest "true frame loss" telemetry we want to watch before a
-      // later, field-validated FAIL gate ever acts on it.
+      // is the honest missing/corrupted-traffic telemetry we want to watch
+      // before a later, field-validated FAIL gate ever acts on it.
       if (shortfall > 0) {
         _log(
           '[SYNC] burst completeness would-flag (LOG-ONLY, commit+ACK '
           'unchanged): expected=$expected '
           'received=${d.currentBurstTrafficCount} '
           'dropped_this_burst=$droppedThisBurst shortfall=$shortfall '
-          '(all-types received total — true frame loss; groundwork for a '
+          '(all-types received total — frames the band counted that we did '
+          'not; missing or CRC-corrupted, potential loss; groundwork for a '
           'future FAIL gate, NOT gating today)',
         );
       }

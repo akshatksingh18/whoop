@@ -162,13 +162,15 @@ void main() {
       },
     );
 
-    test('positive shortfall flags true frame loss (band sent more than we got)',
-        () {
+    test(
+        'positive shortfall flags missing-or-corrupted traffic (band counted '
+        'more than we did)', () {
       final received = countBurstTrafficPackets(
         dataPacketCountsByRevision: const {24: 20},
         consoleCount: 3,
       );
-      // Band reported 30, we received 23 all-types, nothing gate-dropped → 7 lost.
+      // Band reported 30, we counted 23 all-types, nothing gate-dropped → 7
+      // frames the band sent that we did not count (never arrived or CRC-failed).
       expect(
         burstPacketShortfall(
           expectedPacketCount: 30,

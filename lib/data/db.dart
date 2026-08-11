@@ -434,9 +434,40 @@ class LocalDb {
           // output is untouched and the edits replay over it.
           await _createSleepNap(db);
         }
-        // NOTE: base is origin/main at schemaVersion 31. PR #231 (pending) bumps
-        // to 32 with a raw_archive migration; this fix uses 33 so both land — a
-        // trivial schemaVersion rebase is expected when they merge.
+        if (oldV < 32) {
+          // Re-key raw_archive off the volatile `counter` onto frame `hex`.
+          // `counter INTEGER PRIMARY KEY` + IGNORE silently DROPPED a distinct
+          // undecodable frame whenever a post-reboot counter (reset to ~0)
+          // collided with a still-present pre-reboot row — data loss in the
+          // "never lose" table. Rebuild keyed by content. Existing rows have
+          // unique counters, so the copy loses nothing; at most it collapses an
+          // exact-duplicate hex, which is the dedup we want.
+          //
+          // raw_archive is normally created lazily in onOpen (_repairOpenSchema),
+          // NOT in this ladder, so on an old DB it may not exist yet here — in
+          // which case there is nothing to migrate and a fresh (hex-keyed) create
+          // is all that's needed. DROP the old index name before the fresh CREATE
+          // so it can't collide on the name the rename carried onto the aside
+          // table (the leaked-`_new`-index footgun documented on the decoded
+          // rebuild).
+          final hasArchive = (await db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='raw_archive'",
+          )).isNotEmpty;
+          if (hasArchive) {
+            await db.execute('ALTER TABLE raw_archive RENAME TO _raw_archive_old');
+            await db.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
+            await _createRawArchive(db);
+            await db.execute(
+              'INSERT OR IGNORE INTO raw_archive '
+              '(hex, counter, packet_type, rec_ts, captured_at, reason) '
+              'SELECT hex, counter, packet_type, rec_ts, captured_at, reason '
+              'FROM _raw_archive_old',
+            );
+            await db.execute('DROP TABLE _raw_archive_old');
+          } else {
+            await _createRawArchive(db);
+          }
+        }
         if (oldV < 33) {
           // RE-KEY the decoded ledger off the volatile record `counter` onto
           // rec_ts. The counter resets to ~0 on every reboot, so counter-as-PK
@@ -2599,12 +2630,19 @@ class LocalDb {
   /// Durable archive for historical records we received but could not decode
   /// (unknown/unsupported version). NEVER pruned — the whole point is that a
   /// future firmware's records survive until we understand the format. Keyed by
-  /// counter so a re-flood after a missed ACK dedups (IGNORE on conflict).
+  /// frame `hex` (content identity), like `events`/`band_events` — NOT by
+  /// `counter`. The strap resets its record counter to ~0 on every reboot, so
+  /// two DISTINCT undecodable frames from different boots can collide on a
+  /// reused counter; a `counter`-PK + IGNORE silently DROPPED the second, in
+  /// the one table whose whole purpose is to never lose a frame. Hashing on the
+  /// bytes means an identical re-flood (missed-ACK redelivery) still dedups,
+  /// while genuinely distinct frames both survive a counter collision. `counter`
+  /// is retained as a plain forensic column.
   static Future<void> _createRawArchive(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS raw_archive (
-        counter INTEGER PRIMARY KEY,
-        hex TEXT NOT NULL,
+        hex TEXT PRIMARY KEY,
+        counter INTEGER,
         packet_type INTEGER NOT NULL,
         rec_ts INTEGER,
         captured_at INTEGER NOT NULL,

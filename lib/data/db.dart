@@ -1213,9 +1213,16 @@ class LocalDb {
     // finally: a leaked FULL from a throwing commit would fsync every subsequent
     // write on this connection forever. `PRAGMA synchronous=FULL/NORMAL` returns
     // NO rows → execute() (not rawQuery), kept non-fatal like the open-time
-    // PRAGMAs so a PRAGMA throw can never fail a durable commit. Both the main
-    // and background-isolate drains funnel through here (each on its own
-    // per-isolate connection), so this single bracket covers both.
+    // PRAGMAs so a PRAGMA throw can never fail a durable commit. Every ACK-gating
+    // commit — the foreground drain AND the headless iOS-restore recovery drain
+    // (background_sync.dart) — funnels through here, so this one choke point
+    // covers them all. `synchronous` is per-connection, so the bracket is only
+    // safe because these drains never OVERLAP on a shared connection: the offload
+    // processor is single-flight (ble_engine.dart) and BandOwnership makes the
+    // headless drain yield when the foreground owns the band. Do not add a second
+    // concurrent caller of commitSyncBatch on the main-isolate connection without
+    // reinstating that serialization — a mid-window reset would silently
+    // downgrade this commit back to NORMAL.
     try {
       await db.execute('PRAGMA synchronous=FULL');
     } catch (_) {

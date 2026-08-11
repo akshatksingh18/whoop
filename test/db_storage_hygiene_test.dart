@@ -1,7 +1,6 @@
 // Storage hygiene:
-//  1. decoded_rr's rr_ts_ms lookups are still index-served after dropping
-//     idx_decoded_rr_ts, which was a strict prefix of the (rr_ts_ms,
-//     beat_index) unique index and only added write cost.
+//  1. decoded_rr is keyed (rec_ts, beat_index) and carries no redundant
+//     secondary index; rec_ts-range reads are served by the PK auto-index.
 //  2. Superseded generations of the recomputable per-day intermediates are
 //     pruned. They are keyed (day_id, algo_version), so every kAlgoVersion
 //     bump wrote a whole new generation beside the old one and nothing
@@ -28,85 +27,40 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  test('the redundant single-column rr index is gone', () async {
+  test('decoded_rr carries no redundant secondary index', () async {
     final db = await LocalDb.instance;
-    final idx = (await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decoded_rr'",
-    )).map((r) => r['name'] as String?).whereType<String>().toList();
-    expect(idx, isNot(contains('idx_decoded_rr_ts')));
-    expect(idx, contains('idx_decoded_rr_ts_beat_unique'));
-  });
-
-  test('an existing duplicate-of-primary-key rr index is dropped on open', () async {
-    // idx_decoded_rr_counter(counter, beat_index) duplicated, column for column,
-    // the index PRIMARY KEY (counter, beat_index) already creates. Measured on a
-    // 3-day fill: both b-trees 3,264,512 bytes — ~1.09 MB/day of pure
-    // duplication plus a second b-tree write per beat on the hottest insert
-    // path in the app.
-    //
-    // PLANTED FIRST, then reopened. A fresh database never creates the index
-    // any more, so simply asserting it is absent asserts nothing — deleting the
-    // DROP leaves the test green. The installs that have the index are the ones
-    // that were created before it stopped being written, and the only thing
-    // that removes it for them is `_repairOpenSchema` on the next open. That is
-    // the path this reproduces.
-    var db = await LocalDb.instance;
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_rr_counter '
-      'ON decoded_rr(counter, beat_index)',
-    );
+    final idx = await _rrIndexes(db);
+    // The (rec_ts, beat_index) PRIMARY KEY auto-indexes; nothing else should be
+    // maintained on this hot insert path.
     expect(
-      await _rrIndexes(db),
-      contains('idx_decoded_rr_counter'),
-      reason: 'the fixture must actually plant the index',
+      idx.where((n) => !n.startsWith('sqlite_autoindex')),
+      isEmpty,
+      reason: 'unexpected secondary index on decoded_rr: $idx',
     );
-
-    await LocalDb.close();
-    db = await LocalDb.instance;
-    expect(await _rrIndexes(db), isNot(contains('idx_decoded_rr_counter')));
   });
 
-  test('counter lookups are still index-served without it', () async {
-    // Dropping an index is only safe if the planner has another. The PK's
-    // auto-index covers exactly the same columns in the same order.
+  test('rec_ts-range reads on decoded_rr are served by the PK auto-index', () async {
+    // decoded_rr shares the rec_ts key with decoded_onehz, so the derive read
+    // path (decodedRrByRecTsRange) is a PK range scan — never a full-table read.
     final db = await LocalDb.instance;
-    for (final sql in const [
-      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE counter = 42 '
-          'ORDER BY beat_index',
-      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE counter BETWEEN 1 AND 9',
-    ]) {
-      final detail = (await db.rawQuery(
-        sql,
-      )).map((r) => r['detail'].toString()).join(' | ');
-      expect(
-        detail.toUpperCase(),
-        contains('USING'),
-        reason: 'planner fell back to a full scan: $detail',
-      );
-      expect(
-        detail,
-        contains('sqlite_autoindex_decoded_rr_1'),
-        reason: 'expected the primary key auto-index: $detail',
-      );
-    }
-  });
-
-  test('rr_ts_ms range scans are still served by an index', () async {
-    final db = await LocalDb.instance;
-    final plan = await db.rawQuery(
-      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE rr_ts_ms < 1000 '
-      'ORDER BY rr_ts_ms ASC, beat_index ASC',
+    final detail = (await db.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE rec_ts BETWEEN 1 AND 9 '
+      'ORDER BY rec_ts ASC, beat_index ASC',
+    )).map((r) => r['detail'].toString()).join(' | ');
+    expect(
+      detail.toUpperCase(),
+      contains('USING'),
+      reason: 'planner fell back to a full scan: $detail',
     );
-    final detail = plan.map((r) => r['detail'].toString()).join(' | ');
     expect(
       detail,
-      contains('idx_decoded_rr_ts_beat_unique'),
-      reason: 'planner fell back to a scan: $detail',
+      contains('sqlite_autoindex_decoded_rr_1'),
+      reason: 'expected the primary key auto-index: $detail',
     );
     expect(
       detail.toUpperCase(),
       isNot(contains('USE TEMP B-TREE')),
-      reason: 'ordering should come from the index: $detail',
+      reason: 'ordering should come from the PK: $detail',
     );
   });
 

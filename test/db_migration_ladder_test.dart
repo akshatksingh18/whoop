@@ -22,6 +22,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
+import 'package:openstrap_edge/data/models.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -412,6 +413,91 @@ void main() {
       expect((await LocalDb.breathingSessions()).single['seconds'], 120);
       expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
       expect(await LocalDb.napEditDays(), {'2026-06-01'});
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v31→v32 re-keys raw_archive off the volatile counter onto frame hex '
+    'without losing a distinct frame, collapsing only exact-duplicate hex',
+    () async {
+      const name = 'migrate_from_v31_rawarchive_test.db';
+      created.add(name);
+      // The pre-v32 raw_archive shape: keyed by the strap counter, which resets
+      // to ~0 on reboot — so a post-reboot frame reusing a live counter was
+      // silently IGNORE-dropped in the one table meant to never lose a frame.
+      await _seedOldDb(
+        name,
+        31,
+        const [
+          '''
+          CREATE TABLE raw_archive (
+            counter INTEGER PRIMARY KEY,
+            hex TEXT NOT NULL,
+            packet_type INTEGER NOT NULL,
+            rec_ts INTEGER,
+            captured_at INTEGER NOT NULL,
+            reason TEXT NOT NULL
+          )
+          ''',
+          'CREATE INDEX idx_raw_archive_captured ON raw_archive(captured_at DESC)',
+        ],
+        seedRows: (db) async {
+          Future<void> row(int counter, String hex) => db.insert('raw_archive', {
+                'counter': counter,
+                'hex': hex,
+                'packet_type': 0x2F,
+                'captured_at': 1750000000000 + counter,
+                'reason': 'undecodable_rec_v99',
+              });
+          // Three distinct frames (distinct counter AND hex) — none may be lost.
+          await row(1, 'aa01');
+          await row(2, 'bb02');
+          await row(3, 'cc03');
+          // Two rows the OLD counter-PK allowed but that carry IDENTICAL bytes;
+          // the content re-key must collapse them to one (the dedup we want).
+          await row(10, 'ff06');
+          await row(11, 'ff06');
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // 5 old rows → 4: the three distinct frames survive, the duplicate-hex
+      // pair collapses to one. Nothing distinct was lost.
+      final stats = await LocalDb.rawArchiveStats();
+      expect(stats['count'], 4);
+
+      // The migrated table is now hex-PK, proven end-to-end through the REAL
+      // ladder (not just a fresh onCreate): two DISTINCT frames that reuse ONE
+      // counter both survive — the exact loss the old counter-PK caused.
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 1, // reuses a counter already present from the seed
+        hex: 'dd04',
+        packetType: 0x2F,
+        capturedAt: 1750000500000,
+        reason: 'undecodable_post_reboot',
+      ));
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 1, // SAME counter, DIFFERENT bytes
+        hex: 'ee05',
+        packetType: 0x2F,
+        capturedAt: 1750000600000,
+        reason: 'undecodable_post_reboot',
+      ));
+      expect((await LocalDb.rawArchiveStats())['count'], 6);
+
+      // …and an identical re-flood still dedups on content.
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 999, // different counter, but bytes already archived
+        hex: 'dd04',
+        packetType: 0x2F,
+        capturedAt: 1750000700000,
+        reason: 'undecodable_post_reboot',
+      ));
+      expect((await LocalDb.rawArchiveStats())['count'], 6);
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');

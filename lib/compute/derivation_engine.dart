@@ -1836,13 +1836,16 @@ class DerivationEngine {
             rangePages: rangePages,
             rangeRows: rangeRows,
           );
-          final firstCounter = (decodedRows.first['counter'] as num?)?.toInt();
-          final lastCounter = (decodedRows.last['counter'] as num?)?.toInt();
-          final rrRows = firstCounter == null || lastCounter == null
+          // The page is ordered rec_ts ASC, so first = min second, last = max.
+          // decoded_rr shares the rec_ts key, so this pulls exactly the page's
+          // beats — no counter span (which broke across the strap's reboot reset).
+          final firstRecTs = (decodedRows.first['rec_ts'] as num?)?.toInt();
+          final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
+          final rrRows = firstRecTs == null || lastRecTs == null
               ? const <Map<String, dynamic>>[]
-              : await LocalDb.decodedRrByCounterRange(
-                  fromCounter: firstCounter,
-                  toCounter: lastCounter,
+              : await LocalDb.decodedRrByRecTsRange(
+                  fromRecTs: firstRecTs,
+                  toRecTs: lastRecTs,
                 );
           worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
           final last = decodedRows.last;

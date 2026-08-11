@@ -46,6 +46,29 @@ const _v6RawDdl = '''
   )
 ''';
 
+/// The origin/main (pre-v33) COUNTER-keyed decoded store, exactly as a user who
+/// installed at v19..31 has it — and by then raw_records is already DROPPED, so
+/// the v33 rekey is the ONLY copy of their 1 Hz data (no raw-backfill safety
+/// net). This is the highest-risk path the re-key touches.
+const _counterKeyedDecodedDdl = [
+  '''
+  CREATE TABLE decoded_onehz (
+    counter INTEGER PRIMARY KEY, rec_ts INTEGER NOT NULL,
+    hr INTEGER NOT NULL, ax REAL NOT NULL, ay REAL NOT NULL, az REAL NOT NULL,
+    spo2_red_raw INTEGER NOT NULL, spo2_ir_raw INTEGER NOT NULL,
+    skin_temp_raw INTEGER NOT NULL)
+''',
+  'CREATE UNIQUE INDEX idx_decoded_onehz_rec_ts_unique ON decoded_onehz(rec_ts)',
+  '''
+  CREATE TABLE decoded_rr (
+    counter INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+    rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+    PRIMARY KEY (counter, beat_index))
+''',
+  'CREATE UNIQUE INDEX idx_decoded_rr_ts_beat_unique '
+      'ON decoded_rr(rr_ts_ms, beat_index)',
+];
+
 /// The v5-era derived tables, so step 9's derived_day → day_result copy is real.
 const _v5DerivedDdl = [
   '''
@@ -412,6 +435,87 @@ void main() {
       expect((await LocalDb.breathingSessions()).single['seconds'], 120);
       expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
       expect(await LocalDb.napEditDays(), {'2026-06-01'});
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v33 re-key converts a v31 COUNTER-keyed decoded store to rec_ts LOSSLESSLY '
+    '— raw_records is already dropped, so the rekey is the only copy',
+    () async {
+      const name = 'migrate_from_v31_counterkeyed_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        31,
+        [..._counterKeyedDecodedDdl, ..._v5DerivedDdl],
+        seedRows: (db) async {
+          // Three distinct seconds, distinct counters (valid old-schema data).
+          for (final r in const [
+            [100, 1785000000, 60],
+            [101, 1785000001, 61],
+            [102, 1785000002, 62],
+          ]) {
+            await db.insert('decoded_onehz', {
+              'counter': r[0], 'rec_ts': r[1], 'hr': r[2],
+              'ax': 0.0, 'ay': 0.0, 'az': 0.0,
+              'spo2_red_raw': 0, 'spo2_ir_raw': 0, 'skin_temp_raw': 0,
+            });
+          }
+          // Beats under counter 100 (two) and 102 (one).
+          await db.insert('decoded_rr', {
+            'counter': 100, 'beat_index': 0,
+            'rr_ts_ms': 1785000000 * 1000, 'rr_ms': 800,
+          });
+          await db.insert('decoded_rr', {
+            'counter': 100, 'beat_index': 1,
+            'rr_ts_ms': 1785000000 * 1000, 'rr_ms': 810,
+          });
+          await db.insert('decoded_rr', {
+            'counter': 102, 'beat_index': 0,
+            'rr_ts_ms': 1785000002 * 1000, 'rr_ms': 900,
+          });
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      // Every second survives; counter is preserved as the forensic column.
+      final oh = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in oh) r['rec_ts']],
+          [1785000000, 1785000001, 1785000002]);
+      expect([for (final r in oh) r['counter']], [100, 101, 102]);
+      // PK is now rec_ts, not counter.
+      final ohInfo = await db.rawQuery('PRAGMA table_info(decoded_onehz)');
+      expect(ohInfo.firstWhere((c) => c['name'] == 'rec_ts')['pk'], 1);
+      expect(ohInfo.firstWhere((c) => c['name'] == 'counter')['pk'], 0);
+
+      // Beats re-home onto their real second; decoded_rr loses its counter col.
+      final rr =
+          await db.query('decoded_rr', orderBy: 'rec_ts ASC, beat_index ASC');
+      expect([for (final r in rr) r['rec_ts']],
+          [1785000000, 1785000000, 1785000002]);
+      expect([for (final r in rr) r['rr_ms']], [800, 810, 900]);
+      final rrInfo = await db.rawQuery('PRAGMA table_info(decoded_rr)');
+      expect(rrInfo.any((c) => c['name'] == 'counter'), isFalse);
+
+      // No stranded beats, no cross-stamped timestamps, no leaked temp tables.
+      expect(
+        (await db.rawQuery(
+          'SELECT COUNT(*) c FROM decoded_rr WHERE rr_ts_ms != rec_ts * 1000',
+        )).first['c'],
+        0,
+      );
+      expect(
+        await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE name LIKE '%\\_v33' ESCAPE '\\' "
+          "OR name LIKE '%\\_new' ESCAPE '\\'",
+        ),
+        isEmpty,
+      );
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');

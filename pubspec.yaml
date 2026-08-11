@@ -260,6 +260,10 @@ dev_dependencies:
   # exportDaysDb can run without a platform plugin (transitive via
   # path_provider; declared directly since test/ now imports it).
   path_provider_platform_interface: ^2.1.0
+  # ack_commit_sync_full_test wraps the ffi factory in SqfliteDatabaseFactoryLogger
+  # to spy the PRAGMA synchronous=FULL/NORMAL bracket around the ACK-gating commit
+  # (transitive via sqflite_common_ffi; declared directly since test/ now imports it).
+  sqflite_common: ^2.5.0
 
 flutter_launcher_icons:
   android: "launcher_icon"

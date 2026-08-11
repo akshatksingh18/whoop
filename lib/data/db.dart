@@ -1199,82 +1199,114 @@ class LocalDb {
     }
 
     final db = await instance;
-    await db.transaction((txn) async {
-      // Read the existing high-water THROUGH the txn — never via the global db
-      // handle, which would deadlock against this same open transaction.
-      var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
-      var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
-      // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
-      // ONE platform-channel message, and the native side builds a single
-      // ArrayList of every argument. A large backlog offload (raws in the
-      // hundreds-of-thousands) blew the native heap in SqlCommand.getSqlArguments
-      // → OutOfMemoryError (Crashlytics 0.9.13). Committing in bounded chunks
-      // flushes and frees each message's args. These commits all happen INSIDE
-      // the single `db.transaction` below, so the safe-trim invariant holds: the
-      // whole offload (raw_archive + samples + decoded_onehz + decoded_rr +
-      // cursor) is still one atomic transaction — every row is durable before the
-      // caller echoes the HISTORY_END trim token, or none is.
-      const chunkOps = 4000;
-      var batch = txn.batch();
-      var ops = 0;
-      Future<void> flushChunk() async {
-        if (ops == 0) return;
-        await batch.commit(noResult: true);
-        batch = txn.batch();
-        ops = 0;
-      }
+    // POWER-LOSS DURABILITY WINDOW. This is the ACK-gating commit: once it
+    // returns, the caller writes the BLE batch-ACK and the band trims its flash.
+    // Under WAL + synchronous=NORMAL (the default this connection opens with) a
+    // commit is durable only at the next checkpoint — so a kernel panic /
+    // battery-yank AFTER the ACK but BEFORE the -wal is checkpointed loses these
+    // just-committed rows from the phone while they are already gone from the
+    // band. Raise durability to FULL (fsync AT commit) for THIS commit only,
+    // leaving every other path at NORMAL — they are all recomputable and FULL
+    // everywhere is brutally slow. `synchronous` is per-connection and CANNOT be
+    // changed mid-transaction, so it is set on the connection BEFORE
+    // db.transaction opens and reset AFTER it commits. The reset lives in a
+    // finally: a leaked FULL from a throwing commit would fsync every subsequent
+    // write on this connection forever. `PRAGMA synchronous=FULL/NORMAL` returns
+    // NO rows → execute() (not rawQuery), kept non-fatal like the open-time
+    // PRAGMAs so a PRAGMA throw can never fail a durable commit. Both the main
+    // and background-isolate drains funnel through here (each on its own
+    // per-isolate connection), so this single bracket covers both.
+    try {
+      await db.execute('PRAGMA synchronous=FULL');
+    } catch (_) {
+      /* durability upgrade is best-effort — NORMAL still commits correctly */
+    }
+    try {
+      await db.transaction((txn) async {
+        // Read the existing high-water THROUGH the txn — never via the global db
+        // handle, which would deadlock against this same open transaction.
+        var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
+        var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
+        // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
+        // ONE platform-channel message, and the native side builds a single
+        // ArrayList of every argument. A large backlog offload (raws in the
+        // hundreds-of-thousands) blew the native heap in SqlCommand.getSqlArguments
+        // → OutOfMemoryError (Crashlytics 0.9.13). Committing in bounded chunks
+        // flushes and frees each message's args. These commits all happen INSIDE
+        // the single `db.transaction` below, so the safe-trim invariant holds: the
+        // whole offload (raw_archive + samples + decoded_onehz + decoded_rr +
+        // cursor) is still one atomic transaction — every row is durable before the
+        // caller echoes the HISTORY_END trim token, or none is.
+        const chunkOps = 4000;
+        var batch = txn.batch();
+        var ops = 0;
+        Future<void> flushChunk() async {
+          if (ops == 0) return;
+          await batch.commit(noResult: true);
+          batch = txn.batch();
+          ops = 0;
+        }
 
-      // SAFE-TRIM INVARIANT: archive the undecodable records in the SAME
-      // transaction as the raw records + trim cursor, so they are durably set
-      // aside BEFORE the caller writes the batch-ACK that lets the band trim.
-      if (archives != null) {
-        for (final a in archives) {
-          batch.insert('raw_archive', {
-            'counter': a.counter,
-            'hex': a.hex,
-            'packet_type': a.packetType,
-            'rec_ts': a.recTs,
-            'captured_at': a.capturedAt,
-            'reason': a.reason,
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-          if (++ops >= chunkOps) await flushChunk();
+        // SAFE-TRIM INVARIANT: archive the undecodable records in the SAME
+        // transaction as the raw records + trim cursor, so they are durably set
+        // aside BEFORE the caller writes the batch-ACK that lets the band trim.
+        if (archives != null) {
+          for (final a in archives) {
+            batch.insert('raw_archive', {
+              'counter': a.counter,
+              'hex': a.hex,
+              'packet_type': a.packetType,
+              'rec_ts': a.recTs,
+              'captured_at': a.capturedAt,
+              'reason': a.reason,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            if (++ops >= chunkOps) await flushChunk();
+          }
         }
-      }
-      for (var i = 0; i < raws.length; i++) {
-        final raw = raws[i];
-        final recTs = _recTsFor(raw);
-        final sample = samples[i];
-        if (sample != null) {
-          batch.insert('samples', {
-            'counter': raw.counter,
-            ...sample.toDbMap(),
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-          ops++;
+        for (var i = 0; i < raws.length; i++) {
+          final raw = raws[i];
+          final recTs = _recTsFor(raw);
+          final sample = samples[i];
+          if (sample != null) {
+            batch.insert('samples', {
+              'counter': raw.counter,
+              ...sample.toDbMap(),
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            ops++;
+          }
+          ops += _queueDecodedOneHz(batch, raw, sample);
+          if (raw.counter > maxCounter) maxCounter = raw.counter;
+          if (recTs > maxRecTs) maxRecTs = recTs;
+          if (ops >= chunkOps) await flushChunk();
         }
-        ops += _queueDecodedOneHz(batch, raw, sample);
-        if (raw.counter > maxCounter) maxCounter = raw.counter;
-        if (recTs > maxRecTs) maxRecTs = recTs;
-        if (ops >= chunkOps) await flushChunk();
-      }
-      checkpoint(
-        'decoded_archive_queued raws=${raws.length} '
-        'archives=${archives?.length ?? 0}',
-      );
-      await flushChunk();
-      checkpoint('decoded_archive_committed');
-      await setCursor('counter_hw', '$maxCounter', txn: txn);
-      await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
-      if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
-      if (extraCursors != null) {
-        for (final e in extraCursors.entries) {
-          await setCursor(e.key, e.value, txn: txn);
+        checkpoint(
+          'decoded_archive_queued raws=${raws.length} '
+          'archives=${archives?.length ?? 0}',
+        );
+        await flushChunk();
+        checkpoint('decoded_archive_committed');
+        await setCursor('counter_hw', '$maxCounter', txn: txn);
+        await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
+        if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+        if (extraCursors != null) {
+          for (final e in extraCursors.entries) {
+            await setCursor(e.key, e.value, txn: txn);
+          }
         }
+        checkpoint(
+          'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
+          'trim=${trimToken != null}',
+        );
+      });
+    } finally {
+      // ALWAYS restore NORMAL — even if the commit threw — so a leaked FULL does
+      // not fsync every subsequent write on this connection. Non-fatal.
+      try {
+        await db.execute('PRAGMA synchronous=NORMAL');
+      } catch (_) {
+        /* non-fatal — see open-time PRAGMA discipline */
       }
-      checkpoint(
-        'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
-        'trim=${trimToken != null}',
-      );
-    });
+    }
     await _writeCaptureFreshness(raws);
   }
 

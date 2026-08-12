@@ -154,6 +154,19 @@ class ClockPolicy {
   /// unset/garbage-low RTC (that is a strap problem [shouldSetClock] fixes, not
   /// a phone problem); the strap-BEHIND case is a plausible-past time that is
   /// not dropped as future and is corrected forward by [shouldSetClock].
+  /// How long a suspect-clock disagreement may defer history before we stop
+  /// believing the phone is the wrong one. A phone that rebooted with a dead
+  /// battery re-syncs over NTP within minutes, so a disagreement that survives
+  /// this long is a strap RTC that is genuinely running fast — not a slow
+  /// phone. Past this the gate stops deferring and the strap clock is corrected
+  /// normally, so a bad strap RTC cannot stall history forever.
+  static const int suspectGraceSeconds = 12 * 3600;
+
+  /// True once a suspect-clock state has persisted past [suspectGraceSeconds].
+  static bool suspectGraceExpired(DateTime? since, DateTime now) =>
+      since != null &&
+      now.difference(since).inSeconds >= suspectGraceSeconds;
+
   static bool phoneClockSuspect(int deviceClock, int wallNow) =>
       deviceClock >= kMinPlausibleUnix &&
       deviceClock > wallNow + kFutureMargin;

@@ -852,7 +852,14 @@ class BleEngine {
   // history offload is DEFERRED (not drained-and-trimmed) until the clocks agree.
   // See ClockPolicy.phoneClockSuspect and _startHistoricalRefresh.
   bool _phoneClockSuspect = false;
-  bool get historyPausedForClock => _phoneClockSuspect;
+  DateTime? _phoneClockSuspectSince;
+  bool get historyPausedForClock => _deferForClock;
+  /// Defer history only while the disagreement is still young. A slow phone
+  /// re-syncs over NTP in minutes; one that persists past the grace window is a
+  /// strap RTC running fast, and deferring forever would stall sync for good.
+  bool get _deferForClock =>
+      _phoneClockSuspect &&
+      !ClockPolicy.suspectGraceExpired(_phoneClockSuspectSince, DateTime.now());
   int _clockPausedOffloads = 0; // diagnostics: offloads deferred for this reason
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
@@ -1358,7 +1365,7 @@ class BleEngine {
       // still corrected here and by the clock_epoch handler's bounded re-issue.
       await getClock();
       await Future.delayed(const Duration(milliseconds: 120));
-      if (!_phoneClockSuspect) await setClock();
+      if (!_deferForClock) await setClock();
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
@@ -1442,7 +1449,7 @@ class BleEngine {
       // and trims under exactly the untrustworthy phone clock we refuse to drain
       // under there, which is the common case (a dead-battery reboot lands a bad
       // clock and a reconnect together).
-      final drainOnInit = !_phoneClockSuspect;
+      final drainOnInit = !_deferForClock;
       if (!drainOnInit) {
         _clockPausedOffloads++;
         _log(
@@ -1636,7 +1643,7 @@ class BleEngine {
     await _send(Cmd.getClock, const <int>[]);
     await Future.delayed(const Duration(milliseconds: 120));
     if (_session?.connected != true) return;
-    if (_phoneClockSuspect) {
+    if (_deferForClock) {
       _clockPausedOffloads++;
       _log(
         '[SYNC] refresh($reason) DEFERRED — phone clock appears wrong relative '
@@ -2298,6 +2305,11 @@ class BleEngine {
       // moment a read agrees (the phone almost always self-corrects via NTP).
       final wasSuspect = _phoneClockSuspect;
       _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
+      if (_phoneClockSuspect && !wasSuspect) {
+        _phoneClockSuspectSince = DateTime.now();
+      } else if (!_phoneClockSuspect) {
+        _phoneClockSuspectSince = null;
+      }
       if (_phoneClockSuspect != wasSuspect) {
         _log(_phoneClockSuspect
             ? '[SYNC] Phone clock appears wrong: strap RTC=$dev is > 1 day ahead '

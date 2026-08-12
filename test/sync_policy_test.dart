@@ -78,6 +78,21 @@ void main() {
       expect(ClockPolicy.shouldSetClock(1000, wall), isTrue); // frozen/unset
     });
 
+    test('stops deferring once the disagreement outlives the grace window', () {
+      final t0 = DateTime(2026, 8, 12, 9);
+      expect(ClockPolicy.suspectGraceExpired(null, t0), isFalse);
+      expect(ClockPolicy.suspectGraceExpired(t0, t0), isFalse);
+      // a slow phone re-syncs over NTP well inside this
+      expect(
+          ClockPolicy.suspectGraceExpired(t0, t0.add(const Duration(hours: 1))),
+          isFalse);
+      // still disagreeing after the window => the strap rtc is the fast one,
+      // so history must stop deferring instead of stalling forever
+      expect(
+          ClockPolicy.suspectGraceExpired(t0, t0.add(const Duration(hours: 13))),
+          isTrue);
+    });
+
     test('flags a slow PHONE clock: a plausible strap RTC > 1d in the future', () {
       // Clocks agree → not suspect.
       expect(ClockPolicy.phoneClockSuspect(wall, wall), isFalse);

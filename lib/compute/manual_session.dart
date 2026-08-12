@@ -256,7 +256,14 @@ double? strainFromPerMinuteHr(
     sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
   );
   if (!trimp.present || trimp.value == null) return null;
-  final score = ana.strainScoreMetric(trimp.value);
+  // The window's own length is the baseline window: strain is the load earned
+  // ABOVE quiet waking, and the same sex constant has to price the baseline as
+  // priced the TRIMP or the subtraction is off by the male/female coefficient.
+  final score = ana.strainScoreMetric(
+    trimp.value,
+    wakeMinutes: perMinuteHr.length.toDouble(),
+    female: workoutSex(sex) == 'female',
+  );
   return score.present ? score.value : null;
 }
 

@@ -1345,10 +1345,20 @@ class BleEngine {
       _clockCorrectTries = 0; // fresh retry budget for this connection
       // Drop the previous session's clock correlation so an alarm armed before
       // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
-      // (drift 0) instead of the stale strap-RTC frame. setClock()→getClock()
-      // below repopulates it for this connection.
+      // (drift 0) instead of the stale strap-RTC frame. The reads below
+      // repopulate it for this connection.
       _clockRef = null;
-      await setClock();
+      // READ BEFORE WRITE. This used to be an unconditional SET_CLOCK, which is
+      // precisely the write [ClockPolicy.phoneClockSuspect] says we must never
+      // make: on a phone running >1 day slow it stamps that slow time onto a
+      // CORRECT strap RTC — and worse, it destroys the evidence, because the
+      // read-back then "agrees" and every later suspect-clock gate sees a
+      // healthy pair. Read first; skip the write while the PHONE is the suspect
+      // one. Unset/behind/garbage-low RTCs are unaffected (not suspect) and are
+      // still corrected here and by the clock_epoch handler's bounded re-issue.
+      await getClock();
+      await Future.delayed(const Duration(milliseconds: 120));
+      if (!_phoneClockSuspect) await setClock();
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
@@ -1427,9 +1437,25 @@ class BleEngine {
       );
       _setPhase(BleConnState.listening);
       _log('Connected + subscribed — listening (history + live).');
-      _setOffloadActive(true);
-      _lastBackfillAt = _wallSecs();
-      await sendInit(); // triggers the historical offload flood
+      // INIT seq4 IS SEND_HISTORICAL_DATA, so it needs the SAME data-safety gate
+      // as _startHistoricalRefresh — without it every fresh connection drains
+      // and trims under exactly the untrustworthy phone clock we refuse to drain
+      // under there, which is the common case (a dead-battery reboot lands a bad
+      // clock and a reconnect together).
+      final drainOnInit = !_phoneClockSuspect;
+      if (!drainOnInit) {
+        _clockPausedOffloads++;
+        _log(
+          '[SYNC] INIT drain DEFERRED — phone clock appears wrong relative to '
+          'the strap RTC; not draining history until they agree '
+          '(deferred_total=$_clockPausedOffloads).',
+        );
+      }
+      _setOffloadActive(drainOnInit);
+      // Only a real drain spends the backfill floor; a deferred one leaves it
+      // open so a foreground trigger can retry as soon as the phone corrects.
+      if (drainOnInit) _lastBackfillAt = _wallSecs();
+      await sendInit(drain: drainOnInit); // seq4 triggers the offload flood
       return true;
     } catch (e) {
       _log('connect setup failed: $e');
@@ -3039,10 +3065,15 @@ class BleEngine {
       inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
   // ── high-level flows ─────────────────────────────────────────────────────────────
-  Future<void> sendInit() async {
-    _log('Sending 5-packet INIT…');
+  /// [drain] false sends the first FOUR packets only: seq4 is
+  /// SEND_HISTORICAL_DATA (the flash drain), and it is skipped when the phone
+  /// clock is suspect — see _doConnect and [ClockPolicy.phoneClockSuspect].
+  Future<void> sendInit({bool drain = true}) async {
+    final pkts =
+        drain ? initPackets : initPackets.take(initPackets.length - 1).toList();
+    _log('Sending ${pkts.length}-packet INIT…');
     try {
-      for (final pkt in initPackets) {
+      for (final pkt in pkts) {
         await _write(pkt);
         await Future.delayed(const Duration(milliseconds: 120));
       }

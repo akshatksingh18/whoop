@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 void main() {
   group('historical burst packet accounting', () {
@@ -226,6 +227,17 @@ void main() {
 
     test('maintenance traffic runs when offload is inactive', () {
       expect(shouldPauseMaintenanceTraffic(offloadActive: false), isFalse);
+    });
+  });
+
+  group('INIT drain gate', () {
+    // sendInit(drain: false) drops the LAST init packet to skip the flash
+    // drain under a suspect phone clock. That is only correct while the last
+    // packet actually IS SEND_HISTORICAL_DATA — if INIT is ever reordered this
+    // must fail rather than silently skip an unrelated command (and let the
+    // drain through under the bad clock).
+    test('the last INIT packet is the historical drain', () {
+      expect(proto.initPackets.last, proto.cmdSendHistorical(4));
     });
   });
 }

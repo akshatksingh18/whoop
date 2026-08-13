@@ -357,9 +357,13 @@ class TrimAckPolicy {
   /// [commitDurable]   — the atomic commit completed (pass `true` when asking
   ///                     the pre-commit question "should I even commit this
   ///                     token?").
-  /// [hadDurableRows]  — this burst buffered at least one raw/sample or archive
-  ///                     row to bank before ACK. Pass `true` when unknown
-  ///                     (pre-commit stale/discard checks only).
+  /// [hadDurableRows]  — this burst buffered at least one RECORD to bank before
+  ///                     ACK. Archives deliberately do NOT count: a
+  ///                     plausibility-dropped record is archived too, so
+  ///                     counting archives would make this gate unfireable
+  ///                     exactly in the drop-only case it exists for. Pass
+  ///                     `true` when unknown (pre-commit stale/discard checks
+  ///                     only).
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
@@ -778,9 +782,15 @@ class AlarmPayloads {
   }) =>
       rich(
         when,
-        index: isGen5 ? 1 : index,
+        index: isGen5 ? gen5Slot : index,
         haptics: haptics,
       );
+
+  /// The alarm slot WHOOP 5 accepts (index 0 is rejected).
+  static const int gen5Slot = 1;
+
+  /// The gen5 "every slot" alarm id, used by [disableForBand].
+  static const int gen5AllSlots = 0xFF;
 
   /// Gen5 Maverick test-buzz body (RUN_HAPTIC_PATTERN_MAVERICK = 0x13).
   /// Same `[47, 152]` waveform pair as Find-band. Keep [overallLoop] at 1 for
@@ -794,8 +804,31 @@ class AlarmPayloads {
   /// RUN_ALARM (0x44) body — fire the haptics immediately ("test buzz").
   static const List<int> runNow = <int>[0x01];
 
-  /// DISABLE_ALARM (0x45) body — cancel the on-device alarm.
+  /// DISABLE_ALARM (0x45) body — cancel the on-device alarm. GEN4 form; do not
+  /// change (hardware-verified). Use [disableForBand].
   static const List<int> disable = <int>[0x01];
+
+  /// Generation-correct DISABLE_ALARM (0x45) body.
+  ///
+  /// WHOOP 4 takes revision 1 with no operand. WHOOP 5 takes revision 2 plus
+  /// the alarm id to clear, where [gen5AllSlots] clears every slot; sent the
+  /// gen4 body it reads the id from past the end of the body and the alarm
+  /// stays armed.
+  static List<int> disableForBand({
+    required bool isGen5,
+    int id = gen5AllSlots,
+  }) =>
+      isGen5 ? <int>[0x02, id & 0xff] : disable;
+
+  /// Generation-correct GET_ALARM_TIME (0x43) body.
+  ///
+  /// WHOOP 4 takes revision 1 with no operand; WHOOP 5 takes revision 4 plus
+  /// the alarm id to read, defaulting to the slot [setPayloadForBand] arms.
+  static List<int> getPayloadForBand({
+    required bool isGen5,
+    int id = gen5Slot,
+  }) =>
+      isGen5 ? <int>[0x04, id & 0xff] : const <int>[0x01];
 
   /// Convert a WALL-CLOCK alarm target into the strap's own RTC frame.
   ///

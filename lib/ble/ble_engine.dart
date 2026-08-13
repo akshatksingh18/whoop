@@ -84,100 +84,6 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
-/// Read v18 unix from the protocol shared header at inner[7:11].
-///
-/// Do **not** fall back to a misaligned offset-6 read: that overlaps the
-/// record-index high byte and can invent a year-window-plausible timestamp
-/// that is not monotonic with `recordIndex` (honesty violation — observed on
-/// the fw 50.40.1.0 export where unix@7 was garbage because SET_CLOCK never
-/// latched). Absent a plausible unix@7, abstain.
-@visibleForTesting
-int? gen5V18UnixFromInner(Uint8List inner, int wallNow) {
-  if (inner.length < 11) return null;
-  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
-  final at7 = view.getUint32(7, Endian.little);
-  return isPlausibleUnix(at7, wallNow) ? at7 : null;
-}
-
-/// Hardware lenient v18 decode when [parseGen5Historical] returns null because
-/// the protocol decoder's gravity/dynamic-accel gates reject real captures
-/// (off-wrist / motion-heavy seconds still carry valid HR/RR). Never fabricates
-/// gravity — ax/ay/az stay null when the vector fails the magnitude gate.
-/// Never fabricates time — requires a plausible unix@7.
-@visibleForTesting
-Sample? sampleFromGen5V18Lenient(Uint8List inner, int wallNow) {
-  if (inner.length < kGen5V18MinInnerLen || inner[1] != 18) return null;
-  final unix = gen5V18UnixFromInner(inner, wallNow);
-  if (unix == null) return null;
-  final view = inner.buffer.asByteData(inner.offsetInBytes, inner.lengthInBytes);
-  final counter = view.getUint32(3, Endian.little);
-  final hr = inner[14];
-  if (hr != 0 && (hr < 25 || hr > 230)) return null;
-
-  const minRrMs = 200;
-  const maxRrMs = 2500;
-  final declaredRr = inner[15];
-  final rr = <int>[];
-  if (declaredRr <= 4) {
-    for (int i = 0; i < declaredRr && 16 + 2 * i + 2 <= inner.length; i++) {
-      final val = view.getInt16(16 + 2 * i, Endian.little);
-      if (val >= minRrMs && val <= maxRrMs) rr.add(val);
-    }
-  }
-
-  double? ax;
-  double? ay;
-  double? az;
-  if (inner.length >= 49) {
-    final gx = view.getFloat32(37, Endian.little);
-    final gy = view.getFloat32(41, Endian.little);
-    final gz = view.getFloat32(45, Endian.little);
-    if (gx.isFinite && gy.isFinite && gz.isFinite) {
-      final magSq = gx * gx + gy * gy + gz * gz;
-      // Same gate as protocol's Gen5V18Decoder — but abstain on ax/ay/az
-      // instead of rejecting the whole record (HR/RR are independent fields).
-      if (magSq >= 0.25 && magSq <= 2.25) {
-        ax = gx;
-        ay = gy;
-        az = gz;
-      }
-    }
-  }
-
-  return Sample(
-    tsEpoch: unix,
-    counter: counter,
-    hr: hr,
-    rrIntervalsMs: rr,
-    ax: ax,
-    ay: ay,
-    az: az,
-  );
-}
-
-/// Build gen5 SET_CLOCK_MAVERICK (0x92) / GET_CLOCK_GEN5 (0x93) payloads.
-///
-/// Hardware evidence (fw 50.40.1.0 console): an empty GET_CLOCK body logs
-/// `Invalid revision for get clock: 0`, and SET_CLOCK without a leading
-/// form/revision byte logs `Invalid revision <sec&0xff>` — i.e. the strap
-/// treats body[0] as the command revision (same role as HELLO's `[0x01]` /
-/// Alec's gen5 `b3`). Prepend [revision1] so the 8-byte time field starts at
-/// body[1].
-@visibleForTesting
-List<int> gen5SetClockPayload({required int sec, required int subsec}) => [
-      revision1,
-      sec & 0xff,
-      (sec >> 8) & 0xff,
-      (sec >> 16) & 0xff,
-      (sec >> 24) & 0xff,
-      subsec & 0xff,
-      (subsec >> 8) & 0xff,
-      0,
-      0,
-    ];
-
-@visibleForTesting
-List<int> gen5GetClockPayload() => const [revision1];
 
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
@@ -205,19 +111,24 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     ax: g.gravityG.isNotEmpty ? g.gravityG[0] : null,
     ay: g.gravityG.length > 1 ? g.gravityG[1] : null,
     az: g.gravityG.length > 2 ? g.gravityG[2] : null,
+    // The band computes these itself, every second, whether or not a phone is
+    // listening — unlike our own step estimate, which only runs during a live
+    // session. gen4 carries none of them, so they stay null there rather than
+    // being stored as a zero that reads like a real measurement.
+    stepCount: g.stepMotionCounter,
+    stepCadence: g.stepCadence,
+    activityClass: g.activityClassKnown, // null for the unclassified code
+    skinTempC: g.skinTempC,
+    onWrist: g.onWristRaw,
+    hrValid: g.hrRrValidThisSecond,
+    hrAlt: g.heartRateAlt,
   );
 }
 
 /// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
 @visibleForTesting
-Sample? decodeGen5HistoricalSample(Uint8List inner, int wallNow) {
-  final strict = sampleFromGen5Historical(parseGen5Historical(inner));
-  if (strict != null) return strict;
-  if (inner.length > 1 && inner[1] == 18) {
-    return sampleFromGen5V18Lenient(inner, wallNow);
-  }
-  return null;
-}
+Sample? decodeGen5HistoricalSample(Uint8List inner) =>
+    sampleFromGen5Historical(parseGen5Historical(inner));
 
 @visibleForTesting
 int countHistoricalBurstPackets({
@@ -290,16 +201,6 @@ bool burstPacketCountMatches({
 }) =>
     expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
 
-/// IMU_SET_DATA_STREAM (0x6A) body — gen4 is a bare on/off byte; gen5 requires
-/// a leading [revision1] (fw 50.40.1.0 console: `Invalid rev (0) for
-/// WSBLE_CMD_IMU_SET_DATA_STREAM` when body is `[0x01]` / `[0x00]` alone).
-/// Same revision role as optical. Without this the live IMU stream never arms
-/// (gen4: 0x33; gen5 Maverick: 0x2B rec 0x15), so step calibration / live
-/// workout steps stay 0.
-@visibleForTesting
-List<int> imuModePayload(bool on, {required bool isGen5}) => isGen5
-    ? <int>[revision1, on ? 0x01 : 0x00]
-    : <int>[on ? 0x01 : 0x00];
 /// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
 /// commit/ACK decision (see the log-only call site).
 ///
@@ -887,22 +788,35 @@ class BleEngine {
   @visibleForTesting
   void debugInstallFakeLink({
     required Future<bool> Function(Uint8List frame) onWrite,
+    BandProfile band = BandProfile.gen4,
+    ArchiveSink? onArchive,
   }) {
     final session = _Session(
       BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
     );
     session.connected = true;
     session.sawConnected = true;
+    session.applyBand(band);
     _session = session;
     debugWriteHook = onWrite;
     _drain = DrainController(
       onRecord: _storeRecord,
       onRecordsBatch: null,
       onCommit: null,
-      onArchive: null,
+      onArchive: onArchive,
       log: _log,
     );
   }
+
+  /// Feed one inbound historical frame through the real ingest path (decode →
+  /// plausibility gate → store or archive).
+  ///
+  /// The routing decisions this covers — which record versions decode, and
+  /// what happens to a record the gate rejects — are the difference between
+  /// banking a user's data and letting the band trim it away, and they sit
+  /// behind a radio otherwise.
+  @visibleForTesting
+  void debugIngestHistoricalFrame(Frame frame) => _ingestHistoricalFrame(frame);
 
   /// Drive the canonical historical-refresh path. Returns whether
   /// SEND_HISTORICAL_DATA actually went out.
@@ -1821,7 +1735,7 @@ class BleEngine {
       final isGen5 = _session?.band.isGen5 ?? false;
       if (!_liveHrOnly && !state.standardHrFallback) {
         if (isGen5) {
-          _send(Cmd.toggleImuMode, imuModePayload(true, isGen5: true));
+          _sendToggleImu(true);
         } else {
           _send(Cmd.sendR10R11Realtime, const [0x01]);
         }
@@ -2252,6 +2166,15 @@ class BleEngine {
   // gen5 link. (_send already frames with the session's BandProfile.)
   List<int> get _offloadPayload =>
       (_session?.band.isGen5 ?? false) ? const <int>[] : const <int>[0x00];
+  /// IMU_SET_DATA_STREAM for the session's band. gen5 wants a leading revision
+  /// byte where gen4 sends a bare on/off byte; protocol's `cmdToggleImu` owns
+  /// that split. Sent the gen4 body, a gen5 strap reads the state from past the
+  /// end of the body, the stream never arms, and step calibration stays at 0.
+  Future<bool> _sendToggleImu(bool on) => _write(
+        cmdToggleImu(_seq.nextLive(), on,
+            profile: _session?.band ?? BandProfile.gen4),
+      );
+
   Future<bool> _sendGetDataRange() =>
       _send(Cmd.getDataRange, _offloadPayload);
   Future<bool> _sendHistoricalData() =>
@@ -2279,13 +2202,22 @@ class BleEngine {
       '[SYNC] HighFreq enter ($reason) — interval=${intervalSeconds}s '
       'duration=${duration.inSeconds}s until=${targetWake.toIso8601String()}',
     );
-    await _write(
+    // Frame for the SESSION'S band. Built gen4-only, a gen5 strap got a header
+    // length and checksum it cannot parse, so high-frequency sync never
+    // engaged — while the flags below claimed it had. Only claim the mode when
+    // the write actually landed.
+    final ok = await _write(
       cmdEnterHighFreqSync(
         _seq.nextLive(),
         intervalSeconds: intervalSeconds,
         durationSeconds: duration.inSeconds,
+        profile: _session?.band ?? BandProfile.gen4,
       ),
     );
+    if (!ok) {
+      _log('[SYNC] HighFreq enter ($reason) write FAILED — mode NOT claimed.');
+      return;
+    }
     _highFreqModeRequested = true;
     _highFreqReason = reason;
     _highFreqUntil = targetWake;
@@ -2299,7 +2231,8 @@ class BleEngine {
       return;
     }
     _log('[SYNC] HighFreq exit ($reason).');
-    await _write(cmdExitHighFreqSync(_seq.nextLive()));
+    await _write(cmdExitHighFreqSync(_seq.nextLive(),
+        profile: _session?.band ?? BandProfile.gen4));
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
@@ -2421,7 +2354,7 @@ class BleEngine {
       _drain?.onBurstConsole();
     }
     final band = _session?.band ?? BandProfile.gen4;
-    final decoded = _maybeAugmentGen5ClockEpoch(
+    final decoded = _maybeAugmentClockEpoch(
       frame,
       _maybeAugmentDataRange(frame, decodeFrame(frame, profile: band)),
     );
@@ -2561,23 +2494,15 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
-      sample = decodeGen5HistoricalSample(frame.inner, wallNow);
-      // PARTIAL decode is not a full decode. The lenient v18 path deliberately
-      // keeps HR/RR while ABSTAINING on a gravity vector that failed the
-      // magnitude gate — but `raw_records` is gone and `decoded_onehz` has
-      // nowhere to put a null accel, so those gravity bytes would be discarded
-      // the moment we ACK the trim. Archive the frame as WELL as keeping the
-      // sample: same safe-trim transaction, and a future decoder can still
-      // recover what this one could not. Nothing is double-counted —
-      // `raw_archive` is a diagnostic store, never a derivation input.
-      if (sample != null && sample.ax == null) {
-        _archiveHistoricalFrame(
-          frame,
-          counter,
-          reason: 'partial_decode_v${recType}_no_gravity',
-        );
-      }
-    } else if (recType == Record.r24 || recType == Record.r12) {
+      sample = decodeGen5HistoricalSample(frame.inner);
+    } else if (kKnownRecordVersions.contains(recType)) {
+      // EVERY gen4 layout version protocol has a field map for — not just
+      // v24/v12. v7/v9/v18/v25 decode fine through the same chain and used to
+      // fall through to `undecodable_rec_v*` purely because this branch never
+      // routed them (a real export carried ~50k readable v25 records archived
+      // as undecodable). gen5 also ships a v18, with a completely different
+      // layout — the `isGen5` branch above claims it first, so this is gen4
+      // only.
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;
@@ -2627,9 +2552,9 @@ class BleEngine {
     // Drop records whose unix is implausible vs wall-clock and (when known) the
     // strap's own GET_DATA_RANGE window — a previous owner's wandering-clock
     // pollution. Records with no decodable ts are kept (can't gate them).
-    // Rejected records are neither stored nor counted. Mixed bursts (some
-    // rows banked) may still ACK; a drop-only empty burst must not — see
-    // TrimAckVerdict.blockedNoDurableProgress.
+    // A rejected record is not BANKED and not counted — but its bytes are
+    // archived (see below). Mixed bursts (some rows banked) may still ACK; a
+    // drop-only burst must not — see TrimAckVerdict.blockedNoDurableProgress.
     // Past this point [sample] is non-null — undecodable records returned above.
     if (!_recordGate.admit(
       sample.tsEpoch,
@@ -2637,6 +2562,12 @@ class BleEngine {
       sessionOldestUnix: _sessionOldestUnix,
       sessionNewestUnix: _sessionNewestUnix,
     )) {
+      // ARCHIVE, don't drop. A record we merely MISTRUST used to be written
+      // nowhere at all, i.e. treated strictly worse than one we cannot parse —
+      // and the batch-ACK then let the band trim those bytes away for good.
+      // The archive rides the same pre-ACK transaction, so the bytes survive
+      // and a later pass can re-time them once the clock correlation is known.
+      _archiveHistoricalFrame(frame, counter, reason: 'gate_dropped');
       return;
     }
     final raw = RawRecord(
@@ -2769,7 +2700,19 @@ class BleEngine {
       // correlation the alarm falls back to the raw wall epoch. connect()
       // already issues an unconditional SET_CLOCK, and the periodic re-verify
       // re-reads, so a genuinely-wrong RTC still gets corrected.
-      if (!ClockPolicy.acceptsClockRead(dev, wall)) {
+      if (dev < kMinPlausibleUnix) {
+        // UNSET RTC. This read is now surfaced instead of swallowed by the
+        // decoder (see [_maybeAugmentClockEpoch]) so the SET_CLOCK correction
+        // below can finally fire for it — but it must NOT become a ClockRef:
+        // correlating a factory-epoch clock yields a drift of decades, and
+        // `AlarmPayloads.toStrapFrame` would arm every alarm that far in the
+        // past.
+        _log(
+          '[SYNC] GET_CLOCK clock_epoch=$dev is below the plausible floor — '
+          'the strap RTC was never set. NOT correlating; SET_CLOCK below is '
+          'the fix.',
+        );
+      } else if (!ClockPolicy.acceptsClockRead(dev, wall)) {
         _corruptClockReadCount++;
         _log(
           '[SYNC] GET_CLOCK clock_epoch=$dev is implausibly far in the future '
@@ -3260,8 +3203,14 @@ class BleEngine {
       }
       final r = d.bufferedRecTsRange;
       final droppedThisBurstForLog = droppedThisBurst;
-      final hadDurableRows =
-          d.bufferedRecords > 0 || d.bufferedArchives > 0;
+      // BANKED RECORDS ONLY — archives deliberately do not count. Every
+      // gate-dropped record is archived now, so a drop-only burst always
+      // buffers archives; counting them would mean the no-progress gate below
+      // could never fire in exactly the case it was written for (the cursor
+      // walks past pollution while nothing usable is ever banked). Archives
+      // are still committed in the same transaction either way — this only
+      // decides whether the band may TRIM.
+      final hadDurableRows = d.bufferedRecords > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
@@ -3749,29 +3698,30 @@ class BleEngine {
   /// subsecond value is the safe thing. Then read the clock back (GET_CLOCK) so
   /// the response handler can VERIFY it latched and re-issue on drift.
   Future<void> setClock() async {
-    final ms = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now();
+    final ms = now.millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
     final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
-    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4, and
-    // (per fw 50.40.1.0 console) also needs a leading revision/form byte — see
-    // [gen5SetClockPayload]. Gen4 keeps the hardware-verified 8-byte body.
+    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4 and a
+    // body that leads with a revision byte; protocol owns both — see
+    // `cmdSetClockGen5`. Gen4 keeps the hardware-verified 8-byte body.
     final isGen5 = _session?.band.isGen5 ?? false;
-    final payload = isGen5
-        ? gen5SetClockPayload(sec: sec, subsec: subsec)
-        : <int>[
-            sec & 0xff,
-            (sec >> 8) & 0xff,
-            (sec >> 16) & 0xff,
-            (sec >> 24) & 0xff,
-            subsec & 0xff,
-            (subsec >> 8) & 0xff,
-            0,
-            0,
-          ];
-    final opcode = isGen5 ? Cmd.setClockMaverick : Cmd.setClock;
-    await _send(opcode, payload);
+    if (isGen5) {
+      await _write(cmdSetClockGen5(_seq.nextLive(), now: now));
+    } else {
+      await _send(Cmd.setClock, <int>[
+        sec & 0xff,
+        (sec >> 8) & 0xff,
+        (sec >> 16) & 0xff,
+        (sec >> 24) & 0xff,
+        subsec & 0xff,
+        (subsec >> 8) & 0xff,
+        0,
+        0,
+      ]);
+    }
     _log('SET_CLOCK${isGen5 ? " (gen5 Maverick)" : ""} → sec=$sec '
-        'subsec=$subsec (${payload.length}B${isGen5 ? ", rev=$revision1" : ""}).');
+        'subsec=$subsec.');
     // Read the RTC back so the GET_CLOCK response handler can confirm it latched
     // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
     await getClock();
@@ -3779,14 +3729,13 @@ class BleEngine {
 
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
   /// verify drift and re-correlate the strap-RTC ↔ wall clock. gen5 uses its
-  /// own GET_CLOCK opcode (147) and needs a leading revision byte — see
-  /// [gen5GetClockPayload] / [setClock].
+  /// own GET_CLOCK opcode and needs a leading revision byte — protocol's
+  /// `cmdGetClockGen5` owns both.
   Future<void> getClock() {
-    final isGen5 = _session?.band.isGen5 ?? false;
-    return _send(
-      isGen5 ? Cmd.getClockGen5 : Cmd.getClock,
-      isGen5 ? gen5GetClockPayload() : const <int>[],
-    );
+    if (_session?.band.isGen5 ?? false) {
+      return _write(cmdGetClockGen5(_seq.nextLive()));
+    }
+    return _send(Cmd.getClock, const <int>[]);
   }
 
   /// GET_CLOCK, awaited to the *response* rather than to the write.
@@ -3808,7 +3757,7 @@ class BleEngine {
   /// signal that the read never landed.
   Future<bool> _readClock() async {
     final pending = _clockReadPending = Completer<void>();
-    await _send(Cmd.getClock, const <int>[]);
+    await getClock(); // band-correct opcode + body; gen4 sent to a gen5 strap is silence
     try {
       await pending.future.timeout(_clockReadTimeout);
       return true;
@@ -3895,7 +3844,19 @@ class BleEngine {
         '(ACKs but will not fire)');
   }
 
-  Future<void> getAlarm() => _send(Cmd.getAlarmTime, const [revision1]);
+  /// Read the armed alarm back. Body is band-specific (see
+  /// [AlarmPayloads.getPayloadForBand]) — gen5 rejects gen4's operand-less
+  /// revision-1 body.
+  Future<void> getAlarm({int? id}) {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    return _send(
+      Cmd.getAlarmTime,
+      AlarmPayloads.getPayloadForBand(
+        isGen5: isGen5,
+        id: id ?? AlarmPayloads.gen5Slot,
+      ),
+    );
+  }
 
   /// Fire the alarm haptics IMMEDIATELY — a "test buzz" so the user can confirm
   /// the strap actually fires before trusting the scheduled wake.
@@ -3915,14 +3876,29 @@ class BleEngine {
     await _send(Cmd.runAlarm, AlarmPayloads.runNow);
   }
 
-  /// Cancel the on-device alarm (DISABLE_ALARM = 0x45), payload `[0x01]`.
-  /// (The earlier `[0x00]` body was ACKed but did not clear the alarm.)
-  Future<void> disableAlarm() => _send(Cmd.disableAlarm, AlarmPayloads.disable);
+  /// Cancel the on-device alarm (DISABLE_ALARM = 0x45). gen4 body `[0x01]`
+  /// (the earlier `[0x00]` body was ACKed but did not clear the alarm); gen5
+  /// needs revision 2 plus the alarm id, defaulting to "all slots" — see
+  /// [AlarmPayloads.disableForBand].
+  Future<void> disableAlarm({int? id}) {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    return _send(
+      Cmd.disableAlarm,
+      AlarmPayloads.disableForBand(
+        isGen5: isGen5,
+        id: id ?? AlarmPayloads.gen5AllSlots,
+      ),
+    );
+  }
 
-  Future<void> getStrapName() =>
-      _send(Cmd.getAdvertisingNameHarvard, const [0x00]);
+  /// Read the strap's advertising name. gen5 does not implement gen4's
+  /// advertising-name opcodes at all — it has its own pair.
+  Future<void> getStrapName() => (_session?.band.isGen5 ?? false)
+      ? _send(Cmd.getCustomAdvertisingName, const [revision1])
+      : _send(Cmd.getAdvertisingNameHarvard, const [0x00]);
 
   /// Rename the strap. Payload: [0x01][name length u8][ASCII name bytes][u32 0].
+  /// Same body on both generations; only the opcode differs.
   Future<void> setStrapName(String name) async {
     // Cap at 20 ASCII chars (matches the reference + the GET decoder's length
     // assumption); the length byte then always stays < 0x20.
@@ -3931,7 +3907,11 @@ class BleEngine {
         .take(20)
         .toList();
     final payload = <int>[0x01, ascii.length, ...ascii, 0, 0, 0, 0];
-    await _send(Cmd.setAdvertisingNameHarvard, payload);
+    final isGen5 = _session?.band.isGen5 ?? false;
+    await _send(
+      isGen5 ? Cmd.setCustomAdvertisingName : Cmd.setAdvertisingNameHarvard,
+      payload,
+    );
     _log('SET_ADVERTISING_NAME → "$name"');
   }
 
@@ -4007,7 +3987,7 @@ class BleEngine {
       await _send(Cmd.sendR10R11Realtime, const [0x01]);
       await Future.delayed(const Duration(milliseconds: 100));
     }
-    await _send(Cmd.toggleImuMode, imuModePayload(true, isGen5: isGen5));
+    await _sendToggleImu(true);
     await Future.delayed(const Duration(milliseconds: 100));
     await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
     _log(
@@ -4048,27 +4028,14 @@ class BleEngine {
     final isGen5 = _session?.band.isGen5 ?? false;
     unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    final offOps = <List<dynamic>>[
-      [
-        Cmd.toggleOpticalMode,
-        [revision1, 0x00],
-      ],
-      [
-        Cmd.enableOpticalData,
-        [revision1, 0x00],
-      ],
-      if (!isGen5)
-        [
-          Cmd.sendR10R11Realtime,
-          [0x00],
-        ],
-      [
-        Cmd.toggleImuMode,
-        imuModePayload(false, isGen5: isGen5),
-      ],
+    final offOps = <Future<bool> Function()>[
+      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
+      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
+      if (!isGen5) () => _send(Cmd.sendR10R11Realtime, const [0x00]),
+      () => _sendToggleImu(false),
     ];
     for (final op in offOps) {
-      await _send(op[0] as int, (op[1] as List).cast<int>());
+      await op();
       await Future.delayed(const Duration(milliseconds: 60));
     }
     _log('Live streams: HR-only (background downgrade — raw flood off).');
@@ -4077,31 +4044,15 @@ class BleEngine {
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
   Future<void> disableLiveStreams() async {
     final isGen5 = _session?.band.isGen5 ?? false;
-    final ops = <List<dynamic>>[
-      [
-        Cmd.toggleOpticalMode,
-        [revision1, 0x00],
-      ],
-      [
-        Cmd.enableOpticalData,
-        [revision1, 0x00],
-      ],
-      if (!isGen5)
-        [
-          Cmd.sendR10R11Realtime,
-          [0x00],
-        ],
-      [
-        Cmd.toggleImuMode,
-        imuModePayload(false, isGen5: isGen5),
-      ],
-      [
-        Cmd.toggleRealtimeHr,
-        [0x00],
-      ],
+    final ops = <Future<bool> Function()>[
+      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
+      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
+      if (!isGen5) () => _send(Cmd.sendR10R11Realtime, const [0x00]),
+      () => _sendToggleImu(false),
+      () => _send(Cmd.toggleRealtimeHr, const [0x00]),
     ];
     for (final op in ops) {
-      await _send(op[0] as int, (op[1] as List).cast<int>());
+      await op();
       await Future.delayed(const Duration(milliseconds: 60));
     }
     _liveEnabled = false;
@@ -4297,22 +4248,40 @@ class BleEngine {
     return Decoded(decoded.kind, fields);
   }
 
-  /// Patch up `COMMAND_RESPONSE` decodes for GET_CLOCK_GEN5 (147) — the one
-  /// gen5-exclusive opcode `parseCommandResponse` doesn't populate a
-  /// `clock_epoch` for yet (its GET_HELLO=145 and GET_BATTERY_LEVEL=26
-  /// battery-scale handling are already profile-aware natively, via the
-  /// `profile:` param passed into `decodeFrame` above). Without this, gen5's
-  /// SET_CLOCK/GET_CLOCK drift-correlation (`ClockRef`, read in
-  /// `_absorbState`) would never populate on a gen5 link, since
-  /// `parseCommandResponse` only recognises gen4's `Cmd.getClock` (0x0B) for
-  /// that field. Same "edge augments a decode protocol hasn't caught up to
-  /// yet" pattern as [_maybeAugmentDataRange].
-  Decoded _maybeAugmentGen5ClockEpoch(Frame frame, Decoded decoded) {
+  /// Make sure a GET_CLOCK reply always carries a `clock_epoch` — INCLUDING an
+  /// implausible one.
+  ///
+  /// `parseCommandResponse` decodes the field for both generations now, but it
+  /// emits it only when the value already looks like a real wall-clock time.
+  /// That silently disabled the whole point of [ClockPolicy.shouldSetClock],
+  /// which exists to detect a strap whose RTC was never set (a 1970s value):
+  /// the one reading that proves the fault produced no field at all, so the
+  /// policy could never fire and the RTC was never corrected. Read the field at
+  /// its documented offset and pass it through verbatim; judging it is the
+  /// policy's job, not the decoder's.
+  Decoded _maybeAugmentClockEpoch(Frame frame, Decoded decoded) {
     if (decoded.kind != 'cmd_response') return decoded;
-    if (decoded.fields['opcode'] != Cmd.getClockGen5) return decoded;
+    final op = decoded.fields['opcode'];
+    final isGen5Clock = op == Cmd.getClockGen5;
+    if (!isGen5Clock && op != Cmd.getClock) return decoded;
+    if (decoded.fields.containsKey('clock_epoch')) return decoded;
     final inner = frame.inner;
     final payload =
         inner.length > 3 ? Uint8List.sublistView(inner, 3) : Uint8List(0);
+    // Reply body starts at payload[2] (payload[0] = echoed request seq,
+    // payload[1] = status). gen5 leads the body with a revision byte and puts
+    // the u32 seconds at payload[3]; gen4 has them at payload[2].
+    final at = isGen5Clock ? 3 : 2;
+    if (payload.length >= at + 4) {
+      final fields = <String, dynamic>{
+        ...decoded.fields,
+        'clock_epoch': u32(payload, at),
+      };
+      return Decoded(decoded.kind, fields);
+    }
+    // FALLBACK ONLY — a reply shorter than the documented shape. A scan is a
+    // guess, so it stays gated on plausibility: an arbitrary 4-byte window that
+    // happens to land in the epoch range must not become "the strap's clock".
     final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     for (var o = 0; o + 4 <= payload.length; o++) {
       final v = u32(payload, o);

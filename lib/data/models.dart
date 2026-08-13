@@ -16,6 +16,41 @@ class Sample {
   final int? spo2IrRaw;
   final int? skinTempRaw;
 
+  // ── Fields only a gen5 band sends (all null on gen4) ───────────────────────
+  // NULL means "this band never reported it", and that is NOT the same as zero:
+  // a fabricated 0-step day or a 0 °C skin temperature reads as real data
+  // downstream. Every one of these stays nullable end to end, into the DB.
+
+  /// Cumulative step count from the band's own pedometer, which runs whether or
+  /// not the app is connected. Monotonic — it does NOT reset at midnight, so a
+  /// day's steps are a difference between two records, never the value itself.
+  final int? stepCount;
+
+  /// The band's own cadence for this second (steps/min).
+  final int? stepCadence;
+
+  /// The band's own activity class: 0 = not committed to a class yet (NOT
+  /// "still" — do not count it as sedentary), 1 = walk, 2 = run. Null when the
+  /// band reported no valid class at all; a class is never invented from an
+  /// out-of-range code.
+  final int? activityClass;
+
+  /// Calibrated skin temperature in °C, as computed by the band. Unlike
+  /// [skinTempRaw] (an uncalibrated ADC count that needs days of personal
+  /// baseline before it means anything) this is usable on its first second.
+  final double? skinTempC;
+
+  /// The band's own on-wrist determination for this second (2-bit code).
+  final int? onWrist;
+
+  /// The band's own "HR and RR are valid this second" flag.
+  final bool? hrValid;
+
+  /// A second heart-rate byte the band reports alongside [hr]. It CORROBORATES
+  /// [hr] (agreement runs ~58-75%, best when [hrValid]); it is not a substitute
+  /// heart rate and must never be displayed as one.
+  final int? hrAlt;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -27,6 +62,13 @@ class Sample {
     this.spo2RedRaw,
     this.spo2IrRaw,
     this.skinTempRaw,
+    this.stepCount,
+    this.stepCadence,
+    this.activityClass,
+    this.skinTempC,
+    this.onWrist,
+    this.hrValid,
+    this.hrAlt,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -44,6 +86,13 @@ class Sample {
     spo2RedRaw: spo2RedRaw,
     spo2IrRaw: spo2IrRaw,
     skinTempRaw: skinTempRaw,
+    stepCount: stepCount,
+    stepCadence: stepCadence,
+    activityClass: activityClass,
+    skinTempC: skinTempC,
+    onWrist: onWrist,
+    hrValid: hrValid,
+    hrAlt: hrAlt,
   );
 
   bool get wristOn => hr > 0;
@@ -66,6 +115,24 @@ class Sample {
     counter: m['counter'] as int,
     hr: m['hr'] as int,
   );
+
+  /// One `decoded_onehz` row → [Sample]. Missing/NULL columns stay null (a gen4
+  /// row carries none of the band-computed fields), never 0.
+  factory Sample.fromDecodedRow(Map<String, Object?> m) {
+    final valid = (m['hr_valid'] as num?)?.toInt();
+    return Sample(
+      tsEpoch: (m['rec_ts'] as num).toInt(),
+      counter: (m['counter'] as num?)?.toInt() ?? 0,
+      hr: (m['hr'] as num?)?.toInt() ?? 0,
+      stepCount: (m['step_count'] as num?)?.toInt(),
+      stepCadence: (m['step_cadence'] as num?)?.toInt(),
+      activityClass: (m['activity_class'] as num?)?.toInt(),
+      skinTempC: (m['skin_temp_c'] as num?)?.toDouble(),
+      onWrist: (m['on_wrist'] as num?)?.toInt(),
+      hrValid: valid == null ? null : valid != 0,
+      hrAlt: (m['hr_alt'] as num?)?.toInt(),
+    );
+  }
 }
 
 /// A raw historical record exactly as it came off the band — the source of truth.

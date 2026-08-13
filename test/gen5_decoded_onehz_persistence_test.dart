@@ -111,8 +111,8 @@ void main() {
 
     final rr = await db.query(
       'decoded_rr',
-      where: 'counter = ?',
-      whereArgs: [sample.counter],
+      where: 'rec_ts = ?',
+      whereArgs: [recTs],
     );
     expect(rr.length, 2);
     expect([for (final r in rr) r['rr_ms']], containsAll([602, 613]));
@@ -126,13 +126,16 @@ void main() {
   // stops it being read back as a measurement. See
   // substrate_accel_absence_test.dart — without that, a night of these scores
   // as perfect immobility and fabricates a fully-staged sleep window.
-  test('lenient v18 with null accel still persists (stored as 0)', () async {
+  test('v18 sample with null accel still persists (stored as 0)', () async {
     const unix = 1785801600;
     const counter = 42;
     final inner = _buildGen5V18LenientInner(unix: unix, counter: counter, hr: 72);
-    final sample = sampleFromGen5V18Lenient(inner, unix);
-    expect(sample, isNotNull);
-    expect(sample!.ax, isNull);
+    // Built directly: the engine-side lenient v18 decoder that used to produce
+    // this shape is gone (protocol's decoder no longer rejects a whole record
+    // over its gravity vector). What this test pins is the PERSISTENCE of a
+    // null-accel sample, which is independent of who decoded it.
+    final sample = Sample(tsEpoch: unix, counter: counter, hr: 72);
+    expect(sample.ax, isNull);
 
     final raw = RawRecord(
       counter: counter,

@@ -44,7 +44,7 @@ dependencies:
       # inverted, and the gen4 optical fields are deprecated with what they
       # actually are.
       # TEMPORARY: repin to the main merge once #27 lands.
-      ref: 95d8ab8906b2a157b5a4d43ff73572a5af75bed8
+      ref: 334bccc896e791c48eb19a1c6a8b0dbbbe7aca11
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

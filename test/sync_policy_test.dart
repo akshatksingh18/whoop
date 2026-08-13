@@ -77,6 +77,53 @@ void main() {
       expect(ClockPolicy.shouldSetClock(wall + 86400 + 1, wall), isTrue);
       expect(ClockPolicy.shouldSetClock(1000, wall), isTrue); // frozen/unset
     });
+
+    test('stops deferring once the disagreement outlives the grace window', () {
+      // MONOTONIC seconds — an arbitrary stopwatch origin, not an epoch.
+      const t0 = 1234.0;
+      const hour = 3600.0;
+      expect(ClockPolicy.suspectGraceExpired(null, t0), isFalse);
+      expect(ClockPolicy.suspectGraceExpired(t0, t0), isFalse);
+      // a slow phone re-syncs over NTP well inside this
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + hour), isFalse);
+      // still disagreeing after the window => the strap rtc is the fast one,
+      // so history must stop deferring instead of stalling forever
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + 13 * hour), isTrue);
+    });
+
+    test('a forward wall-clock jump cannot expire the grace window early', () {
+      // The regression: the window used to be measured with DateTime.now(), so
+      // the phone stepping its clock forward — the very event this state is
+      // waiting on, and one that can leave it STILL more than a day behind the
+      // strap — aged the suspicion instantly and re-authorised the
+      // drain-and-trim. Read monotonically, a wall jump is simply invisible:
+      // only real elapsed time moves this forward.
+      const startedAt = 500.0;
+      const aMinuteOfRealTimeLater = 560.0; // wall may have jumped days
+      expect(
+        ClockPolicy.suspectGraceExpired(startedAt, aMinuteOfRealTimeLater),
+        isFalse,
+        reason: 'a minute of real time is a minute, whatever the wall says',
+      );
+    });
+
+    test('flags a slow PHONE clock: a plausible strap RTC > 1d in the future', () {
+      // Clocks agree → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall, wall), isFalse);
+      // Strap up to +1 day ahead is within margin → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall + kFutureMargin, wall), isFalse);
+      // Plausible strap RTC > 1 day ahead → the phone is likely slow → DEFER
+      // offload (the P1: draining would drop-then-trim real records).
+      expect(
+          ClockPolicy.phoneClockSuspect(wall + kFutureMargin + 1, wall), isTrue);
+      expect(ClockPolicy.phoneClockSuspect(wall + 2 * 86400, wall), isTrue);
+      // Strap BEHIND the phone is a plausible-past time — not dropped as future,
+      // and corrected forward by shouldSetClock — so NOT a phone problem.
+      expect(ClockPolicy.phoneClockSuspect(wall - 2 * 86400, wall), isFalse);
+      // An unset/garbage-low RTC is a STRAP problem (shouldSetClock), not the
+      // phone — must not trip the phone-suspect defer.
+      expect(ClockPolicy.phoneClockSuspect(1000, wall), isFalse);
+    });
   });
 
   group('BackfillPolicy', () {
@@ -677,6 +724,56 @@ void main() {
         shouldRenotifyStaleness(last, now,
             renotifyAfter: const Duration(hours: 3)),
         isFalse,
+      );
+    });
+  });
+
+  // The strap re-serves its whole buffered EVENT log on connect, so a
+  // BATTERY_LEVEL event is not evidence of the CURRENT charge — only its
+  // timestamp is. Without this gate a first pair with a long backlog replays
+  // weeks of battery history straight into the live indicator.
+  group('battery reading acceptance', () {
+    test('a poll response carries no event timestamp and is always live', () {
+      expect(BatteryPolicy.acceptsEventReading(null, wall), isTrue);
+    });
+
+    test('a battery event stamped just now is accepted', () {
+      expect(BatteryPolicy.acceptsEventReading(wall - 60, wall), isTrue);
+    });
+
+    test('a battery event replayed from days ago is rejected', () {
+      // The real shape of the bug: an event stamped 33 days before the
+      // session that arrived during a backlog drain.
+      expect(
+        BatteryPolicy.acceptsEventReading(wall - 33 * 86400, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event from an implausibly far-future clock is rejected',
+        () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + kFutureMargin + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event stamped beyond the window into the future is '
+        'rejected', () {
+      // A strap RTC running ahead put the stamp in the future rather than the
+      // past. "Recent" has to mean recent in both directions, or the gate lets
+      // an event through on the one side it never checked.
+      expect(
+        BatteryPolicy.acceptsEventReading(
+            wall + BatteryPolicy.maxEventAgeSec + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('small clock skew ahead of the phone is still accepted', () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + 60, wall),
+        isTrue,
       );
     });
   });

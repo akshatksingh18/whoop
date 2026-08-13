@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
 import '../data/db.dart';
+import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
 import 'health_sleep_session.dart';
 
@@ -1030,15 +1031,12 @@ class HealthExporter {
   HealthWorkoutActivityType _activity(String? type) =>
       healthActivityForType(type, ios: isApple);
 
-  static Map<String, dynamic>? _decode(Object? json) {
-    if (json is! String) return null;
-    try {
-      final d = jsonDecode(json);
-      return d is Map ? d.cast<String, dynamic>() : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Decode a stored day bundle, normalizing the compact curve format back to
+  /// plain [{t,v}] lists. Hypnogram segments are never encoded (no `t` key), so
+  /// today only the sleep export reads through here — but every day_result
+  /// reader goes through the codec so a future one cannot silently miss it.
+  static Map<String, dynamic>? _decode(Object? json) =>
+      SeriesCodec.decodePayloadJson(json);
 
   static Map<String, dynamic>? _sub(Map<String, dynamic>? b, String path) {
     var cur = b;
@@ -1118,6 +1116,56 @@ HealthWorkoutActivityType healthActivityForType(
       return HealthWorkoutActivityType.YOGA;
     case 'hiit':
       return HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING;
+    case 'boxing':
+      return HealthWorkoutActivityType.BOXING;
+    case 'rowing':
+    case 'row':
+      return HealthWorkoutActivityType.ROWING;
+    case 'hike':
+    case 'hiking':
+      return HealthWorkoutActivityType.HIKING;
+    case 'climb':
+    case 'climbing':
+      // Bare `CLIMBING` is iOS-only; `ROCK_CLIMBING` is the one spelling both
+      // stores accept, which is the #184 lesson applied ahead of the bug.
+      return HealthWorkoutActivityType.ROCK_CLIMBING;
+    case 'ski':
+    case 'skiing':
+      // `SKIING` is Android-only; `DOWNHILL_SKIING` exists on both.
+      return HealthWorkoutActivityType.DOWNHILL_SKIING;
+    case 'snowboard':
+    case 'snowboarding':
+      return HealthWorkoutActivityType.SNOWBOARDING;
+    case 'stairs':
+    case 'stair':
+      // `STAIRS` is iOS-only; `STAIR_CLIMBING` exists on both.
+      return HealthWorkoutActivityType.STAIR_CLIMBING;
+    case 'pilates':
+      return HealthWorkoutActivityType.PILATES;
+    case 'tennis':
+    case 'racquet':
+    case 'squash':
+    case 'padel':
+    case 'badminton':
+      return HealthWorkoutActivityType.TENNIS;
+    case 'basketball':
+      return HealthWorkoutActivityType.BASKETBALL;
+    case 'soccer':
+    case 'football':
+      // `SOCCER` passes the plugin's Dart-side guard but is COMMENTED OUT of
+      // Health Connect's Kotlin write map (HealthPlugin.kt, "TODO: add
+      // soccer"), so the call reaches the channel and comes back
+      // `success(false)` rather than throwing. This file treats a false as a
+      // genuine write failure and counts it toward the day's give-up budget —
+      // so one soccer workout would silently pause that day's ENTIRE export,
+      // resting HR and sleep included. Worse than #184, which at least failed
+      // only itself. OTHER is accepted on Android, so the workout lands
+      // unlabelled instead of taking the day down with it.
+      return ios
+          ? HealthWorkoutActivityType.SOCCER
+          : HealthWorkoutActivityType.OTHER;
+    case 'golf':
+      return HealthWorkoutActivityType.GOLF;
     default:
       return HealthWorkoutActivityType.OTHER;
   }

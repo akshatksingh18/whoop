@@ -14,6 +14,7 @@
 
 import '../compute/manual_session.dart' show SessionSpan;
 import '../gps/route_models.dart';
+import 'journal_fields.dart';
 
 /// The single source of truth for "no step goal configured yet" (8k/day is
 /// the commonly-cited optimal benefit/cost ratio for step count). Both the
@@ -53,8 +54,16 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getSleep');
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) =>
       throw UnimplementedError('re-layer: getStrain');
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) =>
-      throw UnimplementedError('re-layer: getSessions');
+  /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.
+  ///
+  /// Pass `includeDetected: false` when only saved sessions are wanted: the
+  /// detected half has to read every recent day bundle to find them, and those
+  /// rows carry the full hr_curve/hypnogram/HRV payload.
+  Future<List<Map<String, dynamic>>> getSessions({
+    int? from,
+    int? to,
+    bool includeDetected = true,
+  }) => throw UnimplementedError('re-layer: getSessions');
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) =>
       throw UnimplementedError('re-layer: getHistory');
 
@@ -178,6 +187,27 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: postJournal');
   Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) =>
       throw UnimplementedError('re-layer: getJournalInsights');
+
+  /// One day's numeric journal fields, keyed by field name.
+  Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>
+      throw UnimplementedError('re-layer: getJournalMetrics');
+
+  /// Replace one day's numeric fields. A field absent from [fields] is cleared
+  /// for that day — the map IS the day, not a patch on it.
+  Future<void> postJournalMetrics(
+    String date,
+    Map<String, JournalMetricValue> fields,
+  ) => throw UnimplementedError('re-layer: postJournalMetrics');
+
+  /// Built-in fields followed by the user's own, in editor order.
+  Future<List<JournalFieldSpec>> getJournalFields() =>
+      throw UnimplementedError('re-layer: getJournalFields');
+
+  Future<void> postCustomJournalField(JournalFieldSpec spec) =>
+      throw UnimplementedError('re-layer: postCustomJournalField');
+
+  Future<void> deleteCustomJournalField(String key) =>
+      throw UnimplementedError('re-layer: deleteCustomJournalField');
 
   // ── menstrual cycle ────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getCycle() =>

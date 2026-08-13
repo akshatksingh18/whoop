@@ -253,7 +253,7 @@ double? strainFromPerMinuteHr(
     perMinuteHr,
     restingHr: restingHr,
     maxHr: hrMax,
-    sex: sex == 'f' || sex == 'female' ? ana.Sex.female : ana.Sex.male,
+    sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
   );
   if (!trimp.present || trimp.value == null) return null;
   final score = ana.strainScoreMetric(trimp.value);
@@ -310,7 +310,11 @@ ManualSessionStats computeManualSessionStats({
       strainFromPerMinuteHr(perMin, profile: profile, restingHr: restingHr);
 
   double? calories;
-  if (hrMax != null && age != null && weightKg != null && sex != null) {
+  if (profile.hasCalorieAnchors &&
+      hrMax != null &&
+      age != null &&
+      weightKg != null &&
+      sex != null) {
     // Real anchors only — `usedDefaultAnchors` stays false, so we are never
     // persisting a kcal figure built on a fabricated 220/60.
     final bout = ana.Calories.estimateBoutCalories(
@@ -320,7 +324,7 @@ ManualSessionStats computeManualSessionStats({
         weightKg: weightKg,
         heightCm: profile.heightCm ?? 170.0,
         age: age,
-        sex: sex == 'f' || sex == 'female' ? 'female' : 'male',
+        sex: workoutSex(sex),
       ),
       hrmax: hrMax,
       restingHr: restingHr,
@@ -509,6 +513,19 @@ ReconciledSessionScore reconcileSessionScore({
   // same minutes, so the larger is the better estimate and the smaller is just
   // a less complete view.
   T? better<T extends num>(T? live, T? sub) {
+    // `sub ?? live`, NOT `sub`. A null from a complete substrate is "I have
+    // nothing to say", not "the answer is nothing": a max HR of null means no
+    // worn samples survived, while the live tally actually watched the session
+    // happen, and a null strain means the profile no longer carries the anchor
+    // the score needs — neither is grounds for destroying a real measurement
+    // taken when it did.
+    //
+    // The cost of that is real and accepted: a calorie figure fabricated by an
+    // older build (30 y / 70 kg / male, before the live tick learned to
+    // abstain) is never cleared by a re-score. Making the null authoritative
+    // would heal those, and would also wipe legitimately scored sessions
+    // whenever the substrate happens not to be able to score them, which is
+    // the worse trade.
     if (substrateIsComplete) return sub ?? live;
     if (live == null) return sub;
     if (sub == null) return live;

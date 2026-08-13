@@ -243,9 +243,9 @@ void main() {
       expect(frames.first['hr'], 61);
       expect(frames.first['spo2_red_raw'], 1234);
 
-      final rr = await LocalDb.decodedRrByCounterRange(
-        fromCounter: 424242,
-        toCounter: 424242,
+      final rr = await LocalDb.decodedRrByRecTsRange(
+        fromRecTs: startSec,
+        toRecTs: startSec,
       );
       expect(rr, hasLength(2));
       expect(rr.first['rr_ms'], 980);

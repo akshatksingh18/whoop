@@ -33,7 +33,6 @@ import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, LiveStepDayWindow, SyncActivityWindow;
-import '../ble/gen5_live_imu.dart';
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -42,6 +41,13 @@ import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
+import '../data/auto_backup.dart'
+    show BackupCadence, BackupOutcome, runBackup;
+import '../ui/stress/breath_phases.dart';
+// `runBackupIfDue` is also the name of the AppState method below, so the pure
+// scheduler is imported under an alias rather than shadowed by it.
+import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import 'prefs.dart';
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -49,6 +55,7 @@ import '../gps/gps_source.dart';
 import '../gps/route_tracker.dart';
 import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
+import '../data/series_codec.dart';
 import '../notify/battery_forecast.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
@@ -759,6 +766,70 @@ class AppState extends ChangeNotifier {
     return user!;
   }
 
+  // ── automatic backup ────────────────────────────────────────────────────────
+
+  BackupCadence get backupCadence =>
+      BackupCadence.fromName(Prefs.getString(Prefs.backupCadence, ''));
+
+  DateTime? get lastBackupAt {
+    final ms = Prefs.getInt(Prefs.backupLastRunMs, 0);
+    return ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  /// Change the cadence. Switching it ON takes a backup immediately rather
+  /// than waiting for the interval — otherwise nothing visible happens and the
+  /// setting looks broken.
+  Future<void> setBackupCadence(BackupCadence cadence) async {
+    Prefs.setString(Prefs.backupCadence, cadence.name);
+    notifyListeners();
+    if (cadence != BackupCadence.off) await runBackupNow();
+  }
+
+  void _markBackupRun(DateTime when) {
+    Prefs.setInt(Prefs.backupLastRunMs, when.millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
+  /// Take one now, whatever the schedule says. Returns what happened so the
+  /// caller can say so — a backup that silently did not happen is the failure
+  /// this feature exists to prevent.
+  Future<BackupOutcome> runBackupNow() async {
+    final outcome = await runBackup();
+    if (outcome.succeeded) _markBackupRun(DateTime.now());
+    return outcome;
+  }
+
+  /// Foreground hook. Silent unless it actually writes something.
+  ///
+  /// The timestamp is read and written INSIDE the backup lock, via these
+  /// callbacks — reading it here and passing the value in would let a second
+  /// resume decide against a stale timestamp while the first backup was still
+  /// finishing, and start a duplicate export.
+  Future<void> runBackupIfDue() async {
+    if (backupCadence == BackupCadence.off) return;
+    // Guarded: this is fired with `unawaited` from the resume hook, and
+    // `markRun` notifies listeners — which throws if the state was disposed
+    // during a long export, surfacing as an unhandled async error.
+    try {
+      await _runBackupIfDue();
+    } catch (e) {
+      _log('Backup failed: $e');
+    }
+  }
+
+  Future<void> _runBackupIfDue() async {
+    final outcome = await backup.runBackupIfDue(
+      // Re-read inside the lock, not captured here: a call that waits behind a
+      // running export would otherwise act on the setting as it was when it
+      // queued, and someone who switched backup off in the meantime would
+      // still get a copy of their health data written after disabling it.
+      cadence: () => backupCadence,
+      lastRun: () => lastBackupAt,
+      markRun: (when) async => _markBackupRun(when),
+    );
+    if (outcome.error != null) _log('Backup failed: ${outcome.error}');
+  }
+
   /// Clear the local profile + unpair the band (the former "sign out", now purely
   /// local — there is no session to end).
   Future<void> signOut() async {
@@ -1231,8 +1302,10 @@ class AppState extends ChangeNotifier {
       // Sleep hours from the day's bundle accounting (tst), for the body copy.
       String slept = '';
       try {
-        final payload = jsonDecode((row['payload_json'] ?? '{}').toString());
-        if (payload is Map) {
+        final payload = SeriesCodec.decodePayloadJson(
+          (row['payload_json'] ?? '{}').toString(),
+        );
+        if (payload != null) {
           final acct = ((payload['sleep'] as Map?)?['accounting'] as Map?);
           final tstSec = ((acct?['value'] as Map?)?['tst_sec'] as num?)
               ?.toDouble();
@@ -1593,6 +1666,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Re-derive after a nap edit. Same machinery as a sleep-override change —
+  /// nap minutes feed sleep need and sleep debt, so an edit is a recompute
+  /// rather than a redraw, and the engine force-includes nap-edit days even
+  /// when they are finalized.
+  Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
 
   Future<int> reanalyzeDays(Set<String> days) async {
     if (days.isEmpty || reanalyzing) return 0;
@@ -2011,7 +2090,7 @@ class AppState extends ChangeNotifier {
     // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
     // is preferred; full R10 (0x2B) is only a fallback when 0x33 isn't flowing.
     // Gen5 Maverick: live IMU is 0x2B (rec 0x15, 100 Hz planar) — see
-    // gen5_live_imu.dart. Once gen4 0x33 is seen we ignore 0x2B to avoid
+    // protocol's frameAccelForBand. Once gen4 0x33 is seen we ignore 0x2B to avoid
     // double-counting the same motion from two stream formats.
     if (pt == 0x33) {
       _imuStreamSeen = true;
@@ -2033,8 +2112,8 @@ class AppState extends ChangeNotifier {
   proto.ImuFrame? _safeFrameAccel(String hex) {
     try {
       // Gen5 Maverick live IMU is 0x2B; gen4 stays on frameAccel (0x33 / R10).
-      // See gen5_live_imu.dart — gen5 path abstains unless rec=0x15.
-      return frameAccelForBand(hex);
+      // protocol's gen5 path abstains unless the record is the IMU buffer.
+      return proto.frameAccelForBand(hex);
     } catch (_) {
       return null;
     }
@@ -3782,6 +3861,30 @@ class AppState extends ChangeNotifier {
   static const double breathingPacedHz = 1000.0 / 10900.0;
   static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
   bool breathingActive = false;
+
+  /// The pattern the running session is pacing to. Coherence is only computed
+  /// for a pattern that claims a resonance frequency — see
+  /// [BreathPattern.coherenceRated].
+  BreathPattern breathingPattern = kBreathPatterns.first;
+
+  /// When the running session started, for the persisted history row.
+  DateTime? _breathingStartedAt;
+
+  /// When the running session began, for a view that mounts mid-session.
+  DateTime? get breathingStartedAt => _breathingStartedAt;
+
+  /// What the running session was asked to run for, or null for an open one.
+  Duration? get breathingTarget => _breathingTarget;
+
+  /// What the session was SUPPOSED to run for, or null for an open one.
+  ///
+  /// Held because the banked duration is otherwise wall-clock: the screen's
+  /// ticker is muted while the app is suspended, so a two-minute session
+  /// backgrounded at 0:30 and resumed forty minutes later stopped on resume
+  /// and banked a forty-minute session, with a coherence score drawn mostly
+  /// from unpaced breathing. One backgrounded session would poison the trend
+  /// this history exists to build.
+  Duration? _breathingTarget;
   Map<String, dynamic>?
   breathingResult; // last {ok, ratio, score, peak_hz, n_beats, confidence, tier, note}
   String? breathingError;
@@ -3790,17 +3893,23 @@ class AppState extends ChangeNotifier {
   bool _breathingEnabledStreams = false;
 
   /// Begin a guided-breathing session. Requires a connected band.
-  Future<void> startBreathingSession() async {
+  Future<void> startBreathingSession({
+    BreathPattern? pattern,
+    Duration? target,
+  }) async {
     if (breathingActive) return;
     if (!isConnected) {
       breathingError = 'Connect your band first.';
       notifyListeners();
       return;
     }
+    breathingPattern = pattern ?? breathingPattern;
+    _breathingTarget = target;
     breathingActive = true;
     breathingResult = null;
     breathingError = null;
     _breathingFrames.clear();
+    _breathingStartedAt = DateTime.now();
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
@@ -3822,7 +3931,11 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  /// End the guided-breathing session.
+  /// End the guided-breathing session and bank it.
+  ///
+  /// A session shorter than a minute is NOT recorded. Opening the screen and
+  /// closing it again is not a breathing session, and a history full of
+  /// 4-second entries would bury the real ones.
   Future<void> stopBreathingSession() async {
     if (!breathingActive) return;
     _breathingRecomputeTimer?.cancel();
@@ -3830,7 +3943,73 @@ class AppState extends ChangeNotifier {
     breathingActive = false;
     _stopBreathingStreams();
     unawaited(BreathingLiveActivity.end());
+
+    final started = _breathingStartedAt;
+    final target = _breathingTarget;
+    _breathingStartedAt = null;
+    _breathingTarget = null;
+    if (started != null) {
+      final ended = DateTime.now();
+      var seconds = ended.difference(started).inSeconds;
+      // Clamped to what was asked for. Overshoot is always suspension, never
+      // extra breathing — the pacer stops the moment the app leaves the
+      // foreground, so any second past the target was spent doing something
+      // else.
+      if (target != null && seconds > target.inSeconds) {
+        seconds = target.inSeconds;
+      }
+      if (seconds >= 60) {
+        final res = breathingResult;
+        final scored = res != null && res['ok'] == true;
+        // Null unless the pattern is one a coherence score means something
+        // for AND the estimator actually produced one.
+        final rated = breathingPattern.coherenceRated && scored;
+        unawaited(
+          LocalDb.putBreathingSession(
+            startedAt: started.millisecondsSinceEpoch,
+            endedAt: ended.millisecondsSinceEpoch,
+            pattern: breathingPattern.key,
+            seconds: seconds,
+            coherence: rated ? (res['score'] as num?)?.toDouble() : null,
+            confidence: rated ? (res['confidence'] as num?)?.toDouble() : null,
+          ),
+        );
+      }
+    }
     notifyListeners();
+  }
+
+  /// Past sessions, newest first.
+  Future<List<Map<String, dynamic>>> breathingHistory({int limit = 30}) =>
+      LocalDb.breathingSessions(limit: limit);
+
+  /// Buzz the strap at a breathing or interval phase boundary.
+  ///
+  /// Distinct patterns per phase so the cue is legible without looking: a
+  /// longer buzz to breathe in, a shorter one to breathe out, a double for a
+  /// hold. Never throws and never awaits the caller — this fires from a frame
+  /// callback, and a momentary disconnect must not interrupt the session or
+  /// stall the animation.
+  void buzzBreathPhase(BreathPhaseKind kind) {
+    if (!isConnected) return;
+    final pattern = switch (kind) {
+      BreathPhaseKind.inhale || BreathPhaseKind.work => 1,
+      BreathPhaseKind.exhale || BreathPhaseKind.rest => 0,
+      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut => 2,
+    };
+    unawaited(engine.buzzPattern(pattern).catchError((_) {}));
+  }
+
+  /// The whole session is over, as opposed to one phase of it.
+  ///
+  /// Its own pattern rather than a repeat of the phase cue: repeated
+  /// `runHapticsPattern` frames serialize on the BLE write chain and arrive
+  /// milliseconds apart, re-triggering the firmware's haptic engine while it
+  /// is still playing — so N of them are felt as one, and the user cannot tell
+  /// "round over" from "session over".
+  void buzzSessionComplete() {
+    if (!isConnected) return;
+    unawaited(engine.buzzPattern(4).catchError((_) {}));
   }
 
   Future<void> _recomputeBreathingCoherence() async {
@@ -3840,7 +4019,10 @@ class AppState extends ChangeNotifier {
     try {
       final res = await repo!.breathingCoherence(
         frames,
-        pacedHz: breathingPacedHz,
+        // The pattern's own paced frequency, not a constant — box breathing at
+        // 3.75 breaths/min scored against a 5.5 breaths/min target would read
+        // as incoherent no matter how well it was done.
+        pacedHz: breathingPattern.pacedHz,
       );
       if (!breathingActive) return; // session ended while we awaited
       breathingResult = res;
@@ -3877,7 +4059,12 @@ class AppState extends ChangeNotifier {
   // no session is live or the type isn't route-eligible / permission denied.
   RouteTracker? _routeTracker;
   RouteTracker? get routeTracker => _routeTracker;
-  static const Set<String> _routeTypes = {'run', 'cycle', 'walk'};
+  // A hike is a walk that goes somewhere, so it records a route like one.
+  // Ski and snowboard are deliberately NOT here despite being outdoors: the
+  // route screen's hero numbers are distance and pace, and pace down a
+  // lift-served descent is not the same claim as pace on a walk — it would
+  // read as a performance figure while measuring gravity.
+  static const Set<String> _routeTypes = {'run', 'cycle', 'walk', 'hike'};
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -4035,7 +4222,9 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (!_routeTypes.contains(type)) return;
+    // Lowercased for the same reason every other type lookup is: the stored
+    // `type` column is free-form text and older rows carry mixed case.
+    if (!_routeTypes.contains(type.toLowerCase())) return;
     if (_routeTracker != null) return;
     routeLocationIssue = null;
     var perm = GpsPermissionStatus.error;
@@ -4226,7 +4415,10 @@ class AppState extends ChangeNotifier {
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
-    final finalKcal = w.calories.round();
+    // Nullable for the same reason `steps` below is: an unanchored profile
+    // means this session was never costed, and a 0 in the column reads as
+    // "burned nothing" rather than "not measured".
+    final finalKcal = w.caloriesOrNull;
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
     final wSteps = workoutStepsMeasured;
@@ -4241,7 +4433,7 @@ class AppState extends ChangeNotifier {
       'end_ts': endTs,
       'type': w.type,
       'status': 'done',
-      'calories': w.calories,
+      'calories': finalKcal,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
@@ -4264,7 +4456,11 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     notifyListeners();
-    _log('Live session ended. Burned $finalKcal kcal.');
+    _log(
+      finalKcal == null
+          ? 'Live session ended. No calorie anchors in the profile.'
+          : 'Live session ended. Burned $finalKcal kcal.',
+    );
     LiveActivity.end();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
@@ -4400,48 +4596,29 @@ class AppState extends ChangeNotifier {
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
 
-    if (w.currentHr > 0) {
-      // Calorie burn formula (estimate per second). Personalized from the LOCAL
-      // profile, with representative fallbacks (30y, 70kg, male) when unset.
-      final u = user ?? const {};
-      final age = (u['age'] as num?)?.toDouble() ?? 30.0;
-      final weight = (u['weight_kg'] as num?)?.toDouble() ?? 70.0;
-      final female = u['sex'] == 'f';
-
-      double kcalMin;
-      if (female) {
-        kcalMin =
-            (-20.4022 +
-                (0.4472 * w.currentHr) -
-                (0.1263 * weight) +
-                (0.074 * age)) /
-            4.184;
-      } else {
-        kcalMin =
-            (-55.0969 +
-                (0.6309 * w.currentHr) +
-                (0.1988 * weight) +
-                (0.2017 * age)) /
-            4.184;
-      }
-      // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
-      w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
-
-      // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
-      // from the session's per-minute HR through the one shared Banister ->
-      // log-squash path, so the live gauge, a manually logged session and the
-      // day's own strain all mean the same thing on the same 0–21 scale.
-    }
+    // Neither strain NOR calories is accrued here. `accrueHr` (called above)
+    // recomputes both from the session's per-minute HR through the one shared
+    // path each has — Banister -> log-squash for strain, and the published
+    // Keytel/Harris-Benedict rates behind `Calories.estimateBoutCalories` for
+    // kcal. So the live gauge, a manually logged session and the day's own
+    // figures all mean the same thing.
+    //
+    // Calories used to be billed HERE, per second, from an inline copy of
+    // Keytel with no activity gate and no resting floor. That copy charged the
+    // full active rate at any heart rate the band reported, so the number on
+    // the gauge did not survive the re-score of its own stream.
     // Push to the Live Activity at most ~every 4s (ActivityKit throttles; saves battery).
     if (DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
       _lastLaPush = DateTime.now();
       LiveActivity.update(
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
-        // The Live Activity widget has no absent state; the in-app gauge
-        // shows "—" when strain is null, this pushes 0.
-        strain: w.strain ?? 0,
-        calories: w.calories.round(),
+        // Absent stays absent. These used to be coerced to 0, so a new user
+        // with no profile anchors — the case where both correctly abstain and
+        // the in-app gauge shows "—" — got a confident "0 kcal" pushed to the
+        // lock screen for the whole session. Unmeasured is not zero.
+        strain: w.strain,
+        calories: w.caloriesOrNull,
         maxHr: _maxHr,
         rhr: _restingHr,
       );
@@ -4457,7 +4634,113 @@ class LiveWorkoutState {
   final String? workoutId; // local session id (for the breakdown on finish)
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
+
+  /// Live kcal for the bout so far. Zero here is ambiguous on its own — read
+  /// [caloriesOrNull] anywhere a user can see it.
+  ///
+  /// RECOMPUTED from the retained per-minute series on every sample, not
+  /// accrued. Same reason [strain] is: [restingHr] is loaded asynchronously and
+  /// can land after the session starts, and it sets the gate that decides
+  /// whether a minute is billed at the active or the resting rate. An
+  /// incremental tally could only ever have corrected the seconds after the
+  /// anchor arrived, leaving the earlier ones scored against a guess.
   double calories = 0.0;
+
+  /// Whether the calorie estimate has run even once this session.
+  ///
+  /// Separate from [Profile.hasCalorieAnchors] because "can we score this" and
+  /// "did we score this" are different questions and both have a zero-shaped
+  /// answer. A complete profile whose band never delivered a heart rate — the
+  /// link dropped, the strap was off — accrues nothing, and reporting that as
+  /// 0 kcal claims a measurement that was never taken. Strain already reports
+  /// that case as absent; this makes calories agree.
+  bool _caloriesScored = false;
+
+  /// Live kcal, or null when this session cannot be costed at all — the
+  /// profile lacks the anchors Keytel needs, no resting HR has arrived to set
+  /// the bout gate, or no heart rate ever landed. Absent beats fabricated, and
+  /// absent also beats a confident zero.
+  int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
+
+  /// Re-cost the bout so far. The only writer of [calories].
+  ///
+  /// Uses the SAME published rates, coefficients and activity gate as
+  /// `Calories.estimateBoutCalories`, which is what the substrate re-score and
+  /// every manually logged session run on — so the figure on the live gauge
+  /// survives its own re-score. It used to bill the raw Keytel active rate for
+  /// every second the band reported a heart rate, with no gate and no resting
+  /// floor, which roughly doubled the cost of warm-up, rest between sets and
+  /// cool-down against what the re-score would later say about the same stream.
+  ///
+  /// PER SAMPLE, not per minute. [_secondsByBpm] holds how many seconds the
+  /// bout spent at each whole-bpm value, so this reproduces
+  /// `estimateBoutCalories`'s sample-by-sample billing exactly while staying
+  /// O(distinct bpm) in memory instead of retaining every raw sample.
+  ///
+  /// It scored per MINUTE, off the mean of each minute, and that lost the two
+  /// things the re-score gets right:
+  ///
+  ///   * The gate is per sample there and was per minute-mean here. A minute
+  ///     that straddles the gate — 30 s at 93 and 30 s at 94 against a 93.76
+  ///     gate — billed as a whole resting minute (1.19 kcal) where the
+  ///     re-score bills half of it active (3.63). About 146 kcal adrift over a
+  ///     zone-2 hour, in a stream that never looks unusual.
+  ///   * The seconds were wrong. A completed minute billed a flat 60 s no
+  ///     matter how few samples backed it, and the minute in progress billed
+  ///     `_minuteCount`, a SAMPLE count used as a second count — 12 s instead
+  ///     of 60 at a 5 s notify rate.
+  void _scoreCalories() {
+    final rhr = restingHr;
+    final hrMax = profile.hrMaxTanaka;
+    // The re-score refuses to invent a 220/60 anchor pair, so neither does
+    // this. A resting HR landing later re-scores the whole bout.
+    if (!profile.hasCalorieAnchors || rhr == null || hrMax == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
+    if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
+
+    final age = profile.ageYears!.toDouble();
+    final weightKg = profile.weightKg!;
+    final coeffs = ana.Calories.resolveCoeffs(workoutSex(profile.sex));
+    // Height is not a Keytel term; it only moves the Harris-Benedict resting
+    // floor. Defaulted to match `computeManualSessionStats`, so the two paths
+    // cannot disagree for a profile that carries no height.
+    final heightCm = profile.heightCm ?? 170.0;
+    final gate = rhr + ana.Calories.activeHRRFraction * (hrMax - rhr);
+    final restingRate =
+        ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
+
+    var kcal = 0.0;
+    void bill(int bpm, double seconds) {
+      final rate = bpm < gate
+          ? restingRate
+          : ana.Calories.activeKcalPerS(
+              coeffs,
+              bpm.toDouble(),
+              hrMax,
+              weightKg,
+              age,
+            );
+      kcal += rate * seconds;
+    }
+
+    _secondsByBpm.forEach(bill);
+    // The newest sample has no successor yet, so its own duration is unknown.
+    // `estimateBoutCalories` gives the final sample one representative second;
+    // matching that is what keeps the gauge and the re-score equal at every
+    // instant rather than only at the end.
+    final trailing = _lastSampleHr;
+    if (trailing != null) bill(trailing, 1.0);
+
+    calories = kcal;
+    _caloriesScored = true;
+  }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
   /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it
@@ -4522,6 +4805,36 @@ class LiveWorkoutState {
         if (_minuteCount > 0) _minuteSum / _minuteCount,
       ];
 
+  /// Seconds the bout has spent at each whole-bpm value — the calorie series.
+  ///
+  /// Deliberately NOT the per-minute means above. `estimateBoutCalories`, which
+  /// the substrate re-score and every manually logged session run on, decides
+  /// active-vs-resting per SAMPLE and weights each sample by the elapsed time to
+  /// the next one. A per-minute mean cannot express either: it collapses a
+  /// minute that straddles the activity gate onto one side of it, and it has no
+  /// idea how many seconds actually backed the samples in it.
+  ///
+  /// A histogram rather than a sample list because heart rate is a small
+  /// integer — this is bounded at a couple of hundred entries for a bout of any
+  /// length, while retaining raw 1 Hz samples is not.
+  final Map<int, double> _secondsByBpm = {};
+
+  /// The most recent accepted sample, still unbilled: its duration is the time
+  /// until the NEXT sample, which has not arrived. Also what makes a gap in the
+  /// stream bill correctly — the sample before a contact-loss gap is charged
+  /// for the gap, capped, exactly as the re-score charges it.
+  int? _lastSampleHr;
+  double? _lastSampleSec;
+
+  /// A stream that stops for longer than this stopped being one bout; billing
+  /// the pre-gap heart rate across an hour of no data would invent the hour.
+  ///
+  /// Taken from the analytics constant rather than restated, because the whole
+  /// point of this scoring path is that it gives up at the same instant the
+  /// re-score of the same stream does. A second literal 150.0 here would agree
+  /// today and diverge silently the day the published cap moved.
+  static const double _gapCapS = ana.Calories.defaultMergeGapCapS;
+
   LiveWorkoutState({
     required this.startTime,
     required this.targetKcal,
@@ -4532,12 +4845,33 @@ class LiveWorkoutState {
     this.restingHr,
   }) : _hrPeak = RollingMaxHr(age: age);
 
-  /// Feed a live 1 Hz HR sample; updates the spike-suppressed [maxHrSeen], the
-  /// per-minute accumulator, and the Banister strain derived from it.
+  /// Feed a live HR sample; updates the spike-suppressed [maxHrSeen], the
+  /// per-minute accumulator behind strain, the per-bpm second counts behind
+  /// calories, and both derived figures.
+  ///
+  /// A non-positive reading is off-skin, not a heart rate, so it is dropped —
+  /// but the time it covers is NOT thrown away. It is billed to the last real
+  /// sample when the next one arrives, capped at [_gapCapS], which is what
+  /// `estimateBoutCalories` does with the same gap once the zeros have been
+  /// filtered out of the stream it re-scores.
   void accrueHr(int hr) {
     if (hr <= 0) return;
     _hrPeak.add(hr);
     if (_hrPeak.max > maxHrSeen) maxHrSeen = _hrPeak.max;
+
+    // Close out the previous sample: its duration is the time until this one.
+    // Sub-second and out-of-order arrivals fall back to one second, matching
+    // `estimateBoutCalories`'s handling of a non-positive gap.
+    final nowSec = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    final prevHr = _lastSampleHr;
+    final prevSec = _lastSampleSec;
+    if (prevHr != null && prevSec != null) {
+      final gap = nowSec - prevSec;
+      final dur = gap > 0 ? math.min(gap, _gapCapS) : 1.0;
+      _secondsByBpm[prevHr] = (_secondsByBpm[prevHr] ?? 0) + dur;
+    }
+    _lastSampleHr = hr;
+    _lastSampleSec = nowSec;
 
     // Fold into the current minute, measured from the session start so the
     // buckets are the session's own minutes rather than wall-clock ones.
@@ -4559,5 +4893,10 @@ class LiveWorkoutState {
       profile: profile,
       restingHr: restingHr,
     );
+
+    // Calories re-score off the same series, through the same estimator the
+    // substrate re-score uses, so both live figures on the gauge mean the same
+    // thing the finished session will.
+    _scoreCalories();
   }
 }

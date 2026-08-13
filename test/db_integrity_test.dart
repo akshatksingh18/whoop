@@ -1,12 +1,10 @@
 // DB integrity regressions, run against the REAL LocalDb over sqflite_ffi:
 //
-//  1. decoded_rr ORPHAN GUARD — a post-reboot rec_ts collision (two counters,
-//     one second) must not strand the evicted counter's RR beats under a
-//     counter with no decoded_onehz row (the counter-joined prune can never
-//     select those → permanent leak, and the loser's extra beat indexes would
-//     survive the winner's UNIQUE(rr_ts_ms, beat_index) REPLACE).
-//  2. prune ORPHAN SWEEP — pre-existing orphans (written by pre-guard builds)
-//     are cleaned by pruneRawBeforeRecTs once their window is pruned.
+//  1. decoded_rr REC_TS KEY — a post-reboot rec_ts collision (two counters, one
+//     second) keeps exactly the winner's beats; the write path DELETEs the
+//     second's beats before reinserting, so a shrinking beat count strands none.
+//  2. prune BY REC_TS — pruneDecodedBeforeRecTs deletes decoded_rr by its rec_ts
+//     key (no counter subquery, no orphan sweep) and keeps recent beats.
 //  3. importFromDbFile FINALIZED protection — a foreign export never overwrites
 //     a locally-finalized (day_id, algo_version) day_result row; non-finalized
 //     rows keep the merge-REPLACE behavior.
@@ -62,14 +60,13 @@ void main() {
     expect(health['ok'], isTrue, reason: '$health');
   });
 
-  test('rec_ts collision leaves no orphaned decoded_rr beats', () async {
+  test('rec_ts collision leaves exactly the winner\'s beats', () async {
     const ts = 1780000000;
-    // Pre-reboot record: high counter, THREE beats.
+    // Two records for the SAME second, different counters (a reboot straddle).
+    // THREE beats then TWO. REPLACE on the rec_ts key keeps the newest row; the
+    // write path DELETEs the second's beats before reinserting, so no stale
+    // high-index beat survives.
     await LocalDb.insertRecord(_raw(ts, 100), _sample(ts, 100, [800, 810, 820]));
-    // Post-reboot record for the SAME second: counter reset low, TWO beats.
-    // REPLACE on UNIQUE(rec_ts) evicts counter 100's decoded_onehz row; without
-    // the guard its beats (incl. beat_index 2, which the winner's two-beat
-    // REPLACE never touches) would be orphaned forever.
     await LocalDb.insertRecord(_raw(ts, 5), _sample(ts, 5, [900, 910]));
 
     final db = await LocalDb.instance;
@@ -77,30 +74,30 @@ void main() {
     expect(onehz.length, 1);
     expect(onehz.first['counter'], 5); // newest-wins
 
-    // No RR beats survive under the evicted counter…
-    final loserBeats =
-        await db.query('decoded_rr', where: 'counter = ?', whereArgs: [100]);
-    expect(loserBeats, isEmpty);
-    // …and globally: zero orphans (every beat's counter owns a decoded row).
+    // Only the winner's two beats remain, keyed by rec_ts.
+    final beats = await db.query('decoded_rr',
+        where: 'rec_ts = ?', whereArgs: [ts], orderBy: 'beat_index ASC');
+    expect([for (final b in beats) b['rr_ms']], [900, 910]);
+
+    // Globally: zero orphans (every beat's rec_ts owns a decoded row).
     final orphans = await db.rawQuery(
       'SELECT COUNT(*) c FROM decoded_rr '
-      'WHERE counter NOT IN (SELECT counter FROM decoded_onehz)',
+      'WHERE rec_ts NOT IN (SELECT rec_ts FROM decoded_onehz)',
     );
     expect(orphans.first['c'], 0);
 
-    // The RR read path (decodedRrByCounterRange, joined to frames by counter in
-    // derive_prepare.addDecodedPage) sees ONLY the winner's beats.
-    final rr = await LocalDb.decodedRrByCounterRange(fromCounter: 0, toCounter: 1 << 30);
+    // The RR read path sees ONLY the winner's beats.
+    final rr = await LocalDb.decodedRrByRecTsRange(fromRecTs: ts, toRecTs: ts);
     expect([for (final r in rr) r['rr_ms']], [900, 910]);
-    expect({for (final r in rr) r['counter']}, {5});
   });
 
-  test('prune sweeps pre-existing decoded_rr orphans', () async {
+  test('prune deletes decoded_rr by rec_ts, keeps recent beats', () async {
     const oldTs = 1700000000; // strictly before the cutoff below
     final db = await LocalDb.instance;
-    // Simulate a pre-guard leak: an RR beat whose counter has no decoded row.
+    // An old beat (its owning row absent — e.g. a leftover) is still deleted by
+    // the plain rec_ts-range prune; no counter subquery, no orphan sweep needed.
     await db.insert('decoded_rr', {
-      'counter': 999999,
+      'rec_ts': oldTs,
       'beat_index': 0,
       'rr_ts_ms': oldTs * 1000,
       'rr_ms': 850,
@@ -111,9 +108,9 @@ void main() {
 
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(oldTs + 1000);
 
-    final orphan = await db.query('decoded_rr', where: 'counter = ?', whereArgs: [999999]);
-    expect(orphan, isEmpty, reason: 'orphan sweep must clean the leaked beat');
-    final kept = await db.query('decoded_rr', where: 'counter = ?', whereArgs: [7]);
+    final old = await db.query('decoded_rr', where: 'rec_ts = ?', whereArgs: [oldTs]);
+    expect(old, isEmpty, reason: 'the pruned window\'s beats must be deleted');
+    final kept = await db.query('decoded_rr', where: 'rec_ts = ?', whereArgs: [keepTs]);
     expect(kept.length, 1);
     // used to always come back 0 even when rows genuinely got pruned - none
     // of the txn.delete() counts were ever added up.

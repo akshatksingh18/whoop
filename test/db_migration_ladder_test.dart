@@ -21,6 +21,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/journal_fields.dart';
+import 'package:openstrap_edge/data/models.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -44,6 +46,29 @@ const _v6RawDdl = '''
     uploaded INTEGER NOT NULL DEFAULT 0
   )
 ''';
+
+/// The origin/main (pre-v33) COUNTER-keyed decoded store, exactly as a user who
+/// installed at v19..31 has it — and by then raw_records is already DROPPED, so
+/// the v33 rekey is the ONLY copy of their 1 Hz data (no raw-backfill safety
+/// net). This is the highest-risk path the re-key touches.
+const _counterKeyedDecodedDdl = [
+  '''
+  CREATE TABLE decoded_onehz (
+    counter INTEGER PRIMARY KEY, rec_ts INTEGER NOT NULL,
+    hr INTEGER NOT NULL, ax REAL NOT NULL, ay REAL NOT NULL, az REAL NOT NULL,
+    spo2_red_raw INTEGER NOT NULL, spo2_ir_raw INTEGER NOT NULL,
+    skin_temp_raw INTEGER NOT NULL)
+''',
+  'CREATE UNIQUE INDEX idx_decoded_onehz_rec_ts_unique ON decoded_onehz(rec_ts)',
+  '''
+  CREATE TABLE decoded_rr (
+    counter INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+    rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+    PRIMARY KEY (counter, beat_index))
+''',
+  'CREATE UNIQUE INDEX idx_decoded_rr_ts_beat_unique '
+      'ON decoded_rr(rr_ts_ms, beat_index)',
+];
 
 /// The v5-era derived tables, so step 9's derived_day → day_result copy is real.
 const _v5DerivedDdl = [
@@ -291,6 +316,295 @@ void main() {
         ),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'upgrade from v27 adds the numeric journal tables without touching the '
+    'tags and note already stored for a day',
+    () async {
+      const name = 'migrate_from_v27_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        27,
+        [
+          ..._v5DerivedDdl,
+          "CREATE TABLE journal (date TEXT PRIMARY KEY, "
+              "tags_json TEXT NOT NULL DEFAULT '[]', "
+              "note TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
+        ],
+        seedRows: (db) async {
+          await db.insert('journal', {
+            'date': '2026-06-01',
+            'tags_json': '["caffeine","late meal"]',
+            'note': 'felt rough',
+            'updated_at': 1,
+          });
+        },
+      );
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      // The upgrade is purely additive: a day that only ever had tags keeps
+      // them, and simply has no numeric rows.
+      final rows = await LocalDb.journalRows();
+      expect(rows.single['tags_json'], '["caffeine","late meal"]');
+      expect(rows.single['note'], 'felt rough');
+      expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
+
+      // And the new tables are usable immediately, not on the next launch.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect(await LocalDb.journalFieldDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+
+  test(
+    'upgrade from v27 creates the lab tables and they accept a write '
+    'immediately, not on the next launch',
+    () async {
+      const name = 'migrate_from_v27_labs_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect(await LocalDb.labMarkerDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'upgrade from v27 runs the whole ladder to 31 and every new table works',
+    () async {
+      const name = 'migrate_from_v27_to_31_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // Each rung's table, exercised rather than merely present — a CREATE
+      // that ran with a typo still leaves a table that nothing can write to.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      await LocalDb.putBreathingSession(
+        startedAt: 1000,
+        endedAt: 2000,
+        pattern: 'resonance',
+        seconds: 120,
+      );
+      await LocalDb.putNapEdit(
+        dayId: '2026-06-01',
+        startTs: 1000,
+        endTs: 4600,
+        source: 'manual',
+      );
+
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
+      expect(await LocalDb.napEditDays(), {'2026-06-01'});
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v33 re-key converts a v31 COUNTER-keyed decoded store to rec_ts LOSSLESSLY '
+    '— raw_records is already dropped, so the rekey is the only copy',
+    () async {
+      const name = 'migrate_from_v31_counterkeyed_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        31,
+        [..._counterKeyedDecodedDdl, ..._v5DerivedDdl],
+        seedRows: (db) async {
+          // Three distinct seconds, distinct counters (valid old-schema data).
+          for (final r in const [
+            [100, 1785000000, 60],
+            [101, 1785000001, 61],
+            [102, 1785000002, 62],
+          ]) {
+            await db.insert('decoded_onehz', {
+              'counter': r[0], 'rec_ts': r[1], 'hr': r[2],
+              'ax': 0.0, 'ay': 0.0, 'az': 0.0,
+              'spo2_red_raw': 0, 'spo2_ir_raw': 0, 'skin_temp_raw': 0,
+            });
+          }
+          // Beats under counter 100 (two) and 102 (one).
+          await db.insert('decoded_rr', {
+            'counter': 100, 'beat_index': 0,
+            'rr_ts_ms': 1785000000 * 1000, 'rr_ms': 800,
+          });
+          await db.insert('decoded_rr', {
+            'counter': 100, 'beat_index': 1,
+            'rr_ts_ms': 1785000000 * 1000, 'rr_ms': 810,
+          });
+          await db.insert('decoded_rr', {
+            'counter': 102, 'beat_index': 0,
+            'rr_ts_ms': 1785000002 * 1000, 'rr_ms': 900,
+          });
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      // Every second survives; counter is preserved as the forensic column.
+      final oh = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in oh) r['rec_ts']],
+          [1785000000, 1785000001, 1785000002]);
+      expect([for (final r in oh) r['counter']], [100, 101, 102]);
+      // PK is now rec_ts, not counter.
+      final ohInfo = await db.rawQuery('PRAGMA table_info(decoded_onehz)');
+      expect(ohInfo.firstWhere((c) => c['name'] == 'rec_ts')['pk'], 1);
+      expect(ohInfo.firstWhere((c) => c['name'] == 'counter')['pk'], 0);
+
+      // Beats re-home onto their real second; decoded_rr loses its counter col.
+      final rr =
+          await db.query('decoded_rr', orderBy: 'rec_ts ASC, beat_index ASC');
+      expect([for (final r in rr) r['rec_ts']],
+          [1785000000, 1785000000, 1785000002]);
+      expect([for (final r in rr) r['rr_ms']], [800, 810, 900]);
+      final rrInfo = await db.rawQuery('PRAGMA table_info(decoded_rr)');
+      expect(rrInfo.any((c) => c['name'] == 'counter'), isFalse);
+
+      // No stranded beats, no cross-stamped timestamps, no leaked temp tables.
+      expect(
+        (await db.rawQuery(
+          'SELECT COUNT(*) c FROM decoded_rr WHERE rr_ts_ms != rec_ts * 1000',
+        )).first['c'],
+        0,
+      );
+      expect(
+        await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE name LIKE '%\\_v33' ESCAPE '\\' "
+          "OR name LIKE '%\\_new' ESCAPE '\\'",
+        ),
+        isEmpty,
+      );
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v31→v32 re-keys raw_archive off the volatile counter onto frame hex '
+    'without losing a distinct frame, collapsing only exact-duplicate hex',
+    () async {
+      const name = 'migrate_from_v31_rawarchive_test.db';
+      created.add(name);
+      // The pre-v32 raw_archive shape: keyed by the strap counter, which resets
+      // to ~0 on reboot — so a post-reboot frame reusing a live counter was
+      // silently IGNORE-dropped in the one table meant to never lose a frame.
+      await _seedOldDb(
+        name,
+        31,
+        const [
+          '''
+          CREATE TABLE raw_archive (
+            counter INTEGER PRIMARY KEY,
+            hex TEXT NOT NULL,
+            packet_type INTEGER NOT NULL,
+            rec_ts INTEGER,
+            captured_at INTEGER NOT NULL,
+            reason TEXT NOT NULL
+          )
+          ''',
+          'CREATE INDEX idx_raw_archive_captured ON raw_archive(captured_at DESC)',
+        ],
+        seedRows: (db) async {
+          Future<void> row(int counter, String hex) => db.insert('raw_archive', {
+                'counter': counter,
+                'hex': hex,
+                'packet_type': 0x2F,
+                'captured_at': 1750000000000 + counter,
+                'reason': 'undecodable_rec_v99',
+              });
+          // Three distinct frames (distinct counter AND hex) — none may be lost.
+          await row(1, 'aa01');
+          await row(2, 'bb02');
+          await row(3, 'cc03');
+          // Two rows the OLD counter-PK allowed but that carry IDENTICAL bytes;
+          // the content re-key must collapse them to one (the dedup we want).
+          await row(10, 'ff06');
+          await row(11, 'ff06');
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // 5 old rows → 4: the three distinct frames survive, the duplicate-hex
+      // pair collapses to one. Nothing distinct was lost.
+      final stats = await LocalDb.rawArchiveStats();
+      expect(stats['count'], 4);
+
+      // The migrated table is now hex-PK, proven end-to-end through the REAL
+      // ladder (not just a fresh onCreate): two DISTINCT frames that reuse ONE
+      // counter both survive — the exact loss the old counter-PK caused.
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 1, // reuses a counter already present from the seed
+        hex: 'dd04',
+        packetType: 0x2F,
+        capturedAt: 1750000500000,
+        reason: 'undecodable_post_reboot',
+      ));
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 1, // SAME counter, DIFFERENT bytes
+        hex: 'ee05',
+        packetType: 0x2F,
+        capturedAt: 1750000600000,
+        reason: 'undecodable_post_reboot',
+      ));
+      expect((await LocalDb.rawArchiveStats())['count'], 6);
+
+      // …and an identical re-flood still dedups on content.
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 999, // different counter, but bytes already archived
+        hex: 'dd04',
+        packetType: 0x2F,
+        capturedAt: 1750000700000,
+        reason: 'undecodable_post_reboot',
+      ));
+      expect((await LocalDb.rawArchiveStats())['count'], 6);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
     },
   );
 }

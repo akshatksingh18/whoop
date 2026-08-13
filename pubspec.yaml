@@ -48,15 +48,16 @@ dependencies:
       # activity/steps_inc null-instead-of-0 fix. Edge does not read the latter
       # two fields, so only the RR bound is behaviour-visible here.
       # Verified present: `git show <sha>:lib/src/live.dart | grep -c kMinRrMs`.
-      # protocol @ #28: cmd_response now surfaces the echoed request seq
-      # (`req_seq`, inner[3]), so _readClock can tell its own GET_CLOCK reply
-      # from setClock's read-back and the keep-alive poll. Branched off the SHA
-      # below rather than protocol main, so this pin moves by exactly that one
-      # change and picks up none of the v18/v26/gen5 work sitting on main.
-      #
-      # Verified against the SHA:
-      #   `git show cfbf6ab:lib/src/control.dart | grep req_seq`
-      ref: cfbf6abd5ea88f211cc2f9f95dc55cb6ed70f56a
+      # DELIBERATELY NOT MOVED for the clock-gate work in this PR. Correlating
+      # a GET_CLOCK reply to its own request needs the echoed request seq
+      # surfaced (OpenStrap/protocol#28), and the only in-convention way to pin
+      # that is a merge commit on protocol main — which now also carries the
+      # gen5/multiband surface (gen5_records.dart, the frame-revision changes
+      # in framing.dart, new dangerousCmds entries). Adopting ~1850 lines of
+      # that as a side effect of a one-field addition is the pin drift that
+      # shipped the v42 ANRs. _readClock degrades to accepting any fresh
+      # clock_epoch, which is what it did before the correlation existed.
+      ref: 7edcb3e377329968118c62cb03a81d95e2f6db8e
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

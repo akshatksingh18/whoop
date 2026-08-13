@@ -263,7 +263,10 @@ dev_dependencies:
   # ack_commit_sync_full_test wraps the ffi factory in SqfliteDatabaseFactoryLogger
   # to spy the PRAGMA synchronous=FULL/NORMAL bracket around the ACK-gating commit
   # (transitive via sqflite_common_ffi; declared directly since test/ now imports it).
-  sqflite_common: ^2.5.0
+  # PINNED, not a caret range: that constructor is @experimental upstream, so a
+  # minor bump is allowed to change or withdraw it and would break the test on
+  # someone else's `pub upgrade` rather than on a deliberate one here.
+  sqflite_common: 2.5.8
 
 flutter_launcher_icons:
   android: "launcher_icon"

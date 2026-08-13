@@ -47,18 +47,18 @@ void main() {
       'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE rec_ts BETWEEN 1 AND 9 '
       'ORDER BY rec_ts ASC, beat_index ASC',
     )).map((r) => r['detail'].toString()).join(' | ');
+    // Assert the SHAPE of the plan, not its wording. `sqlite_autoindex_
+    // decoded_rr_1` is an internal name SQLite is free to change, and the
+    // property under test is only "seek, don't scan, and don't sort" — which
+    // SEARCH + no temp b-tree says on every version.
+    final plan = detail.toUpperCase();
     expect(
-      detail.toUpperCase(),
-      contains('USING'),
+      plan,
+      contains('SEARCH'),
       reason: 'planner fell back to a full scan: $detail',
     );
     expect(
-      detail,
-      contains('sqlite_autoindex_decoded_rr_1'),
-      reason: 'expected the primary key auto-index: $detail',
-    );
-    expect(
-      detail.toUpperCase(),
+      plan,
       isNot(contains('USE TEMP B-TREE')),
       reason: 'ordering should come from the PK: $detail',
     );

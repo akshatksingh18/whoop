@@ -393,8 +393,12 @@ void main() {
         }
       }
 
-      // Same second as local, fully overwriting its 3 beats; plus a new second.
-      await foreign(8001, collideTs, [500, 505, 510]);
+      // Same second as local, but with FEWER beats than the 3 already stored.
+      // An equal-or-larger foreign set hides the bug: every local beat_index
+      // gets overwritten and a row-by-row replace-insert looks correct. Only a
+      // shrinking set exposes the stale local tail (beats 1 and 2) that a
+      // merge-without-clear leaves spliced onto the foreign series.
+      await foreign(8001, collideTs, [500]);
       await foreign(9999, t3, [400]);
       await src.close();
 
@@ -408,10 +412,13 @@ void main() {
       expect(collided['counter'], 8001, reason: 'foreign row won');
       expect(collided['hr'], 61);
 
-      // The collided second's beats are the foreign set (no stale local beat).
+      // The collided second's beats are EXACTLY the foreign set. Not a merge:
+      // the local [700, 710, 720] must be gone, tail included.
       final b1 = await db.query('decoded_rr',
           where: 'rec_ts = ?', whereArgs: [collideTs], orderBy: 'beat_index ASC');
-      expect([for (final b in b1) b['rr_ms']], [500, 505, 510]);
+      expect([for (final b in b1) b['rr_ms']], [500],
+          reason: 'stale local beats 1-2 would splice a foreign/local RR '
+              'series into one second and silently corrupt its RMSSD');
       // The foreign-only second imported with rec_ts derived from rr_ts_ms.
       final b3 = await db.query('decoded_rr',
           where: 'rec_ts = ?', whereArgs: [t3]);

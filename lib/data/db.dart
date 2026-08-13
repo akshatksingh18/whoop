@@ -2537,7 +2537,16 @@ class LocalDb {
   static int _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) return 0;
-    final recTs = raw.recTs ?? decoded.tsEpoch;
+    // `??` substitutes on NULL only, and `rec_ts` is the primary key now. The
+    // legacy `raw_records.rec_ts` column is `NOT NULL DEFAULT 0`, so every
+    // undated row [_backfillDecodedStore] replays arrives here as an explicit
+    // 0 — which under the old counter PK coexisted harmlessly and under this
+    // one REPLACE-evicts all the others down to a single row. Same `> 0`
+    // fallback [_recTsFor] uses (inlined: `decoded` already carries the
+    // timestamp, so going through it would re-decode the hex for nothing).
+    final rawRecTs = raw.recTs;
+    final recTs =
+        (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
     // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
@@ -4026,6 +4035,7 @@ class LocalDb {
               ops = 0;
             }
 
+            final rows = <Map<String, Object?>>[];
             for (final r in page) {
               final row = <String, Object?>{
                 for (final e in r.entries)
@@ -4038,18 +4048,58 @@ class LocalDb {
                   )) {
                 continue; // locally finalized — never overwritten by an import
               }
-              // Both decoded tables are now keyed by rec_ts, so a plain
-              // replace-insert merges cleanly (foreign-wins on a rec_ts
-              // collision) — no orphan guard needed. A LEGACY export's
-              // decoded_rr carries no rec_ts column; derive it from rr_ts_ms
-              // (= rec_ts*1000) so the NOT NULL PK column is always populated.
-              if (t == 'decoded_rr' &&
-                  row['rec_ts'] == null &&
-                  row['rr_ts_ms'] != null) {
-                row['rec_ts'] = ((row['rr_ts_ms'] as num).toInt()) ~/ 1000;
+              // A LEGACY export's decoded_rr carries no rec_ts column; derive
+              // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
+              // always populated. SQLite storage classes are per VALUE, not per
+              // column, so a foreign export can hand back a String where
+              // INTEGER is declared — a bare `as num` there throws inside the
+              // transaction and takes the whole restore down with it. Leave a
+              // non-numeric value alone and let the row fail its own NOT NULL
+              // check instead of aborting every other row's import.
+              if (t == 'decoded_rr' && row['rec_ts'] == null) {
+                final rrTsMs = row['rr_ts_ms'];
+                if (rrTsMs is num) row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
               }
+              rows.add(row);
+            }
+            // REPLACE the beat set for a colliding second, don't patch it.
+            // decoded_rr is keyed by (rec_ts, beat_index), so a row-by-row
+            // replace-insert only overwrites the indices the foreign export
+            // actually reaches: importing [500] over a local [700, 710, 720]
+            // leaves beats 1 and 2 behind and hands that second a spliced
+            // foreign/local RR series — silently wrong RMSSD, out of a restore.
+            // [_queueDecodedOneHz] guards the identical hazard on the write
+            // path with a DELETE ahead of its inserts.
+            //
+            // Here the delete has to TRAIL the inserts and be bounded by the
+            // highest index this page carried, because a second's beats can
+            // straddle a page boundary: a leading `DELETE WHERE rec_ts = ?` on
+            // page 2 would wipe the beats page 1 just imported. Trailing +
+            // bounded is idempotent across the split — page 1 inserts 0,1 and
+            // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
+            // dense by construction, so "everything past the last one" is
+            // exactly the stale local tail.
+            final highestBeat = <Object, int>{};
+            for (final row in rows) {
               batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
               copied++;
+              if (t == 'decoded_rr') {
+                final recTs = row['rec_ts'];
+                final idx = row['beat_index'];
+                if (recTs != null && idx is num) {
+                  final n = idx.toInt();
+                  final prev = highestBeat[recTs];
+                  if (prev == null || n > prev) highestBeat[recTs] = n;
+                }
+              }
+              if (++ops >= chunkOps) await flush();
+            }
+            for (final e in highestBeat.entries) {
+              batch.delete(
+                'decoded_rr',
+                where: 'rec_ts = ? AND beat_index > ?',
+                whereArgs: [e.key, e.value],
+              );
               if (++ops >= chunkOps) await flush();
             }
             await flush();

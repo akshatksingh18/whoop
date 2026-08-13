@@ -1449,13 +1449,21 @@ class BleEngine {
       await _readClock();
       if (_session != session || !session.connected) {
         _log('link dropped during the clock read — abandoning setup.');
-        await _failConnect();
+        // Tear down ONLY if we are still the live session. `_failConnect`
+        // teardown+band-release act on whatever `_session` currently points
+        // at, so a newer `_doConnect` that already took over would have its
+        // link killed and its band claim dropped by this stale invocation.
+        if (identical(_session, session)) await _failConnect();
         return false;
       }
       if (!_deferForClock) await setClock();
       if (_session != session || !session.connected) {
         _log('link dropped during SET_CLOCK — abandoning setup.');
-        await _failConnect();
+        // Tear down ONLY if we are still the live session. `_failConnect`
+        // teardown+band-release act on whatever `_session` currently points
+        // at, so a newer `_doConnect` that already took over would have its
+        // link killed and its band claim dropped by this stale invocation.
+        if (identical(_session, session)) await _failConnect();
         return false;
       }
       _lastClockVerifyAt = DateTime.now();

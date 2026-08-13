@@ -79,18 +79,32 @@ void main() {
     });
 
     test('stops deferring once the disagreement outlives the grace window', () {
-      final t0 = DateTime(2026, 8, 12, 9);
+      // MONOTONIC seconds — an arbitrary stopwatch origin, not an epoch.
+      const t0 = 1234.0;
+      const hour = 3600.0;
       expect(ClockPolicy.suspectGraceExpired(null, t0), isFalse);
       expect(ClockPolicy.suspectGraceExpired(t0, t0), isFalse);
       // a slow phone re-syncs over NTP well inside this
-      expect(
-          ClockPolicy.suspectGraceExpired(t0, t0.add(const Duration(hours: 1))),
-          isFalse);
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + hour), isFalse);
       // still disagreeing after the window => the strap rtc is the fast one,
       // so history must stop deferring instead of stalling forever
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + 13 * hour), isTrue);
+    });
+
+    test('a forward wall-clock jump cannot expire the grace window early', () {
+      // The regression: the window used to be measured with DateTime.now(), so
+      // the phone stepping its clock forward — the very event this state is
+      // waiting on, and one that can leave it STILL more than a day behind the
+      // strap — aged the suspicion instantly and re-authorised the
+      // drain-and-trim. Read monotonically, a wall jump is simply invisible:
+      // only real elapsed time moves this forward.
+      const startedAt = 500.0;
+      const aMinuteOfRealTimeLater = 560.0; // wall may have jumped days
       expect(
-          ClockPolicy.suspectGraceExpired(t0, t0.add(const Duration(hours: 13))),
-          isTrue);
+        ClockPolicy.suspectGraceExpired(startedAt, aMinuteOfRealTimeLater),
+        isFalse,
+        reason: 'a minute of real time is a minute, whatever the wall says',
+      );
     });
 
     test('flags a slow PHONE clock: a plausible strap RTC > 1d in the future', () {

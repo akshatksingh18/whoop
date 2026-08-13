@@ -687,6 +687,15 @@ class BleEngine {
   @visibleForTesting
   void debugBeginConnectSetup() => _connectSetup = true;
 
+  /// Feed a decoded control frame straight into the state absorber.
+  ///
+  /// The response-driven clock policy (trust verdict, bounded SET_CLOCK
+  /// re-issue) lives on the far side of a real radio, so without this the only
+  /// coverage possible was of the pure [ClockPolicy] predicates — never of the
+  /// engine wiring that decides whether to act on them.
+  @visibleForTesting
+  void debugAbsorbDecoded(Decoded d) => _absorbState(d);
+
   /// Told by AppState on every foreground/background transition. Drives the
   /// connection interval — see [desiredLinkPriority].
   void setBackground(bool value) {
@@ -852,15 +861,26 @@ class BleEngine {
   // history offload is DEFERRED (not drained-and-trimmed) until the clocks agree.
   // See ClockPolicy.phoneClockSuspect and _startHistoricalRefresh.
   bool _phoneClockSuspect = false;
-  DateTime? _phoneClockSuspectSince;
+  /// MONOTONIC seconds ([_monotonicSecs]) at which the suspicion started — not a
+  /// wall `DateTime`. The whole point of this state is that the wall clock is
+  /// not trusted: timing the grace window off `DateTime.now()` lets the very
+  /// jump we are waiting for (the phone stepping forward over NTP, possibly
+  /// still >1 day behind the strap) expire the window instantly and hand back
+  /// permission to drain-and-trim under a clock we still don't trust.
+  double? _phoneClockSuspectSince;
   bool get historyPausedForClock => _deferForClock;
   /// Defer history only while the disagreement is still young. A slow phone
   /// re-syncs over NTP in minutes; one that persists past the grace window is a
   /// strap RTC running fast, and deferring forever would stall sync for good.
   bool get _deferForClock =>
       _phoneClockSuspect &&
-      !ClockPolicy.suspectGraceExpired(_phoneClockSuspectSince, DateTime.now());
+      !ClockPolicy.suspectGraceExpired(
+          _phoneClockSuspectSince, _monotonicSecs());
   int _clockPausedOffloads = 0; // diagnostics: offloads deferred for this reason
+  /// Completes when the `clock_epoch` for the GET_CLOCK issued by [_readClock]
+  /// has been absorbed, so the clock gates read THIS session's verdict instead
+  /// of whatever the last connection left behind.
+  Completer<void>? _clockReadPending;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   // Run-state for a chain of auto-continued offload rounds: how many
@@ -1363,8 +1383,7 @@ class BleEngine {
       // healthy pair. Read first; skip the write while the PHONE is the suspect
       // one. Unset/behind/garbage-low RTCs are unaffected (not suspect) and are
       // still corrected here and by the clock_epoch handler's bounded re-issue.
-      await getClock();
-      await Future.delayed(const Duration(milliseconds: 120));
+      await _readClock();
       if (!_deferForClock) await setClock();
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
@@ -1575,13 +1594,22 @@ class BleEngine {
     )) {
       return false;
     }
+    // Spend the floor OPTIMISTICALLY so two triggers racing into the await
+    // below can't both slip past `shouldRun`, then hand it back if the refresh
+    // asked the strap for nothing. Without the hand-back, a refresh deferred
+    // for a suspect clock bought the next attempt a full backfill interval of
+    // silence — so a phone that corrected itself seconds later still sat
+    // blocked, which is exactly the window the deferral is short enough to
+    // ride out.
+    final floorBefore = _lastBackfillAt;
     _lastBackfillAt = _wallSecs();
-    await _startHistoricalRefresh(
+    final sent = await _startHistoricalRefresh(
       trigger: trigger,
       reason: trigger.name,
       refreshRange: true,
     );
-    return true;
+    if (!sent) _lastBackfillAt = floorBefore;
+    return sent;
   }
 
   /// Foreground catch-up pull: the app came back to the foreground on a healthy
@@ -1610,18 +1638,24 @@ class BleEngine {
   /// This keeps periodic sync, manual resync, workout-end backfill, and future
   /// callers on the same protocol path instead of each open-coding their own
   /// "maybe just send 0x16" behavior.
-  Future<void> _startHistoricalRefresh({
+  ///
+  /// Returns whether `SEND_HISTORICAL_DATA` actually went out. Callers use it to
+  /// decide whether the attempt was worth spending a rate-limit floor on — a
+  /// refresh that dropped out at one of the gates below asked the strap for
+  /// nothing, so it must not buy the next real attempt fifteen minutes of
+  /// silence.
+  Future<bool> _startHistoricalRefresh({
     required BackfillTrigger trigger,
     required String reason,
     bool refreshRange = true,
   }) async {
     final d = _drain;
-    if (_session?.connected != true || d == null) return;
+    if (_session?.connected != true || d == null) return false;
     if (_offloadActive && !d._complete) {
       _log(
         '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
       );
-      return;
+      return false;
     }
     d.rearm();
     _setOffloadActive(true);
@@ -1640,9 +1674,8 @@ class BleEngine {
     // agree (the phone's clock almost always self-corrects via NTP). SET_CLOCK is
     // deliberately NOT issued here — pushing the strap back to the slow phone
     // would corrupt a correct RTC (see ClockPolicy.phoneClockSuspect).
-    await _send(Cmd.getClock, const <int>[]);
-    await Future.delayed(const Duration(milliseconds: 120));
-    if (_session?.connected != true) return;
+    await _readClock();
+    if (_session?.connected != true) return false;
     if (_deferForClock) {
       _clockPausedOffloads++;
       _log(
@@ -1651,7 +1684,7 @@ class BleEngine {
         '(deferred_total=$_clockPausedOffloads).',
       );
       _setOffloadActive(false);
-      return;
+      return false;
     }
     final wait = HistoricalSyncCommandPolicy.waitSeconds(
       _lastHistoricalSendAt,
@@ -1663,11 +1696,12 @@ class BleEngine {
         'for the 0x16 floor.',
       );
       await Future.delayed(Duration(milliseconds: (wait * 1000).ceil()));
-      if (_session?.connected != true) return;
+      if (_session?.connected != true) return false;
     }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
     await _send(Cmd.sendHistoricalData, const [0x00]);
     _lastHistoricalSendAt = _wallSecs();
+    return true;
   }
 
   Future<void> _subscribe(
@@ -2306,9 +2340,16 @@ class BleEngine {
       final wasSuspect = _phoneClockSuspect;
       _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
       if (_phoneClockSuspect && !wasSuspect) {
-        _phoneClockSuspectSince = DateTime.now();
+        _phoneClockSuspectSince = _monotonicSecs();
       } else if (!_phoneClockSuspect) {
         _phoneClockSuspectSince = null;
+      }
+      // Release any gate waiting on THIS read (see [_readClock]). Done as soon
+      // as the verdict above is settled, before the alarm-correlation work
+      // below, because the verdict is all a gate is waiting for.
+      final pendingRead = _clockReadPending;
+      if (pendingRead != null && !pendingRead.isCompleted) {
+        pendingRead.complete();
       }
       if (_phoneClockSuspect != wasSuspect) {
         _log(_phoneClockSuspect
@@ -2343,7 +2384,23 @@ class BleEngine {
         // their own embedded unix time regardless, so giving up after a few
         // tries is safe.
         if (ClockPolicy.shouldSetClock(dev, wall)) {
-          if (_clockCorrectTries < 3) {
+          if (_deferForClock) {
+            // Never push our wall clock onto a strap we currently believe is
+            // the RIGHT one — that write corrupts a correct RTC and destroys
+            // the evidence, because the read-back then "agrees" forever.
+            //
+            // Belt-and-braces today: [ClockPolicy.acceptsClockRead] rejects
+            // anything past `wall + kFutureMargin`, and phoneClockSuspect
+            // triggers past that SAME margin, so a suspect read never reaches
+            // this branch — the two gates are only aligned by sharing one
+            // constant. Widening the corrupt-read ceiling (a wandering RTC
+            // wants a looser bound) would silently open the write path. Pin it
+            // here rather than rely on the coincidence.
+            _log(
+              'Clock drift over policy but the PHONE clock is the suspect one '
+              '(strap=$dev wall=$wall) — NOT writing SET_CLOCK.',
+            );
+          } else if (_clockCorrectTries < 3) {
             _clockCorrectTries++;
             _log(
               'Clock drift over policy — re-issuing SET_CLOCK '
@@ -3207,6 +3264,46 @@ class BleEngine {
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
   /// verify drift and re-correlate the strap-RTC ↔ wall clock.
   Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
+
+  /// GET_CLOCK, awaited to the *response* rather than to the write.
+  ///
+  /// Both clock gates (the connect-path SET_CLOCK decision and the history
+  /// drain in [_startHistoricalRefresh]) used to send GET_CLOCK, sleep a fixed
+  /// 120 ms, then read [_phoneClockSuspect]. That flag is cross-session state,
+  /// so a reply slower than the sleep — routine on a busy link mid-offload —
+  /// let the gate answer with the PREVIOUS connection's verdict, or with the
+  /// process default (`false`) on the very first connect. Both directions are
+  /// wrong: a stale `false` permits the drain-and-trim the gate exists to
+  /// prevent, and a stale `true` blocks a link whose clocks now agree.
+  ///
+  /// Returns whether a fresh reply landed. A timeout deliberately does NOT
+  /// change either gate's decision: an unanswered GET_CLOCK is not evidence
+  /// about the phone, and failing closed would mean a strap whose reply we
+  /// never see is a strap we never SET_CLOCK (it ships RTC-unset) and never
+  /// sync. Callers proceed on the last known verdict; the log line is the
+  /// signal that the read never landed.
+  Future<bool> _readClock() async {
+    final pending = _clockReadPending = Completer<void>();
+    await _send(Cmd.getClock, const <int>[]);
+    try {
+      await pending.future.timeout(_clockReadTimeout);
+      return true;
+    } on TimeoutException {
+      _log(
+        '[SYNC] GET_CLOCK went unanswered for ${_clockReadTimeout.inSeconds}s '
+        '— clock verdict is UNVERIFIED for this read; proceeding on the last '
+        'known state (phone_clock_suspect=$_phoneClockSuspect).',
+      );
+      return false;
+    } finally {
+      if (identical(_clockReadPending, pending)) _clockReadPending = null;
+    }
+  }
+
+  /// How long [_readClock] waits for `clock_epoch`. A connected-link round trip
+  /// is tens of milliseconds; this is sized to survive a burst of historical
+  /// frames queued ahead of the response, not to be a plausible steady state.
+  static const Duration _clockReadTimeout = Duration(seconds: 3);
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:

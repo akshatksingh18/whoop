@@ -163,9 +163,15 @@ class ClockPolicy {
   static const int suspectGraceSeconds = 12 * 3600;
 
   /// True once a suspect-clock state has persisted past [suspectGraceSeconds].
-  static bool suspectGraceExpired(DateTime? since, DateTime now) =>
-      since != null &&
-      now.difference(since).inSeconds >= suspectGraceSeconds;
+  ///
+  /// Both arguments are MONOTONIC seconds (a `Stopwatch`), never wall clock.
+  /// The state being timed is "we do not trust `DateTime.now()`", so timing it
+  /// with `DateTime.now()` is self-defeating: a phone that steps forward a day
+  /// over NTP — while possibly still more than a day behind the strap — would
+  /// instantly age the suspicion past the grace window and re-authorize the
+  /// drain-and-trim this gate exists to hold back.
+  static bool suspectGraceExpired(double? sinceSecs, double nowSecs) =>
+      sinceSecs != null && nowSecs - sinceSecs >= suspectGraceSeconds;
 
   static bool phoneClockSuspect(int deviceClock, int wallNow) =>
       deviceClock >= kMinPlausibleUnix &&

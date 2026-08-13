@@ -1227,6 +1227,14 @@ class LocalDb {
   /// misbehaving callback can never abort a real commit. db.dart itself stays
   /// logging-framework-free (no Flutter dependency); callers pass their own
   /// logger (e.g. ble_engine.dart's `_log`, background_sync.dart's `debugPrint`).
+  /// Times the ACK-gating commit ran at a weaker durability level than
+  /// intended, because `PRAGMA synchronous=FULL` was refused or did not stick.
+  /// Not fatal (see the pragma block below) but never silent.
+  static int _syncFullDowngrades = 0;
+
+  /// Read-only view of [_syncFullDowngrades] for diagnostics/tests.
+  static int get syncFullDowngrades => _syncFullDowngrades;
+
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
     List<Sample?> samples, {
@@ -1268,10 +1276,32 @@ class LocalDb {
     // concurrent caller of commitSyncBatch on the main-isolate connection without
     // reinstating that serialization — a mid-window reset would silently
     // downgrade this commit back to NORMAL.
+    // Best-effort, and deliberately NOT fatal. Failing the commit when the
+    // upgrade is refused would mean never committing, therefore never ACKing,
+    // therefore never trimming — the strap re-floods the same backlog forever
+    // and sync is dead on any platform that rejects the pragma. NORMAL under
+    // WAL still commits atomically; FULL narrows the power-loss window, it is
+    // not itself the safe-trim invariant.
+    //
+    // What it must not do is fail SILENTLY, which is what "best-effort" meant
+    // before: read it back, so a downgrade shows up in the log and the counter
+    // instead of being invisible for the life of the install.
     try {
       await db.execute('PRAGMA synchronous=FULL');
-    } catch (_) {
-      /* durability upgrade is best-effort — NORMAL still commits correctly */
+      final got = await db.rawQuery('PRAGMA synchronous');
+      final level = got.isEmpty ? null : got.first.values.firstOrNull;
+      // 2 == FULL. sqflite reports the numeric level.
+      if (level is num && level.toInt() != 2) {
+        _syncFullDowngrades++;
+        checkpoint('[DB] synchronous=FULL did not take (reads back as '
+            '$level) — the ACK-gating commit is running at a weaker '
+            'durability level (downgrades_total=$_syncFullDowngrades).');
+      }
+    } catch (e) {
+      _syncFullDowngrades++;
+      checkpoint('[DB] PRAGMA synchronous=FULL was refused ($e) — the '
+          'ACK-gating commit is running at NORMAL '
+          '(downgrades_total=$_syncFullDowngrades).');
     }
     try {
       await db.transaction((txn) async {
@@ -4058,7 +4088,14 @@ class LocalDb {
               // check instead of aborting every other row's import.
               if (t == 'decoded_rr' && row['rec_ts'] == null) {
                 final rrTsMs = row['rr_ts_ms'];
-                if (rrTsMs is num) row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
+                if (rrTsMs is! num) {
+                  // Nothing to key this beat by. Dropping the one row keeps the
+                  // rest of the restore alive; letting it through would fail
+                  // the NOT NULL check inside the transaction and take every
+                  // other row on the page down with it.
+                  continue;
+                }
+                row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
               }
               rows.add(row);
             }

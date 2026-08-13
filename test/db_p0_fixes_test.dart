@@ -400,6 +400,17 @@ void main() {
       // merge-without-clear leaves spliced onto the foreign series.
       await foreign(8001, collideTs, [500]);
       await foreign(9999, t3, [400]);
+      // SQLite storage classes are per VALUE, not per column, so an export can
+      // hand back a String where INTEGER is declared. This beat has no usable
+      // key: it must be dropped on its own rather than reaching the insert and
+      // failing NOT NULL inside the transaction, which would abort every other
+      // row above with it.
+      await src.insert('decoded_rr', {
+        'counter': 7777,
+        'beat_index': 0,
+        'rr_ts_ms': 'not-a-number',
+        'rr_ms': 600,
+      });
       await src.close();
 
       await LocalDb.importFromDbFile(srcPath);

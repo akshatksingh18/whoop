@@ -696,6 +696,51 @@ class BleEngine {
   @visibleForTesting
   void debugAbsorbDecoded(Decoded d) => _absorbState(d);
 
+  /// Test seam: replaces the GATT write with [debugInstallFakeLink]'s callback.
+  /// Null in production, where [_write] takes the real characteristic path.
+  @visibleForTesting
+  Future<bool> Function(Uint8List frame)? debugWriteHook;
+
+  /// Stand up a connected-looking link with no radio behind it, so the flows
+  /// that decide WHETHER to ask the strap for history — the clock gate, the
+  /// backfill floor, the offload-active guard — can be driven end to end.
+  ///
+  /// Injecting `Decoded` values alone cannot cover these: it exercises the
+  /// response handler while leaving `_readClock`, `_startHistoricalRefresh` and
+  /// the INIT path unrun, which is exactly where the ordering bugs live.
+  ///
+  /// [onWrite] receives every outgoing frame and returns whether the write
+  /// "succeeded", so a test can also assert the failed-write paths.
+  @visibleForTesting
+  void debugInstallFakeLink({
+    required Future<bool> Function(Uint8List frame) onWrite,
+  }) {
+    final session = _Session(
+      BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
+    );
+    session.connected = true;
+    session.sawConnected = true;
+    _session = session;
+    debugWriteHook = onWrite;
+    _drain = DrainController(
+      onRecord: _storeRecord,
+      onRecordsBatch: null,
+      onCommit: null,
+      onArchive: null,
+      log: _log,
+    );
+  }
+
+  /// Drive the canonical historical-refresh path. Returns whether
+  /// SEND_HISTORICAL_DATA actually went out.
+  @visibleForTesting
+  Future<bool> debugStartHistoricalRefresh({bool refreshRange = false}) =>
+      _startHistoricalRefresh(
+        trigger: BackfillTrigger.foreground,
+        reason: 'test',
+        refreshRange: refreshRange,
+      );
+
   /// Age the clock-suspicion start past [ClockPolicy.suspectGraceSeconds].
   ///
   /// The grace window is 12 real hours off a monotonic stopwatch, so the only
@@ -894,6 +939,17 @@ class BleEngine {
   /// has been absorbed, so the clock gates read THIS session's verdict instead
   /// of whatever the last connection left behind.
   Completer<void>? _clockReadPending;
+  /// Sequence byte of the outstanding [_readClock] request; -1 when none.
+  int _clockReadSeq = -1;
+  /// Set once this read gives up on matching [_clockReadSeq] — see the fallback
+  /// in [_readClock].
+  bool _clockReadAcceptAny = false;
+  /// Whether ANY reply has ever come back carrying our own request seq. Proof
+  /// the firmware echoes, which lets later reads hold out for their own reply
+  /// instead of re-running the grace timer every time.
+  bool _clockEchoSeen = false;
+  /// Diagnostics: reads that fell back to accepting an uncorrelated reply.
+  int _clockUncorrelatedReads = 0;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   // Run-state for a chain of auto-continued offload rounds: how many
@@ -1493,8 +1549,21 @@ class BleEngine {
       _setOffloadActive(drainOnInit);
       // Only a real drain spends the backfill floor; a deferred one leaves it
       // open so a foreground trigger can retry as soon as the phone corrects.
+      final floorBeforeInit = _lastBackfillAt;
       if (drainOnInit) _lastBackfillAt = _wallSecs();
-      await sendInit(drain: drainOnInit); // seq4 triggers the offload flood
+      // Both are pre-armed above because seq4 IS the drain trigger and the
+      // flood can start before the write even returns. If INIT did not go out
+      // there is no flood: hand the state back, or `_offloadActive` stays set
+      // on a strap that was never asked for history and every later refresh
+      // stops at the already-transmitting guard.
+      if (!await sendInit(drain: drainOnInit)) {
+        _setOffloadActive(false);
+        _lastBackfillAt = floorBeforeInit;
+        _log(
+          '[SYNC] INIT did not fully write — no history was requested; '
+          'clearing offload state so a later refresh can retry.',
+        );
+      }
       return true;
     } catch (e) {
       _log('connect setup failed: $e');
@@ -1874,6 +1943,18 @@ class BleEngine {
     _writeChain = _writeChain.then((_) async {
       var ok = false;
       try {
+        // Test seam. Stays on the real write chain so ordering, the session
+        // check and the owner check all behave as they do in production —
+        // only the GATT characteristic itself is stubbed out.
+        final hook = debugWriteHook;
+        if (hook != null) {
+          if (session == null || !session.connected) {
+            _log('write skipped: link not ready.');
+            return;
+          }
+          ok = await hook(raw);
+          return;
+        }
         final cmd = session?.cmdTo;
         if (session == null || !session.connected || cmd == null) {
           _log('write skipped: link not ready.');
@@ -1924,18 +2005,31 @@ class BleEngine {
     }
   }
 
-  Future<bool> _send(int opcode, List<int> payload) async {
+  Future<bool> _send(int opcode, List<int> payload) async =>
+      (await _sendSeq(opcode, payload)).ok;
+
+  /// [_send], but also reporting the sequence byte the command went out with.
+  ///
+  /// A caller awaiting one SPECIFIC reply needs it: the strap echoes the
+  /// request seq back at `inner[3]` (surfaced as `req_seq`), and that is the
+  /// only thing distinguishing two replies to the same opcode. `seq` is -1 when
+  /// nothing was written, so it can never match a real reply.
+  ({bool ok, int seq}) _refused() => (ok: false, seq: -1);
+
+  Future<({bool ok, int seq})> _sendSeq(int opcode, List<int> payload) async {
     if (dangerousCmds.contains(opcode)) {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)}');
-      return false;
+      return _refused();
     }
-    final frame = buildCommand(_seq.nextLive(), opcode, payload);
+    final seq = _seq.nextLive();
+    final frame = buildCommand(seq, opcode, payload);
     final ok = await _write(frame);
     if (!ok) {
       _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
           'command not delivered.');
+      return _refused();
     }
-    return ok;
+    return (ok: true, seq: seq);
   }
 
   Future<void> applyHighFreqWakeWindow({
@@ -2364,11 +2458,20 @@ class BleEngine {
       } else if (!_phoneClockSuspect) {
         _phoneClockSuspectSince = null;
       }
-      // Release any gate waiting on THIS read (see [_readClock]). Done as soon
+      // Release the gate waiting on THIS read (see [_readClock]). Done as soon
       // as the verdict above is settled, before the alarm-correlation work
       // below, because the verdict is all a gate is waiting for.
+      //
+      // Only OUR reply counts. setClock()'s read-back and the keep-alive poll
+      // both produce clock_epoch too, and letting one of those release the
+      // waiter hands the history gate a verdict from a request it never made.
+      final replySeq = (f['req_seq'] as num?)?.toInt();
+      if (replySeq != null && replySeq == _clockReadSeq) _clockEchoSeen = true;
+      final isOurs = _clockReadSeq >= 0 && replySeq == _clockReadSeq;
       final pendingRead = _clockReadPending;
-      if (pendingRead != null && !pendingRead.isCompleted) {
+      if (pendingRead != null &&
+          !pendingRead.isCompleted &&
+          (isOurs || _clockReadAcceptAny || replySeq == null)) {
         pendingRead.complete();
       }
       if (_phoneClockSuspect != wasSuspect) {
@@ -3167,13 +3270,25 @@ class BleEngine {
   /// [drain] false sends the first FOUR packets only: seq4 is
   /// SEND_HISTORICAL_DATA (the flash drain), and it is skipped when the phone
   /// clock is suspect — see _doConnect and [ClockPolicy.phoneClockSuspect].
-  Future<void> sendInit({bool drain = true}) async {
+  /// Returns whether EVERY INIT packet was written. Callers that pre-arm
+  /// offload state around it need to know: seq4 is SEND_HISTORICAL_DATA, so a
+  /// failed write means no history was ever requested, and leaving
+  /// `_offloadActive` set behind it wedges every later refresh on the
+  /// already-transmitting guard.
+  Future<bool> sendInit({bool drain = true}) async {
     final pkts =
         drain ? initPackets : initPackets.take(initPackets.length - 1).toList();
     _log('Sending ${pkts.length}-packet INIT…');
+    var allWritten = true;
     try {
       for (final pkt in pkts) {
-        await _write(pkt);
+        if (!await _write(pkt)) {
+          // Stop at the first failure: the packets are a sequence, and the
+          // strap will not act on the tail of one whose head never arrived.
+          allWritten = false;
+          _log('INIT write failed — abandoning the remaining packets.');
+          break;
+        }
         await Future.delayed(const Duration(milliseconds: 120));
       }
     } finally {
@@ -3185,6 +3300,7 @@ class BleEngine {
         unawaited(_applyLinkPriority());
       }
     }
+    return allWritten;
   }
 
   /// Re-trigger a historical offload over the CURRENT connection (no reconnect, no
@@ -3312,9 +3428,41 @@ class BleEngine {
   /// never see is a strap we never SET_CLOCK (it ships RTC-unset) and never
   /// sync. Callers proceed on the last known verdict; the log line is the
   /// signal that the read never landed.
+  /// CORRELATED to this call's own request. GET_CLOCK is issued from three
+  /// places — connect, [setClock]'s read-back and the keep-alive poll — so an
+  /// uncorrelated waiter can be satisfied by a reply to somebody else's
+  /// request, which is the stale verdict this method exists to stop the gates
+  /// reading. The strap echoes the request seq at `req_seq`; only that reply
+  /// completes the waiter.
+  ///
+  /// The echo is a layout the protocol package has always assumed and is not
+  /// confirmed against a hardware capture, so it is a FAST PATH, never a
+  /// requirement: an uncorrelated `clock_epoch` still counts once
+  /// [_clockEchoGrace] has passed without our own reply landing. On firmware
+  /// that echoes, the gate is exact; on firmware that does not, it costs an
+  /// extra 400 ms and behaves as it did before this correlation existed —
+  /// rather than stalling every read for the full timeout and quietly turning
+  /// the gate off.
   Future<bool> _readClock() async {
     final pending = _clockReadPending = Completer<void>();
-    await _send(Cmd.getClock, const <int>[]);
+    final sent = await _sendSeq(Cmd.getClock, const <int>[]);
+    // -1 when the write never went out: no reply can match it, so the read
+    // falls through to the unverified path rather than adopting a stray one.
+    _clockReadSeq = sent.seq;
+    // Nothing of ours is outstanding, so there is no "our reply" to prefer.
+    if (!sent.ok) _clockReadAcceptAny = true;
+    final graceTimer = Timer(_clockEchoGrace, () {
+      if (pending.isCompleted || !identical(_clockReadPending, pending)) return;
+      if (_clockEchoSeen) return; // this strap does echo — keep waiting for ours
+      _clockReadAcceptAny = true;
+      if (_clockUncorrelatedReads++ == 0) {
+        _log(
+          '[SYNC] GET_CLOCK reply did not echo our request seq within '
+          '${_clockEchoGrace.inMilliseconds}ms — this firmware does not '
+          'correlate replies; accepting any fresh clock_epoch from here.',
+        );
+      }
+    });
     try {
       await pending.future.timeout(_clockReadTimeout);
       return true;
@@ -3326,7 +3474,12 @@ class BleEngine {
       );
       return false;
     } finally {
-      if (identical(_clockReadPending, pending)) _clockReadPending = null;
+      graceTimer.cancel();
+      if (identical(_clockReadPending, pending)) {
+        _clockReadPending = null;
+        _clockReadSeq = -1;
+        _clockReadAcceptAny = false;
+      }
     }
   }
 
@@ -3334,6 +3487,12 @@ class BleEngine {
   /// is tens of milliseconds; this is sized to survive a burst of historical
   /// frames queued ahead of the response, not to be a plausible steady state.
   static const Duration _clockReadTimeout = Duration(seconds: 3);
+
+  /// How long [_readClock] insists on ITS OWN reply before accepting any fresh
+  /// one. Comfortably longer than a connected round trip, short enough that
+  /// firmware which does not echo the seq costs a blip rather than the full
+  /// [_clockReadTimeout] on every read.
+  static const Duration _clockEchoGrace = Duration(milliseconds: 400);
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:

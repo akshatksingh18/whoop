@@ -768,7 +768,7 @@ class AlarmPayloads {
     ];
   }
 
-  /// Generation-correct SET_ALARM_TIME body (rich 20-byte firing form).
+  /// Generation-correct SET_ALARM_TIME body — 20 bytes on gen4, 21 on gen5.
   ///
   /// WHOOP 4: slot index 0 (HW-verified). WHOOP 5: slot **index 1** — captured
   /// from the official WHOOP Android app on fw 50.40.1.0. Index 0 is rejected
@@ -779,12 +779,17 @@ class AlarmPayloads {
     required bool isGen5,
     int index = 0,
     List<int>? haptics,
+    int crescendo = 0,
   }) =>
-      rich(
-        when,
-        index: isGen5 ? gen5Slot : index,
-        haptics: haptics,
-      );
+      <int>[
+        ...rich(when, index: isGen5 ? gen5Slot : index, haptics: haptics),
+        // gen5's body carries one byte more than gen4's: a crescendo flag the
+        // strap validates as 0 or 1 and rejects otherwise, so a 20-byte body
+        // is refused there. Keep this in step with protocol's cmdSetAlarm,
+        // which is the reference layout — gen4 stays at the 20 bytes verified
+        // on hardware.
+        if (isGen5) crescendo & 0x01,
+      ];
 
   /// The alarm slot WHOOP 5 accepts (index 0 is rejected).
   static const int gen5Slot = 1;

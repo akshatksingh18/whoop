@@ -3210,7 +3210,14 @@ class BleEngine {
       // walks past pollution while nothing usable is ever banked). Archives
       // are still committed in the same transaction either way — this only
       // decides whether the band may TRIM.
-      final hadDurableRows = d.bufferedRecords > 0;
+      // Banked records, plus archives that are NOT plausibility drops. Counting
+      // every archive would make blockedNoDurableProgress unfireable (a
+      // drop-only burst archives too); counting none of them wedges a burst
+      // that is entirely records we cannot decode — e.g. a gen4 R10 historical,
+      // which has its own decoder and is not in kKnownRecordVersions — into
+      // being re-delivered forever.
+      final hadDurableRows =
+          d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
@@ -4265,6 +4272,14 @@ class BleEngine {
     final isGen5Clock = op == Cmd.getClockGen5;
     if (!isGen5Clock && op != Cmd.getClock) return decoded;
     if (decoded.fields.containsKey('clock_epoch')) return decoded;
+    // The strap answers every command with a status byte. A failure or an
+    // unimplemented-opcode reply leaves the body unpopulated, so reading an
+    // epoch out of it hands ClockPolicy a stale value from whatever the buffer
+    // held last — and this path deliberately forwards implausible clocks so the
+    // unset-RTC case is reachable, which means nothing downstream would filter
+    // it back out.
+    final status = decoded.fields['cmd_status'];
+    if (status != null && status != 1) return decoded;
     final inner = frame.inner;
     final payload =
         inner.length > 3 ? Uint8List.sublistView(inner, 3) : Uint8List(0);
@@ -4359,6 +4374,12 @@ class DrainController {
 
   int get bufferedRecords => _raws.length;
   int get bufferedArchives => _archives.length;
+
+  /// Archives that represent real forward progress, i.e. everything EXCEPT the
+  /// plausibility drops. A burst of records we simply cannot decode has still
+  /// been preserved and may be trimmed; a burst we merely distrusted has not.
+  int get bufferedProgressArchives =>
+      _archives.where((a) => a.reason != 'gate_dropped').length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets

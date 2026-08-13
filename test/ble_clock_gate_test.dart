@@ -73,6 +73,37 @@ void main() {
       expect(logs.any((l) => l.contains('re-issuing SET_CLOCK')), isTrue);
     });
 
+    test('a fast strap RTC IS corrected once the grace window expires', () {
+      final logs = <String>[];
+      final engine = newEngine(logs);
+
+      engine.debugAbsorbDecoded(clockReply(wallNow() + 2 * 86400));
+      expect(engine.historyPausedForClock, isTrue);
+      expect(logs.any((l) => l.contains('re-issuing SET_CLOCK')), isFalse,
+          reason: 'during grace the phone is still the suspect party');
+
+      // Twelve hours on and the reading has not budged: the phone would have
+      // re-synced over NTP long ago, so it is the STRAP that runs fast.
+      engine.debugExpireClockSuspicion();
+      engine.debugAbsorbDecoded(clockReply(wallNow() + 2 * 86400));
+
+      expect(engine.historyPausedForClock, isFalse,
+          reason: 'history must stop deferring or sync stalls for good');
+      expect(
+        logs.any((l) => l.contains('re-issuing SET_CLOCK')),
+        isTrue,
+        reason: 'OLD BEHAVIOUR: correction was nested inside the '
+            'acceptsClockRead branch, which rejects on the SAME margin that '
+            'flags the strap as fast — so history un-deferred straight back '
+            'onto an uncorrected fast RTC whose records the gate then dropped',
+      );
+      // The two decisions are now independent, which is the whole point: this
+      // same read is still refused as an alarm correlation (a far-future value
+      // would arm the alarm years out) while being acted on as a correction.
+      expect(logs.any((l) => l.contains('corrupt strap RTC read')), isTrue);
+      expect(engine.clockRef, isNull);
+    });
+
     test('the gate lifts the moment a read shows the clocks agreeing', () {
       final logs = <String>[];
       final engine = newEngine(logs);

@@ -696,6 +696,19 @@ class BleEngine {
   @visibleForTesting
   void debugAbsorbDecoded(Decoded d) => _absorbState(d);
 
+  /// Age the clock-suspicion start past [ClockPolicy.suspectGraceSeconds].
+  ///
+  /// The grace window is 12 real hours off a monotonic stopwatch, so the only
+  /// alternative to a seam here is not covering post-grace behaviour at all —
+  /// and post-grace is precisely where history un-defers onto a strap RTC we
+  /// have just concluded is the fast one.
+  @visibleForTesting
+  void debugExpireClockSuspicion() {
+    if (_phoneClockSuspectSince == null) return;
+    _phoneClockSuspectSince =
+        _monotonicSecs() - ClockPolicy.suspectGraceSeconds - 1;
+  }
+
   /// Told by AppState on every foreground/background transition. Drives the
   /// connection interval — see [desiredLinkPriority].
   void setBackground(bool value) {
@@ -1699,7 +1712,14 @@ class BleEngine {
       if (_session?.connected != true) return false;
     }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
-    await _send(Cmd.sendHistoricalData, const [0x00]);
+    // `_send` swallows write failures and reports them as false. Claiming
+    // success anyway leaves the strap with no request, `_offloadActive` stuck
+    // true — so later refreshes bounce off the "already transmitting" guard —
+    // and both rate-limit floors spent on a command that never left the phone.
+    if (!await _send(Cmd.sendHistoricalData, const [0x00])) {
+      _setOffloadActive(false);
+      return false;
+    }
     _lastHistoricalSendAt = _wallSecs();
     return true;
   }
@@ -2377,45 +2397,55 @@ class BleEngine {
       } else {
         _clockRef = ClockRef(device: dev, wall: wall);
         _log('Clock correlated: device=$dev wall=$wall (drift=${wall - dev}s).');
-        // Re-issue SET_CLOCK if the strap RTC has drifted > 1 day or is unset —
-        // but BOUND the retries: setClock() reads the clock back, so an
-        // unbounded re-issue on a firmware that never latches either payload
-        // form would spin SET_CLOCK/GET_CLOCK forever. Historical records carry
-        // their own embedded unix time regardless, so giving up after a few
-        // tries is safe.
-        if (ClockPolicy.shouldSetClock(dev, wall)) {
-          if (_deferForClock) {
-            // Never push our wall clock onto a strap we currently believe is
-            // the RIGHT one — that write corrupts a correct RTC and destroys
-            // the evidence, because the read-back then "agrees" forever.
-            //
-            // Belt-and-braces today: [ClockPolicy.acceptsClockRead] rejects
-            // anything past `wall + kFutureMargin`, and phoneClockSuspect
-            // triggers past that SAME margin, so a suspect read never reaches
-            // this branch — the two gates are only aligned by sharing one
-            // constant. Widening the corrupt-read ceiling (a wandering RTC
-            // wants a looser bound) would silently open the write path. Pin it
-            // here rather than rely on the coincidence.
-            _log(
-              'Clock drift over policy but the PHONE clock is the suspect one '
-              '(strap=$dev wall=$wall) — NOT writing SET_CLOCK.',
-            );
-          } else if (_clockCorrectTries < 3) {
-            _clockCorrectTries++;
-            _log(
-              'Clock drift over policy — re-issuing SET_CLOCK '
-              '(attempt $_clockCorrectTries/3).',
-            );
-            unawaited(setClock());
-          } else {
-            _log(
-              'Clock still off after 3 SET_CLOCK attempts — giving up; '
-              'firmware may not accept our payload length.',
-            );
-          }
+      }
+      // CORRECTION RUNS ON THE RAW READ, outside the correlation gate above.
+      //
+      // It used to be nested inside the accepted-read branch, which quietly
+      // made a fast strap RTC unfixable: `acceptsClockRead` rejects anything
+      // past `wall + kFutureMargin` and `phoneClockSuspect` trips past that
+      // SAME margin, so the one reading that means "the strap clock is ahead"
+      // could never reach the one code path that fixes it. History would
+      // un-defer at grace expiry — having concluded the STRAP is the fast one —
+      // straight back onto an uncorrected fast RTC, where the record gate
+      // rejects every future-stamped record and the offload can never bank
+      // anything.
+      //
+      // Rejecting the read for CORRELATION is still right (a junk value would
+      // arm alarms years out). Rejecting it for CORRECTION never was: SET_CLOCK
+      // writes real wall time, which is the correct outcome whether the read
+      // was junk or the RTC is genuinely ahead, and the retry budget is bounded
+      // at 3 either way.
+      if (ClockPolicy.shouldSetClock(dev, wall)) {
+        if (_deferForClock) {
+          // While the phone is still the suspect party, writing our wall clock
+          // onto a strap that may well be RIGHT corrupts a correct RTC and
+          // destroys the evidence — the read-back then "agrees" forever. Hold
+          // off until the phone corrects (gate clears) or the grace expires
+          // (the strap is the fast one, and the branch below fixes it).
+          _log(
+            'Clock drift over policy but the PHONE clock is the suspect one '
+            '(strap=$dev wall=$wall) — NOT writing SET_CLOCK yet.',
+          );
+        } else if (_clockCorrectTries < 3) {
+          // BOUND the retries: setClock() reads the clock back and this handler
+          // re-issues on drift, so an unbounded loop would spin
+          // SET_CLOCK/GET_CLOCK forever on firmware that never latches.
+          // Historical records carry their own embedded unix time regardless,
+          // so giving up after a few tries is safe.
+          _clockCorrectTries++;
+          _log(
+            'Clock drift over policy — re-issuing SET_CLOCK '
+            '(attempt $_clockCorrectTries/3).',
+          );
+          unawaited(setClock());
         } else {
-          _clockCorrectTries = 0; // latched — reset for the next drift episode
+          _log(
+            'Clock still off after 3 SET_CLOCK attempts — giving up; '
+            'firmware may not accept our payload length.',
+          );
         }
+      } else {
+        _clockCorrectTries = 0; // latched — reset for the next drift episode
       }
     }
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {

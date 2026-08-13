@@ -1441,8 +1441,23 @@ class BleEngine {
       // healthy pair. Read first; skip the write while the PHONE is the suspect
       // one. Unset/behind/garbage-low RTCs are unaffected (not suspect) and are
       // still corrected here and by the clock_epoch handler's bounded re-issue.
+      // _readClock waits on a real reply now — up to _clockReadTimeout, where
+      // this used to be a 120 ms sleep. That is a much wider window for the
+      // link to drop underneath us, and setClock() absorbs failed writes, so
+      // without these checks setup would carry on past a teardown, rebuild the
+      // drain state and hand back `true` for a dead connection.
       await _readClock();
+      if (_session != session || !session.connected) {
+        _log('link dropped during the clock read — abandoning setup.');
+        await _failConnect();
+        return false;
+      }
       if (!_deferForClock) await setClock();
+      if (_session != session || !session.connected) {
+        _log('link dropped during SET_CLOCK — abandoning setup.');
+        await _failConnect();
+        return false;
+      }
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
@@ -1932,25 +1947,26 @@ class BleEngine {
     _writeChain = _writeChain.then((_) async {
       var ok = false;
       try {
-        // Test seam. Stays on the real write chain so ordering, the session
-        // check and the owner check all behave as they do in production —
-        // only the GATT characteristic itself is stubbed out.
-        final hook = debugWriteHook;
-        if (hook != null) {
-          if (session == null || !session.connected) {
-            _log('write skipped: link not ready.');
-            return;
-          }
-          ok = await hook(raw);
-          return;
-        }
-        final cmd = session?.cmdTo;
-        if (session == null || !session.connected || cmd == null) {
+        // Readiness and ownership are checked BEFORE the test seam, not after,
+        // so a hooked write rejects a stale-session ACK exactly like the real
+        // one. A seam that skips the guards it is meant to be standing in for
+        // makes every test that relies on it prove the wrong thing.
+        if (session == null || !session.connected) {
           _log('write skipped: link not ready.');
           return;
         }
         if (owner != null && !identical(owner, session)) {
           _log('write skipped: it belongs to a session that is no longer live.');
+          return;
+        }
+        final hook = debugWriteHook;
+        if (hook != null) {
+          ok = await hook(raw);
+          return;
+        }
+        final cmd = session.cmdTo;
+        if (cmd == null) {
+          _log('write skipped: link not ready.');
           return;
         }
         // allowLongWrite: the rich SET_ALARM_TIME frame is 32B — the only write

@@ -411,6 +411,31 @@ void main() {
         'rr_ts_ms': 'not-a-number',
         'rr_ms': 600,
       });
+      // raw_archive: the never-pruned store of frames we could not decode.
+      // exportCopy() is a whole-db VACUUM INTO so these rows leave the device;
+      // the import has to bring them back. Two rows sharing a counter with
+      // DIFFERENT hex — the reboot-counter-reuse case the table is keyed on
+      // `hex` to survive — must both land.
+      await src.execute('''
+        CREATE TABLE IF NOT EXISTS raw_archive (
+          hex TEXT PRIMARY KEY,
+          counter INTEGER,
+          packet_type INTEGER NOT NULL,
+          rec_ts INTEGER,
+          captured_at INTEGER NOT NULL,
+          reason TEXT NOT NULL
+        )
+      ''');
+      for (final hex in ['deadbeef01', 'deadbeef02']) {
+        await src.insert('raw_archive', {
+          'hex': hex,
+          'counter': 4242, // same counter, different boots
+          'packet_type': 0x2F,
+          'rec_ts': collideTs,
+          'captured_at': collideTs * 1000,
+          'reason': 'unknown_version',
+        });
+      }
       await src.close();
 
       await LocalDb.importFromDbFile(srcPath);
@@ -435,6 +460,14 @@ void main() {
           where: 'rec_ts = ?', whereArgs: [t3]);
       expect([for (final b in b3) b['rr_ms']], [400]);
       expect(b3.first['rr_ts_ms'], t3 * 1000);
+
+      // Both archived frames survived the restore.
+      final archived = await db.query('raw_archive', orderBy: 'hex ASC');
+      expect([for (final a in archived) a['hex']],
+          ['deadbeef01', 'deadbeef02'],
+          reason: 'raw_archive was missing from the import merge list, so a '
+              'backup/restore silently dropped the one table whose entire '
+              'purpose is that a frame is never lost');
 
       // Nothing orphaned, nothing cross-stamped, anywhere.
       final orphans = await db.rawQuery(

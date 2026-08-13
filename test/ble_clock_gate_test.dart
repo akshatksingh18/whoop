@@ -11,6 +11,7 @@
 // the SET_CLOCK half was handed straight back by the drift-correction retry
 // sitting behind the gate's own read-back.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -146,16 +147,24 @@ void _transportTests() {
       'the drain',
       () async {
         final sent = <int>[];
+        final clockAsked = Completer<void>();
         final engine = BleEngine(
           onRecord: (sample, raw) async {},
           onState: (_) {},
         );
         engine.debugInstallFakeLink(onWrite: (frame) async {
           sent.add(opcodeOf(frame));
+          if (opcodeOf(frame) == Cmd.getClock && !clockAsked.isCompleted) {
+            clockAsked.complete();
+          }
           return true;
         });
 
         final refresh = engine.debugStartHistoricalRefresh();
+        // Synchronise on the request actually going out, not on a delay — the
+        // waiter has to exist before a reply is injected, and a loaded machine
+        // makes any fixed sleep a coin flip.
+        await clockAsked.future;
 
         // 500ms — four times the fixed sleep the gate used to rely on. The
         // strap is slow but perfectly healthy; a busy link queues the reply
@@ -179,14 +188,18 @@ void _transportTests() {
 
     test('a healthy clock reply lets the drain through', () async {
       final sent = <int>[];
+      final clockAsked = Completer<void>();
       final engine = BleEngine(onRecord: (s, r) async {}, onState: (_) {});
       engine.debugInstallFakeLink(onWrite: (frame) async {
         sent.add(opcodeOf(frame));
+        if (opcodeOf(frame) == Cmd.getClock && !clockAsked.isCompleted) {
+          clockAsked.complete();
+        }
         return true;
       });
 
       final refresh = engine.debugStartHistoricalRefresh();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await clockAsked.future;
       engine.debugAbsorbDecoded(clockReply(wallNow()));
 
       expect(await refresh, isTrue);
@@ -195,15 +208,19 @@ void _transportTests() {
 
     test('a failed SEND_HISTORICAL_DATA write is reported as not sent',
         () async {
+      final clockAsked = Completer<void>();
       final engine = BleEngine(onRecord: (s, r) async {}, onState: (_) {});
       engine.debugInstallFakeLink(onWrite: (frame) async {
-        if (opcodeOf(frame) == Cmd.getClock) return true;
+        if (opcodeOf(frame) == Cmd.getClock) {
+          if (!clockAsked.isCompleted) clockAsked.complete();
+          return true;
+        }
         // The radio drops exactly the command that matters.
         return opcodeOf(frame) != Cmd.sendHistoricalData;
       });
 
       final refresh = engine.debugStartHistoricalRefresh();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await clockAsked.future;
       engine.debugAbsorbDecoded(clockReply(wallNow()));
 
       expect(await refresh, isFalse,

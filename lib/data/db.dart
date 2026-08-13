@@ -3940,6 +3940,13 @@ class LocalDb {
       'events',
       'decoded_onehz',
       'decoded_rr',
+      // The never-pruned archive of frames we could not decode. exportCopy()
+      // is a whole-database VACUUM INTO, so these rows DO leave the device —
+      // leaving the table out here meant a backup/restore round trip silently
+      // dropped them, in the one table whose entire purpose is that a frame is
+      // never lost. Keyed by `hex`, so two same-counter frames from different
+      // boots both survive the merge.
+      'raw_archive',
       'band_events',
       'band_battery',
       'day_result',

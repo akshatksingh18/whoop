@@ -75,9 +75,9 @@ void main() {
     expect(await LocalDb.getCursorInt('counter_hw'), 1001);
   });
 
-  test('re-flood of the same archived counter dedups (IGNORE on counter PK)', () async {
+  test('identical re-flood dedups on frame hex (missed-ACK redelivery)', () async {
     final archive = ArchiveRecord(
-      counter: 2002, // same counter as above
+      counter: 2002, // same counter AND same bytes as above
       hex: '2f63deadbeef',
       packetType: 0x2F,
       capturedAt: 1750000099999,
@@ -89,7 +89,7 @@ void main() {
       trimToken: 'aabbccddeeff0022',
       archives: [archive],
     );
-    // Still one archived row — the re-delivery did not duplicate it.
+    // Still one archived row — same bytes, so the redelivery deduped.
     final stats = await LocalDb.rawArchiveStats();
     expect(stats['count'], 1);
     // …but the trim cursor still advanced (this chunk was ACK-safe).
@@ -107,5 +107,32 @@ void main() {
     final stats = await LocalDb.rawArchiveStats();
     expect(stats['count'], 2);
     expect((stats['by_reason'] as Map)['undecodable_rec_v112'], 1);
+  });
+
+  test('two DISTINCT frames sharing a reused counter BOTH survive', () async {
+    // The strap resets its record counter to ~0 on reboot, so a post-reboot
+    // frame can reuse a pre-reboot counter while carrying different bytes.
+    // Under the old `counter INTEGER PRIMARY KEY` + IGNORE, the second frame
+    // was silently DROPPED — permanent loss in the table that exists precisely
+    // to never lose a frame. Content-keyed, both must survive.
+    final before = (await LocalDb.rawArchiveStats())['count'] as int;
+    const reusedCounter = 4004;
+    await LocalDb.archiveRawRecord(ArchiveRecord(
+      counter: reusedCounter,
+      hex: '2f63aaaaaaaa', // pre-reboot frame
+      packetType: 0x2F,
+      capturedAt: 1750000200000,
+      reason: 'undecodable_pre_reboot',
+    ));
+    await LocalDb.archiveRawRecord(ArchiveRecord(
+      counter: reusedCounter, // SAME counter, DIFFERENT bytes
+      hex: '2f63bbbbbbbb', // post-reboot frame
+      packetType: 0x2F,
+      capturedAt: 1750000300000,
+      reason: 'undecodable_post_reboot',
+    ));
+    final after = (await LocalDb.rawArchiveStats())['count'] as int;
+    // Pre-fix: +1 (second dropped by counter-PK IGNORE). Post-fix: +2.
+    expect(after - before, 2);
   });
 }

@@ -48,6 +48,15 @@ dependencies:
       # activity/steps_inc null-instead-of-0 fix. Edge does not read the latter
       # two fields, so only the RR bound is behaviour-visible here.
       # Verified present: `git show <sha>:lib/src/live.dart | grep -c kMinRrMs`.
+      # DELIBERATELY NOT MOVED for the clock-gate work in this PR. Correlating
+      # a GET_CLOCK reply to its own request needs the echoed request seq
+      # surfaced (OpenStrap/protocol#28), and the only in-convention way to pin
+      # that is a merge commit on protocol main — which now also carries the
+      # gen5/multiband surface (gen5_records.dart, the frame-revision changes
+      # in framing.dart, new dangerousCmds entries). Adopting ~1850 lines of
+      # that as a side effect of a one-field addition is the pin drift that
+      # shipped the v42 ANRs. _readClock degrades to accepting any fresh
+      # clock_epoch, which is what it did before the correlation existed.
       ref: 7edcb3e377329968118c62cb03a81d95e2f6db8e
   openstrap_analytics:
     git:
@@ -260,6 +269,13 @@ dev_dependencies:
   # exportDaysDb can run without a platform plugin (transitive via
   # path_provider; declared directly since test/ now imports it).
   path_provider_platform_interface: ^2.1.0
+  # ack_commit_sync_full_test wraps the ffi factory in SqfliteDatabaseFactoryLogger
+  # to spy the PRAGMA synchronous=FULL/NORMAL bracket around the ACK-gating commit
+  # (transitive via sqflite_common_ffi; declared directly since test/ now imports it).
+  # PINNED, not a caret range: that constructor is @experimental upstream, so a
+  # minor bump is allowed to change or withdraw it and would break the test on
+  # someone else's `pub upgrade` rather than on a deliberate one here.
+  sqflite_common: 2.5.8
 
 flutter_launcher_icons:
   android: "launcher_icon"

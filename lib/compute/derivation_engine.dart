@@ -697,7 +697,21 @@ import 'substrate.dart';
 //   floor, and now bills through the same per-sample gate, resting floor and
 //   gap cap as the re-score. Already-stored sessions are left alone — they are
 //   not re-derived — so the change applies from this version forward.
-const int kAlgoVersion = 62;
+// v63 - RR BEATS ARE FETCHED BY rec_ts, NOT BY COUNTER SPAN.
+//   The derivation pages 1 Hz frames ordered by rec_ts and then pulled that
+//   page's RR beats with `decodedRrByCounterRange(first.counter, last.counter)`.
+//   The strap's counter resets on every reboot, so the moment a page straddled
+//   one the span was inverted or nonsensical and the query returned nothing:
+//   the page decoded with an EMPTY beat list, and every beat-derived figure for
+//   that stretch — RMSSD, SDNN, the HRV curve, and the readiness that leans on
+//   them — silently came back absent or computed off whatever beats survived on
+//   the other pages. Both tables are keyed by rec_ts now, so the lookup uses the
+//   page's own rec_ts bounds and pulls exactly its beats.
+//
+//   Days already finalized at v62 hold those RR-less results permanently — they
+//   are never revisited at the same version — so this needs the bump to be
+//   re-derived onto real beats.
+const int kAlgoVersion = 63;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1836,13 +1850,16 @@ class DerivationEngine {
             rangePages: rangePages,
             rangeRows: rangeRows,
           );
-          final firstCounter = (decodedRows.first['counter'] as num?)?.toInt();
-          final lastCounter = (decodedRows.last['counter'] as num?)?.toInt();
-          final rrRows = firstCounter == null || lastCounter == null
+          // The page is ordered rec_ts ASC, so first = min second, last = max.
+          // decoded_rr shares the rec_ts key, so this pulls exactly the page's
+          // beats — no counter span (which broke across the strap's reboot reset).
+          final firstRecTs = (decodedRows.first['rec_ts'] as num?)?.toInt();
+          final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
+          final rrRows = firstRecTs == null || lastRecTs == null
               ? const <Map<String, dynamic>>[]
-              : await LocalDb.decodedRrByCounterRange(
-                  fromCounter: firstCounter,
-                  toCounter: lastCounter,
+              : await LocalDb.decodedRrByRecTsRange(
+                  fromRecTs: firstRecTs,
+                  toRecTs: lastRecTs,
                 );
           worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
           final last = decodedRows.last;

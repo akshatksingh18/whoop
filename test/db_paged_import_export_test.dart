@@ -169,10 +169,10 @@ void main() {
         )).first['c'];
         expect(distinct, rows);
 
-        // Nothing stranded: the orphan guard still runs per row under paging.
+        // Nothing stranded: every beat's rec_ts owns a decoded_onehz row.
         final orphans = (await db.rawQuery(
           'SELECT COUNT(*) c FROM decoded_rr '
-          'WHERE counter NOT IN (SELECT counter FROM decoded_onehz)',
+          'WHERE rec_ts NOT IN (SELECT rec_ts FROM decoded_onehz)',
         )).first['c'];
         expect(orphans, 0);
       });
@@ -276,10 +276,5 @@ void main() {
         await databaseFactory.deleteDatabase(outPath);
       }
     });
-  });
-
-  test('the degraded RR fallback truncation counter starts clean', () async {
-    // A non-zero value means some window computed HRV from truncated beats.
-    expect(LocalDb.decodedRrFallbackTruncations, 0);
   });
 }

@@ -137,6 +137,46 @@ class ClockPolicy {
     return drift > 86400 || deviceClock < kMinPlausibleUnix;
   }
 
+  /// True when the strap RTC reads a PLAUSIBLE absolute time but sits more than
+  /// [kFutureMargin] in the FUTURE relative to the phone — the signature of a
+  /// PHONE clock running slow (dead-battery reboot, bad NTP, a manual set-back).
+  ///
+  /// This is the one clock-disagreement we must NOT act on destructively. We
+  /// cannot prove which clock is right, but both wrong moves are unsafe:
+  ///   - draining now drops the strap's (correctly-stamped, real-now) records as
+  ///     "implausibly future", and a mixed-burst ACK then TRIMS them off the
+  ///     band — permanent, silent loss; and
+  ///   - SET_CLOCK-ing the strap backward to match the slow phone would corrupt
+  ///     a correct RTC.
+  /// So the caller DEFERS history offload until the clocks agree (the phone
+  /// clock almost always self-corrects via NTP within minutes; the strap keeps
+  /// every record until then). The `>= kMinPlausibleUnix` guard excludes an
+  /// unset/garbage-low RTC (that is a strap problem [shouldSetClock] fixes, not
+  /// a phone problem); the strap-BEHIND case is a plausible-past time that is
+  /// not dropped as future and is corrected forward by [shouldSetClock].
+  /// How long a suspect-clock disagreement may defer history before we stop
+  /// believing the phone is the wrong one. A phone that rebooted with a dead
+  /// battery re-syncs over NTP within minutes, so a disagreement that survives
+  /// this long is a strap RTC that is genuinely running fast — not a slow
+  /// phone. Past this the gate stops deferring and the strap clock is corrected
+  /// normally, so a bad strap RTC cannot stall history forever.
+  static const int suspectGraceSeconds = 12 * 3600;
+
+  /// True once a suspect-clock state has persisted past [suspectGraceSeconds].
+  ///
+  /// Both arguments are MONOTONIC seconds (a `Stopwatch`), never wall clock.
+  /// The state being timed is "we do not trust `DateTime.now()`", so timing it
+  /// with `DateTime.now()` is self-defeating: a phone that steps forward a day
+  /// over NTP — while possibly still more than a day behind the strap — would
+  /// instantly age the suspicion past the grace window and re-authorize the
+  /// drain-and-trim this gate exists to hold back.
+  static bool suspectGraceExpired(double? sinceSecs, double nowSecs) =>
+      sinceSecs != null && nowSecs - sinceSecs >= suspectGraceSeconds;
+
+  static bool phoneClockSuspect(int deviceClock, int wallNow) =>
+      deviceClock >= kMinPlausibleUnix &&
+      deviceClock > wallNow + kFutureMargin;
+
   /// Salvage an implausible record time using the strap↔wall clock offset
   /// (device→wall = [clockWall] - [deviceClock]). A wandering/unset RTC offsets
   /// EVERY record in a session by the same amount, so shifting by that offset

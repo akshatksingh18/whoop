@@ -431,11 +431,14 @@ class _PrepareAccumulator {
     List<Map<String, dynamic>> rrRows,
   ) {
     if (frames.isEmpty) return;
-    final rrByCounter = <int, List<Map<String, dynamic>>>{};
+    // Associate beats to frames by rec_ts (their shared key). The strap's counter
+    // resets on reboot, so grouping by counter mis-joined two seconds that reused
+    // one counter within a page.
+    final rrByRecTs = <int, List<Map<String, dynamic>>>{};
     for (final row in rrRows) {
-      final counter = _num(row['counter'])?.toInt();
-      if (counter == null) continue;
-      rrByCounter.putIfAbsent(counter, () => <Map<String, dynamic>>[]).add(row);
+      final recTs = _num(row['rec_ts'])?.toInt();
+      if (recTs == null) continue;
+      rrByRecTs.putIfAbsent(recTs, () => <Map<String, dynamic>>[]).add(row);
     }
     for (final row in frames) {
       final recTs = _num(row['rec_ts'])?.toInt();
@@ -454,9 +457,7 @@ class _PrepareAccumulator {
       // tsSec is what lets `Substrate.fromJson` tell "absent" (empty ⇒
       // zero-filled) from "present but zero".
       skinContact.add(_num(row['skin_contact'])?.toInt() ?? 0);
-      final counter = _num(row['counter'])?.toInt();
-      if (counter == null) continue;
-      final beats = rrByCounter[counter];
+      final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
         final rr = _num(beat['rr_ms'])?.toDouble();

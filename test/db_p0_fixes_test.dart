@@ -88,49 +88,60 @@ void main() {
     if (await tmp.exists()) await tmp.delete(recursive: true);
   });
 
-  // ── fix 3 ────────────────────────────────────────────────────────────────
+  // ── fix 3: THE re-key regression ─────────────────────────────────────────
   test(
-    'a REUSED counter (reboot reset) leaves no stale-timestamped decoded_rr '
-    'beats behind — the counter-PK eviction is guarded too',
+    'a REUSED counter (reboot reset) KEEPS both seconds — the counter-PK '
+    'eviction that silently, unrecoverably deleted a 1 Hz row is gone',
     () async {
-      const older = 1785000000;
-      const newer = 1785000600; // a DIFFERENT second, same counter
+      const older = 1785000000; // pre-reboot, counter 777
+      const newer = 1785000600; // post-reboot, SAME counter 777
       const counter = 777;
 
       await LocalDb.insertRecord(
         _raw(older, counter),
         _sample(older, counter, [800, 810, 820]), // THREE beats
       );
-      // Post-reboot the counter is handed out again, now for a later second.
-      // The INSERT-OR-REPLACE evicts the older second's decoded_onehz row via
-      // the `counter` PRIMARY KEY; only beat_index 0 and 1 are overwritten, so
-      // beat_index 2 used to SURVIVE still stamped with `older` — invisible to
-      // both prune paths, and it polluted every later RR read of that counter.
+      // Pre-fix: `counter` was decoded_onehz's PRIMARY KEY, so this REPLACE
+      // evicted the `older` row entirely — and raw_records is dropped, so that
+      // 1 Hz second was gone for good. Under the rec_ts key both seconds live.
       await LocalDb.insertRecord(
         _raw(newer, counter),
         _sample(newer, counter, [900, 910]), // TWO beats
       );
 
       final db = await LocalDb.instance;
-      final beats = await db.query(
-        'decoded_rr',
-        where: 'counter = ?',
-        whereArgs: [counter],
-        orderBy: 'beat_index ASC',
+      final rows = await db.query(
+        'decoded_onehz',
+        where: 'rec_ts IN (?, ?)',
+        whereArgs: [older, newer],
+        orderBy: 'rec_ts ASC',
       );
-      expect(beats, hasLength(2), reason: 'the third beat must not survive');
-      expect(
-        beats.every((b) => b['rr_ts_ms'] == newer * 1000),
-        isTrue,
-        reason: 'no beat may carry the evicted second\'s timestamp: $beats',
-      );
-      expect([for (final b in beats) b['rr_ms']], [900, 910]);
+      expect(rows, hasLength(2),
+          reason: 'the pre-reboot second must NOT be evicted');
+      expect([for (final r in rows) r['counter']], [counter, counter]);
 
-      // And globally: no orphans, no cross-second contamination.
+      // Each second keeps its own beats, keyed by its rec_ts.
+      final oldBeats = await db.query('decoded_rr',
+          where: 'rec_ts = ?', whereArgs: [older], orderBy: 'beat_index ASC');
+      expect([for (final b in oldBeats) b['rr_ms']], [800, 810, 820]);
+      final newBeats = await db.query('decoded_rr',
+          where: 'rec_ts = ?', whereArgs: [newer], orderBy: 'beat_index ASC');
+      expect([for (final b in newBeats) b['rr_ms']], [900, 910]);
+
+      // Re-offloading `older` with FEWER beats must not strand the third —
+      // the write path DELETEs the second's beats before reinserting.
+      await LocalDb.insertRecord(
+        _raw(older, counter),
+        _sample(older, counter, [850]), // ONE beat now
+      );
+      final reBeats = await db.query('decoded_rr',
+          where: 'rec_ts = ?', whereArgs: [older], orderBy: 'beat_index ASC');
+      expect([for (final b in reBeats) b['rr_ms']], [850],
+          reason: 'stale high-index beats must not survive a shrink');
+
+      // No beat carries the wrong second's timestamp, anywhere.
       final stale = await db.rawQuery(
-        'SELECT COUNT(*) c FROM decoded_rr rr '
-        'JOIN decoded_onehz d ON d.counter = rr.counter '
-        'WHERE rr.rr_ts_ms != d.rec_ts * 1000',
+        'SELECT COUNT(*) c FROM decoded_rr WHERE rr_ts_ms != rec_ts * 1000',
       );
       expect(stale.first['c'], 0);
     },
@@ -138,8 +149,8 @@ void main() {
 
   // ── fix 4 ────────────────────────────────────────────────────────────────
   test(
-    'decodedRrByCounterRange returns a page spanning a counter RESET — the '
-    'endpoints are page bounds, not a monotonic counter span',
+    'decodedRrByRecTsRange returns a page spanning a counter RESET — the '
+    'window is by rec_ts, immune to the reboot counter reset',
     () async {
       const t0 = 1785100000;
       // Pre-reboot: high counter. Post-reboot: the counter restarts near zero,
@@ -161,16 +172,19 @@ void main() {
         toRecTs: t0 + 1,
       );
       expect(page, hasLength(2));
-      final first = (page.first['counter'] as num).toInt();
-      final last = (page.last['counter'] as num).toInt();
-      expect(first, 1200000);
-      expect(last, 5, reason: 'the page really does end on a LOWER counter');
+      final first = (page.first['rec_ts'] as num).toInt();
+      final last = (page.last['rec_ts'] as num).toInt();
+      expect(first, t0);
+      expect(last, t0 + 1);
+      // Sanity: the page really does end on a LOWER counter (reboot straddle).
+      expect((page.first['counter'] as num).toInt(), 1200000);
+      expect((page.last['counter'] as num).toInt(), 5);
 
-      final rr = await LocalDb.decodedRrByCounterRange(
-        fromCounter: first,
-        toCounter: last,
+      final rr = await LocalDb.decodedRrByRecTsRange(
+        fromRecTs: first,
+        toRecTs: last,
       );
-      // `counter >= 1200000 AND counter <= 5` used to match nothing at all —
+      // A counter span (`>= 1200000 AND <= 5`) used to match nothing at all —
       // the window silently produced no RR beats, so no RMSSD/HRV, no error.
       expect(rr, hasLength(4));
       expect([for (final r in rr) r['rr_ms']], [800, 805, 900, 905]);
@@ -318,27 +332,28 @@ void main() {
 
   // ── fix 8 ────────────────────────────────────────────────────────────────
   test(
-    'importFromDbFile routes decoded_onehz through the orphan guard',
+    'importFromDbFile merges a LEGACY (counter-keyed, no rec_ts) decoded export '
+    'cleanly under the rec_ts key — foreign-wins, no stranded beats',
     () async {
       final db = await LocalDb.instance;
       await db.delete('decoded_onehz');
       await db.delete('decoded_rr');
 
-      const collideTs = 1786000000; // rec_ts collision, different counter
-      const reuseCounter = 8003; // counter collision, different rec_ts
-      const localReuseTs = 1786000500;
-      const foreignReuseTs = 1786009999;
+      const collideTs = 1786000000; // rec_ts present locally AND in the foreign
+      const t2 = 1786000500; // local-only second
+      const t3 = 1786009999; // foreign-only second
 
       await LocalDb.insertRecord(
         _raw(collideTs, 8002),
         _sample(collideTs, 8002, [700, 710, 720]),
       );
       await LocalDb.insertRecord(
-        _raw(localReuseTs, reuseCounter),
-        _sample(localReuseTs, reuseCounter, [600, 610, 620]),
+        _raw(t2, 8003),
+        _sample(t2, 8003, [600, 610]),
       );
 
-      // A foreign export that collides both ways.
+      // A foreign export in the OLD schema: decoded_rr has a `counter` column
+      // and NO rec_ts (the import must derive rec_ts from rr_ts_ms).
       final dir = await databaseFactory.getDatabasesPath();
       final srcPath = p.join(dir, 'p0_foreign_export.db');
       await databaseFactory.deleteDatabase(srcPath);
@@ -378,38 +393,90 @@ void main() {
         }
       }
 
-      await foreign(8001, collideTs, [500]); // same second, other counter
-      await foreign(reuseCounter, foreignReuseTs, [400]); // same counter, other second
+      // Same second as local, but with FEWER beats than the 3 already stored.
+      // An equal-or-larger foreign set hides the bug: every local beat_index
+      // gets overwritten and a row-by-row replace-insert looks correct. Only a
+      // shrinking set exposes the stale local tail (beats 1 and 2) that a
+      // merge-without-clear leaves spliced onto the foreign series.
+      await foreign(8001, collideTs, [500]);
+      await foreign(9999, t3, [400]);
+      // SQLite storage classes are per VALUE, not per column, so an export can
+      // hand back a String where INTEGER is declared. This beat has no usable
+      // key: it must be dropped on its own rather than reaching the insert and
+      // failing NOT NULL inside the transaction, which would abort every other
+      // row above with it.
+      await src.insert('decoded_rr', {
+        'counter': 7777,
+        'beat_index': 0,
+        'rr_ts_ms': 'not-a-number',
+        'rr_ms': 600,
+      });
+      // raw_archive: the never-pruned store of frames we could not decode.
+      // exportCopy() is a whole-db VACUUM INTO so these rows leave the device;
+      // the import has to bring them back. Two rows sharing a counter with
+      // DIFFERENT hex — the reboot-counter-reuse case the table is keyed on
+      // `hex` to survive — must both land.
+      await src.execute('''
+        CREATE TABLE IF NOT EXISTS raw_archive (
+          hex TEXT PRIMARY KEY,
+          counter INTEGER,
+          packet_type INTEGER NOT NULL,
+          rec_ts INTEGER,
+          captured_at INTEGER NOT NULL,
+          reason TEXT NOT NULL
+        )
+      ''');
+      for (final hex in ['deadbeef01', 'deadbeef02']) {
+        await src.insert('raw_archive', {
+          'hex': hex,
+          'counter': 4242, // same counter, different boots
+          'packet_type': 0x2F,
+          'rec_ts': collideTs,
+          'captured_at': collideTs * 1000,
+          'reason': 'unknown_version',
+        });
+      }
       await src.close();
 
       await LocalDb.importFromDbFile(srcPath);
 
-      // (a) UNIQUE(rec_ts) eviction: the local counter's beats went with it.
-      expect(
-        await db.query('decoded_rr', where: 'counter = ?', whereArgs: [8002]),
-        isEmpty,
-        reason: 'the evicted counter\'s beats must not be stranded',
-      );
-      // (b) counter-PK eviction: no beat under the reused counter still carries
-      // the local second's timestamp.
-      final reused = await db.query(
-        'decoded_rr',
-        where: 'counter = ?',
-        whereArgs: [reuseCounter],
-      );
-      expect(reused, hasLength(1));
-      expect(reused.first['rr_ts_ms'], foreignReuseTs * 1000);
+      // Foreign wins the rec_ts collision; the other two seconds are untouched.
+      final onehz = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in onehz) r['rec_ts']], [collideTs, t2, t3]);
+      final collided =
+          onehz.firstWhere((r) => r['rec_ts'] == collideTs);
+      expect(collided['counter'], 8001, reason: 'foreign row won');
+      expect(collided['hr'], 61);
+
+      // The collided second's beats are EXACTLY the foreign set. Not a merge:
+      // the local [700, 710, 720] must be gone, tail included.
+      final b1 = await db.query('decoded_rr',
+          where: 'rec_ts = ?', whereArgs: [collideTs], orderBy: 'beat_index ASC');
+      expect([for (final b in b1) b['rr_ms']], [500],
+          reason: 'stale local beats 1-2 would splice a foreign/local RR '
+              'series into one second and silently corrupt its RMSSD');
+      // The foreign-only second imported with rec_ts derived from rr_ts_ms.
+      final b3 = await db.query('decoded_rr',
+          where: 'rec_ts = ?', whereArgs: [t3]);
+      expect([for (final b in b3) b['rr_ms']], [400]);
+      expect(b3.first['rr_ts_ms'], t3 * 1000);
+
+      // Both archived frames survived the restore.
+      final archived = await db.query('raw_archive', orderBy: 'hex ASC');
+      expect([for (final a in archived) a['hex']],
+          ['deadbeef01', 'deadbeef02'],
+          reason: 'raw_archive was missing from the import merge list, so a '
+              'backup/restore silently dropped the one table whose entire '
+              'purpose is that a frame is never lost');
 
       // Nothing orphaned, nothing cross-stamped, anywhere.
       final orphans = await db.rawQuery(
         'SELECT COUNT(*) c FROM decoded_rr '
-        'WHERE counter NOT IN (SELECT counter FROM decoded_onehz)',
+        'WHERE rec_ts NOT IN (SELECT rec_ts FROM decoded_onehz)',
       );
       expect(orphans.first['c'], 0);
       final stale = await db.rawQuery(
-        'SELECT COUNT(*) c FROM decoded_rr rr '
-        'JOIN decoded_onehz d ON d.counter = rr.counter '
-        'WHERE rr.rr_ts_ms != d.rec_ts * 1000',
+        'SELECT COUNT(*) c FROM decoded_rr WHERE rr_ts_ms != rec_ts * 1000',
       );
       expect(stale.first['c'], 0);
     },

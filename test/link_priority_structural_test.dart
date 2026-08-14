@@ -59,7 +59,20 @@ List<MapEntry<String, List<String>>> _libSources() {
   final out = <MapEntry<String, List<String>>>[];
   for (final entity in lib.listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
-    out.add(MapEntry(entity.path, codeLines(entity.readAsStringSync())));
+    // POSIX-normalise. Directory.listSync returns NATIVE separators, so on
+    // Windows every key here is `lib\ble\ble_engine.dart` while every assertion
+    // below is written `lib/ble/ble_engine.dart`. Nothing about what this file
+    // pins is platform-specific, so the paths it reasons about should not be
+    // either — normalising once here keeps the assertions readable as the
+    // single spelling they already use.
+    //
+    // Replacing Platform.pathSeparator rather than a literal backslash: on
+    // POSIX that is a no-op, whereas a blanket `\` replacement would corrupt
+    // the (legal, if perverse) filename that contains one.
+    out.add(MapEntry(
+      entity.path.replaceAll(Platform.pathSeparator, '/'),
+      codeLines(entity.readAsStringSync()),
+    ));
   }
   out.sort((a, b) => a.key.compareTo(b.key));
   return out;

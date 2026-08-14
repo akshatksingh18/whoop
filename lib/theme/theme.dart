@@ -26,12 +26,20 @@
 // [Palette] (not the live getters) so the light + dark ThemeData objects are
 // each internally consistent regardless of which mode is currently active.
 
-// CupertinoPageTransitionsBuilder (used below for iOS/macOS) comes from
-// material.dart on the pinned toolchain (Flutter 3.41.6 — see
-// .github/workflows/test.yml). It moved between cupertino.dart and
-// material.dart across Flutter versions, so if you bump the pin and this
-// suddenly fails to resolve, re-add:
-//   import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+// CupertinoPageTransitionsBuilder (used below for iOS/macOS) moved between
+// cupertino.dart and material.dart across Flutter versions. material.dart
+// re-exports it on the pinned toolchain (3.41.6 — see .github/workflows/
+// test.yml), but NOT on 3.44.x, where relying on that transitively fails with
+// "The function 'CupertinoPageTransitionsBuilder' isn't defined" and takes the
+// surrounding `const` map down with it (4 further errors). This file already
+// predicted that and said to re-add the import; this is that import.
+//
+// Safe on BOTH toolchains: material.dart re-exports the SAME declaration, and
+// Dart only reports an ambiguity when two DIFFERENT declarations share a name,
+// so the pin simply sees one element reachable by two routes. The `show` clause
+// is load-bearing — an unscoped cupertino import WOULD collide with material,
+// which declares its own Card, Switch, Divider and friends.
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'page_transitions.dart';
 import 'tokens.dart';

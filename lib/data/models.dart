@@ -246,6 +246,14 @@ class DeviceState {
   /// StuckStrapDetector tripped: frontier frozen while the strap is ahead — a
   /// defensive reboot/clock-reset was attempted.
   bool strapNeedsReboot = false;
+  /// A HISTORY_END batch token has failed its ACK write enough times ACROSS
+  /// reconnects to be quarantined. The data is safe (committed before the ACK
+  /// was ever attempted); what this means is that the band has not been told it
+  /// may trim, so it re-delivers the same batch. The link is no longer bounced
+  /// on that token — bouncing forever was the "Groundhog Day" signature: the
+  /// band re-delivers, the app reconnects, the battery drains, and the user saw
+  /// a sync that never finished with no explanation.
+  bool syncChunkQuarantined = false;
   /// Strap's own banked-data window from GET_DATA_RANGE (unix sec), for the
   /// session-relative plausibility gate + the UI's "history available" readout.
   int? dataRangeOldest;

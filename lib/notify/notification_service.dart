@@ -6,6 +6,10 @@
 // purely the OS presentation + scheduling layer.
 //
 // Design guarantees:
+//   • Two gates, one rule. NotificationPrefs.shouldFireOs decides what may be
+//     PRESENTED; [schedulableIds] decides what may be SCHEDULED. The OS fires a
+//     zonedSchedule with no Dart running, so the presentation gate cannot see
+//     it — both are needed to hold "exactly three notification classes".
 //   • One channel per category (NotifCategory) so Android users mute each kind
 //     independently. The `health` channel is max-importance (illness alerts).
 //   • Notification ids are partitioned by NotificationEvent.osId; fixed device +
@@ -128,6 +132,19 @@ class NotificationService {
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
+
+  /// The OS scheduler's allow-list.
+  ///
+  /// [NotificationPrefs.shouldFireOs] enforces the three-class rule for events
+  /// that go through [presentEvent], but a `zonedSchedule` never passes through
+  /// it — the OS fires those with no Dart running. So the same rule needs a
+  /// second gate here, and this is it: [NotifClass.lookback] is the only class
+  /// that is scheduled ahead of time, so [idWeeklyRecap] is the only id that
+  /// may be. Wind-down, the 24 hydration slots, the two AI briefings, the
+  /// journal prompt and the "time to move" one-shot all still CANCEL (their
+  /// callers keep doing that, which is how an upgrade cleans out whatever an
+  /// older build left standing) — they just never arm again.
+  static const Set<int> schedulableIds = {idWeeklyRecap};
 
   AndroidNotificationChannel _channelFor(NotifCategory c) => switch (c) {
         NotifCategory.health => _healthChannel,
@@ -332,8 +349,10 @@ class NotificationService {
       // Collision-free allocated id (NOT the old hashCode-modulo) — see
       // notification_ids.dart. Two same-category events used to be able to
       // share an id, and `show` REPLACES: one of them vanished silently.
+      // e.osId overrides only for a caller that also cancels by id (see
+      // NotificationEvent.osId).
       await _plugin.show(
-        await NotificationIds.instance.idFor(e),
+        e.osId ?? await NotificationIds.instance.idFor(e),
         e.title,
         e.body,
         _details(e.category),
@@ -345,23 +364,25 @@ class NotificationService {
     }
   }
 
-  /// Legacy device-alert entry (battery/charging). Kept for device_alerts.dart.
-  Future<void> showDevice({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
-    try {
-      if (!await ensurePermission()) return;
-      await _plugin.show(id, title, body, _details(NotifCategory.device));
-    } catch (_) {}
-  }
-
-  // ── Scheduling (wall-clock recurring nudges) ────────────────────────────────
+  // ── Scheduling (wall-clock, OS-fired with no Dart running) ──────────────────
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute, {int? weekday}) =>
       nextInstanceOf(tz.TZDateTime.now(tz.local), hour, minute,
           weekday: weekday);
+
+  /// The next [weekday] at [hour]:[minute] in local wall-clock time. For
+  /// arming the lookback as a ONE-SHOT: a `dayOfWeekAndTime` repeat would go on
+  /// re-firing the same week's finding every Sunday forever.
+  DateTime nextWeeklyInstant(int weekday, int hour, int minute) =>
+      _nextInstanceOf(hour, minute, weekday: weekday);
+
+  /// Shared gate for every scheduled slot — see [schedulableIds].
+  bool _maySchedule(int id) {
+    if (schedulableIds.contains(id)) return true;
+    debugPrint('[notify] schedule refused for id $id — not one of the three '
+        'notification classes');
+    return false;
+  }
 
   Future<void> scheduleDaily({
     required int id,
@@ -374,7 +395,8 @@ class NotificationService {
     bool skipToday = false,
   }) async {
     try {
-      if (!await ensurePermission()) return;
+      if (!_maySchedule(id)) return;
+      if (!await ensurePermission(allowPrompt: false)) return;
       var when = _nextInstanceOf(hour, minute);
       // skipToday: tonight's instance is already handled (e.g. the journal was
       // logged before the prompt time) — start the daily repeat tomorrow.
@@ -413,7 +435,8 @@ class NotificationService {
     String? route,
   }) async {
     try {
-      if (!await ensurePermission()) return;
+      if (!_maySchedule(id)) return;
+      if (!await ensurePermission(allowPrompt: false)) return;
       await _plugin.zonedSchedule(
         id,
         title,
@@ -434,9 +457,9 @@ class NotificationService {
   /// re-armed by the plugin). Calling again with the same [id] before it fires
   /// replaces the pending instance (same "cancel, then reschedule" convention
   /// [scheduleStandingReminders] already uses for the recurring reminders).
-  /// Used for the provisional "time to move" nudge (issue #123): scheduled
-  /// `lastMovement + 2h` so it fires from the OS wall-clock even while the app
-  /// is closed, instead of only being evaluated on next foreground open.
+  /// This is how the weekly lookback is armed — once, for a week that actually
+  /// found something. (It also still carries the "time to move" nudge's call,
+  /// which [schedulableIds] now refuses.)
   Future<void> scheduleOnce({
     required int id,
     required NotifCategory category,
@@ -446,7 +469,8 @@ class NotificationService {
     String? route,
   }) async {
     try {
-      if (!await ensurePermission()) return;
+      if (!_maySchedule(id)) return;
+      if (!await ensurePermission(allowPrompt: false)) return;
       final when = tz.TZDateTime.from(at, tz.local);
       await _plugin.zonedSchedule(
         id,

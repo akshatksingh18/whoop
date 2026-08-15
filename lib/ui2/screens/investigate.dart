@@ -200,16 +200,32 @@ class _InvestigateState extends State<Investigate> {
         ('Stability (CV)', pct(cv)),
       ]),
       const SizedBox(height: S.x3),
+      // ms² is correct AGAIN: `lombScargle` now returns physical PSD (ms²/Hz)
+      // and the bands are Welch-averaged, verified against a synthetic at
+      // total 652.1 vs SDNN² 651.0. It previously returned variance-normalised
+      // power, so the same label sat over numbers three orders of magnitude
+      // small. Every row here self-drops when its key is absent — ULF and a
+      // too-short session now return null rather than a fabricated zero, and
+      // MonoTable removes the row rather than dashing it.
       MonoTable('Frequency domain', [
+        ('ULF power', ms2(freq['ulf'])),
+        ('VLF power', ms2(freq['vlf'])),
         ('LF power', ms2(freq['lf'])),
         ('HF power', ms2(freq['hf'])),
-        ('VLF power', ms2(freq['vlf'])),
         ('Total power', ms2(freq['total'])),
         ('LF / HF', plain(freq['lf_hf'])),
         ('LF, normalised', plain(freq['nu_lf'])),
         ('HF, normalised', plain(freq['nu_hf'])),
         ('HF gated', freq['hf_gated'] == true ? 'yes' : 'no'),
       ]),
+      const SizedBox(height: S.x3),
+      if (freq['total'] == null)
+        const StatusCard(
+          'No frequency-domain spectrum for this night',
+          'The bands are Welch-averaged over segments long enough to resolve '
+              'each one, so a short or broken recording returns nothing rather '
+              'than a number computed off too few beats.',
+        ),
       const SizedBox(height: S.x3),
       MonoTable('Non-linear', [
         ('SD1, sleep', ms(irr['sd1'])),

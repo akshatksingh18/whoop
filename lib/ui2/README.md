@@ -136,7 +136,7 @@ Section(String title, Widget child, {String? action, VoidCallback? onAction})
 ```dart
 // A · one number, glanceable, for grids
 SignalCard(IconData icon, Color color, String label, String value,
-           {String unit = '', String sub = '', Conf conf = Conf.high,
+           {String unit = '', String sub = '', Conf? conf,
             VoidCallback? onTap})
 
 // B · moving toward a goal
@@ -180,7 +180,7 @@ fixes it.
 ```dart
 MetricRow(IconData icon, Color color, String name, String value,
           {String sub = '', String unit = '', List<double> spark = const [],
-           Conf conf = Conf.high, String? status, VoidCallback? onTap})
+           Conf? conf, String? status, VoidCallback? onTap})
 
 InlineMetrics(List<(String label, String value, Color color)> items)
 ```

@@ -296,7 +296,9 @@ void main() {
       b.insert('rrInterval', {
         'deviceId': 'd',
         'ts': t0 + i,
-        'rrMs': i == 300 ? double.infinity : 900.0,
+        // Varied on purpose: a constant series has SD2 = 0 and the
+        // irregular-rhythm screen abstains, leaving no beat count to assert on.
+        'rrMs': i == 300 ? double.infinity : 880.0 + (i % 41),
       });
     }
     await b.commit(noResult: true);

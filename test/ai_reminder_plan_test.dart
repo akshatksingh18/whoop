@@ -121,7 +121,9 @@ void main() {
     });
 
     test('unknown routes fall back to Today, no crash', () {
-      final r = resolveTapRoute('/recap');
+      // '/recap' used to be the example here. It is a known route now — see
+      // tap_router_test — so this needs one that genuinely isn't.
+      final r = resolveTapRoute('/nope/from/an/older/build');
       expect(r.tab, 0);
       expect(r.screen, isNull);
     });

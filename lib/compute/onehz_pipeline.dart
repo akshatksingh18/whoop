@@ -335,13 +335,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           tier: Tier.estimate,
           inputs_used: ['rr_cleaned'],
         );
-  final cpc = nn.length >= 60
-      ? cardiopulmonaryCoupling(nn, nnTimes)
-      : const Metric<CpcResult>.absent(
-          tier: Tier.high,
-          inputs_used: ['rr_cleaned'],
-        );
-
   // ── 24/7 IRREGULAR-RHYTHM SCREEN (day-span RR; not a diagnosis) ────────────
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
   // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
@@ -680,7 +673,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       tier: Tier.estimate,
       inputs: const ['hr_1hz', 'immobility'],
     ),
-    'cpc': cpc.toJson((v) => v.toJson()),
+    // CPC is WITHDRAWN, not merely absent. Its "respiration surrogate" was the
+    // NN series itself, so cpc_ratio was the RR periodogram HF/LF ratio wearing
+    // a different name (measured agreement 1.0000085) — never cardiopulmonary
+    // coupling. Reinstate only with a real respiration channel in the
+    // signature; until then there is nothing honest to publish here.
   };
 
   final respiration = <String, dynamic>{
@@ -925,7 +922,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'dip_pct': dip.present ? dip.value!.dipPct : null,
       'trimp': trimp.present ? trimp.value : null,
       'odi_per_hour': null,
-      'cpc_ratio': cpc.present ? cpc.value!.cpcRatio : null,
       // Stress score (0–100) + SI for trends.
       'stress': stressScore,
       'stress_si': si,

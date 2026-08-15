@@ -98,7 +98,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 38;
+  static const int schemaVersion = 39;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -501,6 +501,12 @@ class LocalDb {
           // skipping it costs nothing, and _repairOpenSchema creates these
           // idempotently anyway if the ladder lands out of order.)
           await _createStrengthTables(db);
+        }
+        if (oldV < 39) {
+          // Make ABSENCE representable in the decoded ledger: the six sensor
+          // columns lose their NOT NULL so a record that carried no accel /
+          // no optical / no thermal reading stops being written as a real zero.
+          await _relaxDecodedSensorNulls(db);
         }
       },
       onOpen: (db) async {
@@ -2354,12 +2360,12 @@ class LocalDb {
         rec_ts INTEGER PRIMARY KEY,
         counter INTEGER NOT NULL,
         hr INTEGER NOT NULL,
-        ax REAL NOT NULL,
-        ay REAL NOT NULL,
-        az REAL NOT NULL,
-        spo2_red_raw INTEGER NOT NULL,
-        spo2_ir_raw INTEGER NOT NULL,
-        skin_temp_raw INTEGER NOT NULL,
+        ax REAL,
+        ay REAL,
+        az REAL,
+        spo2_red_raw INTEGER,
+        spo2_ir_raw INTEGER,
+        skin_temp_raw INTEGER,
         step_count INTEGER,
         step_cadence INTEGER,
         activity_class INTEGER,
@@ -2372,6 +2378,16 @@ class LocalDb {
     // Every band-computed column above is NULLABLE ON PURPOSE: only a gen5 band
     // sends them, and a gen4 row must read back as "not reported", not as zero
     // steps / 0 °C / "off wrist". No DEFAULT, ever.
+    //
+    // v39: the SENSOR columns (ax/ay/az, spo2_*, skin_temp_raw) are nullable for
+    // the same reason. They were `NOT NULL`, so `commitSyncBatch` coerced an
+    // absent reading to `?? 0` and the ledger stored a fabricated measurement —
+    // a real 0 g gravity vector and a real ADC count of 0. A record can
+    // legitimately carry HR without accel (gen5 v18, and the gen4 R10-historical
+    // path decodes HR/counter only), and gen5 has no equivalent of the gen4
+    // optical/thermal ADCs at all, so those three are ALWAYS absent there.
+    // Absence now lands as NULL. `_relaxDecodedSensorNulls` (v39) rebuilds the
+    // table on existing installs.
     await _ensureDecodedOneHzBandFields(db);
     // Forensic-only lookup by the raw counter; not on any read path.
     await db.execute(
@@ -2521,6 +2537,55 @@ class LocalDb {
   /// All copies are INSERT ... SELECT (server-side, ZERO host-bound variables),
   /// so the iOS SQLITE_MAX_VARIABLE_NUMBER (999) never applies — no chunking is
   /// needed. Mirrors [_rebuildCanonicalDecodedStore]'s rename-aside shape.
+  /// v39: drop `NOT NULL` from the six SENSOR columns of `decoded_onehz`.
+  ///
+  /// SQLite cannot relax a constraint in place, so this is the standard
+  /// rebuild — same shape as [_rekeyDecodedStoreByRecTs], but `decoded_rr` is
+  /// untouched and no row is rewritten: the copy is a straight column-for-column
+  /// SELECT, so it is safe on a populated table and existing values (including
+  /// the historical fabricated zeros, which readers already treat as absent)
+  /// survive verbatim. A pre-v34 DB reaching this step has already had the band
+  /// columns added by the v34 rung above, so the explicit column list is valid.
+  static Future<void> _relaxDecodedSensorNulls(Database db) async {
+    // No table yet (fresh-ish upgrade path) ⇒ the current DDL already carries
+    // the nullable columns and there is nothing to rebuild.
+    if ((await _columnsOf(db, 'decoded_onehz')).isEmpty) return;
+    await _ensureDecodedOneHzBandFields(db);
+    await db.execute('DROP TABLE IF EXISTS _decoded_onehz_v39');
+    await db.execute('''
+      CREATE TABLE _decoded_onehz_v39 (
+        rec_ts INTEGER PRIMARY KEY,
+        counter INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        ax REAL,
+        ay REAL,
+        az REAL,
+        spo2_red_raw INTEGER,
+        spo2_ir_raw INTEGER,
+        skin_temp_raw INTEGER,
+        step_count INTEGER,
+        step_cadence INTEGER,
+        activity_class INTEGER,
+        skin_temp_c REAL,
+        on_wrist INTEGER,
+        hr_valid INTEGER,
+        hr_alt INTEGER
+      )
+    ''');
+    const cols = 'rec_ts, counter, hr, ax, ay, az, spo2_red_raw, spo2_ir_raw, '
+        'skin_temp_raw, step_count, step_cadence, activity_class, skin_temp_c, '
+        'on_wrist, hr_valid, hr_alt';
+    await db.execute(
+      'INSERT OR REPLACE INTO _decoded_onehz_v39 ($cols) '
+      'SELECT $cols FROM decoded_onehz ORDER BY rec_ts ASC',
+    );
+    await db.execute('DROP TABLE IF EXISTS decoded_onehz');
+    await db.execute('ALTER TABLE _decoded_onehz_v39 RENAME TO decoded_onehz');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
+    );
+  }
+
   static Future<void> _rekeyDecodedStoreByRecTs(Database db) async {
     // The source tables may not exist on a pre-decoded-store upgrade path; a
     // create (new schema, IF NOT EXISTS) makes the copy a safe no-op there. On a
@@ -2790,15 +2855,16 @@ class LocalDb {
       'rec_ts': recTs,
       'counter': raw.counter,
       'hr': decoded.hr,
-      'ax': decoded.ax ?? 0,
-      'ay': decoded.ay ?? 0,
-      'az': decoded.az ?? 0,
-      'spo2_red_raw': decoded.spo2RedRaw ?? 0,
-      'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
-      'skin_temp_raw': decoded.skinTempRaw ?? 0,
-      // NO `?? 0` here, unlike the columns above: these are only reported by a
-      // gen5 band, so a null must land in the DB as NULL. Zeroing them would
-      // invent a 0-step second / a 0 °C skin temperature for every gen4 record.
+      // NO `?? 0` on ANY of these (schema v39 made the sensor columns
+      // nullable): a null must land in the DB as NULL. Zeroing invented a real
+      // 0 g gravity vector, a real ADC count of 0, a 0-step second and a 0 °C
+      // skin temperature for every record that simply did not carry the field.
+      'ax': decoded.ax,
+      'ay': decoded.ay,
+      'az': decoded.az,
+      'spo2_red_raw': decoded.spo2RedRaw,
+      'spo2_ir_raw': decoded.spo2IrRaw,
+      'skin_temp_raw': decoded.skinTempRaw,
       'step_count': decoded.stepCount,
       'step_cadence': decoded.stepCadence,
       'activity_class': decoded.activityClass,

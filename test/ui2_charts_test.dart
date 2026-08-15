@@ -19,12 +19,24 @@ import 'package:openstrap_edge/ui2/theme.dart';
 class _Rec implements Canvas {
   final paths = <Path>[];
   final rrects = <RRect>[];
+  final rects = <Rect>[];
+  final circles = <Offset>[];
+  final lines = <(Offset, Offset)>[];
 
   @override
   void drawPath(Path p, Paint _) => paths.add(p);
 
   @override
   void drawRRect(RRect r, Paint _) => rrects.add(r);
+
+  @override
+  void drawRect(Rect r, Paint _) => rects.add(r);
+
+  @override
+  void drawCircle(Offset c, double _, Paint _) => circles.add(c);
+
+  @override
+  void drawLine(Offset a, Offset b, Paint _) => lines.add((a, b));
 
   @override
   dynamic noSuchMethod(Invocation i) => null;
@@ -202,6 +214,82 @@ void main() {
       test('an empty series has no axis — that is the empty state', () {
         expect(AxisSpec.of(const []), isNull);
       });
+
+      test('a non-finite sample cannot hang the step loop', () {
+        // This used to spin forever on the main isolate: `hi` was infinity and
+        // the loop grew the axis towards it one nice step at a time.
+        final s = AxisSpec.of([double.infinity, 60.0])!;
+        expect(s.min, lessThanOrEqualTo(60));
+        expect(s.max, greaterThanOrEqualTo(60));
+        expect(s.max.isFinite, isTrue);
+      }, timeout: const Timeout(Duration(seconds: 5)));
+
+      test('NaN is excluded, not silently skipped into a hole in the line', () {
+        // Every comparison against NaN is false, so it used to drop out of the
+        // extent while staying in the series — an axis that looks right over a
+        // line with an invisible gap in it.
+        final s = AxisSpec.of([double.nan, 60.0])!;
+        expect(s.min, lessThanOrEqualTo(60));
+        expect(s.max, greaterThanOrEqualTo(60));
+        expect(AxisSpec.of([double.nan, double.infinity]), isNull);
+      });
+
+      test('an all-zero series never puts a negative number on a gridline', () {
+        final s = AxisSpec.of(List.filled(7, 0.0))!;
+        expect(s.min, 0);
+        expect(s.max, greaterThan(0));
+        expect(s.tickValues.every((v) => v >= 0), isTrue);
+      });
+    });
+
+    group('autoExtent — the axis-less fallback', () {
+      test('a flat series gets a band around it, exactly like of()', () {
+        final e = autoExtent(List.filled(7, 60.0))!;
+        expect((60 - e.min) / e.range, closeTo(.5, 1e-9));
+      });
+
+      test('a flat ZERO series keeps zero on the floor', () {
+        final e = autoExtent(List.filled(7, 0.0))!;
+        expect(e.min, 0);
+        expect(e.range, greaterThan(0));
+      });
+
+      test('holes are ignored and an empty one has no extent', () {
+        final e = autoExtent(const [null, 50.0, double.nan, 70.0])!;
+        expect(e.min, 50);
+        expect(e.range, 20);
+        expect(autoExtent(const [null, double.nan]), isNull);
+      });
+    });
+
+    group('minMaxRuns — a gap is a gap', () {
+      test('a hole splits the series and the runs keep their real spacing', () {
+        final runs = minMaxRuns(const [60.0, null, 62.0, 63.0], 300, (v) => v);
+        expect(runs, hasLength(2));
+        expect(runs[0].single.dx, 0);
+        // Index 2 of 4 is two thirds along, and stays there.
+        expect(runs[1].first.dx, closeTo(200, .001));
+        expect(runs[1].last.dx, closeTo(300, .001));
+      });
+
+      test('a lone sample survives as a run of one', () {
+        final runs = minMaxRuns(const [null, 55.0, null], 300, (v) => v);
+        expect(runs, hasLength(1));
+        expect(runs.single, hasLength(1));
+        expect(runs.single.single.dy, 55);
+      });
+
+      test('no holes means one run, identical to minMaxColumns', () {
+        final d = List<double>.generate(5000, (i) => (i % 83).toDouble());
+        final runs = minMaxRuns(d, 250, (v) => v);
+        expect(runs, hasLength(1));
+        expect(runs.single, minMaxColumns(d, 250, (v) => v));
+      });
+
+      test('all holes draws nothing', () {
+        expect(minMaxRuns(const [null, null], 300, (v) => v), isEmpty);
+        expect(minMaxRuns(const [double.nan], 300, (v) => v), isEmpty);
+      });
     });
 
     test('formatters', () {
@@ -249,6 +337,199 @@ void main() {
       final auto = _Rec();
       Bars([50.0], Colors.red, Colors.grey).paint(auto, size);
       expect(auto.rrects.first.outerRect.height, closeTo(100, 1));
+    });
+  });
+
+  // ── THE AXIS-LESS PATH ──────────────────────────────────────────────────
+  // TrendCard and the MetricRow spark go through the painters' own fallback
+  // and never see AxisSpec, so every fix that landed there has to land here
+  // too or half the app keeps the bug.
+  group('the auto-scale fallback', () {
+    const size = Size(300, 100);
+
+    test('a stable week reads as stable, not as lowest ever', () {
+      final rec = _Rec();
+      LineChart(List.filled(7, 60.0), Colors.red).paint(rec, size);
+      final b = rec.paths.first.getBounds();
+      // It used to land at y ≈ 86 on a 100 pt card: hard against the floor.
+      expect(b.top, closeTo(50, 1));
+      expect(b.bottom, closeTo(50, 1));
+    });
+
+    test('a flat zero week stays on the floor, where zero belongs', () {
+      final rec = _Rec();
+      LineChart(List.filled(7, 0.0), Colors.red).paint(rec, size);
+      expect(rec.paths.first.getBounds().top, closeTo(86, 1));
+    });
+
+    test('an area fill is dropped without an axis to anchor it', () {
+      // Min-anchored, a 58→60 bpm week paints a full-card mountain — a
+      // truncated-axis area chart with the truncation hidden.
+      final bare = _Rec();
+      LineChart(const [58.0, 60.0, 59.0], Colors.red).paint(bare, size);
+      expect(bare.paths, hasLength(1), reason: 'fill drawn with no axis');
+
+      final framed = _Rec();
+      LineChart(const [58.0, 60.0, 59.0], Colors.red,
+              axis: const AxisSpec(min: 0, max: 100, format: axisInt))
+          .paint(framed, size);
+      expect(framed.paths, hasLength(2), reason: 'fill dropped under an axis');
+    });
+
+    test('nothing finite draws nothing', () {
+      final rec = _Rec();
+      LineChart(const [double.nan, null], Colors.red).paint(rec, size);
+      expect(rec.paths, isEmpty);
+      expect(rec.circles, isEmpty);
+    });
+  });
+
+  group('a line never closes over a gap', () {
+    const size = Size(300, 100);
+
+    test('a missing day breaks the path instead of spanning it', () {
+      final rec = _Rec();
+      LineChart(const [60.0, 61.0, null, null, 64.0, 65.0], Colors.red)
+          .paint(rec, size);
+      expect(rec.paths, hasLength(2));
+      // The two runs end and start either side of the hole, and nothing is
+      // drawn across it.
+      expect(rec.paths[0].getBounds().right, closeTo(60, 1));
+      expect(rec.paths[1].getBounds().left, closeTo(240, 1));
+    });
+
+    test('an every-other-day series draws dots, not nothing', () {
+      final rec = _Rec();
+      LineChart(const [60.0, null, 62.0, null, 64.0], Colors.red)
+          .paint(rec, size);
+      expect(rec.paths, isEmpty);
+      expect(rec.circles, hasLength(3));
+    });
+
+    test('a NaN is a hole, not a sample the axis pretends it never saw', () {
+      final rec = _Rec();
+      LineChart(const [60.0, 61.0, double.nan, 64.0, 65.0], Colors.red)
+          .paint(rec, size);
+      expect(rec.paths, hasLength(2));
+    });
+  });
+
+  group('degenerate inputs', () {
+    test('a one-point column reduction does not throw in a paint method', () {
+      // minMaxColumns yields a single point in a canvas under ~2 px wide, and
+      // the old prefix clamp asserted on it.
+      final rec = _Rec();
+      expect(
+          () => LineChart(const [5.0, 5.0, 5.0], Colors.red)
+              .paint(rec, const Size(1.5, 40)),
+          returnsNormally);
+    });
+
+    test('a bar keeps its 2pt floor inside the canvas', () {
+      final rec = _Rec();
+      Bars(const [0.001, 100.0], Colors.red, Colors.grey)
+          .paint(rec, const Size(300, 100));
+      final tiny = rec.rrects.first.outerRect;
+      expect(tiny.bottom, closeTo(100, .001));
+      expect(tiny.height, closeTo(2, .001));
+    });
+
+    test('a bucket that was never measured draws no bar', () {
+      final rec = _Rec();
+      Bars(const [null, 40.0, null], Colors.red, Colors.grey)
+          .paint(rec, const Size(300, 100));
+      expect(rec.rrects, hasLength(1));
+    });
+
+    test('a skipped zone band does not shift the ones after it', () {
+      final rec = _Rec();
+      ZoneBar(const [.5, .001, .499]).paint(rec, const Size(300, 10));
+      expect(rec.rrects, hasLength(2));
+      // The hairline band is skipped; its width still has to be spent.
+      expect(rec.rrects[1].outerRect.left, closeTo(300 * .501, .01));
+    });
+
+    test('painters survive non-finite input without drawing it', () {
+      const size = Size(300, 100);
+      for (final p in <CustomPainter>[
+        LineChart(const [double.nan, 60.0], Colors.red),
+        Bars(const [double.nan, 60.0], Colors.red, Colors.grey),
+        ZoneBar(const [double.nan, .5]),
+        Actogram([List.filled(24, double.nan)], Colors.red),
+        NightStack(const [
+          [double.nan, 60.0]
+        ], const [Colors.red]),
+      ]) {
+        expect(() => p.paint(_Rec(), size), returnsNormally,
+            reason: '${p.runtimeType} threw');
+      }
+    });
+  });
+
+  group('Hypnogram reduces before it draws', () {
+    test('a 30 s arousal survives an eight-hour night', () {
+      // 28 800 rects on a 350 pt chart overlap, and the last one drawn wins —
+      // so which stage a pixel showed was an accident of draw order.
+      final night = List.filled(28800, SleepStage.deep);
+      night[17431] = SleepStage.awake;
+      expect(Hypnogram.columns(night, 175), contains(SleepStage.awake));
+    });
+
+    test('the column shows what occupied most of it, awake aside', () {
+      final st = [
+        ...List.filled(9, SleepStage.light),
+        ...List.filled(1, SleepStage.rem),
+      ];
+      expect(Hypnogram.columns(st, 1), [SleepStage.light]);
+    });
+
+    test('one rect per drawable column, not one per epoch', () {
+      final rec = _Rec();
+      Hypnogram(List.filled(28800, SleepStage.light))
+          .paint(rec, const Size(350, 80));
+      expect(rec.rrects.length, lessThanOrEqualTo(175));
+    });
+
+    test('a short night is untouched', () {
+      final st = List.filled(40, SleepStage.rem);
+      expect(identical(Hypnogram.columns(st, 175), st), isTrue);
+    });
+  });
+
+  group('Actogram agrees with the frame that labels it', () {
+    test('slot 0 is the bottom row — the frame prints max first', () {
+      // ChartFrame stacks tick labels top-first from AxisSpec.max, so hour has
+      // to increase upwards. Drawing slot 0 at the top only read correctly
+      // because the caller's noon-anchored formatter is symmetric at 3 ticks.
+      final rec = _Rec();
+      final day = List.filled(24, 0.0);
+      day[0] = 1;
+      Actogram([day], Colors.red).paint(rec, const Size(20, 240));
+      expect(rec.rects.single.bottom, closeTo(240, .001));
+    });
+  });
+
+  group('NightStack lanes share one time base', () {
+    const size = Size(300, 90);
+
+    test('a lane on its own clock is not stretched to fit', () {
+      final rec = _Rec();
+      NightStack([
+        List.filled(60, 60.0),
+        List.filled(12, 40.0), // a coarser lane — a different instant per pixel
+      ], const [Colors.red, Colors.blue])
+          .paint(rec, size);
+      expect(rec.paths, hasLength(1));
+    });
+
+    test('lanes on the shared grid all draw, holes and all', () {
+      final rec = _Rec();
+      NightStack([
+        List.filled(60, 60.0),
+        [for (var i = 0; i < 60; i++) i < 20 ? null : 40.0 + i],
+      ], const [Colors.red, Colors.blue])
+          .paint(rec, size);
+      expect(rec.paths.length, greaterThanOrEqualTo(2));
     });
   });
 

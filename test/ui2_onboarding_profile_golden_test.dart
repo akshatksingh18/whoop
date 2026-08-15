@@ -19,10 +19,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/splash.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
+import 'package:openstrap_edge/ui2/profile/alarm.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
@@ -30,6 +32,11 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// Fixed, so a golden is never a function of the calendar or of a real band.
 final _synced = DateTime(2026, 8, 22, 7, 12);
+
+/// The alarm screen renders a relative day ("Tomorrow"), so both ends of that
+/// comparison are pinned or the golden is a function of when the suite runs.
+final _alarmNow = DateTime(2026, 8, 21, 22, 40);
+final _alarmAt = DateTime(2026, 8, 22, 6, 30);
 
 final _band = HealthSource(
   name: 'WHOOP 4.0',
@@ -112,6 +119,33 @@ Map<String, Widget> _cases() => {
       'device_detail': DeviceDetailView(_band, onFind: () {}, onForget: () {}),
       'more_settings': const MoreSettingsView(
           units: 'Metric', appearance: 'Dark', phoneSteps: true),
+      // The alarm's three confirmation states are the point of the screen: it
+      // must not draw a confident tick over an alarm the band never
+      // acknowledged.
+      'alarm_none': const AlarmScreenView(connected: true),
+      'alarm_confirmed': AlarmScreenView(
+          armedAt: _alarmAt,
+          now: _alarmNow,
+          state: AlarmArmState.confirmed,
+          connected: true,
+          onSet: (_) async {},
+          onTest: () async {},
+          onCancel: () async {}),
+      'alarm_unconfirmed': AlarmScreenView(
+          armedAt: _alarmAt,
+          now: _alarmNow,
+          state: AlarmArmState.unknown,
+          connected: true,
+          onSet: (_) async {},
+          onTest: () async {},
+          onCancel: () async {}),
+      'alarm_disconnected': AlarmScreenView(
+          armedAt: _alarmAt, now: _alarmNow, state: AlarmArmState.unknown),
+      'notification_settings': const NotificationSettingsView(),
+      'notification_settings_blocked': const NotificationSettingsView(
+          granted: false,
+          prefs: NotificationPrefs(
+              deviceEnabled: false, quietStartMin: 23 * 60, quietEndMin: 6 * 60)),
       'edit_profile': EditProfileView(
         initial: const {
           'name': 'Sahil',

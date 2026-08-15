@@ -194,13 +194,38 @@ Map<String, dynamic> buildCrossDayBundle(
   //    recommended bedtime + cycle-aligned wake (all forward-looking for tonight).
   // baseline need = the personal OSD (from sleepDebt) when known, else 8 h.
   final osdH = sleepDebt.present ? sleepDebt.value!.osdHours : null;
-  // Personal optimal sleep duration, but floored/capped to a physiological band:
+  // Personal optimal sleep duration, floored/capped to a physiological band:
   // the OSD estimate is noisy with few nights and can read implausibly low
   // (e.g. 5.6 h), which would push the recommended bedtime far too late. Adults
-  // need ~7–9.5 h; clamp into that range (default 8 h when no estimate).
-  final baselineNeedSec = ((osdH ?? 8.0).clamp(7.0, 9.5)) * 3600.0;
+  // need ~7-9.5 h, so clamp into that range.
+  //
+  // NO 8 h DEFAULT. It used to substitute the population mean when there was no
+  // personal estimate, and every number built on it — tonight's need, the
+  // recommended bedtime, the cycle-aligned wake time and sleep performance —
+  // was then a population figure presented as the user's own, with nothing on
+  // screen saying so. Absent input yields an absent metric; the coach fills in
+  // once enough nights exist to estimate an OSD.
+  final double? baselineNeedSec =
+      osdH == null ? null : (osdH.clamp(7.0, 9.5)) * 3600.0;
   final debtSec =
       (sleepDebt.present ? (sleepDebt.value!.debtHours ?? 0.0) : 0.0) * 3600.0;
+  const noOsd = ana.Metric<ana.SleepNeed>.absent(
+    tier: ana.Tier.estimate,
+    inputs_used: ['osd_hours'],
+    note: 'need_baseline:have=0,need=1',
+  );
+  ana.Metric<ana.SleepNeed> needAt({
+    required double dayStrain,
+    required double napCreditSec,
+  }) =>
+      baselineNeedSec == null
+          ? noOsd
+          : ana.sleepNeed(
+              baselineNeedSec: baselineNeedSec,
+              sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
+              dayStrain: dayStrain,
+              napCreditSec: napCreditSec,
+            );
   // TODAY's strain only. `_lastNum` walked backward to the last non-null, so a
   // day whose strain compute abstained built tonight's bonus out of an EARLIER
   // day's workout — imputation (AGENTS §3.3), and invisible, since the number
@@ -229,22 +254,12 @@ Map<String, dynamic> buildCrossDayBundle(
   // day to find a number would be the unsafe one.
   final todayNapMin = _todayNum(days, 'nap_min');
   final todayNapSec = (todayNapMin ?? 0.0) * 60.0;
-  final need = ana.sleepNeed(
-    baselineNeedSec: baselineNeedSec,
-    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
-    dayStrain: todayStrain,
-    napCreditSec: todayNapSec,
-  );
+  final need = needAt(dayStrain: todayStrain, napCreditSec: todayNapSec);
   // What the credit ACTUALLY changed. `sleepNeed` clamps to [6 h, 11 h] AFTER
   // subtracting, so a large credit against a low baseline is only partly
   // realized — a 3 h nap does not remove 3 h of need. Disclosing the raw nap
   // minutes would state a reduction the number above never took.
-  final needNoNap = ana.sleepNeed(
-    baselineNeedSec: baselineNeedSec,
-    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
-    dayStrain: todayStrain,
-    napCreditSec: 0.0,
-  );
+  final needNoNap = needAt(dayStrain: todayStrain, napCreditSec: 0.0);
   final appliedNapCreditMin = (todayNapMin == null ||
           !need.present ||
           !needNoNap.present)
@@ -261,12 +276,7 @@ Map<String, dynamic> buildCrossDayBundle(
   // "we could not measure today's strain, so tonight's need is short by up to
   // 45 min". Collapsing the two would re-hide exactly what the today-scoping
   // fix above exposed.
-  final needNoStrain = ana.sleepNeed(
-    baselineNeedSec: baselineNeedSec,
-    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
-    dayStrain: 0.0,
-    napCreditSec: todayNapSec,
-  );
+  final needNoStrain = needAt(dayStrain: 0.0, napCreditSec: todayNapSec);
   final appliedStrainBonusMin = (todayStrainNum == null ||
           !need.present ||
           !needNoStrain.present)
@@ -434,6 +444,64 @@ Map<String, dynamic> buildCrossDayBundle(
 // ── helpers (all pure) ───────────────────────────────────────────────────────
 
 double? _numOrNull(Object? v) => v is num ? v.toDouble() : null;
+
+/// Make [value] safe to hand to `jsonEncode`, dropping only the leaves that are
+/// not.
+///
+/// ONE bad leaf used to destroy the WHOLE cross-day artifact. `jsonEncode`
+/// throws `JsonUnsupportedObjectError` on a NaN or an Infinity, and the only
+/// caller wrapped the encode in a catch that logged and returned — so a single
+/// non-finite double took illness, anomaly, CTL/ATL/TSB, chronotype, the sleep
+/// coach, VO₂max and every percentile down with it, silently, for as long as
+/// the field stayed non-finite. That is not a hypothetical: an input with too
+/// little history emitted `double.nan` as its percentile, which is every user's
+/// first week.
+///
+/// The artifact is a bag of independent metrics, so it must degrade one field
+/// at a time. A non-finite number, or anything else JSON cannot represent,
+/// becomes `null` — which every reader here already means as ABSENT — and its
+/// dotted path is appended to [droppedPaths] so the loss is recorded rather
+/// than inferred.
+Object? sanitizeForJson(
+  Object? value,
+  List<String> droppedPaths, {
+  String path = '',
+}) {
+  if (value == null || value is bool || value is String) return value;
+  if (value is num) {
+    if (value is int) return value;
+    if (value.isFinite) return value;
+    droppedPaths.add(path.isEmpty ? '<root>' : path);
+    return null;
+  }
+  if (value is Map) {
+    final out = <String, dynamic>{};
+    for (final e in value.entries) {
+      final k = e.key;
+      // A non-String key cannot be a JSON object key at all; keeping the value
+      // under a stringified key would invent a field name, so drop the pair.
+      if (k is! String) {
+        droppedPaths.add(path.isEmpty ? '<key:$k>' : '$path.<key:$k>');
+        continue;
+      }
+      out[k] = sanitizeForJson(
+        e.value,
+        droppedPaths,
+        path: path.isEmpty ? k : '$path.$k',
+      );
+    }
+    return out;
+  }
+  if (value is List) {
+    return [
+      for (var i = 0; i < value.length; i++)
+        sanitizeForJson(value[i], droppedPaths, path: '$path[$i]'),
+    ];
+  }
+  // Anything else (a DateTime, an un-`toJson`ed model, …) has no JSON form.
+  droppedPaths.add(path.isEmpty ? '<root>' : path);
+  return null;
+}
 
 /// Local wall-clock minute-of-day [0,1440) for an epoch SECOND. Uses a local
 /// DateTime (the isolate inherits the device timezone) so clock times match what

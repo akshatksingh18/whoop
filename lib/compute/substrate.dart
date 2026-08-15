@@ -26,6 +26,24 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 /// mostly absent would reliably hand the answer to the missing data.
 const double kMinAccelCoverageForVanHees = 0.5;
 
+/// Physiological bound on a 1 Hz heart rate (bpm), inclusive.
+///
+/// The gen4 TRUSTED decode path (v24 / v12) returns the HR byte verbatim with
+/// no bound — the protocol's `_physiologicallyPlausible` gate runs only on the
+/// best-effort versions, and gen5 v18 bounds it independently — so one
+/// corrupt-but-CRC-valid byte of 250 used to pass the `hr > 0` filter and land
+/// straight in the day's max HR. Applying this in the protocol would cost the
+/// WHOLE record (accel and RR with it); applied here it costs only the second.
+const int kMinPlausibleHr = 25;
+const int kMaxPlausibleHr = 230;
+
+/// The HR to store for second-level [raw]: itself when physiologically
+/// possible, else `0` — the substrate's existing "no usable HR this second"
+/// value, which every reader already filters on. Never clamped to the bound:
+/// a corrupt byte must not become a plausible reading.
+int plausibleHrOrZero(int raw) =>
+    (raw >= kMinPlausibleHr && raw <= kMaxPlausibleHr) ? raw : 0;
+
 /// The decoded 1 Hz substrate — the only decoded form (ARCHITECTURE_V2).
 ///
 /// All HR/accel/ADC arrays are parallel and 1:1 with [tsSec] (one sample per
@@ -98,16 +116,25 @@ class Substrate {
   int? get lastTs => isEmpty ? null : tsSec.last;
 
   /// 1 Hz accel samples (one gravity vector per second) for the analytics family.
+  ///
+  /// Seconds with no gravity vector are carried with `valid: false` rather than
+  /// dropped, so the stream stays 1:1 with [tsSec] while `enmoSeries`,
+  /// `positionSeries` and the zone readers — all of which filter on `valid` —
+  /// see them as ABSENT instead of as a perfectly still wrist. See
+  /// [accelPresentAt].
   List<ana.AccelSample> accelSamples() => <ana.AccelSample>[
         for (var i = 0; i < tsSec.length; i++)
-          ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i])
+          ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i],
+              valid: accelPresentAt(i))
       ];
 
   /// Whether second [i] carries a REAL gravity vector.
   ///
-  /// `decoded_onehz.ax/ay/az` are `REAL NOT NULL`, so a record decoded without
-  /// a usable gravity vector — gen5 v18 keeps HR/RR and reports the accel as
-  /// absent rather than discarding the second — is stored as exact `(0, 0, 0)`.
+  /// `decoded_onehz.ax/ay/az` are nullable as of schema v39, but the 1 Hz
+  /// arrays here are POSITIONAL, so a record decoded without a usable gravity
+  /// vector — gen5 v18 keeps HR/RR and reports the accel as absent rather than
+  /// discarding the second, and the gen4 R10-historical path decodes HR only —
+  /// still occupies its slot, as exact `(0, 0, 0)`.
   /// That is not a reading a real device can produce — a gravity vector always
   /// has magnitude ~1 g, and every decoder that emits one gates on
   /// `magSq >= 0.25` — so exact zero is an unambiguous ABSENT marker rather
@@ -340,7 +367,7 @@ Substrate decodeSubstrate(List<String> hexes) {
   for (var i = 0; i < n; i++) {
     final r = recs[i].r;
     tsSec[i] = r.tsEpoch;
-    hr[i] = r.hr;
+    hr[i] = plausibleHrOrZero(r.hr);
     if (r.accelG.length == 3) {
       ax[i] = r.accelG[0];
       ay[i] = r.accelG[1];

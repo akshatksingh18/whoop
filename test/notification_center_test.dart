@@ -41,17 +41,47 @@ void main() {
     });
   });
 
+  group('the three classes', () {
+    test('classOf recognises exactly three, and nothing else', () {
+      // The exception: health findings and the band's own failures.
+      expect(classOf(_ev(NotifCategory.health, NotifPriority.critical)),
+          NotifClass.exception);
+      expect(classOf(_ev(NotifCategory.device, NotifPriority.normal)),
+          NotifClass.exception);
+      // The alarm, and only the alarm, claims reminders+critical.
+      expect(classOf(_ev(NotifCategory.reminders, NotifPriority.critical)),
+          NotifClass.alarm);
+      // Everything that used to make up the other nineteen kinds.
+      expect(classOf(_ev(NotifCategory.recovery, NotifPriority.normal)), isNull);
+      expect(classOf(_ev(NotifCategory.reminders, NotifPriority.low)), isNull);
+      expect(
+          classOf(_ev(NotifCategory.reminders, NotifPriority.normal)), isNull);
+    });
+  });
+
   group('shouldFireOs', () {
     const p = NotificationPrefs(); // defaults: all on, quiet 22–07, override on
     test('fires outside quiet hours', () {
-      expect(p.shouldFireOs(_ev(NotifCategory.recovery, NotifPriority.normal),
+      expect(p.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
           12 * 60), isTrue);
     });
     test('suppresses non-critical inside quiet hours', () {
-      expect(p.shouldFireOs(_ev(NotifCategory.recovery, NotifPriority.normal),
+      // The 23:30 "band is on the charger" buzz — the reason device alerts had
+      // to stop writing straight to the plugin.
+      expect(p.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
           2 * 60), isFalse);
-      expect(p.shouldFireOs(_ev(NotifCategory.reminders, NotifPriority.low),
-          2 * 60), isFalse);
+    });
+    test('a kind that is not one of the three never fires, quiet or not', () {
+      for (final minute in [2 * 60, 12 * 60]) {
+        expect(
+            p.shouldFireOs(
+                _ev(NotifCategory.recovery, NotifPriority.normal), minute),
+            isFalse);
+        expect(
+            p.shouldFireOs(
+                _ev(NotifCategory.reminders, NotifPriority.low), minute),
+            isFalse);
+      }
     });
     test('critical overrides quiet hours when allowed', () {
       expect(p.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),
@@ -66,6 +96,21 @@ void main() {
       const d = NotificationPrefs(healthEnabled: false);
       expect(d.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),
           12 * 60), isFalse);
+      const e = NotificationPrefs(deviceEnabled: false);
+      expect(e.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
+          12 * 60), isFalse);
+    });
+    test('the alarm is never silenced by quiet hours or a category switch', () {
+      // It is armed FOR a time inside the quiet window, and its off switch is
+      // cancelling it — not a preference the user can trip by accident.
+      const off = NotificationPrefs(
+        remindersEnabled: false,
+        criticalOverridesQuiet: false,
+      );
+      expect(
+          off.shouldFireOs(
+              _ev(NotifCategory.reminders, NotifPriority.critical), 6 * 60),
+          isTrue);
     });
   });
 

@@ -25,6 +25,8 @@ import '../../data/nutrition_store.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
+import '../onboarding/profile_setup.dart' show formatDay;
+import 'journal_compose.dart' show OsTextField;
 import 'log_food.dart';
 
 class NutritionScreen extends StatefulWidget {
@@ -43,6 +45,11 @@ class _NutritionScreenState extends State<NutritionScreen> {
   Metric? _burned;
   double? _waterMl;
   bool _loading = true;
+
+  /// The local profile map, read once per load. Targets live here rather than
+  /// in a new table: they are two numbers the user typed, the same shape as
+  /// `step_goal` next to them.
+  Map<String, dynamic> _profile = const {};
 
   @override
   void initState() {
@@ -68,6 +75,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
       _week = week;
       _burned = burned;
       _waterMl = water;
+      _profile = {...?app.user};
       _loading = false;
     });
   }
@@ -99,6 +107,50 @@ class _NutritionScreenState extends State<NutritionScreen> {
       ...all,
       'water_ml': JournalMetricValue(next),
     });
+    await _load();
+  }
+
+  /// Removing a log is destructive and there is no undo, so the entry is named
+  /// back before it goes. On-system rather than an `AlertDialog`: this package
+  /// bans `fontSize:` and `Colors.white` in its own tests and a Material dialog
+  /// smuggles both in.
+  Future<void> _confirmDelete(FoodEntry e) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: P.of(context).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Remove ${e.label}?',
+                  style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(
+                'It leaves the day and every average that counted it. There is '
+                'no undo.',
+                style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
+              ),
+              const SizedBox(height: S.x5),
+              BigButton('Remove',
+                  icon: LucideIcons.trash2,
+                  color: C.red,
+                  onTap: () => Navigator.of(s).pop(true)),
+              const SizedBox(height: S.x3),
+              BigButton('Keep it',
+                  soft: true, onTap: () => Navigator.of(s).pop(false)),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await NutritionDb.delete(await LocalDb.instance, e.id);
     await _load();
   }
 
@@ -155,12 +207,26 @@ class _NutritionScreenState extends State<NutritionScreen> {
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
             child: Column(
               children: [
-                for (final m in kMeals)
+                for (final m in kMeals) ...[
                   MealRow(
                     meal: m,
                     entries: day?.mealEntries(m) ?? const [],
                     onTap: () => _logFood(meal: m),
                   ),
+                  // The individual entries, indented under the occasion they
+                  // belong to, each one removable. A mistyped 2,000 kcal used
+                  // to be permanent and it silently poisoned every seven-day
+                  // mean it fell into.
+                  for (final e in day?.mealEntries(m) ?? const <FoodEntry>[])
+                    Padding(
+                      padding: const EdgeInsets.only(left: S.x8),
+                      child: FoodRow(
+                        entry: e,
+                        trailing: LucideIcons.trash2,
+                        onTap: () => _confirmDelete(e),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),
@@ -226,6 +292,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             C.domFood,
           ),
         ),
+        Section('Energy, day by day', _weekChart(c, w)),
         Section(
           'Seven-day average',
           counted == 0
@@ -279,13 +346,142 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  /// Seven bars of logged energy, today highlighted. A day with nothing logged
+  /// draws no bar rather than a zero — zero kcal is a claim, and an unlogged
+  /// day is an absence. A PARTIAL day still draws, because its total is a real
+  /// floor; the footnote says it is one and that the mean below excluded it.
+  Widget _weekChart(BuildContext c, NutritionWindow w) {
+    final vals = [for (final d in w.days) d.kcal.value ?? 0.0];
+    final drawn = vals.where((v) => v > 0).length;
+    final axis = drawn == 0 ? null : AxisSpec.of(vals, floor: 0);
+    final p = P.of(c);
+    return Surface(
+      child: ChartFrame(
+        title: 'Energy logged',
+        unit: 'kcal',
+        height: 120,
+        yAxis: axis,
+        // The window is built oldest-first ending today, so these labels are
+        // the range actually drawn rather than a hardcoded guess.
+        xLabels: drawn == 0
+            ? const []
+            : [_dayShort(w.days.first.date), 'Today'],
+        footnote: w.daysExcluded == 0
+            ? null
+            : '${w.daysExcluded} of these bars is a partial day — a floor, and '
+                'left out of the averages below.',
+        empty: axis == null ? const NoData(message: 'Nothing logged yet') : null,
+        child: axis == null
+            ? const SizedBox.shrink()
+            : CustomPaint(
+                size: Size.infinite,
+                painter: Bars(vals, C.domFood, p.track,
+                    highlight: vals.length - 1, t: animate(c, 1), axis: axis),
+              ),
+      ),
+    );
+  }
+
   // ── GOALS ────────────────────────────────────────────────────────────────
+
+  /// A target the user TYPES. Adaptive targets need weight history and ~21
+  /// complete days and stay deferred; a typed one needs no science at all, and
+  /// the tab is named Goals.
+  static const _goalSpecs = <(String, String, String, Color)>[
+    ('kcal_target', 'Daily energy', 'kcal', C.domFood),
+    ('protein_target', 'Daily protein', 'g', C.red),
+  ];
+
+  double? _target(String key) => (_profile[key] as num?)?.toDouble();
+
+  double? _meanFor(String key) =>
+      key == 'kcal_target' ? _week?.meanKcal : _week?.meanProtein;
+
+  Future<void> _editTargets() async {
+    final ctrls = {
+      for (final g in _goalSpecs)
+        g.$1: TextEditingController(text: _target(g.$1)?.round().toString() ?? ''),
+    };
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: P.of(context).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => Padding(
+        padding: EdgeInsets.only(
+            left: S.x5,
+            right: S.x5,
+            top: S.x5,
+            bottom: MediaQuery.of(s).viewInsets.bottom + S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Your targets', style: F.head.copyWith(color: P.of(s).ink)),
+            const SizedBox(height: S.x4),
+            for (final g in _goalSpecs) ...[
+              OsTextField(
+                controller: ctrls[g.$1]!,
+                label: '${g.$2} (${g.$3})',
+                hint: 'none',
+                keyboard: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: S.x3),
+            ],
+            const SizedBox(height: S.x2),
+            BigButton('Save',
+                color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
+          ],
+        ),
+      ),
+    );
+    final fields = {
+      for (final g in _goalSpecs)
+        g.$1: double.tryParse(ctrls[g.$1]!.text.trim()),
+    };
+    for (final ctrl in ctrls.values) {
+      ctrl.dispose();
+    }
+    if (saved != true || !mounted) return;
+    await context.read<AppState>().updateProfile(fields);
+    await _load();
+  }
 
   Widget _goalsTab(BuildContext c) {
     final p = P.of(c);
+    final counted = _week?.counted.length ?? 0;
+    final set = [for (final g in _goalSpecs) if (_target(g.$1) != null) g];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (set.isEmpty)
+          StatusCard(
+            'No targets set',
+            'A target here is one you type. Nothing adapts it for you — that '
+                'needs weight history and about three weeks of complete days.',
+            fix: 'Set a target',
+            icon: LucideIcons.target,
+            onFix: _editTargets,
+          )
+        else
+          Section(
+            'Your targets',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final g in set) ...[
+                  _goalCard(g, counted),
+                  const SizedBox(height: S.x3),
+                ],
+              ],
+            ),
+            action: 'Edit',
+            onAction: _editTargets,
+          ),
+        const SizedBox(height: S.x4),
         Surface(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -328,6 +524,42 @@ class _NutritionScreenState extends State<NutritionScreen> {
       ],
     );
   }
+
+  /// Current → target → the rate between them. The "current" is the mean of
+  /// COMPLETE days only, the same denominator the Week tab uses, so the goal
+  /// and the average can never disagree about what was counted.
+  Widget _goalCard((String, String, String, Color) g, int counted) {
+    final target = _target(g.$1)!;
+    final mean = _meanFor(g.$1);
+    if (mean == null || target <= 0) {
+      return StatusCard(
+        'Nothing to measure ${g.$2.toLowerCase()} against yet',
+        'A day counts once every occasion carries a figure and the log reaches '
+            'the evening. None of the last ${_week?.span ?? 7} days has.',
+        fix: 'Log an eating occasion',
+        icon: LucideIcons.target,
+        onFix: _logFood,
+      );
+    }
+    final diff = mean - target;
+    return GoalTrajectory(
+      g.$2,
+      '${mean.round()} ${g.$3}',
+      '${target.round()} ${g.$3}',
+      '${diff.abs() < 1 ? 'On target' : '${diff.abs().round()} ${g.$3}/day '
+          '${diff > 0 ? 'above' : 'below'}'} · mean of $counted complete '
+          'day${counted == 1 ? '' : 's'}',
+      (mean / target).clamp(0, 1).toDouble(),
+      g.$4,
+      rateDown: diff > 0,
+    );
+  }
+}
+
+/// "Thu 4 Sep" from a `YYYY-MM-DD` day label, for an axis end-label.
+String _dayShort(String ymd) {
+  final d = DateTime.tryParse(ymd);
+  return d == null ? ymd : formatDay(d);
 }
 
 // ── components ─────────────────────────────────────────────────────────────

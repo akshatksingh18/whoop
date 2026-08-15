@@ -16,38 +16,44 @@
 // the "repeated 'band is on the charger'" report. Anything that must fire "once
 // per real event" cannot key off in-memory state alone here.
 //
-// Presentation goes through NotificationService, the single display layer that a
-// future FCM/server-push system also uses — so adding push later doesn't touch
-// this file or risk colliding with these alerts.
+// Presentation goes through NotificationCenter — the single emitter — NOT
+// straight to the plugin. It used to call NotificationService.showDevice, which
+// wrote to the plugin directly and so consulted neither the user's quiet hours
+// nor their category switch: putting the strap on the charger at 23:30 buzzed
+// the phone at Importance.high. It also passed no payload, so the tap did
+// nothing. Both are properties of the shared gate, which is why the fix is to
+// use it rather than to re-implement it here.
+//
+// These two alerts keep FIXED OS ids (see NotificationEvent.osId) because this
+// file also has to CANCEL the "Charging" card when the puck comes off.
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/day_label.dart';
 import 'charge_alert_policy.dart';
+import 'notification_center.dart';
+import 'notification_event.dart';
 import 'notification_service.dart';
+import 'tap_router.dart';
 
-/// Narrow presentation seam. [NotificationService] has a private constructor and
-/// cannot be subclassed from a test, so the alert logic would otherwise only be
-/// exercisable against the real platform plugin.
+/// Narrow presentation seam. [NotificationCenter] is a singleton and
+/// [NotificationService] has a private constructor, so the alert logic would
+/// otherwise only be exercisable against the real platform plugin.
 abstract class DeviceAlertSink {
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  });
+  Future<void> show(NotificationEvent e);
   Future<void> cancel(int id);
 }
 
-class _NotificationServiceSink implements DeviceAlertSink {
-  const _NotificationServiceSink();
+class _NotificationCenterSink implements DeviceAlertSink {
+  const _NotificationCenterSink();
 
   @override
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  }) =>
-      NotificationService.instance.showDevice(id: id, title: title, body: body);
+  Future<void> show(NotificationEvent e) async {
+    // Band alerts fire from the BLE state pipeline, which runs headless on both
+    // platforms — never prompt for permission from there.
+    await NotificationCenter.instance.emit(e, allowPermissionPrompt: false);
+  }
 
   @override
   Future<void> cancel(int id) => NotificationService.instance.cancel(id);
@@ -121,7 +127,7 @@ class DeviceAlerts {
   Future<void> _queue = Future<void>.value();
 
   DeviceAlerts({DeviceAlertSink? sink, DeviceAlertStore? store})
-      : _notes = sink ?? const _NotificationServiceSink(),
+      : _notes = sink ?? const _NotificationCenterSink(),
         _store = store ?? const _PrefsDeviceAlertStore();
 
   /// Completes when all queued alert work has settled. Tests only.
@@ -271,11 +277,17 @@ class DeviceAlerts {
       await _io(() => _notes.cancel(NotificationService.idCharging));
     }
     if (announce) {
-      await _io(() => _notes.show(
-            id: NotificationService.idCharging,
+      await _io(() => _notes.show(_event(
+            osId: NotificationService.idCharging,
+            // The strap event's own timestamp IS the identity of this charge
+            // session (that is what ChargeAlertPolicy arbitrates on), so a
+            // genuine second plug-in the same day is a genuinely new key while
+            // a re-announcement of the same one is not. Date-prefixed so
+            // FiredKeyStore's retention sweep can reach it.
+            kind: 'band_charging:${chargingTs ?? nowSec}',
             title: 'Charging',
             body: 'Your band is on the charger.',
-          ));
+          )));
       await _io(() => _store.writeInt(_kLastChargeWall, nowSec));
       if (persistEventTs != null) {
         await _io(() => _store.writeInt(_kLastChargeTs, persistEventTs!));
@@ -284,15 +296,43 @@ class DeviceAlerts {
       await _io(() => _notes.cancel(NotificationService.idLowBattery));
     }
     if (fireLow) {
-      await _io(() => _notes.show(
-            id: NotificationService.idLowBattery,
+      await _io(() => _notes.show(_event(
+            osId: NotificationService.idLowBattery,
+            // One drain per key: the hysteresis above already means a re-arm
+            // needs the battery to climb past 25% or go on the charger, so the
+            // percentage is a stable identity for THIS drain.
+            kind: 'band_low:${batteryPct.round()}',
             title: 'Low battery',
             body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
-          ));
+          )));
     }
     if (lowArmedChanged) {
       await _io(() => _store.writeInt(_kLowArmed, lowArmed ? 1 : 0));
     }
+  }
+
+  /// One band alert, in the currency the shared emitter speaks.
+  ///
+  /// `route: '/profile'` — the band's battery, charge state and last-sync time
+  /// live on the source detail screen under Profile, which is the only place in
+  /// the app that can answer "how flat is it?".
+  static NotificationEvent _event({
+    required int osId,
+    required String kind,
+    required String title,
+    required String body,
+  }) {
+    final day = todayLabel();
+    return NotificationEvent(
+      dedupeKey: '$day:$kind',
+      category: NotifCategory.device,
+      priority: NotifPriority.normal, // respects quiet hours — it can wait
+      title: title,
+      body: body,
+      date: day,
+      route: kRouteProfile,
+      osId: osId,
+    );
   }
 
   /// Run one presentation/persistence step, absorbing its failure. See the ACT

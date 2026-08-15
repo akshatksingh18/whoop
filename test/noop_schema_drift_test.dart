@@ -332,12 +332,16 @@ void main() {
         final ts = t0 + i;
         b.writeln(_row(ts, 'hr', hr: '${60 + (i % 10)}'));
         b.writeln(_row(ts, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'));
+        // The finite beats must VARY. A constant series has SD2 = 0, and the
+        // irregular-rhythm screen now abstains there rather than publishing
+        // "perfectly regular" off an undefined SD1/SD2 ratio — which would
+        // leave this test with no beat count to assert on.
         b.writeln(_row(ts, 'rr',
             rr: i == 100
                 ? 'NaN'
                 : i == 200
                     ? 'Infinity'
-                    : '900'));
+                    : '${880 + (i % 41)}'));
       }
       final f = File(p.join(tmp.path, 'nan.csv'))
         ..writeAsStringSync(b.toString());

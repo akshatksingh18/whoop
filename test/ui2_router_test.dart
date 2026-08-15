@@ -74,6 +74,43 @@ void main() {
         resolveRoute(AppRoute.loading, pairingSkipped: true, profileSeen: true),
         AppRoute.loading,
       );
+      // Not even for someone who finished onboarding months ago.
+      expect(
+        resolveRoute(AppRoute.loading,
+            pairingSkipped: false, profileSeen: false, onboarded: true),
+        AppRoute.loading,
+      );
+    });
+
+    test('forgetting a band does not restart onboarding', () {
+      // The NAV-03 case: paired for months (so `pairingSkipped` is false),
+      // then "Forget this band" → AppState.route goes to `pairing`. That used
+      // to drop the user into the first-run pairing screen with every night
+      // of their data behind it.
+      expect(
+        resolveRoute(AppRoute.pairing,
+            pairingSkipped: false, profileSeen: true, onboarded: true),
+        AppRoute.shell,
+      );
+      // Same for an install that upgraded into this build and never marked
+      // the profile step.
+      expect(
+        resolveRoute(AppRoute.profile,
+            pairingSkipped: false, profileSeen: false, onboarded: true),
+        AppRoute.shell,
+      );
+      // A first run is still a first run.
+      expect(
+        resolveRoute(AppRoute.pairing,
+            pairingSkipped: false, profileSeen: false, onboarded: false),
+        AppRoute.pairing,
+      );
+      expect(
+        resolveRoute(AppRoute.welcome,
+            pairingSkipped: false, profileSeen: false, onboarded: true),
+        AppRoute.welcome,
+        reason: 'welcome is reached only with no band AND no choice made',
+      );
     });
   });
 
@@ -101,9 +138,18 @@ void main() {
       routes.forEach((route, domain) {
         expect(domainForRoute(route), domain, reason: route);
       });
+      // Payload routes that predate the five-tab shell, and that
+      // `resolveTapRoute` does not carry yet — the destinations exist here so
+      // they stop landing on Home the moment it does.
+      expect(domainForRoute('/profile'), ShellDomain.home);
+      expect(screenForRoute('/profile'), isA<ProfileHome>(),
+          reason: 'the battery notification promises the band, not Home');
+      // A week of sleep, strain and recovery is Health. There is no recap
+      // screen; landing on Home was not even close.
+      expect(domainForRoute('/recap'), ShellDomain.health);
       // Unknown / retired routes must not crash a cold launch.
-      expect(domainForRoute('/recap'), ShellDomain.home);
       expect(domainForRoute(''), ShellDomain.home);
+      expect(screenForRoute('/nope'), isNull);
     });
 
     test('the tab index the shell persists round-trips through the enum', () {

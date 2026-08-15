@@ -118,15 +118,15 @@ void main() {
     expect([for (final r in rr) r['rr_ms']], containsAll([602, 613]));
   });
 
-  // NOTE what this pins, and what it does NOT. `decoded_onehz.ax/ay/az` are
-  // REAL NOT NULL, so absent gravity has to be STORED as 0 — that is a schema
-  // constraint, not a claim about the wrist. Exact (0,0,0) is therefore the
-  // ABSENT marker (no real gravity vector has zero magnitude, and every decoder
-  // that emits one gates on magSq >= 0.25); `Substrate.accelPresentAt` is what
-  // stops it being read back as a measurement. See
-  // substrate_accel_absence_test.dart — without that, a night of these scores
-  // as perfect immobility and fabricates a fully-staged sleep window.
-  test('v18 sample with null accel still persists (stored as 0)', () async {
+  // Absent gravity is stored as NULL (schema v39), NOT as a real 0 g vector.
+  // It used to be `?? 0` into a REAL NOT NULL column, which put a fabricated
+  // measurement in the durable ledger. `derive_prepare` maps the NULL back to
+  // the positional absent marker exact (0,0,0) — no real gravity vector has
+  // zero magnitude, and every decoder that emits one gates on magSq >= 0.25 —
+  // and `Substrate.accelPresentAt` is what stops THAT being read as a
+  // measurement. See substrate_accel_absence_test.dart: without it, a night of
+  // these scores as perfect immobility and fabricates a staged sleep window.
+  test('v18 sample with null accel persists with the accel ABSENT', () async {
     const unix = 1785801600;
     const counter = 42;
     final inner = _buildGen5V18LenientInner(unix: unix, counter: counter, hr: 72);
@@ -154,9 +154,15 @@ void main() {
     );
     expect(rows.length, 1);
     expect(rows.first['hr'], 72);
-    expect(rows.first['ax'], 0);
-    expect(rows.first['ay'], 0);
-    expect(rows.first['az'], 0);
+    expect(rows.first['ax'], isNull);
+    expect(rows.first['ay'], isNull);
+    expect(rows.first['az'], isNull);
+    // gen5 has no equivalent of the gen4 optical/thermal ADCs, so these are
+    // ALWAYS absent there. Storing 0 made every gen5 temperature and SpO2
+    // metric a computation over a constant zero series.
+    expect(rows.first['spo2_red_raw'], isNull);
+    expect(rows.first['spo2_ir_raw'], isNull);
+    expect(rows.first['skin_temp_raw'], isNull);
   });
 
   test('R10-lite + complete preferred → no decoded_onehz row', () async {

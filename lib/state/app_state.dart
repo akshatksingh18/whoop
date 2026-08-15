@@ -1225,6 +1225,9 @@ class AppState extends ChangeNotifier {
       await LocalDb.refreshComputeFreshness();
       _bumpInsightsRevision();
       notifyListeners(); // screens re-fetch from the derived store
+      // Same signal, for the surfaces that can't listen: home/lock-screen
+      // widget, Watch mirror, Siri intents (WidgetService.refresh).
+      unawaited(WidgetService.refresh(repo));
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
       if (heavy) {

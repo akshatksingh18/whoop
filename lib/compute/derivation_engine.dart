@@ -804,7 +804,63 @@ import 'substrate.dart';
 //   `algo_version` it has always stamped. It did not, so a bump that changes the
 //   per-day row SHAPE (as this one does, adding `hourly_hr`) would have been
 //   served the pre-bump artifact for the rest of that day.
-const int kAlgoVersion = 66;
+// v67: ABSENCE STOPS READING AS A MEASUREMENT. Schema v39 makes the six sensor
+//   columns of `decoded_onehz` nullable, so a record that carried no accel /
+//   no optical / no thermal reading is no longer written as a real zero, and the
+//   readers that consumed those zeros now see absence.
+//
+//   1. ACCEL. `(0, 0, 0)` has a z-angle of exactly 0.0° and an ENMO of 1.0 —
+//      i.e. absent accel read as a PERFECTLY STILL wrist to active minutes, the
+//      activity curve, restlessness, the sleep restlessness map and ENMO, and
+//      as a motionless wrist to auto-workout detection (a missed workout).
+//      `Substrate.accelPresentAt` existed and had exactly one consumer, the van
+//      Hees coverage gate; every other feed now consults it too, and
+//      `accelSamples()` marks absent seconds `valid: false` (which `enmoSeries`
+//      and `positionSeries` already honour). Active minutes, the activity curve
+//      and restlessness are now fractions over OBSERVED seconds, not over all
+//      seconds — a day with accel gaps moves.
+//
+//   2. HEART RATE gains a physiological bound at the substrate. The gen4
+//      TRUSTED decode path (v24/v12) returned the HR byte verbatim, so one
+//      corrupt-but-CRC-valid byte of 250 passed the `hr > 0` filter and became
+//      the day's max HR. Out-of-range now reads as the existing "no usable HR
+//      this second" 0 — never clamped into the range, which would invent a
+//      plausible reading. Applied here rather than in the decoder because
+//      rejecting there costs the whole record, accel and RR with it.
+//
+//   3. `fit_quality` / `fit_warning` are GONE. They scored band tightness from
+//      `skinContact`, which is not a contact measurement (it is the sign+
+//      exponent half of a float32) and was a hardcoded 0 on the decoded path.
+//
+//   4. CPC IS WITHDRAWN, not absent. `cpc_ratio` is gone from the bundle and
+//      from `metric_series`: its "respiration surrogate" was the NN series
+//      itself, so the number was the RR periodogram HF/LF ratio under another
+//      name (measured agreement 1.0000085). It never measured cardiopulmonary
+//      coupling; it needs a real respiration channel to come back.
+//
+//   5. FROM ANALYTICS (verify the pinned SHA carries these before shipping —
+//      the v43 lesson): `lf_hf`/`lf`/`hf`/`total` are now physical PSD in
+//      ms²/Hz rather than dimensionless (0.095 → 2.20 on a synthetic) and are
+//      Welch-averaged over band-appropriate segments; `ulf` is absent rather
+//      than 0.0; sleep staging, the illness CUSUM and the anomaly detector all
+//      moved (a real night went wake 17.5 → 26.0 min, TST 516.5 → 508.0); and
+//      `round6` returns null on a non-finite input instead of passing a NaN on.
+//
+//   6. THREE substituted inputs stop being substituted. `hrRecovery` now gets
+//      `tsSec`, so "+60 s" is clock time rather than +60 ARRAY POSITIONS on a
+//      gappy tail (it overstated the drop, read as a fitness marker);
+//      `enmoSeries` gets `expectedMinutes: 1440`, so coverage is not 1.0 for a
+//      day worn 4 h out of 24; and the sleep coach no longer substitutes a
+//      population 8 h for a missing personal OSD — need, bedtime, wake and
+//      sleep performance are ABSENT until an OSD estimate exists.
+//
+//   ALSO on this bump: the cross-day rollup artifact is stamped with
+//   `algo_version` / `built_for_day` / `built_at_epoch` so the reader can fail
+//   closed instead of serving a previous version's VO₂max, fitness age, sleep
+//   need, strain target and illness flags; and its encode is sanitised, because
+//   ONE non-finite double used to make `jsonEncode` throw and drop the ENTIRE
+//   bundle (see `sanitizeForJson`).
+const int kAlgoVersion = 67;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1153,8 +1209,28 @@ class DerivationEngine {
   /// foreground engine can never inherit background tuning by accident.
   final bool background;
 
-  bool _running = false;
+  /// PROCESS-WIDE, not per-engine. The thing it protects is the DATABASE, and
+  /// there is one of those however many engines exist — but engines are built
+  /// per call site (`lib/sync/background_sync.dart` constructs a fresh one for
+  /// every headless wake), so an instance flag guarded nothing across them. Two
+  /// passes could then derive the same day at once, and `partial`/`finalized`
+  /// are decided before the write transaction, so the slower one's PARTIAL row
+  /// could land on top of the faster one's complete row.
+  static bool _running = false;
   bool get running => _running;
+
+  /// Run [body] under the process-wide derivation lock, returning [busy]
+  /// unchanged if a pass is already in flight. Only for entry points that do
+  /// NOT call another locked entry point (which would deadlock-by-skip).
+  static Future<T> _withRunLock<T>(T busy, Future<T> Function() body) async {
+    if (_running) return busy;
+    _running = true;
+    try {
+      return await body();
+    } finally {
+      _running = false;
+    }
+  }
   final Map<String, dynamic> _diag = {
     'running': false,
     'stage': 'idle',
@@ -2344,24 +2420,33 @@ class DerivationEngine {
     void Function(String day)? onDayDone,
   }) async {
     if (sub.isEmpty || dates.isEmpty) return 0;
-    final days = calendarDays(sub);
-    final dataNowSec = sub.lastTs ?? 0;
-    var done = 0;
-    for (final day in days) {
-      if (!dates.contains(day.date)) continue;
-      try {
-        await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
-        done++;
-        onDayDone?.call(day.date);
-      } catch (e) {
-        _log('import day ${day.date} FAILED/skipped: $e');
+    // Under the SAME lock as run()/runDays(): this writes day_result rows, and
+    // an import racing a background derive of the same day is exactly the
+    // partial-overwrites-complete case the lock exists for.
+    return _withRunLock(0, () async {
+      final days = calendarDays(sub);
+      final dataNowSec = sub.lastTs ?? 0;
+      var done = 0;
+      for (final day in days) {
+        if (!dates.contains(day.date)) continue;
+        try {
+          await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
+          done++;
+          onDayDone?.call(day.date);
+        } catch (e) {
+          _log('import day ${day.date} FAILED/skipped: $e');
+        }
       }
-    }
-    return done;
+      return done;
+    });
   }
 
   /// Run the cross-day rollup + notifications + baseline refresh once after an
   /// import completes (reflects the freshly imported day history).
+  /// NOT under [_withRunLock]: `_refreshBaselines` takes the lock itself, so
+  /// holding it here would make this method skip its own first step. The rollup
+  /// and notification passes below write one artifact each (last write wins,
+  /// and the artifact is version/day stamped), so they are safe to interleave.
   Future<void> finalizeImport(Profile profile) async {
     await _refreshBaselines();
     await _runCrossDay(profile);
@@ -2825,7 +2910,6 @@ class DerivationEngine {
         // Secondary 0–100 Edwards "effort" strain → its own trend series.
         'strain_effort': sc('strain_effort'),
         'odi_per_hour': sc('odi_per_hour'),
-        'cpc_ratio': sc('cpc_ratio'),
         // New metrics → trends (day/week/month/3M).
         'stress': sc('stress'),
         'spo2': sc('spo2'),
@@ -3209,14 +3293,47 @@ class DerivationEngine {
       // main isolate after Isolate.run returned it. Returning the already-
       // encoded string avoids both the main-isolate encode cost AND transfers
       // a flat string across the isolate boundary instead of a large nested Map.
-      final bundleJson = await _runIsolateCancellable(
-        () => jsonEncode(buildCrossDayBundle(days, profileMap)),
+      // Stamped so the READER can fail closed. Without these the bundle was
+      // indistinguishable from a current one: after a version bump — or on any
+      // path that leaves the stored artifact untouched (the `< 3 days` return
+      // above, or the catch below) — VO₂max, fitness age, sleep need, strain
+      // target, glass-box readiness and the illness flags all kept serving the
+      // PREVIOUS version's answers with nothing on screen to say so. Same
+      // defect as `crossDayArtifactUsableToday` guards on the INPUT artifact,
+      // one layer up on the output.
+      final builtForDay = LocalDb.localDayLabelNow();
+      final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final (bundleJson, dropped) = await _runIsolateCancellable(
+        () {
+          final bundle = buildCrossDayBundle(days, profileMap)
+            ..['algo_version'] = kAlgoVersion
+            ..['built_for_day'] = builtForDay
+            ..['built_at_epoch'] = builtAtEpoch;
+          // Encode-safety BEFORE jsonEncode, never a try/catch around it: one
+          // non-finite leaf must cost that leaf, not the whole artifact.
+          final paths = <String>[];
+          final safe = sanitizeForJson(bundle, paths) as Map<String, dynamic>;
+          if (paths.isNotEmpty) safe['encode_dropped_fields'] = paths;
+          return (jsonEncode(safe), paths);
+        },
         _crossDayTimeout,
         label: 'crossday',
       );
       await LocalDb.putBaseline('crossday', bundleJson);
+      if (dropped.isNotEmpty) {
+        // Loud, not debug-only: a dropped field is a metric the user will see
+        // as absent, and the reason lives here and nowhere else.
+        debugPrint('[derive] crossday: ${dropped.length} field(s) were not '
+            'JSON-encodable and were stored as absent: ${dropped.join(", ")}');
+      }
       _log('crossday: stored over ${days.length} day(s)');
-    } catch (e) {
+    } catch (e, st) {
+      // NOT a debug line. A failure here means the stored bundle is now STALE
+      // — the reader's version/day stamp will reject it and the whole
+      // cross-day family goes absent — so it has to be visible in a release
+      // build, with the stack, or the cause is unrecoverable after the fact.
+      debugPrint('[derive] crossday BUNDLE DROPPED — the stored artifact is '
+          'now stale and every cross-day metric will read absent: $e\n$st');
       _log('crossday FAILED/skipped: $e');
     }
   }
@@ -3322,75 +3439,54 @@ class DerivationEngine {
       date ??=
           (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       if (date == null) return;
-      // Single emitter: writes the in-app feed AND (per user prefs) fires the OS
-      // notification. Health signals are critical (may override quiet hours);
-      // recovery/insight signals are normal (respect quiet hours).
-      Future<void> emit(
-        String kind,
-        String title,
-        String body, {
-        NotifCategory category = NotifCategory.health,
-        NotifPriority priority = NotifPriority.critical,
-        String route = '/today',
-      }) => NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: '$date:$kind',
-          category: category,
-          priority: priority,
-          title: title,
-          body: body,
-          date: date!,
-          route: route,
-        ),
-      );
+      // ONE exception per day, not one per finding.
+      //
+      // These six signals are correlated by construction — an illness flag, an
+      // overnight anomaly and an elevated skin temperature are usually the same
+      // morning saying the same thing — and they used to fire as six separate
+      // notifications, two of them on the recovery channel. Under the
+      // three-class rule (alarm · exception · lookback) the day's findings are
+      // collected here and presented once, aggregated, so the user gets one
+      // buzz and the whole picture instead of six buzzes and a third of it.
+      final findings = <({String title, String detail})>[];
       if (illness != null && illness['state'] == 'red') {
-        await emit(
-          'illness',
-          'Possible illness onset',
-          'Elevated resting HR + suppressed HRV over recent nights.',
-          route: '/heart',
-        );
+        findings.add((
+          title: 'Possible illness onset',
+          detail: 'Elevated resting HR + suppressed HRV over recent nights.',
+        ));
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        await emit(
-          'anomaly',
-          'Unusual overnight physiology',
-          'Your nightly signals deviate from your personal baseline.',
-          route: '/heart',
-        );
+        findings.add((
+          title: 'Unusual overnight physiology',
+          detail: 'Your nightly signals deviate from your personal baseline.',
+        ));
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        await emit(
-          'temp',
-          'Skin temperature elevated',
-          'Sustained rise vs your baseline — a possible illness signal.',
-          route: '/body',
-        );
+        findings.add((
+          title: 'Skin temperature elevated',
+          detail: 'Sustained rise vs your baseline — a possible illness signal.',
+        ));
       }
-      // 24/7 irregular-rhythm SCREEN (not a diagnosis). Fires at most once/day.
+      // 24/7 irregular-rhythm SCREEN (not a diagnosis).
       final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
       if (irregFlag == 1.0) {
-        await emit('irregular', 'Irregular heart rhythm — screen',
-            'Your beat-to-beat pattern looked irregular today. This is a screen, '
-            'not a diagnosis — see a clinician if you have symptoms.',
-            route: '/heart');
+        findings.add((
+          title: 'Irregular heart rhythm — screen',
+          detail: 'Your beat-to-beat pattern looked irregular today. This is a '
+              'screen, not a diagnosis — see a clinician if you have symptoms.',
+        ));
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
-        await emit(
-          'readiness',
-          'Low readiness today',
-          'Your recovery markers are below your usual range — ease off.',
-          category: NotifCategory.recovery,
-          priority: NotifPriority.normal,
-          route: '/today',
-        );
+        findings.add((
+          title: 'Low readiness today',
+          detail: 'Your recovery markers are below your usual range — ease off.',
+        ));
       }
 
-      // "Something changed" — online CUSUM on the recent resting-HR series. Fire
-      // only when the shift lands on the LATEST day (a fresh change, not old
-      // history we'd re-announce every pass). Dedupe key includes the date so it
-      // surfaces at most once per day.
+      // "Something changed" — online CUSUM on the recent resting-HR series.
+      // Only when the shift lands on the LATEST day (a fresh change, not old
+      // history we'd re-announce every pass).
       final rhrSeries = <double>[];
       if (recent is List) {
         for (final r in recent) {
@@ -3403,16 +3499,33 @@ class DerivationEngine {
         final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
         if (dets.isNotEmpty && dets.last.index == rhrSeries.length - 1) {
           final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
-          await emit(
-            'changed',
-            'Your resting heart-rate trend shifted',
-            'Your resting HR has $dir noticeably versus your recent baseline.',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            route: '/heart',
-          );
+          findings.add((
+            title: 'Your resting heart-rate trend shifted',
+            detail:
+                'Your resting HR has $dir noticeably versus your recent baseline.',
+          ));
         }
       }
+
+      if (findings.isEmpty) return;
+      final one = findings.length == 1;
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          // One key for the day's exception, so a re-derive of the same day
+          // never re-buzzes even when a later pass finds one more signal.
+          dedupeKey: '$date:exception',
+          category: NotifCategory.health,
+          priority: NotifPriority.critical,
+          title: one
+              ? findings.first.title
+              : '${findings.length} things to look at',
+          body: one
+              ? findings.first.detail
+              : findings.map((f) => '• ${f.title} — ${f.detail}').join('\n'),
+          date: date,
+          route: '/heart',
+        ),
+      );
     } catch (e) {
       _log('notifications FAILED/skipped: $e');
     }
@@ -4322,6 +4435,10 @@ class DerivationEngine {
     final moveSec = <int, int>{};
     final totSec = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // A second with no gravity vector contributes to NEITHER count: it has a
+      // z-angle of exactly 0.0°, so counting it as denominator would read as
+      // stillness and the fraction below would be diluted by missing data.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final t = s.tsSec[i];
       if (sleepOffsetSec > sleepOnsetSec &&
           t >= sleepOnsetSec &&
@@ -4349,10 +4466,17 @@ class DerivationEngine {
           s.ax[i],
           s.ay[i],
           s.az[i],
-          valid: s.hr[i] > 0,
+          // Wear (HR locked) AND a real gravity vector — either missing makes
+          // the second unusable for ENMO, not a still one.
+          valid: s.hr[i] > 0 && s.accelPresentAt(i),
         ),
     ];
-    return ana.enmoSeries(samples).minutes;
+    // 1440 = a calendar day. Both callers pass the day substrate, and without
+    // it `EnmoResult.coverage` divides by the SPAN of minutes that had a
+    // sample — so a day worn 4 h out of 24 reported coverage 1.0. Only
+    // `.minutes` is read here today; passing it keeps the result honest if
+    // coverage is ever surfaced.
+    return ana.enmoSeries(samples, expectedMinutes: 1440).minutes;
   }
 
   /// See `workoutSex` in profile.dart — the one definition, shared with the
@@ -4379,6 +4503,8 @@ class DerivationEngine {
     const bucketSec = 300; // 5 min
     final move = <int, int>{}, tot = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // Absent accel is not stillness — see _activeMinutes.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final b = s.tsSec[i] ~/ bucketSec;
       tot[b] = (tot[b] ?? 0) + 1;
       if ((ang[i] - ang[i - 1]).abs() > 5.0) move[b] = (move[b] ?? 0) + 1;
@@ -4679,6 +4805,8 @@ class DerivationEngine {
     const moveDeg = 5.0;
     final byMinMove = <int, int>{}, byMinTot = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // Absent accel is not stillness — see _activeMinutes.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final m = s.tsSec[i] ~/ 60;
       byMinTot[m] = (byMinTot[m] ?? 0) + 1;
       final d =
@@ -4904,7 +5032,8 @@ class DerivationEngine {
       }
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
-          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
+          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i],
+              valid: s.accelPresentAt(i)),
       ];
       final hr = [for (final h in s.hr) h.toDouble()];
       // Map the main-sleep epoch-second window to indices into the day arrays.
@@ -5272,6 +5401,9 @@ class DerivationEngine {
       final moveSum = <int, double>{};
       final moveCount = <int, int>{};
       for (var i = 0; i < sleepSub.length; i++) {
+        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
+        // from no data. Skip it; a bucket with no present second is omitted.
+        if (!sleepSub.accelPresentAt(i)) continue;
         final b = sleepSub.tsSec[i] ~/ bucketSec;
         final ax = sleepSub.ax[i];
         final ay = sleepSub.ay[i];
@@ -5294,23 +5426,13 @@ class DerivationEngine {
       bundlePatch['restlessness_map'] = out;
     }
 
-    // Feature 2: Fit-quality diagnostic (band too loose during high activity).
-    var activeContactSum = 0;
-    var activeContactN = 0;
-    for (var i = 0; i < daySub.length; i++) {
-      if (daySub.hr[i] > 100 && daySub.skinContact[i] > 0) {
-        activeContactSum += daySub.skinContact[i];
-        activeContactN++;
-      }
-    }
-    if (activeContactN > 60) {
-      final avgContact = activeContactSum / activeContactN;
-      if (avgContact < 100) {
-        bundlePatch['fit_quality'] = 'poor';
-        bundlePatch['fit_warning'] =
-            'Band is worn too loosely during high activity. Tighten for accurate HR.';
-      }
-    }
+    // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
+    // tightness from `skinContact`, and there is no contact-quality field to
+    // score: the byte is the sign+exponent half of a float32, which is why its
+    // only observed values are {0, 63-70, 194-198}. On the decoded path it was
+    // additionally a hardcoded 0 (`decoded_onehz` has no such column), so the
+    // gate could never fire. A diagnostic built on a non-measurement is worse
+    // than no diagnostic.
 
     scMap.remove('rhr'); // seed only; the real rhr scalar already lives in the bundle
     return _DayBlocksOutput(
@@ -5354,8 +5476,18 @@ class DerivationEngine {
         }
       }
       if (hrBpm.length < 60) return const _WorkoutCompute.empty();
-      final motion =
-          ana.AutoWorkoutDetector.motionPoints(s.tsSec, s.ax, s.ay, s.az);
+      // Feed the detector only the seconds that carry a real gravity vector.
+      // Absent accel reads as a motionless wrist, which is exactly the shape
+      // that suppresses a workout candidate — a missed workout, silently.
+      final mTs = <int>[], mAx = <double>[], mAy = <double>[], mAz = <double>[];
+      for (var i = 0; i < n; i++) {
+        if (!s.accelPresentAt(i)) continue;
+        mTs.add(s.tsSec[i]);
+        mAx.add(s.ax[i]);
+        mAy.add(s.ay[i]);
+        mAz.add(s.az[i]);
+      }
+      final motion = ana.AutoWorkoutDetector.motionPoints(mTs, mAx, mAy, mAz);
       // Exclude windows the user has already logged (manual/live wins).
       final savedSpans = <ana.SavedWorkoutSpan>[
         for (final r in saved)
@@ -5474,7 +5606,16 @@ class DerivationEngine {
     final lo = (endIdx - pre).clamp(0, n - 1);
     final hi = (endIdx + post).clamp(0, n - 1);
     final tail = <int>[for (var i = lo; i <= hi; i++) s.hr[i]];
-    final m = ana.hrRecovery(tail, endIndex: endIdx - lo, recoverySec: 60);
+    // The substrate is one row per DECODED RECORD, not a dense 1 Hz grid, so
+    // without the timestamps "+60 s" means "+60 array positions": on a gappy
+    // tail the recovery sample can be many minutes post-exercise and the drop
+    // is overstated — read by the user as a fitness marker.
+    final m = ana.hrRecovery(
+      tail,
+      endIndex: endIdx - lo,
+      recoverySec: 60,
+      tsSec: <int>[for (var i = lo; i <= hi; i++) s.tsSec[i]],
+    );
     return m.present ? m.value!.dropBpm : null;
   }
 
@@ -5493,7 +5634,8 @@ class DerivationEngine {
       final epoch = <ana.AccelSample>[
         for (var i = 0; i < s.length; i++)
           if (s.tsSec[i] >= onsetSec && s.tsSec[i] < offsetSec)
-            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i],
+                valid: s.accelPresentAt(i))
       ];
       if (epoch.length < 60) return;
       final tilts = ana.positionSeries(epoch, epochSec: 30);

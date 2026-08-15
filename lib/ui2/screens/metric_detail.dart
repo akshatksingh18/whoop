@@ -253,16 +253,6 @@ const _specs = <String, MetricSpec>{
         'while it is on a wrist, so record presence IS wear.',
     citation: 'Record-presence, not heart-rate validity',
   ),
-  'cpc_ratio': MetricSpec(
-    chartKey: 'cpc_ratio',
-    title: 'Cardiopulmonary coupling',
-    color: C.indigo,
-    icon: LucideIcons.audioWaveform,
-    method: 'Coherence between beat-interval variability and the respiratory '
-        'signal derived from it — high coupling marks stable, consolidated '
-        'sleep.',
-    citation: 'Thomas 2005',
-  ),
 
   // ── charted nowhere, on purpose ──
   'skin_temp': MetricSpec(
@@ -334,7 +324,11 @@ const _outcomeOf = {
 // ═══════════════════ the screen ═══════════════════
 
 class MetricData {
-  final List<double> series;
+  /// DATED points, not bare values. `metric_series` holds one row per DERIVED
+  /// day rather than one per calendar day, so a compacted list lets 22 stored
+  /// days masquerade as 30 continuous ones — the chart then joins straight
+  /// across a sync gap and calls the newest stored point "Today".
+  final List<ChartPoint> series;
   final Map<String, dynamic>? percentile;
   final List<Map<String, dynamic>> movers;
 
@@ -378,7 +372,7 @@ class MetricData {
       ];
     }
     return MetricData(
-      series: seriesOf(chart),
+      series: pointsOf(chart),
       percentile: pct,
       movers: movers,
       daysAvailable: days.length,
@@ -498,7 +492,11 @@ class _MetricDetailState extends State<MetricDetail> {
 
     final all = d.series;
     final win = _windows[_range.clamp(0, _offered(d) - 1)];
-    final series = all.length <= win ? all : all.sublist(all.length - win);
+    // Dense: one slot per calendar day in the window, `null` where no day
+    // derived. The painter breaks the line at a null rather than joining over
+    // it, and the axis labels can be dated because the slots ARE the dates.
+    final series = denseDays(all, win);
+    final vals = [for (final v in series) ?v];
 
     return detailScaffold(c, spec.title, [
       if (spec.suppress != null) ...[
@@ -511,7 +509,7 @@ class _MetricDetailState extends State<MetricDetail> {
         ),
         const SizedBox(height: S.x5),
         investigateRow(c, () => go(c, Investigate(widget.metricKey))),
-      ] else if (series.isEmpty) ...[
+      ] else if (vals.isEmpty) ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         if (_loading)
@@ -529,8 +527,8 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, d.latest),
-        Section('Your normal range', _range3(c, spec, series, d.percentile)),
+        _hero(c, spec, all, series, vals, d.latest),
+        Section('Your normal range', _range3(c, spec, vals, d.percentile)),
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
         const SizedBox(height: S.x5),
@@ -540,16 +538,22 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   // ── value → context → trend → confidence ──
-  Widget _hero(BuildContext c, MetricSpec spec, List<double> all,
-      List<double> win, Metric latest) {
+  Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
+      List<double?> series, List<double> vals, Metric latest) {
     final p = P.of(c);
-    final now = win.last;
-    // Trailing 28 days EXCLUDING today — the same window the data layer's own
-    // baseline uses. Comparing today against a mean that contains today is how
-    // a baseline quietly chases the value it is supposed to anchor.
-    final prior = all.length > 1
-        ? all.sublist(all.length - 1 - (all.length - 1).clamp(0, 28),
-            all.length - 1)
+    final now = vals.last;
+    // How old the number under the headline actually is. `metric_series` only
+    // gets a row on a day that derives, so after a sync gap the newest stored
+    // point can be days old — and it was being printed as though it were this
+    // morning's.
+    final behind = all.isEmpty ? null : daysBehind(all.last.t);
+    // Trailing 28 days EXCLUDING the newest — the same window the data layer's
+    // own baseline uses. Comparing a reading against a mean that contains it is
+    // how a baseline quietly chases the value it is supposed to anchor.
+    final vAll = valuesOf(all);
+    final prior = vAll.length > 1
+        ? vAll.sublist(vAll.length - 1 - (vAll.length - 1).clamp(0, 28),
+            vAll.length - 1)
         : const <double>[];
     final base =
         prior.isEmpty ? null : prior.reduce((a, b) => a + b) / prior.length;
@@ -573,6 +577,14 @@ class _MetricDetailState extends State<MetricDetail> {
               // to show, so nothing is shown — Conf.none would be a claim too.
               if (!latest.isEmpty) ConfDots(ConfX.of(latest), size: 6),
             ]),
+        if (behind != null && behind > 0) ...[
+          const SizedBox(height: S.x1),
+          Text(
+              behind == 1
+                  ? 'Measured yesterday, not today'
+                  : 'Measured $behind days ago, not today',
+              style: F.cap.copyWith(color: p.ink3)),
+        ],
         if (delta != null) ...[
           const SizedBox(height: S.x2),
           Row(children: [
@@ -596,31 +608,40 @@ class _MetricDetailState extends State<MetricDetail> {
         Builder(builder: (c) {
           // One axis, shared by the labels and the curve. `min` unit metrics
           // print `7h 30m` on the gridlines rather than `450`.
-          final axis = AxisSpec.of(win,
+          final axis = AxisSpec.of(vals,
               ticks: 3,
               format: spec.unit == 'min'
                   ? axisHm
                   : (spec.unit == 'steps' || spec.unit == 'kcal'
                       ? (v) => thousands(v)
-                      : (win.every((v) => v.abs() >= 10) ? axisInt : axisFixed)),
+                      : (vals.every((v) => v.abs() >= 10)
+                          ? axisInt
+                          : axisFixed)),
               floor: spec.unit == '%' ? 0 : null);
           return ChartFrame(
             title: spec.title,
             unit: spec.unit.isEmpty ? 'score' : spec.unit,
             height: 150,
             yAxis: axis,
-            // Derived from what is drawn, never from the button that was
-            // pressed — a 365-day window on 40 stored days is 40 days.
+            // The window IS the span now: `series` has one slot per calendar
+            // day whether or not that day derived, so both edges are dates
+            // rather than array positions. It used to read the length of a
+            // compacted list, which meant a chart spanning two months labelled
+            // its left edge "30 days ago".
             xLabels: [
-              '${win.length} day${win.length == 1 ? '' : 's'} ago',
+              '${series.length} day${series.length == 1 ? '' : 's'} ago',
               'Today',
             ],
             // The dots are already beside the big number two rows up; twice on
             // one card reads as two different claims.
             child: CustomPaint(
               size: Size.infinite,
-              painter: LineChart(win, spec.color,
-                  dots: win.length <= 40,
+              // Fill only when the axis genuinely starts at zero. Shaded to a
+              // baseline of 52 bpm, a 52→60 week reads as a mountain — the
+              // truncated-axis form with the truncation hidden.
+              painter: LineChart(series, spec.color,
+                  fill: axis?.min == 0,
+                  dots: series.length <= 40,
                   t: animate(c, 1),
                   dotInk: p.card,
                   axis: axis),

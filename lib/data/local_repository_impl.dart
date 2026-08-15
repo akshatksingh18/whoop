@@ -77,8 +77,22 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   /// The cross-day analytics rollup bundle (from the `crossday` baseline), or
-  /// null when none has been computed yet.
+  /// null when none has been computed yet OR when the stored one is no longer
+  /// safe to show ([crossDayStaleReason]).
+  ///
+  /// The gate lives HERE and not in `getInsights`, because five other seams on
+  /// this class read the same artifact (`getDayHeart`, the sleep-debt block,
+  /// the load block …). Gating one caller would have left the other five
+  /// serving the numbers the gate exists to withhold.
   Future<Map<String, dynamic>?> _crossDay() async {
+    final a = await _crossDayArtifact();
+    if (a == null) return null;
+    return crossDayStaleReason(a, _todayLocalLabel()) == null ? a : null;
+  }
+
+  /// The stored artifact, UNGATED — only `_crossDay` and `getInsights` may
+  /// read this, and only so `getInsights` can report why it withheld it.
+  Future<Map<String, dynamic>?> _crossDayArtifact() async {
     final r = await LocalDb.baseline('crossday');
     return _decode(r?['payload_json']);
   }
@@ -380,9 +394,79 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  /// How long a stored `crossday` rollup may outlive the day it was built for.
+  ///
+  /// The cross-day families are multi-day by construction — chronotype, social
+  /// jetlag, CTL/ATL/TSB — so yesterday's rollup is still the honest answer at
+  /// 07:00 before today's first derive pass. What is NOT honest is a rollup
+  /// from a fortnight ago: its own "today" row is a fortnight old, and Home's
+  /// readiness drivers would be describing a night the user has forgotten.
+  static const int crossDayMaxAgeDays = 7;
+
+  /// Why a stored `crossday` artifact must not be shown, or null when it may.
+  ///
+  /// Pure, so it is testable without a database — the seam that consumes it
+  /// ([getInsights]) cannot be.
+  ///
+  /// `getInsights` used to return `LocalDb.baseline('crossday')` VERBATIM. No
+  /// screen prints the artifact's date, so a rollup written weeks ago under an
+  /// older algo version rendered every readiness driver, the whole breakdown,
+  /// tonight's need/bedtime/debt, chronotype, jetlag, regularity and
+  /// CTL/ATL/TSB with nothing on screen to say so. `_wakeFeatures`, twenty
+  /// lines below, has always keyed its read on `kAlgoVersion`; this is that
+  /// gate, for the artifact behind four screens.
+  ///
+  /// A version bump that CHANGES THE BUNDLE SHAPE is the sharp case: the
+  /// pre-bump artifact would be served for the rest of the day, so the new
+  /// family silently sees nothing on the very pass the bump existed to
+  /// trigger. That has already been a live bug on the input side — see
+  /// `DerivationEngine.crossDayArtifactUsableToday`.
+  ///
+  /// An UNSTAMPED artifact cannot be SHOWN to be fresh, so it is refused
+  /// rather than assumed fresh. That is the same call the input side makes,
+  /// and it costs one derive pass to heal.
+  static Map<String, dynamic>? crossDayStaleReason(
+      Map<String, dynamic> artifact, String today) {
+    final v = (artifact['algo_version'] as num?)?.toInt();
+    if (v != kAlgoVersion) {
+      return {'kind': 'algo_version', 'algo_version': ?v};
+    }
+    final built = artifact['built_for_day'];
+    final age = built is String ? _dayGap(built, today) : null;
+    if (built is! String || built.isEmpty || age == null) {
+      return const {'kind': 'unstamped'};
+    }
+    // `age.abs()`: a NEGATIVE gap means the artifact claims a day in the
+    // future, which is a clock that moved backwards, not freshness.
+    if (age.abs() > crossDayMaxAgeDays) {
+      return {'kind': 'stale', 'built_for_day': built, 'age_days': age};
+    }
+    return null;
+  }
+
+  /// Whole calendar days from [from] to [to], both 'YYYY-MM-DD'. Normalised to
+  /// UTC midnight first: a local-midnight subtraction across a DST boundary is
+  /// 23 or 25 hours, and `inDays` truncates the short one to zero.
+  static int? _dayGap(String from, String to) {
+    final a = DateTime.tryParse(from), b = DateTime.tryParse(to);
+    if (a == null || b == null) return null;
+    return DateTime.utc(b.year, b.month, b.day)
+        .difference(DateTime.utc(a.year, a.month, a.day))
+        .inDays;
+  }
+
   @override
-  Future<Map<String, dynamic>> getInsights() async =>
-      (await _crossDay()) ?? const {};
+  Future<Map<String, dynamic>> getInsights() async {
+    final cd = await _crossDayArtifact();
+    if (cd == null) return const {};
+    final stale = crossDayStaleReason(cd, _todayLocalLabel());
+    // FAIL CLOSED. Returning the reason INSTEAD of the artifact means every
+    // `insights['readiness_glassbox']` read comes back absent — the state the
+    // screens already render honestly — while `stale` carries why, in the
+    // spirit of `need_baseline:have=H,need=N`. Serving the old numbers with no
+    // marker was the bug.
+    return stale == null ? cd : {'stale': stale};
+  }
 
   Future<int> _stepGoal() async =>
       (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
@@ -468,7 +552,22 @@ class LocalRepositoryImpl extends LocalRepository {
   /// instead of a bare "—" (skin-temp z needs ≥3 nights of ADC baseline).
   Future<Map<String, dynamic>> _skinTempBlock(Map<String, dynamic> b) async {
     final z = _scalar(b, 'skin_temp_z');
-    if (z != null) return {'value': z};
+    if (z != null) {
+      // The ENVELOPE, not a bare `{'value': z}`. `Metric.isEmpty` is
+      // `value == null || confidence <= 0`, so a block with no confidence read
+      // as ABSENT on every consumer: the Vitals row printed a real deviation
+      // and dotted it "Not measured", and `MetricDetail('skin_temp')` was
+      // permanently empty. The pipeline already carries the right envelope —
+      // tier RELATIVE, and the note that says why there is no °C figure.
+      final env = _sub(b, 'wellness.skin_temp');
+      return {
+        'value': z,
+        'confidence': (env?['confidence'] as num?) ?? 0.5,
+        'tier': (env?['tier'] as String?) ?? ana.Tier.relative,
+        'inputs_used': env?['inputs_used'] ?? const ['skin_temp_raw'],
+        'note': ?env?['note'],
+      };
+    }
     final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
     return {'value': null, 'note': 'need_baseline:have=$have,need=3'};
   }
@@ -1702,7 +1801,8 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'worn_min';
       case 'efficiency': // sleep-efficiency % trend
         return 'efficiency';
-      case 'steps': // 24/7 step ESTIMATE series (ambulatory-min × cadence)
+      case 'steps': // measured band steps (the ambulatory-min × cadence
+        // estimator this comment used to describe was deleted in v57)
         return 'steps';
       case 'light':
         return 'light_min';

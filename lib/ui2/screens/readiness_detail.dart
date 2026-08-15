@@ -255,7 +255,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             Text(driverLabel(key), style: F.body.copyWith(color: p.ink)),
             Text(
                 '${(weight * 100).round()}% weight'
-                '${used ? '' : ' · not available'}$caveat'
+                '${used ? '' : ' · not available'}'
+                '${used && contribution == null ? ' · contribution not reported' : ''}'
+                '$caveat'
                 // An unlabelled glyph is not an explanation. This is the
                 // smallest-worthwhile-change gate, so it says what it means.
                 '${used && !pastMdc ? ' · within your usual spread' : ''}',
@@ -263,18 +265,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           ]),
         ),
         const SizedBox(width: S.x3),
-        if (!used)
+        // No contribution number means no number — three grey dots, the same
+        // absence affordance an unused input gets. The branch that printed a
+        // bare em-dash here was unreachable from the producer
+        // (`readiness_glassbox.dart` types `weightedContribution` as a
+        // non-null double) but it was still the one place in the app that
+        // could render one, and the sub-line above says which case it is.
+        if (!used || contribution == null)
           const ConfDots(Conf.none)
         else
           Text(
-            contribution == null
-                ? '—'
-                : '${contribution >= 0 ? '+' : '−'}'
-                    '${contribution.abs().toStringAsFixed(1)}',
+            '${contribution >= 0 ? '+' : '−'}'
+            '${contribution.abs().toStringAsFixed(1)}',
             style: F.n17.copyWith(
-                color: p.on(contribution == null || contribution >= 0
-                    ? C.green
-                    : C.orange)),
+                color: p.on(contribution >= 0 ? C.green : C.orange)),
           ),
       ]),
     );

@@ -20,6 +20,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
+import '../profile/profile.dart';
 import '../theme.dart';
 import 'catalogue.dart';
 import 'share.dart';
@@ -187,7 +188,10 @@ class ActivityResult {
   // measured by the band / phone
   final int? avgHr, maxHr, calories;
   final double? strain;
-  final List<double> hr; // 1 Hz curve
+  // Per-MINUTE mean heart rate, live (`LiveWorkoutState.perMinuteHr`) and
+  // stored (`getWorkout()['hr']`) alike. Nothing on this screen has ever been
+  // per-second, whatever the copy used to say.
+  final List<double> hr;
   final List<double> zoneMinutes; // five, Z1..Z5
 
   // route / journey
@@ -473,9 +477,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     ? 'Calories need your body weight — without it there is no '
                         'way to turn ${a.met.toStringAsFixed(1)} MET and a '
                         'heart rate into kilocalories, so none is shown.'
+                    // No error bar is quoted because none is computed — the
+                    // "±15%" this used to claim had no estimator behind it,
+                    // and the Workout tab says so in as many words.
                     : 'Calories are estimated from heart rate, '
-                        '${a.met.toStringAsFixed(1)} MET and your body weight. '
-                        'Expect roughly ±15%.',
+                        '${a.met.toStringAsFixed(1)} MET and your body weight.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.5)),
           ),
         ]),
@@ -570,11 +576,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.route:
         if (r.route.length < 2) {
           return [
+            // No `fix`: there is no "how route recording works" screen, and
+            // StatusCard paints any fix string as a blue call to action —
+            // a button that cannot be tapped is worse than no button.
             const StatusCard(
               'No route for this session',
               'Location was off, unavailable, or this activity was not '
                   'recorded with GPS, so there is no line to draw.',
-              fix: 'How route recording works',
               icon: LucideIcons.map,
             ),
           ];
@@ -800,11 +808,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.match || Arch.basic:
         if (r.hr.length < 2) {
           return [
-            const StatusCard(
+            StatusCard(
               'No heart rate for this session',
               'The strap reported nothing while this session was running — it '
                   'was off the wrist, or the link had dropped.',
               fix: 'Check strap connection',
+              // The band, its battery and its link all live behind the
+              // profile's sources list. The CTA used to be paint.
+              onFix: () => openProfile(c),
               icon: LucideIcons.heartPulse,
             ),
           ];
@@ -1237,11 +1248,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     ];
     if (series.isEmpty) {
       return [
-        const StatusCard(
+        StatusCard(
           'No series to plot',
-          'Graphs are drawn from the per-second streams a session recorded. '
+          'Graphs are drawn from the per-minute streams a session recorded. '
               'This one recorded none — the strap was off, or the link dropped.',
           fix: 'Check strap connection',
+          onFix: () => openProfile(c),
           icon: LucideIcons.chartLine,
         ),
       ];

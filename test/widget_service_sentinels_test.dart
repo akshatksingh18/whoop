@@ -67,4 +67,58 @@ void main() {
     }));
     expect(written['sleep_need_min'], 462);
   });
+
+  // The widget, the Watch mirror and the Siri intents all render whatever was
+  // last written here, with no way to notice how old it is — the native readers
+  // gate on `has_data` and nothing else. So a snapshot the app KNOWS is old has
+  // to fall through to their no-data state rather than sit on a lock screen
+  // looking like this morning's number.
+  group('staleness', () {
+    TodayData at(String day) => TodayData.fromJson({
+          'daily': {
+            'readiness': {'value': 74},
+          },
+          'sleep': {'duration_min': 437},
+          'status': {'today_day': day, 'overnight_day': day},
+        });
+
+    String label(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+
+    final now = DateTime(2026, 8, 15);
+
+    test('today is fresh', () {
+      expect(WidgetService.isStale(at(label(now)), now: now), isFalse);
+    });
+
+    test('last night is fresh — it is the normal state of every metric here',
+        () {
+      expect(
+          WidgetService.isStale(at(label(DateTime(2026, 8, 14))), now: now),
+          isFalse);
+    });
+
+    test('anything older is stale', () {
+      expect(WidgetService.isStale(at(label(DateTime(2026, 8, 13))), now: now),
+          isTrue);
+      expect(WidgetService.isStale(at(label(DateTime(2026, 7, 30))), now: now),
+          isTrue);
+    });
+
+    test('an unknown age is not a claim of staleness', () {
+      expect(
+          WidgetService.isStale(TodayData.fromJson({'daily': const {}}),
+              now: now),
+          isFalse);
+    });
+
+    test('a stale snapshot is published with has_data false', () async {
+      await WidgetService.push(at('2020-01-01'));
+      expect(written['has_data'], isFalse);
+      // The numbers are still written — the native readers just don't show
+      // them — so nothing has to be invented when the app catches up.
+      expect(written['sleep_min'], 437);
+    });
+  });
 }

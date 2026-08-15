@@ -255,22 +255,22 @@ class SignalCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String label, value, unit, sub;
-  final Conf conf;
+
+  /// Null means confidence does not apply to this card — a count, or a value
+  /// the user typed in. Same contract as [MetricRow.conf]: do not default it,
+  /// because a default is a claim made on the caller's behalf.
+  final Conf? conf;
   final VoidCallback? onTap;
 
   const SignalCard(this.icon, this.color, this.label, this.value,
-      {super.key,
-      this.unit = '',
-      this.sub = '',
-      this.conf = Conf.high,
-      this.onTap});
+      {super.key, this.unit = '', this.sub = '', this.conf, this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Surface(
       onTap: onTap,
-      semanticLabel: '$label, $value $unit'.trim(),
+      semanticLabel: '$label, $value $unit. ${conf?.label ?? ''}'.trim(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(icon, size: 16, color: p.on(color)),
@@ -281,6 +281,13 @@ class SignalCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
+          // The tier the caller measured. This card used to declare `conf` and
+          // then render it in no branch, so every glance card on Home computed
+          // a tier that reached nothing but the widget tree's dead weight.
+          if (conf != null) ...[
+            const SizedBox(width: S.x2),
+            ConfDots(conf!),
+          ],
         ]),
         const SizedBox(height: S.x3),
         Row(
@@ -369,7 +376,9 @@ class _Bar extends StatelessWidget {
 class TrendCard extends StatelessWidget {
   final String label, value, unit, delta, window;
   final bool up, good;
-  final List<double> series;
+
+  /// DENSE — see [MetricRow.spark].
+  final List<double?> series;
   final Color color;
   final Conf conf;
   final VoidCallback? onTap;
@@ -661,7 +670,10 @@ class MetricRow extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String name, sub, value, unit;
-  final List<double> spark;
+
+  /// DENSE — one slot per calendar day, `null` for a day with no record. A
+  /// compacted list draws a gap as continuity.
+  final List<double?> spark;
 
   /// Null means confidence does not apply to this row — a value the user typed
   /// in is neither measured well nor measured badly. Do not default it to a

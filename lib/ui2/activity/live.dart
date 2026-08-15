@@ -18,11 +18,16 @@
 // is why they carry estimated confidence everywhere they appear.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+// Prefs only — a synchronous key/value façade, not the app. The rule this file
+// keeps is no AppState and no LocalDb: the live screens describe a session,
+// the caller owns it.
+import '../../state/prefs.dart';
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
@@ -120,6 +125,12 @@ class ActivityHost {
   /// Closes it, persists what was typed, and enriches the result.
   final SessionFinish? onFinish;
 
+  /// Banks the sets logged SO FAR, on every change. A typed set is the one
+  /// thing in a session that no sensor can reproduce, so it is written the
+  /// moment it exists rather than at finish — the whole log used to live in
+  /// widget state until the user pressed stop.
+  final void Function(List<LoggedSet> sets)? onSets;
+
   /// Previous and best set per exercise key, from the user's own log.
   final Map<String, SetHistory> history;
 
@@ -130,12 +141,164 @@ class ActivityHost {
     this.feed,
     this.onStart,
     this.onFinish,
+    this.onSets,
     this.history = const {},
     this.bandConnected = false,
   });
 
   /// No app behind the screens: they still render, nothing is persisted.
   static const none = ActivityHost();
+}
+
+// ══════════════ THE SESSION, ABOVE THE ROUTE ══════════════
+
+/// The running session's own state, held above the screen that draws it.
+///
+/// The live screen used to own every byte of a session. The header's
+/// "Minimise" called `Navigator.maybePop` and an iOS back-swipe did the same,
+/// so the sets, laps and score the user had typed died with the route while
+/// `AppState.activeWorkout` stayed open — after which the app refused every
+/// further workout and offered no way back into the one it was holding.
+///
+/// The entries live here instead, mirrored into Prefs on every change: a
+/// minimised session outlives its route, and a killed process loses the
+/// screen rather than the typing. [begin] is called by whoever starts the
+/// session (setup), [clear] by whoever ends it. A screen built without a
+/// draft — a test, a preview — simply has nothing to restore and nothing to
+/// save, which is exactly the old behaviour.
+class LiveDraft {
+  static const _key = 'live.session_draft';
+
+  /// The catalogue key of the activity being done, so the bar that reopens a
+  /// minimised session knows which screen to build.
+  final String activityKey;
+  final bool private;
+  final double? weightKg;
+  final DateTime startedAt;
+
+  /// Seconds banked in earlier pauses, and when the current pause began. The
+  /// clock is wall time minus these, so it stays true across a long
+  /// background spell or a relaunch instead of counting screen-on seconds.
+  int pausedSec;
+  DateTime? pausedAt;
+
+  /// The archetype's own entries — sets, laps, score. Opaque here: whichever
+  /// screen wrote a key is the one that reads it back.
+  final Map<String, Object?> data;
+
+  LiveDraft._(this.activityKey,
+      {required this.startedAt,
+      this.private = false,
+      this.weightKg,
+      this.pausedSec = 0,
+      this.pausedAt,
+      Map<String, Object?>? data})
+      : data = data ?? <String, Object?>{};
+
+  static LiveDraft? _current;
+  static bool _loaded = false;
+
+  /// The session in progress, or null. Read from Prefs once per process, so a
+  /// relaunch after a kill still finds a workout that was never finished.
+  static LiveDraft? get current {
+    if (!_loaded) {
+      _loaded = true;
+      _current = _decode(Prefs.getString(_key, ''));
+    }
+    return _current;
+  }
+
+  /// Open a draft for a session the app has just accepted.
+  static LiveDraft begin(Activity a, {bool private = false, double? weightKg}) {
+    _loaded = true;
+    _current = LiveDraft._(a.typeKey,
+        startedAt: DateTime.now(), private: private, weightKg: weightKg);
+    _save();
+    return _current!;
+  }
+
+  /// Drop the in-memory copy WITHOUT touching what was written. The next read
+  /// comes off Prefs again — which is what a relaunch after a kill does, and
+  /// the only way to test that the entries actually survive one.
+  @visibleForTesting
+  static void debugForget() {
+    _loaded = false;
+    _current = null;
+  }
+
+  /// The session is over (or was never really there).
+  static void clear() {
+    _loaded = true;
+    _current = null;
+    Prefs.setString(_key, '');
+  }
+
+  /// Wall-clock seconds this session has been running, pauses removed.
+  int get elapsedSec {
+    final now = DateTime.now();
+    final inPause = pausedAt == null ? 0 : now.difference(pausedAt!).inSeconds;
+    final v = now.difference(startedAt).inSeconds - pausedSec - inPause;
+    return v < 0 ? 0 : v;
+  }
+
+  void setPaused(bool on) {
+    if (on) {
+      pausedAt ??= DateTime.now();
+    } else if (pausedAt != null) {
+      pausedSec += DateTime.now().difference(pausedAt!).inSeconds;
+      pausedAt = null;
+    }
+    _save();
+  }
+
+  /// Record one of the archetype's entries. Written straight through — the
+  /// point of the draft is that nothing waits for a "save".
+  void put(String key, Object? value) {
+    data[key] = value;
+    _save();
+  }
+
+  static void _save() {
+    final d = _current;
+    if (d == null) return Prefs.setString(_key, '');
+    Prefs.setString(
+        _key,
+        jsonEncode({
+          'a': d.activityKey,
+          'private': d.private,
+          'weight': d.weightKg,
+          'start': d.startedAt.millisecondsSinceEpoch,
+          'paused_sec': d.pausedSec,
+          'paused_at': d.pausedAt?.millisecondsSinceEpoch,
+          'data': d.data,
+        }));
+  }
+
+  static LiveDraft? _decode(String raw) {
+    if (raw.isEmpty) return null;
+    try {
+      final m = jsonDecode(raw);
+      if (m is! Map) return null;
+      final key = m['a'];
+      final start = m['start'];
+      if (key is! String || start is! num) return null;
+      return LiveDraft._(
+        key,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(start.toInt()),
+        private: m['private'] == true,
+        weightKg: (m['weight'] as num?)?.toDouble(),
+        pausedSec: (m['paused_sec'] as num?)?.toInt() ?? 0,
+        pausedAt: (m['paused_at'] as num?) == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(
+                (m['paused_at'] as num).toInt()),
+        data: (m['data'] as Map?)?.cast<String, Object?>(),
+      );
+    } catch (_) {
+      // A draft we cannot read is a draft we do not have.
+      return null;
+    }
+  }
 }
 
 /// The live screen for [a]. One switch, nine archetypes, six screens — route,
@@ -156,7 +319,8 @@ Widget liveFor(
         weightKg: weightKg,
         history: history,
         private: p,
-        onFinish: onFinish),
+        onFinish: onFinish,
+        onSets: host.onSets),
     Arch.laps => LiveSwim(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
     Arch.flow => LiveFlow(a,
@@ -209,8 +373,11 @@ class LiveShell extends StatefulWidget {
 }
 
 class LiveShellState extends State<LiveShell> {
-  int elapsed = 0;
-  bool paused = false;
+  /// Seeded from the draft, so reopening a minimised session — or relaunching
+  /// after a kill — carries on from where the session actually is rather than
+  /// from zero.
+  late int elapsed = LiveDraft.current?.elapsedSec ?? 0;
+  late bool paused = LiveDraft.current?.pausedAt != null;
   Timer? _t;
 
   @override
@@ -218,10 +385,17 @@ class LiveShellState extends State<LiveShell> {
     super.initState();
     // The session clock is real time, not motion: it runs whether or not the
     // platform wants animation, and it stops in dispose so nothing outlives
-    // the screen.
+    // the screen. With a draft it is READ from wall time rather than counted
+    // in ticks — a screen that was backgrounded for ten minutes must not come
+    // back ten minutes behind the session it is drawing.
     _t = Timer.periodic(Motion.tick, (_) {
-      if (paused || !mounted) return;
-      setState(() => elapsed++);
+      if (!mounted) return;
+      final d = LiveDraft.current;
+      if (d != null) {
+        setState(() => elapsed = d.elapsedSec);
+      } else if (!paused) {
+        setState(() => elapsed++);
+      }
     });
   }
 
@@ -249,10 +423,18 @@ class LiveShellState extends State<LiveShell> {
     } catch (_) {
       result = draft;
     }
+    // The session is over: no draft to reopen, and no resume bar.
+    LiveDraft.clear();
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => ActivitySummary(result, weightKg: widget.weightKg),
-    ));
+    // Everything under the summary belongs to setting this session up —
+    // picker, setup, the live screen itself. Back from a summary used to land
+    // on "choose an activity", immediately after finishing one.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => ActivitySummary(result, weightKg: widget.weightKg),
+      ),
+      (r) => r.isFirst,
+    );
   }
 
   @override
@@ -266,6 +448,10 @@ class LiveShellState extends State<LiveShell> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x5),
             child: Row(children: [
+              // A real minimise: the session lives on [LiveDraft], not on this
+              // route, so leaving the screen — by this chevron, by Android
+              // back, or by an iOS edge-swipe — puts it away rather than
+              // destroying it. The bar above the tab bar brings it back.
               Pressable(
                 semanticLabel: 'Minimise',
                 onTap: () => Navigator.maybePop(c),
@@ -310,7 +496,10 @@ class LiveShellState extends State<LiveShell> {
               Expanded(
                 child: Pressable(
                   semanticLabel: paused ? 'Resume' : 'Pause',
-                  onTap: () => setState(() => paused = !paused),
+                  onTap: () => setState(() {
+                    paused = !paused;
+                    LiveDraft.current?.setPaused(paused);
+                  }),
                   child: Container(
                     height: 60,
                     alignment: Alignment.center,
@@ -495,10 +684,15 @@ ActivityResult _baseResult(
 }) =>
     ActivityResult(
       a,
+      // When the session was really started. Derived from the elapsed clock
+      // only without a draft (tests, previews) — and that derivation is wrong
+      // for a paused session, which began earlier than `now - elapsed`.
+      //
       // `Motion.tick * elapsed` rather than a literal: theme.dart is the only
       // file allowed to spell a Duration, and one second times N seconds is
       // exactly what this is.
-      start: DateTime.now().subtract(Motion.tick * elapsed),
+      start: LiveDraft.current?.startedAt ??
+          DateTime.now().subtract(Motion.tick * elapsed),
       duration: Motion.tick * elapsed,
       private: private,
       // The AVERAGE, from the per-minute curve. This used to be `feed.hr` —
@@ -623,13 +817,17 @@ class LiveStrength extends StatefulWidget {
   final Map<String, SetHistory> history;
   final SessionFinish? onFinish;
 
+  /// Banks the log on every change. See [ActivityHost.onSets].
+  final void Function(List<LoggedSet>)? onSets;
+
   const LiveStrength(this.a,
       {super.key,
       this.feed,
       this.weightKg,
       this.private = false,
       this.history = const {},
-      this.onFinish});
+      this.onFinish,
+      this.onSets});
 
   @override
   State<LiveStrength> createState() => _LiveStrengthState();
@@ -654,6 +852,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   @override
   void initState() {
     super.initState();
+    _restore();
     _seedFromHistory();
   }
 
@@ -661,6 +860,48 @@ class _LiveStrengthState extends State<LiveStrength> {
   void dispose() {
     _rest?.cancel();
     super.dispose();
+  }
+
+  /// Sets logged before this screen was rebuilt — the session was minimised,
+  /// or the process was killed and relaunched. Nothing measures a bench press,
+  /// so these bytes cannot be recovered from anywhere else.
+  void _restore() {
+    final saved = LiveDraft.current?.data['sets'];
+    if (saved is! List) return;
+    for (final e in saved) {
+      if (e is! Map) continue;
+      final k = e['k'];
+      if (k is! String) continue;
+      logged.add(LoggedSet(
+        k,
+        (e['reps'] as num?)?.toInt() ?? 0,
+        loadKg: (e['kg'] as num?)?.toDouble(),
+        rpe: (e['rpe'] as num?)?.toInt(),
+        restSec: (e['rest'] as num?)?.toInt(),
+        at: DateTime.fromMillisecondsSinceEpoch((e['at'] as num?)?.toInt() ?? 0),
+      ));
+      if (!plan.contains(k)) plan.add(k);
+    }
+    if (logged.isNotEmpty) index = plan.indexOf(logged.last.exerciseKey);
+  }
+
+  /// Write the log through — to the draft, so minimising cannot lose it, and
+  /// to the app, which banks it against the open session row. Called on every
+  /// change rather than at finish: `saveStrengthSets` replaces by sequence, so
+  /// re-sending the whole log is the same rows every time.
+  void _persist() {
+    LiveDraft.current?.put('sets', [
+      for (final s in logged)
+        {
+          'k': s.exerciseKey,
+          'reps': s.reps,
+          'kg': s.loadKg,
+          'rpe': s.rpe,
+          'rest': s.restSec,
+          'at': s.at.millisecondsSinceEpoch,
+        },
+    ]);
+    widget.onSets?.call(List.of(logged));
   }
 
   String get key => plan[index];
@@ -695,6 +936,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           at: now));
       restLeft = restTarget;
     });
+    _persist();
     _rest?.cancel();
     _rest = Timer.periodic(Motion.tick, (t) {
       if (!mounted) return;
@@ -1085,19 +1327,50 @@ class LiveSwim extends StatefulWidget {
 }
 
 class _LiveSwimState extends State<LiveSwim> {
-  int laps = 0;
   int poolLen = 25;
   int stroke = 0;
   final lapAt = <int>[]; // elapsed seconds at each lap
   static const strokes = ['Free', 'Back', 'Breast', 'Fly'];
   static const pools = [20, 25, 33, 50];
 
-  /// Seconds per lap, from the taps. Real units — the relative bar heights
-  /// are derived from these on the way to the painter, not stored instead
-  /// of them.
+  /// One lap per tap. A separate counter beside the timestamps is how this
+  /// screen and the summary came to report different distances for the same
+  /// swim.
+  int get laps => lapAt.length;
+
+  /// Seconds per lap, from the taps. The FIRST lap is measured from the start
+  /// of the session; taking only the gaps between taps produced one time
+  /// fewer than there were laps, and the summary — which counts these — then
+  /// reported every swim one lap and one pool length short.
+  ///
+  /// Real units: the relative bar heights are derived from these on the way to
+  /// the painter, not stored instead of them.
   List<int> get lapSecs => [
-        for (var i = 1; i < lapAt.length; i++) lapAt[i] - lapAt[i - 1],
+        for (var i = 0; i < lapAt.length; i++)
+          lapAt[i] - (i == 0 ? 0 : lapAt[i - 1]),
       ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Laps are counted by hand — nothing can recount them. Restore whatever
+    // was tapped before this screen was rebuilt.
+    final d = LiveDraft.current;
+    if (d == null) return;
+    for (final e in (d.data['lap_at'] as List? ?? const [])) {
+      if (e is num) lapAt.add(e.toInt());
+    }
+    poolLen = (d.data['pool'] as num?)?.toInt() ?? poolLen;
+    stroke = (d.data['stroke'] as num?)?.toInt() ?? stroke;
+  }
+
+  void _persist() {
+    final d = LiveDraft.current;
+    if (d == null) return;
+    d.put('lap_at', List<int>.of(lapAt));
+    d.put('pool', poolLen);
+    d.put('stroke', stroke);
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -1120,7 +1393,7 @@ class _LiveSwimState extends State<LiveSwim> {
           const SizedBox(height: S.x5),
           bigNum(p, '${laps * poolLen}', 'm'),
           const SizedBox(height: S.x2),
-          Text('$laps laps · ${strokes[stroke]}',
+          Text('$laps ${laps == 1 ? 'lap' : 'laps'} · ${strokes[stroke]}',
               style: F.body.copyWith(color: p.ink3)),
           const SizedBox(height: S.x6),
           statRow(p, [
@@ -1131,21 +1404,17 @@ class _LiveSwimState extends State<LiveSwim> {
           const SizedBox(height: S.x8),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             counterButton(p, LucideIcons.minus, p.ink, 'One lap fewer', () {
-              if (laps == 0) return;
-              setState(() {
-                laps--;
-                if (lapAt.isNotEmpty) lapAt.removeLast();
-              });
+              if (lapAt.isEmpty) return;
+              setState(() => lapAt.removeLast());
+              _persist();
             }),
             const SizedBox(width: S.x6),
             Pressable(
               semanticLabel: 'Add a lap',
               onTap: () {
                 HapticFeedback.mediumImpact();
-                setState(() {
-                  laps++;
-                  lapAt.add(elapsed);
-                });
+                setState(() => lapAt.add(elapsed));
+                _persist();
               },
               child: Container(
                 width: 110,
@@ -1162,8 +1431,10 @@ class _LiveSwimState extends State<LiveSwim> {
               ),
             ),
             const SizedBox(width: S.x6),
-            counterButton(p, LucideIcons.repeat2, p.ink, 'Change stroke',
-                () => setState(() => stroke = (stroke + 1) % strokes.length)),
+            counterButton(p, LucideIcons.repeat2, p.ink, 'Change stroke', () {
+              setState(() => stroke = (stroke + 1) % strokes.length);
+              _persist();
+            }),
           ]),
           const SizedBox(height: S.x6),
           Row(
@@ -1173,7 +1444,10 @@ class _LiveSwimState extends State<LiveSwim> {
                   Pressable(
                     expand: false,
                     semanticLabel: '$len metre pool',
-                    onTap: () => setState(() => poolLen = len),
+                    onTap: () {
+                      setState(() => poolLen = len);
+                      _persist();
+                    },
                     child: Container(
                       margin: const EdgeInsets.symmetric(horizontal: S.x1),
                       padding: const EdgeInsets.symmetric(
@@ -1197,7 +1471,7 @@ class _LiveSwimState extends State<LiveSwim> {
             if (secs.isEmpty) {
               return Text(
                   'Pool length and stroke are yours to set — no sensor knows '
-                  'them, and lap speed needs two laps to compare.',
+                  'them. Lap times appear as you tap.',
                   textAlign: TextAlign.center,
                   style: F.over.copyWith(color: p.ink3));
             }
@@ -1269,10 +1543,21 @@ class _LiveFlowState extends State<LiveFlow>
   @override
   void initState() {
     super.initState();
+    pose = (LiveDraft.current?.data['pose'] as num?)?.toInt() ?? 0;
     _hold = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
       setState(() => hold = hold > 0 ? hold - 1 : 30);
     });
+  }
+
+  /// Where in the sequence the session is. The hold countdown is not saved —
+  /// it is a pacer, and restarting it on resume is honest.
+  void _go(int to) {
+    setState(() {
+      pose = to.clamp(0, poses.length - 1);
+      hold = 30;
+    });
+    LiveDraft.current?.put('pose', pose);
   }
 
   @override
@@ -1338,20 +1623,14 @@ class _LiveFlowState extends State<LiveFlow>
                   icon: LucideIcons.chevronLeft,
                   color: C.teal,
                   soft: true,
-                  onTap: () => setState(() {
-                        pose = (pose - 1).clamp(0, poses.length - 1);
-                        hold = 30;
-                      })),
+                  onTap: () => _go(pose - 1)),
             ),
             const SizedBox(width: S.x3),
             Expanded(
               child: BigButton('Next pose',
                   icon: LucideIcons.chevronRight,
                   color: C.teal,
-                  onTap: () => setState(() {
-                        pose = (pose + 1).clamp(0, poses.length - 1);
-                        hold = 30;
-                      })),
+                  onTap: () => _go(pose + 1)),
             ),
           ]),
           const SizedBox(height: S.x5),
@@ -1401,6 +1680,39 @@ class _LiveMatchState extends State<LiveMatch> {
   final sets = <(int, int)>[];
 
   @override
+  void initState() {
+    super.initState();
+    // The score is typed, so it restores with the session. Stored flat —
+    // [me, them, me, them, …] — because JSON has no tuples.
+    final d = LiveDraft.current;
+    if (d == null) return;
+    final v = [
+      for (final e in (d.data['score'] as List? ?? const []))
+        if (e is num) e.toInt(),
+    ];
+    for (var i = 0; i + 1 < v.length; i += 2) {
+      sets.add((v[i], v[i + 1]));
+    }
+    me = (d.data['me'] as num?)?.toInt() ?? 0;
+    them = (d.data['them'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Change the score and bank it in the same breath.
+  void _score(VoidCallback change) {
+    setState(change);
+    _persist();
+  }
+
+  /// Every point and every closed set, the moment it is entered.
+  void _persist() {
+    final d = LiveDraft.current;
+    if (d == null) return;
+    d.put('score', [for (final s in sets) ...[s.$1, s.$2]]);
+    d.put('me', me);
+    d.put('them', them);
+  }
+
+  @override
   Widget build(BuildContext c) {
     return LiveShell(
       widget.a,
@@ -1422,19 +1734,19 @@ class _LiveMatchState extends State<LiveMatch> {
           Row(children: [
             Expanded(
                 child: _side(p, 'YOU', me, p.on(widget.a.color),
-                    () => setState(() => me++),
-                    () => setState(() => me = (me - 1).clamp(0, 99)))),
+                    () => _score(() => me++),
+                    () => _score(() => me = (me - 1).clamp(0, 99)))),
             Container(width: 1, height: 120, color: p.line),
             Expanded(
                 child: _side(p, 'OPPONENT', them, p.ink2,
-                    () => setState(() => them++),
-                    () => setState(() => them = (them - 1).clamp(0, 99)))),
+                    () => _score(() => them++),
+                    () => _score(() => them = (them - 1).clamp(0, 99)))),
           ]),
           const SizedBox(height: S.x5),
           BigButton('End set',
               color: widget.a.color,
               soft: true,
-              onTap: () => setState(() {
+              onTap: () => _score(() {
                     sets.add((me, them));
                     me = 0;
                     them = 0;
@@ -1517,6 +1829,11 @@ class LiveInterval extends StatefulWidget {
 }
 
 class _LiveIntervalState extends State<LiveInterval> {
+  // ponytail: the round position is not written to the draft — minimising a
+  // HIIT session restarts it at round 1. Nothing here is typed, so nothing is
+  // LOST; it is a timer, and a timer that keeps running while the screen is
+  // gone needs the countdown to live on the draft's clock. Do that if anyone
+  // actually minimises intervals.
   static const workSec = 45, restSec = 30, rounds = 8;
 
   int round = 1;

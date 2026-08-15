@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/notify/charge_alert_policy.dart';
 import 'package:openstrap_edge/notify/device_alerts.dart';
+import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 
 class _Shown {
@@ -27,15 +28,13 @@ class _Shown {
 
 class _FakeSink implements DeviceAlertSink {
   final List<_Shown> shown = [];
+  final List<NotificationEvent> events = [];
   final List<int> cancelled = [];
 
   @override
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
-    shown.add(_Shown(id, title));
+  Future<void> show(NotificationEvent e) async {
+    events.add(e);
+    shown.add(_Shown(e.osId!, e.title));
   }
 
   @override
@@ -62,11 +61,7 @@ class _ThrowingSink implements DeviceAlertSink {
   int attempts = 0;
 
   @override
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
+  Future<void> show(NotificationEvent e) async {
     attempts++;
     throw StateError('unavailable');
   }
@@ -516,6 +511,58 @@ void main() {
       a.onDeviceState(batteryPct: 12, charging: true, chargingTs: tsAged(2));
       await a.settled;
       expect(sink.countOf(NotificationService.idLowBattery), 0);
+    });
+  });
+
+  // T-02: these used to go straight to the plugin via
+  // NotificationService.showDevice, which consulted neither quiet hours nor the
+  // user's category switch and passed no payload, so a 23:30 plug-in buzzed the
+  // phone and the tap did nothing. They are NotificationEvents now, which is
+  // what gets them through NotificationPrefs.shouldFireOs on the way out.
+  group('band alerts speak the shared emitter\'s currency', () {
+    late _FakeSink sink;
+    late _FakeStore store;
+
+    setUp(() {
+      sink = _FakeSink();
+      store = _FakeStore();
+    });
+
+    test('every alert carries a category, a route and its fixed os id',
+        () async {
+      final a = DeviceAlerts(sink: sink, store: store);
+      a.onDeviceState(batteryPct: 90, charging: true, chargingTs: tsAged(2));
+      await a.settled;
+      a.onDeviceState(batteryPct: 12, charging: false, chargingTs: tsAged(2));
+      await a.settled;
+
+      expect(sink.events, hasLength(2));
+      for (final e in sink.events) {
+        expect(e.category, NotifCategory.device);
+        // Quiet hours apply: a flat band can wait until morning.
+        expect(e.priority, NotifPriority.normal);
+        // Without a payload the tap is dropped by the OS tap handler.
+        expect(e.route, '/profile');
+        expect(e.date, isNotEmpty);
+      }
+      expect(sink.events.first.osId, NotificationService.idCharging);
+      expect(sink.events.last.osId, NotificationService.idLowBattery);
+    });
+
+    test('the dedupe key is the real event identity, not just the day',
+        () async {
+      final a = DeviceAlerts(sink: sink, store: store);
+      a.onDeviceState(batteryPct: 90, charging: true, chargingTs: tsAged(2));
+      await a.settled;
+      // Charger off, then a genuinely NEW plug-in the same day. A key that was
+      // only date+kind would have swallowed the second one at the emitter.
+      a.onDeviceState(batteryPct: 92, charging: false, chargingTs: tsAged(1));
+      await a.settled;
+      a.onDeviceState(batteryPct: 92, charging: true, chargingTs: tsAged(0));
+      await a.settled;
+
+      final keys = sink.events.map((e) => e.dedupeKey).toSet();
+      expect(keys, hasLength(sink.events.length));
     });
   });
 }

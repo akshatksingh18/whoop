@@ -66,11 +66,18 @@ class AppShell extends StatefulWidget {
   /// (which domains conventionally use to scroll to top).
   final void Function(ShellDomain domain)? onSelect;
 
+  /// Pinned between the domain and the tab bar, above every tab. This is not
+  /// a general slot — it exists for state that is RUNNING and is not on
+  /// screen, which today means a minimised workout. A domain's own content
+  /// belongs inside the domain.
+  final Widget? banner;
+
   const AppShell({
     super.key,
     required this.builder,
     this.initial = ShellDomain.home,
     this.onSelect,
+    this.banner,
   });
 
   @override
@@ -96,20 +103,26 @@ class _AppShellState extends State<AppShell> {
       backgroundColor: p.bg,
       body: SafeArea(
         bottom: false,
-        child: IndexedStack(
-          index: _current.index,
-          children: [
-            for (final d in ShellDomain.values)
-              Domain(
-                domain: d,
-                // An unvisited tab is an empty box, not a built screen — the
-                // old shell built all forty screens' worth of state on launch.
-                child: _built.contains(d)
-                    ? widget.builder(c, d)
-                    : const SizedBox.shrink(),
-              ),
-          ],
-        ),
+        child: Column(children: [
+          Expanded(
+            child: IndexedStack(
+              index: _current.index,
+              children: [
+                for (final d in ShellDomain.values)
+                  Domain(
+                    domain: d,
+                    // An unvisited tab is an empty box, not a built screen —
+                    // the old shell built all forty screens' worth of state
+                    // on launch.
+                    child: _built.contains(d)
+                        ? widget.builder(c, d)
+                        : const SizedBox.shrink(),
+                  ),
+              ],
+            ),
+          ),
+          if (widget.banner != null) widget.banner!,
+        ]),
       ),
       bottomNavigationBar: _TabBar(current: _current, onTap: _select),
     );

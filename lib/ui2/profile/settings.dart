@@ -14,11 +14,26 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../notify/notification_center.dart';
+import '../../notify/notification_prefs.dart';
+import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
+import 'alarm.dart';
 import 'profile.dart';
+
+/// Unwind the profile stack back to the gate.
+///
+/// `_Gate` is `MaterialApp.home` — the BOTTOM of the navigator stack — so an
+/// action that changes `AppState.route` swaps what is under everything without
+/// popping any of it. Resetting all data, forgetting the band and asking to
+/// pair again are all route changes taken from a pushed screen, and all three
+/// used to leave the user staring at the screen they tapped from, describing a
+/// state that no longer existed.
+void backToRoot(BuildContext c) =>
+    Navigator.of(c).popUntil((r) => r.isFirst);
 
 // ══════════════════ MORE SETTINGS ══════════════════
 
@@ -36,6 +51,8 @@ class MoreSettings extends StatelessWidget {
       phoneSteps: app.phoneStepsEnabled,
       telemetry: app.telemetryConsent,
       onEditProfile: () => goto(c, const EditProfile()),
+      onAlarm: () => goto(c, const AlarmScreen()),
+      onNotifications: () => goto(c, const NotificationSettings()),
       onCycleUnits: () => units.setSystem(units.isImperial
           ? UnitSystem.metric
           : UnitSystem.imperial),
@@ -77,12 +94,17 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     if (days.isNotEmpty) await app.deleteDays(days.toSet());
   }
   await app.signOut();
+  // signOut swaps the gate to Welcome, which is UNDER this screen — without
+  // this the user stays on Settings, reading a profile that has been deleted.
+  if (c.mounted) backToRoot(c);
 }
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
   final bool phoneSteps, telemetry;
   final VoidCallback? onEditProfile,
+      onAlarm,
+      onNotifications,
       onCycleUnits,
       onCycleAppearance,
       onTogglePhoneSteps,
@@ -96,6 +118,8 @@ class MoreSettingsView extends StatelessWidget {
     this.phoneSteps = false,
     this.telemetry = false,
     this.onEditProfile,
+    this.onAlarm,
+    this.onNotifications,
     this.onCycleUnits,
     this.onCycleAppearance,
     this.onTogglePhoneSteps,
@@ -121,6 +145,17 @@ class MoreSettingsView extends StatelessWidget {
                 settingsGroup(c, 'You', [
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEditProfile),
+                ]),
+                settingsGroup(c, 'The band', [
+                  SetRow(LucideIcons.alarmClock, C.orange, 'Alarm',
+                      sub: 'Buzzes on your wrist, on the band’s own clock',
+                      onTap: onAlarm),
+                ]),
+                settingsGroup(c, 'Notifications', [
+                  SetRow(LucideIcons.bell, C.blue, 'What interrupts you',
+                      sub: 'Three kinds, quiet hours, and off switches for all '
+                          'of them',
+                      onTap: onNotifications),
                 ]),
                 settingsGroup(c, 'Preferences', [
                   SetRow(LucideIcons.ruler, C.blue, 'Units',
@@ -155,6 +190,209 @@ class MoreSettingsView extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+// ══════════════════ NOTIFICATIONS ══════════════════
+//
+// There are exactly three things this app may put in your notification shade:
+// the alarm, the day's aggregated exception, and the weekly lookback when the
+// week contained something. The app used to be able to emit around twenty-two
+// kinds — hydration slots, step goals, posture nudges, AI briefings — and none
+// of them had a switch anywhere in the app, so the only way to stop any of it
+// was the OS. A notification the user cannot turn off is a bug, which makes
+// this screen part of the fix rather than a nicety on top of it.
+//
+// The alarm is deliberately not switchable here: its off switch is cancelling
+// the alarm, and burying a second one in settings is how an alarm silently
+// fails to wake someone.
+
+class NotificationSettings extends StatefulWidget {
+  const NotificationSettings({super.key});
+
+  @override
+  State<NotificationSettings> createState() => _NotificationSettingsState();
+}
+
+class _NotificationSettingsState extends State<NotificationSettings> {
+  NotificationPrefs? _prefs;
+  bool _granted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await NotificationPrefs.load();
+    final granted = await NotificationService.instance.hasPermission();
+    if (!mounted) return;
+    setState(() {
+      _prefs = p;
+      _granted = granted;
+    });
+  }
+
+  Future<void> _apply(NotificationPrefs next) async {
+    setState(() => _prefs = next);
+    await next.save();
+    // Re-run the scheduler so a switch that was just turned off actually
+    // cancels what it was standing for, rather than taking effect at some
+    // later resume.
+    await NotificationCenter.instance.scheduleStandingReminders(next);
+  }
+
+  /// The one contextual moment left where prompting is honest: the user is
+  /// standing in the notifications screen, having just asked for one.
+  Future<void> _requestPermission() async {
+    final ok = await NotificationService.instance.ensurePermission();
+    if (mounted) setState(() => _granted = ok);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = _prefs;
+    return NotificationSettingsView(
+      prefs: p ?? const NotificationPrefs(),
+      loaded: p != null,
+      granted: _granted,
+      onChanged: _apply,
+      onRequestPermission: _requestPermission,
+    );
+  }
+}
+
+class NotificationSettingsView extends StatelessWidget {
+  final NotificationPrefs prefs;
+  final bool loaded, granted;
+  final Future<void> Function(NotificationPrefs next)? onChanged;
+  final VoidCallback? onRequestPermission;
+
+  const NotificationSettingsView({
+    super.key,
+    this.prefs = const NotificationPrefs(),
+    this.loaded = true,
+    this.granted = true,
+    this.onChanged,
+    this.onRequestPermission,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    void set(NotificationPrefs next) => onChanged?.call(next);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar('Notifications', sub: 'Three kinds, all optional'),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+              children: [
+                if (!granted)
+                  StatusCard(
+                    'Notifications are off at the system level',
+                    'Nothing below can reach you until the OS lets it. Your '
+                        'choices here are still saved.',
+                    fix: 'Turn them on',
+                    icon: LucideIcons.bellOff,
+                    onFix: onRequestPermission,
+                  ),
+                if (!loaded)
+                  const StatusCard(
+                    'Reading your settings',
+                    'One moment.',
+                    icon: LucideIcons.loader,
+                  )
+                else ...[
+                  settingsGroup(c, 'What may interrupt you', [
+                    SetRow(LucideIcons.heartPulse, C.red, 'Health exceptions',
+                        sub: 'One a day at most, and only when something in '
+                            'your own baseline moved',
+                        value: prefs.healthEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            healthEnabled: !prefs.healthEnabled))),
+                    SetRow(LucideIcons.watch, C.orange, 'Band alerts',
+                        sub: 'Flat battery, on the charger, gone quiet',
+                        value: prefs.deviceEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            deviceEnabled: !prefs.deviceEnabled))),
+                    SetRow(LucideIcons.calendarDays, C.purple,
+                        'Weekly lookback',
+                        sub: 'Sunday evening, and only for a week that found '
+                            'something',
+                        value: prefs.remindersEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            remindersEnabled: !prefs.remindersEnabled))),
+                  ]),
+                  settingsGroup(c, 'Quiet hours', [
+                    SetRow(LucideIcons.moon, C.indigo, 'Quiet hours',
+                        sub: 'Nothing buzzes inside this window',
+                        value: prefs.quietEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(
+                            prefs.copyWith(quietEnabled: !prefs.quietEnabled))),
+                    SetRow(LucideIcons.sunset, C.blue, 'Starts',
+                        value: _hhmm(prefs.quietStartMin),
+                        chevron: false,
+                        onTap: () async {
+                          final v = await _pickMinute(c, prefs.quietStartMin);
+                          if (v != null) set(prefs.copyWith(quietStartMin: v));
+                        }),
+                    SetRow(LucideIcons.sunrise, C.yellow, 'Ends',
+                        value: _hhmm(prefs.quietEndMin),
+                        chevron: false,
+                        onTap: () async {
+                          final v = await _pickMinute(c, prefs.quietEndMin);
+                          if (v != null) set(prefs.copyWith(quietEndMin: v));
+                        }),
+                    SetRow(LucideIcons.triangleAlert, C.red,
+                        'Health exceptions break through',
+                        sub: 'A signal worth waking you for is worth waking '
+                            'you for',
+                        value: prefs.criticalOverridesQuiet ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            criticalOverridesQuiet:
+                                !prefs.criticalOverridesQuiet))),
+                  ]),
+                ],
+                const SizedBox(height: S.x3),
+                const StatusCard(
+                  'The alarm is not on this list',
+                  'It is armed for a time you chose, usually inside your own '
+                      'quiet hours, so nothing here can silence it. Cancel it '
+                      'on the Alarm screen instead.',
+                  icon: LucideIcons.alarmClock,
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  static String _hhmm(int minuteOfDay) {
+    final m = minuteOfDay % 1440;
+    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
+        '${(m % 60).toString().padLeft(2, '0')}';
+  }
+
+  static Future<int?> _pickMinute(BuildContext c, int current) async {
+    final picked = await showTimePicker(
+      context: c,
+      initialTime: TimeOfDay(hour: (current ~/ 60) % 24, minute: current % 60),
+    );
+    return picked == null ? null : picked.hour * 60 + picked.minute;
   }
 }
 

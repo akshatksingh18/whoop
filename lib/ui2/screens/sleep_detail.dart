@@ -528,18 +528,69 @@ class _SleepDetailState extends State<SleepDetail> {
   }
 
   Widget _overnight(BuildContext c, P p, SleepData d) {
-    List<double> line(String key) {
+    /// One lane as `(timestamp, value)`. The timestamp is the point — the
+    /// three signals arrive on three different cadences.
+    List<(int, double)> stamped(String key) {
       final l = d.timeline[key];
       if (l is! List) return const [];
       return [
         for (final e in l)
-          if (e is Map && e['v'] is num) (e['v'] as num).toDouble(),
+          if (e is Map && e['v'] is num && e['t'] is num)
+            ((e['t'] as num).round(), (e['v'] as num).toDouble()),
       ];
     }
 
     final n = d.night;
-    final hr = line('hr'), hrv = line('hrv'), resp = line('resp');
-    final series = <List<double>>[], colors = <Color>[];
+    final hr = stamped('hr'), hrv = stamped('hrv'), resp = stamped('resp');
+    final all = [...hr, ...hrv, ...resp];
+
+    if (all.isEmpty) {
+      return const StatusCard(
+        'No overnight signal lines',
+        'Heart rate, beat variability and breathing are drawn from the night\'s '
+            'own recordings, and none reached this day.',
+        icon: LucideIcons.activity,
+      );
+    }
+
+    // ONE grid for all three lanes. `NightStack` reads index as instant, so
+    // lanes of different lengths spread across the same width put three
+    // different times under one vertical slice — which is the entire premise
+    // of a stacked night view. The window is the night the axis labels name,
+    // and the column count is the densest lane, capped: past ~a column per
+    // pixel the extra buckets only add holes.
+    var t0 = (n['onset_ts'] as num?)?.round() ??
+        all.map((e) => e.$1).reduce((a, b) => a < b ? a : b);
+    var t1 = (n['wake_ts'] as num?)?.round() ??
+        all.map((e) => e.$1).reduce((a, b) => a > b ? a : b);
+    if (t1 <= t0) {
+      t0 = all.map((e) => e.$1).reduce((a, b) => a < b ? a : b);
+      t1 = all.map((e) => e.$1).reduce((a, b) => a > b ? a : b);
+    }
+    final cols = t1 <= t0
+        ? 0
+        : [hr.length, hrv.length, resp.length]
+            .reduce((a, b) => a > b ? a : b)
+            .clamp(2, 480);
+
+    /// Bucket mean per column; null where the lane has nothing in that
+    /// bucket. A null is a HOLE — the painter breaks the line rather than
+    /// drawing across a gap the data never covered.
+    List<double?> grid(List<(int, double)> v) {
+      final sum = List<double>.filled(cols, 0), cnt = List<int>.filled(cols, 0);
+      for (final (t, x) in v) {
+        if (t < t0 || t > t1) continue;
+        final i = (((t - t0) / (t1 - t0)) * (cols - 1)).round().clamp(0, cols - 1);
+        sum[i] += x;
+        cnt[i]++;
+      }
+      return [
+        for (var i = 0; i < cols; i++)
+          cnt[i] == 0 ? null : sum[i] / cnt[i],
+      ];
+    }
+
+    final series = <List<double?>>[], colors = <Color>[];
     final legend = <(String, Color)>[];
     final axes = <AxisSpec?>[];
     final units = <String>[];
@@ -548,12 +599,15 @@ class _SleepDetailState extends State<SleepDetail> {
     // scale is PINNED to the night's own range and its unit is named. Three
     // unlabelled lines on three invisible axes was the least readable chart
     // in the app.
-    void lane(List<double> s, String label, String unit, Color col) {
-      if (s.isEmpty) return;
-      series.add(s);
+    void lane(List<(int, double)> raw, String label, String unit, Color col) {
+      if (raw.isEmpty || cols == 0) return;
+      final g = grid(raw);
+      final present = <double>[for (final v in g) ?v];
+      if (present.length < 2) return;
+      series.add(g);
       colors.add(col);
       legend.add(('$label ($unit)', col));
-      axes.add(AxisSpec.of(s, ticks: 2));
+      axes.add(AxisSpec.of(present, ticks: 2));
       units.add(unit);
     }
 
@@ -579,8 +633,9 @@ class _SleepDetailState extends State<SleepDetail> {
           clockOfTs(n['wake_ts'] as num?),
         ],
         legend: legend,
-        footnote: 'One lane per signal, each on its own scale — they are '
-            'different quantities and a shared axis would be a lie.',
+        footnote: 'One lane per signal on one shared clock, each on its own '
+            'scale — they are different quantities and a shared axis would be '
+            'a lie. A break is a stretch the signal did not cover.',
         child: CustomPaint(
             size: Size.infinite,
             painter: NightStack(series, colors, axes: axes)),

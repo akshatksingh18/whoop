@@ -372,4 +372,61 @@ void main() {
       expect(logs.where((l) => l.contains('never set')), isNotEmpty);
     });
   });
+
+
+  group('the dangerous-opcode block sits on _write, not only on _send', () {
+    // Nine call sites build their own frame and hand it to the lowest-level
+    // write, bypassing `_send` entirely. All were benign, but the guard against
+    // FORCE_TRIM (whose full-erase form is two 0xFEFEFEFE args), REBOOT and
+    // POWER_CYCLE was bypassable by construction rather than by an audited
+    // opt-out, on BOTH generations (the header length differs, the opcode's
+    // position within the inner frame does not).
+    for (final (label, band) in [
+      ('gen4', BandProfile.gen4),
+      ('gen5', BandProfile.gen5),
+    ]) {
+      test('a framed destructive opcode never reaches the radio ($label)',
+          () {
+        final sent = <Uint8List>[];
+        final engine = BleEngine(
+          onRecord: (_, _) async {},
+          onState: (_) {},
+          log: (_) {},
+        );
+        engine.debugInstallFakeLink(
+          onWrite: (f) async {
+            sent.add(f);
+            return true;
+          },
+          band: band,
+        );
+
+        for (final opcode in dangerousCmds) {
+          final frame = buildCommand(1, opcode, const [], band);
+          expect(engine.debugWriteRaw(frame), completion(isFalse),
+              reason: 'opcode 0x${opcode.toRadixString(16)} must be refused');
+        }
+      });
+    }
+
+    test('an ordinary command still goes out', () async {
+      final sent = <Uint8List>[];
+      final engine = BleEngine(
+        onRecord: (_, _) async {},
+        onState: (_) {},
+        log: (_) {},
+      );
+      engine.debugInstallFakeLink(
+        onWrite: (f) async {
+          sent.add(f);
+          return true;
+        },
+      );
+      final ok = await engine.debugWriteRaw(
+        buildCommand(1, Cmd.getBatteryLevel, const [], BandProfile.gen4),
+      );
+      expect(ok, isTrue);
+      expect(sent, hasLength(1));
+    });
+  });
 }

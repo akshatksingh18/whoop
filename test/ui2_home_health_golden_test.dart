@@ -24,6 +24,28 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 List<double> _series(int n, double base, double amp) => List<double>.generate(
     n, (i) => base + ((i * 37) % 17) / 17 * amp - amp / 2);
 
+/// The same series with the timestamps a real `getChart` carries: one point per
+/// day, ending TODAY, stamped at local noon the way `metric_series` reads back.
+///
+/// Anchored to the run date on purpose. The screens label their axes and their
+/// "as of" line RELATIVE to today, so a fixture pinned to a fixed calendar date
+/// would render "88 days ago" on one morning and "89 days ago" the next — a
+/// golden that fails on the passage of time. Anchored here, the rendered text
+/// is identical on every run, and a gap in the fixture would show up as one.
+List<ChartPoint> _points(int n, double base, double amp) {
+  final vs = _series(n, base, amp);
+  final now = DateTime.now();
+  return [
+    for (var i = 0; i < n; i++)
+      (
+        t: DateTime(now.year, now.month, now.day - (n - 1 - i), 12)
+                .millisecondsSinceEpoch ~/
+            1000,
+        v: vs[i],
+      ),
+  ];
+}
+
 Map<String, dynamic> _metric(num? v, String tier, {String? note}) => {
       'value': v ?? '—',
       'confidence': v == null ? 0 : 0.8,
@@ -80,7 +102,17 @@ final _health = HealthData(
       'tier': 'ESTIMATE',
     },
     'resp': {'value': 14.2, 'confidence': .6},
-    'skin_temp': {'value': 0.31},
+    // The ENVELOPE the repo emits, not a bare `{'value': z}`. The bare form is
+    // what shipped, and `Metric.isEmpty` reads a confidence-less block as
+    // absent — so the golden was recording a real deviation dotted "Not
+    // measured".
+    'skin_temp': {
+      'value': 0.31,
+      'confidence': .5,
+      'tier': 'RELATIVE',
+      'inputs_used': const ['skin_temp_raw'],
+      'note': 'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
+    },
     'illness': {'state': 'green'},
   },
   insights: {
@@ -115,11 +147,11 @@ final _health = HealthData(
   },
   profile: const {'weight_kg': 72.4, 'sex': 'm'},
   charts: {
-    'resting_hr': _series(60, 54, 6),
-    'hrv': _series(60, 66, 16),
-    'sleep': _series(60, 440, 70),
-    'stress': _series(60, 30, 14),
-    'resp_rate': _series(60, 14.2, 1.8),
+    'resting_hr': _points(60, 54, 6),
+    'hrv': _points(60, 66, 16),
+    'sleep': _points(60, 440, 70),
+    'stress': _points(60, 30, 14),
+    'resp_rate': _points(60, 14.2, 1.8),
   },
   daysWithData: 24,
   need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
@@ -151,7 +183,7 @@ const _labs = LabsData(markers: kLabMarkers, results: [
 ]);
 
 final _metricDetail = MetricData(
-  series: _series(60, 54, 6),
+  series: _points(60, 54, 6),
   daysAvailable: 60,
   latest: const Metric(value: 52, unit: 'bpm', confidence: .8, tier: MetricTier.high),
   percentile: const {'percentile_of_you': 22.0, 'n': 59, 'label': 'lower than usual'},
@@ -301,8 +333,67 @@ CircadianData _circadian() {
     midWorkH: 2.5,
     nFree: 9,
     nWork: 22,
+    // The non-parametric battery and the cosinor, as the cross-day pipeline
+    // emits them — on HOURLY HR, which is what the card's footnote discloses.
+    rhythm: const Metric(value: .68, confidence: .7, tier: MetricTier.high),
+    rhythmV: const {
+      'IS': 0.68,
+      'IV': 0.74,
+      'M10': 82.4,
+      'L5': 54.1,
+      'RA': 0.21,
+      'm10_start_epoch': 10,
+      'l5_start_epoch': 2,
+    },
+    cosinorV: const {
+      'mesor': 66.2,
+      'amplitude': 9.4,
+      'acrophase_hours': 15.3,
+      'period_hours': 24.0,
+      'r2': 0.61,
+      'r2_adj': 0.58,
+    },
+    cosinorConf: Conf.high,
+    coverage: const {
+      'days_used': 6,
+      'days_need_np': 7,
+      'days_need_cosinor': 3,
+      'signal': 'hourly_hr',
+    },
   );
 }
+
+/// A cycle with two logged starts — the floor at which a prediction exists at
+/// all — plus a partial current cycle of derived nights behind it.
+final _cycle = CycleData(
+  enabled: true,
+  phase: 'luteal',
+  cycleDay: 19,
+  daysUntilNext: 9,
+  meanLength: 28,
+  predictedNext: '2026-05-29',
+  fertileStart: '2026-05-23',
+  fertileEnd: '2026-05-27',
+  logs: const [
+    {'date': '2026-04-13', 'kind': 'start'},
+    {'date': '2026-05-11', 'kind': 'start'},
+  ],
+  overlay: [
+    for (var i = 1; i <= 19; i++)
+      {
+        'date': '2026-05-${(10 + i).toString().padLeft(2, '0')}',
+        'cycle_day': i,
+        'resting_hr': 52.0 + ((i * 31) % 9) / 3,
+        'hrv_rmssd': 64.0,
+        'skin_temp_idx': 0.2,
+      },
+  ],
+  symptoms: const {},
+);
+
+/// Tracking on, nothing logged: the state a user lands in the moment they
+/// enable it, and the only one with no numbers in it.
+const _cycleEmpty = CycleData(enabled: true);
 
 final _investigate = InvestigateData(
   day: '2026-05-20',
@@ -373,8 +464,8 @@ final _investigate = InvestigateData(
 );
 
 Map<String, Widget> _cases() => {
-      'home': HomeScreen(data: _home),
-      'home_cold': const HomeScreen(data: _homeCold),
+      'home': HomeScreen(data: _home, hour: 20),
+      'home_cold': const HomeScreen(data: _homeCold, hour: 20),
       'health_overview': HealthScreen(data: _health, tab: 0),
       'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
       'health_trends': HealthScreen(data: _health, tab: 1),
@@ -397,7 +488,17 @@ Map<String, Widget> _cases() => {
       'investigate_hrv': Investigate('hrv', data: _investigate),
       'investigate_generic':
           const Investigate('steps', data: InvestigateData(series: [])),
+      // CycleTab renders a Column so it drops into Wellness's own ListView;
+      // the golden supplies the scroller the tab does not own.
+      'cycle': _scroll(CycleTab(data: _cycle)),
+      'cycle_empty': _scroll(const CycleTab(data: _cycleEmpty)),
+      'cycle_off': _scroll(const CycleTab(data: CycleData())),
     };
+
+Widget _scroll(Widget child) => ListView(
+      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+      children: [child],
+    );
 
 final _shot = GlobalKey();
 
@@ -487,6 +588,18 @@ void main() {
       const Investigate('steps', data: InvestigateData()),
       const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 2),
       const HealthScreen(data: _healthCold, labs: LabsData(), tab: 3),
+      _scroll(const CycleTab(data: CycleData())),
+      _scroll(const CycleTab(data: _cycleEmpty)),
+      // The readiness row that used to hold the app's one reachable em-dash:
+      // a driver marked used whose weighted contribution never arrived.
+      const ReadinessDetail(
+          data: ReadinessData(
+        readiness: Metric(value: 74, confidence: .8, tier: MetricTier.high),
+        breakdown: [
+          {'label': 'hrv', 'weight': .4, 'used': true, 'past_mdc': true},
+        ],
+        inputsUsed: 1,
+      )),
     ]) {
       await tester.pumpWidget(_frame(w, Brightness.light, 1));
       await tester.pumpAndSettle();

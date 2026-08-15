@@ -159,7 +159,10 @@ class _ProfileHomeState extends State<ProfileHome> {
     return ProfileStats(
       name: app.user?['name'] as String?,
       workouts: (records['workouts_tracked'] as num?)?.toInt() ?? 0,
-      records: (records['records'] as List?)?.length ?? 0,
+      // A MAP of recordKey → record, not a list (`local_repository_impl`
+      // :1786). `as List?` on a Map is null, so this tile read 0 forever, for
+      // every user, since the day it was written.
+      records: (records['records'] as Map?)?.length ?? 0,
       days: (records['days_tracked'] as num?)?.toInt() ?? 0,
       sessions: ((year['summary'] as Map?)?['count'] as num?)?.toInt() ?? 0,
       sources: sources,
@@ -262,9 +265,15 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onDevices),
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEdit),
+                  // A COUNT, not a destination. It used to open MoreSettings,
+                  // because there is no activity-history screen to open — a
+                  // chevron that lands somewhere unrelated is worse than no
+                  // chevron. History lives on the Workouts tab.
                   SetRow(LucideIcons.history, C.teal, 'Activity history',
-                      sub: s == null ? '' : '${s.sessions} sessions this year',
-                      onTap: onSettings),
+                      sub: s == null
+                          ? ''
+                          : '${s.sessions} sessions this year · on the Workouts tab',
+                      chevron: false),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.database, C.green, 'Storage',
@@ -272,8 +281,11 @@ class ProfileHomeView extends StatelessWidget {
                           ? ''
                           : formatBytes(s!.storageBytes!),
                       chevron: false),
+                  // What is behind the row, not what we once meant to put
+                  // there: `MoreSettingsView` has no export and no import.
                   SetRow(LucideIcons.settings, C.n500, 'More settings',
-                      sub: 'Export, import, units, reset', onTap: onSettings),
+                      sub: 'Units, appearance, crash reports, reset',
+                      onTap: onSettings),
                 ]),
                 const SizedBox(height: S.x6),
                 const StatusCard(

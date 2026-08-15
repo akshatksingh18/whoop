@@ -136,14 +136,120 @@ Conf confOfEnv(Object? raw) {
   ));
 }
 
-/// A `[{t, v}]` point list from `getChart` as a plain series.
-List<double> seriesOf(Object? chart) {
+/// One stored chart point: `t` is the epoch SECONDS `getChart` stamps on it
+/// (local noon of the day the value was derived on), `v` the value.
+typedef ChartPoint = ({int t, double v});
+
+/// A `[{t, v}]` point list from `getChart`, timestamps INTACT.
+///
+/// [seriesOf] drops `t`, and everything downstream then labelled its x axis off
+/// the ARRAY INDEX — `'Today'`, `'N days ago'`, weekday letters. `metric_series`
+/// stores one row per DERIVED day, not one per calendar day, so after a sync gap
+/// the newest stored point is days old and was still being called "Today".
+/// Anything that draws a dated axis reads this.
+List<ChartPoint> pointsOf(Object? chart) {
   final pts = chart is Map ? chart['points'] : null;
   if (pts is! List) return const [];
   return [
     for (final e in pts)
-      if (e is Map && e['v'] is num) (e['v'] as num).toDouble(),
+      if (e is Map && e['v'] is num && e['t'] is num)
+        (t: (e['t'] as num).round(), v: (e['v'] as num).toDouble()),
   ];
+}
+
+/// The bare values of a point list, for statistics — a mean, a last reading,
+/// an [AxisSpec]. NEVER for a painter: a compacted list is the bug, because it
+/// lets 22 stored days masquerade as 30 continuous ones.
+List<double> valuesOf(List<ChartPoint> pts) => [for (final p in pts) p.v];
+
+/// [pts] laid out DENSE: one slot per calendar day, [days] slots long, ending
+/// today. A day `metric_series` has no row for is `null`, which the painter
+/// draws as a break rather than joining across.
+///
+/// This is the shape every chart in this app takes. `metric_series` gets a row
+/// only on a day that derives, so the stored list is already compacted: after a
+/// four-day sync gap the newest point sat at the right-hand edge under the
+/// label "Today", and the line ran straight through the missing week as though
+/// it had been measured.
+List<double?> denseDays(List<ChartPoint> pts, int days) {
+  final out = List<double?>.filled(days, null);
+  for (final p in pts) {
+    final behind = daysBehind(p.t);
+    if (behind == null || behind < 0 || behind >= days) continue;
+    out[days - 1 - behind] = p.v;
+  }
+  return out;
+}
+
+/// A `[{t, v}]` point list from `getChart` as a plain series.
+///
+/// Values only — the caller cannot tell WHEN any of them was recorded. Use
+/// [pointsOf] for anything that labels, spans or dates the series; this is for
+/// sparklines, which claim nothing about time.
+List<double> seriesOf(Object? chart) => valuesOf(pointsOf(chart));
+
+/// An x-axis label for a stored point: [todayWord] when the point really is
+/// today's, otherwise "N days ago" counted from the point's OWN date.
+///
+/// The same vocabulary the axes already spoke. What changed is where N comes
+/// from: it used to be the point's position in the array, and `metric_series`
+/// holds one row per DERIVED day, so a thirty-point series can span two months
+/// and both its edges were labelled as though it spanned thirty days.
+String axisDay(int? epochSec,
+    {String todayWord = 'Today', String unitWord = 'days'}) {
+  final behind = daysBehind(epochSec);
+  if (behind == null) return '';
+  if (behind <= 0) return todayWord;
+  return '$behind $unitWord ago';
+}
+
+/// Whole calendar days between a stored point and today, or null when there is
+/// no point. Anything above zero means the number drawn is not today's, and a
+/// card that presents it as today's has to say so.
+int? daysBehind(int? epochSec) {
+  if (epochSec == null) return null;
+  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day)
+      .difference(DateTime(d.year, d.month, d.day))
+      .inDays;
+}
+
+/// The withheld-rollup reason inside a `getInsights()` result, or null when the
+/// result is real (or simply empty).
+Map<String, dynamic>? staleReasonOf(Map<String, dynamic> insights) =>
+    insights['stale'] is Map
+        ? (insights['stale'] as Map).cast<String, dynamic>()
+        : null;
+
+/// The cross-day rollup was WITHHELD: `getInsights` returned the reason it
+/// refused instead of the numbers (`LocalRepositoryImpl.crossDayStaleReason`).
+///
+/// Every screen that reads the rollup renders this rather than quietly showing
+/// nothing — "you have no drivers yet" and "we have drivers we will not stand
+/// behind" are different states, and the cold-start copy is a wrong answer to
+/// the second one.
+StatusCard? staleInsightsCard(
+    Map<String, dynamic>? reason, VoidCallback? onSync) {
+  final s = reason;
+  if (s == null) return null;
+  final built = s['built_for_day']?.toString();
+  return StatusCard(
+    'Your cross-day insights are being rebuilt',
+    switch (s['kind']) {
+      'algo_version' =>
+        'How these are computed changed with the last update, so the stored '
+            'rollup no longer matches what the app would produce today.',
+      'stale' => 'The last rollup was built '
+          '${built == null || built.isEmpty ? 'over a week ago' : 'on ${prettyDay(built)}'}'
+          ', which is too old to stand behind.',
+      _ => 'The stored rollup carries no version stamp, so there is no way to '
+          'tell what it was computed from.',
+    },
+    fix: onSync == null ? '' : 'Sync the band',
+    icon: LucideIcons.refreshCw,
+    onFix: onSync,
+  );
 }
 
 // ── formatting ──
@@ -244,6 +350,11 @@ class HomeData {
   final Metric bedtime;
   final Map<String, dynamic>? strainTarget;
 
+  /// Non-null when the cross-day rollup was withheld rather than absent — see
+  /// [staleInsightsCard]. Drivers, sleep need and bedtime are all empty in that
+  /// case, and the screen owes the user the reason.
+  final Map<String, dynamic>? insightsStale;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -259,6 +370,7 @@ class HomeData {
     this.sleepNeedMin = Metric.empty,
     this.bedtime = Metric.empty,
     this.strainTarget,
+    this.insightsStale,
   });
 
   static Future<HomeData> load(LocalRepository repo) async {
@@ -305,6 +417,7 @@ class HomeData {
       strainTarget: strain is Map && strain['strain_target'] is Map
           ? (strain['strain_target'] as Map).cast<String, dynamic>()
           : null,
+      insightsStale: staleReasonOf(cd),
     );
   }
 }
@@ -312,7 +425,14 @@ class HomeData {
 class HomeScreen extends StatefulWidget {
   /// Injected only by goldens; production always loads.
   final HomeData? data;
-  const HomeScreen({super.key, this.data});
+
+  /// Hour of day, injected only by goldens. The greeting reads the clock, so a
+  /// golden baked in the evening fails the next morning on nothing but the
+  /// word "evening" — a test that breaks by being run at a different time is
+  /// noise that trains you to regenerate without looking.
+  final int? hour;
+
+  const HomeScreen({super.key, this.data, this.hour});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -351,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final d = _d;
-    final evening = DateTime.now().hour >= 18;
+    final evening = (widget.hour ?? DateTime.now().hour) >= 18;
 
     if (d == null) {
       return ListView(padding: pad, children: [
@@ -371,6 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final rv = d.readiness.value;
     final band = readinessBand(rv);
+    final stale = staleInsightsCard(d.insightsStale, syncOf(c));
 
     return ListView(padding: pad, children: [
       // ── greeting ──
@@ -476,6 +597,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ]),
         ),
+
+      // ── the rollup was withheld, not absent ──
+      if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
       // ── at a glance ──
       Section('At a glance', _glance(c, d)),
@@ -615,9 +739,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (rows.isEmpty) {
       return StatusCard.forMetric('No plan for today yet', d.sleepNeedMin,
-              why: 'A plan comes from your own baselines — sleep need, a '
-                  'training target, a step goal — and none are established '
-                  'yet.') ??
+              // "none are established yet" is the COLD-START reason, and it is
+              // a wrong answer when the baselines exist and are being withheld.
+              why: d.insightsStale != null
+                  ? 'Your sleep need and training target come out of the '
+                      'cross-day rollup, which is being rebuilt.'
+                  : 'A plan comes from your own baselines — sleep need, a '
+                      'training target, a step goal — and none are established '
+                      'yet.') ??
           const SizedBox.shrink();
     }
 

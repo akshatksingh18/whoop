@@ -370,6 +370,11 @@ class _Session {
   Timer? periodicBackfill; // 900s: re-trigger the historical offload
   Timer? idleWatchdog; // 60s: strap went silent mid-offload
   Timer? historicalRetry; // explicit abort→retry settle
+  /// Abort→retry attempts THIS session. The cycle re-arms the 60 s idle
+  /// watchdog, which can re-fire the abort, so without a cap a band that
+  /// connects but never drains cycles at a fixed period for the life of the
+  /// session — every other retry in this engine is bounded, this one was not.
+  int historicalRetries = 0;
   // Starts false: we are NOT connected until connect() resolves / the OS
   // connectionState stream reports `connected`. (It was previously initialised
   // true, which combined with the stream replaying a spurious initial
@@ -808,6 +813,12 @@ class BleEngine {
     );
   }
 
+  /// Test seam onto the LOWEST-level write, so the dangerous-opcode block that
+  /// lives there can be exercised on a pre-framed frame — which is exactly the
+  /// shape the nine `_send`-bypassing call sites hand it.
+  @visibleForTesting
+  Future<bool> debugWriteRaw(Uint8List raw) => _write(raw);
+
   /// Feed one inbound historical frame through the real ingest path (decode →
   /// plausibility gate → store or archive).
   ///
@@ -981,6 +992,13 @@ class BleEngine {
   FrameCorruptionDetector _frameCorruption = FrameCorruptionDetector();
   int _crcFailuresTotal = 0; // across the engine's lifetime (diagnostics)
   int _crcFailuresThisSession = 0; // reset on each connect
+  // Frames whose CRCs both pass but whose revision byte this decoder does not
+  // understand (gen5 only — gen4 has no revision byte). NOT corruption: a
+  // non-zero count means the strap's firmware moved the header layout.
+  int _frameRevRejectsTotal = 0;
+  /// Bounded "ask the band to re-send a short burst" budget (see P-03 / the
+  /// class doc — an unconditional FAIL here wedged sync forever).
+  final BurstShortfallGate _shortfallGate = BurstShortfallGate();
 
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
@@ -1220,6 +1238,7 @@ class BleEngine {
     // degrading radio corrupting frames rather than a stale/implausible band.
     'crc_failures_total': _crcFailuresTotal,
     'crc_failures_this_session': _crcFailuresThisSession,
+    'frame_rev_rejects_total': _frameRevRejectsTotal,
     'frame_corruption_tripped': _frameCorruption.tripped,
     // Band-truth reconciliation: expectedPacketCount vs. what we actually
     // committed — advisory only (see the comment at the validation site), but
@@ -1588,6 +1607,8 @@ class BleEngine {
       _stuckStrap = StuckStrapDetector();
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
+      // Per-session budget only: the engine-run total deliberately carries over.
+      _shortfallGate.onSessionStart();
       _burstMismatchStreak = 0;
       _autoContinue.end();
       _lastBackfillAt = 0;
@@ -1937,8 +1958,15 @@ class BleEngine {
         if (_session != session || !session.connected) return;
         _lastRx = DateTime.now();
         for (final frame in session.asm[role]!.feed(chunk)) {
-          if (frame.valid) {
+          if (frame.decodable) {
             _onFrame(role, frame, session);
+          } else if (frame.valid) {
+            // Both CRCs pass but the frame revision is one this decoder does
+            // not understand, so packetType/seq/opcode sit at unknown offsets:
+            // routing it would read a BODY byte as the opcode and dispatch on
+            // it, silently, with no CRC failure to point at. Counted apart
+            // from CRC corruption so a firmware revision bump is loud.
+            _frameRevRejectsTotal++;
           } else {
             // Previously silent: a degrading radio corrupting frames looked
             // identical to a healthy one everywhere. Now counted (surfaced in
@@ -2069,8 +2097,31 @@ class BleEngine {
   /// whatever session happens to be current when the write chain reaches it —
   /// i.e. an OLD connection's batch-ACK, with a re-used sync seq, written onto
   /// a BRAND NEW link. Every offload write passes its owning session.
-  Future<bool> _write(Uint8List raw, {_Session? owner}) {
+  /// [allowDangerous] is the ONE audited opt-out of the block below. It exists
+  /// for `enableGen5DeepBuffers`, whose SET_FF_VALUE frames are in
+  /// `dangerousCmds` on purpose (persistent config writes) and are sent only
+  /// behind an explicit user opt-in with a restore-defaults companion. Pass it
+  /// nowhere else without the same justification.
+  Future<bool> _write(
+    Uint8List raw, {
+    _Session? owner,
+    bool allowDangerous = false,
+  }) {
     final session = _session;
+    // The dangerous-opcode block lives HERE, at the one write every command
+    // funnels through, not only in `_send`: nine call sites build their own
+    // frame and hand it straight to `_write`, so a `_send`-only guard was
+    // bypassable BY CONSTRUCTION rather than by an audited opt-out. Now the
+    // bypasses are one named parameter at one reviewed call site, and
+    // FORCE_TRIM (whose full-erase form is two 0xFEFEFEFE args), REBOOT and
+    // POWER_CYCLE cannot leave this engine by any path.
+    final opcode =
+        allowDangerous ? null : _opcodeOfFrame(raw, session?.band ?? BandProfile.gen4);
+    if (opcode != null &&
+        (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode))) {
+      _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at _write');
+      return Future.value(false);
+    }
     final completer = Completer<bool>();
     _writeChain = _writeChain.then((_) async {
       var ok = false;
@@ -2115,6 +2166,14 @@ class BleEngine {
       }
     });
     return completer.future;
+  }
+
+  /// The command opcode carried by an already-framed outbound write, or null
+  /// when [raw] is too short to carry one. Layout is `header | pktType | seq |
+  /// opcode | body…`, and only the header length differs by generation.
+  static int? _opcodeOfFrame(Uint8List raw, BandProfile band) {
+    final i = band.headerLen + 2;
+    return i < raw.length ? raw[i] : null;
   }
 
   /// Retry schedule for the HISTORY_END batch ACK (pure; see ble_state.dart).
@@ -2546,9 +2605,12 @@ class BleEngine {
           counter: r.counter,
           hr: r.hr,
           rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-          ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-          ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-          az: r.accelG.length > 2 ? r.accelG[2] : 0,
+          // NULL, not 0: a decoder that emitted no gravity vector said the
+          // accel is ABSENT, and 0 g is a reading no wrist can produce (which
+          // is exactly why a run of them reads as a perfectly still one).
+          ax: r.accelG.isNotEmpty ? r.accelG[0] : null,
+          ay: r.accelG.length > 1 ? r.accelG[1] : null,
+          az: r.accelG.length > 2 ? r.accelG[2] : null,
           spo2RedRaw: r.spo2RedRaw,
           spo2IrRaw: r.spo2IrRaw,
           // stored raw under the column it's always had. nothing reads it as a
@@ -2560,7 +2622,17 @@ class BleEngine {
     } else if (recType == Record.r10) {
       final r = parseR10Lite(frame.inner);
       if (r != null) {
-        sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
+        // R10 carries an R-R block, and this path used to drop it. The record
+        // then committed as decoded — so it never reached raw_archive — and
+        // the band was acked to trim it, which made those beats unrecoverable
+        // rather than merely degraded. R10 carries no accel we map, so
+        // ax/ay/az stay ABSENT (null) rather than becoming a still wrist.
+        sample = Sample(
+          tsEpoch: r.tsEpoch,
+          counter: r.counter,
+          hr: r.hr,
+          rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+        );
       }
     }
     // FIRMWARE RESILIENCE: a historical record we could NOT decode (unknown/
@@ -2922,12 +2994,24 @@ class BleEngine {
     }
   }
 
+  /// Attempts allowed per session before the abort→retry cycle gives up and
+  /// leaves the link to the ordinary reconnect path.
+  static const int _maxHistoricalRetriesPerSession = 3;
+
   Future<void> _abortAndRetryHistorical({required String reason}) async {
     final session = _session;
     if (session == null || !session.connected) return;
     session.idleWatchdog?.cancel();
     session.historicalRetry?.cancel();
     _setOffloadActive(false);
+    if (session.historicalRetries >= _maxHistoricalRetriesPerSession) {
+      _log('[SYNC] abort($reason) — already retried '
+          '${session.historicalRetries} times this session; NOT re-arming. '
+          'The strap is not draining; the reconnect path takes it from here.');
+      await _send(Cmd.abortHistoricalTransmits, const [0x00]);
+      return;
+    }
+    session.historicalRetries++;
     _log('[SYNC] abort($reason) — sending ABORT_HISTORICAL.');
     await _send(Cmd.abortHistoricalTransmits, const [0x00]);
     session.historicalRetry = Timer(
@@ -3004,6 +3088,29 @@ class BleEngine {
           kind: 'historical_batch',
           status: 'trim_refused',
           lastError: 'discarded_burst',
+          metaPatch: {'batch_id': batchId, 'records': d.records},
+        ));
+        return;
+      case TrimAckVerdict.blockedBurstShortfall:
+        // The rows we DID receive are already durable (this verdict is only
+        // reachable post-commit). Withholding the token asks the band to
+        // re-deliver the chunk, which is the only way the frames we lost can
+        // still be recovered — after the trim they are gone from flash. The
+        // re-delivery is dedup-safe (decoded rows REPLACE by rec_ts), and
+        // BurstShortfallGate has already spent this token's one refusal, so
+        // the redelivery is ACKed whatever it contains. No link bounce: the
+        // link is fine, we just want the chunk again.
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex NOT ACKed — the burst was short '
+          '(frames counted by the band that we never received intact). The '
+          'committed rows stay; the band re-delivers this chunk once and the '
+          'next delivery is ACKed regardless.',
+        );
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'burst_shortfall_retry',
           metaPatch: {'batch_id': batchId, 'records': d.records},
         ));
         return;
@@ -3229,19 +3336,29 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      // Would-flag: the correct-signal completeness diagnostic. LOG-ONLY — the
-      // commit + verbatim-token ACK below are unchanged. A positive shortfall
-      // is the honest missing/corrupted-traffic telemetry we want to watch
-      // before a later, field-validated FAIL gate ever acts on it.
+      // A positive shortfall = frames the band counted that we did not count
+      // as valid received traffic (missing, or CRC-corrupted). It used to be
+      // log-only, which meant a hole in the burst was counted and then handed
+      // a trim authorisation anyway — the missing seconds left flash forever.
+      //
+      // It now costs the band ONE re-delivery, and only one: the refusal is
+      // taken AFTER the commit (so the records we did get are already durable
+      // and the re-delivery only has to make up the difference) and is bounded
+      // per token / per session / per engine run by [BurstShortfallGate]. That
+      // recovers the transient-radio case without reviving the always-FAIL
+      // behaviour that wedged sync forever.
+      final shortfallRetry = shortfall > 0 && _shortfallGate.refuse(tokenHex);
       if (shortfall > 0) {
         _log(
-          '[SYNC] burst completeness would-flag (LOG-ONLY, commit+ACK '
-          'unchanged): expected=$expected '
+          '[SYNC] burst completeness shortfall: expected=$expected '
           'received=${d.currentBurstTrafficCount} '
           'dropped_this_burst=$droppedThisBurst shortfall=$shortfall '
           '(all-types received total — frames the band counted that we did '
-          'not; missing or CRC-corrupted, potential loss; groundwork for a '
-          'future FAIL gate, NOT gating today)',
+          'not; missing or CRC-corrupted) — '
+          '${shortfallRetry ? "REFUSING the trim token once so the band "
+              "re-delivers this chunk" : "budget spent, committing + ACKing "
+              "(refusals: session=${_shortfallGate.refusalsThisSession} "
+              "total=${_shortfallGate.refusalsTotal})"}',
         );
       }
       final r = d.bufferedRecTsRange;
@@ -3318,6 +3435,7 @@ class BleEngine {
         commitDurable: durable,
         hadDurableRows: hadDurableRows,
         droppedThisBurst: droppedThisBurst,
+        shortfallRetry: shortfallRetry,
       );
       if (verdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -3364,7 +3482,8 @@ class BleEngine {
             'ack_failures': failCount,
           },
         ));
-        if (_chunkFailures.shouldQuarantine(tokenHex)) {
+        final quarantined = _chunkFailures.shouldQuarantine(tokenHex);
+        if (quarantined) {
           await _bestEffortLedgerWrite(() => LocalDb.quarantineSyncChunk(
             kind: 'historical_batch',
             payloadJson: jsonEncode({
@@ -3380,15 +3499,26 @@ class BleEngine {
             '(already committed); this only means the band has not yet '
             'been told to trim, so it keeps re-sending the same batch.',
           );
+          // ESCALATE, don't keep bouncing. The quarantine row existed and
+          // nothing read it, while the bounce below ran unconditionally and
+          // indefinitely — the band re-delivered forever, the app reconnected
+          // forever, the battery drained, and the only user-visible symptom
+          // was a sync that never finished.
+          if (!state.syncChunkQuarantined) {
+            state.syncChunkQuarantined = true;
+            onState(state);
+          }
         }
         _log('[SYNC] BATCH-ACK FAILED after '
             '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex, '
-            'failures_for_this_token=$failCount) — bouncing the link; data '
-            'is committed and the band will re-send.');
+            'failures_for_this_token=$failCount) — '
+            '${quarantined ? "token QUARANTINED; NOT bouncing again" : "bouncing the link"}; '
+            'data is committed and the band will re-send.');
         // ONLY bounce a session that is still OURS. _writeAckVerified also
         // returns false when the session died under it, and tearing down then
-        // would kill the healthy session that replaced it.
-        if (!_sessionIsStale(session)) {
+        // would kill the healthy session that replaced it. And never bounce for
+        // a quarantined token: the reconnect is what makes it a loop.
+        if (!quarantined && !_sessionIsStale(session)) {
           unawaited(
             _teardownSession(intentional: false).then((_) {
               _setPhase(BleConnState.idle); // caller's reconnect loop takes over
@@ -3398,6 +3528,15 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      // A trimmed chunk proves the strap IS draining, so the abort→retry
+      // budget is about a stall that has since cleared, not this session.
+      session.historicalRetries = 0;
+      if (state.syncChunkQuarantined) {
+        // A token finally ACKed — whatever was wrong with the write path has
+        // cleared, so the flag must not stick around as a permanent scare.
+        state.syncChunkQuarantined = false;
+        onState(state);
+      }
       // A trim ACK is the only real proof the no-durable-progress condition is
       // over — records were banked and the band may advance.
       _noDurableProgress.trimAcked();
@@ -3583,19 +3722,21 @@ class BleEngine {
   /// Written directly via [_write] (not [_send]) because the pre-built
   /// frames already carry their own sequence numbers — going through `_send`
   /// would double-allocate from [_seq] for no benefit. SET_FF_VALUE (120) is
-  /// in `OpcodeSafety.forbidden` but NOT `OpcodeSafety.destructive`; per that
-  /// class's own doc this deliberate, explicitly-opted-in sequence is exactly
-  /// the kind of call site the broader `forbidden` list is not meant to gate
-  /// (see `_send`'s doc for the full reasoning) — writing it directly here
-  /// keeps that intentional exception in ONE place rather than needing an
-  /// allowlist parameter threaded through the shared chokepoint.
+  /// in `dangerousCmds` (a persistent config write survives a reboot), so this
+  /// is the ONE call site that passes `allowDangerous: true` — a named,
+  /// reviewed opt-in rather than the structural bypass it used to be, now that
+  /// the block sits on `_write` itself.
   Future<void> enableGen5DeepBuffers() async {
     if (!(_session?.band.isGen5 ?? false)) return;
     final frames = buildR22EnableSequence(startSeq: _seq.nextLive());
     _log('Sending gen5 R22 deep-buffer enable sequence (${frames.length} '
         'flags)…');
     for (final frame in frames) {
-      await _write(frame);
+      // The ONE audited `allowDangerous`. SET_FF_VALUE is in `dangerousCmds`
+      // because a persistent config write survives a reboot; this sequence is
+      // opt-in and ships a restore-defaults companion, which is exactly the
+      // carve-out the block-list doc describes.
+      await _write(frame, allowDangerous: true);
       await Future.delayed(const Duration(milliseconds: 40));
     }
     _log('gen5 R22 deep-buffer enable sequence sent.');
@@ -4489,7 +4630,14 @@ class DrainController {
       _raws.add(raw);
       _samples.add(sample);
     } else {
-      unawaited(onRecord(sample, raw));
+      // Unbuffered fire-and-forget: production never takes this branch
+      // (`onCommitBatch` is always set, and this wiring is documented as
+      // non-trimmable / test-only), but an un-handled async error here would
+      // lose the record AND surface as an unhandled-error crash rather than a
+      // log line. Nothing else can catch a throw off an `unawaited` future.
+      unawaited(onRecord(sample, raw).catchError(
+        (Object e) => log('[SYNC] unbuffered record persist failed: $e'),
+      ));
     }
   }
 
@@ -4520,7 +4668,10 @@ class DrainController {
     if (_buffering) {
       _archives.add(a);
     } else {
-      unawaited(onArchive?.call(a) ?? Future<void>.value());
+      // Same unbuffered-branch reasoning as onHistoricalRecord above.
+      unawaited((onArchive?.call(a) ?? Future<void>.value()).catchError(
+        (Object e) => log('[SYNC] unbuffered archive persist failed: $e'),
+      ));
     }
   }
 

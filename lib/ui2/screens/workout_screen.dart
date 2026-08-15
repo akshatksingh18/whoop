@@ -28,6 +28,7 @@ import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
 import '../grammar.dart';
+import '../profile/profile.dart';
 import '../theme.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -78,87 +79,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           builder: (_) => ActivityPicker(
               weightKg: d.weightKg, host: _host(d), recent: d.recent)));
 
-  /// The band, as the live screens see it. Read on every tick rather than
-  /// subscribed to: there is no stream on `AppState` — `device.liveHr` is a
-  /// field the engine writes and the UI pulls.
-  ///
-  /// Six of these ten fields used to be left unset, which is why the zone
-  /// pill, the zone bar, the live distance and the session average heart rate
-  /// were all inert. They all have producers; none of them needed new science.
-  LiveFeed _feed() {
-    final app = context.read<AppState>();
-    final w = app.activeWorkout;
-    return LiveFeed(
-      hr: app.device.liveHr,
-      maxHr: (w?.maxHrSeen ?? 0) > 0 ? w!.maxHrSeen : null,
-      zone: app.liveZone,
-      calories: w?.caloriesOrNull,
-      strain: w?.strain,
-      steps: app.workoutStepsMeasured,
-      zoneMinutes: w?.zoneMinutes() ?? const [],
-      hrCurve: w?.perMinuteHr() ?? const [],
-      distanceKm: app.liveDistanceKm,
-      gpsActive: app.routeTracking,
-    );
-  }
-
-  /// Everything the activity screens need from the app.
-  ActivityHost _host(_WorkoutData d) => ActivityHost(
-        feed: _feed,
-        onStart: _startSession,
-        onFinish: _finishSession,
-        history: d.setHistory,
-        bandConnected: context.read<AppState>().isConnected,
-      );
-
-  /// Open a real session. Until this existed the live screens ran their own
-  /// clock over an app that had recorded nothing: no `sessions` row, no zone
-  /// tally, no calorie scoring, no GPS.
-  Future<bool> _startSession(Activity a) async {
-    final app = context.read<AppState>();
-    if (app.activeWorkout != null) return false;
-    app.startWorkout(type: a.typeKey);
-    return app.activeWorkout != null;
-  }
-
-  /// Close it: finalize the session, persist the sets the user typed against
-  /// its id, then hand back the result with the recorded route folded in.
-  Future<ActivityResult> _finishSession(ActivityResult draft) async {
-    final app = context.read<AppState>();
-    // Read the id BEFORE stopping — stopWorkout clears the live state.
-    final id = app.activeWorkout?.workoutId;
-    await app.stopWorkout();
-    if (id == null) return draft;
-
-    if (draft.strength.sets.isNotEmpty) {
-      // Nothing measures a bench press, so this is the one part of a session
-      // that only exists if the app writes what was typed.
-      final perExercise = <String, int>{};
-      await LocalDb.saveStrengthSets(id, [
-        for (final s in draft.strength.sets)
-          {
-            'exercise_key': s.exerciseKey,
-            'set_index':
-                perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
-            'reps': s.reps,
-            'load_kg': s.loadKg,
-            'rpe': s.rpe,
-            'rest_sec': s.restSec,
-            'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
-          },
-      ]);
-    }
-
-    // The GPS tail is flushed by stopWorkout before it returns, so the route
-    // read here is the whole route.
-    try {
-      final route = await app.repo?.getWorkoutRoute(id);
-      if (route != null && route.hasPath) return _withRoute(draft, route);
-    } catch (_) {
-      // A missing map is a missing map; the session itself is already banked.
-    }
-    return draft;
-  }
+  ActivityHost _host(_WorkoutData d) =>
+      activityHost(context.read<AppState>(), history: d.setHistory);
 
   // ─────────────── FOR YOU ───────────────
   List<Widget> _forYou(BuildContext c, _WorkoutData d) {
@@ -293,22 +215,32 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               if (l.tsb != null)
                 Pill(_form(l.tsb!), l.tsb! >= 0 ? C.green : C.orange),
             ]),
-        if (d.trimp7.isNotEmpty) ...[
+        if (d.trimp7.any((v) => v != null)) ...[
           const SizedBox(height: S.x4),
           Builder(builder: (_) {
-            final axis = AxisSpec.of(d.trimp7, floor: 0);
+            final end = d.trimpEnd ?? DateTime.now();
+            final axis = AxisSpec.of([for (final v in d.trimp7) ?v], floor: 0);
+            final days = d.trimp7.where((v) => v != null).length;
             return ChartFrame(
               title: 'DAILY LOAD',
               unit: 'TRIMP',
               height: 88,
               yAxis: axis,
-              xLabels: _lastDays(d.trimp7.length),
+              // Seven slots, seven real dates. A day with nothing keeps its
+              // place and its letter, and draws as the gap it is.
+              xLabels: [
+                for (var i = 6; i >= 0; i--)
+                  _weekdayLetter(end.subtract(Motion.tick * 86400 * i)),
+              ],
               footnote: 'Banister training impulse — minutes weighted by '
-                  'heart-rate reserve.',
+                  'heart-rate reserve. '
+                  '${days == 7 ? 'Last seven days.' : '$days of the last '
+                      'seven days produced a figure.'}',
               child: CustomPaint(
                   size: Size.infinite,
+                  // Today is the last slot, always — not "the newest value".
                   painter: Bars(d.trimp7, p.on(C.purple), p.track,
-                      highlight: d.trimp7.length - 1,
+                      highlight: d.trimp7.last == null ? -1 : 6,
                       axis: axis,
                       t: animate(context, 1))),
             );
@@ -398,12 +330,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         ),
       const SizedBox(height: S.x5),
       if (d.weightKg == null)
-        const StatusCard(
+        StatusCard(
           'Calorie estimates need your weight',
           'Every activity carries a published MET value, but turning that '
               'into kilocalories needs your body mass. Until then the '
               'catalogue shows MET.',
           fix: 'Add weight in profile',
+          // A CTA that cannot be tapped is worse than no CTA. Health's copy of
+          // this card has always gone here.
+          onFix: () => openProfile(c),
           icon: LucideIcons.flame,
         )
       else
@@ -423,11 +358,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final p = P.of(c);
     if (d.workouts.isEmpty) {
       return [
-        const StatusCard(
+        StatusCard(
           'No sessions recorded yet',
           'Workouts appear here once you start one, or once the strap detects '
               'a bout of sustained effort on its own.',
           fix: 'Start a workout',
+          onFix: () => _openPicker(c, d),
           icon: LucideIcons.dumbbell,
         ),
       ];
@@ -603,15 +539,165 @@ class _HistoryRow extends StatelessWidget {
       );
 }
 
-/// Weekday initials for the last [n] days, ending today — the x axis the
-/// daily-load bars never had.
-List<String> _lastDays(int n) {
-  const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  final today = DateTime.now();
+/// One day's initial. Taken from the date the point carries — deriving it from
+/// the point's position in the list is how a chart comes to name days its data
+/// did not come from.
+String _weekdayLetter(DateTime d) =>
+    const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][d.weekday - 1];
+
+/// `getChart` points → one slot per calendar day for the seven ending [end],
+/// index 6 being [end] itself. A day with no point is null, which the painter
+/// draws as a hole.
+///
+/// The alternative — "the last seven stored points" — is what made the axis
+/// lie: `metric_series` only gains a row on a day that derives, so a sync gap
+/// slid the whole week left and stamped today's letter on a week-old bar.
+List<double?> lastSevenDays(Object? points, DateTime end) {
+  final out = List<double?>.filled(7, null);
+  if (points is! List) return out;
+  for (final e in points) {
+    if (e is! Map || e['v'] is! num || e['t'] is! num) continue;
+    // `t` is noon local on the day the value belongs to.
+    final at =
+        DateTime.fromMillisecondsSinceEpoch((e['t'] as num).toInt() * 1000);
+    final slot = 6 - end.difference(DateTime(at.year, at.month, at.day)).inDays;
+    if (slot < 0 || slot > 6) continue;
+    out[slot] = (e['v'] as num).toDouble();
+  }
+  return out;
+}
+
+// ── the app seam ───────────────────────────────────────────────────────────
+// Top-level, not methods: the live-session bar in `app.dart` reopens a
+// minimised workout from outside this screen, and it needs the same session
+// lifecycle rather than a second copy of it.
+
+/// Everything the activity screens need from the app.
+///
+/// [history] is the user's own previous/best per lift. Absent is honest — the
+/// live screen says "First time on this lift" — so the resume path passes what
+/// it has rather than blocking on a query.
+ActivityHost activityHost(AppState app,
+        {Map<String, SetHistory> history = const {}}) =>
+    ActivityHost(
+      feed: () => _feedOf(app),
+      onStart: (a) => _startSession(app, a),
+      onFinish: (draft) => _finishSession(app, draft),
+      onSets: (sets) => _bankSets(app, sets),
+      history: history,
+      bandConnected: app.isConnected,
+    );
+
+/// The band, as the live screens see it. Read on every tick rather than
+/// subscribed to: there is no stream on `AppState` — `device.liveHr` is a
+/// field the engine writes and the UI pulls.
+///
+/// Six of these ten fields used to be left unset, which is why the zone
+/// pill, the zone bar, the live distance and the session average heart rate
+/// were all inert. They all have producers; none of them needed new science.
+LiveFeed _feedOf(AppState app) {
+  final w = app.activeWorkout;
+  return LiveFeed(
+    hr: app.device.liveHr,
+    maxHr: (w?.maxHrSeen ?? 0) > 0 ? w!.maxHrSeen : null,
+    zone: app.liveZone,
+    calories: w?.caloriesOrNull,
+    strain: w?.strain,
+    steps: app.workoutStepsMeasured,
+    zoneMinutes: w?.zoneMinutes() ?? const [],
+    hrCurve: w?.perMinuteHr() ?? const [],
+    distanceKm: app.liveDistanceKm,
+    gpsActive: app.routeTracking,
+  );
+}
+
+/// Open a real session. Until this existed the live screens ran their own
+/// clock over an app that had recorded nothing: no `sessions` row, no zone
+/// tally, no calorie scoring, no GPS.
+Future<bool> _startSession(AppState app, Activity a) async {
+  if (app.activeWorkout != null) return false;
+  app.startWorkout(type: a.typeKey);
+  return app.activeWorkout != null;
+}
+
+/// `strength_set` rows for one log. `set_index` counts per exercise; `seq` is
+/// the position in the whole session and is [LocalDb.saveStrengthSets]'s own
+/// key, which is why re-sending the same log is idempotent.
+List<Map<String, Object?>> _setRows(List<LoggedSet> sets) {
+  final perExercise = <String, int>{};
   return [
-    for (var i = n - 1; i >= 0; i--)
-      letters[today.subtract(Motion.tick * 86400 * i).weekday - 1],
+    for (final s in sets)
+      {
+        'exercise_key': s.exerciseKey,
+        'set_index':
+            perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
+        'reps': s.reps,
+        'load_kg': s.loadKg,
+        'rpe': s.rpe,
+        'rest_sec': s.restSec,
+        'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
+      },
   ];
+}
+
+/// Bank the sets logged so far against the OPEN session. Called on every set,
+/// because a typed set is the one thing in a session no sensor can reproduce
+/// and it used to live in widget state until the user pressed stop.
+Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
+  final id = app.activeWorkout?.workoutId;
+  if (id == null || sets.isEmpty) return;
+  try {
+    await LocalDb.saveStrengthSets(id, _setRows(sets));
+  } catch (_) {
+    // The draft still holds them, and finish writes the whole log again.
+  }
+}
+
+/// Close it: finalize the session, persist the sets the user typed against
+/// its id, then hand back the result with the recorded route folded in.
+Future<ActivityResult> _finishSession(AppState app, ActivityResult draft) async {
+  // Read the id BEFORE stopping — stopWorkout clears the live state.
+  final id = app.activeWorkout?.workoutId;
+  await app.stopWorkout();
+  if (id == null) return draft;
+
+  // Written on every set already; written again here because the last one
+  // may have landed while the app was being torn down.
+  if (draft.strength.sets.isNotEmpty) {
+    await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
+  }
+
+  // The GPS tail is flushed by stopWorkout before it returns, so the route
+  // read here is the whole route.
+  try {
+    final route = await app.repo?.getWorkoutRoute(id);
+    if (route != null && route.hasPath) return _withRoute(draft, route);
+  } catch (_) {
+    // A missing map is a missing map; the session itself is already banked.
+  }
+  return draft;
+}
+
+/// Previous and best per lift, from this user's own log. One indexed query
+/// per exercise, fired in parallel.
+Future<Map<String, SetHistory>> loadSetHistory() async {
+  final history = <String, SetHistory>{};
+  try {
+    await Future.wait([
+      for (final e in exerciseLibrary)
+        LocalDb.recentSetsFor(e.key, limit: 40).then((rows) {
+          if (rows.isEmpty) return;
+          final sets = _logFrom(rows).sets;
+          history[e.key] = SetHistory(
+            previous: sets.first, // recentSetsFor orders newest first
+            best: StrengthLog(sets).topSet,
+          );
+        }),
+    ]);
+  } catch (_) {
+    // No history is the normal state on day one.
+  }
+  return history;
 }
 
 // ── the route seam ─────────────────────────────────────────────────────────
@@ -801,7 +887,15 @@ class _WorkoutData {
   final double? weightKg;
   final _Load? load;
   final String? loadNote;
-  final List<double> trimp7;
+
+  /// Daily TRIMP, one slot per calendar day for the seven ending [trimpEnd].
+  /// Null is a day that derived nothing — a hole the painter draws as a hole,
+  /// rather than a value that silently shifts the whole week along.
+  final List<double?> trimp7;
+
+  /// The day slot 6 belongs to. Carried so the x labels are read off the same
+  /// anchor the buckets were built with, not off a second `DateTime.now()`.
+  final DateTime? trimpEnd;
   final List<_PastWorkout> workouts;
   final Set<int> weekDays; // 0 = Monday
   final int weekCount;
@@ -819,6 +913,7 @@ class _WorkoutData {
     this.load,
     this.loadNote,
     this.trimp7 = const [],
+    this.trimpEnd,
     this.workouts = const [],
     this.weekDays = const {},
     this.weekCount = 0,
@@ -864,18 +959,19 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       load = null;
     }
 
-    var trimp = <double>[];
+    // One slot per calendar day for the last seven, ending today. A day that
+    // derived nothing is a hole, not a shifted neighbour: taking the last
+    // seven STORED points stamped `M T W T F S S` on whatever was there, and
+    // `metric_series` only gains a row on a day that derives — so after a sync
+    // gap the letters named days the data did not come from, and the bar drawn
+    // as "today" could be a week old.
+    final now = DateTime.now();
+    final end = DateTime(now.year, now.month, now.day);
+    var trimp = List<double?>.filled(7, null);
     try {
-      final pts = (await repo.getChart('trimp'))['points'];
-      if (pts is List) {
-        trimp = [
-          for (final e in pts)
-            if (e is Map && e['v'] is num) (e['v'] as num).toDouble(),
-        ];
-        if (trimp.length > 7) trimp = trimp.sublist(trimp.length - 7);
-      }
+      trimp = lastSevenDays((await repo.getChart('trimp'))['points'], end);
     } catch (_) {
-      trimp = const [];
+      trimp = List<double?>.filled(7, null);
     }
 
     final past = <_PastWorkout>[];
@@ -914,9 +1010,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     }
     past.sort((a, b) => b.start.compareTo(a.start));
 
-    final now = DateTime.now();
-    final weekStart = DateTime(now.year, now.month, now.day)
-        .subtract(Motion.tick * 86400 * (now.weekday - 1));
+    final weekStart = end.subtract(Motion.tick * 86400 * (end.weekday - 1));
     final thisWeek = [for (final w in past) if (w.start.isAfter(weekStart)) w];
 
     int? tracked;
@@ -941,32 +1035,17 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       if (recent.length == 6) break;
     }
 
-    // Previous and best per lift. One indexed query per exercise, fired once
-    // per screen load and in parallel — the live screen has to have these in
-    // hand before the first set, and "First time on this lift" was showing
-    // forever because nothing ever loaded them.
-    final history = <String, SetHistory>{};
-    try {
-      await Future.wait([
-        for (final e in exerciseLibrary)
-          LocalDb.recentSetsFor(e.key, limit: 40).then((rows) {
-            if (rows.isEmpty) return;
-            final sets = _logFrom(rows).sets;
-            history[e.key] = SetHistory(
-              previous: sets.first, // recentSetsFor orders newest first
-              best: StrengthLog(sets).topSet,
-            );
-          }),
-      ]);
-    } catch (_) {
-      // No history is the normal state on day one.
-    }
+    // The live screen has to have previous/best in hand before the first set;
+    // "First time on this lift" was showing forever because nothing loaded
+    // them.
+    final history = await loadSetHistory();
 
     return _WorkoutData(
       weightKg: weight,
       load: load,
       loadNote: note,
       trimp7: trimp,
+      trimpEnd: end,
       workouts: past,
       weekDays: {for (final w in thisWeek) w.start.weekday - 1},
       weekCount: thisWeek.length,

@@ -330,6 +330,73 @@ enum TrimAckVerdict {
   /// reconnect). Refuse the trim so the band re-delivers; the engine should
   /// re-correlate the clock and retry.
   blockedNoDurableProgress,
+
+  /// The band counted more frames in this burst than we counted as valid
+  /// received traffic — some arrived corrupted or never arrived at all. The
+  /// rows we DID get are already committed; refusing the token asks the band
+  /// to re-send the chunk so the missing seconds get another chance instead of
+  /// being trimmed out of flash forever. Strictly bounded by
+  /// [BurstShortfallGate] — see the history in that class.
+  blockedBurstShortfall,
+}
+
+/// The bound on "refuse the trim token because the burst was short".
+///
+/// An UNCONDITIONAL refusal on shortfall is not an option: it was the old
+/// behaviour, and it wedged sync forever — nothing about a retry changes the
+/// count relationship when the shortfall is systematic (`expectedPacketCount`'s
+/// exact semantics are not fully reverse-engineered), so the band re-delivered
+/// the same block indefinitely and the cursor never moved. Accepting every
+/// short burst is the opposite failure: the gap is counted, logged, and then
+/// authorised for deletion.
+///
+/// So: refuse ONCE, then take whatever arrives. A transient radio glitch —
+/// the common case — is recovered on the re-delivery; a systematic shortfall
+/// costs exactly one extra round trip and then proceeds.
+///
+/// Bounded three ways, because only the first assumes the token is stable:
+///   * per TOKEN — a chunk is refused at most once, so a stable token cannot
+///     ping-pong;
+///   * per SESSION — [maxPerSession], in case the band re-issues a fresh token
+///     for the same data (which would defeat the per-token bound);
+///   * per ENGINE RUN — [maxTotal], the backstop for a link that is short on
+///     every burst. Past it, shortfalls are telemetry again.
+///
+/// Pure: no clock, no I/O.
+class BurstShortfallGate {
+  BurstShortfallGate({this.maxPerSession = 1, this.maxTotal = 3});
+
+  final int maxPerSession;
+  final int maxTotal;
+
+  /// Bounded so a long-lived engine cannot grow this without limit; a token
+  /// evicted here can be refused once more, which the two counters still cap.
+  static const int _maxTracked = 64;
+  final Set<String> _refusedTokens = <String>{};
+  int _thisSession = 0;
+  int _total = 0;
+
+  int get refusalsThisSession => _thisSession;
+  int get refusalsTotal => _total;
+
+  /// Whether this HISTORY_END token should be refused over a positive
+  /// shortfall. Records the refusal when it returns true — call it once per
+  /// decision, at the point of decision.
+  bool refuse(String tokenHex) {
+    if (_thisSession >= maxPerSession || _total >= maxTotal) return false;
+    if (!_refusedTokens.add(tokenHex)) return false;
+    if (_refusedTokens.length > _maxTracked) {
+      _refusedTokens.remove(_refusedTokens.first);
+    }
+    _thisSession++;
+    _total++;
+    return true;
+  }
+
+  /// New link — the per-session budget refills. [maxTotal] deliberately does
+  /// not, so a band that is short on every burst of every session stops
+  /// costing round trips.
+  void onSessionStart() => _thisSession = 0;
 }
 
 /// THE gate on the one irreversible act in the whole offload protocol: echoing
@@ -370,12 +437,18 @@ class TrimAckPolicy {
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
+  /// [shortfallRetry]  — [BurstShortfallGate] has budget to spend one refusal
+  ///                     on this token's positive shortfall. Pass `false` on
+  ///                     the PRE-commit call: this refusal must happen only
+  ///                     AFTER the rows we did receive are durable, or the
+  ///                     re-delivery costs us the good records too.
   static TrimAckVerdict evaluate({
     required bool sessionCurrent,
     required bool burstDiscarded,
     required bool commitDurable,
     bool hadDurableRows = true,
     int droppedThisBurst = 0,
+    bool shortfallRetry = false,
   }) {
     // Order is deliberate: a stale session must be refused before anything
     // else touches the (new) link, and a poisoned burst must be refused before
@@ -386,6 +459,9 @@ class TrimAckPolicy {
     if (!hadDurableRows && droppedThisBurst > 0) {
       return TrimAckVerdict.blockedNoDurableProgress;
     }
+    // Last: everything above is a reason the chunk must not be trimmed at all.
+    // This one is a reason to ask for it AGAIN, and only once.
+    if (shortfallRetry) return TrimAckVerdict.blockedBurstShortfall;
     return TrimAckVerdict.send;
   }
 }

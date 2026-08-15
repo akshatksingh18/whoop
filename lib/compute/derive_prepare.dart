@@ -453,19 +453,25 @@ class _PrepareAccumulator {
       final recTs = _num(row['rec_ts'])?.toInt();
       if (recTs == null || recTs <= 0) continue;
       tsSec.add(recTs);
-      hr.add(_num(row['hr'])?.toInt() ?? 0);
+      hr.add(plausibleHrOrZero(_num(row['hr'])?.toInt() ?? 0));
+      // The 1 Hz arrays are POSITIONAL — one entry per second, 1:1 with tsSec —
+      // so a NULL sensor column (schema v39: absent, never coerced to a real
+      // reading) must still occupy its slot. It lands as the array's ABSENT
+      // SENTINEL, which is what every reader tests, not as a measurement:
+      //   accel  → exact (0, 0, 0), read back through `Substrate.accelPresentAt`
+      //            (no decoder can emit it: they all gate on magSq >= 0.25)
+      //   ADC    → 0, read back through the `v > 0` gate every ADC consumer uses
+      // Same discipline as `stepCount`'s -1 below.
       ax.add(_num(row['ax'])?.toDouble() ?? 0);
       ay.add(_num(row['ay'])?.toDouble() ?? 0);
       az.add(_num(row['az'])?.toDouble() ?? 0);
       spo2Red.add(_num(row['spo2_red_raw'])?.toInt() ?? 0);
       spo2Ir.add(_num(row['spo2_ir_raw'])?.toInt() ?? 0);
       skinTemp.add(_num(row['skin_temp_raw'])?.toInt() ?? 0);
-      // `decoded_onehz` has no skin-contact column, so the live decoded path
-      // genuinely has no contact signal to offer; a page that DOES carry one
-      // (the raw-decode fallback) is honoured. Keeping the array 1:1 with
-      // tsSec is what lets `Substrate.fromJson` tell "absent" (empty ⇒
-      // zero-filled) from "present but zero".
-      skinContact.add(_num(row['skin_contact'])?.toInt() ?? 0);
+      // NO skin contact on the decoded path, and no column to read: the byte the
+      // name refers to is the sign+exponent half of a float32, never a contact
+      // measurement. The array stays 1:1 with tsSec, all-zero ⇒ absent.
+      skinContact.add(0);
       // `decoded_onehz.step_count` is NULL on every gen4 row and on any gen5
       // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
       // reading from a band that has not moved since its counter last wrapped.

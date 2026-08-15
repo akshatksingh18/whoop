@@ -16,13 +16,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
 import 'package:openstrap_edge/ui2/activity/setup.dart';
 import 'package:openstrap_edge/ui2/activity/share.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
+import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ── deterministic fixtures ─────────────────────────────────────────────────
 
@@ -306,9 +309,69 @@ void main() {
       expect(r.lapCount, 2);
       expect(r.lapSpeeds, [1.0, .5]);
     });
+
+    test('an unfinished session survives being killed', () async {
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+      addTearDown(LiveDraft.clear);
+
+      final d = LiveDraft.begin(activityByName('swimming')!, weightKg: 72.4);
+      d.put('lap_at', const [30, 65]);
+      d.setPaused(true);
+
+      // The process dies. Everything in memory goes with it.
+      LiveDraft.debugForget();
+
+      final back = LiveDraft.current;
+      expect(back, isNotNull, reason: 'the workout is still running');
+      expect(back!.activityKey, 'swimming');
+      expect(back.weightKg, 72.4);
+      expect(back.data['lap_at'], const [30, 65]);
+      expect(back.pausedAt, isNotNull, reason: 'it was paused, and still is');
+
+      LiveDraft.clear();
+      LiveDraft.debugForget();
+      expect(LiveDraft.current, isNull);
+    });
   });
 
   // ── formatting ───────────────────────────────────────────────────────────
+  // ── the daily-load axis ──────────────────────────────────────────────────
+  group('daily load is bucketed by date, not by position', () {
+    // Noon local on `d`, which is what `getChart` emits.
+    Map<String, Object?> pt(DateTime d, double v) => {
+          't': DateTime(d.year, d.month, d.day, 12).millisecondsSinceEpoch ~/
+              1000,
+          'v': v,
+        };
+
+    final end = DateTime(2026, 5, 20); // a Wednesday
+
+    test('a day that derived nothing is a hole, not a shift', () {
+      // Three days derived: today, two days ago, and six days ago. The old
+      // code took the last seven POINTS and labelled them M…S regardless.
+      final out = lastSevenDays([
+        pt(end.subtract(const Duration(days: 6)), 10),
+        pt(end.subtract(const Duration(days: 2)), 40),
+        pt(end, 55),
+      ], end);
+      expect(out, [10, null, null, null, 40, null, 55]);
+      expect(out.length, 7, reason: 'seven days, always — labels depend on it');
+    });
+
+    test('points outside the window and junk rows are dropped', () {
+      final out = lastSevenDays([
+        pt(end.subtract(const Duration(days: 7)), 99),
+        pt(end.add(const Duration(days: 1)), 99),
+        {'t': 'nonsense', 'v': 5},
+        'not a row',
+        pt(end, 12),
+      ], end);
+      expect(out, [null, null, null, null, null, null, 12]);
+      expect(lastSevenDays(null, end), List<double?>.filled(7, null));
+    });
+  });
+
   group('formatting', () {
     test('clock rolls into hours, grouped separates thousands', () {
       expect(clock(59), '00:59');
@@ -433,10 +496,10 @@ void main() {
                 (x) => x is ConfDots && x.c == Conf.estimated),
             findsWidgets,
             reason: 'a MET-derived calorie is never a bare number');
-        // The ±15% band belongs to the sessions that HAVE a weight to cost;
-        // without one there is no number to put a band around.
-        expect(find.textContaining('±15%'),
-            w == null ? findsNothing : findsOneWidget);
+        // No error bar is quoted, because nothing computes one. The "±15%"
+        // this screen used to print had no estimator behind it, and the
+        // Workout tab says so in as many words two taps away.
+        expect(find.textContaining('±'), findsNothing);
       }
       expect(tester.takeException(), isNull);
     });
@@ -468,6 +531,76 @@ void main() {
           'session exists only on this screen');
       expect(handed!.strength.setCount, 1);
       expect(handed!.strength.sets.first.loadKg, 40);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a swim counts the same laps live and on the summary',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('swimming')!,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('LAP'));
+      await tester.pump();
+      await tester.tap(find.text('LAP'));
+      await tester.pump();
+
+      // Live: two taps, two laps, two pool lengths.
+      expect(find.text('2 laps · Free'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+
+      // And the summary agrees. `lapSecs` used to hold the GAPS between taps,
+      // so it was one shorter than the swim: 50 m live, 25 m on the summary.
+      expect(handed!.lapCount, 2);
+      expect(handed!.swimMetres, 50);
+      expect(handed!.lapSecs.length, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a minimised session keeps the sets that were typed into it',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      // What the setup screen does once the app accepts the session.
+      LiveDraft.begin(a, weightKg: 72.4);
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(find.text('40 kg × 8'), findsWidgets);
+
+      // Minimise: the route is gone and every widget with it. The set was
+      // held in `_LiveStrengthState` and died here — silently, while
+      // `activeWorkout` stayed open and refused every later workout.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('40 kg × 8'), findsWidgets,
+          reason: 'a typed set is the one thing nothing can recompute');
+      expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
       expect(tester.takeException(), isNull);
     });
 

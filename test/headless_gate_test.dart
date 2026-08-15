@@ -101,6 +101,55 @@ void main() {
     expect(HeadlessSyncGate.busy, isFalse);
   });
 
+  group('a wedged run cannot hold the gate forever', () {
+    test('the run is abandoned at the ceiling and the gate is handed back',
+        () async {
+      final wedged = Completer<void>(); // never completed — the whole point
+      final result = await HeadlessSyncGate.tryRun<int>(
+        'bg_task',
+        () async {
+          await wedged.future;
+          return 1;
+        },
+        ceiling: const Duration(milliseconds: 20),
+      );
+
+      // OLD BEHAVIOUR: tryRun awaited body() with nothing above it, so this
+      // never returned and `busy` stayed true for the life of the process —
+      // every later BGProcessingTask / BGAppRefreshTask / BLE-restore / boot
+      // wake skipped forever and background sync silently stopped.
+      expect(result, isNull);
+      expect(HeadlessSyncGate.busy, isFalse);
+      expect(HeadlessSyncGate.timedOutRuns, 1);
+
+      // And the next wake actually runs.
+      expect(
+        await HeadlessSyncGate.tryRun<int>('bg_refresh', () async => 7),
+        7,
+      );
+    });
+
+    test('an owner that keeps losing is reported as starved', () async {
+      final release = Completer<void>();
+      final holder = HeadlessSyncGate.tryRun<void>('bg_task', () async {
+        await release.future;
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      for (var i = 0; i < HeadlessSyncGate.starvedAfterSkips; i++) {
+        expect(HeadlessSyncGate.isStarved('ble_restore_wake'), isFalse,
+            reason: 'not starved until the threshold is actually crossed');
+        await HeadlessSyncGate.tryRun<int>('ble_restore_wake', () async => 1);
+      }
+      expect(HeadlessSyncGate.isStarved('ble_restore_wake'), isTrue);
+      // Its own successful run clears it.
+      release.complete();
+      await holder;
+      await HeadlessSyncGate.tryRun<int>('ble_restore_wake', () async => 1);
+      expect(HeadlessSyncGate.isStarved('ble_restore_wake'), isFalse);
+    });
+  });
+
   group('P2 — the Android boot wake goes through the gate too', () {
     test('the gate is BUSY for the whole duration of a boot drain', () async {
       final lease = BandOwnership.tryAcquireHeadless()!;

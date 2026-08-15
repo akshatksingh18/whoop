@@ -1,8 +1,10 @@
 // Wellness — softer than Health, same system.
 //
 // Health tells you what your body did. Wellness is where you tell it back, and
-// where the app explains itself. Four sub-tabs, no fifth: Mind, Recovery,
-// Habits, Medication.
+// where the app explains itself. Five sub-tabs: Mind, Recovery, Habits,
+// Medication, Cycle. Cycle is a SUB-TAB and not a sixth shell tab — see
+// `app_shell.dart`; anything that feels like a sixth domain belongs inside the
+// domain that owns it.
 //
 // Three rules this screen exists to hold:
 //   · Habits are a CONSISTENCY, never a streak. "5 of 7 days" cannot reset to
@@ -25,7 +27,9 @@ import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'calm_breathing.dart';
+import 'cycle_screen.dart';
 import 'journal_compose.dart';
+import 'sleep_detail.dart';
 
 class WellnessScreen extends StatefulWidget {
   const WellnessScreen({super.key});
@@ -36,7 +40,7 @@ class WellnessScreen extends StatefulWidget {
 
 class _WellnessScreenState extends State<WellnessScreen> {
   int _tab = 0;
-  static const _tabs = ['Mind', 'Recovery', 'Habits', 'Medication'];
+  static const _tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
 
   /// Habit consistency is read over a fortnight: long enough that one bad week
   /// does not read as collapse, short enough to still be about now.
@@ -120,7 +124,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
         if (_loading)
           const Center(child: CircularProgressIndicator())
         else
-          [_mind, _recovery, _habitsTab, _medication][_tab](c),
+          [_mind, _recovery, _habitsTab, _medication, _cycle][_tab](c),
       ],
     );
   }
@@ -234,6 +238,24 @@ class _WellnessScreenState extends State<WellnessScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // The one recommendation on this screen, and only when all three of
+        // its inputs are real: a measured debt worth acting on, a learned need,
+        // and a target bedtime to name. No debt, no card — the widget does not
+        // get an invented reason so that it can appear.
+        if (debtH != null && debtH >= .75 && needSec != null && bedMin != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x5),
+            child: Recommendation(
+              'Turn in by ${formatMinuteOfDay(bedMin.round())}',
+              'You are ${_hm(debtH * 60)} down against your own need, and '
+                  'tonight\'s is ${_hm(needSec / 60)}.',
+              'See what last night cost you',
+              color: C.indigo,
+              onTap: () => Navigator.of(c).push(
+                MaterialPageRoute<void>(builder: (_) => const SleepDetail()),
+              ),
+            ),
+          ),
         Section(
           'What charged and drained you',
           drivers.isEmpty
@@ -340,6 +362,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
       ],
     );
   }
+
+  // ── CYCLE ────────────────────────────────────────────────────────────────
+
+  /// Owns its own load: the tab is off for most users and its query touches two
+  /// tables plus 120 derived days, which nobody should pay for by opening Mind.
+  Widget _cycle(BuildContext c) => const CycleTab();
 
   // ── HABITS ───────────────────────────────────────────────────────────────
 

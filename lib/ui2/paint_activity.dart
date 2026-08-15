@@ -62,10 +62,18 @@ class RouteMap extends CustomPainter {
     if (pts.length < 2) return;
     final p = _stride(pts, s.width);
     final v = pace == null ? null : _stride(pace!, s.width);
-    Offset at(int i) => Offset(p[i].dx * s.width, p[i].dy * s.height);
+    // The caller squares the box — one span for both axes plus the cos(lat)
+    // correction — so the canvas must not stretch it back. Uniform scale,
+    // letterboxed: the shape drawn is the shape run.
+    final k = min(s.width, s.height);
+    final ox = (s.width - k) / 2, oy = (s.height - k) / 2;
+    Offset at(int i) => Offset(ox + p[i].dx * k, oy + p[i].dy * k);
 
     for (var i = 1; i < p.length; i++) {
       final t = v == null ? 0.0 : (i < v.length ? v[i].clamp(0.0, 1.0) : 0.0);
+      // A degenerate bounding box upstream normalises to NaN. Skia would drop
+      // the segment silently; skip it here so the pins still land.
+      if (!at(i - 1).isFinite || !at(i).isFinite || !t.isFinite) continue;
       cv.drawLine(
         at(i - 1),
         at(i),
@@ -81,6 +89,7 @@ class RouteMap extends CustomPainter {
   }
 
   void _pin(Canvas cv, Offset o, Color c) {
+    if (!o.isFinite) return;
     cv.drawCircle(o, 7, Paint()..color = pinInk);
     cv.drawCircle(o, 5, Paint()..color = c);
   }
@@ -224,47 +233,55 @@ class Elevation extends CustomPainter {
   void paint(Canvas cv, Size s) {
     if (metres.length < 2 || s.width <= 0) return;
     final a = axis;
-    final mx = metres.reduce(max), mn = metres.reduce(min);
-    final rg = (mx - mn).abs() < 1e-6 ? 1.0 : mx - mn;
+    final e = a == null ? autoExtent(metres) : null;
+    if (a == null && e == null) return;
     // Leave a tenth of the canvas as headroom so the peak marker is not
     // clipped. With an axis the caller owns the headroom, because the labels
     // have to line up with the line.
     double y(double v) => a != null
         ? s.height - a.t(v) * s.height
-        : s.height - (v - mn) / rg * s.height * .9;
+        : s.height - (v - e!.min) / e.range * s.height * .9;
 
-    final pts = minMaxColumns(metres, s.width, y);
+    Offset? peak;
+    for (final pts in minMaxRuns(metres, s.width, y)) {
+      for (final o in pts) {
+        if (peak == null || o.dy < peak.dy) peak = o;
+      }
+      if (pts.length == 1) continue; // a fix with dropouts either side
+      final area = Path()..moveTo(pts.first.dx, s.height);
+      for (final o in pts) {
+        area.lineTo(o.dx, o.dy);
+      }
+      area
+        ..lineTo(pts.last.dx, s.height)
+        ..close();
+      cv.drawPath(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              color.withValues(alpha: .55),
+              color.withValues(alpha: .06)
+            ],
+          ).createShader(Offset.zero & s),
+      );
 
-    final area = Path()..moveTo(pts.first.dx, s.height);
-    for (final o in pts) {
-      area.lineTo(o.dx, o.dy);
+      final line = Path()..moveTo(pts.first.dx, pts.first.dy);
+      for (var i = 1; i < pts.length; i++) {
+        line.lineTo(pts[i].dx, pts[i].dy);
+      }
+      cv.drawPath(
+        line,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = color,
+      );
     }
-    area
-      ..lineTo(pts.last.dx, s.height)
-      ..close();
-    cv.drawPath(
-      area,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [color.withValues(alpha: .55), color.withValues(alpha: .06)],
-        ).createShader(Offset.zero & s),
-    );
 
-    final line = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (var i = 1; i < pts.length; i++) {
-      line.lineTo(pts[i].dx, pts[i].dy);
-    }
-    cv.drawPath(
-      line,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..color = color,
-    );
-
-    final peak = pts.reduce((a, b) => a.dy <= b.dy ? a : b);
+    if (peak == null) return;
     cv.drawCircle(peak, 5, Paint()..color = markerInk);
     cv.drawCircle(peak, 3.2, Paint()..color = color);
   }
@@ -286,8 +303,13 @@ class PowerCurve extends CustomPainter {
   final Color color;
 
   /// Supersedes [max] when given, so the ceiling the frame labels is the
-  /// ceiling the curve was drawn against. [targetLo]/[targetHi] stay fractions
-  /// of whichever of the two is in force.
+  /// ceiling the curve was drawn against.
+  ///
+  /// [targetLo]/[targetHi] are fractions of the SPAN in force — of [max] from
+  /// zero, or of `axis.max - axis.min` from `axis.min`. That is the same 0…1
+  /// the curve is mapped through, so band and curve share one scale; they are
+  /// not watts, and on an axis with a non-zero min they are not a fraction of
+  /// the ceiling either.
   final AxisSpec? axis;
 
   PowerCurve(this.watts, this.max, this.color,
@@ -484,6 +506,9 @@ class IntervalLadder extends CustomPainter {
     for (var i = 0; i < rounds.length; i++) {
       final wh = rounds[i].work.clamp(0, 1) * s.height;
       final rh = rounds[i].rest.clamp(0, 1) * s.height;
+      // Every round logged as zero makes the caller's own normalisation 0/0.
+      // A NaN bar draws nothing and fires no empty state, so skip it visibly.
+      if (!wh.isFinite || !rh.isFinite) continue;
       cv.drawRRect(
         RRect.fromRectAndRadius(
             Rect.fromLTWH(i * bw + bw * .12, s.height - wh, bw * .34, wh),

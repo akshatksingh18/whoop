@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/lab_catalogue.dart';
 import '../../data/local_repository.dart';
@@ -24,9 +25,18 @@ import 'sleep_detail.dart';
 
 class HealthData {
   final Map<String, dynamic> today, insights, profile;
-  final Map<String, List<double>> charts;
+
+  /// Timestamped. The x axis and the "how old is this number" line are both
+  /// read off the points' own dates — `metric_series` has one row per DERIVED
+  /// day, so the newest stored point can be a week old.
+  final Map<String, List<ChartPoint>> charts;
+
+  /// Derived days INSIDE THE LAST 30 CALENDAR DAYS — see [load].
   final int daysWithData;
   final Metric need;
+
+  /// Non-null when the cross-day rollup was withheld — see [staleInsightsCard].
+  final Map<String, dynamic>? insightsStale;
 
   const HealthData({
     this.today = const {},
@@ -35,7 +45,15 @@ class HealthData {
     this.charts = const {},
     this.daysWithData = 0,
     this.need = Metric.empty,
+    this.insightsStale,
   });
+
+  /// The stored points for [key].
+  List<ChartPoint> points(String key) => charts[key] ?? const [];
+
+  /// [days] slots ending today, `null` where nothing was derived — the shape
+  /// every painter in this app takes.
+  List<double?> spark(String key, int days) => denseDays(points(key), days);
 
   Metric daily(String k) {
     final d = today['daily'];
@@ -68,7 +86,7 @@ class HealthData {
     final profile = await repo.getProfile();
     final days = await repo.availableDays();
 
-    final charts = <String, List<double>>{};
+    final charts = <String, List<ChartPoint>>{};
     for (final k in const [
       'resting_hr',
       'hrv',
@@ -76,21 +94,31 @@ class HealthData {
       'stress',
       'resp_rate',
     ]) {
-      charts[k] = seriesOf(await repo.getChart(k));
+      charts[k] = pointsOf(await repo.getChart(k));
     }
 
     final coach = cd['sleep_coach'];
     final needEnv = coach is Map ? coach['need'] : null;
     final needSec = envValue(needEnv)?['need_sec'] as num?;
 
+    // The last 30 CALENDAR days, not the newest 30 rows. `availableDays()` is
+    // unbounded — every derived day since install — so `daysWithData` was the
+    // whole history and `.clamp(0, 30)` painted "30 of 30" for anyone past
+    // their first month, however many days they had actually missed.
+    // `DateTime(y, m, d - 29)` and not `subtract(Duration(days: 29))`: the
+    // duration form lands at 23:00 the day before across a DST boundary.
+    final n = DateTime.now();
+    final from = dayLabelOf(DateTime(n.year, n.month, n.day - 29));
+
     return HealthData(
       today: today,
       insights: cd,
       profile: profile,
       charts: charts,
-      daysWithData: days.length,
+      daysWithData: days.where((d) => d.compareTo(from) >= 0).length,
       need: envMetric(needEnv, needSec == null ? null : needSec / 60,
           unit: 'min'),
+      insightsStale: staleReasonOf(cd),
     );
   }
 }
@@ -257,7 +285,7 @@ class _HealthScreenState extends State<HealthScreen> {
     final gaps = <Widget>[];
 
     void row(Metric m, IconData icon, Color col, String name, String sub,
-        String value, String unit, List<double> spark, String metricKey,
+        String value, String unit, List<double?> spark, String metricKey,
         {String? whyAbsent}) {
       if (m.isEmpty) {
         final s = StatusCard.forMetric('No ${name.toLowerCase()}', m,
@@ -268,7 +296,7 @@ class _HealthScreenState extends State<HealthScreen> {
       rows.add(MetricRow(icon, col, name, value,
           sub: sub,
           unit: unit,
-          spark: spark.length > 24 ? spark.sublist(spark.length - 24) : spark,
+          spark: spark,
           conf: ConfX.of(m),
           onTap: () => go(c, MetricDetail(metricKey))));
     }
@@ -276,19 +304,19 @@ class _HealthScreenState extends State<HealthScreen> {
     final rhr = d.daily('resting_hr');
     row(rhr, LucideIcons.heart, C.red, 'Resting heart rate', 'Overnight',
         rhr.value == null ? '' : '${rhr.value!.round()}', 'bpm',
-        d.charts['resting_hr'] ?? const [], 'resting_hr',
+        d.spark('resting_hr', 24), 'resting_hr',
         whyAbsent: 'Resting heart rate is read from sleep, and no night was '
             'scored.');
 
     final hrvMetric = d.hrv;
     row(hrvMetric, LucideIcons.activity, C.green, 'HRV', 'RMSSD, asleep',
         hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
-        d.charts['hrv'] ?? const [], 'hrv',
+        d.spark('hrv', 24), 'hrv',
         whyAbsent: 'Beat-to-beat intervals were not clean enough last night.');
 
     final sleepMin = d.sleepMin;
     row(sleepMin, LucideIcons.moon, C.blue, 'Sleep', 'Last night',
-        hm(sleepMin.value), '', d.charts['sleep'] ?? const [], 'sleep',
+        hm(sleepMin.value), '', d.spark('sleep', 24), 'sleep',
         whyAbsent: 'No sleep period long enough to score was recorded.');
 
     final stressBlock = d.today['stress'];
@@ -305,7 +333,7 @@ class _HealthScreenState extends State<HealthScreen> {
         // 0–100, and the scale has to be on the row. Wellness has always shown
         // it for the same number.
         '/100',
-        d.charts['stress'] ?? const [],
+        d.spark('stress', 24),
         'stress',
         whyAbsent: 'No resting window long enough to read autonomic tension '
             'last night. There is deliberately no substitute number.');
@@ -314,7 +342,7 @@ class _HealthScreenState extends State<HealthScreen> {
     row(respMetric, LucideIcons.wind, C.teal, 'Respiratory rate', 'Asleep',
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
-        d.charts['resp_rate'] ?? const [], 'resp_rate',
+        d.spark('resp_rate', 24), 'resp_rate',
         whyAbsent: 'Breathing rate is recovered from beat timing during sleep.');
 
     final illness = d.today['illness'];
@@ -380,9 +408,12 @@ class _HealthScreenState extends State<HealthScreen> {
                     return MetricRow(LucideIcons.scale, C.teal, 'Weight', v,
                         unit: unit,
                         sub: 'From your profile',
-                        // A number the user typed in themselves is the one
-                        // thing on this screen that is not an estimate.
-                        conf: Conf.high);
+                        // NO dots. Confidence is a statement about a
+                        // measurement, and nothing measured this — the user
+                        // typed it. Three green dots on a self-report is a
+                        // claim we cannot make, and `Conf.none` beside a
+                        // number the user knows to be right reads as a fault.
+                        conf: null);
                   }),
                 ),
                 const SizedBox(height: S.x3),
@@ -406,10 +437,21 @@ class _HealthScreenState extends State<HealthScreen> {
     final reg = envValue(cd['regularity']) ?? const {};
     final sjlH = sjl['abs_hours'] as num?;
     final sri = reg['sri'] as num?;
+    final stale = staleInsightsCard(d.insightsStale, syncOf(c));
 
+    /// [against] is the number the card compares the latest reading TO. Pass it
+    /// and the delta is measured against that; leave it null and the delta is
+    /// measured against the trailing mean of what is stored.
+    ///
+    /// It exists because the sleep card used to caption itself "vs your 7h 45m
+    /// need" while still subtracting the 28-day AVERAGE — so the arrow and the
+    /// figure under it read as sleep debt and were not. One of the two had to
+    /// become true; the debt is the more useful of the pair.
     Widget trend(String key, String label, String unit, Color col, Metric m,
-        {bool higherBetter = true, String window = 'vs your 28-day average'}) {
-      final s = d.charts[key] ?? const [];
+        {bool higherBetter = true, double? against, String? againstLabel}) {
+      final pts = d.points(key);
+      // Statistics off the STORED values; the painter gets the dense window.
+      final s = valuesOf(pts);
       if (s.isEmpty) {
         return StatusCard(
           'No $label trend yet',
@@ -420,11 +462,21 @@ class _HealthScreenState extends State<HealthScreen> {
       final prior = s.length > 1
           ? s.sublist(s.length - 1 - (s.length - 1).clamp(0, 28), s.length - 1)
           : const <double>[];
-      final base =
+      // "vs your 28-day average" printed from the SECOND stored value, over a
+      // mean of one. The window has to say how many days it actually holds.
+      final mean =
           prior.isEmpty ? null : prior.reduce((a, b) => a + b) / prior.length;
+      final base = against ?? mean;
+      final window = against != null
+          ? (againstLabel ?? '')
+          : 'vs your ${prior.length}-day average';
       final delta = base == null ? 0.0 : s.last - base;
-      final win = s.length <= 30 ? s : s.sublist(s.length - 30);
+      final win = denseDays(pts, 30);
       final metricKey = key == 'sleep' ? 'sleep' : key;
+      // The hero number is the newest STORED point, which after a sync gap is
+      // not today's. Say when it is from rather than let the card imply now.
+      final behind = daysBehind(pts.last.t) ?? 0;
+      final asOf = behind <= 0 ? '' : ' · as of ${axisDay(pts.last.t)}';
       return TrendCard(
         label,
         key == 'sleep' ? hm(s.last) : _short(s.last),
@@ -432,7 +484,7 @@ class _HealthScreenState extends State<HealthScreen> {
         base == null
             ? 'no baseline'
             : (key == 'sleep' ? hm(delta.abs()) : _short(delta.abs())),
-        base == null ? 'first readings' : window,
+        '${base == null ? 'first readings' : window}$asOf',
         win,
         col,
         up: delta >= 0,
@@ -454,49 +506,60 @@ class _HealthScreenState extends State<HealthScreen> {
       if (d.need.value == null)
         trend('sleep', 'Time asleep', '', C.blue, d.sleepMin)
       else
+        // `need` here is `crossday.sleep_coach.need` — the COMPUTED need. It is
+        // never `sleep.need_min`, which is a hardcoded 480.
         trend('sleep', 'Time asleep', '', C.blue, d.sleepMin,
-            window: 'vs your ${hm(d.need.value)} need'),
+            against: d.need.value!.toDouble(),
+            againstLabel: 'vs your ${hm(d.need.value)} need'),
 
-      Section(
-        'Body clock',
-        Surface(
-          onTap: () => go(c, const CircadianDetail()),
-          child: Column(children: [
-            Row(children: [
-              Expanded(
-                child: Text('Chronotype, jetlag and regularity',
-                    style: F.cap.copyWith(color: p.ink2)),
-              ),
-              Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
-            ]),
-            const SizedBox(height: S.x4),
-            if (chrono.isEmpty && sjlH == null && sri == null)
-              Text(
-                  'Measured by comparing your free nights against your working '
-                  'nights. It takes a few weeks of both.',
-                  style: F.cap.copyWith(color: p.ink3, height: 1.5))
-            else
-              InlineMetrics([
-                if (chrono['type_label'] != null)
-                  ('CHRONOTYPE', chrono['type_label'].toString(), C.indigo),
-                if (sjlH != null)
-                  ('SOCIAL JETLAG', _hoursHm(sjlH), C.orange),
-                if (sri != null)
-                  ('REGULARITY', '${sri.round()} / 100', C.green),
+      // Chronotype, jetlag and regularity ALL come out of the cross-day
+      // rollup. When it is withheld, the section says why rather than showing
+      // the cold-start "it takes a few weeks" line, which would be a lie.
+      if (stale != null)
+        Section('Body clock', stale)
+      else
+        Section(
+          'Body clock',
+          Surface(
+            onTap: () => go(c, const CircadianDetail()),
+            child: Column(children: [
+              Row(children: [
+                Expanded(
+                  child: Text('Chronotype, jetlag and regularity',
+                      style: F.cap.copyWith(color: p.ink2)),
+                ),
+                Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
               ]),
-          ]),
+              const SizedBox(height: S.x4),
+              if (chrono.isEmpty && sjlH == null && sri == null)
+                Text(
+                    'Measured by comparing your free nights against your working '
+                    'nights. It takes a few weeks of both.',
+                    style: F.cap.copyWith(color: p.ink3, height: 1.5))
+              else
+                InlineMetrics([
+                  if (chrono['type_label'] != null)
+                    ('CHRONOTYPE', chrono['type_label'].toString(), C.indigo),
+                  if (sjlH != null)
+                    ('SOCIAL JETLAG', _hoursHm(sjlH), C.orange),
+                  if (sri != null)
+                    ('REGULARITY', '${sri.round()} / 100', C.green),
+                ]),
+            ]),
+          ),
+          action: 'Explore',
+          onAction: () => go(c, const CircadianDetail()),
         ),
-        action: 'Explore',
-        onAction: () => go(c, const CircadianDetail()),
-      ),
 
       Section(
         'Consistency',
         Surface(
           child: Consistency(
+            // Already windowed to the last 30 calendar days by `HealthData.load`
+            // — the clamp is a floor for a bad count, not the window.
             d.daysWithData.clamp(0, 30),
             30,
-            'Days with a derived record in the last month',
+            'Days with a derived record in the last 30 days',
             C.domHealth,
           ),
         ),
@@ -558,7 +621,12 @@ class _HealthScreenState extends State<HealthScreen> {
             'Skin temperature deviation',
             '${skinTemp.value! >= 0 ? '+' : '−'}'
                 '${skinTemp.value!.abs().toStringAsFixed(2)}',
-            'vs your own nights',
+            // NAME THE QUANTITY. This is `skin_temp_z` — standard deviations
+            // from the user's own baseline. It printed signed and unitless
+            // beside a heart rate in bpm, so it read as °C; and the sleep
+            // scrub's "temperature" is a THIRD quantity again (raw ADC minus
+            // that day's median), which is why neither may go unlabelled.
+            'SD from your own nights',
             ConfX.of(skinTemp)),
       if (worn != null)
         _vital(p, LucideIcons.watch, C.green, 'Wear time', hm(worn),
@@ -626,24 +694,30 @@ class _HealthScreenState extends State<HealthScreen> {
   /// what it is, what it is measured in, what the heights mean, and how far
   /// back it reaches — all read off the series actually drawn.
   Widget _hrvPreview(BuildContext c, HealthData d) {
-    final all = d.charts['hrv'] ?? const <double>[];
-    final s = all.length > 30 ? all.sublist(all.length - 30) : all;
-    final axis = AxisSpec.of(s, ticks: 2);
+    const days = 30;
+    final pts = d.points('hrv');
+    // The window is thirty CALENDAR nights, dense, ending last night. The list
+    // used to be the newest thirty STORED nights, which after a sync gap could
+    // span two months while both axis labels — counted off the array — claimed
+    // it spanned thirty. Nights with no record are holes, not joined across.
+    final win = denseDays(pts, days);
+    final have = [for (final v in win) ?v];
+    final axis = AxisSpec.of(have, ticks: 2);
     return ChartFrame(
-      title: 'RMSSD, last ${s.length} night${s.length == 1 ? '' : 's'}',
+      title: 'RMSSD, ${have.length} of the last $days nights',
       unit: 'ms',
       height: 48,
       yAxis: axis,
-      xLabels: s.length < 2
+      xLabels: have.length < 2
           ? const []
-          : ['${s.length} nights ago', 'Last night'],
+          : ['${days - 1} nights ago', 'Last night'],
       conf: ConfX.of(d.hrv),
-      empty: s.length < 2
+      empty: have.length < 2
           ? const NoData(message: 'One night is not a trend yet')
           : null,
       child: CustomPaint(
         size: Size.infinite,
-        painter: LineChart(s, C.green, t: animate(c, 1), axis: axis),
+        painter: LineChart(win, C.green, t: animate(c, 1), axis: axis),
       ),
     );
   }
@@ -657,11 +731,18 @@ class _HealthScreenState extends State<HealthScreen> {
           const SizedBox(width: S.x3),
           Expanded(child: Text(name, style: F.body.copyWith(color: p.ink))),
           const SizedBox(width: S.x2),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(value,
-                style: F.n17.copyWith(color: p.ink)),
-            Text(unit, style: F.over.copyWith(color: p.ink3)),
-          ]),
+          // Flexible, and the qualifier wraps. This column sized to its natural
+          // width, so a qualifier that names its quantity properly — "SD from
+          // your own nights" rather than a bare, unitless "vs your own nights"
+          // — pushed the row 11 pt past the card at 2x text.
+          Flexible(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(value, style: F.n17.copyWith(color: p.ink)),
+              Text(unit,
+                  textAlign: TextAlign.end,
+                  style: F.over.copyWith(color: p.ink3)),
+            ]),
+          ),
           const SizedBox(width: S.x3),
           ConfDots(conf),
         ]),

@@ -4,9 +4,17 @@
 // are the ONLY surface now — the in-app notifications feed/screen was
 // removed (it duplicated the OS notification with no independent value).
 // Whether an event fires an OS notification is decided by NotificationPrefs:
-//   • category must be enabled, AND
+//   • it must be one of the three sanctioned NotifClasses (see classOf), AND
+//   • its category must be enabled, AND
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.
+// The alarm is exempt from the last two: the user armed it for a time that is
+// usually inside their own quiet window.
+//
+// Emit sites that are no longer one of the three (recovery-ready, step goal,
+// posture, "did you work out?") still call emit() and are dropped HERE rather
+// than at each site — one gate is how the rule stays true when the next emit
+// site is added.
 
 import 'dart:async';
 
@@ -14,11 +22,11 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ai/ai_prefs.dart';
-import '../ai/reminder_plan.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
 import 'notification_service.dart';
+import 'tap_router.dart';
 
 class NotificationCenter {
   NotificationCenter._();
@@ -151,68 +159,63 @@ class NotificationCenter {
     return shown;
   }
 
-  // Default schedule for standing reminders (user-overridable via prefs UI).
-  static const int windDownHour = 21; // 21:00
-  static const int windDownMinute = 0;
   static const int recapWeekday = DateTime.sunday;
   static const int recapHour = 18; // Sunday 18:00
   static const int recapMinute = 0;
 
-  /// (Re)register the recurring wall-clock nudges as real OS-scheduled
-  /// notifications, so they fire even when the app is closed. Idempotent: cancels
-  /// then re-schedules per the current prefs. Call after pairing and whenever the
-  /// user changes notification prefs.
-  Future<void> scheduleStandingReminders(NotificationPrefs prefs,
-      {double? bedtimeMinOfDay}) async {
+  /// Bring the OS scheduler in line with the three-class rule.
+  ///
+  /// This used to arm a wind-down nudge, an UNCONDITIONAL weekly recap and up
+  /// to 24 hydration slots on every foreground resume. Under the three-class
+  /// rule only [NotifClass.lookback] may be scheduled, and only for a week that
+  /// actually contained something — so [weeklyFinding] is the whole condition:
+  /// null (which is every caller today) means nothing is armed at all.
+  ///
+  /// The cancels are not conditional and must stay that way: they are what
+  /// clears whatever an older build left standing on a phone that upgrades.
+  /// They also run BEFORE the permission check, deliberately — see the note in
+  /// [_armWeeklyLookback] for why the check moved down there.
+  ///
+  /// [bedtimeMinOfDay] is no longer read: it timed the wind-down nudge. Kept so
+  /// the existing caller compiles unchanged; drop both together.
+  Future<void> scheduleStandingReminders(
+    NotificationPrefs prefs, {
+    double? bedtimeMinOfDay,
+    String? weeklyFinding,
+  }) async {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
-    // Always clear the hydration band first so a disabled/retuned reminder never
-    // leaves stale OS-scheduled slots behind.
+    await svc.cancel(NotificationService.idStillness);
     for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
       await svc.cancel(NotificationService.idWaterBase + i);
     }
-    if (!prefs.remindersEnabled) return;
+    if (!prefs.remindersEnabled || weeklyFinding == null) return;
+    await _armWeeklyLookback(svc, weeklyFinding);
+  }
 
-    // "Time to sleep" — at the Sleep Coach's recommended bedtime when known
-    // (tracks the user's schedule + sleep need), else the fixed default.
-    var bedHour = windDownHour, bedMin = windDownMinute;
-    if (bedtimeMinOfDay != null && bedtimeMinOfDay >= 0) {
-      final m = bedtimeMinOfDay.round() % 1440;
-      bedHour = m ~/ 60;
-      bedMin = m % 60;
-    }
-    await svc.scheduleDaily(
-      id: NotificationService.idWindDown,
-      category: NotifCategory.reminders,
-      title: 'Time to sleep',
-      body: bedtimeMinOfDay != null
-          ? 'To meet your sleep need, aim to be in bed around now — a consistent '
-              'bedtime steadies your recovery.'
-          : 'A consistent bedtime steadies your recovery — start easing off '
-              'screens and lights now.',
-      hour: bedHour,
-      minute: bedMin,
-      route: '/sleep',
-    );
-    // NOTE: the "log your day" journal nudge moved to scheduleAiReminders —
-    // it is now the pre-sleep journaling prompt (bedtime-aware, deep-links
-    // into the compose screen, honours the once-per-night done flag).
-    await svc.scheduleWeekly(
+  /// Arm the lookback as a ONE-SHOT at the next Sunday 18:00.
+  ///
+  /// One-shot, not `matchDateTimeComponents: dayOfWeekAndTime`: a repeat would
+  /// go on re-announcing THIS week's finding every Sunday for the life of the
+  /// install, which is how the recap ended up firing unconditionally in the
+  /// first place. Re-armed by the next call that has a finding.
+  ///
+  /// The permission check lives inside [NotificationService.scheduleOnce] and
+  /// is non-prompting, so a transient "not granted" read can no longer wipe the
+  /// standing schedule and leave nothing behind — the cancels above are the
+  /// intended state when there is nothing to say.
+  Future<void> _armWeeklyLookback(
+      NotificationService svc, String finding) async {
+    await svc.scheduleOnce(
       id: NotificationService.idWeeklyRecap,
       category: NotifCategory.reminders,
       title: 'Your week in review',
-      body: 'A new weekly recap is ready — see how your sleep, strain and '
-          'recovery trended.',
-      weekday: recapWeekday,
-      hour: recapHour,
-      minute: recapMinute,
-      route: '/recap',
+      body: finding,
+      at: svc.nextWeeklyInstant(recapWeekday, recapHour, recapMinute),
+      // A week of sleep, strain and recovery lives on Health.
+      route: kRouteRecap,
     );
-
-    // Hydration nudges — one daily-repeating slot every `waterIntervalMin`
-    // across the waking window.
-    await _scheduleWaterReminders(prefs, svc);
   }
 
   // Default waking window when quiet hours are off (so we never ping at 3am).
@@ -222,8 +225,10 @@ class NotificationCenter {
   /// The wall-clock fire times (minutes-from-midnight, ascending) for the
   /// hydration reminder — one per slot across the waking window, spaced by the
   /// (clamped) interval, capped at [NotificationService.maxWaterSlots]. Returns
-  /// empty when hydration is off. PURE — single source of truth shared by the OS
-  /// scheduler here and the strap-buzz timer in AppState.
+  /// empty when hydration is off — which is now always: `waterEnabled` defaults
+  /// false and the three-class rule gives it no switch to turn it on with. PURE;
+  /// the only remaining consumer is the strap-buzz timer in AppState, which this
+  /// therefore keeps permanently idle.
   static List<int> waterSlotMinutes(NotificationPrefs prefs) {
     if (!prefs.remindersEnabled || !prefs.waterEnabled) return const [];
 
@@ -254,12 +259,17 @@ class NotificationCenter {
     return slots;
   }
 
-  /// (Re)register the AI-feature nudges (morning briefing, evening recap,
-  /// pre-sleep journal prompt) per the pure [aiReminderPlan]. Idempotent:
-  /// cancels the three slots, then schedules whatever the plan says. Briefing
-  /// slots only exist while a BYOK key is configured ([aiConfigured]); the
-  /// journal prompt fires ~30 min before the recommended bedtime (or the
-  /// user's explicit time) and skips tonight when already logged.
+  /// Clear the three AI slots (morning briefing, evening recap, pre-sleep
+  /// journal prompt).
+  ///
+  /// It used to schedule them from [aiReminderPlan]. All three were nudges, and
+  /// none of the three had anywhere to land after the UI rebuild — there is no
+  /// briefing surface and no BYOK settings screen in `lib/ui2`, so a tapped
+  /// briefing opened the home screen. The plan itself is untouched (and still
+  /// tested); this just stops arming it. The cancels stay so an upgrade clears
+  /// slots an older build left standing.
+  ///
+  /// Arguments are kept so the existing caller compiles unchanged.
   Future<void> scheduleAiReminders(
     NotificationPrefs prefs,
     AiPrefs ai, {
@@ -271,43 +281,5 @@ class NotificationCenter {
     await svc.cancel(NotificationService.idMorningBrief);
     await svc.cancel(NotificationService.idEveningBrief);
     await svc.cancel(NotificationService.idJournalLog);
-    final plan = aiReminderPlan(
-      ai,
-      remindersEnabled: prefs.remindersEnabled,
-      aiConfigured: aiConfigured,
-      bedtimeMinOfDay: bedtimeMinOfDay,
-      journalDoneToday: journalDoneToday,
-    );
-    for (final s in plan) {
-      await svc.scheduleDaily(
-        id: s.id,
-        category: NotifCategory.reminders,
-        title: s.title,
-        body: s.body,
-        hour: s.hour,
-        minute: s.minute,
-        route: s.route,
-        skipToday: s.skipToday,
-      );
-    }
-  }
-
-  /// Schedule the hydration reminders as a band of daily-repeating OS slots, one
-  /// per [waterSlotMinutes] entry.
-  Future<void> _scheduleWaterReminders(
-      NotificationPrefs prefs, NotificationService svc) async {
-    final slots = waterSlotMinutes(prefs);
-    for (var i = 0; i < slots.length; i++) {
-      final t = slots[i];
-      await svc.scheduleDaily(
-        id: NotificationService.idWaterBase + i,
-        category: NotifCategory.reminders,
-        title: 'Time to hydrate',
-        body: 'A quick glass of water keeps your recovery and focus steady.',
-        hour: (t ~/ 60) % 24,
-        minute: t % 60,
-        route: '/today',
-      );
-    }
   }
 }

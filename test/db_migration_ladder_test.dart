@@ -607,4 +607,100 @@ void main() {
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
+
+  test(
+    'v39 relaxes NOT NULL on the sensor columns of a POPULATED decoded_onehz '
+    'without losing or rewriting a row',
+    () async {
+      const name = 'migrate_v38_to_v39_test.db';
+      created.add(name);
+      // A v38 install: the sensor columns are NOT NULL, so absence has already
+      // been written as real zeros. The migration must keep those rows exactly
+      // as they are (they are indistinguishable from real readings after the
+      // fact) while making the column able to hold NULL going forward.
+      await _seedOldDb(
+        name,
+        38,
+        [
+          '''
+          CREATE TABLE decoded_onehz (
+            rec_ts INTEGER PRIMARY KEY, counter INTEGER NOT NULL,
+            hr INTEGER NOT NULL, ax REAL NOT NULL, ay REAL NOT NULL,
+            az REAL NOT NULL, spo2_red_raw INTEGER NOT NULL,
+            spo2_ir_raw INTEGER NOT NULL, skin_temp_raw INTEGER NOT NULL,
+            step_count INTEGER, step_cadence INTEGER, activity_class INTEGER,
+            skin_temp_c REAL, on_wrist INTEGER, hr_valid INTEGER,
+            hr_alt INTEGER)
+        ''',
+          '''
+          CREATE TABLE decoded_rr (
+            rec_ts INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+            rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+            PRIMARY KEY (rec_ts, beat_index))
+        ''',
+        ],
+        seedRows: (db) async {
+          for (var i = 0; i < 3; i++) {
+            await db.insert('decoded_onehz', {
+              'rec_ts': 1780000000 + i,
+              'counter': 100 + i,
+              'hr': 60 + i,
+              'ax': 0.0, // the historical fabricated-absent shape
+              'ay': 0.0,
+              'az': 0.0,
+              'spo2_red_raw': 1000 + i,
+              'spo2_ir_raw': 2000 + i,
+              'skin_temp_raw': 3000 + i,
+              'skin_temp_c': 30.5,
+            });
+          }
+          await db.insert('decoded_rr', {
+            'rec_ts': 1780000000,
+            'beat_index': 0,
+            'rr_ts_ms': 1780000000000,
+            'rr_ms': 900,
+          });
+        },
+      );
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      final db = await LocalDb.instance;
+      final rows = await db.query('decoded_onehz', orderBy: 'rec_ts');
+      expect(rows.length, 3, reason: 'every row survives the rebuild');
+      expect(rows.first['hr'], 60);
+      expect(rows.first['spo2_red_raw'], 1000);
+      expect(rows.first['skin_temp_c'], 30.5);
+      expect(rows.last['counter'], 102);
+      // The child table is NOT rebuilt, so its rows are untouched.
+      expect((await db.query('decoded_rr')).length, 1);
+
+      // The whole point: a NULL sensor reading is now storable.
+      await db.insert('decoded_onehz', {
+        'rec_ts': 1780000009,
+        'counter': 109,
+        'hr': 72,
+        'ax': null,
+        'ay': null,
+        'az': null,
+        'spo2_red_raw': null,
+        'spo2_ir_raw': null,
+        'skin_temp_raw': null,
+      });
+      final absent = await db.query('decoded_onehz',
+          where: 'rec_ts = ?', whereArgs: [1780000009]);
+      expect(absent.first['ax'], isNull);
+      expect(absent.first['skin_temp_raw'], isNull);
+
+      // The forensic counter index survives the table rename.
+      final idx = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decoded_onehz'",
+      );
+      expect(idx.map((r) => r['name']), contains('idx_decoded_onehz_counter'));
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
 }

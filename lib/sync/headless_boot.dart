@@ -54,8 +54,11 @@ Future<bool?> runBootSyncThroughGate(
     () => run(lease),
   );
   if (result == null) {
-    // Skipped — release the lease we acquired up front, or the band stays
-    // owned by a headless run that never happened.
+    // Skipped, or abandoned at HeadlessSyncGate.runCeiling — release the lease
+    // we acquired up front, or the band stays owned by a run that never
+    // happened (skip) or is never going to finish (wedge). In the wedge case
+    // the orphaned body may still hold the radio; that is strictly better than
+    // the alternative, which is the band staying owned forever.
     BandOwnership.release(lease);
   }
   return result;

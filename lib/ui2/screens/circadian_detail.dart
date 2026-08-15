@@ -8,10 +8,14 @@
 // half at midnight.
 //
 // The non-parametric rhythm family (interdaily stability, intradaily
-// variability, relative amplitude, L5/M10) and the cosinor fit exist in the
-// analytics package and are not wired to anything. The screen does not carry a
-// card apologising for them: a metric this app does not produce is absent, not
-// explained. See docs/internal/UI_ROADMAP.md.
+// variability, relative amplitude, L5/M10) and the 24 h cosinor ARE computed —
+// `crossday_pipeline.dart:_crossDayCircadian` emits `circadian_rhythm`,
+// `circadian_cosinor` and `circadian_coverage` on every rollup. Their substrate
+// is not the textbook one: the 1 Hz accelerometry is pruned after three days,
+// so the battery runs on the per-day HOURLY HEART-RATE profile that `day_result`
+// keeps forever. That makes M10/L5 the highest- and lowest-HR windows rather
+// than step counts, and the card says so out loud rather than letting the
+// numbers imply accelerometry.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -43,6 +47,12 @@ class CircadianData {
   final String chronotypeLabel;
   final num? midFreeH, midWorkH, nFree, nWork;
 
+  /// The non-parametric battery, carried as the envelope's IS so the whole
+  /// family has one presence gate and one `need_baseline:` note to render.
+  final Metric rhythm;
+  final Map<String, dynamic> rhythmV, cosinorV, coverage;
+  final Conf cosinorConf;
+
   const CircadianData({
     this.actogram = const [],
     this.labels = const [],
@@ -54,6 +64,11 @@ class CircadianData {
     this.midWorkH,
     this.nFree,
     this.nWork,
+    this.rhythm = Metric.empty,
+    this.rhythmV = const {},
+    this.cosinorV = const {},
+    this.coverage = const {},
+    this.cosinorConf = Conf.none,
   });
 
   static Future<CircadianData> load(LocalRepository repo) async {
@@ -64,6 +79,9 @@ class CircadianData {
     final chronoV = envValue(chrono) ?? const {};
     final sjlV = envValue(sjl) ?? const {};
     final regV = envValue(reg) ?? const {};
+    final np = cd['circadian_rhythm'];
+    final cos = cd['circadian_cosinor'];
+    final npV = envValue(np) ?? const {};
 
     final days = await repo.availableDays(); // newest first
     final take = days.length <= _nights ? days : days.sublist(0, _nights);
@@ -86,6 +104,12 @@ class CircadianData {
       midWorkH: sjlV['mid_sleep_work_h'] as num?,
       nFree: sjlV['n_free'] as num?,
       nWork: sjlV['n_work'] as num?,
+      rhythm: envMetric(np, npV['IS'] as num?),
+      rhythmV: npV,
+      cosinorV: envValue(cos) ?? const {},
+      cosinorConf: confOfEnv(cos),
+      coverage: (cd['circadian_coverage'] as Map?)?.cast<String, dynamic>() ??
+          const {},
     );
   }
 
@@ -198,6 +222,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
 
         Section('Your rhythm', _rhythm(c, p, d)),
 
+        Section('Rhythm strength', _strength(c, p, d)),
+
         if (d.midFreeH != null && d.midWorkH != null && d.jetlag.value != null
             && d.jetlag.value! >= 1) ...[
           const SizedBox(height: S.x4),
@@ -254,26 +280,85 @@ class _CircadianDetailState extends State<CircadianDetail> {
           const SizedBox.shrink();
     }
 
-    return Surface(
-      pad: const EdgeInsets.symmetric(horizontal: S.x4),
-      child: Column(children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) Divider(color: p.line, height: 1),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: S.x3),
-            child: Row(children: [
-              Expanded(
-                  child:
-                      Text(rows[i].$1, style: F.body.copyWith(color: p.ink))),
-              Text(rows[i].$2,
-                  style: F.body
-                      .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
-              const SizedBox(width: S.x3),
-              ConfDots(rows[i].$3),
-            ]),
-          ),
-        ],
-      ]),
-    );
+    return _table(p, rows);
   }
+
+  /// The non-parametric battery and the cosinor fit, with what they were
+  /// computed FROM on the same card. Hourly heart-rate means are a legitimate
+  /// input to this battery, but they are not accelerometry, and the numbers
+  /// mean something different because of it — so the footnote is not optional
+  /// decoration, it is the unit.
+  Widget _strength(BuildContext c, P p, CircadianData d) {
+    final np = d.rhythmV, cos = d.cosinorV;
+    final conf = ConfX.of(d.rhythm);
+    num? n(Map<String, dynamic> m, String k) => m[k] as num?;
+
+    final rows = <(String, String, Conf)>[
+      if (n(np, 'IS') != null)
+        ('Day-to-day stability', n(np, 'IS')!.toStringAsFixed(2), conf),
+      if (n(np, 'IV') != null)
+        ('Hour-to-hour fragmentation', n(np, 'IV')!.toStringAsFixed(2), conf),
+      if (n(np, 'RA') != null)
+        ('Relative amplitude', n(np, 'RA')!.toStringAsFixed(2), conf),
+      if (n(np, 'm10_start_epoch') != null)
+        ('Highest-HR 10 hours start', _hourClock(n(np, 'm10_start_epoch')),
+            conf),
+      if (n(np, 'l5_start_epoch') != null)
+        ('Lowest-HR 5 hours start', _hourClock(n(np, 'l5_start_epoch')), conf),
+      if (n(cos, 'acrophase_hours') != null)
+        ('Rhythm peak', _hourClock(n(cos, 'acrophase_hours')), d.cosinorConf),
+      if (n(cos, 'amplitude') != null)
+        ('Peak-to-mean swing', '${n(cos, 'amplitude')!.toStringAsFixed(1)} bpm',
+            d.cosinorConf),
+      if (n(cos, 'r2_adj') != null)
+        ('Fit to a 24 h curve', n(cos, 'r2_adj')!.toStringAsFixed(2),
+            d.cosinorConf),
+    ];
+
+    if (rows.isEmpty) {
+      return StatusCard.forMetric('Rhythm strength is not measured yet',
+              d.rhythm,
+              unit: 'days',
+              why: 'It needs a run of calendar-consecutive days where every '
+                  'one of the 24 hours was recorded. An hour is never filled '
+                  'in, because an imputed hour is exactly the smooth signal '
+                  'this measure rewards.') ??
+          const SizedBox.shrink();
+    }
+
+    final used = (d.coverage['days_used'] as num?)?.round();
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _table(p, rows),
+      const SizedBox(height: S.x3),
+      Text(
+        '${used == null ? 'A run of' : '$used'} consecutive fully-recorded '
+        'day${used == 1 ? '' : 's'} of hourly heart-rate means, not '
+        'accelerometry — so the 10- and 5-hour windows are the highest- and '
+        'lowest-HR parts of your day rather than the most and least active.',
+        style: F.over.copyWith(color: p.ink3, height: 1.5),
+      ),
+    ]);
+  }
+
+  Widget _table(P p, List<(String, String, Conf)> rows) => Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x3),
+              child: Row(children: [
+                Expanded(
+                    child:
+                        Text(rows[i].$1, style: F.body.copyWith(color: p.ink))),
+                Text(rows[i].$2,
+                    style: F.body
+                        .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                const SizedBox(width: S.x3),
+                ConfDots(rows[i].$3),
+              ]),
+            ),
+          ],
+        ]),
+      );
 }

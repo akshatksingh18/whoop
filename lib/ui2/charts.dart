@@ -17,7 +17,20 @@
 //    auto-scaling its own min/max, which is fine for a sparkline and a lie
 //    anywhere a number is being read off the picture.
 //
-// 3. EVERY PAINTER THAT CAN RECEIVE A LONG SERIES DOWNSAMPLES. A night of
+// 3. A GAP IS A GAP. A sample that is `null` — or non-finite — means no
+//    measurement exists at that position, and every painter here breaks its
+//    path there rather than drawing a segment across it. A line joining 4 Aug
+//    to 11 Aug asserts a week that was never measured, which is a fabrication
+//    and not a rendering choice.
+//
+//    The x position of a sample is its INDEX, so the caller owns the time
+//    base. Hand these painters a DENSE series — one entry per day, per minute,
+//    per epoch, with `null` in the holes — and x is linear in time for free,
+//    which is also what lets `ChartFrame.xLabels` describe a real date range.
+//    A ragged "only the days we have a row for" list is what produces the
+//    fabrication, and no parameter here can rescue one.
+//
+// 4. EVERY PAINTER THAT CAN RECEIVE A LONG SERIES DOWNSAMPLES. A night of
 //    1 Hz data is ~30 000 points on a ~350 pt wide chart. The old UI handed
 //    all 30 000 to `Path`, which is ~85 segments per physical pixel: invisible
 //    work, visible jank. [minMaxColumns] reduces to at most two points per
@@ -74,8 +87,64 @@ List<Offset> minMaxColumns(
   return out;
 }
 
+/// [minMaxColumns] for a series that can have holes.
+///
+/// Returns one run of points per unbroken stretch of real samples, in order,
+/// with x measured across the WHOLE series — so the runs keep their true
+/// spacing and the space between them is the gap. `null` and non-finite are
+/// both holes.
+///
+/// A run of one is a sample with no neighbours: a polyline cannot show it, so
+/// the painter draws a dot. Anything in lib/ui2 that draws a series which may
+/// be missing days goes through this rather than through [minMaxColumns].
+List<List<Offset>> minMaxRuns(
+  List<double?> d,
+  double width,
+  double Function(double value) y,
+) {
+  final n = d.length;
+  if (n == 0 || width <= 0) return const [];
+  bool real(int i) {
+    final v = d[i];
+    return v != null && v.isFinite;
+  }
+
+  final runs = <List<Offset>>[];
+  var i = 0;
+  while (i < n) {
+    if (!real(i)) {
+      i++;
+      continue;
+    }
+    var j = i;
+    while (j < n && real(j)) {
+      j++;
+    }
+    final x0 = n == 1 ? 0.0 : i / (n - 1) * width;
+    if (j - i == 1) {
+      runs.add([Offset(x0, y(d[i]!))]);
+    } else {
+      // The run's own width is its share of the whole, so column x inside the
+      // run and index x across the series are the same number.
+      final w = (j - i - 1) / (n - 1) * width;
+      final seg = [for (var k = i; k < j; k++) d[k]!];
+      runs.add([
+        for (final o in minMaxColumns(seg, w, y)) Offset(x0 + o.dx, o.dy),
+      ]);
+    }
+    i = j;
+  }
+  return runs;
+}
+
 /// Column maxima only — for bar charts, where a column is one bar and the
 /// minimum is the baseline. Same contract as [minMaxColumns].
+///
+/// Ceiling: this is a PEAK, which is right for a rate (heart rate, pace) and
+/// wrong for anything additive. Ninety days of TRIMP reduced to thirty columns
+/// shows the hardest day in each column, not the column's load. Nothing plots
+/// an additive series long enough to be reduced today; add a sum mode before
+/// anything does.
 List<double> maxColumns(List<double> d, int cols) {
   final n = d.length;
   if (n == 0 || cols <= 0 || n <= cols) return d;
@@ -138,7 +207,11 @@ class AxisSpec {
     double? ceil,
     double? step,
   }) {
-    final v = d.toList();
+    // Non-finite in, no axis out. A NaN silently loses every comparison below,
+    // so it would leave the axis looking reasonable while the sample it came
+    // from punches an invisible hole in the line; an infinity used to spin the
+    // step loop forever, which is a frozen UI on the main isolate.
+    final v = [for (final x in d) if (x.isFinite) x];
     if (v.isEmpty) return null;
     final n = ticks < 2 ? 2 : ticks;
     // NB: `min`/`max` are fields on this class, so dart:math's are shadowed
@@ -148,30 +221,36 @@ class AxisSpec {
     // [floor] / [ceil] EXTEND the axis to include a meaningful anchor — pass
     // `floor: 0` for anything where zero is the real baseline. They never crop
     // the data.
-    if (floor != null && floor < lo) lo = floor;
-    if (ceil != null && ceil > hi) hi = ceil;
+    if (floor != null && floor.isFinite && floor < lo) lo = floor;
+    if (ceil != null && ceil.isFinite && ceil > hi) hi = ceil;
     if (hi - lo < 1e-9) {
-      // A flat series still needs a readable band around it, or the line sits
-      // on the floor of the chart and reads as "lowest it has ever been".
-      final pad = hi.abs() < 1e-9 ? 1.0 : hi.abs() * .1;
-      lo -= pad;
-      hi += pad;
+      if (hi.abs() < 1e-9) {
+        // All zero. A symmetric pad would put negative steps and negative
+        // TRIMP on the gridlines; zero belongs on the floor.
+        lo = 0;
+        hi = 1;
+      } else {
+        // A flat series still needs a readable band around it, or the line
+        // sits on the floor of the chart and reads as "lowest it has ever
+        // been". [autoExtent] pads by the same tenth.
+        final pad = hi.abs() * .1;
+        lo -= pad;
+        hi += pad;
+      }
     }
     // [step] overrides the rounding for axes whose "nice" numbers are not
     // powers of ten: minutes want 60/120/240, not 250. The rest of the maths
     // is identical, so an override cannot produce uneven ticks.
-    final s = step != null && step > 0
+    final s = step != null && step > 0 && step.isFinite
         ? step
         : _niceStep((hi - lo) / (n - 1));
     final base = (lo / s).floorToDouble() * s;
-    var top = base + s * (n - 1);
-    while (top < hi - 1e-9) {
-      top += s;
-    }
+    // Grow to cover the data in whole steps. Solved, not looped: with an
+    // infinity upstream the loop this replaces never returned.
+    final grow = ((hi - base) / s - 1e-9).ceil();
     return AxisSpec(
         min: base,
-        // Re-derive so the ticks stay evenly spaced after any growth above.
-        max: base + ((top - base) / s).round() * s,
+        max: base + (grow < n - 1 ? n - 1 : grow) * s,
         ticks: n,
         format: format);
   }
@@ -217,20 +296,63 @@ String axisFixed(double v) => v.toStringAsFixed(1);
 /// is not in the data.
 const _kSmoothMax = 120;
 
-({double min, double range}) _extent(List<double> d) {
-  final mx = d.reduce(max), mn = d.reduce(min);
-  return (min: mn, range: (mx - mn).abs() < 1e-6 ? 1.0 : mx - mn);
+/// The axis-less fallback, shared by every painter that has one so there is
+/// exactly one of it. Null when nothing finite is in the series.
+///
+/// It agrees with [AxisSpec.of] on the two cases that used to differ: a flat
+/// series gets a band AROUND it — a stable week is stable, not "lowest ever
+/// recorded" pinned to the floor of the card — and a flat ZERO series keeps
+/// zero on the floor, where it belongs.
+({double min, double range})? autoExtent(List<double?> d) {
+  double? mn, mx;
+  for (final v in d) {
+    if (v == null || !v.isFinite) continue;
+    if (mn == null || v < mn) mn = v;
+    if (mx == null || v > mx) mx = v;
+  }
+  if (mn == null) return null;
+  if ((mx! - mn).abs() >= 1e-6) return (min: mn, range: mx - mn);
+  if (mn.abs() < 1e-9) return (min: 0.0, range: 1.0);
+  final pad = mn.abs() * .1;
+  return (min: mn - pad, range: pad * 2);
+}
+
+/// One polyline through [pts]. Smoothing is only honest below [_kSmoothMax] —
+/// above it a cubic through min/max pairs invents overshoot.
+Path _polyline(List<Offset> pts, {required bool smooth}) {
+  final p = Path()..moveTo(pts.first.dx, pts.first.dy);
+  for (var i = 1; i < pts.length; i++) {
+    final a = pts[i - 1], b = pts[i];
+    if (smooth) {
+      final m = (a.dx + b.dx) / 2;
+      p.cubicTo(m, a.dy, m, b.dy, b.dx, b.dy);
+    } else {
+      p.lineTo(b.dx, b.dy);
+    }
+  }
+  return p;
 }
 
 /// The trend line. Sparkline in a row, hero curve in a card.
 ///
+/// [d] is DENSE and index-ordered: one entry per position on the time base,
+/// `null` where nothing was measured. Gaps break the line — see rule 3 at the
+/// top of the file.
+///
 /// [t] is a 0…1 draw-in progress — pass `animate(context, t)` so reduced
 /// motion lands on a fully drawn chart instead of a partial one.
 class LineChart extends CustomPainter {
-  final List<double> d;
+  final List<double?> d;
   final Color color;
-  final bool fill, dots;
+  final bool dots;
   final double t;
+
+  /// A filled area reads as a quantity measured from a baseline, so it is only
+  /// drawn when there is an [axis] to say what that baseline is. Asked for
+  /// without one it is dropped: the fallback anchors to the series minimum,
+  /// which turns a 58→60 bpm week into a full-card mountain — the banned
+  /// truncated-axis form with the truncation hidden.
+  final bool fill;
 
   /// [dotInk] is the knockout at the centre of the head dot; pass the surface
   /// the chart sits on. Defaults to nothing, which draws a solid dot.
@@ -243,78 +365,88 @@ class LineChart extends CustomPainter {
   final AxisSpec? axis;
 
   LineChart(this.d, this.color,
-      {this.fill = true,
+      {bool fill = true,
       this.dots = false,
       this.t = 1,
       this.dotInk,
-      this.axis});
+      this.axis})
+      : fill = fill && axis != null;
 
   @override
   void paint(Canvas cv, Size s) {
     if (d.length < 2 || s.width <= 0) return;
     final a = axis;
+    final e = a == null ? autoExtent(d) : null;
+    if (a == null && e == null) return; // nothing finite to draw
     final pad = s.height * .14;
-    final e = a == null ? _extent(d) : null;
     double y(double v) => a != null
         ? s.height - a.t(v) * s.height
         : s.height - pad - (v - e!.min) / e.range * (s.height - pad * 2);
 
-    final all = minMaxColumns(d, s.width, y);
-    final n = (all.length * t.clamp(0, 1)).round().clamp(2, all.length);
-    final pts = all.sublist(0, n);
+    final runs = minMaxRuns(d, s.width, y);
+    var left = runs.fold<int>(0, (n, r) => n + r.length);
+    left = (left * t.clamp(0, 1)).round();
+    final smooth = d.length <= _kSmoothMax;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
 
-    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-    if (d.length <= _kSmoothMax) {
-      for (var i = 1; i < pts.length; i++) {
-        final a = pts[i - 1], b = pts[i], m = (a.dx + b.dx) / 2;
-        path.cubicTo(m, a.dy, m, b.dy, b.dx, b.dy);
+    Offset? head;
+    for (final run in runs) {
+      if (left <= 0) break;
+      final pts = run.length <= left ? run : run.sublist(0, left);
+      left -= pts.length;
+      head = pts.last;
+      if (pts.length == 1) {
+        // A measurement with gaps on both sides. A polyline cannot show it and
+        // dropping it would make an every-other-day series draw nothing.
+        cv.drawCircle(pts.first, 1.8, Paint()..color = color);
+        continue;
       }
-    } else {
-      for (var i = 1; i < pts.length; i++) {
-        path.lineTo(pts[i].dx, pts[i].dy);
+      final path = _polyline(pts, smooth: smooth);
+      if (fill) {
+        final f = Path.from(path)
+          ..lineTo(pts.last.dx, s.height)
+          ..lineTo(pts.first.dx, s.height)
+          ..close();
+        cv.drawPath(
+          f,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: .24),
+                color.withValues(alpha: 0)
+              ],
+            ).createShader(Offset.zero & s),
+        );
       }
+      cv.drawPath(path, stroke);
     }
-
-    if (fill) {
-      final f = Path.from(path)
-        ..lineTo(pts.last.dx, s.height)
-        ..lineTo(0, s.height)
-        ..close();
-      cv.drawPath(
-        f,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [color.withValues(alpha: .24), color.withValues(alpha: 0)],
-          ).createShader(Offset.zero & s),
-      );
-    }
-    cv.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = color,
-    );
-    if (dots) {
-      cv.drawCircle(pts.last, 4.5, Paint()..color = color);
+    if (dots && head != null) {
+      cv.drawCircle(head, 4.5, Paint()..color = color);
       // The prototype knocked this out in hard white, which is a hole in a
       // dark card. It knocks out the surface it is drawn on.
-      if (dotInk != null) cv.drawCircle(pts.last, 2, Paint()..color = dotInk!);
+      if (dotInk != null) cv.drawCircle(head, 2, Paint()..color = dotInk!);
     }
   }
 
   @override
   bool shouldRepaint(covariant LineChart o) =>
-      o.d != d || o.t != t || o.color != color || o.axis != axis;
+      o.d != d || o.t != t || o.color != color || o.axis != axis ||
+      o.fill != fill;
 }
 
 /// Discrete buckets — days of a week, minutes in a zone.
+///
+/// [d] is dense like [LineChart.d]: a `null` bucket was never measured and no
+/// bar is drawn for it, which is a hole in the row rather than a zero.
 class Bars extends CustomPainter {
-  final List<double> d;
+  final List<double?> d;
   final Color color, track;
   final int highlight;
   final double t;
@@ -327,23 +459,58 @@ class Bars extends CustomPainter {
   Bars(this.d, this.color, this.track,
       {this.highlight = -1, this.t = 1, this.axis});
 
+  /// [maxColumns] over a series with holes: a column of nothing stays nothing.
+  static List<double?> _columns(List<double?> d, int cols) {
+    final n = d.length;
+    if (cols <= 0 || n <= cols) return d;
+    return [
+      for (var c = 0; c < cols; c++)
+        () {
+          final lo = (c * n / cols).floor();
+          final hi = ((c + 1) * n / cols).ceil().clamp(lo + 1, n);
+          double? m;
+          for (var i = lo; i < hi; i++) {
+            final v = d[i];
+            if (v == null || !v.isFinite) continue;
+            if (m == null || v > m) m = v;
+          }
+          return m;
+        }(),
+    ];
+  }
+
   @override
   void paint(Canvas cv, Size s) {
     if (d.isEmpty || s.width <= 0) return;
     // A bar narrower than ~2pt is not a bar. Aggregate to what fits.
-    final v = maxColumns(d, (s.width / 3).floor().clamp(1, d.length));
+    final v = _columns(d, (s.width / 3).floor().clamp(1, d.length));
     final a = axis;
-    final mx = a == null ? v.reduce(max) : 0.0;
-    if (a == null && mx <= 0) return;
+    // A bar is drawn from the canvas floor, so its baseline is already zero —
+    // the auto-scale only needs the tallest bar, and [autoExtent]'s centred
+    // band would be the wrong shape here.
+    var mx = 0.0;
+    if (a == null) {
+      for (final x in v) {
+        if (x != null && x.isFinite && x > mx) mx = x;
+      }
+      if (mx <= 0) return;
+    }
     final bw = s.width / v.length;
     // An aggregated axis can no longer address the caller's index, so the
     // highlight is dropped rather than pointed at the wrong bar.
     final hl = v.length == d.length ? highlight : -1;
     for (var i = 0; i < v.length; i++) {
-      final h = (a == null ? v[i] / mx : a.t(v[i])) * s.height * t.clamp(0, 1);
+      final value = v[i];
+      if (value == null || !value.isFinite) continue;
+      final h = (a == null ? value / mx : a.t(value)) * s.height * t.clamp(0, 1);
+      if (!h.isFinite) continue;
+      // A 2pt floor so a near-zero bar is still visible — grown DOWN from its
+      // own top, or the bar hangs below the canvas floor and a zero and a
+      // tiny value draw identically.
+      final bh = max(h, 2.0);
       cv.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * bw + bw * .2, s.height - h, bw * .6, max(h, 2)),
+          Rect.fromLTWH(i * bw + bw * .2, s.height - bh, bw * .6, bh),
           const Radius.circular(3),
         ),
         Paint()
@@ -474,14 +641,47 @@ class Hypnogram extends CustomPainter {
   static List<(String, Color)> get legend =>
       [for (final s in SleepStage.values) (s.label, cols[s]!)];
 
+  /// One column per drawable slot, with a STATED precedence: awake wins.
+  ///
+  /// An 8 h night at 1 Hz is 28 800 epochs on a ~350 pt chart. Drawn one rect
+  /// per epoch they overlap and the last one drawn wins, so which stage a
+  /// pixel shows is an accident of draw order — a 30 s arousal can erase the
+  /// deep block beside it, or the deep block can erase the arousal. Awake is
+  /// the shortest thing in the record and the one worth keeping, so it takes
+  /// the column; otherwise the column shows the stage that occupied most of
+  /// it.
+  static List<SleepStage> columns(List<SleepStage> st, int cols) {
+    final n = st.length;
+    if (cols <= 0 || n <= cols) return st;
+    return [
+      for (var c = 0; c < cols; c++)
+        _dominant(st, (c * n / cols).floor(),
+            ((c + 1) * n / cols).ceil().clamp((c * n / cols).floor() + 1, n)),
+    ];
+  }
+
+  static SleepStage _dominant(List<SleepStage> st, int lo, int hi) {
+    final seen = List<int>.filled(SleepStage.values.length, 0);
+    for (var i = lo; i < hi; i++) {
+      if (st[i] == SleepStage.awake) return SleepStage.awake;
+      seen[st[i].index]++;
+    }
+    var best = 0;
+    for (var i = 1; i < seen.length; i++) {
+      if (seen[i] > seen[best]) best = i;
+    }
+    return SleepStage.values[best];
+  }
+
   @override
   void paint(Canvas cv, Size s) {
-    if (stages.isEmpty) return;
-    final lane = s.height / 4, w = s.width / stages.length;
-    final n =
-        (stages.length * t.clamp(0, 1)).round().clamp(1, stages.length);
+    if (stages.isEmpty || s.width <= 0) return;
+    // Two per column would overlap at the 2pt visibility floor below.
+    final v = columns(stages, (s.width / 2).floor());
+    final lane = s.height / 4, w = s.width / v.length;
+    final n = (v.length * t.clamp(0, 1)).round().clamp(1, v.length);
     for (var i = 0; i < n; i++) {
-      final st = stages[i];
+      final st = v[i];
       cv.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(
@@ -515,15 +715,18 @@ class ZoneBar extends CustomPainter {
     var x = 0.0;
     for (var i = 0; i < z.length && i < cols.length; i++) {
       final w = z[i] * s.width;
+      if (!w.isFinite) continue;
+      // Advance first: skipping the draw must not also skip the band's width,
+      // or every later band shifts left by it.
+      x += w;
       if (w <= .5) continue;
       cv.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, 0, max(w - 2, 1), s.height),
+          Rect.fromLTWH(x - w, 0, max(w - 2, 1), s.height),
           const Radius.circular(3),
         ),
         Paint()..color = cols[i],
       );
-      x += w;
     }
   }
 
@@ -536,6 +739,12 @@ class ZoneBar extends CustomPainter {
 /// [days] is one entry per day, each a 24-slot list of 0…1 intensity, or null
 /// where nothing was recorded. A null day paints nothing — a gap in the record
 /// reads as a gap, not as a night of no sleep.
+///
+/// Slot 0 is the BOTTOM row: `ChartFrame` stacks its tick labels top-first
+/// from `AxisSpec.max`, so hour has to increase upwards or the labels are the
+/// mirror image of the rows. It used to read correctly only because the
+/// noon-anchored formatter the one caller passes is symmetric at three ticks —
+/// at five it printed 6 AM against the 6 PM row.
 class Actogram extends CustomPainter {
   final List<List<double>?> days;
   final Color color;
@@ -551,9 +760,9 @@ class Actogram extends CustomPainter {
       if (day == null) continue;
       for (var h = 0; h < 24 && h < day.length; h++) {
         final v = day[h].clamp(0.0, 1.0);
-        if (v <= 0) continue;
+        if (!(v > 0)) continue; // NaN fails this too, which is the point
         cv.drawRect(
-          Rect.fromLTWH(d * cw, h * ch, cw + .4, ch),
+          Rect.fromLTWH(d * cw, s.height - (h + 1) * ch, cw + .4, ch),
           Paint()..color = color.withValues(alpha: .22 + v * .68),
         );
       }
@@ -637,8 +846,19 @@ class Spectrum extends CustomPainter {
 /// Several signals stacked over one shared night timeline — HR, movement,
 /// SpO₂ relative, whatever the screen has. Each lane is independently scaled,
 /// because they are different units and a shared axis would be a lie.
+///
+/// ONE TIME BASE, and the painter enforces it: every lane must be the same
+/// length, index i being the same instant in all of them, `null` where a lane
+/// has nothing there. A lane of a different length is not drawn.
+///
+/// That is the whole premise of stacking — a vertical slice is one moment.
+/// Spreading each lane across the full width by its own sample count instead
+/// put a 3 a.m. HRV dip under a 2:20 a.m. HR spike, silently, whenever the
+/// lanes had different rates or different coverage. Resample every lane onto
+/// the night's grid before handing it over; nothing here can recover the
+/// mapping afterwards.
 class NightStack extends CustomPainter {
-  final List<List<double>> series;
+  final List<List<double?>> series;
   final List<Color> colors;
 
   /// One axis per lane, in the same order as [series]; a null entry (or a
@@ -653,28 +873,30 @@ class NightStack extends CustomPainter {
   @override
   void paint(Canvas cv, Size s) {
     if (series.isEmpty || s.width <= 0) return;
+    // The grid is the longest lane. Anything else is on a different clock.
+    final span = series.fold<int>(0, (n, l) => l.length > n ? l.length : n);
     final h = s.height / series.length;
     for (var k = 0; k < series.length; k++) {
       final d = series[k];
-      if (d.length < 2) continue;
+      if (d.length != span || d.length < 2) continue;
       final a = (axes != null && k < axes!.length) ? axes![k] : null;
-      final e = a == null ? _extent(d) : null;
+      final e = a == null ? autoExtent(d) : null;
+      if (a == null && e == null) continue;
       double y(double v) => a != null
           ? k * h + h - 6 - a.t(v) * (h - 14)
           : k * h + h - 6 - (v - e!.min) / e.range * (h - 14);
-      final pts = minMaxColumns(d, s.width, y);
-      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-      for (var i = 1; i < pts.length; i++) {
-        path.lineTo(pts[i].dx, pts[i].dy);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round
+        ..color = colors[k % colors.length];
+      for (final run in minMaxRuns(d, s.width, y)) {
+        if (run.length == 1) {
+          cv.drawCircle(run.first, 1.2, Paint()..color = paint.color);
+          continue;
+        }
+        cv.drawPath(_polyline(run, smooth: false), paint);
       }
-      cv.drawPath(
-        path,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.8
-          ..strokeCap = StrokeCap.round
-          ..color = colors[k % colors.length],
-      );
     }
   }
 

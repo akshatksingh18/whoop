@@ -22,6 +22,7 @@ import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../ui2.dart';
 import 'profile.dart';
+import 'settings.dart' show backToRoot;
 
 /// Measurement quality, which is the ONLY thing that decides precedence.
 enum SourceTier {
@@ -145,10 +146,35 @@ class MyDevices extends StatelessWidget {
     final app = c.watch<AppState>();
     return MyDevicesView(
       sources: rankSources(liveSources(app)),
-      // Walking back into the pairing step, rather than popping a screen and
-      // leaving the user exactly where they were.
-      onPair: () => OnboardingBypass.clear(OnboardingBypass.kPairing),
+      // This used to clear a preference and nothing else — the gate that
+      // renders the pairing step is MaterialApp.home, underneath this pushed
+      // screen, so the button appeared completely inert. And the gate is no
+      // longer an option regardless: an onboarded user is never routed back
+      // into first-run pairing (that was the bug where forgetting a band threw
+      // months of data behind an onboarding screen), which makes this the only
+      // way back to pairing. So push it.
+      onPair: () => goto(c, const RePair()),
     );
+  }
+}
+
+/// Pairing, pushed rather than gated.
+///
+/// The onboarding gate is what used to take the pairing screen away once a
+/// band answered. A pushed copy has no gate under it, so it closes itself —
+/// otherwise it sits there on "Paired · Continue", whose button re-runs the
+/// scan.
+class RePair extends StatelessWidget {
+  const RePair({super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    if (c.watch<AppState>().isPaired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (c.mounted) Navigator.of(c).maybePop();
+      });
+    }
+    return PairingScreen(onSkip: () => Navigator.of(c).maybePop());
   }
 }
 
@@ -329,9 +355,41 @@ class DeviceDetail extends StatelessWidget {
     return DeviceDetailView(
       s,
       onFind: app?.buzzBand,
-      onForget: app?.unpair,
+      onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
   }
+}
+
+/// Forgetting a band is destructive — it ends the only connection to the one
+/// sensor in the app that measures anything continuously — and it used to
+/// happen on a single tap with no confirmation, leaving this screen still
+/// showing the band's battery afterwards. Mirrors the reset confirmation in
+/// settings.dart, including the pop: `unpair()` changes the gate underneath
+/// this pushed screen, so without it the user is left reading a device page
+/// for a device that is gone.
+Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
+  final ok = await showDialog<bool>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: Text('Forget $name?'),
+      content: const Text(
+        'The band stops syncing and has to be paired again to measure '
+        'anything. Everything already banked on this phone is kept — this '
+        'removes the source, not the data.',
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: const Text('Keep it paired')),
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: const Text('Forget it')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  await app.unpair();
+  if (c.mounted) backToRoot(c);
 }
 
 class DeviceDetailView extends StatelessWidget {

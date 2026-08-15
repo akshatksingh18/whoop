@@ -6,9 +6,11 @@
 // The App Group id MUST match the one set in Xcode (Runner + widget targets) and
 // in the Swift suite name. See guides/IOS_INSTALLATION.md.
 
+import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
 
+import '../data/local_repository.dart';
 import '../models/payloads.dart';
 
 class WidgetService {
@@ -48,6 +50,55 @@ class WidgetService {
     }
   }
 
+  /// Rebuild the snapshot from the derived store and publish it.
+  ///
+  /// THE entry point — [push] is the writer underneath. Call it on the one
+  /// signal that changes what the widget should say: a completed derivation.
+  /// It had exactly one caller left (the iOS BGTask); the foreground caller was
+  /// `today_screen.dart`'s fetch, which was deleted with the old UI, so on
+  /// Android nothing refreshed the home widget, the Watch mirror or the Siri
+  /// intents at all — they answered with whatever the last BGTask wake wrote.
+  ///
+  /// Best-effort; never throws into the caller.
+  static Future<void> refresh(LocalRepository? repo) async {
+    if (repo == null) return;
+    try {
+      await push(TodayData.fromJson(await repo.getToday()));
+    } catch (_) {/* the widget is a mirror; it must never break its source */}
+  }
+
+  /// True when [t] is describing a day that is more than one calendar day
+  /// behind [now] — i.e. the app has not derived anything for over 24 h and the
+  /// numbers are not "today's" by any reading.
+  ///
+  /// LAST NIGHT'S sleep shown during today is NOT stale: that is the normal
+  /// state of every metric here until the next night lands, which is why this
+  /// allows a one-day lag rather than demanding an exact match. Returns false
+  /// when the payload carries no status block — an unknown age is not a claim
+  /// of staleness.
+  @visibleForTesting
+  static bool isStale(TodayData t, {DateTime? now}) {
+    final s = t.status;
+    if (s == null) return false;
+    final day = _parseDay(s.overnightDay ?? s.activityDay ?? s.todayDay);
+    if (day == null) return false;
+    final today = now ?? DateTime.now();
+    return DateTime(today.year, today.month, today.day)
+            .difference(day)
+            .inDays >
+        1;
+  }
+
+  /// 'yyyy-mm-dd' → local midnight. Null for anything else.
+  static DateTime? _parseDay(String? label) {
+    if (label == null) return null;
+    final p = label.split('-');
+    if (p.length != 3) return null;
+    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    if (y == null || m == null || d == null) return null;
+    return DateTime(y, m, d);
+  }
+
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
   /// throws into the caller. Sentinels: ints use -1 / strings use '' for "no data".
   static Future<void> push(TodayData t) async {
@@ -62,7 +113,14 @@ class WidgetService {
       Future<void> setI(String k, int v) =>
           HomeWidget.saveWidgetData<int>(k, v);
 
-      await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty);
+      // has_data is the ONE flag every native reader gates on (the WidgetKit
+      // home + lock-screen widgets, the Watch mirror, the Siri intents), and it
+      // is the only way this side can say "don't show a number" to any of them.
+      // A snapshot the app KNOWS is over a day old must not sit on a lock
+      // screen looking current — the widget's own no-data state is the honest
+      // answer, and the alternative is a readiness score from last week with
+      // nothing on it to say so.
+      await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty && !isStale(t));
       // Headline composite Readiness + the three rings (Strain · Sleep · HRV).
       await setI(
         'readiness',

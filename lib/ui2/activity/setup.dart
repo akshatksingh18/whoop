@@ -57,9 +57,28 @@ class _ActivitySetupState extends State<ActivitySetup> {
       _refused = !ok;
     });
     if (!ok) return;
+    // The draft opens with the session, not with the screen: everything the
+    // user types from here belongs to the session, and has to survive the
+    // screen being minimised or the process being killed.
+    if (start != null) {
+      LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
+    }
     await Navigator.of(context).pushReplacement(MaterialPageRoute(
       builder: (_) => liveFor(widget.a,
           private: private, weightKg: widget.weightKg, host: widget.host),
+    ));
+  }
+
+  /// Back into the session that is already running. The refusal used to be a
+  /// dead end: "finish that one first", with no way to reach the one screen
+  /// that can finish it.
+  void _resume() {
+    final d = LiveDraft.current;
+    final a = d == null ? null : activityByName(d.activityKey);
+    if (a == null) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => liveFor(a,
+          private: d!.private, weightKg: d.weightKg, host: widget.host),
     ));
   }
 
@@ -185,22 +204,27 @@ class _ActivitySetupState extends State<ActivitySetup> {
                               ? 'Calories cannot be estimated without your '
                                   'body weight — ${a.met.toStringAsFixed(1)} '
                                   'MET on its own is not a kilocalorie.'
+                              // No error bar: nothing computes one, and the
+                              // "±15%" this used to quote was a number with
+                              // no estimator behind it.
                               : 'About $est kcal for $targetMin min at your '
                                   'weight. Estimated from '
                                   '${a.met.toStringAsFixed(1)} MET, refined '
-                                  'by heart rate once you start. Expect '
-                                  'roughly ±15%.',
+                                  'by heart rate once you start.',
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),
                 ),
                 if (_refused) ...[
                   const SizedBox(height: S.x4),
-                  const StatusCard(
+                  StatusCard(
                     'A session is already running',
                     'Only one can be live at a time — the strap, the zone '
-                        'tally and the route recorder all belong to it. '
-                        'Finish that one first.',
+                        'tally and the route recorder all belong to it.',
+                    fix: LiveDraft.current == null
+                        ? ''
+                        : 'Open the running session',
+                    onFix: LiveDraft.current == null ? null : _resume,
                     icon: LucideIcons.circleAlert,
                   ),
                 ],

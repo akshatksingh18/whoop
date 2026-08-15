@@ -1,8 +1,8 @@
 // Local raw-first storage (SQLite via sqflite).
 //
 // Durable storage layers:
-//   decoded_onehz — canonical per-second decoded substrate, deduped by rec_ts.
-//   decoded_rr    — sparse RR beats for that substrate, deduped by (rr_ts_ms, beat_index).
+//   decoded_onehz — canonical per-second decoded substrate, keyed by rec_ts.
+//   decoded_rr    — sparse RR beats for that substrate, keyed by (rec_ts, beat_index).
 //   samples       — legacy header cache kept only for backward-compat fallback.
 //
 // `counter` (u32 @[3:7]) is still kept as the strap's record id, but analytics
@@ -12,6 +12,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -95,7 +96,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 31;
+  static const int schemaVersion = 34;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -326,7 +327,11 @@ class LocalDb {
           await _createCycleSymptom(db);
         }
         if (oldV < 19) {
-          await _createDecodedStore(db);
+          // The v17 step (or a v11-16 origin) may leave OLD counter-keyed decoded
+          // tables here; the backfill below writes through the rec_ts-keyed
+          // _queueDecodedOneHz, so convert to the current schema first (preserving
+          // any existing rows), then reconstruct the rest from raw_records.
+          await _rekeyDecodedStoreByRecTs(db);
           await _backfillDecodedStore(db);
           await _dropRawStore(db);
           await _ensureSessionSchema(db); // adds hrr_bpm
@@ -430,6 +435,54 @@ class LocalDb {
           // output is untouched and the edits replay over it.
           await _createSleepNap(db);
         }
+        if (oldV < 32) {
+          // Re-key raw_archive off the volatile `counter` onto frame `hex`.
+          // `counter INTEGER PRIMARY KEY` + IGNORE silently DROPPED a distinct
+          // undecodable frame whenever a post-reboot counter (reset to ~0)
+          // collided with a still-present pre-reboot row — data loss in the
+          // "never lose" table. Rebuild keyed by content. Existing rows have
+          // unique counters, so the copy loses nothing; at most it collapses an
+          // exact-duplicate hex, which is the dedup we want.
+          //
+          // raw_archive is normally created lazily in onOpen (_repairOpenSchema),
+          // NOT in this ladder, so on an old DB it may not exist yet here — in
+          // which case there is nothing to migrate and a fresh (hex-keyed) create
+          // is all that's needed. DROP the old index name before the fresh CREATE
+          // so it can't collide on the name the rename carried onto the aside
+          // table (the leaked-`_new`-index footgun documented on the decoded
+          // rebuild).
+          final hasArchive = (await db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='raw_archive'",
+          )).isNotEmpty;
+          if (hasArchive) {
+            await db.execute('ALTER TABLE raw_archive RENAME TO _raw_archive_old');
+            await db.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
+            await _createRawArchive(db);
+            await db.execute(
+              'INSERT OR IGNORE INTO raw_archive '
+              '(hex, counter, packet_type, rec_ts, captured_at, reason) '
+              'SELECT hex, counter, packet_type, rec_ts, captured_at, reason '
+              'FROM _raw_archive_old',
+            );
+            await db.execute('DROP TABLE _raw_archive_old');
+          } else {
+            await _createRawArchive(db);
+          }
+        }
+        if (oldV < 33) {
+          // RE-KEY the decoded ledger off the volatile record `counter` onto
+          // rec_ts. The counter resets to ~0 on every reboot, so counter-as-PK
+          // let a post-reboot second REPLACE-evict a pre-reboot one — silently,
+          // unrecoverably deleting a 1 Hz row (raw_records is dropped).
+          await _rekeyDecodedStoreByRecTs(db);
+        }
+        if (oldV < 34) {
+          // Keep the per-second fields the band computes itself instead of
+          // decoding and discarding them. Additive columns only — see
+          // _ensureDecodedOneHzBandFields. MUST run after the v33 re-key, which
+          // rebuilds decoded_onehz from an explicit column list.
+          await _ensureDecodedOneHzBandFields(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -523,6 +576,35 @@ class LocalDb {
       await db.execute('ALTER TABLE $table ADD COLUMN $column $ddlType');
     } catch (_) {
       /* another opener won the race — the column exists now */
+    }
+  }
+
+  /// v34: the per-second fields a gen5 band computes on its own and reports in
+  /// every record — its pedometer's cumulative step count and cadence, its
+  /// activity class, a calibrated skin temperature in °C, its on-wrist
+  /// determination, and the HR-validity flag plus the second HR byte that
+  /// corroborates the primary one. They used to be decoded and dropped.
+  ///
+  /// Additive and safe on a populated DB: seven nullable columns, no rewrite of
+  /// the (million-row) table, no backfill. Existing rows read NULL — which is
+  /// the truth for them, since the values were never stored. `skin_temp_raw`,
+  /// `skin_contact` and the `spo2_*` columns are deliberately left alone; they
+  /// hold real historical data regardless of what the names now suggest.
+  static Future<void> _ensureDecodedOneHzBandFields(Database db) async {
+    const cols = {
+      'step_count': 'INTEGER',
+      'step_cadence': 'INTEGER',
+      'activity_class': 'INTEGER',
+      'skin_temp_c': 'REAL',
+      'on_wrist': 'INTEGER',
+      'hr_valid': 'INTEGER',
+      'hr_alt': 'INTEGER',
+    };
+    final have = await _columnsOf(db, 'decoded_onehz');
+    if (have.isEmpty) return; // table not created yet — the DDL carries them
+    for (final e in cols.entries) {
+      if (have.contains(e.key)) continue;
+      await _addColumnIfMissing(db, 'decoded_onehz', e.key, e.value);
     }
   }
 
@@ -1182,6 +1264,14 @@ class LocalDb {
   /// misbehaving callback can never abort a real commit. db.dart itself stays
   /// logging-framework-free (no Flutter dependency); callers pass their own
   /// logger (e.g. ble_engine.dart's `_log`, background_sync.dart's `debugPrint`).
+  /// Times the ACK-gating commit ran at a weaker durability level than
+  /// intended, because `PRAGMA synchronous=FULL` was refused or did not stick.
+  /// Not fatal (see the pragma block below) but never silent.
+  static int _syncFullDowngrades = 0;
+
+  /// Read-only view of [_syncFullDowngrades] for diagnostics/tests.
+  static int get syncFullDowngrades => _syncFullDowngrades;
+
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
     List<Sample?> samples, {
@@ -1199,82 +1289,143 @@ class LocalDb {
     }
 
     final db = await instance;
-    await db.transaction((txn) async {
-      // Read the existing high-water THROUGH the txn — never via the global db
-      // handle, which would deadlock against this same open transaction.
-      var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
-      var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
-      // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
-      // ONE platform-channel message, and the native side builds a single
-      // ArrayList of every argument. A large backlog offload (raws in the
-      // hundreds-of-thousands) blew the native heap in SqlCommand.getSqlArguments
-      // → OutOfMemoryError (Crashlytics 0.9.13). Committing in bounded chunks
-      // flushes and frees each message's args. These commits all happen INSIDE
-      // the single `db.transaction` below, so the safe-trim invariant holds: the
-      // whole offload (raw_archive + samples + decoded_onehz + decoded_rr +
-      // cursor) is still one atomic transaction — every row is durable before the
-      // caller echoes the HISTORY_END trim token, or none is.
-      const chunkOps = 4000;
-      var batch = txn.batch();
-      var ops = 0;
-      Future<void> flushChunk() async {
-        if (ops == 0) return;
-        await batch.commit(noResult: true);
-        batch = txn.batch();
-        ops = 0;
+    // POWER-LOSS DURABILITY WINDOW. This is the ACK-gating commit: once it
+    // returns, the caller writes the BLE batch-ACK and the band trims its flash.
+    // Under WAL + synchronous=NORMAL (the default this connection opens with) a
+    // commit is durable only at the next checkpoint — so a kernel panic /
+    // battery-yank AFTER the ACK but BEFORE the -wal is checkpointed loses these
+    // just-committed rows from the phone while they are already gone from the
+    // band. Raise durability to FULL (fsync AT commit) for THIS commit only,
+    // leaving every other path at NORMAL — they are all recomputable and FULL
+    // everywhere is brutally slow. `synchronous` is per-connection and CANNOT be
+    // changed mid-transaction, so it is set on the connection BEFORE
+    // db.transaction opens and reset AFTER it commits. The reset lives in a
+    // finally: a leaked FULL from a throwing commit would fsync every subsequent
+    // write on this connection forever. `PRAGMA synchronous=FULL/NORMAL` returns
+    // NO rows → execute() (not rawQuery), kept non-fatal like the open-time
+    // PRAGMAs so a PRAGMA throw can never fail a durable commit. Every ACK-gating
+    // commit — the foreground drain AND the headless iOS-restore recovery drain
+    // (background_sync.dart) — funnels through here, so this one choke point
+    // covers them all. `synchronous` is per-connection, so the bracket is only
+    // safe because these drains never OVERLAP on a shared connection: the offload
+    // processor is single-flight (ble_engine.dart) and BandOwnership makes the
+    // headless drain yield when the foreground owns the band. Do not add a second
+    // concurrent caller of commitSyncBatch on the main-isolate connection without
+    // reinstating that serialization — a mid-window reset would silently
+    // downgrade this commit back to NORMAL.
+    // Best-effort, and deliberately NOT fatal. Failing the commit when the
+    // upgrade is refused would mean never committing, therefore never ACKing,
+    // therefore never trimming — the strap re-floods the same backlog forever
+    // and sync is dead on any platform that rejects the pragma. NORMAL under
+    // WAL still commits atomically; FULL narrows the power-loss window, it is
+    // not itself the safe-trim invariant.
+    //
+    // What it must not do is fail SILENTLY, which is what "best-effort" meant
+    // before: read it back, so a downgrade shows up in the log and the counter
+    // instead of being invisible for the life of the install.
+    try {
+      await db.execute('PRAGMA synchronous=FULL');
+      final got = await db.rawQuery('PRAGMA synchronous');
+      final level = got.isEmpty ? null : got.first.values.firstOrNull;
+      // 2 == FULL. sqflite reports the numeric level.
+      if (level is num && level.toInt() != 2) {
+        _syncFullDowngrades++;
+        checkpoint('[DB] synchronous=FULL did not take (reads back as '
+            '$level) — the ACK-gating commit is running at a weaker '
+            'durability level (downgrades_total=$_syncFullDowngrades).');
       }
+    } catch (e) {
+      _syncFullDowngrades++;
+      checkpoint('[DB] PRAGMA synchronous=FULL was refused ($e) — the '
+          'ACK-gating commit is running at NORMAL '
+          '(downgrades_total=$_syncFullDowngrades).');
+    }
+    try {
+      await db.transaction((txn) async {
+        // Read the existing high-water THROUGH the txn — never via the global db
+        // handle, which would deadlock against this same open transaction.
+        var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
+        var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
+        // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
+        // ONE platform-channel message, and the native side builds a single
+        // ArrayList of every argument. A large backlog offload (raws in the
+        // hundreds-of-thousands) blew the native heap in SqlCommand.getSqlArguments
+        // → OutOfMemoryError (Crashlytics 0.9.13). Committing in bounded chunks
+        // flushes and frees each message's args. These commits all happen INSIDE
+        // the single `db.transaction` below, so the safe-trim invariant holds: the
+        // whole offload (raw_archive + samples + decoded_onehz + decoded_rr +
+        // cursor) is still one atomic transaction — every row is durable before the
+        // caller echoes the HISTORY_END trim token, or none is.
+        const chunkOps = 4000;
+        var batch = txn.batch();
+        var ops = 0;
+        Future<void> flushChunk() async {
+          if (ops == 0) return;
+          await batch.commit(noResult: true);
+          batch = txn.batch();
+          ops = 0;
+        }
 
-      // SAFE-TRIM INVARIANT: archive the undecodable records in the SAME
-      // transaction as the raw records + trim cursor, so they are durably set
-      // aside BEFORE the caller writes the batch-ACK that lets the band trim.
-      if (archives != null) {
-        for (final a in archives) {
-          batch.insert('raw_archive', {
-            'counter': a.counter,
-            'hex': a.hex,
-            'packet_type': a.packetType,
-            'rec_ts': a.recTs,
-            'captured_at': a.capturedAt,
-            'reason': a.reason,
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-          if (++ops >= chunkOps) await flushChunk();
+        // SAFE-TRIM INVARIANT: archive the undecodable records in the SAME
+        // transaction as the raw records + trim cursor, so they are durably set
+        // aside BEFORE the caller writes the batch-ACK that lets the band trim.
+        if (archives != null) {
+          for (final a in archives) {
+            batch.insert('raw_archive', {
+              'counter': a.counter,
+              'hex': a.hex,
+              'packet_type': a.packetType,
+              'rec_ts': a.recTs,
+              'captured_at': a.capturedAt,
+              'reason': a.reason,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            if (++ops >= chunkOps) await flushChunk();
+          }
         }
-      }
-      for (var i = 0; i < raws.length; i++) {
-        final raw = raws[i];
-        final recTs = _recTsFor(raw);
-        final sample = samples[i];
-        if (sample != null) {
-          batch.insert('samples', {
-            'counter': raw.counter,
-            ...sample.toDbMap(),
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-          ops++;
+        for (var i = 0; i < raws.length; i++) {
+          final raw = raws[i];
+          final recTs = _recTsFor(raw);
+          final sample = samples[i];
+          if (sample != null) {
+            batch.insert('samples', {
+              'counter': raw.counter,
+              ...sample.toDbMap(),
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            ops++;
+          }
+          ops += _queueDecodedOneHz(batch, raw, sample);
+          if (raw.counter > maxCounter) maxCounter = raw.counter;
+          if (recTs > maxRecTs) maxRecTs = recTs;
+          if (ops >= chunkOps) await flushChunk();
         }
-        ops += _queueDecodedOneHz(batch, raw, sample);
-        if (raw.counter > maxCounter) maxCounter = raw.counter;
-        if (recTs > maxRecTs) maxRecTs = recTs;
-        if (ops >= chunkOps) await flushChunk();
-      }
-      checkpoint(
-        'decoded_archive_queued raws=${raws.length} '
-        'archives=${archives?.length ?? 0}',
-      );
-      await flushChunk();
-      checkpoint('decoded_archive_committed');
-      await setCursor('counter_hw', '$maxCounter', txn: txn);
-      await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
-      if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
-      if (extraCursors != null) {
-        for (final e in extraCursors.entries) {
-          await setCursor(e.key, e.value, txn: txn);
+        checkpoint(
+          'decoded_archive_queued raws=${raws.length} '
+          'archives=${archives?.length ?? 0}',
+        );
+        await flushChunk();
+        checkpoint('decoded_archive_committed');
+        await setCursor('counter_hw', '$maxCounter', txn: txn);
+        await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
+        if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+        if (extraCursors != null) {
+          for (final e in extraCursors.entries) {
+            await setCursor(e.key, e.value, txn: txn);
+          }
         }
+        checkpoint(
+          'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
+          'trim=${trimToken != null}',
+        );
+      });
+    } finally {
+      // ALWAYS restore NORMAL — even if the commit threw — so a leaked FULL does
+      // not fsync every subsequent write on this connection. Non-fatal.
+      try {
+        await db.execute('PRAGMA synchronous=NORMAL');
+      } catch (_) {
+        /* non-fatal — see open-time PRAGMA discipline */
       }
-      checkpoint(
-        'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
-        'trim=${trimToken != null}',
-      );
-    });
+    }
     await _writeCaptureFreshness(raws);
   }
 
@@ -2072,53 +2223,58 @@ class LocalDb {
   // analytics: one row per real second (`rec_ts`) plus sparse RR beats for that
   // second. raw_records stays as the replay/debug ledger and upgrade fallback.
   static Future<void> _createDecodedStore(Database db) async {
+    // KEYED BY rec_ts, NOT the band's record `counter`. The strap resets its
+    // per-record counter to ~0 on every reboot, so `counter INTEGER PRIMARY KEY`
+    // let a post-reboot record (counter=c, rec_ts=T2) REPLACE-evict a still-present
+    // pre-reboot row (counter=c, rec_ts=T1) — silently and UNRECOVERABLY deleting
+    // T1's only decoded 1 Hz row (raw_records is DROPped, so this store is the sole
+    // system of record). rec_ts is unique per real second, so newest-wins REPLACE
+    // on rec_ts is safe. `counter` is demoted to a NOT NULL forensic column (also
+    // the keyset-cursor tiebreak in decodedOneHzBatchByRecTsRange, which never
+    // fires now that rec_ts is unique).
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_onehz (
-        counter INTEGER PRIMARY KEY,
-        rec_ts INTEGER NOT NULL,
+        rec_ts INTEGER PRIMARY KEY,
+        counter INTEGER NOT NULL,
         hr INTEGER NOT NULL,
         ax REAL NOT NULL,
         ay REAL NOT NULL,
         az REAL NOT NULL,
         spo2_red_raw INTEGER NOT NULL,
         spo2_ir_raw INTEGER NOT NULL,
-        skin_temp_raw INTEGER NOT NULL
+        skin_temp_raw INTEGER NOT NULL,
+        step_count INTEGER,
+        step_cadence INTEGER,
+        activity_class INTEGER,
+        skin_temp_c REAL,
+        on_wrist INTEGER,
+        hr_valid INTEGER,
+        hr_alt INTEGER
       )
     ''');
+    // Every band-computed column above is NULLABLE ON PURPOSE: only a gen5 band
+    // sends them, and a gen4 row must read back as "not reported", not as zero
+    // steps / 0 °C / "off wrist". No DEFAULT, ever.
+    await _ensureDecodedOneHzBandFields(db);
+    // Forensic-only lookup by the raw counter; not on any read path.
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_rects ON decoded_onehz(rec_ts, counter)',
+      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
     );
-    await db.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_onehz_rec_ts_unique '
-      'ON decoded_onehz(rec_ts)',
-    );
+    // decoded_rr shares the rec_ts key with its parent: PRIMARY KEY (rec_ts,
+    // beat_index). Parent and child now delete/replace by the SAME key, so no
+    // orphan guard is needed. rr_ts_ms (= rec_ts*1000) stays as the per-beat
+    // timestamp the compute worker reads. No secondary index: the rec_ts-range
+    // read path is served by the PK, and the old UNIQUE(rr_ts_ms, beat_index) is
+    // now implied by the PK (rr_ts_ms is rec_ts*1000).
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_rr (
-        counter INTEGER NOT NULL,
+        rec_ts INTEGER NOT NULL,
         beat_index INTEGER NOT NULL,
         rr_ts_ms INTEGER NOT NULL,
         rr_ms INTEGER NOT NULL,
-        PRIMARY KEY (counter, beat_index)
+        PRIMARY KEY (rec_ts, beat_index)
       )
     ''');
-    await db.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_rr_ts_beat_unique '
-      'ON decoded_rr(rr_ts_ms, beat_index)',
-    );
-    // idx_decoded_rr_ts(rr_ts_ms) was a strict prefix of the unique index
-    // above, so SQLite could already serve every rr_ts_ms lookup and ordering
-    // from it. The narrower index only added a second b-tree to maintain on
-    // the hottest write path in the app.
-    await db.execute('DROP INDEX IF EXISTS idx_decoded_rr_ts');
-    // idx_decoded_rr_counter(counter, beat_index) was an EXACT duplicate of the
-    // index `PRIMARY KEY (counter, beat_index)` already creates
-    // (sqlite_autoindex_decoded_rr_1) — same table, same columns, same order.
-    // Measured on a 3-day fill: both b-trees 3,264,512 bytes, i.e. ~1.09 MB/day
-    // of pure duplication, plus a second b-tree write per beat on the hottest
-    // insert path in the app. After dropping it the planner still serves
-    // `counter` lookups and (counter, beat_index) ordering from the auto-index
-    // — pinned by test/db_storage_hygiene_test.dart, same as the drop above.
-    await db.execute('DROP INDEX IF EXISTS idx_decoded_rr_counter');
   }
 
   /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
@@ -2126,12 +2282,32 @@ class LocalDb {
   /// (second, beat_index). Older duplicate counters remain in raw_records for
   /// forensics, but analytics no longer sees them.
   static Future<void> _rebuildCanonicalDecodedStore(Database db) async {
-    // Guarantee the source tables exist before we SELECT from them. On upgrade
-    // paths from before the decoded store landed, decoded_onehz/decoded_rr were
-    // never created in the migration chain, so this rebuild threw "no such table:
-    // decoded_onehz" — failing openDatabase on every launch (stuck at loading).
-    // Creating them (empty) here makes the dedup/rebuild a safe no-op in that case.
-    await _createDecodedStore(db);
+    // FROZEN v17 step: it dedups the OLD counter-keyed decoded tables by rec_ts
+    // via a `decoded_rr.counter` join. If the store is ALREADY rec_ts-keyed (the
+    // ladder created it fresh at v11 with the current schema, so decoded_rr has
+    // no `counter` column), it is already canonical — this rebuild is impossible
+    // and unnecessary, so skip it. A genuinely old (counter-keyed) store still
+    // gets the original rebuild here, and the v33 re-key converts it afterward.
+    final rrCols = await db.rawQuery('PRAGMA table_info(decoded_rr)');
+    if (rrCols.isNotEmpty && !rrCols.any((c) => c['name'] == 'counter')) return;
+    // Guarantee the OLD-schema source tables exist before we SELECT from them.
+    // On upgrade paths from before the decoded store landed they were never
+    // created, so this rebuild threw "no such table" and bricked openDatabase.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS decoded_onehz (
+        counter INTEGER PRIMARY KEY, rec_ts INTEGER NOT NULL,
+        hr INTEGER NOT NULL, ax REAL NOT NULL, ay REAL NOT NULL, az REAL NOT NULL,
+        spo2_red_raw INTEGER NOT NULL, spo2_ir_raw INTEGER NOT NULL,
+        skin_temp_raw INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS decoded_rr (
+        counter INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+        rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+        PRIMARY KEY (counter, beat_index)
+      )
+    ''');
     await db.execute('DROP TABLE IF EXISTS _decoded_onehz_new');
     await db.execute('DROP TABLE IF EXISTS _decoded_rr_new');
     // Drop any leftover temp-named indexes BEFORE recreating them. SQLite index
@@ -2214,6 +2390,75 @@ class LocalDb {
     await db.execute('DROP TABLE IF EXISTS decoded_onehz');
     await db.execute('ALTER TABLE _decoded_onehz_new RENAME TO decoded_onehz');
     await db.execute('ALTER TABLE _decoded_rr_new RENAME TO decoded_rr');
+  }
+
+  /// v33: re-key the decoded store off the volatile record `counter` onto rec_ts.
+  ///
+  /// Rebuilds BOTH decoded tables FROM THE EXISTING decoded tables ONLY. It must
+  /// NOT backfill from raw_records (that table is DROPped — a raw-backfill would
+  /// zero the store, total loss). Existing rows have a unique rec_ts, so the copy
+  /// loses nothing; any pre-fix duplicate counters collapse to newest-wins per
+  /// rec_ts. Idempotent: a crash mid-migration re-runs cleanly (the temp tables
+  /// are dropped up front, and every write is INSERT OR REPLACE keyed on identity).
+  ///
+  /// All copies are INSERT ... SELECT (server-side, ZERO host-bound variables),
+  /// so the iOS SQLITE_MAX_VARIABLE_NUMBER (999) never applies — no chunking is
+  /// needed. Mirrors [_rebuildCanonicalDecodedStore]'s rename-aside shape.
+  static Future<void> _rekeyDecodedStoreByRecTs(Database db) async {
+    // The source tables may not exist on a pre-decoded-store upgrade path; a
+    // create (new schema, IF NOT EXISTS) makes the copy a safe no-op there. On a
+    // normal path the OLD-schema tables already exist and this is a no-op — the
+    // columns we SELECT (rec_ts, counter, hr, …; beat_index, rr_ts_ms, rr_ms)
+    // are present in both the old and new decoded schemas.
+    await _createDecodedStore(db);
+    await db.execute('DROP TABLE IF EXISTS _decoded_onehz_v33');
+    await db.execute('DROP TABLE IF EXISTS _decoded_rr_v33');
+    await db.execute('''
+      CREATE TABLE _decoded_onehz_v33 (
+        rec_ts INTEGER PRIMARY KEY,
+        counter INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        ax REAL NOT NULL,
+        ay REAL NOT NULL,
+        az REAL NOT NULL,
+        spo2_red_raw INTEGER NOT NULL,
+        spo2_ir_raw INTEGER NOT NULL,
+        skin_temp_raw INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE _decoded_rr_v33 (
+        rec_ts INTEGER NOT NULL,
+        beat_index INTEGER NOT NULL,
+        rr_ts_ms INTEGER NOT NULL,
+        rr_ms INTEGER NOT NULL,
+        PRIMARY KEY (rec_ts, beat_index)
+      )
+    ''');
+    // Deterministic newest-wins: ORDER BY rec_ts, counter so INSERT OR REPLACE on
+    // the rec_ts PK keeps the highest-counter (latest-offloaded) row per second.
+    await db.execute(
+      'INSERT OR REPLACE INTO _decoded_onehz_v33 '
+      '(rec_ts, counter, hr, ax, ay, az, spo2_red_raw, spo2_ir_raw, skin_temp_raw) '
+      'SELECT rec_ts, counter, hr, ax, ay, az, spo2_red_raw, spo2_ir_raw, skin_temp_raw '
+      'FROM decoded_onehz ORDER BY rec_ts ASC, counter ASC',
+    );
+    // rec_ts derived from rr_ts_ms (= rec_ts*1000 by construction). Pre-fix orphan
+    // beats (owning row evicted) re-home onto their real second here.
+    await db.execute(
+      'INSERT OR REPLACE INTO _decoded_rr_v33 (rec_ts, beat_index, rr_ts_ms, rr_ms) '
+      'SELECT rr_ts_ms / 1000, beat_index, rr_ts_ms, rr_ms '
+      'FROM decoded_rr ORDER BY rr_ts_ms ASC, beat_index ASC',
+    );
+    await db.execute('DROP TABLE IF EXISTS decoded_rr');
+    await db.execute('DROP TABLE IF EXISTS decoded_onehz');
+    await db.execute('ALTER TABLE _decoded_onehz_v33 RENAME TO decoded_onehz');
+    await db.execute('ALTER TABLE _decoded_rr_v33 RENAME TO decoded_rr');
+    // The rec_ts PK auto-indexes; add back the forensic counter index (the temp
+    // tables carried no named secondary indexes, so nothing leaked onto rename).
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
+    );
   }
 
   // raw_records — keyed by the band's per-record u32 `counter` (the natural
@@ -2335,99 +2580,98 @@ class LocalDb {
   static String _localDayLabelFromEpoch(int epochSec) =>
       _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
-  static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
-    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
-    try {
-      // Legacy decoder first, firmware-fallback chain second — see
-      // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
-      // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
-      // fresh per-call instance is fine — no session state to preserve.
-      final r = proto.FirmwareAwareR24Decoder().decode(
-        proto.hexToBytes(raw.hex),
-      );
-      if (r == null || r.tsEpoch <= 0) return null;
-      return Sample(
-        tsEpoch: r.tsEpoch,
-        counter: r.counter,
-        hr: r.hr,
-        rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-        ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-        ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-        az: r.accelG.length > 2 ? r.accelG[2] : 0,
-        spo2RedRaw: r.spo2RedRaw,
-        spo2IrRaw: r.spo2IrRaw,
-        skinTempRaw: r.skinTempRaw,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// THE orphan guard for an INSERT-OR-REPLACE into `decoded_onehz`.
+  /// Gen4 historical R10-lite (hr-only, no accel/optical) must stay out of
+  /// `decoded_onehz` — they belong in the legacy `samples` table only.
   ///
-  /// Queue this onto [batch] IMMEDIATELY BEFORE writing the row for [counter] @
-  /// [recTs] — every write path into `decoded_onehz` must go through it, or it
-  /// strands `decoded_rr` beats (see [_queueDecodedOneHz] for the full
-  /// derivation of both eviction cases). Returns the number of ops queued.
-  static int _queueOrphanGuard(
-    Batch batch, {
-    required int counter,
-    required int recTs,
-  }) {
-    batch.rawDelete(
-      'DELETE FROM decoded_rr WHERE '
-      // (a) UNIQUE(rec_ts) eviction — the LOSER counter's beats.
-      'counter IN '
-      '(SELECT counter FROM decoded_onehz WHERE rec_ts = ? AND counter != ?) '
-      // (b) counter-PK eviction — stale-timestamped beats under OUR counter.
-      'OR (counter = ? AND rr_ts_ms != ?)',
-      [recTs, counter, counter, recTs * 1000],
-    );
-    return 1;
+  /// Matched on the hex prefix rather than decoded bytes: this runs once per
+  /// record inside the offload transaction, and parsing 240 hex chars to read
+  /// two of them costs ~13 ms per 50k records plus a Uint8List of garbage each.
+  static final _gen4R10LitePrefix =
+      '${proto.PacketType.historicalData.toRadixString(16).padLeft(2, '0')}'
+      '${proto.Record.r10.toRadixString(16).padLeft(2, '0')}';
+  static bool _isGen4R10LiteHistorical(String hex) =>
+      hex.length >= 4 && hex.substring(0, 4).toLowerCase() == _gen4R10LitePrefix;
+
+  static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
+    // Reject Gen4 R10-lite even when a complete preferred Sample is supplied.
+    // Invalid/placeholder hex (test fixtures, corrupt imports) must NOT abort
+    // before the preferred paths — commit 1f85b10 returned null on hexToBytes
+    // failure and zeroed decoded_onehz for every insertRecord that used non-hex
+    // placeholders. The bytes are now parsed lazily, below, for that reason too.
+    if (_isGen4R10LiteHistorical(raw.hex)) return null;
+    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
+    // The band's OWN decode outranks the other generation's decoder. A gen5 v18
+    // has no gen4 optics so hasDecodedOneHz is false, and feeding it to the v24
+    // map is not harmless: HR sits at byte 14 in both layouts and gravity is
+    // exactly one byte off, so whenever an axis lands in |g| ∈ [0.746, 0.75)
+    // the misread collapses into a believable vector instead of failing the
+    // plausibility gate — about 0.6% of records, ~550 rows a day. Those rows
+    // keep the right hr and ts (so they look fine) while carrying a fabricated
+    // gravity vector, fabricated optics, and none of the gen5 RR beats.
+    if (preferred != null && preferred.tsEpoch > 0) return preferred;
+    Uint8List? bytes;
+    try {
+      bytes = proto.hexToBytes(raw.hex);
+    } catch (_) {}
+    if (bytes != null) {
+      try {
+        // Legacy decoder first, firmware-fallback chain second — see
+        // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
+        // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
+        // fresh per-call instance is fine — no session state to preserve.
+        final r = proto.FirmwareAwareR24Decoder().decode(bytes);
+        if (r != null && r.tsEpoch > 0) {
+          return Sample(
+            tsEpoch: r.tsEpoch,
+            counter: r.counter,
+            hr: r.hr,
+            rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+            ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
+            ay: r.accelG.length > 1 ? r.accelG[1] : 0,
+            az: r.accelG.length > 2 ? r.accelG[2] : 0,
+            spo2RedRaw: r.spo2RedRaw,
+            spo2IrRaw: r.spo2IrRaw,
+            // raw column passthrough, same as the ble path. not read as a temp.
+            // ignore: deprecated_member_use
+            skinTempRaw: r.skinTempRaw,
+          );
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
-  /// Queues the decoded_onehz + decoded_rr (+ orphan-guard delete) writes for
-  /// one raw onto [batch]. Returns the number of batch operations added, so a
-  /// caller committing a large offload can chunk the batch to bound the native
-  /// argument-list size (see [commitSyncBatch]).
+  /// Queues the decoded_onehz + decoded_rr writes for one raw onto [batch].
+  /// Returns the number of batch operations added, so a caller committing a
+  /// large offload can chunk the batch to bound the native argument-list size
+  /// (see [commitSyncBatch]).
   static int _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) return 0;
-    final recTs = raw.recTs ?? decoded.tsEpoch;
+    // `??` substitutes on NULL only, and `rec_ts` is the primary key now. The
+    // legacy `raw_records.rec_ts` column is `NOT NULL DEFAULT 0`, so every
+    // undated row [_backfillDecodedStore] replays arrives here as an explicit
+    // 0 — which under the old counter PK coexisted harmlessly and under this
+    // one REPLACE-evicts all the others down to a single row. Same `> 0`
+    // fallback [_recTsFor] uses (inlined: `decoded` already carries the
+    // timestamp, so going through it would re-decode the hex for nothing).
+    final rawRecTs = raw.recTs;
+    final recTs =
+        (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
-    // embedded timestamp, not by a counter). decoded_onehz has a UNIQUE(rec_ts)
-    // index and decoded_rr a UNIQUE(rr_ts_ms, beat_index). We use REPLACE, not
-    // IGNORE: the strap's record `counter` RESETS to ~0 on every reboot, so a
-    // post-reboot record whose second already had a row would be SILENTLY DROPPED
-    // under IGNORE — quarantining everything after a reboot (observed: whole days
-    // present in raw_records but absent from the decoded substrate the engine
-    // reads → "not worn / metrics still computing / strain –"). REPLACE lets the
-    // freshly-offloaded record for a given second win, which is what we want.
+    // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
+    // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
+    // IGNORE: a freshly-offloaded record for a given second should win over a
+    // stale one. Because rec_ts is the key, the strap's per-reboot counter reset
+    // can no longer make one second's record evict another's (the pre-fix
+    // counter-PK eviction that silently, unrecoverably deleted 1 Hz rows).
     //
-    // ORPHAN GUARD: decoded_rr rows are keyed by their record's own counter. When
-    // the REPLACE below evicts a DIFFERENT counter's row for this second, that
-    // loser's RR beats would stay behind under a counter with no decoded_onehz
-    // row — invisible to the counter-joined prune (permanent leak). The winner's
-    // REPLACE on UNIQUE(rr_ts_ms, beat_index) only overwrites overlapping beat
-    // indexes, so delete the evicted counter's beats explicitly, in the same
-    // batch/transaction (mirrors the v17 rebuild's decoded_onehz join).
-    //
-    // …AND the COUNTER-PK eviction, which the guard used to miss entirely.
-    // `decoded_onehz` is `counter INTEGER PRIMARY KEY` as well as
-    // UNIQUE(rec_ts), and (per the comment above) the strap's counter RESETS to
-    // ~0 on every reboot — so this same REPLACE also silently DELETES the row
-    // of an OLDER SECOND that happened to reuse this counter. That older
-    // second's beats live under OUR counter carrying ITS rr_ts_ms, and only the
-    // overlapping beat_indexes get overwritten below: any beat at an index past
-    // the new record's beat count SURVIVES, still stamped days earlier. Neither
-    // prune path can ever see it (the counter-join finds a fresh rec_ts; the
-    // orphan sweep finds the counter present), so a later page's RR series was
-    // polluted with beats from another day — silently wrecking RMSSD/HRV.
-    // Drop every beat under this counter that is not stamped with THIS second.
-    var ops = _queueOrphanGuard(batch, counter: raw.counter, recTs: recTs);
+    // Clear this second's RR beats before reinserting so a SHRINKING beat count
+    // can't strand stale high-index beats — the parent+child share the rec_ts
+    // key, so this single DELETE replaces the old counter-based orphan guard.
     batch.insert('decoded_onehz', {
-      'counter': raw.counter,
       'rec_ts': recTs,
+      'counter': raw.counter,
       'hr': decoded.hr,
       'ax': decoded.ax ?? 0,
       'ay': decoded.ay ?? 0,
@@ -2435,13 +2679,25 @@ class LocalDb {
       'spo2_red_raw': decoded.spo2RedRaw ?? 0,
       'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
       'skin_temp_raw': decoded.skinTempRaw ?? 0,
+      // NO `?? 0` here, unlike the columns above: these are only reported by a
+      // gen5 band, so a null must land in the DB as NULL. Zeroing them would
+      // invent a 0-step second / a 0 °C skin temperature for every gen4 record.
+      'step_count': decoded.stepCount,
+      'step_cadence': decoded.stepCadence,
+      'activity_class': decoded.activityClass,
+      'skin_temp_c': decoded.skinTempC,
+      'on_wrist': decoded.onWrist,
+      'hr_valid': decoded.hrValid == null ? null : (decoded.hrValid! ? 1 : 0),
+      'hr_alt': decoded.hrAlt,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    ops++; // the decoded_onehz insert
+    var ops = 1; // the decoded_onehz insert
+    batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
+    ops++;
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
       if (rr <= 0) continue;
       batch.insert('decoded_rr', {
-        'counter': raw.counter,
+        'rec_ts': recTs,
         'beat_index': i,
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
@@ -2543,12 +2799,19 @@ class LocalDb {
   /// Durable archive for historical records we received but could not decode
   /// (unknown/unsupported version). NEVER pruned — the whole point is that a
   /// future firmware's records survive until we understand the format. Keyed by
-  /// counter so a re-flood after a missed ACK dedups (IGNORE on conflict).
+  /// frame `hex` (content identity), like `events`/`band_events` — NOT by
+  /// `counter`. The strap resets its record counter to ~0 on every reboot, so
+  /// two DISTINCT undecodable frames from different boots can collide on a
+  /// reused counter; a `counter`-PK + IGNORE silently DROPPED the second, in
+  /// the one table whose whole purpose is to never lose a frame. Hashing on the
+  /// bytes means an identical re-flood (missed-ACK redelivery) still dedups,
+  /// while genuinely distinct frames both survive a counter collision. `counter`
+  /// is retained as a plain forensic column.
   static Future<void> _createRawArchive(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS raw_archive (
-        counter INTEGER PRIMARY KEY,
-        hex TEXT NOT NULL,
+        hex TEXT PRIMARY KEY,
+        counter INTEGER,
         packet_type INTEGER NOT NULL,
         rec_ts INTEGER,
         captured_at INTEGER NOT NULL,
@@ -2924,25 +3187,33 @@ class LocalDb {
     return db.query('sync_quarantine', orderBy: 'created_at DESC');
   }
 
+  /// Columns [Sample.fromDecodedRow] reads. Deliberately NOT `*`: the accel /
+  /// spo2 / raw-skin-temp columns are bulk and nothing on these two paths uses
+  /// them (the derive path has its own wider query).
+  static const List<String> _decodedSampleColumns = [
+    'counter',
+    'rec_ts',
+    'hr',
+    'step_count',
+    'step_cadence',
+    'activity_class',
+    'skin_temp_c',
+    'on_wrist',
+    'hr_valid',
+    'hr_alt',
+  ];
+
   static Future<List<Sample>> samplesInRange(int fromTs, int toTs) async {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
-      columns: ['counter', 'rec_ts', 'hr'],
+      columns: _decodedSampleColumns,
       where: 'rec_ts >= ? AND rec_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC, counter ASC',
     );
     if (decodedRows.isNotEmpty) {
-      return decodedRows
-          .map(
-            (m) => Sample(
-              tsEpoch: (m['rec_ts'] as num).toInt(),
-              counter: (m['counter'] as num).toInt(),
-              hr: (m['hr'] as num?)?.toInt() ?? 0,
-            ),
-          )
-          .toList();
+      return decodedRows.map(Sample.fromDecodedRow).toList();
     }
     final rows = await db.query(
       'samples',
@@ -2957,17 +3228,12 @@ class LocalDb {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
-      columns: ['counter', 'rec_ts', 'hr'],
+      columns: _decodedSampleColumns,
       orderBy: 'rec_ts DESC, counter DESC',
       limit: 1,
     );
     if (decodedRows.isNotEmpty) {
-      final row = decodedRows.first;
-      return Sample(
-        tsEpoch: (row['rec_ts'] as num).toInt(),
-        counter: (row['counter'] as num).toInt(),
-        hr: (row['hr'] as num?)?.toInt() ?? 0,
-      );
+      return Sample.fromDecodedRow(decodedRows.first);
     }
     final rows = await db.query('samples', orderBy: 'ts DESC', limit: 1);
     return rows.isEmpty ? null : Sample.fromDbMap(rows.first);
@@ -3043,7 +3309,9 @@ class LocalDb {
     if (afterRecTs == null || afterCounter == null) {
       return db.rawQuery(
         'SELECT counter, rec_ts, hr, ax, ay, az, '
-        'spo2_red_raw, spo2_ir_raw, skin_temp_raw '
+        'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
+        'step_count, step_cadence, activity_class, skin_temp_c, '
+        'on_wrist, hr_valid, hr_alt '
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts <= ? '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
@@ -3052,7 +3320,9 @@ class LocalDb {
     }
     return db.rawQuery(
       'SELECT counter, rec_ts, hr, ax, ay, az, '
-      'spo2_red_raw, spo2_ir_raw, skin_temp_raw '
+      'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
+      'step_count, step_cadence, activity_class, skin_temp_c, '
+      'on_wrist, hr_valid, hr_alt '
       'FROM decoded_onehz '
       'WHERE rec_ts >= ? AND rec_ts <= ? '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
@@ -3061,92 +3331,28 @@ class LocalDb {
     );
   }
 
-  /// How many times [decodedRrByCounterRange]'s degraded counter-span fallback
-  /// hit its row cap and therefore returned an INCOMPLETE set of beats. Any
-  /// value above zero means some window's HRV was computed from truncated
-  /// input; it should stay at zero in normal operation.
-  static int decodedRrFallbackTruncations = 0;
-
-  /// Sparse RR beats for one contiguous decoded 1 Hz page.
+  /// Sparse RR beats for one contiguous decoded 1 Hz page, by its rec_ts window.
   ///
-  /// [fromCounter] / [toCounter] are the page's FIRST and LAST row counters, as
-  /// returned by [decodedOneHzBatchByRecTsRange] (which orders `rec_ts ASC,
-  /// counter ASC`). They are page ENDPOINTS, **not** a monotonic counter span:
-  /// the strap's counter resets to ~0 on every reboot, so a page straddling a
-  /// reboot has first = a pre-reboot high and last = a post-reboot low. The old
-  /// `WHERE counter >= ? AND counter <= ?` then read `>= 1200000 AND <= 5` and
-  /// returned ZERO rows — the entire page's RR beats vanished with no error, so
-  /// that window silently produced no RMSSD/HRV at all.
-  ///
-  /// Selection is therefore by the page's real TIME window, resolved from those
-  /// two endpoint counters. `decoded_onehz` is UNIQUE(rec_ts), so
-  /// `[first.rec_ts, last.rec_ts]` contains exactly the page's rows — no
-  /// over-fetch — and the join to `decoded_onehz` additionally keeps orphaned
-  /// beats (whose owning row was evicted) out of the read path.
-  ///
-  /// When the endpoints are NOT real rows the caller is asking for a plain
-  /// counter span (e.g. `0 .. 1<<30` = "everything"); that falls back to a
-  /// NORMALIZED counter range so an inverted pair still can't return nothing.
-  static Future<List<Map<String, dynamic>>> decodedRrByCounterRange({
-    required int fromCounter,
-    required int toCounter,
+  /// [fromRecTs] / [toRecTs] are the page's first and last record seconds (the
+  /// page is ordered `rec_ts ASC`, so first = min, last = max). decoded_rr shares
+  /// the rec_ts key with decoded_onehz, so `[fromRecTs, toRecTs]` on the PK
+  /// contains exactly the page's beats — bounded, indexed, and immune to the
+  /// strap's reboot counter reset (the old counter-span read could degenerate to
+  /// `counter >= high AND counter <= low` = zero rows, silently dropping a whole
+  /// page's RR).
+  static Future<List<Map<String, dynamic>>> decodedRrByRecTsRange({
+    required int fromRecTs,
+    required int toRecTs,
   }) async {
     final db = await instance;
-    final bounds = (await db.rawQuery(
-      'SELECT COUNT(*) AS n, MIN(rec_ts) AS lo, MAX(rec_ts) AS hi '
-      'FROM decoded_onehz WHERE counter IN (?, ?)',
-      [fromCounter, toCounter],
-    )).first;
-    final n = (bounds['n'] as num?)?.toInt() ?? 0;
-    final want = fromCounter == toCounter ? 1 : 2;
-    if (n == want) {
-      return db.rawQuery(
-        'SELECT rr.counter AS counter, rr.beat_index AS beat_index, '
-        '       rr.rr_ts_ms AS rr_ts_ms, rr.rr_ms AS rr_ms '
-        'FROM decoded_rr rr '
-        'JOIN decoded_onehz d ON d.counter = rr.counter '
-        'WHERE d.rec_ts >= ? AND d.rec_ts <= ? '
-        'ORDER BY d.rec_ts ASC, rr.beat_index ASC',
-        [bounds['lo'], bounds['hi']],
-      );
-    }
-    final lo = fromCounter <= toCounter ? fromCounter : toCounter;
-    final hi = fromCounter <= toCounter ? toCounter : fromCounter;
-    // BOUNDED. This branch is reached when an endpoint row is not in
-    // `decoded_onehz` — a prune, or an import's REPLACE + orphan-guard DELETE
-    // landing between the frame-page read and this call. The caller's counters
-    // are then just a span, and because the strap's counter resets on reboot a
-    // reboot-straddling page degenerates to `0 .. ~1200000`, i.e. effectively
-    // the whole table. Unbounded, that is a hundreds-of-MB platform-heap read
-    // on the same Java heap that OOMed the import path. A page is 2000 frames
-    // and a second rarely carries more than a handful of beats, so this cap is
-    // orders of magnitude above any legitimate page — reaching it means the
-    // degraded path is being used for a range it was never meant to serve.
-    const fallbackBeatCap = 200000;
-    final rows = await db.query(
-      'decoded_rr',
-      columns: ['counter', 'beat_index', 'rr_ts_ms', 'rr_ms'],
-      where: 'counter >= ? AND counter <= ?',
-      whereArgs: [lo, hi],
-      orderBy: 'counter ASC, beat_index ASC',
-      limit: fallbackBeatCap,
+    final lo = fromRecTs <= toRecTs ? fromRecTs : toRecTs;
+    final hi = fromRecTs <= toRecTs ? toRecTs : fromRecTs;
+    return db.rawQuery(
+      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms FROM decoded_rr '
+      'WHERE rec_ts >= ? AND rec_ts <= ? '
+      'ORDER BY rec_ts ASC, beat_index ASC',
+      [lo, hi],
     );
-    // Never truncate silently — a short read here means missing beats, which
-    // shows up downstream as understated HRV rather than as an error. db.dart
-    // deliberately takes no telemetry dependency, so the fact is recorded as a
-    // plain counter the Diagnostics screen can surface.
-    //
-    // A static field is sound HERE specifically: every sqflite call needs the
-    // root isolate's platform channel, and this method's only caller
-    // (`DerivationEngine._prepare`) reads on the main isolate and ships each
-    // page to the compute worker with `worker.send`. Increments therefore land
-    // in the same isolate that reads them. Move this read into an isolate and
-    // the counter silently stops working — pass the count back over the port
-    // instead of reaching for a static.
-    if (rows.length >= fallbackBeatCap) {
-      decodedRrFallbackTruncations++;
-    }
-    return rows;
   }
 
   // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
@@ -3589,20 +3795,20 @@ class LocalDb {
         where: 'rec_ts >= ? AND rec_ts < ?',
         whereArgs: [startSec, endSec],
         onPage: (page) async {
-          final counters = <Object?>[
+          final recTsList = <Object?>[
             for (final row in page)
-              if (row['counter'] != null) row['counter'],
+              if (row['rec_ts'] != null) row['rec_ts'],
           ];
-          if (counters.isEmpty) return;
-          // CHUNKED `IN (…)`: even one page's counters can approach
+          if (recTsList.isEmpty) return;
+          // CHUNKED `IN (…)`: even one page's seconds can approach
           // SQLITE_MAX_VARIABLE_NUMBER, and a full day is 86,400 — two orders
           // of magnitude past it, so one giant statement could never bind.
-          // (This never surfaced only because the missing `version:` above
-          // aborted the export earlier.)
-          for (final chunk in _sqlVarChunks(counters)) {
+          // Keyed on rec_ts (decoded_rr's key), which pulls exactly this page's
+          // beats — a counter `IN` could over-match a reboot-reused counter.
+          for (final chunk in _sqlVarChunks(recTsList)) {
             final placeholders = List.filled(chunk.length, '?').join(',');
             final rr = await src.rawQuery(
-              'SELECT * FROM decoded_rr WHERE counter IN ($placeholders)',
+              'SELECT * FROM decoded_rr WHERE rec_ts IN ($placeholders)',
               chunk,
             );
             if (rr.isEmpty) continue;
@@ -3712,8 +3918,7 @@ class LocalDb {
         final (startSec, endSec) = _localDayWindow(dayId);
         deleted += await txn.delete(
           'decoded_rr',
-          where:
-              'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts >= ? AND rec_ts < ?)',
+          where: 'rec_ts >= ? AND rec_ts < ?',
           whereArgs: [startSec, endSec],
         );
         deleted += await txn.delete(
@@ -3833,6 +4038,13 @@ class LocalDb {
       'events',
       'decoded_onehz',
       'decoded_rr',
+      // The never-pruned archive of frames we could not decode. exportCopy()
+      // is a whole-database VACUUM INTO, so these rows DO leave the device —
+      // leaving the table out here meant a backup/restore round trip silently
+      // dropped them, in the one table whose entire purpose is that a frame is
+      // never lost. Keyed by `hex`, so two same-counter frames from different
+      // boots both survive the merge.
+      'raw_archive',
       'band_events',
       'band_battery',
       'day_result',
@@ -3958,6 +4170,7 @@ class LocalDb {
               ops = 0;
             }
 
+            final rows = <Map<String, Object?>>[];
             for (final r in page) {
               final row = <String, Object?>{
                 for (final e in r.entries)
@@ -3970,21 +4183,65 @@ class LocalDb {
                   )) {
                 continue; // locally finalized — never overwritten by an import
               }
-              // ORPHAN GUARD ON THE IMPORT PATH. A plain replace-insert into
-              // decoded_onehz bypasses _queueDecodedOneHz entirely, so a
-              // foreign row colliding on UNIQUE(rec_ts) (different counter) or
-              // on the `counter` PRIMARY KEY (different second) evicted a local
-              // row and stranded its decoded_rr beats — the exact leak the
-              // ingest path is guarded against, wide open here. Queue the SAME
-              // guard, in the same batch/transaction, right before the row.
-              if (t == 'decoded_onehz') {
-                final counter = (row['counter'] as num?)?.toInt();
-                final recTs = (row['rec_ts'] as num?)?.toInt();
-                if (counter == null || recTs == null) continue;
-                ops += _queueOrphanGuard(batch, counter: counter, recTs: recTs);
+              // A LEGACY export's decoded_rr carries no rec_ts column; derive
+              // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
+              // always populated. SQLite storage classes are per VALUE, not per
+              // column, so a foreign export can hand back a String where
+              // INTEGER is declared — a bare `as num` there throws inside the
+              // transaction and takes the whole restore down with it. Leave a
+              // non-numeric value alone and let the row fail its own NOT NULL
+              // check instead of aborting every other row's import.
+              if (t == 'decoded_rr' && row['rec_ts'] == null) {
+                final rrTsMs = row['rr_ts_ms'];
+                if (rrTsMs is! num) {
+                  // Nothing to key this beat by. Dropping the one row keeps the
+                  // rest of the restore alive; letting it through would fail
+                  // the NOT NULL check inside the transaction and take every
+                  // other row on the page down with it.
+                  continue;
+                }
+                row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
               }
+              rows.add(row);
+            }
+            // REPLACE the beat set for a colliding second, don't patch it.
+            // decoded_rr is keyed by (rec_ts, beat_index), so a row-by-row
+            // replace-insert only overwrites the indices the foreign export
+            // actually reaches: importing [500] over a local [700, 710, 720]
+            // leaves beats 1 and 2 behind and hands that second a spliced
+            // foreign/local RR series — silently wrong RMSSD, out of a restore.
+            // [_queueDecodedOneHz] guards the identical hazard on the write
+            // path with a DELETE ahead of its inserts.
+            //
+            // Here the delete has to TRAIL the inserts and be bounded by the
+            // highest index this page carried, because a second's beats can
+            // straddle a page boundary: a leading `DELETE WHERE rec_ts = ?` on
+            // page 2 would wipe the beats page 1 just imported. Trailing +
+            // bounded is idempotent across the split — page 1 inserts 0,1 and
+            // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
+            // dense by construction, so "everything past the last one" is
+            // exactly the stale local tail.
+            final highestBeat = <Object, int>{};
+            for (final row in rows) {
               batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
               copied++;
+              if (t == 'decoded_rr') {
+                final recTs = row['rec_ts'];
+                final idx = row['beat_index'];
+                if (recTs != null && idx is num) {
+                  final n = idx.toInt();
+                  final prev = highestBeat[recTs];
+                  if (prev == null || n > prev) highestBeat[recTs] = n;
+                }
+              }
+              if (++ops >= chunkOps) await flush();
+            }
+            for (final e in highestBeat.entries) {
+              batch.delete(
+                'decoded_rr',
+                where: 'rec_ts = ? AND beat_index > ?',
+                whereArgs: [e.key, e.value],
+              );
               if (++ops >= chunkOps) await flush();
             }
             await flush();
@@ -5649,28 +5906,18 @@ class LocalDb {
     // caller's `if (deleted > 0) log(...)` never fired even on a real prune.
     int deleted = 0;
     await db.transaction((txn) async {
+      // decoded_rr shares the rec_ts key, so a plain rec_ts range delete covers
+      // every beat in the window — no counter subquery, no orphan sweep (there
+      // are no counter-orphans once parent and child are keyed the same way).
       deleted += await txn.delete(
         'decoded_rr',
-        where:
-            'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts < ?)',
+        where: 'rec_ts < ?',
         whereArgs: [cutoffSec],
       );
       deleted += await txn.delete(
         'decoded_onehz',
         where: 'rec_ts < ?',
         whereArgs: [cutoffSec],
-      );
-      // ORPHAN SWEEP: pre-guard builds could leave decoded_rr beats whose
-      // owning counter lost a rec_ts collision (REPLACE evicted its
-      // decoded_onehz row) — the counter-joined delete above never selects
-      // those. Their rr_ts_ms is the colliding second, so once the window is
-      // pruned they're strictly before the cutoff; delete any beat in the
-      // pruned window whose counter no longer exists in decoded_onehz.
-      deleted += await txn.delete(
-        'decoded_rr',
-        where:
-            'rr_ts_ms < ? AND counter NOT IN (SELECT counter FROM decoded_onehz)',
-        whereArgs: [cutoffSec * 1000],
       );
       deleted +=
           await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);

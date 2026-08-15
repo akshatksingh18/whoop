@@ -357,9 +357,16 @@ class TrimAckPolicy {
   /// [commitDurable]   — the atomic commit completed (pass `true` when asking
   ///                     the pre-commit question "should I even commit this
   ///                     token?").
-  /// [hadDurableRows]  — this burst buffered at least one raw/sample or archive
-  ///                     row to bank before ACK. Pass `true` when unknown
-  ///                     (pre-commit stale/discard checks only).
+  /// [hadDurableRows]  — this burst buffered at least one RECORD to bank, or
+  ///                     one archive that is NOT a plausibility drop, before
+  ///                     ACK. Plausibility drops are excluded on purpose: they
+  ///                     are archived too, so counting them would make this
+  ///                     gate unfireable exactly in the drop-only case it
+  ///                     exists for. Records we simply cannot decode DO count —
+  ///                     they are durably set aside, and excluding them wedges
+  ///                     an undecodable-only burst into endless re-delivery.
+  ///                     Pass `true` when unknown (pre-commit stale/discard
+  ///                     checks only).
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
@@ -705,9 +712,10 @@ class DeriveDebouncer {
 /// keeping the exact byte layout here makes it unit-testable without a real band.
 ///
 /// Alarm opcodes: SET_ALARM_TIME 0x42, GET_ALARM_TIME 0x43, RUN_ALARM 0x44,
-/// DISABLE_ALARM 0x45. The RICH SET form (a haptic waveform + time) is the one
-/// that actually FIRES on WHOOP 4.0; the SHORT time-only form is ACKed but never
-/// buzzes (no waveform to play).
+/// DISABLE_ALARM 0x45. The RICH SET form (haptic waveform + time) is the one
+/// that actually FIRES: WHOOP 4 uses alarm slot index 0; WHOOP 5 uses index 1.
+/// The SHORT time-only form is ACKed but never
+/// buzzes (no waveform to play). Prefer [setPayloadForBand] for arming.
 class AlarmPayloads {
   /// The strap's stock 12-byte wake-buzz haptic pattern:
   ///   [0..7]  eight waveform-effect slots (two active: 47, 152; six idle)
@@ -747,7 +755,7 @@ class AlarmPayloads {
   }
 
   /// SHORT 7-byte time-only SET_ALARM_TIME payload (ACKs but does NOT fire):
-  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`.
+  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Prefer [setPayloadForBand].
   static List<int> simple(DateTime when) {
     final ms = when.millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
@@ -763,11 +771,71 @@ class AlarmPayloads {
     ];
   }
 
+  /// Generation-correct SET_ALARM_TIME body — 20 bytes on gen4, 21 on gen5.
+  ///
+  /// WHOOP 4: slot index 0 (HW-verified). WHOOP 5: slot **index 1**. Index 0 is
+  /// rejected with console `arm info is invalid, error 0xb`. On gen5 the [index]
+  /// argument is ignored so callers cannot accidentally arm slot 0.
+  static List<int> setPayloadForBand(
+    DateTime when, {
+    required bool isGen5,
+    int index = 0,
+    List<int>? haptics,
+    int crescendo = 0,
+  }) =>
+      <int>[
+        ...rich(when, index: isGen5 ? gen5Slot : index, haptics: haptics),
+        // gen5's body carries one byte more than gen4's: a crescendo flag the
+        // strap validates as 0 or 1 and rejects otherwise, so a 20-byte body
+        // is refused there. Keep this in step with protocol's cmdSetAlarm,
+        // which is the reference layout — gen4 stays at the 20 bytes verified
+        // on hardware.
+        if (isGen5) crescendo & 0x01,
+      ];
+
+  /// The alarm slot WHOOP 5 accepts (index 0 is rejected).
+  static const int gen5Slot = 1;
+
+  /// The gen5 "every slot" alarm id, used by [disableForBand].
+  static const int gen5AllSlots = 0xFF;
+
+  /// Gen5 Maverick test-buzz body (RUN_HAPTIC_PATTERN_MAVERICK = 0x13).
+  /// Same `[47, 152]` waveform pair as Find-band. Keep [overallLoop] at 1 for
+  /// a short pulse — the wake-alarm's loop=7 feels like a stuck vibrate.
+  static List<int> gen5MaverickBuzz({int overallLoop = 1}) {
+    // `& 0xff` keeps an int (unlike `clamp`, which widens to num).
+    final loop = overallLoop.clamp(0, 0xff).toInt();
+    return <int>[0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, loop];
+  }
+
   /// RUN_ALARM (0x44) body — fire the haptics immediately ("test buzz").
   static const List<int> runNow = <int>[0x01];
 
-  /// DISABLE_ALARM (0x45) body — cancel the on-device alarm.
+  /// DISABLE_ALARM (0x45) body — cancel the on-device alarm. GEN4 form; do not
+  /// change (hardware-verified). Use [disableForBand].
   static const List<int> disable = <int>[0x01];
+
+  /// Generation-correct DISABLE_ALARM (0x45) body.
+  ///
+  /// WHOOP 4 takes revision 1 with no operand. WHOOP 5 takes revision 2 plus
+  /// the alarm id to clear, where [gen5AllSlots] clears every slot; sent the
+  /// gen4 body it reads the id from past the end of the body and the alarm
+  /// stays armed.
+  static List<int> disableForBand({
+    required bool isGen5,
+    int id = gen5AllSlots,
+  }) =>
+      isGen5 ? <int>[0x02, id & 0xff] : disable;
+
+  /// Generation-correct GET_ALARM_TIME (0x43) body.
+  ///
+  /// WHOOP 4 takes revision 1 with no operand; WHOOP 5 takes revision 4 plus
+  /// the alarm id to read, defaulting to the slot [setPayloadForBand] arms.
+  static List<int> getPayloadForBand({
+    required bool isGen5,
+    int id = gen5Slot,
+  }) =>
+      isGen5 ? <int>[0x04, id & 0xff] : const <int>[0x01];
 
   /// Convert a WALL-CLOCK alarm target into the strap's own RTC frame.
   ///

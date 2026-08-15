@@ -699,8 +699,47 @@ import 'substrate.dart';
 //   floor, and now bills through the same per-sample gate, resting floor and
 //   gap cap as the re-score. Already-stored sessions are left alone — they are
 //   not re-derived — so the change applies from this version forward.
+// v63 - RR BEATS ARE FETCHED BY rec_ts, NOT BY COUNTER SPAN.
+//   The derivation pages 1 Hz frames ordered by rec_ts and then pulled that
+//   page's RR beats with `decodedRrByCounterRange(first.counter, last.counter)`.
+//   The strap's counter resets on every reboot, so the moment a page straddled
+//   one the span was inverted or nonsensical and the query returned nothing:
+//   the page decoded with an EMPTY beat list, and every beat-derived figure for
+//   that stretch — RMSSD, SDNN, the HRV curve, and the readiness that leans on
+//   them — silently came back absent or computed off whatever beats survived on
+//   the other pages. Both tables are keyed by rec_ts now, so the lookup uses the
+//   page's own rec_ts bounds and pulls exactly its beats.
 //
-// v63: THE 0–21 HEADLINE STRAIN SCALE IS RECALIBRATED.
+//   Days already finalized at v62 hold those RR-less results permanently — they
+//   are never revisited at the same version — so this needs the bump to be
+//   re-derived onto real beats.
+// v64 - THREE CHANGES TO WHAT REACHES THE 1 Hz SUBSTRATE.
+//   1. R-R beats are no longer read for record versions whose field map is
+//      unconfirmed. v7 carries hr at offset 27 and v18 at 14, so those layouts
+//      are demonstrably not v24's, yet the beats were being read off v24's map
+//      and the 200..2500 ms filter passed enough of them to hand RMSSD a full
+//      set of invented intervals. RMSSD/SDNN/HRV move for any day built from
+//      those versions.
+//   2. A record only decodes if its packet type says it is one. The dispatch
+//      keyed on inner[1], which is the version on a data frame but the sequence
+//      byte on a control frame, so roughly 2 in 256 control frames decoded as a
+//      trusted record — hr and an accel vector read out of log text. The
+//      substrate re-decodes stored hex, so any such row is gone now.
+//   3. Gen4 v25 records stay archived instead of being banked. They carry a
+//      timestamp and a gravity vector and no heart rate at all, and hr is NOT
+//      NULL with 0 meaning off-skin — so banking them would have asserted the
+//      band was off the wrist for every one of those seconds.
+//
+//   day_result is keyed (day_id, algo_version), so days finalized at v63 keep
+//   results built on the old substrate unless the version moves.
+//
+//   NOT in this bump, though both were candidates: the accel-coverage gate and
+//   the R10-lite exclusion both landed at v63 already. Check the pinned SHA
+//   before citing a sibling-package change here — a bump whose stated cause is
+//   not in the pinned code is how a fix was believed shipped for three releases
+//   while the pin never carried it.
+//
+// v65: THE 0–21 HEADLINE STRAIN SCALE IS RECALIBRATED.
 //
 //   `strainScore` was `min(21, ln(TRIMP+1)/ln(1.5))` over whole-waking-day
 //   Banister TRIMP. Two things were wrong with that, and they compounded:
@@ -731,7 +770,7 @@ import 'substrate.dart';
 //   Older days have no raw to re-derive from, so `strain_backfill.dart` rebuilds
 //   their headline from the stored TRIMP + wake window instead — see that file
 //   for why that is exact and what it deliberately drops.
-const int kAlgoVersion = 63;
+const int kAlgoVersion = 65;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1887,13 +1926,16 @@ class DerivationEngine {
             rangePages: rangePages,
             rangeRows: rangeRows,
           );
-          final firstCounter = (decodedRows.first['counter'] as num?)?.toInt();
-          final lastCounter = (decodedRows.last['counter'] as num?)?.toInt();
-          final rrRows = firstCounter == null || lastCounter == null
+          // The page is ordered rec_ts ASC, so first = min second, last = max.
+          // decoded_rr shares the rec_ts key, so this pulls exactly the page's
+          // beats — no counter span (which broke across the strap's reboot reset).
+          final firstRecTs = (decodedRows.first['rec_ts'] as num?)?.toInt();
+          final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
+          final rrRows = firstRecTs == null || lastRecTs == null
               ? const <Map<String, dynamic>>[]
-              : await LocalDb.decodedRrByCounterRange(
-                  fromCounter: firstCounter,
-                  toCounter: lastCounter,
+              : await LocalDb.decodedRrByRecTsRange(
+                  fromRecTs: firstRecTs,
+                  toRecTs: lastRecTs,
                 );
           worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
           final last = decodedRows.last;

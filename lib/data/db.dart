@@ -4648,6 +4648,25 @@ class LocalDb {
       );
 
 
+  /// Write ONE (date, key) scalar into the canonical series store.
+  ///
+  /// The bulk path is [putDayResult]'s `series` map, which writes a whole day's
+  /// scalars alongside its bundle. This is for the case where a series row has
+  /// to be corrected on its own — a day whose bundle is gone but whose trend
+  /// point is still on screen (see `strain_backfill.dart`).
+  static Future<void> putMetricSeriesValue(
+    String date,
+    String key,
+    double? value,
+  ) async {
+    final db = await instance;
+    await db.insert('metric_series', {
+      'date': date,
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   /// A long-format metric series (oldest first) for trends/sparklines.
   static Future<List<Map<String, dynamic>>> metricSeries(
     String key, {

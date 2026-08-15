@@ -359,6 +359,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // Cross-day rollup surfaced on Today (present only when computed).
       'illness': cd?['illness'],
       'anomaly': cd?['anomaly'],
+      // Today's strain target, in the shape CoachData reads. Absent until
+      // `strainTarget` has a recovery value, which the surfaces already handle.
+      'coach': coachToday(cd),
       'load': cd?['load'],
       'readiness_breakdown': cd?['readiness_glassbox'],
       'regularity': cd?['regularity'],
@@ -3239,6 +3242,38 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
+}
+
+/// The /today `coach` block, bridging the cross-day strain target onto the
+/// shape [CoachData] reads. Pure + public so the seam is unit-testable.
+///
+/// There were TWO strain targets and only one producer. `crossDayPipeline`
+/// emits `strain_coach` as a Metric ({value: {target_min, target_max, band,
+/// rationale}}), which the Insights card reads. [CoachData] — behind Today's
+/// plan row, the Coach screen's target tile and the home-screen widget — reads
+/// `coach.strain_target` ({value, low, high, rationale}), and NOTHING wrote a
+/// `coach` key anywhere in the app, so those three surfaces silently rendered
+/// nothing while a test fixture "covered" the shape production never emitted.
+///
+/// `value` is the CENTRE of the aim band (what the Today chip shows). Returns
+/// null when the target abstains — `strainTarget` has no recovery value yet,
+/// and an absent target must not surface as a 0–0 aim band.
+Map<String, dynamic>? coachToday(Map<String, dynamic>? crossDay) {
+  final metric = crossDay?['strain_coach'];
+  if (metric is! Map) return null;
+  final v = metric['value'];
+  if (v is! Map) return null;
+  final lo = (v['target_min'] as num?)?.toDouble();
+  final hi = (v['target_max'] as num?)?.toDouble();
+  if (lo == null || hi == null) return null;
+  return {
+    'strain_target': {
+      'value': (lo + hi) / 2,
+      'low': lo,
+      'high': hi,
+      'rationale': (v['rationale'] ?? '').toString(),
+    },
+  };
 }
 
 /// The /today `stress` block from a day bundle — the pipeline's Baevsky block,

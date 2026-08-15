@@ -25,6 +25,8 @@ import 'dart:io' show Platform;
 import 'dart:isolate';
 import 'dart:math' as math;
 
+import 'strain_backfill.dart' show backfillStrainScale;
+
 import 'package:flutter/foundation.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
@@ -736,7 +738,39 @@ import 'substrate.dart';
 //   before citing a sibling-package change here — a bump whose stated cause is
 //   not in the pinned code is how a fix was believed shipped for three releases
 //   while the pin never carried it.
-const int kAlgoVersion = 64;
+//
+// v65: THE 0–21 HEADLINE STRAIN SCALE IS RECALIBRATED.
+//
+//   `strainScore` was `min(21, ln(TRIMP+1)/ln(1.5))` over whole-waking-day
+//   Banister TRIMP. Two things were wrong with that, and they compounded:
+//
+//     * Whole-day TRIMP counts every waking minute above resting, so ~16 h of
+//       ordinary living accrues ~180 TRIMP before any exercise. Log base 1.5 is
+//       steepest near zero, so that overhead alone bought ~13 of the 21 points:
+//       on a real bundle an INACTIVE full-wear day scored 12.8.
+//     * Each further point cost 1.5x the load, so 21 sat at TRIMP ~4987 —
+//       roughly 35 h at 80 % HRR. The top third of the scale was unreachable;
+//       a marathon read ~15.8. The whole usable range was about 8 to 16.
+//
+//   Strain is now the load earned ABOVE a quiet-waking baseline (20 % of HRR,
+//   scaled by the wake window actually observed, so partial wear is not charged
+//   a full day's overhead), mapped by 21·ln(1+u·14)/ln(15) with u = net/400.
+//   Anchored on real days: inactive ~0, rest + a walk 2-4, a 45-min moderate
+//   run 8-11, a 90-min hard session 14-17, 5 h at 160 bpm 21.
+//
+//   SAME BUMP: `strainTarget`'s recovery bands are rebased onto that
+//   distribution (they asked for "recover 4-8" on a scale whose floor was 13),
+//   and its fatigue/freshness tests are now ratios against CTL — they compared
+//   raw TRIMP in the hundreds against thresholds of 10 and 5, sized for the
+//   0-21 scale, so they fired on ordinary week-to-week noise. The intraday
+//   `strain_curve` also picks up Banister's 0.64/0.86 scale coefficient, which
+//   it had been dropping entirely (it accumulated a TRIMP 1.5625x the day's).
+//
+//   Days inside the raw-retention window re-derive from substrate on this bump.
+//   Older days have no raw to re-derive from, so `strain_backfill.dart` rebuilds
+//   their headline from the stored TRIMP + wake window instead — see that file
+//   for why that is exact and what it deliberately drops.
+const int kAlgoVersion = 65;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1127,6 +1161,23 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    // ONE-SHOT: rescale stored strain onto the v63 scale. Days inside the raw
+    // window re-derive below from substrate; everything older has none, so its
+    // headline is rebuilt from the stored TRIMP + wake window instead. Runs
+    // before the sweep so the two never disagree mid-pass, and no-ops after the
+    // first successful pass (`compute_freshness`). Never fatal — a failed
+    // rescale must not take the derive cycle down with it.
+    try {
+      final rescaled = await backfillStrainScale(
+        female: workoutSex(profile.sex) == 'female',
+      );
+      if (rescaled.didWork) {
+        _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) rebuilt, '
+            '${rescaled.skipped} skipped (no TRIMP or no wake window)');
+      }
+    } catch (e) {
+      _log('[derive] strain rescale failed (kept old values): $e');
+    }
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -4041,7 +4092,15 @@ class DerivationEngine {
           sex: _workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
         );
         if (trimp.present && trimp.value != null) {
-          final score = ana.strainScoreMetric(trimp.value);
+          // `perMin` IS the wake window the TRIMP was accumulated over, so it
+          // sets the quiet-waking baseline that gets subtracted. Passing the
+          // observed length (not an assumed 24 h) is what stops a partial-wear
+          // day from being charged a full day's overhead.
+          final score = ana.strainScoreMetric(
+            trimp.value,
+            wakeMinutes: perMin.length.toDouble(),
+            female: _workoutSex(sex) == 'female',
+          );
           if (score.present) strain = score.value;
         }
       }

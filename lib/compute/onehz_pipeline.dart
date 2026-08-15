@@ -539,9 +539,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     }
   }
 
-  // HEADLINE STRAIN = 0–21 log-squash of raw TRIMP; raw TRIMP kept as a detail.
+  // HEADLINE STRAIN = 0–21 map of the TRIMP earned ABOVE the quiet-waking
+  // baseline; raw TRIMP kept as a detail. `perMin` is the wake window the TRIMP
+  // was accumulated over, so it sets the baseline that gets subtracted.
   final rawTrimp = trimp.present ? trimp.value : null;
-  final strainMetric = strainScoreMetric(rawTrimp);
+  final strainMetric = strainScoreMetric(
+    rawTrimp,
+    wakeMinutes: perMin.isEmpty ? null : perMin.length.toDouble(),
+    female: workoutSex(sex) == 'female',
+  );
 
   // ── curve series for the UI ────────────────────────────────────────────────
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
@@ -1094,19 +1100,33 @@ List<Map<String, num>> _strainCurve(
       sex == null) {
     return const [];
   }
-  // Banister's sex constant, via the shared normalisation — a profile stored
-  // as 'female' by the profile screen used to fall through to the male value
-  // here while scoring female everywhere else.
-  final b = workoutSex(sex) == 'female' ? 1.67 : 1.92;
+  // Banister's sex constants, via the ONE shared weighting factor. This used to
+  // inline `exp(b·hrr)` and drop the 0.64/0.86 scale coefficient entirely, so
+  // the curve accumulated a TRIMP 1.5625× the day's own — the curve and the
+  // headline were never on the same scale. It matters more now: the headline
+  // subtracts a baseline priced with `banisterY`, so a curve accumulating
+  // without it would be netted against an allowance from a different formula.
+  final female = workoutSex(sex) == 'female';
   final reserve = maxHr - restingHr;
   var trimp = 0.0;
+  var wakeMin = 0.0;
   final out = <Map<String, num>>[];
   for (final p in wakeHr) {
     var hrr = (p.hr - restingHr) / reserve;
     if (hrr < 0) hrr = 0;
     if (hrr > 1) hrr = 1;
-    trimp += hrr * math.exp(b * hrr);
-    out.add({'t': p.tsSec, 'v': _round(strainScore(trimp), 2)});
+    trimp += hrr * StrainScorer.banisterY(hrr, female: female);
+    // The baseline grows with the wake window ALREADY elapsed, so the curve
+    // stays flat through quiet waking and climbs only on real effort — rather
+    // than charging a whole day's allowance against the first minute.
+    wakeMin += 1;
+    out.add({
+      't': p.tsSec,
+      'v': _round(
+        strainScore(trimp, wakeMinutes: wakeMin, female: female),
+        2,
+      ),
+    });
   }
   return out;
 }

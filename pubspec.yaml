@@ -27,37 +27,28 @@ dependencies:
   # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
   # Bump these SHAs deliberately, as part of a reviewed edge change. Local dev
   # still builds against ../analytics and ../protocol via pubspec_overrides.yaml.
-  # NOTE: this branch is intentionally WHOOP-4-only — protocol stays on `main`,
-  # NOT the gen5/multiband branch.
-  # Both are now MERGE COMMITS ON `main`, not PR-branch heads — the PR-branch
-  # SHAs these briefly pointed at are no longer the canonical location of the
-  # change, and a branch deletion could orphan them.
+  # NOTE: this is the multiband branch, so protocol is pinned at the gen5 work
+  # rather than plain `main`. Prefer merge commits on `main` over PR-branch
+  # heads where possible — a deleted branch can orphan a PR-branch SHA.
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      # Tip of protocol main — OpenStrap/protocol#20 merged: the reassembler now
-      # checks the length-field crc8 before trusting it (a corrupted length byte
-      # used to consume up to 4092 bytes of good stream before this), and
-      # hexToBytes rejects odd-length hex instead of silently flooring it. This
-      # PR sat unpinned for a full day after merging — see fix/issues #22 for
-      # why (edge's own release pipeline shipped the pre-fix decoder).
-      # protocol main @ #21 merge. Picks up the realtimeRr RR-bound (live.dart
-      # accepted ANY positive int16 as an interval, unlike parseRealtimeHr and
-      # parseR24 which both gate 200-2500ms, so a misaligned 0x28 frame could
-      # hand a 5ms "beat" to live HRV/coherence) plus the historical-family
-      # activity/steps_inc null-instead-of-0 fix. Edge does not read the latter
-      # two fields, so only the RR bound is behaviour-visible here.
-      # Verified present: `git show <sha>:lib/src/live.dart | grep -c kMinRrMs`.
-      # DELIBERATELY NOT MOVED for the clock-gate work in this PR. Correlating
-      # a GET_CLOCK reply to its own request needs the echoed request seq
-      # surfaced (OpenStrap/protocol#28), and the only in-convention way to pin
-      # that is a merge commit on protocol main — which now also carries the
-      # gen5/multiband surface (gen5_records.dart, the frame-revision changes
-      # in framing.dart, new dangerousCmds entries). Adopting ~1850 lines of
-      # that as a side effect of a one-field addition is the pin drift that
-      # shipped the v42 ANRs. _readClock degrades to accepting any fresh
-      # clock_epoch, which is what it did before the correlation existed.
-      ref: 7edcb3e377329968118c62cb03a81d95e2f6db8e
+      # protocol PR #27 head. main deliberately stays on a pre-gen5 SHA so the
+      # multiband surface doesn't ride in as a side effect of unrelated work —
+      # that is the right call THERE. This is the branch that wants it.
+      #
+      # Carries the gen5 decoders plus the fixes from #27: command responses
+      # have two more header bytes than we assumed (body location was reading
+      # the status byte as the location), GET_CLOCK/GET_DATA_RANGE read their
+      # fields instead of scanning for them, the R22 config values were
+      # inverted, and the gen4 optical fields are deprecated with what they
+      # actually are.
+      # protocol main @ #27 merge. Carries the gen5 command/decoder fixes plus
+      # the decode-integrity work: a record only decodes if its packet type says
+      # it is one, r-r beats are read only where the field map is confirmed, and
+      # a frame whose payload crc32 fails no longer lets its declared length
+      # swallow the frames behind it.
+      ref: 3ea0290c924cec1a1877bec1cc50db2e7e93a0f2
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -107,7 +98,7 @@ dependencies:
       # Verified against the SHA:
       #   `git show e047c59:lib/src/onehz/workout/calories.dart |
       #      grep defaultMergeGapCapS`
-      ref: e047c5920ea2e0def28f028d0fc990c1fe64cd6b
+      ref: cef6fe4d11c4b4a15ae626350304e882882405e1
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

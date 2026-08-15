@@ -12,6 +12,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -95,7 +96,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 33;
+  static const int schemaVersion = 34;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -475,6 +476,13 @@ class LocalDb {
           // unrecoverably deleting a 1 Hz row (raw_records is dropped).
           await _rekeyDecodedStoreByRecTs(db);
         }
+        if (oldV < 34) {
+          // Keep the per-second fields the band computes itself instead of
+          // decoding and discarding them. Additive columns only — see
+          // _ensureDecodedOneHzBandFields. MUST run after the v33 re-key, which
+          // rebuilds decoded_onehz from an explicit column list.
+          await _ensureDecodedOneHzBandFields(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -568,6 +576,35 @@ class LocalDb {
       await db.execute('ALTER TABLE $table ADD COLUMN $column $ddlType');
     } catch (_) {
       /* another opener won the race — the column exists now */
+    }
+  }
+
+  /// v34: the per-second fields a gen5 band computes on its own and reports in
+  /// every record — its pedometer's cumulative step count and cadence, its
+  /// activity class, a calibrated skin temperature in °C, its on-wrist
+  /// determination, and the HR-validity flag plus the second HR byte that
+  /// corroborates the primary one. They used to be decoded and dropped.
+  ///
+  /// Additive and safe on a populated DB: seven nullable columns, no rewrite of
+  /// the (million-row) table, no backfill. Existing rows read NULL — which is
+  /// the truth for them, since the values were never stored. `skin_temp_raw`,
+  /// `skin_contact` and the `spo2_*` columns are deliberately left alone; they
+  /// hold real historical data regardless of what the names now suggest.
+  static Future<void> _ensureDecodedOneHzBandFields(Database db) async {
+    const cols = {
+      'step_count': 'INTEGER',
+      'step_cadence': 'INTEGER',
+      'activity_class': 'INTEGER',
+      'skin_temp_c': 'REAL',
+      'on_wrist': 'INTEGER',
+      'hr_valid': 'INTEGER',
+      'hr_alt': 'INTEGER',
+    };
+    final have = await _columnsOf(db, 'decoded_onehz');
+    if (have.isEmpty) return; // table not created yet — the DDL carries them
+    for (final e in cols.entries) {
+      if (have.contains(e.key)) continue;
+      await _addColumnIfMissing(db, 'decoded_onehz', e.key, e.value);
     }
   }
 
@@ -2205,9 +2242,20 @@ class LocalDb {
         az REAL NOT NULL,
         spo2_red_raw INTEGER NOT NULL,
         spo2_ir_raw INTEGER NOT NULL,
-        skin_temp_raw INTEGER NOT NULL
+        skin_temp_raw INTEGER NOT NULL,
+        step_count INTEGER,
+        step_cadence INTEGER,
+        activity_class INTEGER,
+        skin_temp_c REAL,
+        on_wrist INTEGER,
+        hr_valid INTEGER,
+        hr_alt INTEGER
       )
     ''');
+    // Every band-computed column above is NULLABLE ON PURPOSE: only a gen5 band
+    // sends them, and a gen4 row must read back as "not reported", not as zero
+    // steps / 0 °C / "off wrist". No DEFAULT, ever.
+    await _ensureDecodedOneHzBandFields(db);
     // Forensic-only lookup by the raw counter; not on any read path.
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
@@ -2532,32 +2580,65 @@ class LocalDb {
   static String _localDayLabelFromEpoch(int epochSec) =>
       _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
+  /// Gen4 historical R10-lite (hr-only, no accel/optical) must stay out of
+  /// `decoded_onehz` — they belong in the legacy `samples` table only.
+  ///
+  /// Matched on the hex prefix rather than decoded bytes: this runs once per
+  /// record inside the offload transaction, and parsing 240 hex chars to read
+  /// two of them costs ~13 ms per 50k records plus a Uint8List of garbage each.
+  static final _gen4R10LitePrefix =
+      '${proto.PacketType.historicalData.toRadixString(16).padLeft(2, '0')}'
+      '${proto.Record.r10.toRadixString(16).padLeft(2, '0')}';
+  static bool _isGen4R10LiteHistorical(String hex) =>
+      hex.length >= 4 && hex.substring(0, 4).toLowerCase() == _gen4R10LitePrefix;
+
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
+    // Reject Gen4 R10-lite even when a complete preferred Sample is supplied.
+    // Invalid/placeholder hex (test fixtures, corrupt imports) must NOT abort
+    // before the preferred paths — commit 1f85b10 returned null on hexToBytes
+    // failure and zeroed decoded_onehz for every insertRecord that used non-hex
+    // placeholders. The bytes are now parsed lazily, below, for that reason too.
+    if (_isGen4R10LiteHistorical(raw.hex)) return null;
     if (preferred != null && preferred.hasDecodedOneHz) return preferred;
+    // The band's OWN decode outranks the other generation's decoder. A gen5 v18
+    // has no gen4 optics so hasDecodedOneHz is false, and feeding it to the v24
+    // map is not harmless: HR sits at byte 14 in both layouts and gravity is
+    // exactly one byte off, so whenever an axis lands in |g| ∈ [0.746, 0.75)
+    // the misread collapses into a believable vector instead of failing the
+    // plausibility gate — about 0.6% of records, ~550 rows a day. Those rows
+    // keep the right hr and ts (so they look fine) while carrying a fabricated
+    // gravity vector, fabricated optics, and none of the gen5 RR beats.
+    if (preferred != null && preferred.tsEpoch > 0) return preferred;
+    Uint8List? bytes;
     try {
-      // Legacy decoder first, firmware-fallback chain second — see
-      // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
-      // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
-      // fresh per-call instance is fine — no session state to preserve.
-      final r = proto.FirmwareAwareR24Decoder().decode(
-        proto.hexToBytes(raw.hex),
-      );
-      if (r == null || r.tsEpoch <= 0) return null;
-      return Sample(
-        tsEpoch: r.tsEpoch,
-        counter: r.counter,
-        hr: r.hr,
-        rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-        ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-        ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-        az: r.accelG.length > 2 ? r.accelG[2] : 0,
-        spo2RedRaw: r.spo2RedRaw,
-        spo2IrRaw: r.spo2IrRaw,
-        skinTempRaw: r.skinTempRaw,
-      );
-    } catch (_) {
-      return null;
+      bytes = proto.hexToBytes(raw.hex);
+    } catch (_) {}
+    if (bytes != null) {
+      try {
+        // Legacy decoder first, firmware-fallback chain second — see
+        // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
+        // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
+        // fresh per-call instance is fine — no session state to preserve.
+        final r = proto.FirmwareAwareR24Decoder().decode(bytes);
+        if (r != null && r.tsEpoch > 0) {
+          return Sample(
+            tsEpoch: r.tsEpoch,
+            counter: r.counter,
+            hr: r.hr,
+            rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+            ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
+            ay: r.accelG.length > 1 ? r.accelG[1] : 0,
+            az: r.accelG.length > 2 ? r.accelG[2] : 0,
+            spo2RedRaw: r.spo2RedRaw,
+            spo2IrRaw: r.spo2IrRaw,
+            // raw column passthrough, same as the ble path. not read as a temp.
+            // ignore: deprecated_member_use
+            skinTempRaw: r.skinTempRaw,
+          );
+        }
+      } catch (_) {}
     }
+    return null;
   }
 
   /// Queues the decoded_onehz + decoded_rr writes for one raw onto [batch].
@@ -2598,6 +2679,16 @@ class LocalDb {
       'spo2_red_raw': decoded.spo2RedRaw ?? 0,
       'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
       'skin_temp_raw': decoded.skinTempRaw ?? 0,
+      // NO `?? 0` here, unlike the columns above: these are only reported by a
+      // gen5 band, so a null must land in the DB as NULL. Zeroing them would
+      // invent a 0-step second / a 0 °C skin temperature for every gen4 record.
+      'step_count': decoded.stepCount,
+      'step_cadence': decoded.stepCadence,
+      'activity_class': decoded.activityClass,
+      'skin_temp_c': decoded.skinTempC,
+      'on_wrist': decoded.onWrist,
+      'hr_valid': decoded.hrValid == null ? null : (decoded.hrValid! ? 1 : 0),
+      'hr_alt': decoded.hrAlt,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     var ops = 1; // the decoded_onehz insert
     batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
@@ -3096,25 +3187,33 @@ class LocalDb {
     return db.query('sync_quarantine', orderBy: 'created_at DESC');
   }
 
+  /// Columns [Sample.fromDecodedRow] reads. Deliberately NOT `*`: the accel /
+  /// spo2 / raw-skin-temp columns are bulk and nothing on these two paths uses
+  /// them (the derive path has its own wider query).
+  static const List<String> _decodedSampleColumns = [
+    'counter',
+    'rec_ts',
+    'hr',
+    'step_count',
+    'step_cadence',
+    'activity_class',
+    'skin_temp_c',
+    'on_wrist',
+    'hr_valid',
+    'hr_alt',
+  ];
+
   static Future<List<Sample>> samplesInRange(int fromTs, int toTs) async {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
-      columns: ['counter', 'rec_ts', 'hr'],
+      columns: _decodedSampleColumns,
       where: 'rec_ts >= ? AND rec_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC, counter ASC',
     );
     if (decodedRows.isNotEmpty) {
-      return decodedRows
-          .map(
-            (m) => Sample(
-              tsEpoch: (m['rec_ts'] as num).toInt(),
-              counter: (m['counter'] as num).toInt(),
-              hr: (m['hr'] as num?)?.toInt() ?? 0,
-            ),
-          )
-          .toList();
+      return decodedRows.map(Sample.fromDecodedRow).toList();
     }
     final rows = await db.query(
       'samples',
@@ -3129,17 +3228,12 @@ class LocalDb {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
-      columns: ['counter', 'rec_ts', 'hr'],
+      columns: _decodedSampleColumns,
       orderBy: 'rec_ts DESC, counter DESC',
       limit: 1,
     );
     if (decodedRows.isNotEmpty) {
-      final row = decodedRows.first;
-      return Sample(
-        tsEpoch: (row['rec_ts'] as num).toInt(),
-        counter: (row['counter'] as num).toInt(),
-        hr: (row['hr'] as num?)?.toInt() ?? 0,
-      );
+      return Sample.fromDecodedRow(decodedRows.first);
     }
     final rows = await db.query('samples', orderBy: 'ts DESC', limit: 1);
     return rows.isEmpty ? null : Sample.fromDbMap(rows.first);
@@ -3215,7 +3309,9 @@ class LocalDb {
     if (afterRecTs == null || afterCounter == null) {
       return db.rawQuery(
         'SELECT counter, rec_ts, hr, ax, ay, az, '
-        'spo2_red_raw, spo2_ir_raw, skin_temp_raw '
+        'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
+        'step_count, step_cadence, activity_class, skin_temp_c, '
+        'on_wrist, hr_valid, hr_alt '
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts <= ? '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
@@ -3224,7 +3320,9 @@ class LocalDb {
     }
     return db.rawQuery(
       'SELECT counter, rec_ts, hr, ax, ay, az, '
-      'spo2_red_raw, spo2_ir_raw, skin_temp_raw '
+      'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
+      'step_count, step_cadence, activity_class, skin_temp_c, '
+      'on_wrist, hr_valid, hr_alt '
       'FROM decoded_onehz '
       'WHERE rec_ts >= ? AND rec_ts <= ? '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
@@ -4549,6 +4647,25 @@ class LocalDb {
         jsonEncode({'floor_g': floorG, 'frozen_on': frozenOn, 'days': days}),
       );
 
+
+  /// Write ONE (date, key) scalar into the canonical series store.
+  ///
+  /// The bulk path is [putDayResult]'s `series` map, which writes a whole day's
+  /// scalars alongside its bundle. This is for the case where a series row has
+  /// to be corrected on its own — a day whose bundle is gone but whose trend
+  /// point is still on screen (see `strain_backfill.dart`).
+  static Future<void> putMetricSeriesValue(
+    String date,
+    String key,
+    double? value,
+  ) async {
+    final db = await instance;
+    await db.insert('metric_series', {
+      'date': date,
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   /// A long-format metric series (oldest first) for trends/sparklines.
   static Future<List<Map<String, dynamic>>> metricSeries(

@@ -53,6 +53,16 @@ class Substrate {
   final List<int> skinTemp;
   final List<int> skinContact;
 
+  /// Gen5 on-chip CUMULATIVE step counter (u16, wraps at 65536, no midnight
+  /// reset). Parallel to [tsSec]. **`-1` means the record carried no counter at
+  /// all** — gen4 R24 has no pedometer field, so every gen4 second reads -1.
+  ///
+  /// The sentinel is load-bearing: `0` is a real reading (a band that has not
+  /// moved since its last wrap/reset) and must not be confused with "this
+  /// generation cannot count steps". Same absent-marker discipline as
+  /// [accelPresentAt].
+  final List<int> stepCount;
+
   const Substrate({
     required this.tsSec,
     required this.hr,
@@ -65,6 +75,7 @@ class Substrate {
     required this.spo2Ir,
     required this.skinTemp,
     required this.skinContact,
+    this.stepCount = const [],
   });
 
   static const Substrate empty = Substrate(
@@ -125,6 +136,18 @@ class Substrate {
   /// 1 Hz HR as doubles (0 = off-skin). Parallel to [tsSec] / [accelSamples].
   List<double> hr1hz() => [for (final h in hr) h.toDouble()];
 
+  /// The on-chip step counter at second [i], or `null` when this record carried
+  /// none (gen4, or a gen5 record whose counter field was absent).
+  int? stepCounterAt(int i) {
+    if (i < 0 || i >= stepCount.length) return null;
+    final v = stepCount[i];
+    return v < 0 ? null : v;
+  }
+
+  /// [stepCount] sliced to [lo, hi), tolerating the legacy empty list.
+  List<int> _stepSlice(int lo, int hi) =>
+      stepCount.length == tsSec.length ? stepCount.sublist(lo, hi) : const [];
+
   /// Slice to the half-open window [startSec, endSec) by record time. Returns a
   /// new Substrate with the 1 Hz arrays sliced and the sparse RR arrays filtered
   /// to beats whose end time falls in the window.
@@ -147,6 +170,7 @@ class Substrate {
       spo2Ir: spo2Ir.sublist(lo, hi),
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
+      stepCount: _stepSlice(lo, hi),
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -172,6 +196,7 @@ class Substrate {
       spo2Ir: spo2Ir.sublist(lo, hi),
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
+      stepCount: _stepSlice(lo, hi),
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -221,6 +246,7 @@ class Substrate {
         'spo2_ir': spo2Ir,
         'skin_temp': skinTemp,
         'skin_contact': skinContact,
+        'step_count': stepCount,
       };
 
   static Substrate fromJson(Map<String, dynamic> m) {
@@ -253,6 +279,12 @@ class Substrate {
       spo2Ir: safeI('spo2_ir'),
       skinTemp: safeI('skin_temp'),
       skinContact: safeI('skin_contact'),
+      // NOT `safeI`: a missing/short list means the counter was ABSENT, and the
+      // absent marker is -1, not 0 (0 is a real, unmoved counter reading).
+      stepCount: () {
+        final l = ints(m, 'step_count');
+        return l.length == n ? l : List<int>.filled(n, -1);
+      }(),
     );
   }
 }
@@ -364,7 +396,69 @@ Substrate decodeSubstrate(List<String> hexes) {
     spo2Ir: spo2Ir,
     skinTemp: skinTemp,
     skinContact: skinContact,
+    // Gen4 R24 carries no pedometer field: every second is ABSENT (-1), never
+    // a confident zero. Gen5 counters reach the substrate through the
+    // decoded_onehz loader (derive_prepare.addDecodedPage), not this path.
+    stepCount: List<int>.filled(n, -1),
   );
+}
+
+/// Steps MEASURED by the band's own pedometer over [sub], or `null` when this
+/// substrate carries no counter at all — which is every gen4 (WHOOP 4.0) day,
+/// since R24 has no pedometer field. Null means "this hardware cannot count
+/// steps", never "you took no steps".
+///
+/// `stepMotionCounter` is a **cumulative u16** that wraps at 65536 and is also
+/// reset by a strap reboot/re-pair, so the day's total is the sum of positive
+/// per-record deltas, not `last - first`. Two hazards, both handled here:
+///
+///   * **wrap** (65500 → 100): the raw delta is negative. Re-reading it modulo
+///     65536 gives the true small delta, which passes the plausibility budget.
+///   * **reset** (40000 → 0): the raw delta is also negative, and modulo 65536
+///     gives an absurd 25536. It FAILS the budget and contributes nothing —
+///     the boundary delta is dropped rather than invented. Losing at most one
+///     inter-record delta is the honest cost of an ambiguity the counter
+///     genuinely cannot resolve.
+///
+/// The plausibility budget is `clamp(gap, 60 s, 3600 s) × [maxStepsPerSecond]`,
+/// and both ends of that clamp are load-bearing:
+///
+///   * the FLOOR (300 steps) exists because the counter's on-band update cadence
+///     is not verified on hardware. If the strap advances it in bursts rather
+///     than every second, a literal `gap × 5` budget would reject almost every
+///     real delta and silently report near-zero steps — a far worse failure than
+///     the one this guard is for. 300 steps between two records still cannot be
+///     confused with a 25 000-step reset artefact.
+///   * the CEILING keeps a reset after a long unsynced stretch from buying
+///     enough budget to pass as a wrap.
+///
+/// A delta is either credited in full or dropped in full, so this function can
+/// never return a negative or an absurd total, whatever the counter does.
+int? hardwareStepsFromCounter(Substrate sub, {int maxStepsPerSecond = 5}) {
+  const wrap = 65536;
+  const minGapSecForBudget = 60;
+  const maxGapSecForBudget = 3600;
+  int? prev;
+  int? prevTs;
+  var total = 0;
+  var seen = false;
+  for (var i = 0; i < sub.length; i++) {
+    final c = sub.stepCounterAt(i);
+    if (c == null) continue;
+    seen = true;
+    final ts = sub.tsSec[i];
+    if (prev != null && prevTs != null && ts > prevTs) {
+      final gap = ts - prevTs;
+      final budget =
+          gap.clamp(minGapSecForBudget, maxGapSecForBudget) * maxStepsPerSecond;
+      var delta = c - prev;
+      if (delta < 0) delta += wrap; // wrap candidate; a reset overshoots below
+      if (delta > 0 && delta <= budget) total += delta;
+    }
+    prev = c;
+    prevTs = ts;
+  }
+  return seen ? total : null;
 }
 
 class _Rec {

@@ -390,6 +390,10 @@ Map<String, dynamic> buildManualSessionRow({
     'calories': stats.calories,
     'strain': stats.strain,
     'max_hr': stats.maxHr,
+    // Banked, not recomputed on read: the 1 Hz window this was measured over is
+    // pruned after 3 days, and an average that vanishes from every workout older
+    // than that is worse than one stored beside the peak it belongs with.
+    'avg_hr': stats.avgHr,
     'duration_min': (endSec - startSec) ~/ 60,
     'zone_min_json': jsonEncode(zone.any((v) => v > 0) ? zone : const <num>[]),
     // Steps and HRR belong to the window, not the entry: `steps` came from the

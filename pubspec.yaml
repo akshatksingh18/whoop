@@ -16,6 +16,13 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
+  # The single icon family behind lib/ui2. One pack, one stroke weight, one
+  # optical size — replacing the five-pack mix the old design system blended
+  # per concept, which is why no two screens' icons quite matched. Lucide is
+  # what the interface was drawn in; keeping it means a screen can name the
+  # glyph the design names.
+  lucide_icons_flutter: ^3.1.15
+
   # Local pure-Dart packages — the protocol byte codecs and the metric/analytics
   # engine. Replace the old cloud backend: decode happens on-device, and the
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
@@ -148,30 +155,14 @@ dependencies:
   # Type: Manrope + Barlow Condensed are BUNDLED under assets/fonts/ (declared
   # in flutter.fonts below), not pulled at runtime — see the note there.
 
-  # Icon packs backing lib/ui/kit/os_icons.dart (see that file's header for the
-  # full per-concept rationale). Mixed deliberately — each pack is used only
-  # for the concepts it's genuinely best at, normalized to one consistent
-  # size/weight by OsAppIcon:
-  #   - phosphor_flutter   — Duotone weight; the primary "hero" biometric/
-  #     domain glyphs (closest replacement for the old illustrations).
-  #   - solar_icons        — Bold weight; literal sport + sleep-stage glyphs.
-  #   - iconsax_flutter    — battery/bluetooth variants + the heartbeat-zigzag
-  #     "activity" glyph (cardio/resting-HR family).
-  #   - fluentui_system_icons — Regular weight; plain monochrome UI chrome
-  #     (arrows, check, settings, calendar…) — reads crisper flat than duotone
-  #     at small utility sizes.
-  #   - hugeicons          — used for exactly the 2 concepts it wins outright
-  #     (a literal ECG waveform + a literal blood-drop); nothing else uses it.
-  hugeicons: ^0.0.11
-  solar_icons: ^0.1.0
-  iconsax_flutter: ^1.0.1
-  fluentui_system_icons: ^1.1.273
-  phosphor_flutter: ^2.1.0
-
-  # Declarative motion language for the design system (entrance stagger, press
-  # pops, count-ups, shimmer) — one consistent vocabulary instead of hand-rolled
-  # AnimationControllers in every component. See lib/ui/design/motion.dart.
-  flutter_animate: ^4.5.2
+  # Declarative motion (flutter_animate) and the five-pack icon mix that
+  # backed lib/ui/kit/os_icons.dart went with lib/ui. lib/ui2 has one icon
+  # family (lucide_icons_flutter, declared above) and one motion gate
+  # (lib/ui2/theme.dart), so none of them have a consumer any more.
+  #
+  # phosphor_flutter also no longer COMPILES against the current Flutter SDK —
+  # `IconData` became a final class, and PhosphorIconData extends it — which is
+  # what was failing 33 test files on main before this branch.
 
   # Injectable clock (RouteTracker's stall watchdog) — was a transitive dep via
   # fake_async/flutter_test; declared directly since lib/ code now imports it.

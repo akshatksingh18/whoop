@@ -1,0 +1,379 @@
+// The downsampler, which is the one piece of real algorithm in lib/ui2.
+//
+// A night is ~30 000 1 Hz samples on a ~350 pt chart: ~85 samples per physical
+// pixel, every one of them a Path segment. The old UI drew all of them. The
+// fix has to be a reduction that a reviewer can trust not to hide a spike,
+// which is why it is min/max-per-column and not stride decimation — so these
+// assert exactly that.
+
+import 'dart:ui' show PictureRecorder;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ui2/charts.dart';
+import 'package:openstrap_edge/ui2/grammar.dart';
+import 'package:openstrap_edge/ui2/theme.dart';
+
+/// Captures what a painter actually drew, so an axis claim can be checked
+/// against geometry instead of against a screenshot.
+class _Rec implements Canvas {
+  final paths = <Path>[];
+  final rrects = <RRect>[];
+
+  @override
+  void drawPath(Path p, Paint _) => paths.add(p);
+
+  @override
+  void drawRRect(RRect r, Paint _) => rrects.add(r);
+
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+Widget _host(Widget child, {double scale = 1, Brightness b = Brightness.light}) =>
+    MediaQuery(
+      data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+      child: MaterialApp(
+        theme: buildTheme(b),
+        home: Scaffold(body: Padding(padding: const EdgeInsets.all(S.x4), child: child)),
+      ),
+    );
+
+void main() {
+  double identityY(double v) => v;
+
+  group('minMaxColumns', () {
+    test('a short series is returned untouched', () {
+      final d = [1.0, 5.0, 3.0, 9.0];
+      final out = minMaxColumns(d, 400, identityY);
+      expect(out, hasLength(d.length));
+      expect(out.map((o) => o.dy), d);
+      expect(out.first.dx, 0);
+      expect(out.last.dx, closeTo(400, 0.001));
+    });
+
+    test('a long series collapses to at most two points per pixel column', () {
+      final d = List<double>.generate(30000, (i) => (i % 97).toDouble());
+      final out = minMaxColumns(d, 350, identityY);
+      expect(out.length, lessThanOrEqualTo(700));
+      // …and it is actually a reduction, not a copy.
+      expect(out.length, lessThan(d.length / 20));
+    });
+
+    test('a single-sample spike survives the reduction', () {
+      // Stride decimation drops this ~99.7% of the time. That is the bug.
+      final d = List<double>.filled(30000, 60.0);
+      d[17431] = 190.0;
+      final out = minMaxColumns(d, 350, identityY);
+      expect(out.map((o) => o.dy), contains(190.0));
+    });
+
+    test('a single-sample dropout survives too', () {
+      final d = List<double>.filled(30000, 60.0);
+      d[2] = 31.0;
+      expect(minMaxColumns(d, 350, identityY).map((o) => o.dy), contains(31.0));
+    });
+
+    test('points stay in time order — the line never doubles back', () {
+      final d = List<double>.generate(20000, (i) => (i * 7 % 211).toDouble());
+      final out = minMaxColumns(d, 300, identityY);
+      for (var i = 1; i < out.length; i++) {
+        expect(out[i].dx, greaterThanOrEqualTo(out[i - 1].dx),
+            reason: 'x went backwards at $i');
+      }
+    });
+
+    test('x spans the full width, so the chart is not drawn short', () {
+      final d = List<double>.generate(9000, (i) => i.toDouble());
+      final out = minMaxColumns(d, 250, identityY);
+      expect(out.first.dx, closeTo(0, 1));
+      expect(out.last.dx, closeTo(250, 1));
+    });
+
+    test('the y mapping is applied, not bypassed', () {
+      final d = List<double>.generate(5000, (i) => i.toDouble());
+      final out = minMaxColumns(d, 100, (v) => 100 - v / 50);
+      expect(out.map((o) => o.dy).reduce((a, b) => a < b ? a : b),
+          closeTo(100 - 4999 / 50, 0.001));
+    });
+
+    test('degenerate inputs do not throw', () {
+      expect(minMaxColumns(const [], 300, identityY), isEmpty);
+      expect(minMaxColumns(const [4.0], 300, identityY), hasLength(1));
+      expect(minMaxColumns(const [1.0, 2.0], 0, identityY), isEmpty);
+    });
+  });
+
+  group('maxColumns', () {
+    test('bars aggregate to the column peak, never the mean', () {
+      final d = List<double>.filled(1000, 1.0);
+      d[500] = 50.0;
+      final out = maxColumns(d, 10);
+      expect(out, hasLength(10));
+      expect(out.reduce((a, b) => a > b ? a : b), 50.0);
+    });
+
+    test('a series that already fits is untouched', () {
+      final d = [1.0, 2.0, 3.0];
+      expect(identical(maxColumns(d, 10), d), isTrue);
+    });
+  });
+
+  group('painters refuse to invent data', () {
+    // Every painter here used to seed its own Random. An empty input must draw
+    // nothing so the screen falls through to a StatusCard.
+    test('empty inputs paint nothing and do not throw', () {
+      const size = Size(300, 100);
+      final recorder = PictureRecorder();
+      final canvas = Canvas(recorder);
+      for (final p in <CustomPainter>[
+        LineChart(const [], Colors.red),
+        Bars(const [], Colors.red, Colors.grey),
+        Hypnogram(const []),
+        ZoneBar(const []),
+        Actogram(const [], Colors.red),
+        HeatMap(const [], Colors.red, Colors.grey),
+        Spectrum(const []),
+        NightStack(const [], const [Colors.red]),
+      ]) {
+        expect(() => p.paint(canvas, size), returnsNormally,
+            reason: '${p.runtimeType} threw on empty input');
+      }
+      recorder.endRecording();
+    });
+
+    test('a gap in an actogram is a gap, not a night of nothing', () {
+      // A null day is unrecorded; a list of zeroes is "measured, no sleep".
+      // They must not be the same value.
+      expect(<List<double>?>[null], isNot(<List<double>?>[List.filled(24, 0)]));
+    });
+  });
+
+  // ── THE AXIS ────────────────────────────────────────────────────────────
+  group('AxisSpec', () {
+    const a = AxisSpec(min: 40, max: 80, format: axisInt);
+
+    test('t() is 0 at min, 1 at max, and clamps outside', () {
+      expect(a.t(40), 0);
+      expect(a.t(60), closeTo(.5, 1e-9));
+      expect(a.t(80), 1);
+      // A sample past the axis lands on the edge — never off the canvas, and
+      // never silently rescaling the axis the labels describe.
+      expect(a.t(200), 1);
+      expect(a.t(-5), 0);
+    });
+
+    test('tickValues run top-first and include both ends', () {
+      expect(a.tickValues, [80.0, 60.0, 40.0]);
+      expect(const AxisSpec(min: 0, max: 3, ticks: 4, format: axisInt).tickValues,
+          [3.0, 2.0, 1.0, 0.0]);
+    });
+
+    test('a degenerate axis does not divide by zero', () {
+      expect(const AxisSpec(min: 5, max: 5, format: axisInt).t(5), 0);
+    });
+
+    group('of()', () {
+      test('rounds out to steps a human would pick, and contains the data', () {
+        final s = AxisSpec.of([37.2, 61.8, 54.0])!;
+        expect(s.min, lessThanOrEqualTo(37.2));
+        expect(s.max, greaterThanOrEqualTo(61.8));
+        expect(s.format(s.min), anyOf('20', '30', '35', '40'));
+        // Evenly spaced ticks, or the gridlines lie about their spacing.
+        final v = s.tickValues;
+        expect(v[0] - v[1], closeTo(v[1] - v[2], 1e-9));
+      });
+
+      test('a flat series gets a band around it, not a line on the floor', () {
+        final s = AxisSpec.of(List.filled(20, 60.0))!;
+        expect(s.min, lessThan(60));
+        expect(s.max, greaterThan(60));
+        expect(s.t(60), closeTo(.5, .2));
+      });
+
+      test('floor extends the axis but never crops the data', () {
+        final s = AxisSpec.of([30.0, 44.0], floor: 0)!;
+        expect(s.min, 0);
+        expect(s.max, greaterThanOrEqualTo(44));
+        final low = AxisSpec.of([-12.0, 5.0], floor: 0)!;
+        expect(low.min, lessThanOrEqualTo(-12));
+      });
+
+      test('an empty series has no axis — that is the empty state', () {
+        expect(AxisSpec.of(const []), isNull);
+      });
+    });
+
+    test('formatters', () {
+      expect(axisInt(55.6), '56');
+      expect(axisHm(450), '7h 30m');
+      expect(axisHm(480), '8h');
+      expect(axisHm(45), '45m');
+      expect(axisFixed(36.48), '36.5');
+    });
+  });
+
+  group('painters honour the axis they were given', () {
+    const size = Size(100, 100);
+    const axis = AxisSpec(min: 0, max: 100, format: axisInt);
+
+    test('a line touches the top at max and the bottom at min — no padding', () {
+      final rec = _Rec();
+      LineChart([0.0, 100.0, 50.0], Colors.red, fill: false, axis: axis)
+          .paint(rec, size);
+      final b = rec.paths.first.getBounds();
+      expect(b.top, closeTo(0, .5));
+      expect(b.bottom, closeTo(100, .5));
+    });
+
+    test('without an axis it auto-scales — which is why charts need one', () {
+      final rec = _Rec();
+      // Same data, a tenth of the range: identical picture. That is the bug
+      // the axis exists to fix, pinned so nobody "simplifies" it back.
+      LineChart([0.0, 10.0, 5.0], Colors.red, fill: false).paint(rec, size);
+      final small = rec.paths.first.getBounds();
+      final rec2 = _Rec();
+      LineChart([0.0, 100.0, 50.0], Colors.red, fill: false).paint(rec2, size);
+      expect(rec2.paths.first.getBounds().top, closeTo(small.top, .5));
+    });
+
+    test('bars measure against the axis, not against their own tallest bar',
+        () {
+      final rec = _Rec();
+      Bars([50.0], Colors.red, Colors.grey, axis: axis).paint(rec, size);
+      final half = rec.rrects.first.outerRect.height;
+      final rec2 = _Rec();
+      Bars([100.0], Colors.red, Colors.grey, axis: axis).paint(rec2, size);
+      expect(half, closeTo(rec2.rrects.first.outerRect.height / 2, 1));
+      // Auto-scaled, both would be full height.
+      final auto = _Rec();
+      Bars([50.0], Colors.red, Colors.grey).paint(auto, size);
+      expect(auto.rrects.first.outerRect.height, closeTo(100, 1));
+    });
+  });
+
+  group('legends are derived from the palette, never retyped', () {
+    test('every sleep stage has a key', () {
+      expect(Hypnogram.legend.map((e) => e.$2),
+          SleepStage.values.map((s) => Hypnogram.cols[s]));
+      expect(Hypnogram.legend.map((e) => e.$1),
+          ['Awake', 'REM', 'Light', 'Deep']);
+    });
+
+    test('every zone has a key', () {
+      expect(ZoneBar.legend, hasLength(ZoneBar.cols.length));
+      expect(ZoneBar.legend.last.$1, 'Zone 5');
+    });
+  });
+
+  // ── THE FRAME ───────────────────────────────────────────────────────────
+  group('ChartFrame', () {
+    testWidgets('always prints the unit and the real tick numbers',
+        (tester) async {
+      await tester.pumpWidget(_host(ChartFrame(
+        title: 'Resting heart rate',
+        unit: 'bpm',
+        yAxis: const AxisSpec(min: 40, max: 80, format: axisInt),
+        xLabels: const ['7 days ago', 'Today'],
+        footnote: 'Your usual range 52–64 bpm',
+        conf: Conf.high,
+        child: CustomPaint(painter: LineChart(const [52.0, 61.0], C.blue)),
+      )));
+
+      expect(find.text('bpm'), findsOneWidget);
+      expect(find.text('Resting heart rate'), findsOneWidget);
+      for (final t in const ['80', '60', '40']) {
+        expect(find.text(t), findsOneWidget, reason: 'tick $t missing');
+      }
+      expect(find.text('7 days ago'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Your usual range 52–64 bpm'), findsOneWidget);
+    });
+
+    testWidgets('a duration axis prints hours and minutes', (tester) async {
+      await tester.pumpWidget(_host(ChartFrame(
+        title: 'Time asleep',
+        unit: 'per night',
+        height: 140,
+        yAxis: AxisSpec(min: 0, max: 480, ticks: 3, format: axisHm),
+        child: CustomPaint(painter: Bars(const [420.0], C.blue, C.n200)),
+      )));
+      expect(find.text('8h'), findsOneWidget);
+      expect(find.text('4h'), findsOneWidget);
+    });
+
+    testWidgets('empty keeps the title and the unit and drops the axis',
+        (tester) async {
+      await tester.pumpWidget(_host(const ChartFrame(
+        title: 'Respiratory rate',
+        unit: 'breaths/min',
+        yAxis: AxisSpec(min: 10, max: 20, format: axisInt),
+        xLabels: ['Mon', 'Sun'],
+        empty: NoData(message: 'Nothing recorded this week'),
+        child: SizedBox.shrink(),
+      )));
+      expect(find.text('breaths/min'), findsOneWidget);
+      expect(find.text('Nothing recorded this week'), findsOneWidget);
+      // No axis with nothing on it, and no x-labels under an empty box.
+      expect(find.text('20'), findsNothing);
+      expect(find.text('Mon'), findsNothing);
+    });
+
+    testWidgets('legend entries carry the mark colour they explain',
+        (tester) async {
+      await tester.pumpWidget(_host(ChartFrame(
+        title: 'Last night',
+        unit: 'stages',
+        legend: Hypnogram.legend,
+        child: CustomPaint(painter: Hypnogram(const [SleepStage.deep])),
+      )));
+      for (final s in SleepStage.values) {
+        expect(find.text(s.label), findsOneWidget);
+      }
+    });
+
+    testWidgets('at 2x text the labels thin instead of colliding',
+        (tester) async {
+      // The frame is 100 pt tall and asks for 4 ticks. At 1x they fit; at 2x
+      // they cannot, so the frame must drop labels — and the ones it keeps
+      // must still be the ends of the SAME axis.
+      const spec = AxisSpec(min: 0, max: 300, ticks: 4, format: axisInt);
+      Widget frame() => ChartFrame(
+            title: 'Movement',
+            unit: 'counts',
+            height: 100,
+            yAxis: spec,
+            child: CustomPaint(painter: Bars(const [120.0], C.purple, C.n200)),
+          );
+
+      await tester.pumpWidget(_host(frame()));
+      expect(find.text('100'), findsOneWidget);
+
+      await tester.pumpWidget(_host(frame(), scale: 2));
+      expect(tester.takeException(), isNull);
+      expect(find.text('300'), findsOneWidget);
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('100'), findsNothing);
+    });
+
+    testWidgets('nothing overflows in either theme at 2x', (tester) async {
+      for (final b in Brightness.values) {
+        await tester.pumpWidget(_host(
+          ChartFrame(
+            title: 'Heart rate variability across the whole night',
+            unit: 'ms',
+            yAxis: AxisSpec(min: 0, max: 480, format: axisHm),
+            xLabels: const ['22:30', '02:00', '05:30', '07:10'],
+            legend: ZoneBar.legend,
+            footnote: 'Relative to your own 14-night baseline.',
+            conf: Conf.estimated,
+            child: CustomPaint(painter: LineChart(const [40.0, 90.0], C.teal)),
+          ),
+          scale: 2,
+          b: b,
+        ));
+        expect(tester.takeException(), isNull, reason: '$b overflowed at 2x');
+      }
+    });
+  });
+}

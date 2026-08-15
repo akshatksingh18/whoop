@@ -815,6 +815,18 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   sleep['cycles'] = [for (final c in cyc.cycles) c.toJson()];
   sleep['cycle_count'] = cyc.n;
   sleep['cycles_mean_min'] = cyc.meanDurationMin;
+  // The SAME detection, in its published Metric envelope. `detectSleepCycles`
+  // is the bare algorithm and returns n=0 both for "no cycles" and for "not
+  // enough RR to look" — indistinguishable downstream, and the raw keys above
+  // carry no tier or confidence, so the UI had to assert its own. This is the
+  // honest wrapper: ESTIMATE tier, HRV-derived, absent with a reason when the
+  // window cannot support detection. The raw keys stay for existing readers.
+  sleep['cycles_metric'] = sleepCyclesMetric(
+    d.sleepRrMs,
+    d.sleepRrTsMs,
+    d.sleepOnsetSec,
+    d.sleepOffsetSec,
+  ).toJson((v) => v.toJson());
   // The continuous z-RMSSD wave the cycle GRAPH plots ({t: epochSec, z}).
   sleep['cycle_series'] = cyc.series;
 

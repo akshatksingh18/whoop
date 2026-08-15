@@ -52,6 +52,21 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getToday');
   Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) =>
       throw UnimplementedError('re-layer: getSleep');
+
+  /// Sleep ONSET/OFFSET for the most recent [days] days, newest first.
+  ///
+  /// One projected query over `day_result.window_json` — no bundle decode and
+  /// no per-day round trip, which is what an actogram (and the circadian
+  /// family) needs and what `getSleep` cannot give: `getSleep` carries duration
+  /// and efficiency but no clock times, so the only way to draw N nights was N
+  /// separate `getDaySleepV2` calls, each decoding a full day bundle.
+  ///
+  /// Rows: `{date: 'YYYY-MM-DD', onset_ts: int?, wake_ts: int?, confidence:
+  /// double?, tier: String?}` — epoch SECONDS. A night with no detected sleep
+  /// still appears, with null times; the caller decides what an absent night
+  /// looks like rather than being handed a silently shorter list.
+  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) =>
+      throw UnimplementedError('re-layer: sleepWindows');
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) =>
       throw UnimplementedError('re-layer: getStrain');
   /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.

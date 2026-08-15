@@ -187,6 +187,9 @@ Map<String, dynamic> buildCrossDayBundle(
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
   final sri = _crossDaySri(days);
 
+  // ── circadian rhythm: nonparametric battery + 24 h cosinor ────────────────
+  final circadian = _crossDayCircadian(days);
+
   // ── SLEEP COACH: need (baseline + debt + strain − naps) + performance +
   //    recommended bedtime + cycle-aligned wake (all forward-looking for tonight).
   // baseline need = the personal OSD (from sleepDebt) when known, else 8 h.
@@ -389,6 +392,15 @@ Map<String, dynamic> buildCrossDayBundle(
     'regularity': sri.toJson((v) => v.toJson()),
     'social_jetlag': socialJetlag.toJson((v) => v.toJson()),
     'chronotype': chronotype.toJson((v) => v.toJson()),
+    // IS / IV / RA / L5 / M10 (van Someren 1999) and the single-component
+    // 24 h cosinor (Halberg/Nelson 1979). Both are ordinary Metric envelopes,
+    // absent with a `need_baseline:` note until enough COMPLETE days exist.
+    'circadian_rhythm': circadian.np,
+    'circadian_cosinor': circadian.cosinor,
+    // How the two above were fed: the run of consecutive fully-covered days
+    // that was admitted, and the phase reference. Lets the UI say "5 of 7
+    // nights" without re-deriving it from the note.
+    'circadian_coverage': circadian.coverage,
     'sleep_debt': sleepDebt.toJson((v) => v.toJson()),
     'readiness_glassbox': glassBox.toJson((v) => v.toJson()),
     'brv': brv.toJson((v) => v.toJson()),
@@ -580,6 +592,158 @@ ana.GlassBoxInput? _glassInput(
     weight: weight,
     lowerIsBetter: lowerIsBetter,
   );
+}
+
+/// Minimum consecutive fully-covered days for the nonparametric battery.
+///
+/// IS is a between-day statistic: it asks how reproducible your 24 h profile is
+/// from one day to the next, and it cannot answer that from two days. Seven is
+/// the standard actigraphy recording protocol behind the published IS/IV/RA
+/// reference ranges (van Someren 1999), so anything shorter would be scored
+/// against norms it does not belong to.
+const int kCircadianNpMinDays = 7;
+
+/// Minimum consecutive fully-covered days for the 24 h cosinor.
+///
+/// A single day fits three parameters through 24 points and will always return
+/// SOME amplitude and acrophase — including from noise. Three days is the point
+/// at which a stable phase estimate is a claim about the person rather than
+/// about one day's shape. (`cosinor` separately enforces ≥8 points and reports
+/// the ADJUSTED R², so overfitting is already penalised in the fit itself.)
+const int kCircadianCosinorMinDays = 3;
+
+/// The circadian block: two envelopes plus what fed them.
+typedef _Circadian = ({
+  Map<String, dynamic> np,
+  Map<String, dynamic> cosinor,
+  Map<String, dynamic> coverage,
+});
+
+/// Nonparametric circadian metrics + a 24 h cosinor over the HOURLY HR profile.
+///
+/// INPUT HONESTY. The textbook input is continuous accelerometry (ENMO), and we
+/// cannot use it: the 1 Hz substrate is pruned after 3 days, so no multi-day
+/// accel series exists to analyse. What survives is `day_result`, which is never
+/// pruned, and the per-day hourly HR profile stored on it. `circadianNonparametric`
+/// names an HR series as an accepted input alongside activity, and HR carries the
+/// same circadian rhythm the battery measures — but M10/L5 are then the most- and
+/// least-ACTIVE-HR windows, not step counts, and RA is an HR amplitude ratio. The
+/// note on each envelope says so. Skin temperature is deliberately NOT used: the
+/// only stored temperature channel is `skin_temp_raw`, which is not a temperature.
+///
+/// DAY ADMISSION. A day enters only when all 24 local-hour bins are covered
+/// (≥5 real minutes each, enforced upstream in `_hourlyHrProfile`). Missing hours
+/// are never filled — an imputed hour is exactly the kind of smooth, regular
+/// signal IS is designed to reward, so imputation would manufacture rhythm
+/// strength out of missing data. Only the MOST RECENT RUN of calendar-consecutive
+/// admitted days is used, because IV differences successive epochs and a jump
+/// across a multi-day gap is not a real hour-to-hour transition.
+///
+/// (A spring-forward day has 23 local hours, so one bin can never be covered and
+/// the day is excluded. That is the honest outcome; it costs one day, twice a year.)
+_Circadian _crossDayCircadian(List<Map<String, dynamic>> days) {
+  const inputs = ['hourly_hr_epochs'];
+  const epochsPerDay = 24;
+
+  // Most recent run of calendar-consecutive days with a complete 24 h profile.
+  final run = <List<double>>[];
+  String? runFirstDate;
+  String? prevDate;
+  for (final d in days) {
+    final date = d['date'] as String?;
+    final profile = _completeHourlyProfile(d['hourly_hr']);
+    if (date == null || profile == null) {
+      run.clear();
+      runFirstDate = null;
+      prevDate = null;
+      continue;
+    }
+    if (prevDate != null && !_isNextDay(prevDate, date)) {
+      run.clear();
+      runFirstDate = null;
+    }
+    if (run.isEmpty) runFirstDate = date;
+    run.add(profile);
+    prevDate = date;
+  }
+
+  final have = run.length;
+  final x = <double>[for (final day in run) ...day];
+
+  final np = have >= kCircadianNpMinDays
+      ? ana.circadianNonparametric(x, epochsPerDay)
+      : ana.Metric<ana.CircadianNp>.absent(
+          tier: ana.Tier.high,
+          inputs_used: inputs,
+          note: ana.needBaselineNote(have: have, need: kCircadianNpMinDays),
+        );
+
+  // Cosinor time base: the run is consecutive by construction, so element i is
+  // exactly i hours after the run's first midnight — and hour-of-day is `i % 24`,
+  // which is what makes the acrophase readable as a clock time.
+  final cos = have >= kCircadianCosinorMinDays
+      ? ana.cosinor([for (var i = 0; i < x.length; i++) i.toDouble()], x)
+      : ana.Metric<ana.CosinorFit>.absent(
+          tier: ana.Tier.high,
+          inputs_used: inputs,
+          note: ana.needBaselineNote(
+            have: have,
+            need: kCircadianCosinorMinDays,
+          ),
+        );
+
+  return (
+    np: _withInputNote(np.toJson((v) => v.toJson())),
+    cosinor: _withInputNote(cos.toJson((v) => v.toJson())),
+    coverage: <String, dynamic>{
+      'days_used': have,
+      'days_need_np': kCircadianNpMinDays,
+      'days_need_cosinor': kCircadianCosinorMinDays,
+      'first_day': runFirstDate,
+      'last_day': have == 0 ? null : prevDate,
+      'signal': 'hourly_hr',
+    },
+  );
+}
+
+/// Append the substrate caveat to an envelope's note, so the claim never leaves
+/// this file without saying what it was computed FROM.
+Map<String, dynamic> _withInputNote(Map<String, dynamic> envelope) {
+  const caveat = 'computed on hourly HEART-RATE means, not accelerometry '
+      '(no multi-day accel survives raw pruning): M10/L5 are the highest- and '
+      'lowest-HR windows and RA is an HR amplitude ratio';
+  final existing = envelope['note'];
+  // Never overwrite a `need_baseline:` note — the edge parses it verbatim.
+  if (existing is String && existing.startsWith('need_baseline:')) {
+    return envelope;
+  }
+  envelope['note'] = existing is String && existing.isNotEmpty
+      ? '$existing; $caveat'
+      : caveat;
+  return envelope;
+}
+
+/// The day's 24 hourly means, or null if ANY hour is uncovered. No imputation.
+List<double>? _completeHourlyProfile(Object? hourly) {
+  if (hourly is! List || hourly.length != 24) return null;
+  final out = <double>[];
+  for (final v in hourly) {
+    if (v is! num) return null; // null hour ⇒ day not admitted
+    out.add(v.toDouble());
+  }
+  return out;
+}
+
+/// Is [b] the calendar day immediately after [a] ('YYYY-MM-DD')?
+///
+/// Parsed as UTC on purpose: these are date LABELS, and local parsing makes a
+/// DST day 23 or 25 hours long, which rounds `inDays` to 0 or 2 and would break
+/// a run that is genuinely consecutive.
+bool _isNextDay(String a, String b) {
+  final da = DateTime.tryParse('${a}T00:00:00Z');
+  final db = DateTime.tryParse('${b}T00:00:00Z');
+  if (da == null || db == null) return false;
+  return db.difference(da).inDays == 1;
 }
 
 /// Reconstruct a per-minute asleep series for each day on a 1440-epoch grid from

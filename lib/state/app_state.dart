@@ -43,7 +43,7 @@ import '../compute/profile.dart';
 import '../data/day_label.dart';
 import '../data/auto_backup.dart'
     show BackupCadence, BackupOutcome, runBackup;
-import '../ui/stress/breath_phases.dart';
+import '../stress/breath_phases.dart';
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
@@ -4126,6 +4126,26 @@ class AppState extends ChangeNotifier {
     if (pct >= 50) return 1;
     return 0;
   }
+
+  /// The zone the live session is in right now, 1..5, or null at rest / with
+  /// no session. Exposed so the live screens read the ONE zone table instead
+  /// of keeping a second copy of the thresholds — which is how two screens
+  /// end up disagreeing about the same heartbeat.
+  int? get liveZone {
+    final z = _zoneFor(activeWorkout?.currentHr ?? 0);
+    return z == 0 ? null : z;
+  }
+
+  /// Distance the live route recorder has measured, km. Null when no route is
+  /// being recorded — which is not the same as zero.
+  double? get liveDistanceKm {
+    final rt = _routeTracker;
+    return rt == null ? null : rt.distanceMeters.value / 1000;
+  }
+
+  /// Whether a route recorder is actually running and taking fixes — as
+  /// opposed to the activity merely being one that deserves a route.
+  bool get routeTracking => _routeTracker?.isRunning ?? false;
 
   void startWorkout({
     double targetKcal = 300,

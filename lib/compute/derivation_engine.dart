@@ -770,7 +770,41 @@ import 'substrate.dart';
 //   Older days have no raw to re-derive from, so `strain_backfill.dart` rebuilds
 //   their headline from the stored TRIMP + wake window instead — see that file
 //   for why that is exact and what it deliberately drops.
-const int kAlgoVersion = 65;
+// v66: THREE analytics outputs change shape or value.
+//
+//   1. CIRCADIAN, newly computed. `circadianNonparametric` (IS/IV/RA/L5/M10,
+//      van Someren 1999) and `cosinor` (Halberg/Nelson 1979) were written,
+//      tested and never called from edge. They now run in the cross-day rollup
+//      over a new per-day field, `hourly_hr` — 24 local-hour HR means projected
+//      from the stored `series.hr_curve`. HR, not accelerometry, because the
+//      1 Hz substrate is pruned at 3 days and `day_result` is not: no multi-day
+//      accel exists to analyse. Only runs of calendar-CONSECUTIVE days whose 24
+//      bins are ALL covered are admitted (no imputation — a filled hour is
+//      exactly the smooth signal IS rewards), and each family abstains with the
+//      standard `need_baseline:have=H,need=N` note below its own minimum (7 days
+//      nonparametric, 3 cosinor). New bundle keys: `circadian_rhythm`,
+//      `circadian_cosinor`, `circadian_coverage`.
+//
+//   2. STEPS on gen5. `stepMotionCounter` was decoded, stored in
+//      `decoded_onehz.step_count` and read back, but `Substrate` had no field
+//      for it, so derivation never saw it and a WHOOP 5 user with a real wrist
+//      pedometer got no steps unless they enabled the phone one. The channel is
+//      now carried end to end; the counter is cumulative u16, so the day's total
+//      is the sum of PLAUSIBLE positive deltas — a wrap is recovered modulo
+//      65536, a reset fails the plausibility budget and contributes nothing.
+//      The band counter outranks `live_coverage`; both are disclosed. Gen4 has
+//      no such counter and is unaffected (its every second reads ABSENT, not 0).
+//
+//   3. SLEEP CYCLES gain their Metric envelope. `sleep.cycles_metric` is
+//      `sleepCyclesMetric` over the same detection the raw `cycle_count` /
+//      `cycles_mean_min` keys already carried, so tier and confidence are read
+//      rather than asserted by the UI. The raw keys are unchanged.
+//
+//   ALSO on this bump: `crossDayArtifactUsableToday` now checks the
+//   `algo_version` it has always stamped. It did not, so a bump that changes the
+//   per-day row SHAPE (as this one does, adding `hourly_hr`) would have been
+//   served the pre-bump artifact for the rest of that day.
+const int kAlgoVersion = 66;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3150,6 +3184,13 @@ class DerivationEngine {
   static bool crossDayArtifactUsableToday(Object? decoded, String today) {
     if (decoded is! Map) return false;
     if (decoded['days'] is! List) return false;
+    // The artifact stamps `algo_version` and this gate used to ignore it, so a
+    // version bump that CHANGES THE ROW SHAPE (a new per-day field, e.g.
+    // `hourly_hr`) was served from the pre-bump artifact for the rest of the
+    // day — the new cross-day family silently saw nothing on the very pass the
+    // bump existed to trigger. A shape the current code did not write is not
+    // reusable, whatever day it was built for.
+    if ((decoded['algo_version'] as num?)?.toInt() != kAlgoVersion) return false;
     final builtFor = decoded['built_for_day'];
     return builtFor is String && builtFor.isNotEmpty && builtFor == today;
   }
@@ -3435,7 +3476,45 @@ class DerivationEngine {
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
       'hypnogram': series?['hypnogram'],
+      // 24 local-hour means of this day's HR curve — the ONLY intraday series
+      // that survives long enough to support cross-day circadian analysis.
+      // `day_result` is never pruned; the 1 Hz substrate is gone after 3 days,
+      // so accelerometry (the textbook ENMO input) simply does not exist far
+      // enough back. `circadianNonparametric` documents HR as an accepted
+      // input alongside activity. 24 numbers a day, so the artifact stays small.
+      'hourly_hr': hourlyHrProfile(series?['hr_curve']),
     };
+  }
+
+  /// Mean HR per LOCAL hour-of-day (24 entries, `null` where the hour is not
+  /// covered) from a stored `series.hr_curve` (`[{t: epochSec, v: bpm}]`).
+  ///
+  /// An hour counts as covered only with [minMinutes] real minute-samples in
+  /// it, so a bin is always a mean over genuine readings — never an average of
+  /// one stray second, and never an imputed value. Gaps stay null and the
+  /// consumer excludes the day; nothing is filled in.
+  static List<double?> hourlyHrProfile(Object? hrCurve, {int minMinutes = 5}) {
+    final sums = List<double>.filled(24, 0);
+    final counts = List<int>.filled(24, 0);
+    if (hrCurve is List) {
+      for (final e in hrCurve) {
+        if (e is! Map) continue;
+        final t = (e['t'] as num?)?.toInt();
+        final v = (e['v'] as num?)?.toDouble();
+        if (t == null || v == null || v <= 0) continue;
+        // LOCAL hour. The day model is local-midnight-to-midnight, so the UTC
+        // hour would smear a user's evening into the next bin (and, for a
+        // non-integral-offset zone, into the wrong one entirely).
+        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        if (h < 0 || h > 23) continue;
+        sums[h] += v;
+        counts[h] += 1;
+      }
+    }
+    return [
+      for (var h = 0; h < 24; h++)
+        counts[h] >= minMinutes ? sums[h] / counts[h] : null,
+    ];
   }
 
   /// Refresh the persisted rolling-baseline artifact + signature caches.
@@ -3892,21 +3971,43 @@ class DerivationEngine {
   ///
   /// Called BEFORE the movement-substrate guards, because it depends on none of
   /// them — see the call site.
+  ///
+  /// [bandSteps] is the gen5 strap's OWN pedometer total for the day (see
+  /// [hardwareStepsFromCounter]) — a genuine on-wrist gait counter, not a 1 Hz
+  /// inference, so it outranks the phone. Null on every gen4 day, and on a gen5
+  /// day whose records predate schema v34; that is the absent case, not zero.
   static void _writeSteps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
-    int liveStepsReal,
-  ) {
-    final haveRealSteps = liveStepsReal > 0;
+    int liveStepsReal, {
+    int? bandSteps,
+  }) {
+    // Band counter WINS when the strap reported one: it is wrist-side gait
+    // hardware, where `liveStepsReal` is whatever `live_coverage` banked (phone
+    // pedometer, or a live 100 Hz session that only covers the minutes it ran).
+    //
+    // ponytail: straight precedence, no source fusion. A day the strap was worn
+    // for four hours and the phone carried for twelve will report the strap's
+    // smaller number. Both numbers are disclosed below (`band_measured` /
+    // `real_measured`), so nothing is hidden; add coverage-weighted selection
+    // only if that day shape turns out to be common.
+    final useBand = bandSteps != null && bandSteps > 0;
+    final steps = useBand ? bandSteps : liveStepsReal;
+    final haveRealSteps = steps > 0;
     if (haveRealSteps) {
-      scMap?['steps'] = liveStepsReal.toDouble();
+      scMap?['steps'] = steps.toDouble();
     } else {
       scMap?.remove('steps');
     }
     bundle['steps'] = <String, dynamic>{
-      'value': haveRealSteps ? liveStepsReal : null,
+      'value': haveRealSteps ? steps : null,
       'real_measured': liveStepsReal,
-      'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
+      // What the strap's own pedometer counted, independent of which source
+      // won. Null (never 0) when this generation has no counter at all.
+      'band_measured': bandSteps,
+      'source': haveRealSteps
+          ? (useBand ? 'band_pedometer' : 'pedometer_100hz_or_phone')
+          : null,
       'confidence': haveRealSteps ? 0.9 : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
@@ -3918,11 +4019,18 @@ class DerivationEngine {
       // grades and the edge must not widen it from here.
       'tier': haveRealSteps ? 'HIGH' : null,
       // Likewise, nothing was used when nothing was measured.
-      'inputs_used':
-          haveRealSteps ? const ['live_coverage_pedometer'] : const <String>[],
+      'inputs_used': haveRealSteps
+          ? (useBand
+              ? const ['band_step_counter']
+              : const ['live_coverage_pedometer'])
+          : const <String>[],
       'note': haveRealSteps
-          ? 'real pedometer count over measured windows only; time outside '
-              'those windows is not counted rather than estimated'
+          ? (useBand
+              ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
+                  'counter; wrapped and reset boundaries contribute nothing '
+                  'rather than a guess'
+              : 'real pedometer count over measured windows only; time outside '
+                  'those windows is not counted rather than estimated')
           : 'no step count: nothing that can resolve gait measured this day. '
               'A 1 Hz wrist stream cannot count steps, so no number is shown '
               'instead of an invented one',
@@ -3961,7 +4069,15 @@ class DerivationEngine {
       // band barely synced, or a fresh install) would silently report no steps
       // at all — discarding a real measurement because an unrelated signal was
       // missing. Assign steps before anything can return early.
-      _writeSteps(bundle, scMap, liveStepsReal);
+      // The strap's own pedometer, when this strap has one (gen5). Read off
+      // `daySub` — already sliced to this calendar day — so the first record's
+      // delta against yesterday's last is not carried across the boundary.
+      _writeSteps(
+        bundle,
+        scMap,
+        liveStepsReal,
+        bandSteps: hardwareStepsFromCounter(daySub),
+      );
 
       if (daySub.length < 60) return;
       final motion = _motionMinutes(daySub);

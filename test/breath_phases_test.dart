@@ -6,7 +6,7 @@
 // in a per-frame call.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/ui/stress/breath_phases.dart';
+import 'package:openstrap_edge/stress/breath_phases.dart';
 
 void main() {
   final box = kBreathPatternsByKey['box']!;

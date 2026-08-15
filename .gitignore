@@ -98,3 +98,6 @@ lib/firebase_options.dart
 # into Discord/issues, and they're ~750kb a piece.
 docs/*.gif
 docs/*.mp4
+
+# golden test failure output
+test/failures/

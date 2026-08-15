@@ -402,6 +402,10 @@ class _PrepareAccumulator {
   final List<int> skinTemp = [];
   final List<int> skinContact = [];
 
+  /// Gen5 on-chip cumulative step counter, `-1` = the record carried none.
+  /// See [Substrate.stepCount] for why the sentinel is not 0.
+  final List<int> stepCount = [];
+
   /// Defensive numeric read. The decoded-page rows come straight out of SQLite,
   /// where a column's storage class is per-VALUE, not per-column — a row written
   /// by an older/importing path can hand back a String or null where an INTEGER
@@ -424,6 +428,11 @@ class _PrepareAccumulator {
     spo2Ir.addAll(sub.spo2Ir);
     skinTemp.addAll(sub.skinTemp);
     skinContact.addAll(sub.skinContact);
+    // decodeSubstrate fills -1 for the whole page (gen4 R24 has no counter),
+    // but read it rather than assuming, so the arrays stay 1:1 with tsSec.
+    stepCount.addAll(sub.stepCount.length == sub.length
+        ? sub.stepCount
+        : List<int>.filled(sub.length, -1));
   }
 
   void addDecodedPage(
@@ -457,6 +466,10 @@ class _PrepareAccumulator {
       // tsSec is what lets `Substrate.fromJson` tell "absent" (empty ⇒
       // zero-filled) from "present but zero".
       skinContact.add(_num(row['skin_contact'])?.toInt() ?? 0);
+      // `decoded_onehz.step_count` is NULL on every gen4 row and on any gen5
+      // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
+      // reading from a band that has not moved since its counter last wrapped.
+      stepCount.add(_num(row['step_count'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
@@ -480,5 +493,6 @@ class _PrepareAccumulator {
     spo2Ir: spo2Ir,
     skinTemp: skinTemp,
     skinContact: skinContact,
+    stepCount: stepCount,
   );
 }

@@ -1,33 +1,28 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'ai/briefing.dart';
 import 'coach/coach_config.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
-import 'theme/theme.dart';
+import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
-import 'theme/tokens.dart';
-import 'ui/design/nav_pill.dart';
-import 'ui/kit/kit.dart';
-import 'ui/onboarding/welcome_screen.dart';
-import 'ui/pairing_screen.dart';
-import 'ui/splash/boot_splash.dart';
-import 'ui/profile_setup_screen.dart';
-import 'ui/today/today_screen.dart';
-import 'ui/screens/screens.dart';
-import 'ui/workouts/workouts_screen.dart';
-import 'ui/activity/live_session_screen.dart';
-import 'ui/ai/ai_breakdown_screen.dart';
-import 'ui/journal/journal_compose_screen.dart';
-import 'ui/stress/calm_breathing_screen.dart';
-import 'telemetry/telemetry_service.dart';
+import 'ui2/onboarding/pairing.dart';
+import 'ui2/onboarding/profile_setup.dart';
+import 'ui2/onboarding/splash.dart';
+import 'ui2/onboarding/welcome.dart';
+import 'ui2/screens/calm_breathing.dart';
+import 'ui2/screens/health_screen.dart';
+import 'ui2/screens/home_screen.dart';
+import 'ui2/screens/journal_compose.dart';
+import 'ui2/screens/nutrition_screen.dart';
+import 'ui2/screens/wellness_screen.dart';
+import 'ui2/screens/workout_screen.dart';
+import 'ui2/ui2.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -45,7 +40,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
-      
+
       final app = context.read<AppState>();
       if (app.isPaired) app.openSession();
     });
@@ -107,8 +102,9 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     return MaterialApp(
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
-      theme: theme.lightTheme,
-      darkTheme: theme.darkTheme,
+      // The palette is the design system's, the CHOICE is still the user's.
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
       themeMode: theme.materialThemeMode,
       builder: (context, child) =>
           ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
@@ -118,49 +114,117 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   }
 }
 
-/// Onboarding gate: pairing → app. CLOUD EXCISED — the old backend / auth /
-/// profile gate states are gone; once a band is paired we go straight to the shell.
-/// Telemetry-only: the last AppRoute we logged, so _Gate's build() (which also
-/// re-runs on a plain theme flip, not just a route change) doesn't double-log.
+// ══════════════════ THE ONBOARDING GATE ══════════════════
+
+/// The gate, as a pure function of the three inputs. Onboarding order bugs are
+/// the ones users hit exactly once and never forgive, so this is testable
+/// without a band, a database or a widget tree.
+///
+/// [AppRoute.pairing] short-circuits before AppState ever looks at the
+/// profile, so a skipped pairing falls through to profile setup rather than
+/// straight to the shell — we still want the four numbers.
+AppRoute resolveRoute(AppRoute route,
+    {required bool pairingSkipped, required bool profileSeen}) {
+  var r = route;
+  if (r == AppRoute.pairing && pairingSkipped) r = AppRoute.profile;
+  if (r == AppRoute.profile && profileSeen) return AppRoute.shell;
+  return r;
+}
+
+/// Telemetry-only: the last AppRoute we logged, so the gate's build (which
+/// also re-runs on a plain theme flip) doesn't double-log.
 AppRoute? _telemetryLastRoute;
 
 class _Gate extends StatelessWidget {
   const _Gate();
+
   @override
   Widget build(BuildContext context) {
-    // SELECT, not watch: rebuild only when the ROUTE actually changes (rare) — not
-    // on every ~1 Hz AppState tick (live HR, log lines). Watching the whole AppState
-    // here used to repaint the entire home stack every second, which starved the
-    // background BLE connection on long idle stretches (lost overnight data).
-    final route = context.select<AppState, AppRoute>((a) => a.route);
-    if (route != _telemetryLastRoute) {
-      _telemetryLastRoute = route;
-      TelemetryService.instance.setContext('app_route', route.name);
-      TelemetryService.instance.breadcrumb('route: ${route.name}');
-    }
-    // Depend on the theme too → the whole home stack (onboarding screens, the
-    // shell + its tabs) rebuilds with fresh colours the instant the mode flips.
-    context.watch<ThemeController>();
-    // Not const: these must be fresh instances so a theme flip re-runs their build
-    // (State is preserved — same type at the same position). Cheap now: only built
-    // on a route change or a theme flip, never on the per-second AppState ticks.
-    final Widget resolved = switch (route) {
-      // Underlay while the boot splash covers the loading phase — and what the
-      // user lands on if the splash's safety cap fires before init completes.
-      AppRoute.loading => Scaffold(
-          body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
-        ),
-      AppRoute.welcome => const WelcomeScreen(),
-      AppRoute.pairing => PairingScreen(),
-      AppRoute.profile => const ProfileSetupScreen(),
-      AppRoute.shell => _Shell(),
-    };
-    // Cold-start splash video: covers the whole loading phase, cross-fades out
-    // the instant AppState finishes initializing (route leaves `loading`), even
-    // mid-play. Shown once per launch; BootSplash latches itself off after.
-    return BootSplash(ready: route != AppRoute.loading, child: resolved);
+    // SELECT, not watch: rebuild only when the ROUTE actually changes (rare) —
+    // not on every ~1 Hz AppState tick (live HR, log lines). Watching the whole
+    // AppState here used to repaint the entire home stack every second, which
+    // starved the background BLE connection on long idle stretches.
+    final raw = context.select<AppState, AppRoute>((a) => a.route);
+    return ValueListenableBuilder<int>(
+      valueListenable: OnboardingBypass.revision,
+      builder: (context, _, _) {
+        final route = resolveRoute(raw,
+            pairingSkipped: OnboardingBypass.pairingSkipped,
+            profileSeen: OnboardingBypass.profileSeen);
+        if (route != _telemetryLastRoute) {
+          _telemetryLastRoute = route;
+          TelemetryService.instance.setContext('app_route', route.name);
+          TelemetryService.instance.breadcrumb('route: ${route.name}');
+        }
+        final Widget resolved = switch (route) {
+          // Underlay while the boot splash covers the loading phase — and what
+          // the user lands on if the splash's safety cap fires before init
+          // completes.
+          AppRoute.loading => const _Loading(),
+          AppRoute.welcome => const WelcomeScreen(),
+          AppRoute.pairing => PairingScreen(
+              onSkip: () => OnboardingBypass.mark(OnboardingBypass.kPairing)),
+          AppRoute.profile => ProfileSetupScreen(
+              onDone: () => OnboardingBypass.mark(OnboardingBypass.kProfile)),
+          AppRoute.shell => const _Shell(),
+        };
+        // Cold-start splash: covers the whole loading phase and cross-fades out
+        // the instant AppState finishes initializing, even mid-play. Shown once
+        // per launch; BootSplash latches itself off after.
+        return BootSplash(ready: route != AppRoute.loading, child: resolved);
+      },
+    );
   }
 }
+
+class _Loading extends StatelessWidget {
+  const _Loading();
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: Center(child: CircularProgressIndicator(color: p.on(C.green))),
+    );
+  }
+}
+
+// ══════════════════ THE SHELL ══════════════════
+
+/// A notification's tab index → the domain that now owns that content.
+///
+/// The indices come from `tap_router.dart`, which still speaks the old
+/// five-tab vocabulary (Today · Sleep · Heart · Body · Workouts). Sleep, Heart
+/// and Body all folded into Health, so three of the five collapse onto one
+/// destination. Payloads from older builds keep working, which is the whole
+/// point — a notification is scheduled days before it is tapped.
+ShellDomain domainForTab(int tab) => switch (tab) {
+      1 || 2 || 3 => ShellDomain.health,
+      4 => ShellDomain.workout,
+      _ => ShellDomain.home,
+    };
+
+/// A deep-link sub-screen route → the domain it belongs to.
+///
+/// Every `kRoute*` in `tap_router.dart` is here, and unknown routes fall back
+/// to Home rather than crashing a cold launch on a payload from an older
+/// build.
+ShellDomain domainForRoute(String route) => switch (route) {
+      kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
+      kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
+      kRouteWorkoutSuggestion => ShellDomain.workout,
+      _ => ShellDomain.home,
+    };
+
+/// The focused screen a deep link pushes on top of its domain, when one
+/// exists. Null means the domain itself is the destination — which is the
+/// honest answer for the AI briefing and the detected-workout review, whose
+/// content now lives inside the domain screen rather than on its own route.
+Widget? screenForRoute(String route) => switch (route) {
+      kRouteJournalCompose => const JournalCompose(),
+      kRouteBreathing => const CalmBreathing(),
+      _ => null,
+    };
 
 class _Shell extends StatefulWidget {
   const _Shell();
@@ -169,10 +233,17 @@ class _Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<_Shell> {
-  // Restore the last-selected tab so a relaunch lands where the user left off.
-  late int _index =
-      Prefs.getInt(Prefs.shellTab, 0).clamp(0, _nav.length - 1);
-  late final _controller = PageController(initialPage: _index);
+  /// Restore the last-selected tab so a relaunch lands where the user left off.
+  late ShellDomain _domain = ShellDomain
+      .values[Prefs.getInt(Prefs.shellTab, 0).clamp(0, ShellDomain.values.length - 1)];
+
+  /// AppShell owns its own selection and takes only an `initial`, so a
+  /// programmatic jump re-keys it.
+  // ponytail: re-keying rebuilds the tab stack, so a deep link loses the
+  // scroll position of whatever tab was open. Deep links are rare and arrive
+  // from outside the app; give AppShell an external controller if that ever
+  // stops being true.
+  int _rev = 0;
 
   AppState? _app;
 
@@ -184,8 +255,9 @@ class _ShellState extends State<_Shell> {
     _app = context.read<AppState>();
     _app!.navRequest.addListener(_onNavRequest);
     _app!.screenRequest.addListener(_onScreenRequest);
-    // Cold launch from a tapped notification: the route may already be set before
-    // this shell mounted (so the listener never fired). Consume it once attached.
+    // Cold launch from a tapped notification: the route may already be set
+    // before this shell mounted (so the listener never fired). Consume it once
+    // attached.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onNavRequest();
       _onScreenRequest();
@@ -194,230 +266,56 @@ class _ShellState extends State<_Shell> {
 
   void _onNavRequest() {
     final i = _app?.navRequest.value ?? -1;
-    if (i < 0 || i >= _nav.length) return;
+    if (i < 0) return;
     _app!.navRequest.value = -1;
     if (!mounted) return;
-    _go(i);
+    _go(domainForTab(i));
   }
 
-  /// A tapped notification's deep link may target a sub-screen (AI briefing
-  /// breakdown, journal compose). Consume the request and push it on top.
   void _onScreenRequest() {
     final s = _app?.screenRequest.value;
     if (s == null || s.isEmpty) return;
     _app!.screenRequest.value = null;
     if (!mounted) return;
-    final Widget? screen = switch (s) {
-      kRouteAiMorning =>
-        const AiBreakdownScreen(period: BriefingPeriod.morning),
-      kRouteAiEvening =>
-        const AiBreakdownScreen(period: BriefingPeriod.evening),
-      kRouteJournalCompose => const JournalComposeScreen(),
-      // "Did you work out?" auto-detect tap → focused log/adjust review, on top
-      // of the Workouts tab (issue #113). WorkoutsScreen is already imported.
-      kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
-      // Siri/Shortcuts "start breathing" App Intent — see StartBreathingIntent
-      // in OpenStrapIntents.swift, which writes this route into the App Group
-      // for WidgetService.consumePendingRoute() to pick up on launch/resume.
-      kRouteBreathing => const CalmBreathingScreen(autoStart: true),
-      _ => null,
-    };
+    _go(domainForRoute(s));
+    final screen = screenForRoute(s);
     if (screen == null) return;
     Navigator.of(context)
-        .push(themedRoute((_) => screen, name: screen.runtimeType.toString()));
+        .push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 
-  // Built fresh on every build (not const) so a theme flip re-colours every tab,
-  // even the kept-alive ones the user isn't currently looking at.
-  // ignore: prefer_const_constructors — must be fresh instances so the
-  // kept-alive tabs re-colour on a theme flip (const would canonicalize them).
-  List<Widget> get _pages => [
-        TodayScreen(),
-        SleepScreen(),
-        HeartScreen(),
-        BodyScreen(),
-        WorkoutsScreen(),
-      ];
-
-  // Tab icons (see lib/ui/kit/os_icons.dart for the pack each one resolves to).
-  static const _nav = [
-    NavPillItem(OsIcon.today, 'Today'),
-    NavPillItem(OsIcon.sleep, 'Sleep'),
-    NavPillItem(OsIcon.heart, 'Heart'),
-    NavPillItem(OsIcon.bodyStrain, 'Body'),
-    NavPillItem(OsIcon.workouts, 'Workouts'),
-  ];
+  void _go(ShellDomain d) {
+    if (d == _domain) return;
+    setState(() {
+      _domain = d;
+      _rev++;
+    });
+    Prefs.setInt(Prefs.shellTab, d.index);
+  }
 
   @override
   void dispose() {
     _app?.navRequest.removeListener(_onNavRequest);
     _app?.screenRequest.removeListener(_onScreenRequest);
-    _controller.dispose();
     super.dispose();
   }
 
-  // No haptic here: FloatingNavPill fires the selection click on user taps,
-  // and programmatic jumps (notification deep links) shouldn't buzz.
-  void _go(int i) {
-    if (i == _index) return;
-    _controller.animateToPage(i, duration: Motion.med, curve: Motion.curve);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return ShellScaffold(
-      controller: _controller,
-      index: _index,
-      items: _nav,
-      pages: _pages,
-      onSelect: _go,
-      onPageChanged: (i) {
-        setState(() => _index = i);
-        Prefs.setInt(Prefs.shellTab, i);
+    return AppShell(
+      key: ValueKey(_rev),
+      initial: _domain,
+      onSelect: (d) {
+        _domain = d;
+        Prefs.setInt(Prefs.shellTab, d.index);
       },
-      // No center action: starting a workout lives on the Workouts screen.
-      banner: const _LiveBanner(),
+      builder: (c, d) => switch (d) {
+        ShellDomain.home => const HomeScreen(),
+        ShellDomain.health => const HealthScreen(),
+        ShellDomain.nutrition => const NutritionScreen(),
+        ShellDomain.workout => const WorkoutScreen(),
+        ShellDomain.wellness => const WellnessScreen(),
+      },
     );
   }
 }
-
-/// The shell chrome — swipeable PageView tabs behind a [FloatingNavPill],
-/// plus an optional banner (the live-workout mini-player) stacked above the
-/// pill. Public and AppState-free so the navigation behavior (tab select →
-/// page switch, pushed sub-screens still pop/swipe back over it) stays
-/// unit-testable.
-class ShellScaffold extends StatelessWidget {
-  final PageController controller;
-  final int index;
-  final List<NavPillItem> items;
-  final List<Widget> pages;
-  final ValueChanged<int> onSelect;
-  final ValueChanged<int> onPageChanged;
-
-  /// Rendered above the nav pill (e.g. the live-workout mini-player).
-  final Widget? banner;
-
-  const ShellScaffold({
-    super.key,
-    required this.controller,
-    required this.index,
-    required this.items,
-    required this.pages,
-    required this.onSelect,
-    required this.onPageChanged,
-    this.banner,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: PageView(
-        controller: controller,
-        onPageChanged: onPageChanged,
-        children: [for (final p in pages) _KeepAlive(child: p)],
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ?banner,
-            FloatingNavPill(
-              items: items,
-              index: index,
-              onSelect: onSelect,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Persistent "workout in progress" mini-player — shows whenever a live workout is
-/// running and you've navigated away from the live screen. Tap to jump back in.
-class _LiveBanner extends StatefulWidget {
-  const _LiveBanner();
-  @override
-  State<_LiveBanner> createState() => _LiveBannerState();
-}
-
-class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() { _pulse.dispose(); super.dispose(); }
-
-  String _fmt(Duration d) =>
-      '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
-
-  @override
-  Widget build(BuildContext context) {
-    final w = context.watch<AppState>().activeWorkout;
-    if (w == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(Sp.x6, 0, Sp.x6, Sp.x2),
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          Navigator.of(context).push(themedRoute(
-            (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type),
-            name: 'LiveSessionScreen'));
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
-          decoration: BoxDecoration(
-            color: AppColors.night,
-            borderRadius: BorderRadius.circular(R.pill),
-            boxShadow: Shadows.lift,
-          ),
-          child: Row(children: [
-            FadeTransition(opacity: _pulse, child: Container(
-              width: 10, height: 10,
-              decoration: BoxDecoration(color: AppColors.coral, shape: BoxShape.circle))),
-            const SizedBox(width: Sp.x3),
-            Text('LIVE · ${w.type.toUpperCase()}', style: AppText.overline.copyWith(color: Colors.white70)),
-            const Spacer(),
-            AppIcon(OsIcon.heart, size: 15, color: AppColors.coral),
-            const SizedBox(width: 4),
-            Text(w.currentHr > 0 ? '${w.currentHr}' : '—',
-                style: AppText.metricSm.copyWith(color: Colors.white, fontSize: 16)),
-            const SizedBox(width: Sp.x4),
-            Text(_fmt(w.elapsed), style: AppText.metricSm.copyWith(
-                color: Colors.white60, fontSize: 15, fontFeatures: [const FontFeature.tabularFigures()])),
-            const SizedBox(width: Sp.x2),
-            const AppIcon(OsIcon.arrowRight, size: 16, color: Colors.white38),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-/// Keeps a PageView child mounted so each screen's loader + 90s timer persist
-/// (mirrors the old IndexedStack behavior).
-class _KeepAlive extends StatefulWidget {
-  final Widget child;
-  const _KeepAlive({required this.child});
-  @override
-  State<_KeepAlive> createState() => _KeepAliveState();
-}
-
-class _KeepAliveState extends State<_KeepAlive>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
-  }
-}
-

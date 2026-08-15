@@ -1,0 +1,297 @@
+// Pairing.
+//
+// The failure states are the screen. A hardware app that says "Couldn't pair"
+// and offers a Retry button has told the user nothing and given them nowhere
+// to go — the audit found exactly that here: a refused bond and a dismissed
+// picker fell through to the same dead end. They are different problems with
+// different fixes, and neither of them is the user's fault.
+//
+// There is also always a way out. Someone whose band is flat, or who is
+// installing this before the hardware arrives, must be able to reach the app.
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+
+import '../../state/app_state.dart';
+import '../../state/prefs.dart';
+import '../ui2.dart';
+
+/// Onboarding steps the user deliberately walked past.
+///
+/// [AppState.route] is derived purely from device + profile state, so a user
+/// who skips pairing (band flat, hardware not arrived) or who leaves an
+/// optional profile field blank would be bounced back to the same step
+/// forever. The bypass is the user's answer to that, and it is theirs to
+/// give — so it is recorded here rather than by weakening the conditions
+/// AppState uses for everything else.
+class OnboardingBypass {
+  OnboardingBypass._();
+
+  static const kPairing = 'onboard.skipped_pairing';
+  static const kProfile = 'onboard.saw_profile_setup';
+
+  /// Bumped on every skip so the gate — which selects on the AppState route,
+  /// not on SharedPreferences — rebuilds.
+  static final revision = ValueNotifier<int>(0);
+
+  static bool get pairingSkipped => Prefs.getBool(kPairing, false);
+  static bool get profileSeen => Prefs.getBool(kProfile, false);
+
+  static void mark(String key) {
+    Prefs.setBool(key, true);
+    revision.value++;
+  }
+
+  /// Undo a skip, so the gate walks the user back to that step. This is what
+  /// "Pair a band" means for someone who skipped pairing and is now holding
+  /// the hardware.
+  static void clear(String key) {
+    Prefs.setBool(key, false);
+    revision.value++;
+  }
+}
+
+enum PairPhase {
+  /// Nothing tried yet.
+  idle,
+  scanning,
+
+  /// The scan completed and found nothing in range.
+  notFound,
+
+  /// The link came up but the band refused to bond. Distinct because the fix
+  /// is in the phone's own Bluetooth settings, not in this app.
+  bondRefused,
+
+  /// The system picker was dismissed. Not an error — do not shout.
+  cancelled,
+
+  /// Anything else, with the real message attached.
+  failed,
+  paired,
+}
+
+/// Classify a thrown pairing error. Pure — this is the whole reason the two
+/// distinct states exist rather than one "Couldn't pair".
+PairPhase classifyPairError(Object error, {int bondRefusals = 0}) {
+  final s = error.toString().toLowerCase();
+  if (s.contains('cancel') || s.contains('dismiss')) return PairPhase.cancelled;
+  if (bondRefusals > 0 || s.contains('bond') || s.contains('encrypt')) {
+    return PairPhase.bondRefused;
+  }
+  return PairPhase.failed;
+}
+
+class PairingScreen extends StatefulWidget {
+  /// Walk past pairing and open the app anyway. Supplied by the router.
+  final VoidCallback? onSkip;
+
+  const PairingScreen({super.key, this.onSkip});
+
+  @override
+  State<PairingScreen> createState() => _PairingScreenState();
+}
+
+class _PairingScreenState extends State<PairingScreen> {
+  PairPhase _phase = PairPhase.idle;
+  String _detail = '';
+
+  Future<void> _pair() async {
+    final app = context.read<AppState>();
+    setState(() {
+      _phase = PairPhase.scanning;
+      _detail = '';
+    });
+    try {
+      if (await app.accessorySetupSupported()) {
+        await app.pairViaAccessorySetup();
+      } else {
+        final found = await app.scanForBand();
+        if (found == null) {
+          if (mounted) setState(() => _phase = PairPhase.notFound);
+          return;
+        }
+        await app.pairWith(found);
+      }
+      if (!mounted) return;
+      setState(() => _phase = PairPhase.paired);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _phase = classifyPairError(e, bondRefusals: app.device.bondRefusals);
+        _detail = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) => PairingView(
+        phase: _phase,
+        detail: _detail,
+        onPair: _pair,
+        onSkip: widget.onSkip,
+      );
+}
+
+class PairingView extends StatelessWidget {
+  final PairPhase phase;
+  final String detail;
+  final VoidCallback onPair;
+  final VoidCallback? onSkip;
+
+  const PairingView({
+    super.key,
+    required this.phase,
+    required this.onPair,
+    this.detail = '',
+    this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final busy = phase == PairPhase.scanning;
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
+          children: [
+            Icon(LucideIcons.bluetooth, size: 36, color: p.on(C.blue)),
+            const SizedBox(height: S.x5),
+            Text(_title(phase), style: F.t1.copyWith(color: p.ink)),
+            const SizedBox(height: S.x3),
+            Text(_body(phase), style: F.body.copyWith(color: p.ink2)),
+            if (busy) ...[
+              const SizedBox(height: S.x8),
+              Center(child: CircularProgressIndicator(color: p.on(C.blue))),
+            ],
+            ..._advice(c, phase, detail),
+            const SizedBox(height: S.x8),
+            BigButton(_cta(phase),
+                icon: LucideIcons.radio,
+                color: C.blue,
+                onTap: busy ? null : onPair),
+            if (onSkip != null && phase != PairPhase.paired) ...[
+              const SizedBox(height: S.x3),
+              // Never disabled, not even mid-scan: waiting out a scan you
+              // already know will fail is exactly the trap this exists for.
+              BigButton('Skip for now',
+                  color: C.blue, soft: true, onTap: onSkip),
+              const SizedBox(height: S.x2),
+              Text(
+                'The app opens without a band. Nothing is measured until one '
+                'is paired, and every metric will say so rather than guess.',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _title(PairPhase phase) => switch (phase) {
+        PairPhase.idle => 'Wake the band and hold it close',
+        PairPhase.scanning => 'Looking for your band',
+        PairPhase.notFound => 'No band in range',
+        PairPhase.bondRefused => 'The band refused the pairing',
+        PairPhase.cancelled => 'Pairing was cancelled',
+        PairPhase.failed => 'Pairing did not complete',
+        PairPhase.paired => 'Paired',
+      };
+
+  static String _body(PairPhase phase) => switch (phase) {
+        PairPhase.idle =>
+          'Take the band off the charger, put it on your wrist and keep the '
+              'phone within arm’s reach.',
+        PairPhase.scanning =>
+          'A band that has just come off the charger can take up to half a '
+              'minute to start advertising.',
+        PairPhase.notFound =>
+          'Nothing answered the scan. The band advertises only when it is '
+              'awake and not already connected to another phone.',
+        PairPhase.bondRefused =>
+          'The link came up, but the band would not accept the encryption '
+              'key. That is almost always a stale pairing record on this '
+              'phone rather than a fault in the band.',
+        PairPhase.cancelled =>
+          'The system picker was dismissed before a band was chosen. Nothing '
+              'was changed.',
+        PairPhase.failed =>
+          'The band was reachable but the session did not finish.',
+        PairPhase.paired => 'Setting up the first sync.',
+      };
+
+  static String _cta(PairPhase phase) => switch (phase) {
+        PairPhase.idle => 'Find my band',
+        PairPhase.scanning => 'Searching…',
+        PairPhase.cancelled => 'Open the picker again',
+        PairPhase.paired => 'Continue',
+        _ => 'Try again',
+      };
+
+  /// The fix, spelled out, for the states that have one.
+  List<Widget> _advice(BuildContext c, PairPhase phase, String detail) =>
+      switch (phase) {
+        PairPhase.notFound => const [
+            SizedBox(height: S.x6),
+            StatusCard(
+              'Three things stop a band answering',
+              'It is still on the charger; it is out of range; or it is '
+                  'still connected to another phone or to the vendor app.',
+              fix: 'Force-quit the other app, then scan again',
+              icon: LucideIcons.searchX,
+            ),
+          ],
+        PairPhase.bondRefused => [
+            const SizedBox(height: S.x6),
+            const StatusCard(
+              'Forget the band in Bluetooth settings first',
+              'Open the phone’s Bluetooth settings, forget the band, '
+                  'then scan again here. The refused key is the old pairing '
+                  'record, and only the system can clear it.',
+              fix: 'Open Bluetooth settings',
+              icon: LucideIcons.unlink,
+            ),
+            if (detail.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              _Detail(detail),
+            ],
+          ],
+        PairPhase.failed => [
+            const SizedBox(height: S.x6),
+            const StatusCard(
+              'The band was found but the session did not finish',
+              'This is usually a radio that lost the link mid-handshake. '
+                  'Scanning again from a metre away normally works.',
+              icon: LucideIcons.triangleAlert,
+            ),
+            if (detail.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              _Detail(detail),
+            ],
+          ],
+        _ => const [],
+      };
+}
+
+/// The raw error, kept but demoted. It is useless to most people and the only
+/// thing that helps in a bug report.
+class _Detail extends StatelessWidget {
+  final String text;
+  const _Detail(this.text);
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      elevation: 0,
+      color: p.card2,
+      child: Text(text, style: F.cap.copyWith(color: p.ink3)),
+    );
+  }
+}

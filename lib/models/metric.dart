@@ -7,6 +7,14 @@ enum MetricTier { authoritative, high, estimate, relative, unknown }
 
 MetricTier _tierFrom(Object? raw) {
   switch (raw?.toString().toUpperCase()) {
+    // 'AUTH' is the string the analytics package actually emits
+    // (`Tier.auth` in lib/src/onehz/types.dart) — 'AUTHORITATIVE' was our own
+    // invention and matched nothing. Until this line, every user-stated fact
+    // (the manual sleep override at derivation_engine.dart writes
+    // `tier: ana.Tier.auth`) parsed to MetricTier.unknown and lost its tier on
+    // the way to the screen. Both spellings are accepted so old stored
+    // day_result rows keep parsing.
+    case 'AUTH':
     case 'AUTHORITATIVE':
       return MetricTier.authoritative;
     case 'HIGH':

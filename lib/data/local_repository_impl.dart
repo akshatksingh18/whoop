@@ -1224,6 +1224,38 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) async {
+    final rows = await LocalDb.sleepWindowRows(days);
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      final date = r['day_id'] as String?;
+      if (date == null || date.isEmpty) continue;
+      // `window_json` is the sleep-window Metric envelope written by the
+      // derivation engine; `value` is the string '—' on a night with no sleep,
+      // so it is only a Map when a window was actually found.
+      Map<String, dynamic>? env;
+      try {
+        final decoded = jsonDecode((r['window_json'] as String?) ?? '{}');
+        if (decoded is Map) env = decoded.cast<String, dynamic>();
+      } catch (_) {
+        env = null;
+      }
+      final v = env?['value'];
+      final val = v is Map ? v.cast<String, dynamic>() : null;
+      final onsetMs = (val?['onset_ms'] as num?)?.toDouble();
+      final offsetMs = (val?['offset_ms'] as num?)?.toDouble();
+      out.add({
+        'date': date,
+        'onset_ts': onsetMs == null ? null : (onsetMs / 1000).round(),
+        'wake_ts': offsetMs == null ? null : (offsetMs / 1000).round(),
+        'confidence': (env?['confidence'] as num?)?.toDouble(),
+        'tier': env?['tier'] as String?,
+      });
+    }
+    return out;
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) async {
     final rows = await LocalDb.recentDayResults(60);
     return [
@@ -1920,6 +1952,12 @@ class LocalRepositoryImpl extends LocalRepository {
       'duration_min': (r['duration_min'] as num?)?.toInt(),
       'steps': (r['steps'] as num?)?.toInt(),
       'max_hr': (r['max_hr'] as num?)?.toInt(),
+      // Mean HR over the whole session window, banked at score time so it
+      // outlives the 3-day raw retention. `getWorkouts`/`getWorkout` still
+      // recompute from the substrate while it exists and overwrite this; every
+      // other caller (getSessions, getDayTimeline) now gets a REAL average
+      // instead of nothing.
+      'avg_hr': (r['avg_hr'] as num?)?.toInt(),
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
       'hrr60': (r['hrr_bpm'] as num?)?.round(),
       'zone_min': zoneMin,
@@ -2485,7 +2523,15 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
         substrate: stats,
       );
-      if (!merged.changed) return (row: row, hrRows: hrRows);
+      // `avg_hr` is new, so every session scored before it existed has a NULL
+      // column and a live substrate that can still fill it. Bailing purely on
+      // "the scores did not change" would leave those rows permanently blank
+      // once their raw ages out — the exact loss the column was added to stop.
+      final needsAvgBackfill =
+          stats.avgHr != null && (row['avg_hr'] as num?) == null;
+      if (!merged.changed && !needsAvgBackfill) {
+        return (row: row, hrRows: hrRows);
+      }
 
       // `putSession` is INSERT-OR-REPLACE on the whole row, and everything
       // above this point awaited (two substrate reads). A retime or a
@@ -2519,6 +2565,7 @@ class LocalRepositoryImpl extends LocalRepository {
         calories: merged.calories,
         maxHr: merged.maxHr,
         zoneMinJson: zoneJson,
+        avgHr: stats.avgHr,
       );
       final updated = {
         ...current,
@@ -2526,6 +2573,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'calories': merged.calories,
         'max_hr': merged.maxHr,
         'zone_min_json': zoneJson,
+        if (stats.avgHr != null) 'avg_hr': stats.avgHr,
       };
       return (row: updated, hrRows: hrRows);
     } catch (_) {

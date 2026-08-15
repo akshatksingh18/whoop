@@ -1,0 +1,525 @@
+// The defining object for each activity family.
+//
+// A run is a route. A lift is a muscle map. A hike is an elevation profile. A
+// swim is a lap ladder. Showing all of them the same generic "workout card" is
+// the difference between a log and a training tool.
+//
+// Same two rules as charts.dart: nothing here invents data (the prototype
+// seeded a `Random` inside six of these painters so they could be seen with no
+// band attached — every one of them now takes what it draws), and anything
+// that can receive a long series goes through [minMaxColumns] first.
+//
+// Positional inputs are normalised 0…1 in both axes, origin top-left. Mapping
+// GPS or court coordinates into that box is the caller's job — it is the only
+// place that knows the projection, the bounding box and the aspect correction.
+
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+
+import 'charts.dart';
+import 'theme.dart';
+
+/// A route is not a time series, so min/max-per-column does not apply — but a
+/// 90-minute ride at 1 Hz is still 5 400 points on a 350 pt canvas. Stride
+/// decimation is correct here: the shape is spatial, and dropping intermediate
+/// fixes moves the line by well under a pixel. Endpoints are always kept.
+List<T> _stride<T>(List<T> pts, double width) {
+  final cap = (width * 2).round().clamp(2, pts.length);
+  if (pts.length <= cap) return pts;
+  final step = pts.length / cap;
+  return [
+    for (var i = 0; i < cap; i++) pts[(i * step).floor()],
+    pts.last,
+  ];
+}
+
+/// ════════ ROUTE ── running, cycling, walking
+///
+/// [pts] are normalised 0…1 positions in draw order. [pace] is an optional
+/// per-point 0…1 intensity used to colour each segment between [slow] and
+/// [fast]; without it the route is drawn in [slow] throughout rather than in
+/// an invented gradient.
+class RouteMap extends CustomPainter {
+  final List<Offset> pts;
+  final List<double>? pace;
+  final Color slow, fast, pinStart, pinEnd, pinInk;
+  final bool pins;
+
+  RouteMap(
+    this.pts, {
+    this.pace,
+    this.slow = C.green,
+    this.fast = C.orange,
+    this.pinStart = C.green,
+    this.pinEnd = C.red,
+    this.pinInk = C.white,
+    this.pins = true,
+  });
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (pts.length < 2) return;
+    final p = _stride(pts, s.width);
+    final v = pace == null ? null : _stride(pace!, s.width);
+    Offset at(int i) => Offset(p[i].dx * s.width, p[i].dy * s.height);
+
+    for (var i = 1; i < p.length; i++) {
+      final t = v == null ? 0.0 : (i < v.length ? v[i].clamp(0.0, 1.0) : 0.0);
+      cv.drawLine(
+        at(i - 1),
+        at(i),
+        Paint()
+          ..strokeWidth = 4.5
+          ..strokeCap = StrokeCap.round
+          ..color = Color.lerp(slow, fast, t)!,
+      );
+    }
+    if (!pins) return;
+    _pin(cv, at(0), pinStart);
+    _pin(cv, at(p.length - 1), pinEnd);
+  }
+
+  void _pin(Canvas cv, Offset o, Color c) {
+    cv.drawCircle(o, 7, Paint()..color = pinInk);
+    cv.drawCircle(o, 5, Paint()..color = c);
+  }
+
+  @override
+  bool shouldRepaint(covariant RouteMap o) => o.pts != pts || o.pace != pace;
+}
+
+/// ════════ MUSCLE MAP ── the defining object for strength
+///
+/// Front and back silhouettes tinted by how hard each group worked. [load] is
+/// 0…1 per group; a group absent from the map is drawn in [base] — untrained,
+/// not zero-effort, and visually distinct from a light set.
+///
+/// Keys: shoulders · chest · back · core · biceps · triceps · legs · glutes.
+class MuscleMap extends CustomPainter {
+  final Map<String, double> load;
+  final Color color, base;
+
+  MuscleMap(this.load, this.color, this.base);
+
+  static const groups = [
+    'shoulders', 'chest', 'back', 'core',
+    'biceps', 'triceps', 'legs', 'glutes',
+  ];
+
+  @override
+  void paint(Canvas cv, Size s) {
+    final w = s.width / 2;
+    _body(cv, Offset(w * .5, 0), Size(w * .8, s.height), true);
+    _body(cv, Offset(w * 1.5, 0), Size(w * .8, s.height), false);
+  }
+
+  double _v(String k) => (load[k] ?? 0).clamp(0, 1);
+
+  Paint _p(String k) => Paint()
+    ..color = _v(k) == 0 ? base : Color.lerp(base, color, .25 + _v(k) * .75)!;
+
+  void _body(Canvas cv, Offset c, Size s, bool front) {
+    final u = s.height / 100;
+    final cx = c.dx;
+    final plain = Paint()..color = base;
+
+    cv.drawCircle(Offset(cx, 8 * u), 5.2 * u, plain); // head
+
+    // neck / traps
+    cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(cx, 15 * u), width: 9 * u, height: 5 * u),
+            Radius.circular(2 * u)),
+        front ? _p('shoulders') : _p('back'));
+
+    for (final side in const [-1, 1]) {
+      cv.drawCircle(
+          Offset(cx + side * 12 * u, 21 * u), 5.4 * u, _p('shoulders'));
+    }
+
+    // chest / upper back
+    cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(cx, 26 * u), width: 20 * u, height: 12 * u),
+            Radius.circular(4 * u)),
+        front ? _p('chest') : _p('back'));
+
+    // abs / lower back
+    cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(cx, 39 * u), width: 15 * u, height: 14 * u),
+            Radius.circular(3 * u)),
+        front ? _p('core') : _p('back'));
+
+    for (final side in const [-1, 1]) {
+      cv.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(cx + side * 15.5 * u, 32 * u),
+                  width: 5.5 * u,
+                  height: 16 * u),
+              Radius.circular(3 * u)),
+          front ? _p('biceps') : _p('triceps'));
+      cv.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(cx + side * 16.5 * u, 47 * u),
+                  width: 4.6 * u,
+                  height: 15 * u),
+              Radius.circular(2.5 * u)),
+          plain); // forearm — not a tracked group
+    }
+
+    cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(cx, 50 * u), width: 16 * u, height: 8 * u),
+            Radius.circular(3 * u)),
+        front ? _p('core') : _p('glutes'));
+
+    for (final side in const [-1, 1]) {
+      cv.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(cx + side * 5 * u, 66 * u),
+                  width: 8.4 * u,
+                  height: 26 * u),
+              Radius.circular(4 * u)),
+          _p('legs'));
+      cv.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(cx + side * 5 * u, 88 * u),
+                  width: 6.6 * u,
+                  height: 20 * u),
+              Radius.circular(3 * u)),
+          front ? plain : _p('legs')); // calves read from behind
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant MuscleMap o) => o.load != load;
+}
+
+/// ════════ ELEVATION ── the defining object for hiking
+///
+/// [metres] is the altitude series in draw order. The peak marker sits on the
+/// real maximum.
+class Elevation extends CustomPainter {
+  final List<double> metres;
+  final Color color, markerInk;
+
+  /// The shared scale — pass the same one `ChartFrame` labels and "800 m" on
+  /// the axis is where 800 m actually is. Without it the profile auto-scales
+  /// and a 40 m undulation looks like an alpine col.
+  final AxisSpec? axis;
+
+  Elevation(this.metres, this.color, {this.markerInk = C.white, this.axis});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (metres.length < 2 || s.width <= 0) return;
+    final a = axis;
+    final mx = metres.reduce(max), mn = metres.reduce(min);
+    final rg = (mx - mn).abs() < 1e-6 ? 1.0 : mx - mn;
+    // Leave a tenth of the canvas as headroom so the peak marker is not
+    // clipped. With an axis the caller owns the headroom, because the labels
+    // have to line up with the line.
+    double y(double v) => a != null
+        ? s.height - a.t(v) * s.height
+        : s.height - (v - mn) / rg * s.height * .9;
+
+    final pts = minMaxColumns(metres, s.width, y);
+
+    final area = Path()..moveTo(pts.first.dx, s.height);
+    for (final o in pts) {
+      area.lineTo(o.dx, o.dy);
+    }
+    area
+      ..lineTo(pts.last.dx, s.height)
+      ..close();
+    cv.drawPath(
+      area,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color.withValues(alpha: .55), color.withValues(alpha: .06)],
+        ).createShader(Offset.zero & s),
+    );
+
+    final line = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length; i++) {
+      line.lineTo(pts[i].dx, pts[i].dy);
+    }
+    cv.drawPath(
+      line,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = color,
+    );
+
+    final peak = pts.reduce((a, b) => a.dy <= b.dy ? a : b);
+    cv.drawCircle(peak, 5, Paint()..color = markerInk);
+    cv.drawCircle(peak, 3.2, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant Elevation o) =>
+      o.metres != metres || o.axis != axis;
+}
+
+/// ════════ POWER CURVE ── the defining object for indoor cycling
+///
+/// [watts] is the power series. [max] is the axis ceiling (FTP-relative or a
+/// hard cap); the target band is drawn as a fraction of that same axis, so the
+/// band and the curve are measured against one scale.
+class PowerCurve extends CustomPainter {
+  final List<double> watts;
+  final double max;
+  final double targetLo, targetHi;
+  final Color color;
+
+  /// Supersedes [max] when given, so the ceiling the frame labels is the
+  /// ceiling the curve was drawn against. [targetLo]/[targetHi] stay fractions
+  /// of whichever of the two is in force.
+  final AxisSpec? axis;
+
+  PowerCurve(this.watts, this.max, this.color,
+      {this.targetLo = 0, this.targetHi = 0, this.axis});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    final a = axis;
+    if ((a == null && max <= 0) || s.width <= 0) return;
+
+    if (targetHi > targetLo) {
+      cv.drawRect(
+        Rect.fromLTWH(0, s.height * (1 - targetHi.clamp(0, 1)), s.width,
+            s.height * (targetHi - targetLo).clamp(0, 1)),
+        Paint()..color = color.withValues(alpha: .10),
+      );
+    }
+    if (watts.length < 2) return;
+
+    double y(double v) => a != null
+        ? s.height - a.t(v) * s.height
+        : s.height - (v / max).clamp(0, 1) * s.height;
+    final pts = minMaxColumns(watts, s.width, y);
+
+    final path = Path()..moveTo(pts.first.dx, s.height);
+    for (final o in pts) {
+      path.lineTo(o.dx, o.dy);
+    }
+    path
+      ..lineTo(pts.last.dx, s.height)
+      ..close();
+    cv.drawPath(
+      path,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color.withValues(alpha: .70), color.withValues(alpha: .05)],
+        ).createShader(Offset.zero & s),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant PowerCurve o) =>
+      o.watts != watts || o.axis != axis || o.max != max;
+}
+
+/// ════════ LAP LADDER ── the defining object for swimming
+///
+/// [laps] is one 0…1 relative speed per lap. [done] is how many are complete;
+/// pass -1 for a finished session.
+class LapBars extends CustomPainter {
+  final List<double> laps;
+  final Color color, track;
+  final int done;
+
+  LapBars(this.laps, this.color, this.track, {this.done = -1});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (laps.isEmpty) return;
+    final h = s.height / laps.length;
+    for (var i = 0; i < laps.length; i++) {
+      final y = i * h + h * .22;
+      final bh = h * .5;
+      if (bh <= 0) return;
+      cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, y, s.width, bh), Radius.circular(bh / 2)),
+        Paint()..color = track,
+      );
+      final w = s.width * laps[i].clamp(0, 1);
+      if (w <= 0) continue;
+      cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, y, w, bh), Radius.circular(bh / 2)),
+        Paint()
+          ..color = (done < 0 || i < done)
+              ? color
+              : color.withValues(alpha: .35),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant LapBars o) => o.laps != laps || o.done != done;
+}
+
+/// ════════ BREATH RING ── the defining object for yoga / meditation
+///
+/// [t] is the 0…1 breath phase and is owned by the CALLER. That is deliberate:
+/// this painter never runs its own ticker, so the screen's single
+/// reduced-motion gate stops the animation instead of it looping forever
+/// inside a widget nobody can reach.
+class BreathRing extends CustomPainter {
+  final double t;
+  final Color color;
+
+  BreathRing(this.t, this.color);
+
+  @override
+  void paint(Canvas cv, Size s) {
+    final c = Offset(s.width / 2, s.height / 2);
+    final base = min(s.width, s.height) / 2 - 8;
+    if (base <= 0) return;
+    cv.drawCircle(
+      c,
+      base,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = color.withValues(alpha: .25),
+    );
+    final r = base * (.55 + .45 * t.clamp(0, 1));
+    cv.drawCircle(c, r, Paint()..color = color.withValues(alpha: .14));
+    cv.drawCircle(
+      c,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant BreathRing o) => o.t != t;
+}
+
+/// ════════ COURT MOVEMENT ── the defining object for racket / team sports
+///
+/// [pts] are normalised 0…1 positions sampled over the session; each becomes
+/// one soft blob, so the density on screen is the density of time spent.
+class MovementMap extends CustomPainter {
+  final List<Offset> pts;
+  final Color color, line;
+
+  /// Court markings: fractions of the canvas, and a single dividing line.
+  final Rect court;
+
+  MovementMap(this.pts, this.color, this.line,
+      {this.court = const Rect.fromLTWH(.10, .08, .80, .84)});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    final r = Rect.fromLTWH(court.left * s.width, court.top * s.height,
+        court.width * s.width, court.height * s.height);
+    cv.drawRect(
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = line,
+    );
+    cv.drawLine(
+      Offset(r.left, r.center.dy),
+      Offset(r.right, r.center.dy),
+      Paint()
+        ..strokeWidth = 1.4
+        ..color = line,
+    );
+    // The blobs are additive, so a fixed radius plus a low alpha is already a
+    // density map; more samples in one place simply reads darker.
+    final blobs = _stride(pts, s.width);
+    if (blobs.isEmpty) return;
+    final radius = min(s.width, s.height) * .06;
+    final paint = Paint()..color = color.withValues(alpha: .035);
+    for (final o in blobs) {
+      cv.drawCircle(Offset(o.dx * s.width, o.dy * s.height), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant MovementMap o) => o.pts != pts;
+}
+
+/// ════════ INTERVAL LADDER ── the defining object for HIIT
+///
+/// One entry per round: the work and rest fractions of the round's peak, both
+/// 0…1.
+class IntervalLadder extends CustomPainter {
+  final List<({double work, double rest})> rounds;
+  final Color work, rest;
+
+  IntervalLadder(this.rounds, this.work, this.rest);
+
+  /// Two bars per round in two colours — which is which is not guessable.
+  List<(String, Color)> get legend => [('Work', work), ('Rest', rest)];
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (rounds.isEmpty) return;
+    final bw = s.width / rounds.length;
+    for (var i = 0; i < rounds.length; i++) {
+      final wh = rounds[i].work.clamp(0, 1) * s.height;
+      final rh = rounds[i].rest.clamp(0, 1) * s.height;
+      cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(i * bw + bw * .12, s.height - wh, bw * .34, wh),
+            const Radius.circular(3)),
+        Paint()..color = work,
+      );
+      cv.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(i * bw + bw * .54, s.height - rh, bw * .34, rh),
+            const Radius.circular(3)),
+        Paint()..color = rest,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant IntervalLadder o) => o.rounds != rounds;
+}
+
+/// Split / lap pace bar used in tables.
+class PaceBar extends StatelessWidget {
+  final double frac;
+  final Color color;
+  const PaceBar(this.frac, this.color, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return ClipRRect(
+      borderRadius: R.rPill,
+      child: LinearProgressIndicator(
+        value: frac.clamp(0, 1),
+        minHeight: 6,
+        backgroundColor: p.track,
+        valueColor: AlwaysStoppedAnimation(p.on(color)),
+      ),
+    );
+  }
+}

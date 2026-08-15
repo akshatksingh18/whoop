@@ -23,7 +23,9 @@ import '../import/import_container.dart';
 import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
+import 'med_store.dart';
 import 'models.dart';
+import 'nutrition_store.dart';
 import 'series_codec.dart';
 
 class LocalDb {
@@ -96,7 +98,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 34;
+  static const int schemaVersion = 38;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -482,6 +484,23 @@ class LocalDb {
           // _ensureDecodedOneHzBandFields. MUST run after the v33 re-key, which
           // rebuilds decoded_onehz from an explicit column list.
           await _ensureDecodedOneHzBandFields(db);
+        }
+        if (oldV < 35) {
+          // Nutrition. Purely new tables — nothing existing is read or
+          // rewritten, and water stays in journal_metric.water_ml rather than
+          // being duplicated here.
+          await createNutritionTables(db);
+        }
+        if (oldV < 36) {
+          // Medication and supplements. New tables only.
+          await createMedTables(db);
+        }
+        if (oldV < 38) {
+          // Strength sets. New tables only — `sessions` is untouched and the
+          // sets hang off its id. (37 is reserved for symptoms, UI_WIRING §5.3;
+          // skipping it costs nothing, and _repairOpenSchema creates these
+          // idempotently anyway if the ladder lands out of order.)
+          await _createStrengthTables(db);
         }
       },
       onOpen: (db) async {
@@ -1633,6 +1652,91 @@ class LocalDb {
     ''');
   }
 
+  /// strength_set / exercise_def — the sets a lift is made of.
+  ///
+  /// Nothing measures a bench press, so this is the one part of a workout the
+  /// user types, and until now there was nowhere to put it: `sessions` has no
+  /// exercise, set, rep, load or RPE column, which made every number on the
+  /// strength screens unbacked. Hangs off `sessions.id` so strain, calories,
+  /// zones and heart rate keep coming from the existing pipeline rather than
+  /// being duplicated here.
+  ///
+  /// `load_kg` is NULLABLE and that is the whole point: a bodyweight pull-up
+  /// stored as 0 would make session volume (Σ load × reps) report zero for a
+  /// real session. Volume is derived on read and excludes null-load sets,
+  /// which the UI states in as many words.
+  ///
+  /// Derived on read, never stored: total volume, set/rep counts, 1RM
+  /// estimates, per-muscle volume, "vs last session", PR detection.
+  static Future<void> _createStrengthTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS strength_set (
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        exercise_key TEXT NOT NULL,
+        set_index INTEGER NOT NULL,
+        reps INTEGER,
+        load_kg REAL,
+        rpe INTEGER,
+        hold_sec INTEGER,
+        rest_sec INTEGER,
+        at_ts INTEGER,
+        note TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (session_id, seq)
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_strength_set_ex '
+        'ON strength_set(exercise_key, at_ts)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS exercise_def (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        muscles_json TEXT NOT NULL DEFAULT '{}',
+        equipment TEXT NOT NULL DEFAULT '',
+        unilateral INTEGER NOT NULL DEFAULT 0,
+        custom INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Append the sets of one strength session, in log order. Idempotent by
+  /// (session_id, seq) so a re-save of the same session replaces rather than
+  /// duplicates.
+  static Future<void> saveStrengthSets(
+      String sessionId, List<Map<String, Object?>> sets) async {
+    if (sets.isEmpty) return;
+    final db = await instance;
+    await db.transaction((txn) async {
+      for (var i = 0; i < sets.length; i++) {
+        await txn.insert(
+          'strength_set',
+          {...sets[i], 'session_id': sessionId, 'seq': i},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  static Future<List<Map<String, Object?>>> strengthSets(
+      String sessionId) async {
+    final db = await instance;
+    return db.query('strength_set',
+        where: 'session_id = ?', whereArgs: [sessionId], orderBy: 'seq ASC');
+  }
+
+  /// The most recent sets logged for one exercise, newest first — the
+  /// substrate for "previous" and "best" on the live screen.
+  static Future<List<Map<String, Object?>>> recentSetsFor(String exerciseKey,
+      {int limit = 60}) async {
+    final db = await instance;
+    return db.query('strength_set',
+        where: 'exercise_key = ?',
+        whereArgs: [exerciseKey],
+        orderBy: 'at_ts DESC',
+        limit: limit);
+  }
+
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
   // On-device user-entered + locally-generated data. All keyed for idempotent
   // upserts; none of it round-trips to a server (cloud excised).
@@ -1650,6 +1754,12 @@ class LocalDb {
     await _createJournalFieldDef(db);
     await _createLabTables(db);
     await _createBreathingSessions(db);
+    await _createStrengthTables(db);
+    // Nutrition (food_entry + food_def) and medication (med_def + med_dose).
+    // Both live in their own files with their models and rollup logic — the
+    // DDL belongs next to the code that reads it, not two thousand lines away.
+    await createNutritionTables(db);
+    await createMedTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -1799,6 +1909,13 @@ class LocalDb {
   static Future<void> _ensureSessionSchema(Database db) async {
     await _addColumnIfMissing(db, 'sessions', 'steps', 'INTEGER');
     await _addColumnIfMissing(db, 'sessions', 'hrr_bpm', 'REAL');
+    // Mean HR over the session window. Stored rather than recomputed because
+    // the 1 Hz substrate it comes from is pruned after 3 days: without a column
+    // every workout older than that permanently loses its average, while
+    // `max_hr` (already a column) survives. Additive + nullable, so old rows
+    // read NULL — the truth for them — and the read path still recomputes from
+    // the substrate while it is there.
+    await _addColumnIfMissing(db, 'sessions', 'avg_hr', 'INTEGER');
   }
 
   // ── WORKOUT SUGGESTIONS (opt-in auto-detect) ───────────────────────────────
@@ -3455,6 +3572,26 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
+  /// The stored sleep WINDOW for each of the [limit] most recent days, newest
+  /// first, WITHOUT touching `payload_json`.
+  ///
+  /// `day_result.window_json` already holds the sleep-window Metric envelope
+  /// (`{value: {onset_ms, offset_ms, …}, confidence, tier, …}`) in its own
+  /// column, so onset/offset are one small projected read — no bundle decode,
+  /// no per-day round trip. Rows: `{day_id, window_json}`.
+  static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit) async {
+    final db = await instance;
+    return db.rawQuery(
+      'SELECT r.day_id AS day_id, r.window_json AS window_json '
+      'FROM day_result r '
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
+      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      'WHERE r.skipped = 0 '
+      'ORDER BY r.day_id DESC LIMIT ?',
+      [limit],
+    );
+  }
+
   /// Every day_id that has a `day_result` row at its LATEST algo_version, newest
   /// first — WITHOUT touching `payload_json`.
   ///
@@ -4428,6 +4565,10 @@ class LocalDb {
       'lab_result',
       'lab_marker_def',
       'breathing_session',
+      'food_entry',
+      'food_def',
+      'med_def',
+      'med_dose',
       'cycle_log',
       'notifications',
       'sync_cursor',
@@ -5647,6 +5788,7 @@ class LocalDb {
     required double? calories,
     required int? maxHr,
     required String zoneMinJson,
+    int? avgHr,
   }) async {
     final db = await instance;
     return db.update(
@@ -5656,6 +5798,10 @@ class LocalDb {
         'calories': calories,
         'max_hr': maxHr,
         'zone_min_json': zoneMinJson,
+        // Only when the re-score actually measured one. Writing null over a
+        // previously-banked average because THIS pass found no substrate would
+        // delete a real measurement.
+        'avg_hr': ?avgHr,
       },
       where: 'id = ?',
       whereArgs: [id],

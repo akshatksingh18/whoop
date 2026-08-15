@@ -662,7 +662,11 @@ class MetricRow extends StatelessWidget {
   final Color color;
   final String name, sub, value, unit;
   final List<double> spark;
-  final Conf conf;
+
+  /// Null means confidence does not apply to this row — a value the user typed
+  /// in is neither measured well nor measured badly. Do not default it to a
+  /// value; three green dots on a hand-logged meal is a claim we cannot make.
+  final Conf? conf;
   final String? status;
   final VoidCallback? onTap;
 
@@ -671,7 +675,7 @@ class MetricRow extends StatelessWidget {
       this.sub = '',
       this.unit = '',
       this.spark = const [],
-      this.conf = Conf.high,
+      this.conf,
       this.status,
       this.onTap});
 
@@ -680,7 +684,7 @@ class MetricRow extends StatelessWidget {
     final p = P.of(c);
     return Pressable(
       onTap: onTap,
-      semanticLabel: '$name, $value $unit. ${conf.label}'.trim(),
+      semanticLabel: '$name, $value $unit. ${conf?.label ?? ''}'.trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
         child: Row(children: [
@@ -720,7 +724,9 @@ class MetricRow extends StatelessWidget {
                     child: Text(status!,
                         style: F.over.copyWith(color: p.on(C.green))))
                 : (spark.isEmpty
-                    ? const ConfDots(Conf.none)
+                    ? (conf == null
+                        ? const SizedBox.shrink()
+                        : ConfDots(conf!))
                     : CustomPaint(
                         painter: LineChart(spark, p.on(color), fill: false))),
           ),

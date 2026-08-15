@@ -59,6 +59,30 @@ void main() {
       expect(p, <int>[0x01, 0x04, 0x03, 0x02, 0x01, 0x00, 0x40]);
     });
 
+    test('setPayloadForBand: gen4 index0 rich, gen5 index1 rich', () {
+      final g4 = AlarmPayloads.setPayloadForBand(when, isGen5: false);
+      final g5 = AlarmPayloads.setPayloadForBand(when, isGen5: true);
+      expect(g4.length, 20);
+      expect(g4[0], 0x04);
+      expect(g4[1], 0x00);
+      expect(g5.length, 21); // gen5 adds the crescendo byte
+      expect(g5[0], 0x04);
+      expect(g5[1], 0x01); // gen5 arms slot 1
+      expect(g5.sublist(8, 20), AlarmPayloads.defaultHaptics);
+      expect(g5[20], 0, reason: 'crescendo flag, off by default');
+      // Gen5 ignores a caller-supplied index so slot 0 cannot be armed by accident.
+      expect(
+        AlarmPayloads.setPayloadForBand(when, isGen5: true, index: 0)[1],
+        0x01,
+      );
+    });
+
+    test('gen5 Maverick buzz is a short Find-band-style pulse', () {
+      expect(AlarmPayloads.gen5MaverickBuzz(),
+          <int>[0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+      expect(AlarmPayloads.gen5MaverickBuzz(overallLoop: 7).last, 7);
+    });
+
     test('RUN_ALARM + DISABLE_ALARM bodies are both [0x01]', () {
       expect(AlarmPayloads.runNow, <int>[0x01]);
       expect(AlarmPayloads.disable, <int>[0x01]);

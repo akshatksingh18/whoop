@@ -2087,12 +2087,11 @@ class AppState extends ChangeNotifier {
     if (breathingActive && (pt == 0x28 || pt == 0x2B)) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
-    // LIVE STEP COUNTER. The dedicated 0x33 IMU stream is the high-rate live
-    // accel — it arrives ~10 frames/s (10 samples each), so it drives a smooth,
-    // responsive count. Full R10 (0x2B) is only a fallback when the IMU stream
-    // isn't flowing (and live 0x2B is often R10-LITE, which carries no accel).
-    // `frameAccel` returns |a|(g) samples for both; once 0x33 is seen we ignore
-    // 0x2B to avoid double-counting the same motion from two stream formats.
+    // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
+    // is preferred; full R10 (0x2B) is only a fallback when 0x33 isn't flowing.
+    // Gen5 Maverick: live IMU is 0x2B (rec 0x15, 100 Hz planar) — see
+    // protocol's frameAccelForBand. Once gen4 0x33 is seen we ignore 0x2B to avoid
+    // double-counting the same motion from two stream formats.
     if (pt == 0x33) {
       _imuStreamSeen = true;
       final f = _safeFrameAccel(hex);
@@ -2101,6 +2100,7 @@ class AppState extends ChangeNotifier {
         _trackCoverage(recTs);
       }
     } else if (pt == 0x2B && !_imuStreamSeen) {
+      // Gen5 Maverick live IMU is 0x2B (100 Hz planar), not top-level 0x33.
       final f = _safeFrameAccel(hex);
       if (f != null) {
         _ingestLiveMags(f);
@@ -2111,7 +2111,9 @@ class AppState extends ChangeNotifier {
 
   proto.ImuFrame? _safeFrameAccel(String hex) {
     try {
-      return proto.frameAccel(hex);
+      // Gen5 Maverick live IMU is 0x2B; gen4 stays on frameAccel (0x33 / R10).
+      // protocol's gen5 path abstains unless the record is the IMU buffer.
+      return proto.frameAccelForBand(hex);
     } catch (_) {
       return null;
     }
@@ -3031,20 +3033,18 @@ class AppState extends ChangeNotifier {
 
   Future<void> setAlarm(DateTime when) async {
     if (!isConnected) throw Exception('Connect to your strap first');
-    final epoch =
-        when.millisecondsSinceEpoch ~/ 1000; // local wall-clock → unix
     // Pass the DateTime through so the engine computes REAL sub-seconds for the
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
-    // engine owns the exact on-wire layout).
-    final ok = await engine.setAlarm(when);
-    if (!ok) {
-      // The arm write never reached the band — do NOT persist or start the
-      // confirmation machine, or we'd strand a phantom alarm "waiting for the
-      // strap to confirm" that can never fire. Surface it so the UI reflects
-      // "couldn't send" (the coach/profile callers snackbar on a throw).
+    // engine owns the exact on-wire layout). Persist the wall instant the
+    // engine reports armed (null = write never reached the band).
+    final armed = await engine.setAlarm(when);
+    if (armed == null) {
+      // Do NOT persist or start the confirmation machine, or we'd strand a
+      // phantom alarm "waiting for the strap to confirm" that can never fire.
       _log('[alarm] arm write FAILED — not persisting; alarm not set.');
       throw Exception('Alarm not sent — the strap did not accept the write');
     }
+    final epoch = armed.millisecondsSinceEpoch ~/ 1000;
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch); // await event 56
@@ -3084,7 +3084,10 @@ class AppState extends ChangeNotifier {
     _alarmAutoRetried = true;
     var rearmed = false;
     try {
-      rearmed = await engine.setAlarm(when);
+      // gen5 made setAlarm return the armed instant (null = the write never
+      // reached the band) where it used to return a bool. Same signal, so the
+      // retry bookkeeping below is unchanged.
+      rearmed = await engine.setAlarm(when) != null;
     } catch (e) {
       _log('[alarm] auto-retry re-arm failed: $e');
     }
@@ -3612,7 +3615,8 @@ class AppState extends ChangeNotifier {
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
         duration: HighFreqWakeWindow.lease,
-        intervalSeconds: 60,
+        intervalSeconds: 61, // gen5 rejects <= 60
+
         reason: plan.source,
       );
       _log(

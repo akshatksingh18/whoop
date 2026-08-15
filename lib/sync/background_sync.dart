@@ -99,7 +99,8 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
         duration: HighFreqWakeWindow.lease,
-        intervalSeconds: 60,
+        intervalSeconds: 61, // gen5 rejects <= 60
+
         reason: plan.source,
       );
       debugPrint(

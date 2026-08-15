@@ -790,6 +790,11 @@ class ProfileScreen extends StatelessWidget {
           : '${d.batteryPct!.round()}%${d.charging == true ? ' ⚡' : ''}',
       wrist: d.wristOn == null ? '—' : (d.wristOn! ? 'On wrist' : 'Off wrist'),
       serial: d.serial ?? app.paired?.serial ?? '—',
+      generation: switch (d.generation) {
+        'gen5' => 'WHOOP 5 (experimental)',
+        'gen4' => 'WHOOP 4',
+        _ => null,
+      },
       // Manual pull: anything the strap flashed that we don't hold yet, over
       // the CURRENT connection (no reconnect). Only offered while connected.
       onSyncNow: conn == 'connected' ? () => app.forceResync() : null,
@@ -1050,6 +1055,11 @@ class DeviceTile extends StatefulWidget {
   final VoidCallback? onTap;
   final Future<void> Function()? onSyncNow;
 
+  /// Human label for [DeviceState.generation] ('WHOOP 4' / 'WHOOP 5
+  /// (experimental)'), or null before a link has been established this
+  /// process. Purely informational — never gates any behavior here.
+  final String? generation;
+
   const DeviceTile({
     super.key,
     required this.name,
@@ -1060,6 +1070,7 @@ class DeviceTile extends StatefulWidget {
     required this.serial,
     this.onTap,
     this.onSyncNow,
+    this.generation,
   });
 
   @override
@@ -1114,7 +1125,22 @@ class _DeviceTileState extends State<DeviceTile> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: Sp.x2),
-                      StatusChip(widget.statusText, tone: widget.statusTone),
+                      // Wrap, not Row: these are two intrinsically-sized chips
+                      // with no flex, and the second one carries a long label
+                      // ("WHOOP 5 (experimental)"). At large text scales, or on
+                      // a narrow device, their combined width exceeds the
+                      // Expanded column and a Row overflows. Wrapping degrades
+                      // to a second line instead.
+                      Wrap(
+                        spacing: Sp.x2,
+                        runSpacing: Sp.x2,
+                        children: [
+                          StatusChip(widget.statusText, tone: widget.statusTone),
+                          if (widget.generation != null)
+                            StatusChip(widget.generation!,
+                                tone: ChipTone.neutral),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1617,9 +1643,26 @@ class _DeviceSheet extends StatelessWidget {
     // blanket watch() before; select the fields actually used instead. (Prior
     // pass here missed `device`/`paired` — re-audited against every `live.`
     // touchpoint in this class after finding the same gap cost a real bug in
-    // the main ProfileScreen build above.)
-    context.select<AppState, (bool, int?, String?, dynamic, dynamic)>(
-      (a) => (a.isConnected, a.alarmEpoch, a.strapName, a.device, a.paired),
+    // the main ProfileScreen build above.) Also select confirmation flags:
+    // omitting them left the caption stuck on "Setting alarm…" after grace.
+    //
+    // Select the SERIAL VALUE, not the `device`/`paired` OBJECTS. `select`
+    // compares with `==`, `DeviceState` declares no `==`/`hashCode` (so it is
+    // identity equality), and `BleEngine` mutates `state.serial` IN PLACE —
+    // the selector therefore returns the same reference before and after, no
+    // change is detected, and this row can sit on a stale serial indefinitely.
+    // Selecting the string the row actually renders makes the dependency real.
+    context.select<AppState,
+        (bool, int?, String?, String?, bool, bool, bool)>(
+      (a) => (
+        a.isConnected,
+        a.alarmEpoch,
+        a.strapName,
+        a.device.serial ?? a.paired?.serial,
+        a.alarmConfirmed,
+        a.alarmPending,
+        a.alarmUnconfirmed,
+      ),
     );
     final live = context.read<AppState>();
     final connected = live.isConnected;

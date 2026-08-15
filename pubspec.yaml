@@ -43,8 +43,12 @@ dependencies:
       # fields instead of scanning for them, the R22 config values were
       # inverted, and the gen4 optical fields are deprecated with what they
       # actually are.
-      # TEMPORARY: repin to the main merge once #27 lands.
-      ref: d78b759e8572ed56f5801398df462b97c03a24f9
+      # protocol main @ #27 merge. Carries the gen5 command/decoder fixes plus
+      # the decode-integrity work: a record only decodes if its packet type says
+      # it is one, r-r beats are read only where the field map is confirmed, and
+      # a frame whose payload crc32 fails no longer lets its declared length
+      # swallow the frames behind it.
+      ref: 3ea0290c924cec1a1877bec1cc50db2e7e93a0f2
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

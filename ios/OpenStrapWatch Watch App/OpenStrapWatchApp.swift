@@ -56,9 +56,11 @@ struct Palette {
     good: Color(hex: 0x34C988), warn: Color(hex: 0xF7B53A), bad: Color(hex: 0xF26168),
     cool: Color(hex: 0x8FB4F2))
 
-  func recovery(_ tier: Int) -> Color {
+  /// Readiness tier → colour. The tier is computed once, in Dart, and shipped
+  /// as `readiness_tier`; this only paints it.
+  func readiness(_ tier: Int) -> Color {
     switch tier {
-    case 2: return good
+    case 3, 2: return good
     case 1: return warn
     case 0: return bad
     default: return inkMuted
@@ -85,7 +87,7 @@ struct WatchGlanceView: View {
       ScrollView {
         VStack(spacing: 12) {
           if !m.hasData { empty } else {
-            recoveryHero
+            readinessHero
             HStack(spacing: 10) {
               MetricCard(p: p, title: "STRAIN", value: m.strainText,
                          fraction: m.strainFraction, accent: p.coral)
@@ -114,7 +116,7 @@ struct WatchGlanceView: View {
       Text("No data yet")
         .font(.system(size: 16, weight: .semibold, design: .rounded))
         .foregroundStyle(p.ink)
-      Text("Open Edge on your iPhone and sync your strap.")
+      Text("Open OpenStrap on your iPhone and sync your strap.")
         .font(.system(size: 12))
         .multilineTextAlignment(.center)
         .foregroundStyle(p.inkSoft)
@@ -122,21 +124,35 @@ struct WatchGlanceView: View {
     .padding(.top, 20)
   }
 
-  private var recoveryHero: some View {
-    let tint = p.recovery(m.recoveryTier)
+  /// Readiness hero. Not "Recovery", and not a percentage — the phone scores
+  /// READINESS out of 100 and the wrist must not rename it. With no score there
+  /// is no arc: an arc trimmed to zero is a ring pinned at empty, which reads
+  /// as "your readiness is 0".
+  private var readinessHero: some View {
+    let tint = p.readiness(m.tier)
     return ZStack {
       Circle().stroke(tint.opacity(0.18), lineWidth: 11)
-      Circle()
-        .trim(from: 0, to: m.readinessFraction)
-        .stroke(tint, style: StrokeStyle(lineWidth: 11, lineCap: .round))
-        .rotationEffect(.degrees(-90))
+      if m.readinessFraction > 0 {
+        Circle()
+          .trim(from: 0, to: m.readinessFraction)
+          .stroke(tint, style: StrokeStyle(lineWidth: 11, lineCap: .round))
+          .rotationEffect(.degrees(-90))
+      }
       VStack(spacing: -2) {
-        Text(m.readiness >= 0 ? "\(m.readiness)" : "—")
-          .font(.system(size: 40, weight: .bold, design: .rounded))
-          .foregroundStyle(p.ink)
-        Text("RECOVERY")
+        if m.readiness >= 0 {
+          Text("\(m.readiness)")
+            .font(.system(size: 40, weight: .bold, design: .rounded))
+            .foregroundStyle(p.ink)
+        } else {
+          Text("Not scored")
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(p.inkSoft)
+        }
+        Text(m.readiness >= 0 && !m.band.isEmpty ? m.band.uppercased() : "READINESS")
           .font(.system(size: 9, weight: .semibold, design: .rounded))
           .tracking(1.2)
+          .minimumScaleFactor(0.7)
+          .lineLimit(1)
           .foregroundStyle(p.inkMuted)
       }
     }
@@ -163,21 +179,27 @@ struct WatchGlanceView: View {
 
 // MARK: - Components
 
+/// An absent metric is an empty slot — no number, no arc, the card dimmed.
+/// A 54pt circle cannot carry the phone's what/why/fix, but a dash over a ring
+/// drawn at zero is a measurement we do not have, which is worse than silence.
 private struct MetricCard: View {
   let p: Palette
   let title: String
   let value: String
   let fraction: Double
   let accent: Color
+  private var absent: Bool { value.isEmpty }
 
   var body: some View {
     VStack(spacing: 6) {
       ZStack {
         Circle().stroke(accent.opacity(0.18), lineWidth: 6)
-        Circle()
-          .trim(from: 0, to: fraction)
-          .stroke(accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-          .rotationEffect(.degrees(-90))
+        if fraction > 0 {
+          Circle()
+            .trim(from: 0, to: fraction)
+            .stroke(accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+        }
         Text(value)
           .font(.system(size: 15, weight: .bold, design: .rounded))
           .foregroundStyle(p.ink)
@@ -195,6 +217,7 @@ private struct MetricCard: View {
     .padding(.vertical, 10)
     .background(p.surface, in: RoundedRectangle(cornerRadius: 14))
     .overlay(RoundedRectangle(cornerRadius: 14).stroke(p.divider, lineWidth: 1))
+    .opacity(absent ? 0.4 : 1)
   }
 }
 
@@ -203,6 +226,7 @@ private struct StatCell: View {
   let label: String
   let value: String
   let unit: String
+  private var absent: Bool { value.isEmpty }
 
   var body: some View {
     VStack(spacing: 1) {
@@ -210,13 +234,19 @@ private struct StatCell: View {
         .font(.system(size: 9, weight: .semibold, design: .rounded))
         .tracking(0.8)
         .foregroundStyle(p.inkMuted)
-      HStack(alignment: .firstTextBaseline, spacing: 2) {
-        Text(value)
-          .font(.system(size: 18, weight: .bold, design: .rounded))
-          .foregroundStyle(p.ink)
-        Text(unit)
-          .font(.system(size: 9))
+      if absent {
+        Text("no reading")
+          .font(.system(size: 11))
           .foregroundStyle(p.inkSoft)
+      } else {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+          Text(value)
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(p.ink)
+          Text(unit)
+            .font(.system(size: 9))
+            .foregroundStyle(p.inkSoft)
+        }
       }
     }
     .frame(maxWidth: .infinity)

@@ -35,7 +35,22 @@ internal object StrapWidgets {
     const val CORAL = 0xFFFF5A36.toInt()
     const val CORAL_DEEP = 0xFFE8431F.toInt()
     const val GOOD = 0xFF2BB673.toInt()
+    const val WARN = 0xFFF5A623.toInt()
+    const val BAD = 0xFFE5484D.toInt()
     const val SLEEP_BLUE = 0xFF7CA8F0.toInt()
+
+    /**
+     * Readiness tier -> colour. The THRESHOLDS are not here: Dart publishes
+     * `readiness_tier` (see `readinessBand` in lib/ui2/screens/home_screen.dart)
+     * so the phone, the widget, the watch and Siri cannot disagree about what a
+     * score of 65 means. Never re-derive a band from the raw number.
+     */
+    fun readinessColor(tier: Int, pal: Pal): Int = when (tier) {
+        3, 2 -> GOOD
+        1 -> WARN
+        0 -> BAD
+        else -> pal.inkMuted
+    }
 
     /// The app mirrors its in-app appearance into `theme_dark` (see
     /// WidgetService.setThemeDark) — same source of truth as the iOS widgets.
@@ -64,14 +79,14 @@ internal object StrapWidgets {
             else -> def
         }
 
-    // ── formatting (mirrors hm() in OpenStrapWidget.swift) ───────────────────
+    // ── formatting ───────────────────────────────────────────────────────────
+    /** "45m" / "7h 05m" — the phone's own `hm()` (lib/ui2/screens/home_screen.dart),
+     *  so the same night reads identically on the phone, the widget and iOS.
+     *  Empty for "no measurement": never a bare dash. */
     fun hm(min: Int): String {
-        if (min < 0) return "—"
-        val h = min / 60
-        val m = min % 60
-        if (h == 0) return "${m}m"
-        if (m == 0) return "${h}h"
-        return "${h}h ${m}m"
+        if (min < 0) return ""
+        if (min < 60) return "${min}m"
+        return String.format("%dh %02dm", min / 60, min % 60)
     }
 
     // ── ring renderer ────────────────────────────────────────────────────────

@@ -2,14 +2,23 @@
 //  OpenStrapWidget.swift
 //  OpenStrapWidget
 //
-//  Home/lock-screen widget — "Ember on Paper". Renders the snapshot the app
-//  writes into the shared App Group; ALSO self-refreshes ~hourly by fetching
-//  /today directly (using the JWT + backend URL the app stores in the group), so
-//  it stays current even when the app is fully closed. No @main here — the bundle
-//  (OpenStrapWidgetBundle.swift) owns it.
+//  Home/lock-screen widget — renders the snapshot the app writes into the shared
+//  App Group. Nothing else: this is a local-first app with no backend and no
+//  account, so there is nothing for the widget to fetch. (It used to carry a
+//  "self-refreshes hourly by fetching /today" path guarded on a JWT that no code
+//  ever wrote — dead on every install, and its parser hard-wrote has_data = true,
+//  which would have clobbered the app's staleness gate the moment anyone wired it
+//  up.) The app calls WidgetService.refresh() after every derive; that is the
+//  only refresh there is.
 //
 //  Shows three rings: Strain · Sleep · HRV. (Recovery was retired — the app no
 //  longer surfaces a recovery score; HRV is the real measured autonomic signal.)
+//
+//  HONESTY: `has_data` is the Dart side saying "this snapshot is empty or more
+//  than a day old" — every view here gates on it, and an absent metric is drawn
+//  as an empty slot, never as a dash over a ring pinned at zero. The readiness
+//  BANDING is not computed here: Dart publishes `readiness_tier` so the phone,
+//  the widget, the watch and Siri cannot disagree about what 65 means.
 
 import WidgetKit
 import SwiftUI
@@ -29,10 +38,15 @@ private extension Color {
 
 private struct Pal {
   let bg: Color, ink: Color, inkMuted: Color, track: Color
+  let good: Color, warn: Color, bad: Color
   static let light = Pal(bg: Color(244, 241, 236), ink: Color(26, 23, 20),
-                         inkMuted: Color(165, 156, 144), track: Color(236, 231, 223))
+                         inkMuted: Color(165, 156, 144), track: Color(236, 231, 223),
+                         good: Color(43, 182, 115), warn: Color(245, 166, 35),
+                         bad: Color(229, 72, 77))
   static let dark  = Pal(bg: Color(30, 26, 21), ink: Color(241, 236, 227),
-                         inkMuted: Color(126, 116, 102), track: Color(42, 37, 31))
+                         inkMuted: Color(126, 116, 102), track: Color(42, 37, 31),
+                         good: Color(52, 201, 136), warn: Color(247, 181, 58),
+                         bad: Color(242, 97, 104))
   static var isDark: Bool {
     UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false
   }
@@ -44,9 +58,11 @@ private extension Color {
   static var ink: Color { Pal.current.ink }
   static var inkMuted: Color { Pal.current.inkMuted }
   static var surfaceAlt: Color { Pal.current.track }
+  static var good: Color { Pal.current.good }
+  static var warn: Color { Pal.current.warn }
+  static var bad: Color { Pal.current.bad }
   static let coral      = Color(255, 90, 54)
   static let coralDeep  = Color(232, 67, 31)
-  static let good       = Color(43, 182, 115)
   static let sleepBlue  = Color(124, 168, 240)
 }
 
@@ -56,6 +72,8 @@ struct OpenStrapEntry: TimelineEntry {
   let date: Date
   let hasData: Bool
   let readiness: Int      // -1 = none (composite 0..100) — the headline
+  let tier: Int           // -1 = not scored · 0 rest · 1 easy · 2 steady · 3 good
+  let band: String        // the phone's own label for `tier` ("Steady", …)
   let strain: Double      // -1 = none
   let sleepMin: Int       // -1 = none
   let needMin: Int    // -1 = none (sleep need, min) — never fabricate 8h
@@ -65,35 +83,43 @@ struct OpenStrapEntry: TimelineEntry {
   let coachLine: String
 
   static let placeholder = OpenStrapEntry(
-    date: Date(), hasData: true, readiness: 72, strain: 12.4,
-    sleepMin: 437, needMin: 480, hrv: 62, hrvBaseline: 58, rhr: 54,
+    date: Date(), hasData: true, readiness: 72, tier: 2, band: "Steady",
+    strain: 12.4, sleepMin: 437, needMin: 480, hrv: 62, hrvBaseline: 58, rhr: 54,
     coachLine: "Room to push today")
 
-  // Ring fractions (0…1).
-  var readinessT: Double { readiness >= 0 ? Double(readiness) / 100.0 : 0 }
+  // Ring fractions (0…1). A negative fraction means "no measurement" — Ring
+  // draws the track only, and no view fills an arc against a value we don't have.
+  var readinessT: Double { readiness >= 0 ? Double(readiness) / 100.0 : -1 }
+  /// Tier → colour. The THRESHOLDS live in Dart (`readinessBand` in
+  /// lib/ui2/screens/home_screen.dart) and arrive as `readiness_tier`; this maps
+  /// the tier onto the widget's own surface palette and nothing more. Do not
+  /// re-derive a band from `readiness` here — that is how the phone, the widget
+  /// and the watch ended up disagreeing about the same score.
   var readinessColor: Color {
-    if readiness < 0 { return .inkMuted }
-    if readiness >= 66 { return .good }
-    if readiness >= 40 { return .coral }
-    return .coralDeep
+    switch tier {
+    case 3, 2: return .good
+    case 1: return .warn
+    case 0: return .bad
+    default: return .inkMuted
+    }
   }
-  var strainT: Double { strain >= 0 ? min(strain / 21.0, 1) : 0 }
-  var sleepT: Double { (sleepMin >= 0 && needMin > 0) ? min(Double(sleepMin) / Double(needMin), 1) : 0 }
+  var strainT: Double { strain >= 0 ? min(strain / 21.0, 1) : -1 }
+  var sleepT: Double { (sleepMin >= 0 && needMin > 0) ? min(Double(sleepMin) / Double(needMin), 1) : -1 }
   var hrvT: Double {
-    guard hrv >= 0 else { return 0 }
+    guard hrv >= 0 else { return -1 }
     if hrvBaseline > 0 { return min(Double(hrv) / (1.5 * Double(hrvBaseline)), 1) }
     return min(Double(hrv) / 100.0, 1)
   }
   // HRV reads green at/above your baseline, warmer as it drops below it.
   var hrvColor: Color {
-    guard hrv >= 0, hrvBaseline > 0 else { return .good }
+    guard hrv >= 0, hrvBaseline > 0 else { return .inkMuted }
     if hrv >= hrvBaseline { return .good }
-    if hrv >= Int(0.8 * Double(hrvBaseline)) { return .coral }
-    return .coralDeep
+    if hrv >= Int(0.8 * Double(hrvBaseline)) { return .warn }
+    return .bad
   }
 }
 
-// MARK: - Shared store (App Group)
+// MARK: - Shared store (App Group, read-only)
 
 private enum Store {
   static var defaults: UserDefaults? { UserDefaults(suiteName: kAppGroup) }
@@ -104,6 +130,8 @@ private enum Store {
       date: Date(),
       hasData: d?.bool(forKey: "has_data") ?? false,
       readiness: d?.object(forKey: "readiness") as? Int ?? -1,
+      tier: d?.object(forKey: "readiness_tier") as? Int ?? -1,
+      band: d?.string(forKey: "readiness_band") ?? "",
       strain: d?.object(forKey: "strain") as? Double ?? -1,
       sleepMin: d?.object(forKey: "sleep_min") as? Int ?? -1,
       needMin: (d?.object(forKey: "sleep_need_min") as? Int) ?? -1,
@@ -111,80 +139,6 @@ private enum Store {
       hrvBaseline: d?.object(forKey: "hrv_baseline") as? Int ?? -1,
       rhr: d?.object(forKey: "rhr") as? Int ?? -1,
       coachLine: d?.string(forKey: "coach_line") ?? "")
-  }
-
-  static func write(_ e: OpenStrapEntry) {
-    let d = defaults
-    d?.set(true, forKey: "has_data")
-    d?.set(e.readiness, forKey: "readiness")
-    d?.set(e.strain, forKey: "strain")
-    d?.set(e.sleepMin, forKey: "sleep_min")
-    d?.set(e.needMin, forKey: "sleep_need_min")
-    d?.set(e.hrv, forKey: "hrv")
-    d?.set(e.hrvBaseline, forKey: "hrv_baseline")
-    d?.set(e.rhr, forKey: "rhr")
-    d?.set(e.coachLine, forKey: "coach_line")
-    d?.set(Int(Date().timeIntervalSince1970), forKey: "updated_at")
-  }
-
-  static var backendURL: String { defaults?.string(forKey: "backend_url") ?? "" }
-  static var jwt: String { defaults?.string(forKey: "access_jwt") ?? "" }
-}
-
-// MARK: - Self-refresh: fetch /today directly
-
-private enum TodayAPI {
-  /// GET {url}/today with the stored JWT, parse into an entry. Falls back to the
-  /// cached entry on any failure (offline / expired token / parse error).
-  static func fetch(fallback: OpenStrapEntry, completion: @escaping (OpenStrapEntry) -> Void) {
-    let base = Store.backendURL
-    let token = Store.jwt
-    guard !base.isEmpty, !token.isEmpty, let url = URL(string: base + "/today") else {
-      completion(fallback); return
-    }
-    var req = URLRequest(url: url)
-    req.httpMethod = "GET"
-    req.timeoutInterval = 12
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    URLSession.shared.dataTask(with: req) { data, resp, _ in
-      guard
-        let http = resp as? HTTPURLResponse, http.statusCode == 200,
-        let data = data,
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-      else { completion(fallback); return }
-      let entry = parse(json) ?? fallback
-      Store.write(entry)         // keep the cache fresh for the next instant render
-      completion(entry)
-    }.resume()
-  }
-
-  private static func parse(_ j: [String: Any]) -> OpenStrapEntry? {
-    func obj(_ m: Any?) -> [String: Any]? { m as? [String: Any] }
-    func val(_ parent: [String: Any]?, _ key: String) -> Double? {
-      guard let leaf = obj(parent?[key]), let v = leaf["value"] as? NSNumber else { return nil }
-      return v.doubleValue
-    }
-    let daily = obj(j["daily"]); let sleep = obj(j["sleep"]); let coach = obj(j["coach"])
-    let hrvObj = obj(j["hrv"])  // top-level { rmssd, baseline, ... }
-
-    let readiness = val(daily, "readiness").map { Int($0.rounded()) } ?? -1
-    let strain = val(daily, "strain") ?? -1
-    let rhr = val(daily, "resting_hr").map { Int($0.rounded()) } ?? -1
-    let sleepMin = val(sleep, "duration_min").map { Int($0.rounded()) } ?? -1
-    let needMin = val(sleep, "need_min").map { Int($0.rounded()) } ?? -1
-    let hrv = (hrvObj?["rmssd"] as? NSNumber).map { Int($0.doubleValue.rounded()) } ?? -1
-    let hrvBase = (hrvObj?["baseline"] as? NSNumber).map { Int($0.doubleValue.rounded()) } ?? -1
-
-    var coachLine = ""
-    if let plan = coach?["plan"] as? [[String: Any]], let first = plan.first,
-       let title = first["title"] as? String { coachLine = title }
-    else if let tgt = obj(coach?["strain_target"]), let v = tgt["value"] as? NSNumber {
-      coachLine = "Aim for strain \(Int(v.doubleValue.rounded()))"
-    }
-    let hasData = daily != nil || sleep != nil
-    return OpenStrapEntry(date: Date(), hasData: hasData, readiness: readiness, strain: strain,
-                          sleepMin: sleepMin, needMin: needMin, hrv: hrv,
-                          hrvBaseline: hrvBase, rhr: rhr, coachLine: coachLine)
   }
 }
 
@@ -198,13 +152,11 @@ struct Provider: TimelineProvider {
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<OpenStrapEntry>) -> Void) {
-    let cached = Store.read()
-    // Refresh from the network (best-effort); fall back to cache. Re-render hourly.
-    TodayAPI.fetch(fallback: cached) { entry in
-      let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
-        ?? Date().addingTimeInterval(3600)
-      completion(Timeline(entries: [entry], policy: .after(next)))
-    }
+    // Push-driven: the app reloads timelines after every derive. The hourly
+    // re-render exists so `has_data` can go stale on its own if it doesn't.
+    let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
+      ?? Date().addingTimeInterval(3600)
+    completion(Timeline(entries: [Store.read()], policy: .after(next)))
   }
 }
 
@@ -227,17 +179,22 @@ private struct Ring: View {
   }
 }
 
+/// Minutes → "45m" / "7h 05m". Byte-for-byte the phone's `hm()`
+/// (lib/ui2/screens/home_screen.dart) so the same night reads the same on both.
 private func hm(_ min: Int) -> String {
-  if min < 0 { return "—" }
-  let h = min / 60, m = min % 60
-  if h == 0 { return "\(m)m" }
-  if m == 0 { return "\(h)h" }
-  return "\(h)h \(m)m"
+  if min < 0 { return "" }
+  if min < 60 { return "\(min)m" }
+  return String(format: "%dh %02dm", min / 60, min % 60)
 }
 
 private func numFont(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .rounded) }
 
 /// One labelled metric ring (used for all three: Strain / Sleep / HRV).
+///
+/// An absent metric is an EMPTY slot: no number, no arc, the whole cell dimmed.
+/// The phone's contract (grammar.dart) is what/why/fix, which does not fit in a
+/// 44pt circle — but a bare "—" over a ring drawn at zero reads as "your HRV is
+/// zero", which is worse than saying nothing. The reason is one tap away.
 private struct MetricRing: View {
   let label: String
   let value: String
@@ -246,6 +203,7 @@ private struct MetricRing: View {
   var size: CGFloat = 58
   var line: CGFloat = 7
   var valueSize: CGFloat = 16
+  private var absent: Bool { value.isEmpty }
   var body: some View {
     VStack(spacing: 5) {
       ZStack {
@@ -255,6 +213,7 @@ private struct MetricRing: View {
       .frame(width: size, height: size)
       Text(label).font(.system(size: 9, weight: .semibold)).tracking(0.8).foregroundColor(.inkMuted)
     }
+    .opacity(absent ? 0.4 : 1)
   }
 }
 
@@ -268,13 +227,13 @@ private struct TripleRings: View {
   var body: some View {
     HStack(spacing: 0) {
       MetricRing(label: "STRAIN",
-                 value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "—",
+                 value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "",
                  t: e.strainT, color: .coral, size: size, line: line, valueSize: valueSize)
         .frame(maxWidth: .infinity)
       MetricRing(label: "SLEEP", value: hm(e.sleepMin),
                  t: e.sleepT, color: .sleepBlue, size: size, line: line, valueSize: valueSize - 1)
         .frame(maxWidth: .infinity)
-      MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "—",
+      MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "",
                  t: e.hrvT, color: e.hrvColor, size: size, line: line, valueSize: valueSize)
         .frame(maxWidth: .infinity)
     }
@@ -282,7 +241,7 @@ private struct TripleRings: View {
   }
 }
 
-/// Readiness headline row — big ring + score + what it blends.
+/// Readiness headline row — big ring + score + the phone's own band label.
 private struct ReadinessRow: View {
   let e: OpenStrapEntry
   var ring: CGFloat = 64
@@ -290,16 +249,21 @@ private struct ReadinessRow: View {
     HStack(spacing: 12) {
       ZStack {
         Ring(t: e.readinessT, color: e.readinessColor, lineWidth: 9)
-        Text(e.readiness >= 0 ? "\(e.readiness)" : "—").font(numFont(22)).foregroundColor(e.readinessColor)
+        if e.readiness >= 0 {
+          Text("\(e.readiness)").font(numFont(22)).foregroundColor(e.readinessColor)
+        }
       }
       .frame(width: ring, height: ring)
       VStack(alignment: .leading, spacing: 2) {
         Text("READINESS").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundColor(.inkMuted)
-        Text(e.readiness >= 0 ? "HRV recovery + sleep" : "Building baseline")
+        Text(e.readiness >= 0
+             ? (e.band.isEmpty ? "HRV recovery + sleep" : e.band)
+             : "Still building your baseline")
           .font(.system(size: 12)).foregroundColor(.ink)
       }
       Spacer(minLength: 0)
     }
+    .opacity(e.readiness >= 0 ? 1 : 0.55)
   }
 }
 
@@ -309,14 +273,14 @@ private struct SmallView: View {
     // 2×2: Readiness · Strain / Sleep · HRV.
     VStack(spacing: 10) {
       HStack(spacing: 0) {
-        MetricRing(label: "READY", value: e.readiness >= 0 ? "\(e.readiness)" : "—",
+        MetricRing(label: "READY", value: e.readiness >= 0 ? "\(e.readiness)" : "",
                    t: e.readinessT, color: e.readinessColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
-        MetricRing(label: "STRAIN", value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "—",
+        MetricRing(label: "STRAIN", value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "",
                    t: e.strainT, color: .coral, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
       }
       HStack(spacing: 0) {
         MetricRing(label: "SLEEP", value: hm(e.sleepMin), t: e.sleepT, color: .sleepBlue, size: 44, line: 6, valueSize: 12).frame(maxWidth: .infinity)
-        MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "—", t: e.hrvT, color: e.hrvColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
+        MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "", t: e.hrvT, color: e.hrvColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
       }
     }
     .padding(12)
@@ -335,41 +299,84 @@ private struct MediumView: View {
   }
 }
 
-@available(iOSApplicationExtension 16.0, *)
-private struct AccessoryCircularView: View {
-  let e: OpenStrapEntry
+/// `has_data == false` — the app is telling us the snapshot is empty or is
+/// describing a day more than one behind. Say that; do not render last week's
+/// readiness at full confidence.
+private struct NoDataView: View {
+  @Environment(\.widgetFamily) var family
   var body: some View {
-    Gauge(value: e.readinessT) {
-      Text("RDY")
-    } currentValueLabel: {
-      Text(e.readiness >= 0 ? "\(e.readiness)" : "—")
+    switch family {
+    case .accessoryCircular:
+      Image(systemName: "bolt.heart").font(.system(size: 18)).widgetAccentable()
+    case .accessoryRectangular:
+      VStack(alignment: .leading, spacing: 2) {
+        Text("No recent data").font(.system(size: 13, weight: .bold)).widgetAccentable()
+        Text("Open OpenStrap and sync your strap.")
+          .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+      }
+    case .accessoryInline:
+      Text("OpenStrap · no recent data")
+    default:
+      VStack(spacing: 6) {
+        Image(systemName: "bolt.heart").font(.system(size: 22)).foregroundColor(.inkMuted)
+        Text("No recent data")
+          .font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundColor(.ink)
+        Text("Open OpenStrap and sync your strap.")
+          .font(.system(size: 11)).multilineTextAlignment(.center).foregroundColor(.inkMuted)
+      }
+      .padding(12)
     }
-    .gaugeStyle(.accessoryCircular)
-    .widgetAccentable()
   }
 }
 
-@available(iOSApplicationExtension 16.0, *)
+private struct AccessoryCircularView: View {
+  let e: OpenStrapEntry
+  var body: some View {
+    // No Gauge when there is no score: `Gauge(value: 0)` draws a ring pinned at
+    // empty, which is indistinguishable from "your readiness is 0".
+    if e.readiness >= 0 {
+      Gauge(value: e.readinessT) {
+        Text("RDY")
+      } currentValueLabel: {
+        Text("\(e.readiness)")
+      }
+      .gaugeStyle(.accessoryCircular)
+      .widgetAccentable()
+    } else {
+      VStack(spacing: 0) {
+        Image(systemName: "bolt.heart").font(.system(size: 15)).widgetAccentable()
+        Text("RDY").font(.system(size: 9, weight: .semibold))
+      }
+    }
+  }
+}
+
 private struct AccessoryRectangularView: View {
   let e: OpenStrapEntry
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text("Readiness \(e.readiness >= 0 ? "\(e.readiness)" : "—")").font(.system(size: 13, weight: .bold)).widgetAccentable()
-      Text("Strain \(e.strain >= 0 ? String(format: "%.1f", e.strain) : "—")   HRV \(e.hrv >= 0 ? "\(e.hrv)" : "—")")
+      Text(e.readiness >= 0 ? "Readiness \(e.readiness)" : "Readiness not scored")
+        .font(.system(size: 13, weight: .bold)).widgetAccentable()
+      Text(pair("Strain", e.strain >= 0 ? String(format: "%.1f", e.strain) : nil,
+                "HRV", e.hrv >= 0 ? "\(e.hrv)" : nil))
         .font(.system(size: 13, weight: .semibold))
-      Text("Sleep \(hm(e.sleepMin))" + (e.rhr >= 0 ? "   RHR \(e.rhr)" : ""))
+      Text(pair("Sleep", hm(e.sleepMin).isEmpty ? nil : hm(e.sleepMin),
+                "RHR", e.rhr >= 0 ? "\(e.rhr)" : nil))
         .font(.system(size: 12)).foregroundStyle(.secondary)
     }
+  }
+
+  /// Two "Label value" pairs, dropping whichever side has no measurement — an
+  /// absent metric is left out of the line rather than printed as a dash.
+  private func pair(_ aLabel: String, _ a: String?, _ bLabel: String, _ b: String?) -> String {
+    [a.map { "\(aLabel) \($0)" }, b.map { "\(bLabel) \($0)" }]
+      .compactMap { $0 }.joined(separator: "   ")
   }
 }
 
 private extension View {
   @ViewBuilder func widgetBackground(_ color: Color) -> some View {
-    if #available(iOSApplicationExtension 17.0, *) {
-      containerBackground(color, for: .widget)
-    } else {
-      background(color)
-    }
+    containerBackground(color, for: .widget)
   }
 }
 
@@ -384,20 +391,17 @@ struct OpenStrapWidgetEntryView: View {
   private var isSystem: Bool { family == .systemSmall || family == .systemMedium }
 
   @ViewBuilder private var content: some View {
-    switch family {
-    case .systemSmall:  SmallView(e: entry)
-    case .systemMedium: MediumView(e: entry)
-    default:
-      if #available(iOSApplicationExtension 16.0, *) {
-        switch family {
-        case .accessoryCircular:    AccessoryCircularView(e: entry)
-        case .accessoryRectangular: AccessoryRectangularView(e: entry)
-        case .accessoryInline:
-          Text("Ready \(entry.readiness >= 0 ? "\(entry.readiness)" : "—") · Strain \(entry.strain >= 0 ? String(format: "%.1f", entry.strain) : "—")")
-        default: SmallView(e: entry)
-        }
-      } else {
-        SmallView(e: entry)
+    if !entry.hasData {
+      NoDataView()
+    } else {
+      switch family {
+      case .systemSmall:  SmallView(e: entry)
+      case .systemMedium: MediumView(e: entry)
+      case .accessoryCircular:    AccessoryCircularView(e: entry)
+      case .accessoryRectangular: AccessoryRectangularView(e: entry)
+      case .accessoryInline:
+        Text(entry.readiness >= 0 ? "Ready \(entry.readiness)" : "Readiness not scored")
+      default: SmallView(e: entry)
       }
     }
   }
@@ -412,13 +416,7 @@ struct OpenStrapWidget: Widget {
     }
     .configurationDisplayName("OpenStrap")
     .description("Readiness, strain, sleep and HRV at a glance.")
-    .supportedFamilies(supportedFamilies)
-  }
-
-  private var supportedFamilies: [WidgetFamily] {
-    if #available(iOSApplicationExtension 16.0, *) {
-      return [.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline]
-    }
-    return [.systemSmall, .systemMedium]
+    .supportedFamilies([.systemSmall, .systemMedium,
+                        .accessoryCircular, .accessoryRectangular, .accessoryInline])
   }
 }

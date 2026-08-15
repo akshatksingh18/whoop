@@ -9,6 +9,7 @@
 import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
@@ -141,8 +142,8 @@ void main() {
       for (final p in <CustomPainter>[
         LineChart(const [], Colors.red),
         Bars(const [], Colors.red, Colors.grey),
-        Hypnogram(const []),
-        ZoneBar(const []),
+        Hypnogram(const [], const P(false)),
+        ZoneBar(const [], const P(false)),
         Actogram(const [], Colors.red),
         HeatMap(const [], Colors.red, Colors.grey),
         Spectrum(const []),
@@ -443,7 +444,7 @@ void main() {
 
     test('a skipped zone band does not shift the ones after it', () {
       final rec = _Rec();
-      ZoneBar(const [.5, .001, .499]).paint(rec, const Size(300, 10));
+      ZoneBar(const [.5, .001, .499], const P(false)).paint(rec, const Size(300, 10));
       expect(rec.rrects, hasLength(2));
       // The hairline band is skipped; its width still has to be spent.
       expect(rec.rrects[1].outerRect.left, closeTo(300 * .501, .01));
@@ -454,7 +455,7 @@ void main() {
       for (final p in <CustomPainter>[
         LineChart(const [double.nan, 60.0], Colors.red),
         Bars(const [double.nan, 60.0], Colors.red, Colors.grey),
-        ZoneBar(const [double.nan, .5]),
+        ZoneBar(const [double.nan, .5], const P(false)),
         Actogram([List.filled(24, double.nan)], Colors.red),
         NightStack(const [
           [double.nan, 60.0]
@@ -485,7 +486,7 @@ void main() {
 
     test('one rect per drawable column, not one per epoch', () {
       final rec = _Rec();
-      Hypnogram(List.filled(28800, SleepStage.light))
+      Hypnogram(List.filled(28800, SleepStage.light), const P(false))
           .paint(rec, const Size(350, 80));
       expect(rec.rrects.length, lessThanOrEqualTo(175));
     });
@@ -533,17 +534,73 @@ void main() {
     });
   });
 
+  group('Scrubber — a drag that does not require one', () {
+    testWidgets('it is a slider, it speaks its position, and it steps',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      double? at;
+      await tester.pumpWidget(_host(StatefulBuilder(
+        builder: (_, setLocal) => Scrubber(
+          value: at,
+          onChanged: (v) => setLocal(() => at = v),
+          label: 'Hypnogram',
+          describe: (v) => '${(v * 100).round()} per cent through the night',
+          child: const SizedBox(height: 110, width: 300),
+        ),
+      )));
+
+      final node = tester.getSemantics(find.byType(Scrubber));
+      expect(node.flagsCollection.isSlider, isTrue);
+      expect(node.label, 'Hypnogram');
+      // Nothing placed yet is a STATE, not a zero.
+      expect(node.value, 'Nothing selected');
+      expect(node.getSemanticsData().hasAction(SemanticsAction.increase), isTrue);
+      expect(node.getSemanticsData().hasAction(SemanticsAction.decrease), isTrue);
+
+      // The whole point: a step, with no pointer anywhere near it.
+      final owner = node.owner!;
+      owner.performAction(node.id, SemanticsAction.increase);
+      await tester.pump();
+      expect(at, closeTo(0, 1e-9));
+      owner.performAction(node.id, SemanticsAction.increase);
+      await tester.pump();
+      expect(at, closeTo(.05, 1e-9));
+      expect(tester.getSemantics(find.byType(Scrubber)).value,
+          '5 per cent through the night');
+      handle.dispose();
+    });
+
+    testWidgets('a tap places it — no drag required', (tester) async {
+      double? at;
+      await tester.pumpWidget(_host(StatefulBuilder(
+        builder: (_, setLocal) => Scrubber(
+          value: at,
+          onChanged: (v) => setLocal(() => at = v),
+          label: 'Hypnogram',
+          describe: (v) => '$v',
+          child: const SizedBox(height: 110, width: double.infinity),
+        ),
+      )));
+      final box = tester.getRect(find.byType(Scrubber));
+      await tester.tapAt(Offset(box.left + box.width * .75, box.center.dy));
+      await tester.pump();
+      expect(at, closeTo(.75, .02));
+    });
+  });
+
   group('legends are derived from the palette, never retyped', () {
     test('every sleep stage has a key', () {
-      expect(Hypnogram.legend.map((e) => e.$2),
-          SleepStage.values.map((s) => Hypnogram.cols[s]));
-      expect(Hypnogram.legend.map((e) => e.$1),
+      const p = P(false);
+      expect(Hypnogram.legend(p).map((e) => e.$2),
+          SleepStage.values.map((s) => Hypnogram.cols(p)[s]));
+      expect(Hypnogram.legend(p).map((e) => e.$1),
           ['Awake', 'REM', 'Light', 'Deep']);
     });
 
     test('every zone has a key', () {
-      expect(ZoneBar.legend, hasLength(ZoneBar.cols.length));
-      expect(ZoneBar.legend.last.$1, 'Zone 5');
+      const p = P(false);
+      expect(ZoneBar.legend(p), hasLength(ZoneBar.cols(p).length));
+      expect(ZoneBar.legend(p).last.$1, 'Zone 5');
     });
   });
 
@@ -605,8 +662,9 @@ void main() {
       await tester.pumpWidget(_host(ChartFrame(
         title: 'Last night',
         unit: 'stages',
-        legend: Hypnogram.legend,
-        child: CustomPaint(painter: Hypnogram(const [SleepStage.deep])),
+        legend: Hypnogram.legend(const P(false)),
+        child: CustomPaint(
+            painter: Hypnogram(const [SleepStage.deep], const P(false))),
       )));
       for (final s in SleepStage.values) {
         expect(find.text(s.label), findsOneWidget);
@@ -637,6 +695,54 @@ void main() {
       expect(find.text('100'), findsNothing);
     });
 
+    testWidgets('a chart says its data out loud, and only its data',
+        (tester) async {
+      // A painter is a picture and a picture has no screen-reader form. Before
+      // this a fully-specified frame announced its title, its unit and then the
+      // three BARE AXIS TICK NUMBERS — 80, 60, 40 — and not one value from the
+      // series it was drawing.
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(_host(ChartFrame(
+        title: 'Resting heart rate',
+        unit: 'bpm',
+        yAxis: AxisSpec.of(const [52.0, 48.0, 61.0], floor: 40),
+        xLabels: const ['30 Jul', 'Today'],
+        conf: Conf.high,
+        footnote: 'Your usual range is 52-64 bpm.',
+        series: const [52.0, null, 48.0, 61.0],
+        child: CustomPaint(
+            painter: LineChart(const [52.0, null, 48.0, 61.0], C.blue)),
+      )));
+
+      final node = tester.getSemantics(find.byType(ChartFrame));
+      expect(node.label, contains('Resting heart rate'));
+      expect(node.label, contains('measured in bpm'));
+      // The data, summarised: where it ended, how far it ranged, which way it
+      // went — never thirty numbers, which a screen reader cannot skim.
+      expect(node.label, contains('Latest 61 bpm'));
+      expect(node.label, contains('ranging 48 to 61'));
+      expect(node.label, contains('up 9'));
+      expect(node.label, contains('from 30 Jul to Today'));
+      // And NOT the gridline numbers, which mean nothing on their own.
+      expect(node.label, isNot(contains('80')));
+      handle.dispose();
+    });
+
+    testWidgets('an empty frame says so rather than reading an axis',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(_host(const ChartFrame(
+        title: 'Respiratory rate',
+        unit: 'breaths/min',
+        yAxis: AxisSpec(min: 10, max: 20, format: axisInt),
+        empty: NoData(),
+        child: SizedBox.shrink(),
+      )));
+      expect(tester.getSemantics(find.byType(ChartFrame)).label,
+          contains('No data'));
+      handle.dispose();
+    });
+
     testWidgets('nothing overflows in either theme at 2x', (tester) async {
       for (final b in Brightness.values) {
         await tester.pumpWidget(_host(
@@ -645,7 +751,7 @@ void main() {
             unit: 'ms',
             yAxis: AxisSpec(min: 0, max: 480, format: axisHm),
             xLabels: const ['22:30', '02:00', '05:30', '07:10'],
-            legend: ZoneBar.legend,
+            legend: ZoneBar.legend(P(b == Brightness.dark)),
             footnote: 'Relative to your own 14-night baseline.',
             conf: Conf.estimated,
             child: CustomPaint(painter: LineChart(const [40.0, 90.0], C.teal)),

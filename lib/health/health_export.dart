@@ -421,9 +421,12 @@ class HealthExporter {
       final cursor = await LocalDb.getCursor('health_export_through') ?? '';
       final retryState = await _loadRetryState();
       var retryStateDirty = false;
-      final rows = await LocalDb.recentDayResults(400); // newest-first
-      final pendingDays =
-          <({String date, bool finalized, Map<String, dynamic>? bundle})>[];
+      // METADATA ONLY — 400 days of payload is ~300 MB resident, measured, and
+      // this runs on a first export or a settings reset, which are precisely
+      // the moments the user is watching. The bundles are fetched one at a time
+      // inside the loops below, so only one is ever live.
+      final rows = await LocalDb.recentDayResultsMeta(400); // newest-first
+      final pendingDays = <({String date, bool finalized, bool skipped})>[];
       for (final row in rows) {
         final date = (row['day_id'] ?? row['date'])?.toString();
         if (date == null || date.isEmpty) continue;
@@ -431,24 +434,28 @@ class HealthExporter {
         pendingDays.add((
           date: date,
           finalized: (row['finalized'] as num?)?.toInt() == 1,
-          bundle: _decode(row['payload_json']),
+          // The stored column, not a probe into the decoded payload.
+          skipped: (row['skipped'] as num?)?.toInt() == 1,
         ));
       }
+
+      /// One day's bundle, or null if it is missing or undecodable. Never hold
+      /// two of these at once.
+      Future<Map<String, dynamic>?> bundleFor(String date) async =>
+          _decode((await LocalDb.dayResult(date))?['payload_json']);
 
       late final Future<int> Function(String? androidSleepAlreadyWritten)
       exportBulk;
       Future<int> exportPriorityOrBulk() async {
         if (Platform.isAndroid) {
-          final priorityDays = pendingDays
-              .where(
-                (day) => day.bundle != null && day.bundle!['skipped'] != true,
-              )
-              .map((day) => MapEntry(day.date, day.bundle!))
-              .toList();
+          // Walk candidates one bundle at a time and stop at the first with a
+          // sleep session, rather than decoding every pending day up front.
           MapEntry<String, Map<String, dynamic>>? priorityDay;
-          for (final day in priorityDays) {
-            if (normalizeHealthSleepSession(day.value) != null) {
-              priorityDay = day;
+          for (final day in pendingDays.where((d) => !d.skipped)) {
+            final bundle = await bundleFor(day.date);
+            if (bundle == null || bundle['skipped'] == true) continue;
+            if (normalizeHealthSleepSession(bundle) != null) {
+              priorityDay = MapEntry(day.date, bundle);
               break;
             }
           }
@@ -492,7 +499,11 @@ class HealthExporter {
             var bulkDone = 0;
             try {
               final priorityResult = await exportPrioritySleepBeforeBulk(
-                newestFirstDays: priorityDays,
+                // `exportNewestPrioritySleep` returns the first day carrying a
+                // sleep session, and the scan above already found exactly that
+                // day — so one entry is equivalent to the whole list, without
+                // holding 400 decoded bundles to re-derive the same answer.
+                newestFirstDays: [priorityDay],
                 write: _androidSleep.replace,
                 exportBulk: (androidSleepAlreadyWritten) async {
                   bulkDone = await exportBulk(androidSleepAlreadyWritten);
@@ -520,7 +531,11 @@ class HealthExporter {
         for (final day in pendingDays.reversed) {
           final date = day.date;
           final finalized = day.finalized;
-          final bundle = day.bundle;
+          if (day.skipped) {
+            if (!finalized) prefixContiguous = false;
+            continue;
+          }
+          final bundle = await bundleFor(date);
           if (bundle == null || bundle['skipped'] == true) {
             if (!finalized) prefixContiguous = false;
             continue;

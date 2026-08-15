@@ -37,11 +37,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- OTA self-update: download + launch the system installer for the new APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Notification relay: let the user pick from their installed apps. Android 11+
-         hides the package list without this; OpenStrap ships as a sideloaded APK (not
-         Play-distributed), so broad visibility is acceptable here. -->
+    <!-- QUERY_ALL_PACKAGES: declared for a notification-relay app picker that was
+         never built. Nothing in lib/ or the Kotlin sources calls
+         getInstalledApplications or queryIntentActivities, and the `installed_apps`
+         package it was declared for has no Dart import. It is the most
+         policy-expensive permission there is, so it goes — with node="remove" so a
+         library manifest cannot merge it back in behind us. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
+        tools:node="remove" />
     <!-- ── Health Connect (export to Google Health Connect) ──
          The `health` plugin treats a WRITE request as READ+WRITE (hasPermissions
          checks both), so the READ_* permissions MUST be declared too even though
@@ -80,7 +83,10 @@
     <application
         android:label="Edge"
         android:name=".EdgeApplication"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@mipmap/launcher_icon"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true">
         <!-- ── ZERO-COLLECTION BY DEFAULT (privacy tier 1) ──
              Every Firebase SDK auto-starts collecting the moment the app
              process does: Analytics logs first_open/session_start, Performance

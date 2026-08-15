@@ -284,14 +284,23 @@ class ProfileHomeView extends StatelessWidget {
                   // What is behind the row, not what we once meant to put
                   // there: `MoreSettingsView` has no export and no import.
                   SetRow(LucideIcons.settings, C.n500, 'More settings',
-                      sub: 'Units, appearance, crash reports, reset',
+                      sub: 'Export, backup, units, privacy, reset',
                       onTap: onSettings),
                 ]),
                 const SizedBox(height: S.x6),
+                // Was "there is no analytics ... your data leaves this phone
+                // only when you export it yourself", which was false in two
+                // directions: crash reporting and the whole-database
+                // contribution both send things, and the release build checks
+                // for updates. All three are switchable and all three are
+                // named here, because a privacy claim the code contradicts is
+                // worse than no claim.
                 const StatusCard(
                   'Everything stays on this device',
-                  'There is no account, no sync and no analytics. Your data '
-                      'leaves this phone only when you export it yourself.',
+                  'There is no account and no sync. The only things that ever '
+                      'leave are ones you switch on in Settings — crash '
+                      'reports, health-data contribution, update checks — and '
+                      'whatever you export yourself.',
                   icon: LucideIcons.shieldCheck,
                 ),
               ],

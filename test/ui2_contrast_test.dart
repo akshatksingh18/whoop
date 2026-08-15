@@ -15,10 +15,23 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 
 /// WCAG 2.1 AA for body text. The same constant the tokens solve against.
 const _aa = 4.5;
+
+/// A canvas that records nothing but how tall each band was drawn — the second
+/// channel [ZoneBar] uses so its ordinal survives colour-vision deficiency.
+class _Heights implements Canvas {
+  final heights = <double>[];
+
+  @override
+  void drawRRect(RRect r, Paint p) => heights.add(r.outerRect.height);
+
+  @override
+  void noSuchMethod(Invocation i) {}
+}
 
 void main() {
   final themes = {'light': const P(false), 'dark': const P(true)};
@@ -78,6 +91,94 @@ void main() {
               reason: 'a button label measures ${r.toStringAsFixed(2)}:1 on '
                   'its own fill in the $name theme.');
         });
+      }
+    });
+  });
+
+  group('P.on() is also safe on the TINTED surface it lands on', () {
+    // `Pill` and the active `SubTabs` chip put `on(a)` on `wash(a)`, which is
+    // not one of the three flat surfaces anything was solved against. Five of
+    // six accents measured 4.30–4.49 there: the chips the app uses to say
+    // "estimated" and "relative" were the least legible text in it.
+    themes.forEach((name, p) {
+      for (final accent in C.all) {
+        final hex = accent.toARGB32().toRadixString(16).padLeft(8, '0');
+        test('$name · on(#$hex) on wash(#$hex)', () {
+          for (final under in {'card': p.card, 'card2': p.card2, 'bg': p.bg}.entries) {
+            final surface = Color.alphaBlend(p.wash(accent), under.value);
+            final r = P.contrast(p.on(accent), surface);
+            expect(r, greaterThanOrEqualTo(_aa),
+                reason: 'a chip label measures ${r.toStringAsFixed(2)}:1 on its '
+                    'own wash over ${under.key} in the $name theme.');
+          }
+        });
+      }
+    });
+
+    test('a wash cannot be turned up past a wash', () {
+      // `wash(teal, strength: 1.6)` existed, and `ink3` on it measured 2.99:1.
+      for (final p in themes.values) {
+        expect(p.wash(C.teal, strength: 4).a, p.wash(C.teal).a);
+      }
+    });
+  });
+
+  // ── what a PAINTER draws ─────────────────────────────────────────────────
+  //
+  // The sweep above covers `p.on` and `p.fill`, which is every label and every
+  // button — and none of the marks. A chart line's colour IS its information,
+  // so it needs the floor as much as text does, and the two palettes the
+  // painters own were spending raw pigment: `C.sky` measured 1.67:1 on a white
+  // card, which made the Light lane — most of a night — very nearly invisible.
+  group('a mark is measured like a label', () {
+    themes.forEach((name, p) {
+      final marks = <String, Color>{
+        for (final e in Hypnogram.cols(p).entries) 'hypnogram ${e.key.name}': e.value,
+        for (var i = 0; i < ZoneBar.cols(p).length; i++)
+          'zone ${i + 1}': ZoneBar.cols(p)[i],
+      };
+      marks.forEach((what, ink) {
+        test('$name · $what against the card it is drawn on', () {
+          for (final s in {'bg': p.bg, 'card': p.card, 'card2': p.card2}.entries) {
+            final r = P.contrast(ink, s.value);
+            expect(r, greaterThanOrEqualTo(_aa),
+                reason: '$what measures ${r.toStringAsFixed(2)}:1 on ${s.key} '
+                    'in the $name theme.');
+          }
+        });
+      });
+    });
+
+    test('the swatch in the key is the mark on the chart', () {
+      // The legend is the only way to read a multi-colour chart, so a legend
+      // solved differently from the plot is a key to a different picture.
+      for (final p in themes.values) {
+        expect([for (final (_, c) in Hypnogram.legend(p)) c],
+            [for (final s in SleepStage.values) Hypnogram.cols(p)[s]]);
+        expect([for (final (_, c) in ZoneBar.legend(p)) c], ZoneBar.cols(p));
+      }
+    });
+
+    test('the zone ramp does not rely on hue alone', () {
+      // Zone 4 against zone 5 is 1.34:1 — measured against EACH OTHER, which
+      // no surface-based solve can fix, and a stacked bar has no lane position
+      // to separate them with. So the ordinal is also drawn as height.
+      const p = P(false);
+      final worst = <double>[
+        for (var i = 1; i < ZoneBar.cols(p).length; i++)
+          P.contrast(ZoneBar.cols(p)[i - 1], ZoneBar.cols(p)[i]),
+      ].reduce((a, b) => a < b ? a : b);
+      expect(worst, lessThan(3),
+          reason: 'if adjacent bands ever DO separate by colour alone, this '
+              'test is the place to relax the second channel — not the place '
+              'to delete it silently');
+
+      final rec = _Heights();
+      ZoneBar(const [.2, .2, .2, .2, .2], p).paint(rec, const Size(300, 20));
+      expect(rec.heights, hasLength(5));
+      for (var i = 1; i < rec.heights.length; i++) {
+        expect(rec.heights[i], greaterThan(rec.heights[i - 1]),
+            reason: 'band ${i + 1} must stand taller than band $i');
       }
     });
   });

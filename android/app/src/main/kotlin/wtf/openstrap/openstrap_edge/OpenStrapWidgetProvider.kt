@@ -69,6 +69,11 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         val w = StrapWidgets
         val pal = w.pal(prefs)
 
+        // has_data is the app saying "this snapshot is empty, or it describes a
+        // day more than one behind". Nothing here used to read it, so a week-old
+        // readiness rendered as today's.
+        if (!prefs.getBoolean("has_data", false)) return buildNoData(context, pal)
+
         // Snapshot (sentinels: -1 = no data — mirrors OpenStrapEntry).
         val readiness = w.readInt(prefs, "readiness", -1)
         val strain = w.readDouble(prefs, "strain", -1.0)
@@ -80,36 +85,35 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         val hrv = w.readInt(prefs, "hrv", -1)
         val hrvBaseline = w.readInt(prefs, "hrv_baseline", -1)
 
-        // Ring fractions + colours — same rules as OpenStrapEntry in Swift.
-        val readinessT = if (readiness >= 0) readiness / 100.0 else 0.0
-        val readinessColor = when {
-            readiness < 0 -> pal.inkMuted
-            readiness >= 66 -> w.GOOD
-            readiness >= 40 -> w.CORAL
-            else -> w.CORAL_DEEP
-        }
-        val strainT = if (strain >= 0) (strain / 21.0).coerceAtMost(1.0) else 0.0
+        // Ring fractions — negative means "nothing measured", so ringBitmap
+        // draws the track alone rather than an arc pinned at empty (which reads
+        // as a real value of zero).
+        val readinessT = if (readiness >= 0) readiness / 100.0 else -1.0
+        val readinessColor = w.readinessColor(w.readInt(prefs, "readiness_tier", -1), pal)
+        val strainT = if (strain >= 0) (strain / 21.0).coerceAtMost(1.0) else -1.0
         val sleepT = if (sleepMin >= 0 && needMin > 0) {
             (sleepMin.toDouble() / needMin).coerceAtMost(1.0)
         } else {
-            0.0
+            -1.0
         }
         val hrvT = when {
-            hrv < 0 -> 0.0
+            hrv < 0 -> -1.0
             hrvBaseline > 0 -> (hrv / (1.5 * hrvBaseline)).coerceAtMost(1.0)
             else -> (hrv / 100.0).coerceAtMost(1.0)
         }
         // HRV reads green at/above your baseline, warmer as it drops below it.
         val hrvColor = when {
-            hrv < 0 || hrvBaseline <= 0 -> w.GOOD
+            hrv < 0 || hrvBaseline <= 0 -> pal.inkMuted
             hrv >= hrvBaseline -> w.GOOD
-            hrv >= (0.8 * hrvBaseline).toInt() -> w.CORAL
-            else -> w.CORAL_DEEP
+            hrv >= (0.8 * hrvBaseline).toInt() -> w.WARN
+            else -> w.BAD
         }
 
-        val strainText = if (strain >= 0) String.format("%.1f", strain) else "—"
-        val readinessText = if (readiness >= 0) "$readiness" else "—"
-        val hrvText = if (hrv >= 0) "$hrv" else "—"
+        // "" = no measurement. A bare dash is the one rendering the phone's
+        // grammar forbids outright.
+        val strainText = if (strain >= 0) String.format("%.1f", strain) else ""
+        val readinessText = if (readiness >= 0) "$readiness" else ""
+        val hrvText = if (hrv >= 0) "$hrv" else ""
 
         val layout = if (small) R.layout.widget_openstrap_small else R.layout.widget_openstrap
         val ringDp = if (small) 40 else 56
@@ -141,6 +145,15 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         metric(R.id.ring_strain, R.id.val_strain, R.id.cap_strain, w.CORAL, strainT, strainText)
         metric(R.id.ring_sleep, R.id.val_sleep, R.id.cap_sleep, w.SLEEP_BLUE, sleepT, w.hm(sleepMin))
         metric(R.id.ring_hrv, R.id.val_hrv, R.id.cap_hrv, hrvColor, hrvT, hrvText)
+        return views
+    }
+
+    private fun buildNoData(context: Context, pal: StrapWidgets.Pal): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_openstrap_nodata)
+        views.setInt(R.id.widget_root, "setBackgroundResource", pal.bgRes)
+        views.setOnClickPendingIntent(R.id.widget_root, StrapWidgets.openAppIntent(context))
+        views.setTextColor(R.id.nodata_title, pal.ink)
+        views.setTextColor(R.id.nodata_body, pal.inkMuted)
         return views
     }
 }

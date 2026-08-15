@@ -8,7 +8,8 @@
 //  it is NOT part of /today — so unlike OpenStrapWidget this one does NOT
 //  self-refresh over the network. It renders the last snapshot the app wrote
 //  into the shared App Group (keys batt_pct / batt_charging / batt_at) the last
-//  time the band was connected. "—" until we've ever seen the band.
+//  time the band was connected. Until we have ever seen the band it says so in
+//  words — it never draws a bar at empty, which reads as "0%".
 //
 //  Primary surface is the lock screen (accessory* families); a systemSmall
 //  variant is included so it can also live on the home screen.
@@ -61,7 +62,7 @@ struct BatteryEntry: TimelineEntry {
   let stale: Bool       // last reading is old enough that we mute it
 
   static let placeholder = BatteryEntry(
-    date: Date(), name: "WHOOP 4.0", pct: 68, charging: false,
+    date: Date(), name: "Band", pct: 68, charging: false,
     updatedAt: Int(Date().timeIntervalSince1970), stale: false)
 
   var hasData: Bool { pct >= 0 }
@@ -76,7 +77,7 @@ struct BatteryEntry: TimelineEntry {
     return .battGood
   }
 
-  var valueText: String { pct >= 0 ? "\(pct)%" : "—" }
+  var valueText: String { pct >= 0 ? "\(pct)%" : "" }
 
   /// Icon: a charging bolt while plugged in, otherwise the strap glyph
   /// (mirrors the app's device icon, HugeIcons SmartWatch01).
@@ -157,32 +158,36 @@ private struct BatterySmallView: View {
       Text(e.valueText).font(battNumFont(30)).foregroundColor(.battInk)
         .minimumScaleFactor(0.6).lineLimit(1)
       Spacer(minLength: 8)
-      BattBar(t: e.t, color: e.color, height: 9)
-      Text(e.charging ? "Charging" : (e.hasData ? "Battery" : "Not connected"))
+      if e.hasData { BattBar(t: e.t, color: e.color, height: 9) }
+      Text(e.charging ? "Charging" : (e.hasData ? "Battery" : "Not connected yet"))
         .font(.system(size: 10, weight: .medium)).foregroundColor(.battInkMuted)
         .padding(.top, 5)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .opacity(e.stale ? 0.5 : 1)
     .padding(14)
   }
 }
 
-@available(iOSApplicationExtension 16.0, *)
+// A Gauge with no reading is a bar drawn at empty, which reads as "0% battery"
+// rather than "we haven't heard from the band" — so an unknown level gets the
+// glyph and a word, never a gauge.
 private struct BatteryCircularView: View {
   let e: BatteryEntry
   var body: some View {
-    Gauge(value: e.t) {
-      Image(systemName: e.symbol)
-    } currentValueLabel: {
-      Text(e.valueText)
+    if e.hasData {
+      Gauge(value: e.t) {
+        Image(systemName: e.symbol)
+      } currentValueLabel: {
+        Text(e.valueText)
+      }
+      .gaugeStyle(.accessoryCircularCapacity)
+      .widgetAccentable()
+    } else {
+      Image(systemName: "applewatch.slash").font(.system(size: 18)).widgetAccentable()
     }
-    .gaugeStyle(.accessoryCircularCapacity)
-    .widgetAccentable()
   }
 }
 
-@available(iOSApplicationExtension 16.0, *)
 private struct BatteryRectangularView: View {
   let e: BatteryEntry
   var body: some View {
@@ -195,24 +200,24 @@ private struct BatteryRectangularView: View {
       .font(.system(size: 13, weight: .semibold))
       .widgetAccentable()
 
-      // Linear lock-screen battery bar with the level inline.
-      Gauge(value: e.t) {
-        Text("")
-      } currentValueLabel: {
-        Text(e.hasData ? "\(e.pct)%" : "—")
+      if e.hasData {
+        // Linear lock-screen battery bar with the level inline.
+        Gauge(value: e.t) {
+          Text("")
+        } currentValueLabel: {
+          Text("\(e.pct)%")
+        }
+        .gaugeStyle(.accessoryLinearCapacity)
+      } else {
+        Text("Not connected yet").font(.system(size: 12)).foregroundStyle(.secondary)
       }
-      .gaugeStyle(.accessoryLinearCapacity)
     }
   }
 }
 
 private extension View {
   @ViewBuilder func battWidgetBackground(_ color: Color) -> some View {
-    if #available(iOSApplicationExtension 17.0, *) {
-      containerBackground(color, for: .widget)
-    } else {
-      background(color)
-    }
+    containerBackground(color, for: .widget)
   }
 }
 
@@ -221,26 +226,24 @@ struct OpenStrapBatteryEntryView: View {
   var entry: BatteryEntry
 
   var body: some View {
-    content.battWidgetBackground(family == .systemSmall ? Color.battPaper : Color.clear)
+    // The staleness mute used to be applied only inside BatterySmallView, so a
+    // lock-screen complication showed a week-old percentage at full strength.
+    // It belongs here, above every family.
+    content
+      .opacity(entry.stale ? 0.5 : 1)
+      .battWidgetBackground(family == .systemSmall ? Color.battPaper : Color.clear)
   }
 
   @ViewBuilder private var content: some View {
     switch family {
-    case .systemSmall: BatterySmallView(e: entry)
-    default:
-      if #available(iOSApplicationExtension 16.0, *) {
-        switch family {
-        case .accessoryCircular:    BatteryCircularView(e: entry)
-        case .accessoryRectangular: BatteryRectangularView(e: entry)
-        case .accessoryInline:
-          Label(
-            entry.hasData ? "\(entry.name) \(entry.pct)%" : "\(entry.name) —",
-            systemImage: entry.symbol)
-        default: BatterySmallView(e: entry)
-        }
-      } else {
-        BatterySmallView(e: entry)
-      }
+    case .systemSmall:          BatterySmallView(e: entry)
+    case .accessoryCircular:    BatteryCircularView(e: entry)
+    case .accessoryRectangular: BatteryRectangularView(e: entry)
+    case .accessoryInline:
+      Label(
+        entry.hasData ? "\(entry.name) \(entry.pct)%" : "\(entry.name) not connected",
+        systemImage: entry.symbol)
+    default: BatterySmallView(e: entry)
     }
   }
 }
@@ -254,13 +257,7 @@ struct OpenStrapBatteryWidget: Widget {
     }
     .configurationDisplayName("Band Battery")
     .description("Your band's battery level at a glance.")
-    .supportedFamilies(supportedFamilies)
-  }
-
-  private var supportedFamilies: [WidgetFamily] {
-    if #available(iOSApplicationExtension 16.0, *) {
-      return [.systemSmall, .accessoryCircular, .accessoryRectangular, .accessoryInline]
-    }
-    return [.systemSmall]
+    .supportedFamilies([.systemSmall, .accessoryCircular,
+                        .accessoryRectangular, .accessoryInline])
   }
 }

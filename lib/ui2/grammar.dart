@@ -26,8 +26,11 @@
 //     banner. `Conf.of(metric)` is the one mapping from the analytics tier, so
 //     screens don't each invent their own.
 //   • EVERY TAP TARGET IS ≥ 44 pt. Not by convention — `Pressable` is the only
-//     gesture primitive in lib/ui2 (the tokens test enforces that), and it
-//     applies the minimum itself. No call site can opt out.
+//     gesture primitive in lib/ui2 and `Scrubber` the only drag (the tokens
+//     test enforces both, `Listener` included), and `Pressable` applies the
+//     minimum itself. There is no longer an `expand: false` to opt out with,
+//     and the golden sweep measures every Pressable in every case rather than
+//     the five tabs of the shell.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -87,8 +90,12 @@ class ConfDots extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: i < c.dots ? p.on(c.tint) : const Color(0x00000000),
+              // The unfilled ring is `ink3`, not `line`: `line` measures
+              // 1.23:1 on a card, so `Conf.none` — three unfilled rings and
+              // nothing else — was the "not measured" state rendered as three
+              // outlines nobody could see.
               border:
-                  i < c.dots ? null : Border.all(color: p.line, width: 1.2),
+                  i < c.dots ? null : Border.all(color: p.ink3, width: 1.2),
             ),
           ),
       ]),
@@ -109,17 +116,19 @@ class Pressable extends StatefulWidget {
   /// (an icon-only control), optional otherwise.
   final String? semanticLabel;
 
-  /// Set false for a control that is genuinely inline in a text run, where a
-  /// 44 pt box would blow the line height apart. The hit area is still
-  /// expanded — via the parent's slop — but the layout box is not.
-  final bool expand;
+  // There is no `expand: false`. It used to exist, documented as "the hit area
+  // is still expanded via the parent's slop" — no such mechanism was ever in
+  // this codebase, so what it actually did was drop the 44 pt minimum at seven
+  // call sites: an 18 × 18 destructive delete, two 20-22 pt closes and a
+  // screen's primary action among them. An opt-out nobody can audit is not a
+  // guarantee, so the opt-out is gone and the seven visuals are unchanged —
+  // only their hit boxes grew.
 
   const Pressable({
     super.key,
     required this.child,
     this.onTap,
     this.semanticLabel,
-    this.expand = true,
   });
 
   @override
@@ -131,21 +140,18 @@ class _PressableState extends State<Pressable> {
 
   @override
   Widget build(BuildContext c) {
-    Widget out = widget.child;
-    if (widget.expand) {
-      out = ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: S.tap, minHeight: S.tap),
-        // widthFactor/heightFactor pin the Align to its child's size. Without
-        // them Align fills every pixel it is offered, which turned each card
-        // into a greedy box that ate the whole scroll view — caught by the
-        // first golden, and invisible in any layout with a bounded parent.
-        child: Align(
-            alignment: Alignment.center,
-            widthFactor: 1,
-            heightFactor: 1,
-            child: out),
-      );
-    }
+    Widget out = ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: S.tap, minHeight: S.tap),
+      // widthFactor/heightFactor pin the Align to its child's size. Without
+      // them Align fills every pixel it is offered, which turned each card
+      // into a greedy box that ate the whole scroll view — caught by the
+      // first golden, and invisible in any layout with a bounded parent.
+      child: Align(
+          alignment: Alignment.center,
+          widthFactor: 1,
+          heightFactor: 1,
+          child: widget.child),
+    );
     if (widget.onTap == null) {
       return widget.semanticLabel == null
           ? out
@@ -166,6 +172,84 @@ class _PressableState extends State<Pressable> {
           child: out,
         ),
       ),
+    );
+  }
+}
+
+/// ── SCRUBBER ── the only continuous drag in lib/ui2 ───────────────────────
+///
+/// It lives here for the same reason [Pressable] does: a drag is a gesture, and
+/// a gesture nobody can audit is a control somebody cannot reach. The hypnogram
+/// scrub used to be a bare `Listener` on a screen — a precise drag along a
+/// 110 pt strip, over a silent painter, with no discrete alternative at all, so
+/// per-stage timing was unreachable without a pointer.
+///
+/// What this adds over the `Listener` it replaces: the slider role, so VoiceOver
+/// and Switch Control expose increase/decrease and can walk it a step at a time;
+/// [describe], so the position is spoken rather than only drawn; and a tap
+/// anywhere on the strip that jumps straight there, which is the whole gesture
+/// for anyone who cannot hold a drag steady.
+class Scrubber extends StatelessWidget {
+  /// 0…1 along the strip. Null means nothing has been placed yet.
+  final double? value;
+  final ValueChanged<double> onChanged;
+
+  /// What the control IS — 'Hypnogram'.
+  final String label;
+
+  /// What the current position READS as — '03:12, light sleep'. This is the
+  /// entire readout for a screen-reader user, so it says the value, not the
+  /// fraction.
+  final String Function(double) describe;
+
+  /// One increase/decrease step. The default walks the strip in twenty moves,
+  /// which is about a twenty-minute resolution on a night.
+  final double step;
+
+  final Widget child;
+
+  const Scrubber({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    required this.label,
+    required this.describe,
+    required this.child,
+    this.step = .05,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final v = value;
+    // From nothing, increase enters at the start and decrease at the end —
+    // either direction places the cursor rather than doing nothing.
+    final up = ((v ?? -step) + step).clamp(0.0, 1.0);
+    final down = ((v ?? 1 + step) - step).clamp(0.0, 1.0);
+    return Semantics(
+      label: label,
+      slider: true,
+      value: v == null ? 'Nothing selected' : describe(v),
+      // Flutter requires both neighbours alongside a value, and it is right to:
+      // they are what a screen reader reads as you step, so a slider that only
+      // states where it IS gives no feedback for the action it just performed.
+      increasedValue: describe(up),
+      decreasedValue: describe(down),
+      onIncrease: () => onChanged(up),
+      onDecrease: () => onChanged(down),
+      child: LayoutBuilder(builder: (_, box) {
+        final w = box.maxWidth;
+        void set(Offset o) =>
+            onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, 1.0));
+        return Listener(
+          // Opaque, like Pressable. A `Listener` defers to its child by
+          // default, so the strip was only touchable where the painter
+          // happened to claim a hit — which is a coincidence, not a target.
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (e) => set(e.localPosition),
+          onPointerMove: (e) => set(e.localPosition),
+          child: child,
+        );
+      }),
     );
   }
 }
@@ -332,18 +416,37 @@ class ProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final amount = Wrap(spacing: S.x2, children: [
+      Text(value,
+          style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+      Text(target, style: F.cap.copyWith(color: p.ink3)),
+    ]);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        if (icon != null) ...[
-          Icon(icon, size: 15, color: p.on(color)),
-          const SizedBox(width: S.x2),
-        ],
-        Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
-        Text(value,
-            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        const SizedBox(width: S.x2),
-        Text(target, style: F.cap.copyWith(color: p.ink3)),
-      ]),
+      // Label and amount share a line until the text scale makes that a choice
+      // between truncating a measurement and growing the card. `1h 38m / of
+      // 2h 00m` overflowed by 262 px at 3× — and by 105 px with the golden's
+      // own two-character fixture, which is how it shipped.
+      if (bigText(c))
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            if (icon != null) ...[
+              Icon(icon, size: 15, color: p.on(color)),
+              const SizedBox(width: S.x2),
+            ],
+            Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
+          ]),
+          const SizedBox(height: S.x1),
+          amount,
+        ])
+      else
+        Row(children: [
+          if (icon != null) ...[
+            Icon(icon, size: 15, color: p.on(color)),
+            const SizedBox(width: S.x2),
+          ],
+          Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
+          amount,
+        ]),
       const SizedBox(height: S.x2),
       _Bar(frac: frac, color: color),
     ]);
@@ -395,28 +498,63 @@ class TrendCard extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final dir = p.on(good ? C.green : C.orange);
+    // The arrow says which WAY, the colour says whether that is good news, and
+    // those are independent: "HRV down" and "resting heart rate down" draw the
+    // same arrow in different hues. Hue alone is not a channel, so the reading
+    // goes in the label too.
+    final judgement = good ? 'an improvement' : 'worse than usual';
+    final change = Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+          size: 14, color: dir),
+      const SizedBox(width: S.x1),
+      Text(delta,
+          style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600)),
+    ]);
     return Surface(
       onTap: onTap,
-      semanticLabel: '$label, $value $unit, $delta $window'.trim(),
+      semanticLabel:
+          '$label, $value $unit, $delta $window, $judgement'.trim(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
           ConfDots(conf),
         ]),
         const SizedBox(height: S.x2),
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value, style: F.n34.copyWith(color: p.ink)),
-              const SizedBox(width: S.x1),
-              Expanded(child: Text(unit, style: F.cap.copyWith(color: p.ink3))),
-              Icon(up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-                  size: 14, color: dir),
-              const SizedBox(width: S.x1),
-              Text(delta,
-                  style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600)),
-            ]),
+        // A realistic value — `7h 42m`, not the two characters the golden used
+        // to pass on — pushed the delta and its arrow clean off the card: 202 px
+        // at 2×, 458 at 3×. Above the restack point the change moves to its own
+        // run rather than off the edge.
+        if (bigText(c))
+          Wrap(
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: S.x2,
+              runSpacing: S.x1,
+              children: [
+                Text(value, style: F.n34.copyWith(color: p.ink)),
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                change,
+              ])
+        else
+          Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: Text(value,
+                      style: F.n34.copyWith(color: p.ink),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: S.x1),
+                Expanded(
+                    child: Text(unit, style: F.cap.copyWith(color: p.ink3))),
+                Icon(up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+                    size: 14, color: dir),
+                const SizedBox(width: S.x1),
+                Text(delta,
+                    style:
+                        F.cap.copyWith(color: dir, fontWeight: FontWeight.w600)),
+              ]),
         const SizedBox(height: S.x1),
         Text(window, style: F.over.copyWith(color: p.ink3)),
         const SizedBox(height: S.x4),
@@ -525,38 +663,45 @@ class ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final wide = bigText(c);
+    // The CTA is never Flexible: it is a button label, and a clipped one reads
+    // as a different word. Below the restack point it wins the row against the
+    // title, which is the right loser; above it, it takes its own line.
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+      decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rSm),
+      child: Text(cta,
+          style:
+              F.cap.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600)),
+    );
+    final head = Row(children: [
+      Container(
+        width: S.tap,
+        height: S.tap,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
+        child: Icon(icon, size: 20, color: p.on(color)),
+      ),
+      const SizedBox(width: S.x3),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title,
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+          Text(meta, style: F.cap.copyWith(color: p.ink3)),
+        ]),
+      ),
+      if (!wide) ...[const SizedBox(width: S.x3), badge],
+    ]);
     return Surface(
       onTap: onTap,
       semanticLabel: '$title. $meta. $cta',
-      child: Row(children: [
-        Container(
-          width: S.tap,
-          height: S.tap,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
-          child: Icon(icon, size: 20, color: p.on(color)),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title,
-                style:
-                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            Text(meta, style: F.cap.copyWith(color: p.ink3)),
-          ]),
-        ),
-        const SizedBox(width: S.x3),
-        Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
-          decoration:
-              BoxDecoration(color: p.fill(color), borderRadius: R.rSm),
-          child: Text(cta,
-              style: F.cap
-                  .copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600)),
-        ),
-      ]),
+      child: !wide
+          ? head
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              head,
+              const SizedBox(height: S.x3),
+              Align(alignment: Alignment.centerLeft, child: badge),
+            ]),
     );
   }
 }
@@ -644,15 +789,36 @@ class DeepDiveCard extends StatelessWidget {
       onTap: onTap,
       semanticLabel: '$label, $value $unit. $cta',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
-              Text(value, style: F.n24.copyWith(color: p.ink)),
-              const SizedBox(width: S.x1),
-              Text(unit, style: F.cap.copyWith(color: p.ink3)),
-            ]),
+        // Same restack as TrendCard, for the same reason: `7h 42m` beside a
+        // full-width label overflowed by 184 px at 3×.
+        if (bigText(c))
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: F.cap.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x1),
+            Wrap(
+                crossAxisAlignment: WrapCrossAlignment.end,
+                spacing: S.x1,
+                children: [
+                  Text(value, style: F.n24.copyWith(color: p.ink)),
+                  Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                ]),
+          ])
+        else
+          Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Expanded(
+                    child: Text(label, style: F.cap.copyWith(color: p.ink2))),
+                Flexible(
+                  child: Text(value,
+                      style: F.n24.copyWith(color: p.ink),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: S.x1),
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+              ]),
         if (preview != null) ...[
           const SizedBox(height: S.x3),
           preview!,
@@ -694,55 +860,84 @@ class MetricRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final title =
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(name,
+          style: F.body.copyWith(color: p.ink),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis),
+      if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
+    ]);
+    final amount = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          // Flexible so the row can never overflow when the name, the value
+          // and a status word all want the same line — the last resort below
+          // the restack point, where the value gets its own line anyway.
+          Flexible(
+            child: Text(value,
+                style:
+                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
+          if (unit.isNotEmpty) ...[
+            const SizedBox(width: 2),
+            Text(unit, style: F.over.copyWith(color: p.ink3)),
+          ],
+        ]);
+    // The trailing slot is fixed only for the two things that genuinely have a
+    // fixed size. `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was
+    // being silently clipped inside a 52 pt box before any scaling at all — so
+    // it gets measured space instead.
+    final trailing = status != null
+        ? Text(status!,
+            style: F.over.copyWith(color: p.on(C.green)),
+            textAlign: TextAlign.end)
+        : SizedBox(
+            width: 52,
+            height: 22,
+            child: spark.isEmpty
+                ? (conf == null ? const SizedBox.shrink() : ConfDots(conf!))
+                : CustomPaint(
+                    painter: LineChart(spark, p.on(color), fill: false)),
+          );
     return Pressable(
       onTap: onTap,
       semanticLabel: '$name, $value $unit. ${conf?.label ?? ''}'.trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(children: [
-          Icon(icon, size: 18, color: p.on(color)),
-          const SizedBox(width: S.x3),
-          Expanded(
-            flex: 3,
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name,
-                  style: F.body.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              if (sub.isNotEmpty)
-                Text(sub, style: F.over.copyWith(color: p.ink3)),
-            ]),
-          ),
-          Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(value,
-                    style: F.body
-                        .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                if (unit.isNotEmpty) ...[
-                  const SizedBox(width: 2),
-                  Text(unit, style: F.over.copyWith(color: p.ink3)),
-                ],
+        child: bigText(c)
+            // A dense row cannot stay one line at accessibility sizes without
+            // truncating the measurement, and a truncated measurement is worse
+            // than a taller row.
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(icon, size: 18, color: p.on(color)),
+                const SizedBox(width: S.x3),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        title,
+                        const SizedBox(height: S.x1),
+                        Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: S.x3,
+                            runSpacing: S.x1,
+                            children: [amount, trailing]),
+                      ]),
+                ),
+              ])
+            : Row(children: [
+                Icon(icon, size: 18, color: p.on(color)),
+                const SizedBox(width: S.x3),
+                Expanded(flex: 3, child: title),
+                Flexible(child: amount),
+                const SizedBox(width: S.x3),
+                trailing,
               ]),
-          const SizedBox(width: S.x3),
-          SizedBox(
-            width: 52,
-            height: 22,
-            child: status != null
-                ? Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(status!,
-                        style: F.over.copyWith(color: p.on(C.green))))
-                : (spark.isEmpty
-                    ? (conf == null
-                        ? const SizedBox.shrink()
-                        : ConfDots(conf!))
-                    : CustomPaint(
-                        painter: LineChart(spark, p.on(color), fill: false))),
-          ),
-        ]),
       ),
     );
   }
@@ -987,7 +1182,6 @@ class SubTabs extends StatelessWidget {
           final on = i == index;
           return Pressable(
             onTap: () => onTap(i),
-            expand: false,
             child: AnimatedContainer(
               duration: motion(c, Motion.base),
               constraints: const BoxConstraints(minWidth: S.tap),
@@ -1166,6 +1360,17 @@ class ChartFrame extends StatelessWidget {
   final List<(String, Color)> legend;
   final String? footnote;
 
+  /// The series behind [child], for the SPOKEN version of the chart. A painter
+  /// is a picture and a picture has no screen-reader form, so before this a
+  /// fully-specified frame read out its title, its unit and then the three bare
+  /// axis tick numbers — and not one value from the data.
+  ///
+  /// Pass the same list the painter draws. The frame says the latest value,
+  /// the range and which way it moved; it never reads thirty numbers aloud.
+  /// Empty means the chart genuinely has no series to summarise (a hypnogram,
+  /// a route), and the legend and x range carry it instead.
+  final List<double?> series;
+
   /// Confidence for the series, shown as [ConfDots] in the header. Null means
   /// the question doesn't apply (a count, a user-entered value).
   final Conf? conf;
@@ -1186,6 +1391,7 @@ class ChartFrame extends StatelessWidget {
     this.footnote,
     this.conf,
     this.empty,
+    this.series = const [],
   });
 
   /// Width and height of [s] as it will actually be laid out — including the
@@ -1200,6 +1406,38 @@ class ChartFrame extends StatelessWidget {
       maxLines: 1,
     )..layout();
     return tp.size;
+  }
+
+  /// The chart in a sentence: what it ends on, what it spanned, and which way
+  /// it went. Null when there is nothing to say.
+  ///
+  /// A summary, deliberately — not a reading of the series. Thirty numbers read
+  /// aloud is the same non-information as a picture, and a screen reader cannot
+  /// skim. The shape and the extremes are what a sighted glance takes from it,
+  /// so they are what this says.
+  String? _spoken() {
+    if (empty != null) return 'No data';
+    final v = [for (final x in series) if (x != null && x.isFinite) x];
+    if (v.isEmpty) return null;
+    final fmt = yAxis?.format ?? axisFixedOrInt;
+    var lo = v.first, hi = v.first;
+    for (final x in v) {
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+    final last = v.last;
+    final parts = ['Latest ${fmt(last)} $unit'];
+    if (v.length > 1) {
+      if (hi > lo) parts.add('ranging ${fmt(lo)} to ${fmt(hi)}');
+      final delta = last - v.first;
+      // A move smaller than a twentieth of the range is not a direction.
+      final noise = (hi - lo) / 20;
+      parts.add(delta.abs() <= noise
+          ? 'roughly level across ${v.length} readings'
+          : '${delta > 0 ? 'up' : 'down'} ${fmt(delta.abs())} '
+              'across ${v.length} readings');
+    }
+    return parts.join(', ');
   }
 
   Widget _header(P p, bool stacked) {
@@ -1262,10 +1500,18 @@ class ChartFrame extends StatelessWidget {
 
     return Semantics(
       container: true,
+      // Without this the frame's own sentence is followed by every Text inside
+      // it — which for a chart means the bare axis tick numbers, read out with
+      // nothing to attach them to, and every header value spoken twice.
+      excludeSemantics: true,
       label: [
         title,
         'measured in $unit',
         if (conf != null) conf!.label,
+        ?_spoken(),
+        if (xLabels.length > 1) 'from ${xLabels.first} to ${xLabels.last}',
+        if (legend.isNotEmpty)
+          'Key: ${[for (final (l, _) in legend) l].join(', ')}',
         ?footnote,
       ].join('. '),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

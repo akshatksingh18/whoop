@@ -12,6 +12,8 @@
 // not connected the pacer still runs; it just says plainly that there will be
 // no score.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -36,6 +38,15 @@ class CalmBreathing extends StatefulWidget {
 class _CalmBreathingState extends State<CalmBreathing>
     with SingleTickerProviderStateMixin {
   Ticker? _ticker;
+
+  /// The reduced-motion clock. The rendered ring is already pinned by
+  /// `animate` when the gate is closed, so a 60 Hz `setState` under it redraws
+  /// a static picture sixty times a second — for the users who asked for less
+  /// motion, and everyone's battery. One second is the resolution the clock and
+  /// the phase cues actually need.
+  Timer? _slowTick;
+  final _watch = Stopwatch();
+
   Duration _elapsed = Duration.zero;
   BreathPattern _pattern = kBreathPatterns.first;
   int _minutes = 5;
@@ -52,6 +63,7 @@ class _CalmBreathingState extends State<CalmBreathing>
 
   @override
   void dispose() {
+    _slowTick?.cancel();
     _ticker?.dispose();
     super.dispose();
   }
@@ -68,10 +80,19 @@ class _CalmBreathingState extends State<CalmBreathing>
       _lastPhase = null;
     });
     _ticker?.dispose();
-    _ticker = createTicker(_onTick)..start();
+    _slowTick?.cancel();
+    _watch
+      ..reset()
+      ..start();
+    if (Motion.enabled(context)) {
+      _ticker = createTicker(_onTick)..start();
+    } else {
+      _slowTick = Timer.periodic(Motion.tick, (_) => _onTick(_watch.elapsed));
+    }
   }
 
   void _onTick(Duration elapsed) {
+    if (!mounted) return;
     final target = _target;
     if (target != null && elapsed >= target) {
       _stop();
@@ -88,6 +109,8 @@ class _CalmBreathingState extends State<CalmBreathing>
 
   Future<void> _stop() async {
     _ticker?.stop();
+    _slowTick?.cancel();
+    _watch.stop();
     final app = context.read<AppState>();
     await app.stopBreathingSession();
     if (!mounted) return;
@@ -111,7 +134,6 @@ class _CalmBreathingState extends State<CalmBreathing>
               Align(
                 alignment: Alignment.centerLeft,
                 child: Pressable(
-                  expand: false,
                   semanticLabel: 'Close breathing',
                   onTap: () async {
                     if (_running) await _stop();
@@ -337,7 +359,7 @@ class BreathCircle extends StatelessWidget {
         children: [
           CustomPaint(
             size: const Size(240, 240),
-            painter: BreathRing(t, C.domMind),
+            painter: BreathRing(t, p.on(C.domMind)),
           ),
           Text(label, style: F.head.copyWith(color: p.ink)),
         ],

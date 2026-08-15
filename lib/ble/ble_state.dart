@@ -60,6 +60,265 @@ String connStringFor(BleConnState s) {
   }
 }
 
+// ── what the user is told ────────────────────────────────────────────────────
+// The engine already knows, precisely, why a link is not working — six flags on
+// DeviceState plus the phone-level blockers below. It used to keep that to
+// itself and hand the UI a four-value connection string, so every distinct
+// failure rendered as "Not connected" (or, worse, as "No band in range", which
+// sends a user who revoked a permission on a walk around the house). This is
+// the single projection a screen renders instead: one condition, a name, a
+// reason, and a way forward.
+
+/// The phone's own Bluetooth stack refusing us, as opposed to a band that is
+/// simply not answering. Deliberately separate from every band-side flag: the
+/// fixes point in opposite directions (Settings vs. walk closer), so conflating
+/// them guarantees the user follows the wrong one.
+enum BleBlocker {
+  /// The OS is withholding Bluetooth from THIS app (iOS `unauthorized`, Android
+  /// BLUETOOTH_SCAN/CONNECT denied). Only Settings clears it.
+  permissionDenied,
+
+  /// The radio itself is off. Every app is equally stuck.
+  adapterOff,
+
+  /// No BLE radio on this device at all. Nothing to fix.
+  unsupported,
+}
+
+/// Thrown by transport calls that never reached the radio. Distinct from
+/// "returned nothing", which means the scan genuinely ran and heard nothing.
+class BleUnavailableException implements Exception {
+  final BleBlocker blocker;
+  const BleUnavailableException(this.blocker);
+
+  @override
+  String toString() => 'BleUnavailableException(${blocker.name})';
+}
+
+/// Map an adapter-state name and/or a thrown transport error onto a blocker.
+/// Returns null when neither says the stack is unusable — i.e. the failure is
+/// about the band, not the phone.
+///
+/// String matching is unavoidable: flutter_blue_plus surfaces the Android
+/// permission refusal as a platform exception whose text is the only signal.
+/// The adapter state is checked first because it is the reliable one.
+BleBlocker? classifyBleBlocker({String? adapterState, Object? error}) {
+  switch (adapterState) {
+    case 'unauthorized':
+      return BleBlocker.permissionDenied;
+    case 'unavailable':
+      return BleBlocker.unsupported;
+    case 'off':
+    case 'turningOff':
+      return BleBlocker.adapterOff;
+  }
+  if (error == null) return null;
+  final s = error.toString().toLowerCase();
+  if (s.contains('unauthorized') ||
+      s.contains('permission') ||
+      s.contains('not authorized') ||
+      s.contains('denied')) {
+    return BleBlocker.permissionDenied;
+  }
+  if (s.contains('adapter is off') ||
+      s.contains('bluetooth must be turned on') ||
+      s.contains('poweredoff') ||
+      s.contains('powered off')) {
+    return BleBlocker.adapterOff;
+  }
+  if (s.contains('unsupported') || s.contains('not supported')) {
+    return BleBlocker.unsupported;
+  }
+  return null;
+}
+
+/// The one connection state a screen renders. Ordered by priority in
+/// [bandStatusFor], most-blocking first.
+enum BandCondition {
+  bluetoothDenied,
+  bluetoothOff,
+  bluetoothUnsupported,
+
+  /// Bond refused repeatedly ⇒ auto-reconnect is PAUSED. Nothing is retrying.
+  reconnectPaused,
+
+  /// The link comes up but the band rejects the encryption key.
+  repairNeeded,
+
+  /// A batch is stuck un-confirmed and the band keeps re-sending it.
+  syncStuck,
+
+  /// The band holds newer data than it will hand over.
+  strapUnresponsive,
+
+  /// Syncs complete carrying no sensor data — the band's clock has lost sync.
+  clockLost,
+
+  connected,
+  connecting,
+  scanning,
+  disconnected,
+}
+
+/// A named connection state with the copy that goes with it. The copy lives
+/// here, not in the UI, so the mapping is unit-testable and every surface that
+/// shows the link (home, devices, pairing, a background notification) says the
+/// same thing about the same state.
+class BandStatus {
+  final BandCondition condition;
+
+  /// Names the state. Never "Something went wrong".
+  final String title;
+
+  /// Why it is in that state, and what it means for the user's data.
+  final String reason;
+
+  /// The way forward, or null when there is genuinely nothing to do.
+  final String? fix;
+
+  const BandStatus(this.condition, this.title, this.reason, {this.fix});
+
+  /// True for the states that need to be shown. The four ordinary link states
+  /// (connected/connecting/scanning/disconnected) are the app's normal
+  /// vocabulary and do not need a failure card.
+  bool get isFault =>
+      condition != BandCondition.connected &&
+      condition != BandCondition.connecting &&
+      condition != BandCondition.scanning &&
+      condition != BandCondition.disconnected;
+}
+
+/// Fold the phone-level blocker and the band's own diagnostic flags into one
+/// state. Pure; [connection] is `DeviceState.connection`.
+///
+/// Priority is linear and deliberate: a blocker defeats everything (nothing can
+/// run), a paused reconnect outranks the flags it caused, and the data-flow
+/// flags outrank the plain link state because "not connected" is the less
+/// useful of the two true statements.
+BandStatus bandStatusFor({
+  required String connection,
+  BleBlocker? blocker,
+  bool autoReconnectPaused = false,
+  bool needsRepairGuide = false,
+  bool syncChunkQuarantined = false,
+  bool strapNeedsReboot = false,
+  bool syncClockLost = false,
+  int bondRefusals = 0,
+}) {
+  const repairFix = 'Forget the band in the phone’s Bluetooth settings, '
+      'then pair it again here';
+  switch (blocker) {
+    case BleBlocker.permissionDenied:
+      return const BandStatus(
+        BandCondition.bluetoothDenied,
+        'Bluetooth is switched off for this app',
+        'The phone is withholding the Bluetooth radio from OpenStrap, so '
+            'nothing can be scanned or connected. This is not the band — '
+            'walking closer to it will not help.',
+        fix: 'Open Settings → OpenStrap and allow Bluetooth',
+      );
+    case BleBlocker.adapterOff:
+      return const BandStatus(
+        BandCondition.bluetoothOff,
+        'Bluetooth is turned off',
+        'The phone’s radio is off, so the band cannot be reached by any app. '
+            'The band keeps recording meanwhile; nothing is lost.',
+        fix: 'Turn Bluetooth on',
+      );
+    case BleBlocker.unsupported:
+      return const BandStatus(
+        BandCondition.bluetoothUnsupported,
+        'This phone has no Bluetooth Low Energy radio',
+        'The band can only be reached over Bluetooth Low Energy. Imported '
+            'data still works; a live link does not.',
+      );
+    case null:
+      break;
+  }
+  if (autoReconnectPaused) {
+    return BandStatus(
+      BandCondition.reconnectPaused,
+      'Reconnecting has been paused',
+      'The band refused the pairing key $bondRefusals times in a row, so the '
+          'app stopped retrying rather than pin the radio and drain both '
+          'batteries on a link that will not open. Nothing is reconnecting '
+          'until you act.',
+      fix: repairFix,
+    );
+  }
+  if (needsRepairGuide) {
+    return const BandStatus(
+      BandCondition.repairNeeded,
+      'The band needs to be paired again',
+      'The link comes up, but the band rejects the encryption key the phone '
+          'holds, so every command is dropped and no data moves. Your '
+          'recordings are safe on the band.',
+      fix: repairFix,
+    );
+  }
+  if (syncChunkQuarantined) {
+    return const BandStatus(
+      BandCondition.syncStuck,
+      'One batch of recordings will not finish transferring',
+      'The band keeps re-sending the same batch because the app cannot get '
+          'its confirmation through. Everything in it is already saved here — '
+          'nothing is lost — but the band cannot move on until the '
+          'confirmation lands.',
+      fix: 'Reconnect the band; if it repeats tomorrow, pair it again',
+    );
+  }
+  if (strapNeedsReboot) {
+    return const BandStatus(
+      BandCondition.strapUnresponsive,
+      'The band has stopped handing over its recordings',
+      'The band reports newer recordings than it will send. Those recordings '
+          'are still on the band and still safe; it just is not passing them '
+          'across.',
+      fix: 'Put the band on its charger for a minute, then reconnect',
+    );
+  }
+  if (syncClockLost) {
+    return const BandStatus(
+      BandCondition.clockLost,
+      'Syncs are finishing with no data in them',
+      'The band completes each sync without handing over a single sensor '
+          'reading, which almost always means its onboard clock has lost '
+          'sync. The app keeps resetting it on every connect.',
+      fix: 'Leave the band connected for a few minutes; if nothing arrives '
+          'by tomorrow, pair it again',
+    );
+  }
+  switch (connection) {
+    case 'connected':
+      return const BandStatus(
+        BandCondition.connected,
+        'Connected',
+        'The band is linked and handing over its recordings.',
+      );
+    case 'connecting':
+      return const BandStatus(
+        BandCondition.connecting,
+        'Connecting',
+        'Opening the link to the band.',
+      );
+    case 'scanning':
+      return const BandStatus(
+        BandCondition.scanning,
+        'Looking for the band',
+        'Listening for the band to advertise itself.',
+      );
+    default:
+      return const BandStatus(
+        BandCondition.disconnected,
+        'Not connected',
+        'The band is out of range, on its charger, or held by another app. '
+            'It keeps recording either way.',
+        fix: 'Bring the band near the phone, and close any other app '
+            'connected to it',
+      );
+  }
+}
+
 /// Pure reconnection schedule: bounded exponential backoff with jitter.
 ///
 /// delay(attempt) = clamp(base * 2^(attempt-1), base, cap), then ± up to

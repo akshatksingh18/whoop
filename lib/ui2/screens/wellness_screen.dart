@@ -755,7 +755,6 @@ class _Check extends StatelessWidget {
     );
     if (onTap == null) return box;
     return Pressable(
-      expand: false,
       semanticLabel: on ? 'Done' : 'Mark done',
       onTap: onTap,
       child: box,

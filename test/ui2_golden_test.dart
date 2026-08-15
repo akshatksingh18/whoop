@@ -45,11 +45,15 @@ Map<String, Widget> _cases() => {
       'signal': const SignalCard(
           LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
           unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),
+      // A REALISTIC value, not two characters. Every card below used to be
+      // shot with '52' / '38 min' / '+6', and the 2.0x tier passed because of
+      // it: with a duration or a thousands separator in the same slot, six
+      // components overflowed at the very scale the goldens claimed to cover.
       'progress': const ProgressCard(
-          'Movement', '38 min', 'of 60', .63, C.domMove,
+          'Time asleep', '1h 38m', 'of 2h 00m', .63, C.domMove,
           icon: LucideIcons.footprints),
-      'trend': TrendCard('HRV', '68', 'ms', '+6', 'vs 14-day baseline',
-          _series, C.green,
+      'trend': TrendCard('Time asleep', '7h 42m', 'last night', '+38m',
+          'vs 14-day baseline', _series, C.green,
           up: true),
       'insight': const InsightCard(
         'Your sleep debt cleared overnight',
@@ -57,24 +61,30 @@ Map<String, Widget> _cases() => {
             'settled forty minutes earlier than usual.',
         action: 'See the night',
       ),
-      'action': const ActionCard('Charge the strap', '18% remaining', 'Remind',
-          LucideIcons.batteryLow, C.orange),
+      'action': const ActionCard('Charge the strap', '18% remaining',
+          'Remind me', LucideIcons.batteryLow, C.orange),
       'status': const StatusCard(
         'No respiratory rate last night',
         'The strap was off your wrist between 01:10 and 06:40, so there was '
             'nothing to measure.',
         fix: 'How wear position affects this',
       ),
-      'deep_dive': DeepDiveCard('Heart rate variability', '68', 'ms',
+      'deep_dive': DeepDiveCard('Heart rate variability', '7h 42m', 'ms',
           'Open the full night', C.purple,
           preview: SizedBox(
             height: 48,
             child: CustomPaint(
                 size: Size.infinite, painter: LineChart(_series, C.purple)),
           )),
-      'metric_row': const MetricRow(
-          LucideIcons.thermometer, C.orange, 'Skin temperature', '+0.3',
-          sub: 'RELATIVE TO BASELINE', unit: '°', conf: Conf.estimated),
+      'metric_row': const Column(children: [
+        MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature', '+0.3',
+            sub: 'RELATIVE TO BASELINE', unit: '°', conf: Conf.estimated),
+        // A long name, a thousands-separated value and a word in the trailing
+        // slot — 'ON TRACK' needs 92 pt at 1.0x and was clipped inside a fixed
+        // 52 pt box before any scaling at all.
+        MetricRow(LucideIcons.flame, C.orange, 'Active energy burned', '2,310',
+            unit: 'kcal', status: 'ON TRACK'),
+      ]),
       'inline_metrics': const InlineMetrics([
         ('ASLEEP', '7h 40m', C.blue),
         ('EFFICIENCY', '91%', C.green),
@@ -136,59 +146,77 @@ Map<String, Widget> _chartCases() {
     ...[SleepStage.deep, SleepStage.light, SleepStage.rem, SleepStage.awake],
     ...[SleepStage.light, SleepStage.rem, SleepStage.light, SleepStage.awake],
   ];
+  // A `Builder`, because a painter's palette is now solved against the surface
+  // it lands on — the same case has to draw different ink in the two themes,
+  // and this map is built once and shot in both.
   return {
-    'chart_line': Surface(
-      child: ChartFrame(
-        title: 'Resting heart rate',
-        unit: 'bpm',
-        yAxis: AxisSpec.of(rhr, floor: 40),
-        xLabels: const ['30 Jul', '14 Aug', 'Today'],
-        footnote: 'Your usual range is 52–64 bpm.',
-        conf: Conf.high,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: LineChart(rhr, C.blue,
-              axis: AxisSpec.of(rhr, floor: 40), dots: true),
+    'chart_line': Builder(builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Resting heart rate',
+          unit: 'bpm',
+          yAxis: AxisSpec.of(rhr, floor: 40),
+          xLabels: const ['30 Jul', '14 Aug', 'Today'],
+          footnote: 'Your usual range is 52–64 bpm.',
+          conf: Conf.high,
+          series: rhr,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: LineChart(rhr, p.on(C.blue),
+                axis: AxisSpec.of(rhr, floor: 40), dots: true),
+          ),
         ),
-      ),
-    ),
-    'chart_bars': Surface(
-      child: ChartFrame(
-        title: 'Time asleep',
-        unit: 'per night',
-        height: 110,
-        yAxis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
-        xLabels: const ['Mon', 'Thu', 'Sun'],
-        conf: Conf.high,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: Bars(minutes, C.domHealth, C.n200,
-              axis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120)),
+      );
+    }),
+    'chart_bars': Builder(builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Time asleep',
+          unit: 'per night',
+          height: 110,
+          yAxis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
+          xLabels: const ['Mon', 'Thu', 'Sun'],
+          conf: Conf.high,
+          series: minutes,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: Bars(minutes, p.on(C.domHealth), p.track,
+                axis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120)),
+          ),
         ),
-      ),
-    ),
-    'chart_hypnogram': Surface(
-      child: ChartFrame(
-        title: 'Last night',
-        unit: 'sleep stages',
-        height: 96,
-        xLabels: const ['23:10', '03:00', '06:40'],
-        legend: Hypnogram.legend,
-        conf: Conf.estimated,
-        footnote: 'Deep sleep is inferred from heart-rate flatness.',
-        child: CustomPaint(size: Size.infinite, painter: Hypnogram(night)),
-      ),
-    ),
-    'chart_zones': Surface(
-      child: ChartFrame(
-        title: 'Time in heart-rate zones',
-        unit: 'share of the session',
-        height: 28,
-        legend: ZoneBar.legend,
-        child: CustomPaint(
-            size: Size.infinite, painter: ZoneBar(const [.18, .34, .28, .15, .05])),
-      ),
-    ),
+      );
+    }),
+    'chart_hypnogram': Builder(builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Last night',
+          unit: 'sleep stages',
+          height: 96,
+          xLabels: const ['23:10', '03:00', '06:40'],
+          legend: Hypnogram.legend(p),
+          conf: Conf.estimated,
+          footnote: 'Deep sleep is inferred from heart-rate flatness.',
+          child: CustomPaint(size: Size.infinite, painter: Hypnogram(night, p)),
+        ),
+      );
+    }),
+    'chart_zones': Builder(builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Time in heart-rate zones',
+          unit: 'share of the session',
+          height: 28,
+          legend: ZoneBar.legend(p),
+          child: CustomPaint(
+              size: Size.infinite,
+              painter: ZoneBar(const [.18, .34, .28, .15, .05], p)),
+        ),
+      );
+    }),
     'chart_empty': const Surface(
       child: ChartFrame(
         title: 'Respiratory rate',
@@ -410,5 +438,62 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(S.tap),
           reason: '${e.semanticLabel} is ${size.width} pt wide');
     }
+  });
+
+  // ── the tiers the PNGs do not cover ────────────────────────────────────
+  //
+  // iOS reaches 3.1x with Larger Accessibility Sizes and Android about 2.6x
+  // effective, so 2.0x is not the ceiling — but 174 more images per tier is
+  // 174 more images nobody reviews, and an unreviewed golden records the bug.
+  // These two sweeps run the SAME case list past the top of the range and
+  // assert the two things a picture would only show if somebody looked.
+  //
+  // Both also cover 1.0x, because F-06 was a component clipped at 1.0x that
+  // four goldens photographed and nobody noticed.
+  group('past the golden ceiling', () {
+    for (final scale in const [1.0, 1.4, 2.0, 3.0, 3.1]) {
+      testWidgets('nothing overflows at ${scale}x', (tester) async {
+        tester.view.physicalSize = const Size(390 * 3, 4000 * 3);
+        tester.view.devicePixelRatio = 3;
+        addTearDown(tester.view.reset);
+        final broke = <String>[];
+        for (final e in cases.entries) {
+          final errors = <String>[];
+          final previous = FlutterError.onError;
+          FlutterError.onError = (d) => errors.add(d.exceptionAsString());
+          await tester.pumpWidget(_frame(e.value, Brightness.light, scale));
+          await tester.pump();
+          FlutterError.onError = previous;
+          for (final err in errors) {
+            if (err.contains('overflowed')) broke.add('${e.key}: $err');
+          }
+        }
+        expect(broke, isEmpty,
+            reason: 'a card that overflows at an accessibility text size is a '
+                'measurement pushed off the screen:\n${broke.join('\n')}');
+      });
+    }
+
+    testWidgets('every tap target in every case clears 44 pt', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 4000 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final small = <String>[];
+      for (final e in cases.entries) {
+        await tester.pumpWidget(_frame(e.value, Brightness.light, 1.0));
+        await tester.pump();
+        for (final w in tester.widgetList<Pressable>(find.byType(Pressable))) {
+          if (w.onTap == null) continue;
+          final s = tester.getSize(find.byWidget(w));
+          if (s.height < S.tap || s.width < S.tap) {
+            small.add('${e.key} · ${w.semanticLabel ?? 'unlabelled'} '
+                'is ${s.width} × ${s.height}');
+          }
+        }
+      }
+      expect(small, isEmpty,
+          reason: 'the 44 pt guarantee only held for the five shell tabs, '
+              'which is how seven sub-44 controls shipped:\n${small.join('\n')}');
+    });
   });
 }

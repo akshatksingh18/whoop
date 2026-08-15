@@ -191,7 +191,10 @@ class ActivityResult {
   // Per-MINUTE mean heart rate, live (`LiveWorkoutState.perMinuteHr`) and
   // stored (`getWorkout()['hr']`) alike. Nothing on this screen has ever been
   // per-second, whatever the copy used to say.
-  final List<double> hr;
+  /// DENSE — one slot per minute of the session, `null` where the band
+  /// recorded nothing. A compacted curve under an axis labelled `Start …
+  /// duration` draws a dropout as though it had been measured.
+  final List<double?> hr;
   final List<double> zoneMinutes; // five, Z1..Z5
 
   // route / journey
@@ -256,7 +259,7 @@ class ActivityResult {
   ActivityResult copyWith({
     int? avgHr,
     int? maxHr,
-    List<double>? hr,
+    List<double?>? hr,
     List<double>? zoneMinutes,
     List<Offset>? route,
     List<double>? routePace,
@@ -595,7 +598,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               height: 200,
               legend: r.routePace == null
                   ? const []
-                  : [('Slower', ZoneBar.cols[2]), ('Faster', ZoneBar.cols[3])],
+                  : [('Slower', ZoneBar.cols(p)[2]), ('Faster', ZoneBar.cols(p)[3])],
               footnote: r.distanceKm == null
                   ? 'Start and finish are pinned.'
                   : '${r.distanceKm!.toStringAsFixed(2)} km, '
@@ -786,6 +789,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 conf: Conf.estimated,
                 footnote: 'Altitude comes from the GPS fixes, which are less '
                     'certain vertically than horizontally.',
+                series: r.elevationM,
                 child: CustomPaint(
                     size: Size.infinite,
                     painter: Elevation(r.elevationM, p.on(C.green),
@@ -828,7 +832,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// are built on, so they cannot end up with two different axes for one
   /// measurement.
   Widget _hrFrame(P p, {double height = 130}) {
-    final axis = AxisSpec.of(r.hr);
+    final axis = AxisSpec.of(r.hr.whereType<double>());
     final hard = r.hardMinutes;
     return ChartFrame(
       title: 'HEART RATE',
@@ -840,6 +844,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       footnote: hard == null
           ? null
           : '${hard.round()} min above 80% of your maximum.',
+      series: r.hr,
       child: CustomPaint(
           size: Size.infinite,
           painter: LineChart(r.hr, p.on(C.red),
@@ -855,10 +860,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         height: 10,
         legend: [
           for (var i = 0; i < 5; i++)
-            ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols[i]),
+            ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
         ],
         child: CustomPaint(
-            size: Size.infinite, painter: ZoneBar(_zoneFractions())),
+            size: Size.infinite, painter: ZoneBar(_zoneFractions(), p)),
       );
 
   // ─────────── ARCHETYPE BODY ───────────
@@ -1241,7 +1246,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   // ─────────────────── GRAPHS ───────────────────
   List<Widget> _graphs(BuildContext c, P p) {
-    final series = <(String, String, Color, List<double>, Conf)>[
+    final series = <(String, String, Color, List<double?>, Conf)>[
       if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr, Conf.high),
       if (r.elevationM.length > 1)
         ('Elevation', 'm', C.teal, r.elevationM, Conf.estimated),
@@ -1264,7 +1269,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           padding: const EdgeInsets.only(bottom: S.x3),
           child: Surface(
             child: Builder(builder: (_) {
-              final axis = AxisSpec.of(g.$4);
+              final axis = AxisSpec.of(g.$4.whereType<double>());
               return ChartFrame(
                 title: g.$1.toUpperCase(),
                 unit: g.$2,
@@ -1272,6 +1277,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 yAxis: axis,
                 conf: g.$5,
                 xLabels: ['Start', hms(r.duration)],
+                series: g.$4,
                 child: CustomPaint(
                     size: Size.infinite,
                     painter: LineChart(g.$4, p.on(g.$3),

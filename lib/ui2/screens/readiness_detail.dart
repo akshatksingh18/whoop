@@ -21,7 +21,12 @@ class ReadinessData {
   final List<Map<String, dynamic>> breakdown;
   final int inputsUsed;
   final Metric glassbox;
-  final List<double> series;
+
+  /// DENSE — one slot per calendar day, `null` where no score was stored. The
+  /// chart under it is dated, and `seriesOf` (values only) cannot date
+  /// anything: a five-point series from five scattered weeks used to be drawn
+  /// as five consecutive days.
+  final List<double?> series;
 
   const ReadinessData({
     this.readiness = Metric.empty,
@@ -51,7 +56,7 @@ class ReadinessData {
       ],
       inputsUsed: (v['inputs_used'] as num?)?.toInt() ?? 0,
       glassbox: envMetric(gb, v['score'] as num?),
-      series: seriesOf(chart),
+      series: denseDays(pointsOf(chart), 90),
     );
   }
 }
@@ -119,7 +124,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 child: Stack(alignment: Alignment.center, children: [
                   CustomPaint(
                     size: const Size(150, 150),
-                    painter: Ring(d.readiness.normalized(100), band.color,
+                    painter: Ring(d.readiness.normalized(100), p.on(band.color),
                         p.track,
                         stroke: 14, t: animate(c, 1)),
                   ),
@@ -181,7 +186,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         // It says what is drawn.
         Section(
           _historyTitle(d),
-          d.series.isEmpty
+          !d.series.any((v) => v != null)
               ? const StatusCard(
                   'No readiness history',
                   'One score is stored per day, and no day has produced one yet.',
@@ -195,12 +200,16 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     ]);
   }
 
-  /// At most the last 90 stored scores — and no more days than exist.
-  List<double> _window(ReadinessData d) =>
-      d.series.length <= 90 ? d.series : d.series.sublist(d.series.length - 90);
+  /// The last 90 CALENDAR days, trimmed to start at the first day that
+  /// actually has a score — so the x labels span real dates and the empty run
+  /// before the first sync is not drawn as ninety missing days.
+  List<double?> _window(ReadinessData d) {
+    final first = d.series.indexWhere((v) => v != null);
+    return first <= 0 ? d.series : d.series.sublist(first);
+  }
 
   String _historyTitle(ReadinessData d) {
-    final n = _window(d).length;
+    final n = d.series.any((v) => v != null) ? _window(d).length : 0;
     return n == 0 ? 'History' : 'Last $n day${n == 1 ? '' : 's'}';
   }
 
@@ -209,6 +218,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // Readiness is a 0–100 score and the axis says so — auto-scaling turned a
     // 71-to-76 week into a chart that looked like a collapse and a recovery.
     const axis = AxisSpec(min: 0, max: 100, ticks: 3, format: axisInt);
+    final p = P.of(c);
     return ChartFrame(
       title: 'Readiness',
       unit: '/100',
@@ -216,9 +226,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       yAxis: axis,
       xLabels: ['${win.length} day${win.length == 1 ? '' : 's'} ago', 'Today'],
       conf: ConfX.of(d.readiness),
+      series: win,
       child: CustomPaint(
         size: Size.infinite,
-        painter: LineChart(win, C.green, dots: false, t: animate(c, 1),
+        painter: LineChart(win, p.on(C.green), dots: false, t: animate(c, 1),
             axis: axis),
       ),
     );

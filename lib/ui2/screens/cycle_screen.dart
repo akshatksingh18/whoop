@@ -317,6 +317,7 @@ class _CycleTabState extends State<CycleTab> {
     final vals = <double?>[for (var i = 1; i <= last; i++) byDay[i]];
     final present = byDay.values.toList();
     final axis = present.length < 3 ? null : AxisSpec.of(present);
+    final p = P.of(c);
     return Surface(
       child: ChartFrame(
         title: 'Resting heart rate',
@@ -332,13 +333,14 @@ class _CycleTabState extends State<CycleTab> {
         empty: axis == null
             ? const NoData(message: 'Not enough derived nights this cycle yet')
             : null,
+        series: vals,
         child: axis == null
             ? const SizedBox.shrink()
             // No fill: a filled area under a heart-rate axis that starts at 52
             // is the truncated-axis form with the truncation hidden.
             : CustomPaint(
                 size: Size.infinite,
-                painter: LineChart(vals, C.pink,
+                painter: LineChart(vals, p.on(C.pink),
                     fill: false, t: animate(c, 1), axis: axis),
               ),
       ),
@@ -356,7 +358,6 @@ class _CycleTabState extends State<CycleTab> {
         children: [
           for (final s in kCycleSymptoms)
             Pressable(
-              expand: false,
               onTap: () => _toggleSymptom(s),
               child: AnimatedContainer(
                 duration: motion(c, Motion.fast),
@@ -409,7 +410,6 @@ class _CycleTabState extends State<CycleTab> {
                   style: F.over.copyWith(color: p.ink3)),
               const SizedBox(width: S.x3),
               Pressable(
-                expand: false,
                 semanticLabel: 'Remove ${recent[i]['date']}',
                 onTap: () => _deleteLog(recent[i]['date'] as String),
                 child: Icon(LucideIcons.x, size: 18, color: p.ink3),

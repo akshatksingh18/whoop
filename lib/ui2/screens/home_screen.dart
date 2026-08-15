@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
 import '../../models/metric.dart';
@@ -82,6 +83,16 @@ VoidCallback? syncOf(BuildContext c) {
   try {
     final app = c.read<AppState>();
     return app.syncNow;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Whether the database had to be rebuilt to start this launch, or null in a
+/// golden. Same shape as [repoOf] and [syncOf].
+DbRebuild? dbRebuildOf(BuildContext c) {
+  try {
+    return c.read<AppState>().dbRebuild;
   } catch (_) {
     return null;
   }
@@ -208,12 +219,23 @@ String axisDay(int? epochSec,
 /// card that presents it as today's has to say so.
 int? daysBehind(int? epochSec) {
   if (epochSec == null) return null;
-  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day)
-      .difference(DateTime(d.year, d.month, d.day))
-      .inDays;
+  return calendarDaysBetween(
+      DateTime.fromMillisecondsSinceEpoch(epochSec * 1000), DateTime.now());
 }
+
+/// Whole calendar days from [from] to [to], reading both as LOCAL wall-clock
+/// dates and subtracting them in UTC — the same shape as
+/// `LocalRepositoryImpl._dayGap`, which is where this rule already lived.
+///
+/// Subtracting two local midnights across a DST boundary is 23 or 25 hours and
+/// `inDays` truncates the short one, so on 10 March in New York both 9 March
+/// and 8 March came back as 1 day behind: [denseDays] wrote them into the same
+/// slot, lost the older one, and every dated axis before the spring-forward
+/// shifted by a position.
+int calendarDaysBetween(DateTime from, DateTime to) =>
+    DateTime.utc(to.year, to.month, to.day)
+        .difference(DateTime.utc(from.year, from.month, from.day))
+        .inDays;
 
 /// The withheld-rollup reason inside a `getInsights()` result, or null when the
 /// result is real (or simply empty).
@@ -229,6 +251,32 @@ Map<String, dynamic>? staleReasonOf(Map<String, dynamic> insights) =>
 /// nothing — "you have no drivers yet" and "we have drivers we will not stand
 /// behind" are different states, and the cold-start copy is a wrong answer to
 /// the second one.
+/// The database could not be opened on this launch and was rebuilt.
+///
+/// This is the loudest thing this screen can say, and it should be: the old
+/// file is parked on disk and only what `salvaged` lists came back. A rebuild
+/// the user never hears about is indistinguishable from their data quietly
+/// vanishing — which is the one thing a local-first app must never do.
+///
+/// The counts are stated per table rather than summed. "1,204 rows recovered"
+/// reads as reassurance; "nutrition 0" is the sentence that actually tells
+/// someone their food log is gone.
+StatusCard? dbRebuiltCard(DbRebuild? r) {
+  if (r == null) return null;
+  final saved = r.salvaged.entries.where((e) => e.value > 0).toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final lost = r.salvaged.entries.where((e) => e.value == 0).toList();
+  return StatusCard(
+    'Your database was rebuilt to start the app',
+    '${r.cause}\n\n'
+        '${saved.isEmpty ? 'Nothing could be read back.' : 'Recovered: ${saved.map((e) => '${e.key} ${thousands(e.value)}').join(' · ')}.'}'
+        '${lost.isEmpty ? '' : ' Empty: ${lost.map((e) => e.key).join(' · ')}.'}'
+        '\n\nThe original file is kept at ${r.quarantinePath} — nothing was '
+        'deleted.',
+    icon: LucideIcons.databaseBackup,
+  );
+}
+
 StatusCard? staleInsightsCard(
     Map<String, dynamic>? reason, VoidCallback? onSync) {
   final s = reason;
@@ -492,8 +540,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final rv = d.readiness.value;
     final band = readinessBand(rv);
     final stale = staleInsightsCard(d.insightsStale, syncOf(c));
+    // Above the greeting, not below it: if the app had to rebuild the database
+    // to start, that outranks anything else this screen has to say today.
+    final rebuilt = dbRebuiltCard(dbRebuildOf(c));
 
     return ListView(padding: pad, children: [
+      if (rebuilt != null) ...[const SizedBox(height: S.x3), rebuilt],
       // ── greeting ──
       Padding(
         padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
@@ -520,7 +572,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: S.x3),
           Pressable(
-            expand: false,
             semanticLabel: 'Profile and settings',
             onTap: () => go(c, const ProfileHome()),
             child: Container(
@@ -570,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 96,
                 height: 96,
                 child: CustomPaint(
-                  painter: Ring(d.readiness.normalized(100), band.color,
+                  painter: Ring(d.readiness.normalized(100), p.on(band.color),
                       p.track,
                       stroke: 11, t: animate(c, 1)),
                 ),

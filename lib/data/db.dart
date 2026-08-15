@@ -19,6 +19,10 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+// The ONE thing this layer takes from compute/: the running build's algo
+// version, which every day_result read applies as a CEILING (see [dayResult]).
+// `show` keeps the rest of the engine out of this namespace.
+import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
 import 'journal_fields.dart';
@@ -27,6 +31,14 @@ import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
 import 'series_codec.dart';
+
+/// The outcome of a database rebuild: why the old file would not open, where it
+/// was parked, and how many rows came back per table.
+typedef DbRebuild = ({
+  String cause,
+  String quarantinePath,
+  Map<String, int> salvaged,
+});
 
 class LocalDb {
   static Database? _db;
@@ -41,7 +53,137 @@ class LocalDb {
     // object)` — a sustained crash burst (seen in the wild on background event
     // ingest). Reopen whenever the cached handle isn't actually open.
     if (db != null && db.isOpen) return db;
-    return _db = await _open();
+    return _db = await _openOrRebuild();
+  }
+
+  /// Set when [_openOrRebuild] had to quarantine an unopenable database and
+  /// rebuild. Null on every normal launch. AppState reads it so the user is
+  /// TOLD what happened and what survived — a rebuild that happens silently is
+  /// indistinguishable from data vanishing.
+  static DbRebuild? lastRebuild;
+
+  /// What a rebuild tries to save, in the order it tries — most irreplaceable
+  /// first, so a salvage that gets cut short (a genuinely corrupt file gives up
+  /// partway) has already banked the rows nothing can regenerate.
+  ///
+  /// Everything in the first block was typed by a human. Nothing re-measures
+  /// it, nothing re-derives it, and it is not in the band's flash. The second
+  /// block is measured-once data whose raw substrate is pruned at
+  /// `rawRetentionDays`, so it is equally unrecoverable in practice. The third
+  /// is the 3-day substrate: re-syncable in principle, but the band trims its
+  /// flash as we ACK, so in practice this is the only copy of those days too.
+  static const _salvageTables = [
+    // Hand-entered. The only copy that exists anywhere.
+    'journal',
+    'journal_metric',
+    'journal_field_def',
+    'lab_result',
+    'lab_marker_def',
+    'strength_set',
+    'exercise_def',
+    'food_entry',
+    'food_def',
+    'med_def',
+    'med_dose',
+    'cycle_log',
+    'cycle_symptom',
+    'sleep_override',
+    'sleep_nap',
+    'breathing_session',
+    'sessions',
+    'workout_route',
+    // Derived once, from raw that no longer exists.
+    'day_result',
+    'metric_series',
+    'baselines',
+    'raw_archive',
+    'sync_cursor',
+    // The retention window. Big, and last for that reason.
+    'decoded_onehz',
+    'decoded_rr',
+    'samples',
+    'events',
+    'band_events',
+    'band_battery',
+  ];
+
+  /// [_open], plus the one recovery that exists for a database that will not
+  /// open at all.
+  ///
+  /// `onUpgrade` runs inside ONE exclusive transaction, so a step that throws
+  /// rolls the whole ladder back, the on-disk `user_version` never advances,
+  /// and the SAME step throws on the next launch, and the next. Every guard in
+  /// the ladder above was added reactively, after a build shipped that bricked
+  /// somebody — so the ladder will trip again. What was missing was what
+  /// happens next: the app sat on the loading screen forever and reinstalling
+  /// was the only way out, which takes the hand-typed entries with it.
+  ///
+  /// So: never delete, never wipe. Move the unopenable file aside, create a
+  /// fresh one at the current schema, and merge back everything the old file
+  /// will still hand over — [_salvageTables] order, each table guarded on its
+  /// own, so one unreadable table costs that table and nothing else. The
+  /// quarantined file STAYS on disk: if the salvage got less than everything,
+  /// the rest is still in there and can be handed to a human.
+  static Future<Database> _openOrRebuild() async {
+    try {
+      return await _open();
+    } catch (e) {
+      final dir = await getDatabasesPath();
+      final path = p.join(dir, dbName);
+      // A UNIQUE quarantine name every time. A fixed one would let a SECOND
+      // rebuild overwrite the first rebuild's file — the one holding whatever
+      // the tolerant salvage could not read — which is the one outcome this
+      // whole path exists to prevent. Disk is the cheaper thing to spend here.
+      final quarantine = p.join(
+        dir,
+        '$dbName.unopenable-${DateTime.now().millisecondsSinceEpoch}',
+      );
+      // The -wal/-shm siblings belong to the file being moved. Leaving them
+      // beside a FRESH database of the same name hands that database someone
+      // else's journal, which is how a recovery corrupts the thing it just
+      // created. All three move together or none of them do — a rebuild that
+      // cannot quarantine cleanly must fail loudly rather than half-destroy.
+      final moved = <String>[];
+      for (final suffix in const ['', '-wal', '-shm']) {
+        final f = File('$path$suffix');
+        if (!f.existsSync()) continue;
+        await f.rename('$quarantine$suffix');
+        moved.add(suffix);
+      }
+      final Database fresh;
+      try {
+        fresh = await _open();
+      } catch (_) {
+        // A FRESH database at the current schema will not open either, so this
+        // is not something a rebuild fixes. Put the user's file back exactly
+        // where it was — leaving them with the quarantine and no database is
+        // strictly worse than leaving them where they started.
+        for (final suffix in moved) {
+          await File('$quarantine$suffix').rename('$path$suffix');
+        }
+        rethrow;
+      }
+      // Published BEFORE the salvage so `_mergeFromDbFile`'s own `instance`
+      // resolves to the new file instead of re-entering this method.
+      _db = fresh;
+      var salvaged = const <String, int>{};
+      try {
+        salvaged = await _mergeFromDbFile(
+          quarantine,
+          only: _salvageTables,
+          tolerant: true,
+        );
+      } catch (_) {
+        // The quarantined file gave us nothing. The app still opens, and the
+        // file is still there — that is the whole point of not deleting it.
+      }
+      lastRebuild = (
+        cause: '$e',
+        quarantinePath: quarantine,
+        salvaged: salvaged,
+      );
+      return fresh;
+    }
   }
 
   static Future<void> close() async {
@@ -542,12 +684,16 @@ class LocalDb {
     // the SAME columns — so every decoded insert (the hottest write path) updated
     // twice as many b-trees as needed. The canonical indexes are (re)created by
     // _createDecodedStore just above; these `_new` duplicates are pure write tax.
+    //
+    // Plus `idx_decoded_onehz_counter`, which was never on a read path at all —
+    // see _createDecodedStore for why it is gone rather than merely unused.
     for (final ix in const [
       'idx_decoded_onehz_new_rects',
       'idx_decoded_onehz_new_rec_ts_unique',
       'idx_decoded_rr_new_counter',
       'idx_decoded_rr_new_ts',
       'idx_decoded_rr_new_ts_beat_unique',
+      'idx_decoded_onehz_counter',
     ]) {
       await db.execute('DROP INDEX IF EXISTS $ix');
     }
@@ -1922,6 +2068,14 @@ class LocalDb {
     // read NULL — the truth for them — and the read path still recomputes from
     // the substrate while it is there.
     await _addColumnIfMissing(db, 'sessions', 'avg_hr', 'INTEGER');
+    // `sessions` is keyed by a TEXT id, so every read that matters — the
+    // workouts list, the activity tab, both `decoded_onehz` HR joins,
+    // [sessionsInRange], [liveSessions] — was a full table scan plus a full
+    // sort on an unindexed column. Nothing prunes `sessions` either (only an
+    // explicit day delete), so the scan grows for the life of the install.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ts)',
+    );
   }
 
   // ── WORKOUT SUGGESTIONS (opt-in auto-detect) ───────────────────────────────
@@ -2070,8 +2224,7 @@ class LocalDb {
       CREATE VIEW v_series AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
-        JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
-          ON r.day_id = m.day_id AND r.algo_version = m.v
+        $_servedDayJoin
         WHERE json_valid(r.payload_json)
       ),
       curve(sk, pth, vk) AS (
@@ -2118,8 +2271,7 @@ class LocalDb {
       CREATE VIEW v_hypnogram AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
-        JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
-          ON r.day_id = m.day_id AND r.algo_version = m.v
+        $_servedDayJoin
         WHERE json_valid(r.payload_json)
       )
       SELECT l.day_id AS date,
@@ -2389,10 +2541,14 @@ class LocalDb {
     // Absence now lands as NULL. `_relaxDecodedSensorNulls` (v39) rebuilds the
     // table on existing installs.
     await _ensureDecodedOneHzBandFields(db);
-    // Forensic-only lookup by the raw counter; not on any read path.
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
-    );
+    // NO index on `counter`. There was one, described as a forensic-only
+    // lookup — and nothing in the app ever filtered or ordered by `counter`
+    // alone (every decoded read is `ORDER BY rec_ts, counter`, which a
+    // single-column counter index cannot serve). It cost a b-tree insert per
+    // 1 Hz record on the hottest write path in the app, ~1.7 MB/day of disk,
+    // and the inserts were NON-SEQUENTIAL because `counter` resets to ~0 on a
+    // band reboot — so it was paying page splits on the ingest path for a
+    // query nobody makes. Dropped for existing installs in _repairOpenSchema.
     // decoded_rr shares the rec_ts key with its parent: PRIMARY KEY (rec_ts,
     // beat_index). Parent and child now delete/replace by the SAME key, so no
     // orphan guard is needed. rr_ts_ms (= rec_ts*1000) stays as the per-beat
@@ -2581,9 +2737,6 @@ class LocalDb {
     );
     await db.execute('DROP TABLE IF EXISTS decoded_onehz');
     await db.execute('ALTER TABLE _decoded_onehz_v39 RENAME TO decoded_onehz');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
-    );
   }
 
   static Future<void> _rekeyDecodedStoreByRecTs(Database db) async {
@@ -2636,11 +2789,8 @@ class LocalDb {
     await db.execute('DROP TABLE IF EXISTS decoded_onehz');
     await db.execute('ALTER TABLE _decoded_onehz_v33 RENAME TO decoded_onehz');
     await db.execute('ALTER TABLE _decoded_rr_v33 RENAME TO decoded_rr');
-    // The rec_ts PK auto-indexes; add back the forensic counter index (the temp
-    // tables carried no named secondary indexes, so nothing leaked onto rename).
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_counter ON decoded_onehz(counter)',
-    );
+    // The rec_ts PK auto-indexes and nothing reads by `counter`, so the rebuilt
+    // tables carry no secondary index at all.
   }
 
   // raw_records — keyed by the band's per-record u32 `counter` (the natural
@@ -3463,17 +3613,45 @@ class LocalDb {
 
   /// `{localDayLabel -> MAX(rec_ts)}` over canonical decoded 1 Hz rows, grouped
   /// by the LOCAL calendar day of the record's real time.
+  ///
+  /// One bounded `MAX(rec_ts)` per local day in the retained span, NOT one
+  /// `GROUP BY strftime(…, 'localtime')` over the whole table. That grouping key
+  /// is a function of the column, so SQLite could use no index for it: it was a
+  /// full scan of every retained second plus a temp b-tree — 91 ms on a 3-day
+  /// (259 k row) table on desktop, and the derive calls this up to three times
+  /// a pass. `rec_ts` is the INTEGER PRIMARY KEY (the rowid), so a bounded
+  /// `MAX(rec_ts) WHERE rec_ts >= a AND rec_ts < b` is a single index seek, and
+  /// the span is bounded by `rawRetentionDays` in any healthy install.
+  ///
+  /// The day walk goes through [localDayEndSec] rather than `+ 86400` for the
+  /// reason that helper documents: a local calendar day is 23 h on a
+  /// spring-forward and 25 h on a fall-back, and the old `strftime('localtime')`
+  /// grouping got that right, so the replacement has to as well.
   static Future<Map<String, int>> decodedRecTsMaxByDay() async {
+    final (lo, hi) = await firstAndLastRecordTs();
+    if (lo == null || hi == null) return {};
     final db = await instance;
-    final rows = await db.rawQuery(
-      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS d, "
-      'MAX(rec_ts) AS mx FROM decoded_onehz GROUP BY d',
-    );
     final out = <String, int>{};
-    for (final r in rows) {
-      final d = r['d'] as String?;
-      final mx = (r['mx'] as num?)?.toInt();
-      if (d != null && mx != null) out[d] = mx;
+    var day = dayLabelOf(
+      DateTime.fromMillisecondsSinceEpoch(lo * 1000, isUtc: true).toLocal(),
+    );
+    // Bounded by the number of days actually present. `localDayEndSec` returns
+    // null only for a malformed label, which `dayLabelOf` cannot produce — the
+    // guard is there so a future change can never spin here.
+    for (var guard = 0; guard < 4000; guard++) {
+      final end = localDayEndSec(day);
+      if (end == null) break;
+      final rows = await db.rawQuery(
+        'SELECT MAX(rec_ts) AS mx FROM decoded_onehz '
+        'WHERE rec_ts > 0 AND rec_ts >= ? AND rec_ts < ?',
+        [localDayStartSec(day) ?? 0, end],
+      );
+      final mx = rows.isEmpty ? null : (rows.first['mx'] as num?)?.toInt();
+      if (mx != null) out[day] = mx;
+      if (end > hi) break;
+      day = dayLabelOf(
+        DateTime.fromMillisecondsSinceEpoch(end * 1000, isUtc: true).toLocal(),
+      );
     }
     return out;
   }
@@ -3604,14 +3782,49 @@ class LocalDb {
     });
   }
 
-  /// The latest-version result row for one day_id (highest algo_version), with a
-  /// normalized `date` alias for callers. Null if absent.
+  /// The version a `day_result` read is allowed to serve at most: the algo
+  /// version of the build doing the reading.
+  ///
+  /// `PRIMARY KEY (day_id, algo_version)` makes versions SIBLINGS, not
+  /// replacements, so a day can hold several generations at once. Picking the
+  /// highest one present is right on the way up and wrong on the way down: a
+  /// user who rolls back a store build, or leaves TestFlight for release, has
+  /// rows from a version this build no longer implements, and `MAX()` serves
+  /// them forever. A re-derive does not repair it — it writes a row at the
+  /// LOWER version that `MAX()` then ignores — so day-detail (reading the
+  /// bundle) and trends (reading the unversioned, always-overwritten
+  /// `metric_series`) disagree about the same day permanently. Worse, if the
+  /// newer version reinterpreted a field under the same key, the older UI reads
+  /// it as a real number.
+  ///
+  /// A ceiling, not an equality test: rows from OLDER versions are still
+  /// served, which is the existing (correct) behaviour for a day whose raw has
+  /// aged out and which therefore never gets a fresh-version row. The rows
+  /// above the ceiling are not deleted either — re-upgrading brings them back.
+  ///
+  /// `local_repository_impl.crossDayStaleReason` applies the same discipline to
+  /// the cross-day artifact, with a comment calling the ungated case "the bug".
+  static const int _servedAlgoCeiling = kAlgoVersion;
+
+  /// The served-version join, in SQL: bind a `day_result r` to its highest row
+  /// at or below [_servedAlgoCeiling]. Every reader (and the coach views) uses
+  /// THIS rather than writing its own `MAX(algo_version)` — the pattern had
+  /// already reappeared at five readers and two views, and the ceiling has to
+  /// be on all of them or it is on none of them.
+  static const String _servedDayJoin =
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
+      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id) m '
+      'ON r.day_id = m.day_id AND r.algo_version = m.v';
+
+  /// The result row for one day_id at the highest version this build serves
+  /// (see [_servedAlgoCeiling]), with a normalized `date` alias for callers.
+  /// Null if absent.
   static Future<Map<String, dynamic>?> dayResult(String dayId) async {
     final db = await instance;
     final rows = await db.query(
       'day_result',
-      where: 'day_id = ?',
-      whereArgs: [dayId],
+      where: 'day_id = ? AND algo_version <= ?',
+      whereArgs: [dayId, _servedAlgoCeiling],
       orderBy: 'algo_version DESC',
       limit: 1,
     );
@@ -3630,12 +3843,55 @@ class LocalDb {
     // For each day_id pick MAX(algo_version), then join back for the full row.
     final rows = await db.rawQuery(
       'SELECT r.* FROM day_result r '
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
-      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      '$_servedDayJoin '
       'ORDER BY r.day_id DESC LIMIT ?',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
+  }
+
+  /// The N most recent days at their served version — EVERY column except the
+  /// two big JSON blobs. Newest day_id first.
+  ///
+  /// The payload-free half of [recentDayResults]. `SELECT r.*` drags
+  /// `payload_json` (~88 KB a day) for every row, so a caller that only needs
+  /// "which days, at what version, finalized or not" was moving tens of MB of
+  /// Dart strings to read a few scalars — measured at ~35 MB for a 400-day
+  /// health-export pass, before the caller then decoded and RETAINED a bundle
+  /// per day (~298 MB RSS). Fetch the bundle for one day at a time with
+  /// [dayResult] and let each one go.
+  static Future<List<Map<String, dynamic>>> recentDayResultsMeta(
+    int limit,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized, '
+      'r.skipped, r.partial, r.rhr, r.rmssd, r.readiness '
+      'FROM day_result r '
+      '$_servedDayJoin '
+      'ORDER BY r.day_id DESC LIMIT ?',
+      [limit],
+    );
+    return [for (final r in rows) _withDate(r)];
+  }
+
+  /// `{day_id -> served algo_version}` for every day, payload-free.
+  ///
+  /// One query instead of a `dayResult()` per day: a caller walking history to
+  /// ask "what version is this day at" was doing an N+1 that pulled a full
+  /// bundle each time to read one integer.
+  static Future<Map<String, int>> dayResultVersions() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT day_id, MAX(algo_version) AS v FROM day_result '
+      'WHERE algo_version <= ? GROUP BY day_id',
+      [_servedAlgoCeiling],
+    );
+    return {
+      for (final r in rows)
+        if (r['day_id'] is String && r['v'] is num)
+          r['day_id'] as String: (r['v'] as num).toInt(),
+    };
   }
 
   /// The stored sleep WINDOW for each of the [limit] most recent days, newest
@@ -3650,8 +3906,7 @@ class LocalDb {
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
       'FROM day_result r '
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
-      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      '$_servedDayJoin '
       'WHERE r.skipped = 0 '
       'ORDER BY r.day_id DESC LIMIT ?',
       [limit],
@@ -3668,7 +3923,9 @@ class LocalDb {
   static Future<List<String>> dayResultDayIdsDesc() async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT day_id FROM day_result GROUP BY day_id ORDER BY day_id DESC',
+      'SELECT day_id FROM day_result WHERE algo_version <= ? '
+      'GROUP BY day_id ORDER BY day_id DESC',
+      [_servedAlgoCeiling],
     );
     return [
       for (final r in rows)
@@ -3683,8 +3940,7 @@ class LocalDb {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
-      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      '$_servedDayJoin '
       // json_valid() first: json_extract() ERRORS on a malformed payload, and a
       // corrupt bundle must degrade to "no sleep that day", never take out the
       // whole Records screen.
@@ -3712,8 +3968,7 @@ class LocalDb {
     // Latest version per day (matches [dayResult]), then drop skip-markers.
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
-      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      '$_servedDayJoin '
       'WHERE r.skipped = 0 '
       'ORDER BY r.day_id DESC',
     );
@@ -3798,8 +4053,7 @@ class LocalDb {
     final derivedRows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
       'FROM day_result r '
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
-      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      '$_servedDayJoin '
       'ORDER BY r.day_id DESC',
     );
     final metricRows = await db.rawQuery(
@@ -4188,6 +4442,89 @@ class LocalDb {
     return deleted;
   }
 
+  /// Empty EVERY table — the honest reading of "Delete everything".
+  ///
+  /// Enumerated from `sqlite_master`, never from a hand-written list. The
+  /// hand-written list is exactly how the old reset missed about twenty tables
+  /// (labs, nutrition, medication, breathing sessions, strength sets, the
+  /// rolling baselines) while telling the user it had deleted them: a table
+  /// added later has to be REMEMBERED here, and it never is. This way a new
+  /// table cannot escape the wipe by being forgotten.
+  ///
+  /// `sync_cursor` IS cleared, deliberately. It is the band's "you already have
+  /// everything up to here" mark, and the band trims its flash as we ACK — so
+  /// the history is unrecoverable either way, cursor or no cursor. Keeping it
+  /// would only leave a wiped phone silently draining nothing on the next sync,
+  /// because every record the band still holds sits behind the frontier. A
+  /// reset that leaves the cursor is not a reset.
+  ///
+  /// The SCHEMA is untouched: no DROP, no re-open, no re-migration (migrations
+  /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
+  /// the tail of a destructive user action). Views are `type='view'` and are
+  /// not matched; the sqlite/Android internal tables are skipped by name.
+  static Future<int> wipeAll() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' "
+      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
+    );
+    var deleted = 0;
+    await db.transaction((txn) async {
+      for (final r in rows) {
+        final t = r['name'];
+        if (t is String) deleted += await txn.delete(t);
+      }
+    });
+    return deleted;
+  }
+
+  /// Every table this database owns, for callers that need to reason about the
+  /// whole store rather than one part of it (the reset test, [wipeAll]).
+  static Future<List<String>> tableNames() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' "
+      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' "
+      'ORDER BY name',
+    );
+    return [for (final r in rows) r['name'] as String];
+  }
+
+  /// True when [dayId] holds a day this device DERIVED ITSELF from real 1 Hz —
+  /// as opposed to absent, a skip marker, or an earlier import.
+  ///
+  /// THE guard every import must pass before writing a day. `putDayResult` is
+  /// INSERT OR REPLACE and imports write `finalized: 1`, so overwriting a
+  /// measured day both destroys it and locks the replacement in — the raw it
+  /// came from is pruned within days, and `DerivationEngine` never revisits a
+  /// finalized row. Irreversible, and there is no per-source undo.
+  ///
+  /// It lived as a private static inside `WhoopImporter`, which is why exactly
+  /// one of the four import paths honoured it.
+  static Future<bool> isMeasuredDay(String dayId) async =>
+      isMeasuredDayRow(await dayResult(dayId));
+
+  /// [isMeasuredDay] over an already-fetched row. Pure.
+  static bool isMeasuredDayRow(Map<String, dynamic>? row) {
+    if (row == null) return false;
+    if (((row['skipped'] as num?) ?? 0).toInt() == 1) return false;
+    try {
+      final p = SeriesCodec.decodePayloadJson(
+        (row['payload_json'] as String?) ?? '{}',
+      );
+      if (p != null) {
+        if (p['skipped'] == true) return false;
+        // A prior import (any importer) is replaceable — all of them are
+        // snapshots, none of them is measured on-device data.
+        if (p['imported'] == true) return false;
+      }
+    } catch (_) {
+      // Present but unreadable — treat as real and refuse to clobber it.
+      return true;
+    }
+    return true;
+  }
+
   /// Import another device's exported OpenStrap DB ([path], from [exportCopy] +
   /// share) by MERGING its rows into this one (INSERT-OR-REPLACE). Covers derived
   /// results, the metric series, user data, and the raw ledger so the receiving
@@ -4232,11 +4569,49 @@ class LocalDb {
     }
   }
 
-  static Future<Map<String, int>> _mergeFromDbFile(String path) async {
+  /// Merge every table [tables] names from the database file at [path] into
+  /// this one.
+  ///
+  /// [only] overrides the table list and its ORDER — used by [_openOrRebuild],
+  /// which wants the irreplaceable tables first. [tolerant] isolates each table
+  /// behind its own catch: a rebuild salvaging a genuinely damaged file must
+  /// lose that table and keep going, where a user-initiated restore of a file
+  /// they chose must still fail loudly rather than report a partial success.
+  static Future<Map<String, int>> _mergeFromDbFile(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+  }) async {
     final src = await openDatabase(path, readOnly: true);
     final db = await instance;
     // Order: independent tables; all use INSERT OR REPLACE so re-import is safe.
     const tables = [
+      // Hand-entered rows first. Nothing regenerates these, so if a merge is
+      // ever cut short (an OOM, a damaged source) they are the ones already
+      // banked. They were also simply MISSING here until now — nutrition,
+      // medication, strength sets, symptoms and routes did not survive a
+      // backup/restore round trip at all, the same omission `wipeAll` documents.
+      'journal',
+      'journal_metric',
+      'journal_field_def',
+      'lab_result',
+      'lab_marker_def',
+      'strength_set',
+      'exercise_def',
+      'food_entry',
+      'food_def',
+      'med_def',
+      'med_dose',
+      'cycle_log',
+      'cycle_symptom',
+      'breathing_session',
+      'workout_route',
+      // The user's sleep corrections. These are the ONLY copy of them — the
+      // detector's output is deliberately not baked in, so a restore that
+      // skipped these would silently reinstate every nap the user had deleted
+      // and lose every one they logged.
+      'sleep_override',
+      'sleep_nap',
       'samples',
       'events',
       'decoded_onehz',
@@ -4253,19 +4628,6 @@ class LocalDb {
       'day_result',
       'metric_series',
       'sessions',
-      'journal',
-      'journal_metric',
-      'journal_field_def',
-      'lab_result',
-      'lab_marker_def',
-      'breathing_session',
-      // The user's sleep corrections. These are the ONLY copy of them — the
-      // detector's output is deliberately not baked in, so a restore that
-      // skipped these would silently reinstate every nap the user had deleted
-      // and lose every one they logged.
-      'sleep_override',
-      'sleep_nap',
-      'cycle_log',
       'notifications',
       'baselines',
       'sync_cursor',
@@ -4282,181 +4644,190 @@ class LocalDb {
 
     final counts = <String, int>{};
     try {
-      for (final t in tables) {
-        // PAGED SOURCE READ — never `SELECT *` a whole table.
-        //
-        // This used to be a single `src.query(t)`. sqflite serialises an entire
-        // result set into Java objects on the platform side BEFORE any of it
-        // crosses the channel, so importing another device's `decoded_onehz`
-        // (86,400 rows per day of history) materialised the whole table on the
-        // 256 MB Dalvik heap at once — and then held it live for the duration
-        // of the insert loop below. That is the production
-        // `java.lang.OutOfMemoryError` seen on 0.9.19 from ImportScreen
-        // ("target footprint 268435456, growth limit 268435456"); the OOM
-        // surfaced on whichever thread happened to allocate next, which is why
-        // it was blamed on a BLE binder callback.
-        //
-        // Keyset pagination on `rowid` (none of these tables is WITHOUT ROWID),
-        // NOT LIMIT/OFFSET — OFFSET re-scans the skipped prefix on every page,
-        // which is quadratic over a full history.
-        // `_rowid` is aliased into the projection so the cursor can advance;
-        // it is filtered straight back out when the row is rebuilt below,
-        // because the `cols.contains(e.key)` guard only admits real
-        // destination columns and no table has a column by that name.
-        const pageSize = 2000;
-        const rowidKey = '_rowid';
-        var lastRowid = 0;
-        Future<List<Map<String, Object?>>> nextPage() => src.rawQuery(
-              'SELECT rowid AS $rowidKey, * FROM $t '
-              'WHERE rowid > ? ORDER BY rowid ASC LIMIT ?',
-              [lastRowid, pageSize],
-            );
-
-        List<Map<String, Object?>> firstPage;
+      for (final t in (only ?? tables)) {
         try {
-          firstPage = await nextPage();
-        } on DatabaseException catch (e) {
-          // ONLY "this export doesn't carry that table" is skippable. A blanket
-          // catch here made every read failure — corruption, a truncated or
-          // malformed source file, an I/O error — look identical to an absent
-          // table: the table was skipped, `counts[t]` was never set, and the
-          // summed total then reported a PARTIAL import as a success. Silent
-          // partial success on someone's health history is the worst available
-          // outcome, so anything that is not a missing table now propagates.
-          if (e.isNoSuchTableError()) continue;
-          rethrow;
-        }
-        if (firstPage.isEmpty) {
-          counts[t] = 0;
-          continue;
-        }
-        final cols = await destCols(t);
-        if (cols.isEmpty) continue; // table absent in THIS build
-        // FINALIZED-DAY PROTECTION: a local day_result row with finalized=1 is
-        // LOCKED (this device's own fully-derived history — the long-term
-        // system of record). A foreign export merged with REPLACE must never
-        // clobber it on a (day_id, algo_version) collision; non-finalized rows
-        // keep the plain REPLACE behavior (the import may well be fresher).
-        var protectedKeys = const <String>{};
-        if (t == 'day_result') {
-          final fin = await db.query(
-            'day_result',
-            columns: ['day_id', 'algo_version'],
-            where: 'finalized = 1',
-          );
-          protectedKeys = {
-            for (final r in fin) '${r['day_id']}|${r['algo_version']}',
-          };
-        }
-        var copied = 0;
-        var page = firstPage;
-        // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
-        // this replaces could only ever commit if the entire table fit in
-        // memory first, which is the bug. Per-page commits keep peak residency
-        // at one page, and the import stays safe to interrupt or repeat: every
-        // write is INSERT OR REPLACE keyed on the row's own identity, so a
-        // re-run converges to the same state, and each decoded_onehz row's
-        // orphan guard is still queued in the SAME transaction as the row it
-        // guards — the invariant that matters is per-row, not per-table.
-        while (page.isNotEmpty) {
-          await db.transaction((txn) async {
-            // CHUNKED, for the same reason commitSyncBatch chunks: sqflite
-            // serialises a whole batch's args into ONE platform message, and
-            // the orphan guard below adds an op per decoded_onehz row on top.
-            const chunkOps = 4000;
-            var batch = txn.batch();
-            var ops = 0;
-            Future<void> flush() async {
-              if (ops == 0) return;
-              await batch.commit(noResult: true);
-              batch = txn.batch();
-              ops = 0;
-            }
-
-            final rows = <Map<String, Object?>>[];
-            for (final r in page) {
-              final row = <String, Object?>{
-                for (final e in r.entries)
-                  if (cols.contains(e.key)) e.key: e.value,
-              };
-              if (row.isEmpty) continue;
-              if (t == 'day_result' &&
-                  protectedKeys.contains(
-                    '${row['day_id']}|${row['algo_version']}',
-                  )) {
-                continue; // locally finalized — never overwritten by an import
-              }
-              // A LEGACY export's decoded_rr carries no rec_ts column; derive
-              // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
-              // always populated. SQLite storage classes are per VALUE, not per
-              // column, so a foreign export can hand back a String where
-              // INTEGER is declared — a bare `as num` there throws inside the
-              // transaction and takes the whole restore down with it. Leave a
-              // non-numeric value alone and let the row fail its own NOT NULL
-              // check instead of aborting every other row's import.
-              if (t == 'decoded_rr' && row['rec_ts'] == null) {
-                final rrTsMs = row['rr_ts_ms'];
-                if (rrTsMs is! num) {
-                  // Nothing to key this beat by. Dropping the one row keeps the
-                  // rest of the restore alive; letting it through would fail
-                  // the NOT NULL check inside the transaction and take every
-                  // other row on the page down with it.
-                  continue;
-                }
-                row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
-              }
-              rows.add(row);
-            }
-            // REPLACE the beat set for a colliding second, don't patch it.
-            // decoded_rr is keyed by (rec_ts, beat_index), so a row-by-row
-            // replace-insert only overwrites the indices the foreign export
-            // actually reaches: importing [500] over a local [700, 710, 720]
-            // leaves beats 1 and 2 behind and hands that second a spliced
-            // foreign/local RR series — silently wrong RMSSD, out of a restore.
-            // [_queueDecodedOneHz] guards the identical hazard on the write
-            // path with a DELETE ahead of its inserts.
-            //
-            // Here the delete has to TRAIL the inserts and be bounded by the
-            // highest index this page carried, because a second's beats can
-            // straddle a page boundary: a leading `DELETE WHERE rec_ts = ?` on
-            // page 2 would wipe the beats page 1 just imported. Trailing +
-            // bounded is idempotent across the split — page 1 inserts 0,1 and
-            // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
-            // dense by construction, so "everything past the last one" is
-            // exactly the stale local tail.
-            final highestBeat = <Object, int>{};
-            for (final row in rows) {
-              batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
-              copied++;
-              if (t == 'decoded_rr') {
-                final recTs = row['rec_ts'];
-                final idx = row['beat_index'];
-                if (recTs != null && idx is num) {
-                  final n = idx.toInt();
-                  final prev = highestBeat[recTs];
-                  if (prev == null || n > prev) highestBeat[recTs] = n;
-                }
-              }
-              if (++ops >= chunkOps) await flush();
-            }
-            for (final e in highestBeat.entries) {
-              batch.delete(
-                'decoded_rr',
-                where: 'rec_ts = ? AND beat_index > ?',
-                whereArgs: [e.key, e.value],
+          // PAGED SOURCE READ — never `SELECT *` a whole table.
+          //
+          // This used to be a single `src.query(t)`. sqflite serialises an entire
+          // result set into Java objects on the platform side BEFORE any of it
+          // crosses the channel, so importing another device's `decoded_onehz`
+          // (86,400 rows per day of history) materialised the whole table on the
+          // 256 MB Dalvik heap at once — and then held it live for the duration
+          // of the insert loop below. That is the production
+          // `java.lang.OutOfMemoryError` seen on 0.9.19 from ImportScreen
+          // ("target footprint 268435456, growth limit 268435456"); the OOM
+          // surfaced on whichever thread happened to allocate next, which is why
+          // it was blamed on a BLE binder callback.
+          //
+          // Keyset pagination on `rowid` (none of these tables is WITHOUT ROWID),
+          // NOT LIMIT/OFFSET — OFFSET re-scans the skipped prefix on every page,
+          // which is quadratic over a full history.
+          // `_rowid` is aliased into the projection so the cursor can advance;
+          // it is filtered straight back out when the row is rebuilt below,
+          // because the `cols.contains(e.key)` guard only admits real
+          // destination columns and no table has a column by that name.
+          const pageSize = 2000;
+          const rowidKey = '_rowid';
+          var lastRowid = 0;
+          Future<List<Map<String, Object?>>> nextPage() => src.rawQuery(
+                'SELECT rowid AS $rowidKey, * FROM $t '
+                'WHERE rowid > ? ORDER BY rowid ASC LIMIT ?',
+                [lastRowid, pageSize],
               );
-              if (++ops >= chunkOps) await flush();
-            }
-            await flush();
-          });
-          // Advance past the last row this page actually delivered. Read the
-          // cursor BEFORE dropping the page, and stop on a short page rather
-          // than issuing one more query to discover the end.
-          lastRowid = (page.last[rowidKey] as num).toInt();
-          if (page.length < pageSize) break;
-          page = await nextPage();
+
+          List<Map<String, Object?>> firstPage;
+          try {
+            firstPage = await nextPage();
+          } on DatabaseException catch (e) {
+            // ONLY "this export doesn't carry that table" is skippable. A blanket
+            // catch here made every read failure — corruption, a truncated or
+            // malformed source file, an I/O error — look identical to an absent
+            // table: the table was skipped, `counts[t]` was never set, and the
+            // summed total then reported a PARTIAL import as a success. Silent
+            // partial success on someone's health history is the worst available
+            // outcome, so anything that is not a missing table now propagates.
+            if (e.isNoSuchTableError()) continue;
+            rethrow;
+          }
+          if (firstPage.isEmpty) {
+            counts[t] = 0;
+            continue;
+          }
+          final cols = await destCols(t);
+          if (cols.isEmpty) continue; // table absent in THIS build
+          // FINALIZED-DAY PROTECTION: a local day_result row with finalized=1 is
+          // LOCKED (this device's own fully-derived history — the long-term
+          // system of record). A foreign export merged with REPLACE must never
+          // clobber it on a (day_id, algo_version) collision; non-finalized rows
+          // keep the plain REPLACE behavior (the import may well be fresher).
+          var protectedKeys = const <String>{};
+          if (t == 'day_result') {
+            final fin = await db.query(
+              'day_result',
+              columns: ['day_id', 'algo_version'],
+              where: 'finalized = 1',
+            );
+            protectedKeys = {
+              for (final r in fin) '${r['day_id']}|${r['algo_version']}',
+            };
+          }
+          var copied = 0;
+          var page = firstPage;
+          // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
+          // this replaces could only ever commit if the entire table fit in
+          // memory first, which is the bug. Per-page commits keep peak residency
+          // at one page, and the import stays safe to interrupt or repeat: every
+          // write is INSERT OR REPLACE keyed on the row's own identity, so a
+          // re-run converges to the same state, and each decoded_onehz row's
+          // orphan guard is still queued in the SAME transaction as the row it
+          // guards — the invariant that matters is per-row, not per-table.
+          while (page.isNotEmpty) {
+            await db.transaction((txn) async {
+              // CHUNKED, for the same reason commitSyncBatch chunks: sqflite
+              // serialises a whole batch's args into ONE platform message, and
+              // the orphan guard below adds an op per decoded_onehz row on top.
+              const chunkOps = 4000;
+              var batch = txn.batch();
+              var ops = 0;
+              Future<void> flush() async {
+                if (ops == 0) return;
+                await batch.commit(noResult: true);
+                batch = txn.batch();
+                ops = 0;
+              }
+
+              final rows = <Map<String, Object?>>[];
+              for (final r in page) {
+                final row = <String, Object?>{
+                  for (final e in r.entries)
+                    if (cols.contains(e.key)) e.key: e.value,
+                };
+                if (row.isEmpty) continue;
+                if (t == 'day_result' &&
+                    protectedKeys.contains(
+                      '${row['day_id']}|${row['algo_version']}',
+                    )) {
+                  continue; // locally finalized — never overwritten by an import
+                }
+                // A LEGACY export's decoded_rr carries no rec_ts column; derive
+                // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
+                // always populated. SQLite storage classes are per VALUE, not per
+                // column, so a foreign export can hand back a String where
+                // INTEGER is declared — a bare `as num` there throws inside the
+                // transaction and takes the whole restore down with it. Leave a
+                // non-numeric value alone and let the row fail its own NOT NULL
+                // check instead of aborting every other row's import.
+                if (t == 'decoded_rr' && row['rec_ts'] == null) {
+                  final rrTsMs = row['rr_ts_ms'];
+                  if (rrTsMs is! num) {
+                    // Nothing to key this beat by. Dropping the one row keeps the
+                    // rest of the restore alive; letting it through would fail
+                    // the NOT NULL check inside the transaction and take every
+                    // other row on the page down with it.
+                    continue;
+                  }
+                  row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
+                }
+                rows.add(row);
+              }
+              // REPLACE the beat set for a colliding second, don't patch it.
+              // decoded_rr is keyed by (rec_ts, beat_index), so a row-by-row
+              // replace-insert only overwrites the indices the foreign export
+              // actually reaches: importing [500] over a local [700, 710, 720]
+              // leaves beats 1 and 2 behind and hands that second a spliced
+              // foreign/local RR series — silently wrong RMSSD, out of a restore.
+              // [_queueDecodedOneHz] guards the identical hazard on the write
+              // path with a DELETE ahead of its inserts.
+              //
+              // Here the delete has to TRAIL the inserts and be bounded by the
+              // highest index this page carried, because a second's beats can
+              // straddle a page boundary: a leading `DELETE WHERE rec_ts = ?` on
+              // page 2 would wipe the beats page 1 just imported. Trailing +
+              // bounded is idempotent across the split — page 1 inserts 0,1 and
+              // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
+              // dense by construction, so "everything past the last one" is
+              // exactly the stale local tail.
+              final highestBeat = <Object, int>{};
+              for (final row in rows) {
+                batch.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
+                copied++;
+                if (t == 'decoded_rr') {
+                  final recTs = row['rec_ts'];
+                  final idx = row['beat_index'];
+                  if (recTs != null && idx is num) {
+                    final n = idx.toInt();
+                    final prev = highestBeat[recTs];
+                    if (prev == null || n > prev) highestBeat[recTs] = n;
+                  }
+                }
+                if (++ops >= chunkOps) await flush();
+              }
+              for (final e in highestBeat.entries) {
+                batch.delete(
+                  'decoded_rr',
+                  where: 'rec_ts = ? AND beat_index > ?',
+                  whereArgs: [e.key, e.value],
+                );
+                if (++ops >= chunkOps) await flush();
+              }
+              await flush();
+            });
+            // Advance past the last row this page actually delivered. Read the
+            // cursor BEFORE dropping the page, and stop on a short page rather
+            // than issuing one more query to discover the end.
+            lastRowid = (page.last[rowidKey] as num).toInt();
+            if (page.length < pageSize) break;
+            page = await nextPage();
+          }
+          counts[t] = copied;
+        } catch (_) {
+          // One table's worth of loss, not the whole salvage. A user-initiated
+          // restore still rethrows: reporting a partial import as a success is
+          // the worst available outcome there, whereas a rebuild has no better
+          // file to fall back to.
+          if (!tolerant) rethrow;
+          counts[t] = 0;
         }
-        counts[t] = copied;
       }
     } finally {
       await src.close();
@@ -6141,6 +6512,50 @@ class LocalDb {
           where: 'ts < ?', whereArgs: [cutoffSec]);
     });
     return deleted;
+  }
+
+  /// Bytes SQLite is holding in the free page list — deleted, reusable, and
+  /// invisible to the user, who sees only the file size.
+  static Future<int> freelistBytes() async {
+    final db = await instance;
+    final free =
+        Sqflite.firstIntValue(await db.rawQuery('PRAGMA freelist_count')) ?? 0;
+    final pageSize =
+        Sqflite.firstIntValue(await db.rawQuery('PRAGMA page_size')) ?? 4096;
+    return free * pageSize;
+  }
+
+  /// Return free pages to the FILESYSTEM when there are enough of them to be
+  /// worth a full rewrite. Returns the bytes reclaimed, or 0 if it declined.
+  ///
+  /// A delete only moves pages to the freelist; the file never shrinks below
+  /// its all-time high-water mark. That is normally fine — the freelist is
+  /// reused by the next day's ingest, so steady state is bounded — but two
+  /// things put a permanent step in the mark: an install that let the substrate
+  /// backlog build before the retention prune ran on every derive, and the v39
+  /// migrations, each of which builds a full shadow copy of `decoded_onehz`
+  /// before dropping the original. A 170 MB file stays 170 MB forever.
+  ///
+  /// WHY A FULL `VACUUM` AND NOT `auto_vacuum`:
+  ///   * `auto_vacuum` cannot be turned on for an existing database without a
+  ///     full `VACUUM` anyway, so it does not avoid this cost — it adds to it.
+  ///   * `auto_vacuum=FULL` moves pages on EVERY commit, on a store taking
+  ///     ~86 400 inserts a day. `INCREMENTAL` is cheaper but still adds
+  ///     pointer-map pages to every write.
+  ///   * Both would tax the hottest write path in the app, forever, to fix
+  ///     something that happens once.
+  ///
+  /// A full `VACUUM` rewrites the whole file under an exclusive lock and needs
+  /// roughly twice the file size free on disk, so it must NEVER run on the
+  /// sync/ACK path, during a live session, or in the background. That gating is
+  /// the caller's job — see `AppState._maybeReclaimDiskSpace`, which runs it
+  /// only on a foreground heavy derive with nothing else in flight.
+  static Future<int> vacuumIfBloated({int minFreeBytes = 64 << 20}) async {
+    final free = await freelistBytes();
+    if (free < minFreeBytes) return 0;
+    final db = await instance;
+    await db.execute('VACUUM');
+    return free;
   }
 
   /// Drop recomputable per-day intermediates left behind by superseded

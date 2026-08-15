@@ -101,3 +101,6 @@ docs/*.mp4
 
 # golden test failure output
 test/failures/
+
+# xcodebuild output from a direct target build
+ios/build/

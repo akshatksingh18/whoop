@@ -84,13 +84,21 @@ class _ActivityPickerState extends State<ActivityPicker> {
                 Icon(LucideIcons.search, size: 17, color: p.ink3),
                 const SizedBox(width: S.x2),
                 Expanded(
-                  child: TextField(
-                    onChanged: (v) => setState(() => q = v),
-                    style: F.body.copyWith(color: p.ink),
-                    cursorColor: p.on(C.purple),
-                    decoration: InputDecoration.collapsed(
-                        hintText: 'Search ${allActivities.length} activities',
-                        hintStyle: F.body.copyWith(color: p.ink3)),
+                  // Labelled and focused: this screen's entire purpose is the
+                  // search, and a hint-only field announces nothing once a
+                  // character is in it.
+                  child: Semantics(
+                    label: 'Search activities',
+                    textField: true,
+                    child: TextField(
+                      autofocus: true,
+                      onChanged: (v) => setState(() => q = v),
+                      style: F.body.copyWith(color: p.ink),
+                      cursorColor: p.on(C.purple),
+                      decoration: InputDecoration.collapsed(
+                          hintText: 'Search ${allActivities.length} activities',
+                          hintStyle: F.body.copyWith(color: p.ink3)),
+                    ),
                   ),
                 ),
               ]),

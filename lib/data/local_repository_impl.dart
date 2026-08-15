@@ -3242,9 +3242,17 @@ class LocalRepositoryImpl extends LocalRepository {
       fertileEnd = _ymd(ovDate.add(const Duration(days: 2)));
     }
 
-    // Retrospective ovulation confirmation via 3-over-6 coverline on recent
-    // nightly RELATIVE skin-temp z (derived). Honest: confirmation only.
-    String? ovulationEst;
+    // NO ovulation estimate. `menstrualCoverline` is unit-agnostic and cannot
+    // check what it is handed; this called it with skin-temp Z-SCORES while
+    // leaving `threshold` at its 1.0 default, which is the classic 3-over-6
+    // rule's ~0.2 °F reinterpreted as a full standard deviation above the max
+    // of the prior six nights. The dates it produced were not wrong by a
+    // little, and nothing rendered them anyway.
+    //
+    // Restoring it needs a threshold defensible in z, on this sensor, with a
+    // stated basis — not a number chosen to make events appear. Until then the
+    // key does not exist, because absent-forever is deleted, not explained.
+    // See docs/internal/UI_ROADMAP.md.
     // Biometric overlay across the cycle — how resting HR / HRV / skin-temp shift
     // (descriptive context; the prediction is from logged periods, not these).
     final overlay = <Map<String, dynamic>>[];
@@ -3282,11 +3290,6 @@ class LocalRepositoryImpl extends LocalRepository {
           'skin_temp_idx': z,
         });
       }
-      final ov = ana.menstrualCoverline(dates, temps);
-      final events = ov.value;
-      if (events != null && events.isNotEmpty) {
-        ovulationEst = events.last.date;
-      }
     }
 
     final confidence = (startDates.length / 3.0).clamp(0.0, 1.0);
@@ -3299,7 +3302,6 @@ class LocalRepositoryImpl extends LocalRepository {
       'predicted_next': predictedNext,
       'fertile_start': fertileStart,
       'fertile_end': fertileEnd,
-      'ovulation_est': ovulationEst,
       'mean_length': meanLength,
       'note': null,
       'confidence': confidence,

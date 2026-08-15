@@ -99,7 +99,11 @@ import 'package:uuid/uuid.dart';
 /// Flow: loading → pairing → profile (only if incomplete) → shell. The profile
 /// step collects age/weight/height/sex so the on-device analytics can
 /// personalize (HRmax, calories, TRIMP); it's skipped once those are set.
-enum AppRoute { loading, welcome, pairing, profile, shell }
+///
+/// [failed] is start-up itself failing — a state the app can BE in, with a name
+/// and a retry, rather than the bare untimed spinner [loading] used to sit on
+/// forever when anything in `_init` threw.
+enum AppRoute { loading, failed, welcome, pairing, profile, shell }
 
 /// The healed pairing to persist when the band reports [reportedSerial], or
 /// null when nothing should change.
@@ -344,9 +348,11 @@ class AppState extends ChangeNotifier {
   }
 
   // ── data imports (NOOP raw CSV / Edge backup / WHOOP export) ────────────────
-  // Reachable from onboarding AND Profile (a returning user is past the welcome
-  // gate). Each runs against the engine + local profile, then notifies so every
-  // screen re-reads the freshly imported days.
+  // Reachable from onboarding (welcome.dart) AND from Settings › Your data
+  // (ui2/profile/data.dart) — both go through `runImport`, so there is one
+  // router. Each runs against the engine + local profile, then notifies so
+  // every screen re-reads the freshly imported days. None of them overwrites a
+  // day the band measured (LocalDb.isMeasuredDay).
 
   /// NOOP raw-sensor CSV → FULL 1 Hz re-derivation (memory-bounded streaming).
   Future<int> importNoopCsv(
@@ -638,10 +644,14 @@ class AppState extends ChangeNotifier {
 
   // ── companion: anonymous telemetry + health-data contribution ────────────────
   // All anchored to a stable anonymous install id (no account). Two SEPARATE
-  // consent scopes, both PRE-ENABLED at enrollment (shown on the onboarding
-  // name/age screen, where the user can switch either off before continuing).
-  // `consentChosen` records that the user has passed that screen at least once,
-  // so we never retroactively flip a returning install that predates the screen.
+  // consent scopes, BOTH DEFAULTING OFF, both switchable in Settings › Privacy
+  // (ui2/profile/settings.dart). There is no consent screen in onboarding: the
+  // one the old `lib/ui` had was deleted with that package, and for a while
+  // afterwards `setHealthShareConsent` had no caller anywhere — an install
+  // carrying `consent_health_data = true` from before the rebuild kept
+  // uploading its whole database with no way to stop it. Nothing here may be
+  // enabled except by an explicit tap; `consentChosen` records only that the
+  // user has answered at least once.
   static const String _kDeviceId = 'install_device_id';
   static const String _kTelemetryConsent = 'consent_telemetry';
   static const String _kHealthShareConsent = 'consent_health_data';
@@ -692,13 +702,19 @@ class AppState extends ChangeNotifier {
       await t.load();
       if (telemetryConsent) unawaited(t.flush()); // ship last session's records
 
-      // Learn the live Terms version (and OTA/banner) — best-effort.
-      final status = await CompanionClient.getStatus();
-      final v = status?['terms']?['version'];
-      if (v is int && v > 0) {
-        termsVersion = v;
-        t.consentVersion = v;
-        HealthUploader.instance.consentVersion = v;
+      // Learn the live Terms version — best-effort, and ONLY for an install
+      // that is actually sending something. The version exists to stamp the
+      // consent records we post; someone who has consented to nothing has
+      // nothing to stamp, so fetching it was a launch-time call to the
+      // operator's server on behalf of a user who had opted out of all of it.
+      if (telemetryConsent || healthShareConsent) {
+        final status = await CompanionClient.getStatus();
+        final v = status?['terms']?['version'];
+        if (v is int && v > 0) {
+          termsVersion = v;
+          t.consentVersion = v;
+          HealthUploader.instance.consentVersion = v;
+        }
       }
     } catch (e) {
       _log('[companion] init failed (non-fatal): $e');
@@ -706,10 +722,15 @@ class AppState extends ChangeNotifier {
   }
 
   /// The live band fields folded into each telemetry batch's device snapshot.
+  ///
+  /// NOT the band's serial. It used to be, and a hardware serial is a stable
+  /// cross-install device identifier — outside what the privacy policy
+  /// enumerates as the payload ("crash reports, basic device info, coarse
+  /// performance timing"), and not something a crash report has ever needed.
+  /// Nothing here distinguishes one band from another.
   Map<String, dynamic> _bandSnapshot() {
     final s = engine.state;
     return {
-      if (s.serial != null) 'band_serial': s.serial,
       if (s.batteryPct != null) 'band_battery_pct': s.batteryPct!.round(),
       'ble_state': s.connection,
     };
@@ -832,6 +853,9 @@ class AppState extends ChangeNotifier {
 
   /// Clear the local profile + unpair the band (the former "sign out", now purely
   /// local — there is no session to end).
+  ///
+  /// This is the PROFILE half only. "Reset all data" is [resetAllData], which
+  /// calls this last; do not use this one for a destructive user action.
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kProfile);
@@ -841,11 +865,70 @@ class AppState extends ChangeNotifier {
     await unpair();
   }
 
+  /// "Delete everything", and mean it.
+  ///
+  /// The old reset walked `availableDays()` — the non-skipped DERIVED days —
+  /// and deleted those, which left about twenty tables standing: blood panels,
+  /// every meal, every medication dose, every breathing session, every logged
+  /// set, the rolling baselines, the raw of any day that never derived. It
+  /// then removed exactly two preferences, so the install id, the consent
+  /// flags, the keychain API key, the home-screen widget's copy of yesterday's
+  /// readiness and every scheduled notification all survived a dialog that
+  /// said they would not.
+  ///
+  /// Order matters and is deliberate:
+  ///   1. Stop the network paths FIRST. Everything below takes time, and a
+  ///      derive or backup finishing mid-reset must not upload or write a
+  ///      snapshot of data the user just asked to destroy.
+  ///   2. The database, then the preferences, then the keychain — the reads
+  ///      that could re-create state are all downstream of the writes.
+  ///   3. [signOut] last, because it flips the route and the UI unwinds.
+  Future<void> resetAllData() async {
+    // 1 · nothing further leaves this phone, starting now.
+    telemetryConsent = false;
+    healthShareConsent = false;
+    consentChosen = false;
+    TelemetryService.instance.applyConsent(false);
+    HealthUploader.instance.deviceId = null; // maybeUpload bails without one
+    deviceId = '';
+
+    // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
+    // hand-written table list, and for the sync_cursor decision).
+    await LocalDb.wipeAll();
+
+    // Surfaces outside the database that were still showing it.
+    await NotificationService.instance.cancelAll();
+    await WidgetService.clear();
+    try {
+      await coachConfig?.save(apiKey: ''); // deletes the keychain entry
+    } catch (e) {
+      _log('[reset] keychain clear failed: $e');
+    }
+
+    // 3 · the whole preference namespace, not a remembered subset — same
+    // reason as wipeAll. A fresh install is the state being restored, and a
+    // fresh install has no preferences. The install id regenerates on the next
+    // launch, which is the point: the old anonymous id must not follow the
+    // user through a "delete everything".
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+    } catch (e) {
+      _log('[reset] prefs clear failed: $e');
+    }
+    _dismissedBanners.clear();
+    appStatus = null;
+    _savedAlarm = null;
+
+    await signOut();
+  }
+
   /// The single onboarding/route the UI gate is in. `_Gate` selects on THIS so it
   /// rebuilds only on a real route transition — NOT on every ~1 Hz notifyListeners
   /// (live HR, log lines), which used to repaint the whole home stack each second
   /// and starve the background BLE connection.
   AppRoute get route {
+    if (initError != null) return AppRoute.failed;
     if (!initialized) return AppRoute.loading;
     // First run, fresh install: offer "existing v2 user vs new user" before we
     // ask anyone to pair. A returning (already-paired) user skips it even if the
@@ -911,8 +994,30 @@ class AppState extends ChangeNotifier {
     await refreshAppStatus();
   }
 
+  /// Whether this install checks for updates. Only meaningful on a sideload
+  /// build ([kSideloadOtaEnabled]) — that is the only build whose binary can
+  /// contact the endpoint at all. Defaults ON there, because a sideloaded app
+  /// has no store to tell it a fix exists, but it is refusable and the
+  /// Settings row says what the check discloses.
+  static const String _kUpdateChecks = 'update_checks_enabled';
+  bool get updateChecksEnabled => Prefs.getBool(_kUpdateChecks, true);
+
+  /// Whether the update-check row should appear at all: a build with the
+  /// feature compiled out has nothing to switch.
+  bool get updateChecksAvailable => kSideloadOtaEnabled;
+
+  Future<void> setUpdateChecksEnabled(bool on) async {
+    Prefs.setBool(_kUpdateChecks, on);
+    if (!on) {
+      appStatus = null; // drop any banner the last check produced
+    }
+    notifyListeners();
+    if (on) await refreshAppStatus();
+  }
+
   /// Re-poll the update pointer (best-effort; called on launch and on app resume).
   Future<void> refreshAppStatus() async {
+    if (!updateChecksEnabled) return;
     final status = await UpdateService.fetchStatus();
     if (status == null) return;
     appStatus = status;
@@ -1135,6 +1240,11 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   bool get debugHasLiveConsumer => _hasLiveConsumer;
 
+  /// Run start-up (guarded, exactly as the constructor fires it) so a test can
+  /// drive the failure path. Tests only.
+  @visibleForTesting
+  Future<void> debugInit() => _init();
+
   /// Run the orphaned-live-workout reconcile directly. Tests only — in the app
   /// it is kicked unawaited from [_init].
   @visibleForTesting
@@ -1268,6 +1378,7 @@ class AppState extends ChangeNotifier {
       if (heavy && healthShareConsent) {
         unawaited(HealthUploader.instance.maybeUpload(consented: true));
       }
+      if (heavy) unawaited(_maybeReclaimDiskSpace());
     } catch (e, st) {
       _log('[derive] post-drain failed: $e');
       // Was silently swallowed before — this is a real pipeline failure
@@ -1276,6 +1387,38 @@ class AppState extends ChangeNotifier {
       TelemetryService.instance.recordNonFatal(e, st, reason: 'post_drain_failed');
     } finally {
       TelemetryService.instance.setContext('derive_active', false);
+    }
+  }
+
+  bool _vacuumedThisLaunch = false;
+
+  /// Give the FILESYSTEM back the pages the retention prune freed.
+  ///
+  /// Deleting rows only moves pages to SQLite's freelist; the file never
+  /// shrinks below its all-time high-water mark, so an install that once let a
+  /// substrate backlog build (or that went through v39's two shadow-copy
+  /// migrations) keeps that size forever even though the space is unused. See
+  /// [LocalDb.vacuumIfBloated] for why this is a one-off VACUUM and not
+  /// `auto_vacuum`.
+  ///
+  /// A VACUUM rewrites the whole file under an exclusive lock and wants ~2× the
+  /// file size free on disk, so it runs at exactly one moment: right after a
+  /// FOREGROUND heavy derive, with no live session and nothing else in flight.
+  /// Never on the sync/ACK path, never backgrounded, and at most once a launch
+  /// — steady state has nothing left to reclaim on a second pass.
+  Future<void> _maybeReclaimDiskSpace() async {
+    if (_vacuumedThisLaunch || _disposed) return;
+    if (_background || busy || _hasLiveConsumer) return;
+    _vacuumedThisLaunch = true;
+    try {
+      final freed = await LocalDb.vacuumIfBloated();
+      if (freed > 0) {
+        _log('[db] vacuum returned ${freed >> 20} MB to the filesystem');
+      }
+    } catch (e) {
+      // Out of disk, or another connection holds a lock. Storage hygiene —
+      // nothing user-facing depends on it, and the next launch tries again.
+      _log('[db] vacuum skipped: $e');
     }
   }
 
@@ -1763,7 +1906,63 @@ class AppState extends ChangeNotifier {
     _gestureDispatcher.onEvent(id, ts, hex);
   }
 
+  /// Why start-up failed, or null if it did not. Drives [AppRoute.failed].
+  ///
+  /// The message is whatever actually threw, verbatim. It is not translated
+  /// into a friendlier guess: if the app does not know why it could not start,
+  /// it says what it does know rather than inventing a cause.
+  String? initError;
+
+  /// The database had to be rebuilt on this launch — see [LocalDb.lastRebuild].
+  /// Non-null means the old file is parked on disk and only what
+  /// `salvaged` lists came back. The user has to be TOLD; a rebuild the user
+  /// never hears about is indistinguishable from data quietly vanishing.
+  DbRebuild? get dbRebuild => LocalDb.lastRebuild;
+
+  bool _retryingInit = false;
+
+  /// Run start-up again after [AppRoute.failed]. Every step in [_initSteps] is
+  /// idempotent (prefs/DB reads, and `openSession` is guarded by `busy`), so a
+  /// retry that partially succeeded before simply redoes it.
+  Future<void> retryInit() async {
+    if (initialized || _retryingInit) return;
+    _retryingInit = true;
+    initError = null;
+    notifyListeners(); // back to the spinner while this runs
+    try {
+      await _init();
+    } finally {
+      _retryingInit = false;
+    }
+  }
+
+  /// [_initSteps], with the guard that turns a start-up failure into a state
+  /// the app can be in and get out of.
+  ///
+  /// This is fired UNAWAITED from the constructor, so before the guard any
+  /// throw — a corrupt prefs blob, a DB read, the derive scheduler's job
+  /// recovery — became an unhandled async error that skipped `initialized =
+  /// true` and reached nothing but Crashlytics. The user got `AppRoute.loading`
+  /// forever: a bare spinner with no timeout, no message and no retry, on every
+  /// single launch. `main.dart` already wraps every OTHER start-up step exactly
+  /// like this.
   Future<void> _init() async {
+    try {
+      await _initSteps();
+    } catch (e, st) {
+      _log('[init] FAILED: $e');
+      TelemetryService.instance.recordNonFatal(e, st, reason: 'app_init_failed');
+      // A throw AFTER `initialized` is a late, non-fatal step (the background
+      // BLE arm at the tail) — the shell is already usable, so it must not
+      // throw the user onto an error screen.
+      if (!initialized) {
+        initError = '$e';
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _initSteps() async {
     paired = await PairedDevice.load();
     await _loadProfile();
     await _refreshNightlyRhr();
@@ -4468,7 +4667,20 @@ class AppState extends ChangeNotifier {
       'source': 'manual',
       'created_at': w.startTime.millisecondsSinceEpoch,
     };
-    unawaited(LocalDb.putSession(sessionRow));
+    // AWAITED, and the live state is not cleared until it lands. This was
+    // fire-and-forget with `activeWorkout = null` on the next line: the
+    // in-memory session is the ONLY other copy, so a failed write silently
+    // destroyed the whole workout while the summary screen rendered it in full.
+    // On a throw the session stays live — every teardown above is idempotent,
+    // so calling stopWorkout() again is a clean retry — and the exception
+    // propagates instead of being reported as a finished, saved session.
+    try {
+      await LocalDb.putSession(sessionRow);
+    } catch (e) {
+      _log('[workout] could not save session $id: $e — keeping it live');
+      notifyListeners();
+      rethrow;
+    }
     // Session-triggered Health export (issue #130) — don't wait for the next
     // day_result/derive pass (which may not run at all if the band isn't
     // connected right now); write this workout to Apple Health/Health Connect

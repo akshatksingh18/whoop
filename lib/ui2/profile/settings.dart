@@ -19,9 +19,11 @@ import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
+import '../../telemetry/health_uploader.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import 'alarm.dart';
+import 'data.dart';
 import 'profile.dart';
 
 /// Unwind the profile stack back to the gate.
@@ -50,9 +52,18 @@ class MoreSettings extends StatelessWidget {
       appearance: theme.choice.label,
       phoneSteps: app.phoneStepsEnabled,
       telemetry: app.telemetryConsent,
+      // Shown when the build has the feature OR when this install already
+      // consented under an older build. A consent that cannot be withdrawn is
+      // not consent, and the old `lib/ui` toggle died with that package while
+      // the pref — and the daily whole-database upload it authorises — did not.
+      showHealthShare: kHealthDataContributionEnabled || app.healthShareConsent,
+      healthShare: app.healthShareConsent,
+      showUpdateChecks: app.updateChecksAvailable,
+      updateChecks: app.updateChecksEnabled,
       onEditProfile: () => goto(c, const EditProfile()),
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
+      onData: () => goto(c, const DataScreen()),
       onCycleUnits: () => units.setSystem(units.isImperial
           ? UnitSystem.metric
           : UnitSystem.imperial),
@@ -62,20 +73,95 @@ class MoreSettings extends StatelessWidget {
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
+      onToggleHealthShare: () => _toggleHealthShare(c, app),
+      onToggleUpdateChecks: () =>
+          app.setUpdateChecksEnabled(!app.updateChecksEnabled),
       onReset: () => _confirmReset(c, app),
     );
   }
+}
+
+/// Grant or withdraw the whole-database health contribution.
+///
+/// Asymmetric on purpose. Granting is confirmed first — it authorises a daily
+/// upload of the ENTIRE database, raw signal included, which is the largest
+/// thing this app can ever send anywhere. Withdrawing takes effect
+/// IMMEDIATELY, with no dialog in the way, and only then says what had already
+/// been sent: a revocation you have to confirm is a revocation that can be
+/// mis-tapped into staying on.
+Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
+  if (app.healthShareConsent) {
+    await app.setHealthShareConsent(false);
+    final last = await HealthUploader.instance.lastUploadAt();
+    if (!c.mounted) return;
+    await showDialog<void>(
+      context: c,
+      builder: (d) => AlertDialog(
+        title: const Text('Contribution off'),
+        content: Text(
+          last == null
+              ? 'Nothing was ever uploaded. Nothing will be.'
+              : 'Nothing further will be uploaded.\n\n'
+                  'One copy of your database was uploaded on '
+                  '${last.toLocal().toString().split('.').first}. The server '
+                  'keeps only the most recent copy per device, and it has been '
+                  'told your consent is withdrawn — but we cannot show you '
+                  'that it is gone, so this is what we know.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(d).pop(), child: const Text('OK')),
+        ],
+      ),
+    );
+    return;
+  }
+  final ok = await showDialog<bool>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: const Text('Contribute your health data?'),
+      content: const Text(
+        'Once a day, on Wi-Fi and while charging, a compressed copy of your '
+        'ENTIRE database is uploaded — every derived day and every raw sensor '
+        'row the band has sent. It is used to improve the algorithms.\n\n'
+        'It is not anonymous in any meaningful sense: it is your whole health '
+        'history. You can switch this off at any time, and nothing further '
+        'is sent from that moment.',
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: const Text('No')),
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: const Text('Contribute')),
+      ],
+    ),
+  );
+  if (ok == true) await app.setHealthShareConsent(true);
 }
 
 Future<void> _confirmReset(BuildContext c, AppState app) async {
   final ok = await showDialog<bool>(
     context: c,
     builder: (d) => AlertDialog(
-      title: const Text('Reset all data?'),
+      title: const Text('Delete everything?'),
+      // Enumerated, because the previous wording ("every measured day, session
+      // and profile field") was false in about twenty places: it deleted the
+      // derived days and left the labs, the meals, the doses, the breathing
+      // sessions, the logged sets, the baselines, the consent flags, the
+      // install id, the stored API key and the home-screen widget standing.
+      // It now removes all of that, so it can say so.
       content: const Text(
-        'Every measured day, session and profile field on this phone is '
-        'deleted, and the band is unpaired. There is no copy anywhere else — '
-        'export first if you want one.',
+        'This deletes, permanently and with no copy anywhere else:\n\n'
+        '· every measured day, sleep, workout and route\n'
+        '· every lab result, meal, medication dose, habit, breathing session '
+        'and logged set\n'
+        '· your journal, cycle log and rolling baselines\n'
+        '· your profile, every preference and any stored AI key\n'
+        '· the home-screen widget and every scheduled reminder\n\n'
+        'The band is unpaired, and it cannot re-send history it has already '
+        'handed over. Export from Your data first if you want a copy.',
       ),
       actions: [
         TextButton(
@@ -88,27 +174,34 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     ),
   );
   if (ok != true) return;
-  final repo = app.repo;
-  if (repo != null) {
-    final days = await repo.availableDays();
-    if (days.isNotEmpty) await app.deleteDays(days.toSet());
-  }
-  await app.signOut();
-  // signOut swaps the gate to Welcome, which is UNDER this screen — without
-  // this the user stays on Settings, reading a profile that has been deleted.
+  await app.resetAllData();
+  // resetAllData swaps the gate to Welcome, which is UNDER this screen —
+  // without this the user stays on Settings, reading a profile that has been
+  // deleted.
   if (c.mounted) backToRoot(c);
 }
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
   final bool phoneSteps, telemetry;
+
+  /// The health-contribution row appears only where it means something: a
+  /// build that has the feature, or an install that already said yes to it.
+  final bool showHealthShare, healthShare;
+
+  /// The update-check row appears only on a build that can check.
+  final bool showUpdateChecks, updateChecks;
+
   final VoidCallback? onEditProfile,
       onAlarm,
       onNotifications,
+      onData,
       onCycleUnits,
       onCycleAppearance,
       onTogglePhoneSteps,
       onToggleTelemetry,
+      onToggleHealthShare,
+      onToggleUpdateChecks,
       onReset;
 
   const MoreSettingsView({
@@ -117,13 +210,20 @@ class MoreSettingsView extends StatelessWidget {
     this.appearance = 'System',
     this.phoneSteps = false,
     this.telemetry = false,
+    this.showHealthShare = false,
+    this.healthShare = false,
+    this.showUpdateChecks = false,
+    this.updateChecks = true,
     this.onEditProfile,
     this.onAlarm,
     this.onNotifications,
+    this.onData,
     this.onCycleUnits,
     this.onCycleAppearance,
     this.onTogglePhoneSteps,
     this.onToggleTelemetry,
+    this.onToggleHealthShare,
+    this.onToggleUpdateChecks,
     this.onReset,
   });
 
@@ -167,11 +267,29 @@ class MoreSettingsView extends StatelessWidget {
                       value: phoneSteps ? 'On' : 'Off',
                       onTap: onTogglePhoneSteps),
                 ]),
+                settingsGroup(c, 'Your data', [
+                  SetRow(LucideIcons.download, C.green, 'Export, backup, import',
+                      sub: 'Spreadsheets, a full copy, and bringing history in',
+                      onTap: onData),
+                ]),
                 settingsGroup(c, 'Privacy', [
                   SetRow(LucideIcons.bug, C.orange, 'Crash reports',
                       sub: 'Off by default. Nothing is sent until you say so',
                       value: telemetry ? 'On' : 'Off',
                       onTap: onToggleTelemetry),
+                  if (showHealthShare)
+                    SetRow(LucideIcons.cloudUpload, C.red,
+                        'Contribute my health data',
+                        sub: 'Uploads your whole database once a day, on '
+                            'Wi-Fi and charging, to improve the algorithms',
+                        value: healthShare ? 'On' : 'Off',
+                        onTap: onToggleHealthShare),
+                  if (showUpdateChecks)
+                    SetRow(LucideIcons.refreshCw, C.blue, 'Check for updates',
+                        sub: 'Asks the release server on launch. It sees your '
+                            'IP address and when you open the app',
+                        value: updateChecks ? 'On' : 'Off',
+                        onTap: onToggleUpdateChecks),
                 ]),
                 const SizedBox(height: S.x6),
                 Surface(

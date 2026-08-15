@@ -14,7 +14,13 @@
 //      get a non-zero duration, and they return `Duration.zero` when the
 //      platform asks for reduced motion. No call site can opt out, and the
 //      tokens test forbids `.repeat(` anywhere in lib/ui2 so an infinite loop
-//      can never survive the gate.
+//      can never survive the gate. That gate reaches the NAVIGATOR too:
+//      `buildTheme` installs a `pageTransitionsTheme` that returns the page
+//      unanimated (22 routes were sliding at full duration under Reduce
+//      Motion), and `sheetMotion()` does the same for the four modal sheets,
+//      which do not consult a theme at all. Dialogs still use Flutter's own
+//      fade-and-scale — small, centred, and the least nauseogenic of the
+//      three — so they are deliberately left alone.
 //   3. BOTH THEMES ARE DESIGNED. Every colour is defined for light and dark in
 //      the same expression. There is no token that exists only inside a
 //      dark-mode branch.
@@ -111,8 +117,18 @@ class P {
   /// toward the page ink until it clears [_aa] against the worst legal
   /// surface ([card2]). `C.green` on white measures 2.28:1 raw; `on(C.green)`
   /// measures 4.53:1 and still reads unmistakably green.
-  Color on(Color accent) =>
-      _solve(accent, dark ? ink : C.n900, card2, dark);
+  ///
+  /// Solved TWICE, against the two worst surfaces it can land on. `card2` is
+  /// the flat one; the other is `wash(accent)` over it — the Pill and the
+  /// active SubTabs chip put this ink on a tinted background nothing was
+  /// solving against, and five of six accents measured 4.30–4.49 there. The
+  /// solver only ever nudges toward the page ink, so clearing the second
+  /// surface cannot un-clear the first.
+  Color on(Color accent) {
+    final toward = dark ? ink : C.n900;
+    final flat = _solve(accent, toward, card2, dark);
+    return _solve(flat, toward, Color.alphaBlend(wash(accent), card2), dark);
+  }
 
   /// [accent] rendered as a FILLED surface under [inkOnFill], darkened until
   /// white text on it clears [_aa]. Buttons, chips, CTA badges.
@@ -120,8 +136,12 @@ class P {
 
   /// A tinted wash of [accent] — the InsightCard / Pill / active-tab
   /// background. Never carries text of its own colour; pair it with [on].
+  ///
+  /// [strength] is capped at 1: full strength is the tint [on] and [ink3] were
+  /// solved against, and a caller asking for 1.6 was pushing muted ink to
+  /// 2.99:1 on its own card. A wash darker than a wash is a fill.
   Color wash(Color accent, {double strength = 1}) =>
-      accent.withValues(alpha: (dark ? .18 : .11) * strength);
+      accent.withValues(alpha: (dark ? .18 : .11) * strength.clamp(0.0, 1.0));
 
   List<BoxShadow> el(int level) {
     if (level <= 0) return const [];
@@ -361,6 +381,42 @@ Duration motion(BuildContext c, Duration d) =>
 /// motion is off, so a chart that draws itself in still ends up fully drawn.
 double animate(BuildContext c, double t) => Motion.enabled(c) ? t : 1;
 
+/// The motion gate for `showModalBottomSheet`, which takes an [AnimationStyle]
+/// rather than reading [ThemeData.pageTransitionsTheme] like a route does.
+/// Null keeps the platform default; [AnimationStyle.noAnimation] cuts straight
+/// to the open sheet.
+AnimationStyle? sheetMotion(BuildContext c) =>
+    Motion.enabled(c) ? null : AnimationStyle.noAnimation;
+
+/// True once the user's text scale has passed the point where a card's header
+/// can no longer be one line. The number is not a device class — it is where
+/// `label · value · unit` stops fitting a phone's width — and it is shared so
+/// that every card that has to restack does it at the same moment.
+bool bigText(BuildContext c) => MediaQuery.textScalerOf(c).scale(1) > 1.3;
+
+/// Reduced motion has to reach the NAVIGATOR, not only the widgets inside it.
+/// `TransitionRoute` builds its controller straight from `transitionDuration`
+/// and never asks whether animations are disabled, so before this every push
+/// slid at full duration for exactly the people who turned the setting on —
+/// and a full-screen slide is the most nauseogenic thing the app does.
+///
+/// Sheets and dialogs do not consult a theme at all; those pass
+/// `AnimationStyle.noAnimation` at their call sites.
+class _Gated extends PageTransitionsBuilder {
+  /// Whatever the SDK ships for this platform — taken from the default theme
+  /// rather than named here, so the app keeps the native transition and this
+  /// gate does not quietly become a second opinion about what it should be.
+  final PageTransitionsBuilder inner;
+  const _Gated(this.inner);
+
+  @override
+  Widget buildTransitions<T>(PageRoute<T> route, BuildContext c,
+      Animation<double> animation, Animation<double> secondary, Widget child) {
+    if (!Motion.enabled(c)) return child;
+    return inner.buildTransitions(route, c, animation, secondary, child);
+  }
+}
+
 ThemeData buildTheme(Brightness b) {
   final p = P(b == Brightness.dark);
   return ThemeData(
@@ -372,5 +428,9 @@ ThemeData buildTheme(Brightness b) {
     fontFamilyFallback: const ['Manrope'],
     splashFactory: NoSplash.splashFactory,
     highlightColor: const Color(0x00000000),
+    pageTransitionsTheme: PageTransitionsTheme(builders: {
+      for (final e in const PageTransitionsTheme().builders.entries)
+        e.key: _Gated(e.value),
+    }),
   );
 }

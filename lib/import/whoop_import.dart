@@ -18,7 +18,6 @@ import '../compute/derivation_engine.dart' show kAlgoVersion, DerivationEngine;
 import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
 import '../data/db.dart';
-import '../data/series_codec.dart';
 import 'import_container.dart';
 
 class WhoopImportResult {
@@ -185,31 +184,6 @@ class WhoopImporter {
 
   // ── per-row writers ──────────────────────────────────────────────────────────
 
-  /// True when [row] is a day the device DERIVED itself (from real 1 Hz), as
-  /// opposed to absent, a skip marker, or a previous vendor import. Such a day
-  /// is never overwritten: `putDayResult` is INSERT OR REPLACE on both
-  /// `day_result` and `metric_series`, so writing over it would permanently
-  /// destroy measured data that a returning user cannot get back.
-  static bool _isRealDerivedDay(Map<String, dynamic>? row) {
-    if (row == null) return false;
-    if (((row['skipped'] as num?) ?? 0).toInt() == 1) return false;
-    try {
-      final p = SeriesCodec.decodePayloadJson(
-        (row['payload_json'] as String?) ?? '{}',
-      );
-      if (p != null) {
-        if (p['skipped'] == true) return false;
-        // A prior import (this importer, or the cloud one) is replaceable —
-        // both are vendor snapshots, neither is measured on-device data.
-        if (p['imported'] == true) return false;
-      }
-    } catch (_) {
-      // Present but unreadable — treat as real and refuse to clobber it.
-      return true;
-    }
-    return true;
-  }
-
   static Future<_DayWrite> _writeDay(_Row row, Set<String> rawDays) async {
     String get(List<String> names) => row.get(names);
     final wakeTs = _parseTs(get(['wake onset', 'sleep onset', 'cycle start time']));
@@ -218,14 +192,13 @@ class WhoopImporter {
     if (anchor == null) return _DayWrite.unusable;
     final date = localDateLabel(anchor);
 
-    // NEVER clobber a real derived day. The import is reachable from onboarding
-    // AND from Profile, so a returning user with months of band data importing
-    // their WHOOP export used to have every overlapping day's payload and
-    // scalars replaced by the vendor's numbers — and `finalized: true` then
-    // locked the day so DerivationEngine could never rebuild it from raw.
-    if (_isRealDerivedDay(await LocalDb.dayResult(date))) {
-      return _DayWrite.keptExisting;
-    }
+    // NEVER clobber a real derived day: a returning user with months of band
+    // data importing their WHOOP export used to have every overlapping day's
+    // payload and scalars replaced by the vendor's numbers — and
+    // `finalized: true` then locked the day so DerivationEngine could never
+    // rebuild it from raw. The guard now lives in LocalDb so the other three
+    // import paths share it rather than each forgetting it.
+    if (await LocalDb.isMeasuredDay(date)) return _DayWrite.keptExisting;
 
     num? n(List<String> names) => double.tryParse(get(names));
     final recovery = n(['recovery score %', 'recovery score']);

@@ -36,6 +36,7 @@ class LogFoodSheet extends StatefulWidget {
   }) => showModalBottomSheet<bool>(
     context: c,
     isScrollControlled: true,
+    sheetAnimationStyle: sheetMotion(c),
     backgroundColor: P.of(c).card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
@@ -122,7 +123,6 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                       style: F.t2.copyWith(color: p.ink)),
                 ),
                 Pressable(
-                  expand: false,
                   semanticLabel: 'Close',
                   onTap: () => Navigator.of(c).pop(),
                   child: Icon(LucideIcons.x, size: 20, color: p.ink3),

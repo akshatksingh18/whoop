@@ -108,16 +108,19 @@ Future<StrainBackfillResult> backfillStrainScale({
   var bundleDays = 0;
   var skipped = 0;
 
+  // Days already complete at the current version were rescaled on a prior
+  // pass. Read as ONE query so the loop below does not open a `day_result` row
+  // just to close it again: this runs once per install-history, and the day
+  // this fires is the launch right after an update.
+  final alreadyCurrent = await LocalDb.dayResultIds(kAlgoVersion);
+
   for (final day in days) {
     if (day.compareTo(cutoff) >= 0) continue;
+    if (alreadyCurrent.contains(day)) continue;
 
-    final row = await LocalDb.dayResult(day);
-    // Already carries a row at the current version — rescaled on a prior pass.
-    if (row != null &&
-        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
-      continue;
-    }
-
+    // PURE first, DB second. A day with no TRIMP or no wake window cannot be
+    // rescaled at all, and reading its bundle to discover that was a whole
+    // round trip plus a payload materialisation per unrescalable day.
     final next = rescaledStrain(
       trimp: trimpBy[day],
       wornMin: wornBy[day],
@@ -126,6 +129,14 @@ Future<StrainBackfillResult> backfillStrainScale({
     );
     if (next == null) {
       skipped++;
+      continue;
+    }
+
+    final row = await LocalDb.dayResult(day);
+    // A partial/skipped row at the current version is not in `alreadyCurrent`
+    // but is still rescaled — same check as before, just reached less often.
+    if (row != null &&
+        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
       continue;
     }
 

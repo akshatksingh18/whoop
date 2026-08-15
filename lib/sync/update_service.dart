@@ -55,6 +55,16 @@ class UpdateService {
   /// URL configured, offline, bad JSON) so the caller simply skips the update
   /// prompt / banner.
   static Future<AppStatus?> fetchStatus() async {
+    // Defense in depth, the same shape as HealthUploader.maybeUpload: the
+    // update pointer and the admin banner are the ONLY reasons this endpoint
+    // is ever contacted, and both belong to the sideload OTA feature — so a
+    // build without that feature must not contact it, whatever the caller
+    // believes. It used to fire on every launch and every foreground, gated
+    // on nothing but a non-empty URL, in shipped releases. A GET carries no
+    // health data, but it still hands the operator an IP, a rough location
+    // and a timestamp for every single app open, which is neither disclosed
+    // nor refusable. The per-user off switch is [AppState.updateChecksEnabled].
+    if (!kSideloadOtaEnabled) return null;
     final base = CompanionClient.effectiveBase;
     if (base.isEmpty) return null;
     try {

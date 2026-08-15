@@ -200,7 +200,7 @@ class _SleepDetailState extends State<SleepDetail> {
                 child: Stack(alignment: Alignment.center, children: [
                   CustomPaint(
                     size: const Size(66, 66),
-                    painter: Ring(eff.clamp(0, 1).toDouble(), C.green, p.track,
+                    painter: Ring(eff.clamp(0, 1).toDouble(), p.on(C.green), p.track,
                         stroke: 7, t: animate(c, 1)),
                   ),
                   // The ring is a fixed 66 pt; at 2x text the label inside it
@@ -235,10 +235,10 @@ class _SleepDetailState extends State<SleepDetail> {
               // Driven by the night, not by the enum: a night with no REM in
               // it used to still print REM in its key.
               legend: [
-                for (final e in Hypnogram.legend)
+                for (final e in Hypnogram.legend(p))
                   if (stages.any((s) => s.label == e.$1)) e,
               ],
-              child: _hypnogram(c, p, stages),
+              child: _hypnogram(c, p, stages, n),
             ),
         ]),
       ),
@@ -273,34 +273,44 @@ class _SleepDetailState extends State<SleepDetail> {
     ]);
   }
 
-  // A Listener, not a drag gesture: this is a scrub, so what matters is where
-  // the pointer IS, and the 44 pt tap rule Pressable enforces does not apply to
-  // a continuous readout.
-  Widget _hypnogram(BuildContext c, P p, List<SleepStage> stages) =>
-      LayoutBuilder(builder: (_, box) {
-        final w = box.maxWidth;
-        void set(Offset local) =>
-            setState(() => _scrub = (local.dx / w).clamp(0.0, 1.0));
-        return Listener(
-          onPointerDown: (e) => set(e.localPosition),
-          onPointerMove: (e) => set(e.localPosition),
-          child: SizedBox(
-            height: 110,
-            child: Stack(children: [
-              CustomPaint(
-                  size: Size.infinite,
-                  painter: Hypnogram(stages, t: animate(c, 1))),
-              if (_scrub != null)
-                Positioned(
-                  left: (_scrub! * w).clamp(0.0, w - 2),
-                  top: 0,
-                  bottom: 0,
-                  child: Container(width: 2, color: p.ink),
-                ),
-            ]),
-          ),
-        );
-      });
+  /// A [Scrubber], not a drag gesture: what matters is where the pointer IS,
+  /// and the 44 pt tap rule does not apply to a continuous readout. What DOES
+  /// apply is that the readout has to exist without a pointer — [Scrubber]
+  /// carries the slider role and speaks [describe] at each step.
+  Widget _hypnogram(
+          BuildContext c, P p, List<SleepStage> stages, Map<String, dynamic> n) =>
+      Scrubber(
+        value: _scrub,
+        onChanged: (v) => setState(() => _scrub = v),
+        label: 'Hypnogram',
+        describe: (v) {
+          final t0 = (n['onset_ts'] as num?)?.toInt();
+          final t1 = (n['wake_ts'] as num?)?.toInt();
+          final st = stages.isEmpty
+              ? null
+              : stages[(v * (stages.length - 1)).round().clamp(0, stages.length - 1)];
+          final at = (t0 == null || t1 == null || t1 <= t0)
+              ? '${(v * 100).round()}% through the night'
+              : clockOfTs(t0 + ((t1 - t0) * v).round());
+          return st == null ? at : '$at, ${_stageName(st)}';
+        },
+        child: SizedBox(
+          height: 110,
+          child: Stack(children: [
+            CustomPaint(
+                size: Size.infinite,
+                painter: Hypnogram(stages, p, t: animate(c, 1))),
+            if (_scrub != null)
+              // Aligned by fraction rather than by a measured offset, so the
+              // cursor needs no width from the layout.
+              Align(
+                alignment: Alignment(_scrub! * 2 - 1, 0),
+                child: SizedBox(width: 2, height: double.infinity,
+                    child: ColoredBox(color: p.ink)),
+              ),
+          ]),
+        ),
+      );
 
   /// What every signal read at the scrubbed instant. Each line abstains on its
   /// own — a night with no respiration series still shows heart rate.
@@ -352,7 +362,7 @@ class _SleepDetailState extends State<SleepDetail> {
                 style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             const Spacer(),
             if (stage != null)
-              Pill(_stageName(stage), Hypnogram.cols[stage] ?? C.blue),
+              Pill(_stageName(stage), Hypnogram.pigment[stage] ?? C.blue),
           ]),
           if (items.isEmpty) ...[
             const SizedBox(height: S.x3),
@@ -611,9 +621,12 @@ class _SleepDetailState extends State<SleepDetail> {
       units.add(unit);
     }
 
-    lane(hr, 'Heart rate', 'bpm', C.red);
-    lane(hrv, 'HRV', 'ms', C.green);
-    lane(resp, 'Breathing', 'br/min', C.teal);
+    // Solved against the card, like every other mark: raw pigment measures
+    // 1.7-2.5:1 on white and a lane's colour is what tells you which signal
+    // you are looking at.
+    lane(hr, 'Heart rate', 'bpm', p.on(C.red));
+    lane(hrv, 'HRV', 'ms', p.on(C.green));
+    lane(resp, 'Breathing', 'br/min', p.on(C.teal));
 
     if (series.isEmpty) {
       return const StatusCard(

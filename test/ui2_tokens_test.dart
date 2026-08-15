@@ -71,10 +71,14 @@ final _rules = <_Rule>[
   ),
   _Rule(
     'raw gesture detector',
-    RegExp(r'\b(GestureDetector|InkWell|RawGestureDetector)\b'),
-    'Pressable is the only gesture primitive — it is what applies the 44 pt '
-        'minimum tap target, so a call site that bypasses it is a call site '
-        'that opts out of it.',
+    // `Listener` is on this list because it was NOT, and the hypnogram scrub
+    // walked straight through the gap: a precise continuous drag, no discrete
+    // alternative, no semantics, over a silent painter. Raw pointer events are
+    // a gesture whatever the widget is called.
+    RegExp(r'\b(GestureDetector|InkWell|RawGestureDetector|Listener)\b'),
+    'Pressable is the only gesture primitive and Scrubber the only drag — they '
+        'are what apply the 44 pt minimum and the slider semantics, so a call '
+        'site that bypasses them is a call site that opts out of them.',
     allow: {_gestureFile},
   ),
 ];

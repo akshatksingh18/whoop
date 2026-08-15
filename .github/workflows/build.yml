@@ -186,11 +186,15 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
-          # Health-data contribution is intentionally ON for GitHub release
-          # builds (matches the ios job) — see privacy.html's "GitHub
-          # releases" section. Still opt-in per user (a Settings/onboarding
-          # toggle, defaulting off) even with this build-time flag true; see
-          # the doc comment on kHealthDataContributionEnabled in
+          # Health-data contribution: this flag makes the feature EXIST in
+          # the binary (matches the ios job). It does not enable anything —
+          # the pref defaults off and the upload additionally requires the
+          # user to switch on Settings > Privacy > "Contribute my health
+          # data". Verify that row still exists before touching this line:
+          # this comment used to assert the toggle as a backstop at a time
+          # when the toggle had no UI at all, and that false reassurance is
+          # how PRIVACY.md ended up describing a control nobody could reach.
+          # See kHealthDataContributionEnabled in
           # lib/telemetry/health_uploader.dart.
           echo "ENABLE_HEALTH_DATA_CONTRIBUTION=true" >> .env
 
@@ -287,15 +291,18 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
-          # Health-data contribution is intentionally ON for GitHub release
-          # builds (matches the android job) — see privacy.html's "GitHub
-          # releases" section. Still opt-in per user (a Settings/onboarding
-          # toggle, defaulting off) even when this build-time flag is true;
-          # see the doc comment on kHealthDataContributionEnabled in
-          # lib/telemetry/health_uploader.dart. App Store/Play Store builds
-          # (once that pipeline exists) must keep this false to hold
-          # PRIVACY.md's "we do not collect your health data" promise for
-          # those channels specifically.
+          # Health-data contribution: this flag makes the feature EXIST in
+          # the binary (matches the android job). It does not enable
+          # anything — the pref defaults off and the upload additionally
+          # requires the user to switch on Settings > Privacy > "Contribute
+          # my health data". Verify that row still exists before touching
+          # this line: this comment used to assert the toggle as a backstop
+          # at a time when the toggle had no UI at all, and that false
+          # reassurance is how PRIVACY.md ended up describing a control
+          # nobody could reach. GitHub Releases is the only channel that
+          # exists; there is no store pipeline, so nothing here distinguishes
+          # one. See kHealthDataContributionEnabled in
+          # lib/telemetry/health_uploader.dart.
           echo "ENABLE_HEALTH_DATA_CONTRIBUTION=true" >> .env
 
       - name: Install flutterfire (required by Crashlytics Xcode build phase)

@@ -199,7 +199,6 @@ class _ShareSheetState extends State<ShareSheet> {
                       children: [
                         for (final s in stats)
                           Pressable(
-                            expand: false,
                             semanticLabel: '${s.$1} ${s.$2}',
                             onTap: () => setState(
                               () => chosen.contains(s.$1)

@@ -163,6 +163,57 @@ class WidgetService {
     }
   }
 
+  /// Blank the App Group snapshot — home widget, lock-screen battery widget,
+  /// Watch mirror and the Siri intents all read it.
+  ///
+  /// Part of "Delete everything". These surfaces never run Dart, so nothing
+  /// else can correct them: without this the home screen kept showing the
+  /// readiness, sleep and HRV of a database that no longer existed, and the
+  /// Watch kept mirroring it, indefinitely.
+  ///
+  /// `has_data: false` is the one flag every native reader gates on, so it
+  /// alone is sufficient — the rest is cleared so no stale value survives to be
+  /// read by some future reader that forgets to check the flag.
+  static Future<void> clear() async {
+    try {
+      await init();
+      await HomeWidget.saveWidgetData<bool>('has_data', false);
+      for (final k in const [
+        'readiness',
+        'hrv',
+        'hrv_baseline',
+        'sleep_min',
+        'sleep_need_min',
+        'rhr',
+        'batt_pct',
+      ]) {
+        await HomeWidget.saveWidgetData<int>(k, -1);
+      }
+      await HomeWidget.saveWidgetData<double>('strain', -1.0);
+      for (final k in const [
+        'coach_line',
+        'stress_band',
+        'batt_name',
+        'backend_url',
+        'access_jwt',
+      ]) {
+        await HomeWidget.saveWidgetData<String>(k, '');
+      }
+      await HomeWidget.saveWidgetData<bool>('batt_charging', false);
+      await HomeWidget.updateWidget(
+        iOSName: _iOSName,
+        androidName: _androidName,
+      );
+      await HomeWidget.updateWidget(
+        iOSName: _batteryIOSName,
+        androidName: _batteryAndroidName,
+      );
+      await _syncWatch();
+    } catch (_) {
+      /* widgets unavailable / not configured yet — ignore */
+    }
+  }
+
   /// Mirror the just-written App Group snapshot to the paired Apple Watch
   /// (iOS only; no-op elsewhere or without a watch). One source of truth: the
   /// native side reads the same App Group keys and pushes them over WCSession.

@@ -66,15 +66,20 @@ class _BootSplashState extends State<BootSplash> {
     return Stack(children: [
       widget.child,
       Positioned.fill(
-        child: IgnorePointer(
-          ignoring: widget.ready,
-          child: AnimatedOpacity(
-            opacity: widget.ready ? 0 : 1,
-            duration: motion(c, Motion.slow),
-            onEnd: () {
-              if (widget.ready && mounted) setState(() => _gone = true);
-            },
-            child: _Cover(video: _video),
+        // `IgnorePointer` blocks touch and NOT semantics, so while the user saw
+        // only the splash a screen reader was walking the whole live app
+        // underneath it. `BlockSemantics` is the half that was missing.
+        child: BlockSemantics(
+          child: IgnorePointer(
+            ignoring: widget.ready,
+            child: AnimatedOpacity(
+              opacity: widget.ready ? 0 : 1,
+              duration: motion(c, Motion.slow),
+              onEnd: () {
+                if (widget.ready && mounted) setState(() => _gone = true);
+              },
+              child: _Cover(video: _video),
+            ),
           ),
         ),
       ),

@@ -958,10 +958,19 @@ class _DeriveScope {
   final List<String> targetDays;
   final String reason;
 
+  /// EVERY day label that still has 1 Hz substrate on disk — not just the ones
+  /// this pass targets. The raw-prune guard needs the whole set: a day that
+  /// aged out of the light scope while still un-derived is exactly the day
+  /// whose raw must not be deleted, and it is by definition not in
+  /// [targetDays]. Comes free from the `decodedRecTsMaxByDay()` that selects
+  /// the scope, so nothing extra is queried for it.
+  final List<String> rawDays;
+
   const _DeriveScope({
     required this.fullHistory,
     required this.targetDays,
     required this.reason,
+    this.rawDays = const [],
   });
 }
 
@@ -1271,23 +1280,6 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
-    // ONE-SHOT: rescale stored strain onto the v63 scale. Days inside the raw
-    // window re-derive below from substrate; everything older has none, so its
-    // headline is rebuilt from the stored TRIMP + wake window instead. Runs
-    // before the sweep so the two never disagree mid-pass, and no-ops after the
-    // first successful pass (`compute_freshness`). Never fatal — a failed
-    // rescale must not take the derive cycle down with it.
-    try {
-      final rescaled = await backfillStrainScale(
-        female: workoutSex(profile.sex) == 'female',
-      );
-      if (rescaled.didWork) {
-        _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) rebuilt, '
-            '${rescaled.skipped} skipped (no TRIMP or no wake window)');
-      }
-    } catch (e) {
-      _log('[derive] strain rescale failed (kept old values): $e');
-    }
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -1346,9 +1338,7 @@ class DerivationEngine {
       ];
       if (todoDays.isEmpty) {
         _log('derive: all days finalized — nothing to do');
-        if (scope.fullHistory) {
-          await _pruneOldDecoded(todoDays, dataNowSec);
-        }
+        await _pruneOldDecoded(scope.rawDays, dataNowSec);
         return 0;
       }
       _diag['todo_days'] = todoDays.length;
@@ -1449,9 +1439,16 @@ class DerivationEngine {
         await _runNotifications();
       }
       // 5. Prune raw — never for a day still inside its raw window / un-derived.
+      // Runs on EVERY derive, not just a full restage: `rawRetentionDays` is
+      // the only cap on the 1 Hz substrate, and behind `scope.fullHistory` it
+      // fired only on a manual "Re-analyze data", so an ordinary install grew
+      // ~12 MB/day without bound. `_pruneOldDecoded` is day-scoped and bounded,
+      // so it is safe to run this often.
+      _diag['stage'] = 'prune';
+      await _pruneOldDecoded(scope.rawDays, dataNowSec);
+      // The timezone hold is a FULL-RESTAGE concept — only a restage actually
+      // re-derives every held day — so clearing it stays behind fullHistory.
       if (scope.fullHistory) {
-        _diag['stage'] = 'prune';
-        await _pruneOldDecoded(todoDays, dataNowSec);
         // Re-baseline the travel guard — but ONLY if every targeted day
         // actually got re-derived under the current timezone. processDay
         // swallows per-day errors and marks the day skipped, so a restage can
@@ -1480,6 +1477,36 @@ class DerivationEngine {
       // entry path and every early return actually reaches.
       _diag['stage'] = 'housekeeping';
       await _runStorageHousekeeping();
+      // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
+      // inside the raw window re-derive from substrate above; everything older
+      // has none, so its headline is rebuilt from the stored TRIMP + wake
+      // window instead. No-ops after the first successful pass
+      // (`compute_freshness`), and never fatal — a failed rescale must not take
+      // the derive cycle down with it.
+      //
+      // AFTER the sweep, not before it. It used to be the first statement of
+      // run(), so the one launch where it actually fires — the first after the
+      // version bump, the launch the user is watching — spent a DB round trip
+      // and a bundle decode+encode PER DAY OF HISTORY before today's data was
+      // touched at all. Nothing in the sweep reads what it rewrites (it only
+      // ever touches days older than `rawRetentionDays`, which no pass
+      // re-derives), so the only thing the old ordering bought was that the
+      // FIRST cross-day rollup after the bump saw the rescaled history rather
+      // than the next one. Still holds `_running`, so nothing else can be
+      // reading day_result while it rewrites.
+      _diag['stage'] = 'strain_rescale';
+      try {
+        final rescaled = await backfillStrainScale(
+          female: workoutSex(profile.sex) == 'female',
+        );
+        if (rescaled.didWork) {
+          _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
+              'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
+              'window)');
+        }
+      } catch (e) {
+        _log('[derive] strain rescale failed (kept old values): $e');
+      }
       _running = false;
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
@@ -2119,7 +2146,12 @@ class DerivationEngine {
       // own, so it clears the guard — but only once it has actually RUN. See
       // the reset at the end of run(): clearing it here, at scope-selection
       // time, meant an interrupted restage still dropped the hold.
-      return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
+      return _scopeForDays(
+        rawDays,
+        reason: 'full-history',
+        fullHistory: true,
+        rawDays: rawDays,
+      );
     }
 
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -2151,20 +2183,25 @@ class DerivationEngine {
           // Everything pending was held. Falling through to the
           // 'latest-finalized-check' below would re-derive rawDays.last —
           // one of the very days just held — defeating the hold entirely.
-          return const _DeriveScope(
+          return _DeriveScope(
             fullHistory: false,
-            targetDays: [],
+            targetDays: const [],
             reason: 'tz-travel-hold',
+            rawDays: rawDays,
           );
         }
       }
     }
     if (pending.isEmpty) {
-      return _scopeForDays([rawDays.last], reason: 'latest-finalized-check');
+      return _scopeForDays(
+        [rawDays.last],
+        reason: 'latest-finalized-check',
+        rawDays: rawDays,
+      );
     }
 
     if (heavy) {
-      return _scopeForDays(pending, reason: 'pending-span');
+      return _scopeForDays(pending, reason: 'pending-span', rawDays: rawDays);
     }
 
     final light = selectLightDeriveDays(
@@ -2172,7 +2209,7 @@ class DerivationEngine {
       pendingDays: pending,
       today: LocalDb.localDayLabelNow(),
     );
-    return _scopeForDays(light.days, reason: light.reason);
+    return _scopeForDays(light.days, reason: light.reason, rawDays: rawDays);
   }
 
   /// The day before and after [dayId] ('YYYY-MM-DD'), DST-safe (goes through
@@ -2233,6 +2270,7 @@ class DerivationEngine {
     List<String> days, {
     required String reason,
     bool fullHistory = false,
+    List<String> rawDays = const [],
   }) {
     final sorted = days.toSet().toList()..sort();
     if (sorted.isEmpty || fullHistory) {
@@ -2240,9 +2278,15 @@ class DerivationEngine {
         fullHistory: true,
         targetDays: sorted,
         reason: reason,
+        rawDays: rawDays,
       );
     }
-    return _DeriveScope(fullHistory: false, targetDays: sorted, reason: reason);
+    return _DeriveScope(
+      fullHistory: false,
+      targetDays: sorted,
+      reason: reason,
+      rawDays: rawDays,
+    );
   }
 
   // ── baseline-dirty recent rescan ─────────────────────────────────────────────
@@ -2429,6 +2473,16 @@ class DerivationEngine {
       var done = 0;
       for (final day in days) {
         if (!dates.contains(day.date)) continue;
+        // NEVER clobber a day the band measured. `forceFinalize: true` below
+        // both replaces the measured result and locks the day out of every
+        // future re-derive, and the raw it came from is pruned within days —
+        // so importing a file that overlaps real history destroyed it
+        // silently and permanently. Same guard the WHOOP importer has always
+        // had; it just was not shared.
+        if (await LocalDb.isMeasuredDay(day.date)) {
+          _log('import day ${day.date} kept (already measured on this device)');
+          continue;
+        }
         try {
           await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
           done++;
@@ -3448,23 +3502,30 @@ class DerivationEngine {
       // three-class rule (alarm · exception · lookback) the day's findings are
       // collected here and presented once, aggregated, so the user gets one
       // buzz and the whole picture instead of six buzzes and a third of it.
-      final findings = <({String title, String detail})>[];
+      //
+      // `medical` marks the DETECTION-class findings — the ones the design
+      // sanctions interrupting for. It only affects the dedupe key (below),
+      // never the wording.
+      final findings = <({String title, String detail, bool medical})>[];
       if (illness != null && illness['state'] == 'red') {
         findings.add((
           title: 'Possible illness onset',
           detail: 'Elevated resting HR + suppressed HRV over recent nights.',
+          medical: true,
         ));
       }
       if (anomaly != null && anomaly['flagged'] == true) {
         findings.add((
           title: 'Unusual overnight physiology',
           detail: 'Your nightly signals deviate from your personal baseline.',
+          medical: true,
         ));
       }
       if (temp != null && temp['flag'] == 'elevated') {
         findings.add((
           title: 'Skin temperature elevated',
           detail: 'Sustained rise vs your baseline — a possible illness signal.',
+          medical: true,
         ));
       }
       // 24/7 irregular-rhythm SCREEN (not a diagnosis).
@@ -3474,6 +3535,7 @@ class DerivationEngine {
           title: 'Irregular heart rhythm — screen',
           detail: 'Your beat-to-beat pattern looked irregular today. This is a '
               'screen, not a diagnosis — see a clinician if you have symptoms.',
+          medical: true,
         ));
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
@@ -3481,6 +3543,7 @@ class DerivationEngine {
         findings.add((
           title: 'Low readiness today',
           detail: 'Your recovery markers are below your usual range — ease off.',
+          medical: false,
         ));
       }
 
@@ -3503,17 +3566,27 @@ class DerivationEngine {
             title: 'Your resting heart-rate trend shifted',
             detail:
                 'Your resting HR has $dir noticeably versus your recent baseline.',
+            medical: false,
           ));
         }
       }
 
       if (findings.isEmpty) return;
       final one = findings.length == 1;
+      // The key carries the day's HIGHEST severity class, not just the day.
+      //
+      // With a bare '$date:exception' the first pass of the day claimed the
+      // slot whatever it found, so a day that opened with nothing but "low
+      // readiness" and then turned an illness flag RED in the evening
+      // discarded the illness flag — the one class of notification the design
+      // does sanction, suppressed by a low-priority sibling of the same day.
+      // Keyed this way an ESCALATION still gets through exactly once, while a
+      // re-derive that finds the same class again (or merely adds another
+      // finding of a class already announced) stays silent.
+      final medical = findings.any((f) => f.medical);
       await NotificationCenter.instance.emit(
         NotificationEvent(
-          // One key for the day's exception, so a re-derive of the same day
-          // never re-buzzes even when a later pass finds one more signal.
-          dedupeKey: '$date:exception',
+          dedupeKey: medical ? '$date:exception:medical' : '$date:exception',
           category: NotifCategory.health,
           priority: NotifPriority.critical,
           title: one
@@ -3652,22 +3725,81 @@ class DerivationEngine {
 
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
 
+  /// Longest the raw-first hold below may keep substrate past
+  /// [rawRetentionDays] for a day that still hasn't produced a complete result.
+  ///
+  /// The hold has to be bounded or it is not a hold, it is an off switch. A
+  /// `partial` day is DELIBERATELY never finalized by age (see
+  /// `_derivePreparedDay` — a headline-only row must keep its chance to be
+  /// filled in), and `dayResultIds` excludes both `partial` and `skipped`, so a
+  /// day whose second half fails every single time never becomes "derived" and
+  /// never becomes finalized either. One such day used to latch pruning off for
+  /// the whole install, forever, at ~12 MB/day.
+  static const int _maxRawHoldDays = 14;
+
+  /// The `rec_ts` below which decoded substrate may be deleted, or null when
+  /// nothing may be. PURE — the decision the raw prune is, separated from the
+  /// two DB calls that surround it. See [_pruneOldDecoded] for the contract.
+  @visibleForTesting
+  static int? rawPruneCutoffSec({
+    required int dataNowSec,
+    required List<String> rawDayIds,
+    required Set<String> derivedDayIds,
+  }) {
+    final cutoffSec = dataNowSec - rawRetentionDays * 86400;
+    if (cutoffSec <= 0) return null;
+    final pending = rawDayIds.where((d) => !derivedDayIds.contains(d)).toList()
+      ..sort();
+    if (pending.isEmpty) return cutoffSec;
+    // Hold at the START of the oldest day still owed a result — its own rows
+    // survive, everything before it goes — floored so a permanently stuck day
+    // cannot hold the whole install (see [_maxRawHoldDays]).
+    final barrier = math.max(
+      _localDayLabelToSec(pending.first),
+      dataNowSec - _maxRawHoldDays * 86400,
+    );
+    return barrier < cutoffSec ? barrier : cutoffSec;
+  }
+
   /// Prune raw older than [rawRetentionDays] BEHIND THE DATA EDGE. Retention is
   /// measured against the last record timestamp we actually drained
   /// ([dataNowSec]), never the wall clock, and rows are deleted by their record
   /// time (`rec_ts`), never receive time (`captured_at`) — a multi-day flash
   /// backfill received in one sync must not be pruned just because it landed
-  /// "now". Guard: never prune while any day in [days] is NOT yet derived at the
-  /// current algo version (raw-first).
-  Future<void> _pruneOldDecoded(List<String> dayIds, int dataNowSec) async {
+  /// "now".
+  ///
+  /// RAW-FIRST, DAY-SCOPED. A day in [rawDayIds] with no complete result at the
+  /// current algo version pulls the cutoff back to ITS OWN start instead of
+  /// aborting the whole prune — the old all-or-nothing guard meant a single
+  /// stuck day kept every older day's substrate too. Bounded by
+  /// [_maxRawHoldDays] so a permanently-stuck day cannot wedge it.
+  ///
+  /// [rawDayIds] must be every day that still HAS substrate (`scope.rawDays`),
+  /// not the days this pass targeted: the day at risk is precisely the one that
+  /// fell out of the scope while still un-derived.
+  ///
+  /// WHY THIS CANNOT RACE A COMPUTATION THAT STILL NEEDS THE ROWS:
+  ///   * Both call sites are inside `run()`, which holds the process-wide
+  ///     `_running` latch across its entire body — no other derive, restage,
+  ///     rescan or import pass can be reading substrate while this runs.
+  ///   * Within this run it is reached only after `runWithConcurrency` has
+  ///     awaited every day's `processDay` (prepare + compute + persist) and
+  ///     after the cross-day rollup, so nothing in flight still holds a claim.
+  ///   * It does not move the retention window — that is still
+  ///     `rawRetentionDays` behind the data edge, exactly as documented. This
+  ///     change only makes the documented window actually apply. Anything that
+  ///     must outlive it has to be PERSISTED into `day_result` when the day is
+  ///     derived rather than re-read from `decoded_onehz` on demand — which is
+  ///     why a workout's average HR is written into the bundle (it was once
+  ///     re-derived lazily and vanished the moment its substrate aged out).
+  Future<void> _pruneOldDecoded(List<String> rawDayIds, int dataNowSec) async {
     final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
-    final pending = dayIds.where((d) => !derivedIds.contains(d)).toList();
-    if (pending.isNotEmpty) {
-      _log('prune skipped — ${pending.length} day(s) not yet derived');
-      return;
-    }
-    final cutoffSec = dataNowSec - rawRetentionDays * 86400;
-    if (cutoffSec <= 0) return;
+    final cutoffSec = rawPruneCutoffSec(
+      dataNowSec: dataNowSec,
+      rawDayIds: rawDayIds,
+      derivedDayIds: derivedIds,
+    );
+    if (cutoffSec == null) return;
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
     if (deleted > 0) {
       _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
@@ -5673,7 +5805,8 @@ class DerivationEngine {
     }
   }
 
-  int _localDayLabelToSec(String day) {
+  // static: pure day-label arithmetic, and `rawPruneCutoffSec` needs it.
+  static int _localDayLabelToSec(String day) {
     final d = DateTime.tryParse(day);
     if (d == null) return 0;
     return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;

@@ -165,6 +165,31 @@ void main() {
       expect(axisDay(null), '');
       expect(daysBehind(_noon(3)), 3);
     });
+
+    test('a day is a calendar day, DST boundary or not', () {
+      // Spring forward, America/New_York: local midnight on the 8th to local
+      // midnight on the 10th is 47 hours, and `inDays` truncated that to ONE.
+      // `denseDays` then wrote the 8th and the 9th into the same slot and the
+      // older of the two vanished.
+      //
+      // These assertions are exact in every zone; they only had teeth in a
+      // DST one, which is where the bug was reproduced.
+      expect(
+          calendarDaysBetween(
+              DateTime(2026, 3, 8, 23, 59), DateTime(2026, 3, 10, 0, 1)),
+          2);
+      expect(
+          calendarDaysBetween(DateTime(2026, 3, 9), DateTime(2026, 3, 10)), 1);
+      // Autumn back, the 25-hour day.
+      expect(
+          calendarDaysBetween(DateTime(2026, 11, 1), DateTime(2026, 11, 2)), 1);
+      // Time of day never counts: one minute before midnight and one minute
+      // after are a whole day apart, not zero.
+      expect(
+          calendarDaysBetween(
+              DateTime(2026, 6, 1, 23, 59), DateTime(2026, 6, 2, 0, 1)),
+          1);
+    });
   });
 
   // ── the last thirty CALENDAR days ──
@@ -272,6 +297,40 @@ void main() {
       await t.pumpWidget(frame(
           const SignalCard(Icons.scale, C.teal, 'Weight', '72.4', unit: 'kg')));
       expect(find.byType(ConfDots), findsNothing);
+    });
+  });
+
+  // ── a rebuild the user never hears about is data quietly vanishing ──
+  group('dbRebuiltCard', () {
+    test('says nothing when nothing was rebuilt', () {
+      expect(dbRebuiltCard(null), isNull);
+    });
+
+    test('names the EMPTY tables, not just the recovered count', () {
+      final card = dbRebuiltCard((
+        cause: 'database disk image is malformed',
+        quarantinePath: '/data/openstrap.corrupt.1755300000.db',
+        salvaged: const {'day_result': 412, 'food_entry': 0, 'med_dose': 0},
+      ))!;
+      // The reassuring half.
+      expect(card.why, contains('day_result 412'));
+      // The half that actually tells someone their food log is gone. A summed
+      // "412 rows recovered" would have read as good news.
+      expect(card.why, contains('Empty:'));
+      expect(card.why, contains('food_entry'));
+      expect(card.why, contains('med_dose'));
+      // And the original is still on disk — never imply a delete.
+      expect(card.why, contains('/data/openstrap.corrupt.1755300000.db'));
+      expect(card.why, contains('nothing was '));
+    });
+
+    test('does not pretend when nothing came back', () {
+      final card = dbRebuiltCard((
+        cause: 'file is not a database',
+        quarantinePath: '/data/x.db',
+        salvaged: const {'day_result': 0},
+      ))!;
+      expect(card.why, contains('Nothing could be read back'));
     });
   });
 }

@@ -1303,6 +1303,17 @@ class BleEngine {
   Future<BluetoothDevice?> scan({
     Duration timeout = const Duration(seconds: 12),
   }) async {
+    // A phone-level blocker is NOT "nothing answered". Returning null for a
+    // revoked Bluetooth permission classified it as `notFound` upstream, which
+    // told the user to walk closer to a band that was never the problem — the
+    // one fix that cannot work. Check the adapter BEFORE scanning and throw,
+    // so the reason reaches the caller instead of being flattened into a null.
+    final pre = await _detectBlocker();
+    if (pre != null) {
+      _noteBlocker(pre);
+      _setPhase(BleConnState.idle);
+      throw BleUnavailableException(pre);
+    }
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
@@ -1332,6 +1343,15 @@ class BleEngine {
           withServices: [gen4Svc, gen5Svc], timeout: timeout);
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
+      // Android reports a missing runtime permission by throwing here rather
+      // than through the adapter state, so the pre-check above cannot catch it.
+      final blocker = classifyBleBlocker(error: e);
+      if (blocker != null) {
+        _noteBlocker(blocker);
+        await sub.cancel();
+        _setPhase(BleConnState.idle);
+        throw BleUnavailableException(blocker);
+      }
       _log('scan error: $e');
     } finally {
       await sub.cancel();
@@ -1339,8 +1359,64 @@ class BleEngine {
     if (found == null) {
       _setPhase(BleConnState.idle);
       _log('No WHOOP found (force-quit the official app; band must be free).');
+    } else {
+      _clearBlocker();
     }
     return found;
+  }
+
+  // ── phone-level Bluetooth blockers ──────────────────────────────────────────
+  /// The last reason the phone's own stack refused us, or null when the stack is
+  /// usable. Latched (a blocker does not clear itself) and cleared only by a
+  /// scan or connect that actually got through.
+  BleBlocker? _blocker;
+
+  BleBlocker? get bluetoothBlocker => _blocker;
+
+  /// The ONE connection state a screen renders — the phone-level blocker and the
+  /// band's own diagnostic flags folded into a named state with its reason and
+  /// its fix. See [bandStatusFor]; every flag it reads is set by a detector in
+  /// this file.
+  BandStatus get bandStatus => bandStatusFor(
+        connection: state.connection,
+        blocker: _blocker,
+        autoReconnectPaused: state.autoReconnectPaused,
+        needsRepairGuide: state.needsRepairGuide,
+        syncChunkQuarantined: state.syncChunkQuarantined,
+        strapNeedsReboot: state.strapNeedsReboot,
+        syncClockLost: state.syncClockLost,
+        bondRefusals: state.bondRefusals,
+      );
+
+  /// Read the adapter state without hanging: `unknown` is the pre-init value and
+  /// never a verdict, so wait past it, but never longer than [_blockerProbe].
+  static const Duration _blockerProbe = Duration(seconds: 2);
+
+  Future<BleBlocker?> _detectBlocker() async {
+    try {
+      final s = await FlutterBluePlus.adapterState
+          .firstWhere((s) => s != BluetoothAdapterState.unknown)
+          .timeout(_blockerProbe,
+              onTimeout: () => BluetoothAdapterState.unknown);
+      return classifyBleBlocker(adapterState: s.name);
+    } catch (e) {
+      return classifyBleBlocker(error: e);
+    }
+  }
+
+  void _noteBlocker(BleBlocker b) {
+    if (_blocker == b) return;
+    _blocker = b;
+    _log('[BLE] blocked by the phone, not the band: ${b.name}.');
+    onState(state);
+  }
+
+  /// Anything that actually reached the radio proves the stack is usable again.
+  void _clearBlocker() {
+    if (_blocker == null) return;
+    _blocker = null;
+    _log('[BLE] phone-level Bluetooth block cleared.');
+    onState(state);
   }
 
   /// Reconnect to a previously-paired device by its persisted remote id.
@@ -1427,10 +1503,16 @@ class BleEngine {
         autoConnect: false,
       );
     } catch (e) {
+      // Bluetooth revoked mid-life shows up here, on a reconnect, and used to
+      // vanish into the reconnect loop as an ordinary failed attempt — retrying
+      // silently forever against a stack that will never answer.
+      final blocker = classifyBleBlocker(error: e);
+      if (blocker != null) _noteBlocker(blocker);
       _log('connect failed: $e');
       await _failConnect();
       return false;
     }
+    _clearBlocker();
 
     // connect() resolved without throwing => the link is up. Set this explicitly
     // rather than racing the connectionState stream's `connected` emission, so
@@ -3634,6 +3716,19 @@ class BleEngine {
     if (d == null) return;
     final banked = d.recordsThisOffload > 0;
     _emptyStreak = banked ? 0 : (_emptyStreak + 1);
+
+    // Records arrived ⇒ both "the band is not handing anything over" flags are
+    // over. Their detectors self-reset, but the flags themselves were set-only,
+    // so once tripped they described the rest of the process. Now that they are
+    // rendered, a stale one is a permanent scare about a band that is working.
+    // Cleared BEFORE the detectors below, so a fresh trip in this same pass
+    // still wins.
+    if (banked && (state.syncClockLost || state.strapNeedsReboot)) {
+      state.syncClockLost = false;
+      state.strapNeedsReboot = false;
+      onState(state);
+      _log('[SYNC] records banked — clearing syncClockLost/strapNeedsReboot.');
+    }
 
     if (complete) {
       // Empty-sync: ≥3 consecutive console-only completed offloads ⇒ RTC lost.

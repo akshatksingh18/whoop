@@ -117,6 +117,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
   Future<void> _confirmDelete(FoodEntry e) async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       backgroundColor: P.of(context).card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
@@ -162,7 +163,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
         ScreenTitle(
           'Nutrition',
           trailing: Pressable(
-            expand: false,
             semanticLabel: 'Log food',
             onTap: _logFood,
             child: Icon(
@@ -351,9 +351,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
   /// day is an absence. A PARTIAL day still draws, because its total is a real
   /// floor; the footnote says it is one and that the mean below excluded it.
   Widget _weekChart(BuildContext c, NutritionWindow w) {
-    final vals = [for (final d in w.days) d.kcal.value ?? 0.0];
-    final drawn = vals.where((v) => v > 0).length;
-    final axis = drawn == 0 ? null : AxisSpec.of(vals, floor: 0);
+    // `?? 0.0` here was the whole absence-versus-zero bug in one operator: an
+    // unlogged day became a real zero, and `Bars`' 2 pt visibility floor drew
+    // it as a measured day with almost nothing in it. Null is a hole.
+    final vals = [for (final d in w.days) d.kcal.value?.toDouble()];
+    final real = vals.whereType<double>().where((v) => v > 0).toList();
+    final drawn = real.length;
+    final axis = drawn == 0 ? null : AxisSpec.of(real, floor: 0);
     final p = P.of(c);
     return Surface(
       child: ChartFrame(
@@ -371,6 +375,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             : '${w.daysExcluded} of these bars is a partial day — a floor, and '
                 'left out of the averages below.',
         empty: axis == null ? const NoData(message: 'Nothing logged yet') : null,
+        series: vals,
         child: axis == null
             ? const SizedBox.shrink()
             : CustomPaint(
@@ -405,6 +410,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
       backgroundColor: P.of(context).card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
@@ -583,21 +589,26 @@ class DayEnergyCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                k.value == null ? 'LOGGED TODAY' : 'EATEN TODAY',
-                style: F.over.copyWith(color: p.ink3),
+              Expanded(
+                child: Text(
+                  k.value == null ? 'LOGGED TODAY' : 'EATEN TODAY',
+                  style: F.over.copyWith(color: p.ink3),
+                ),
               ),
-              const Spacer(),
-              if (k.isFloor) const Pill('At least', C.yellow),
+              if (k.isFloor) const Flexible(child: Pill('At least', C.yellow)),
             ],
           ),
           const SizedBox(height: S.x2),
           // With no energy anywhere in the day, the occasion count IS the
           // measurement. A dash here would read as a failure to record when
           // the day was in fact recorded exactly as designed.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+          // A Wrap rather than a Row with a Spacer: `2,310 kcal` beside the
+          // occasion count overflowed by 168 px at 3.1x, which is a day's
+          // energy pushed off the card for the people who chose that size.
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x1,
+            runSpacing: S.x1,
             children: [
               Text(
                 k.value == null
@@ -605,17 +616,15 @@ class DayEnergyCard extends StatelessWidget {
                     : k.value!.round().toString(),
                 style: F.n34.copyWith(color: p.ink),
               ),
-              const SizedBox(width: S.x1),
               Text(
                 k.value == null
                     ? 'occasion${day.entries.length == 1 ? '' : 's'}'
                     : 'kcal',
                 style: F.cap.copyWith(color: p.ink3),
               ),
-              const Spacer(),
               if (k.value != null)
                 Text(
-                  '${day.entries.length} occasion'
+                  '· ${day.entries.length} occasion'
                   '${day.entries.length == 1 ? '' : 's'}',
                   style: F.cap.copyWith(color: p.ink2),
                 ),

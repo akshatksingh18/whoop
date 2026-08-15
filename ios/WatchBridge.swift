@@ -20,11 +20,11 @@ final class WatchBridge: NSObject, WCSessionDelegate {
   // The keys mirrored from WidgetService.push()/pushBattery(). Kept in lockstep
   // with lib/widget/widget_service.dart and OpenStrapWidget.swift.
   private static let intKeys = [
-    "readiness", "hrv", "hrv_baseline", "sleep_min", "sleep_need_min", "rhr",
-    "updated_at", "batt_pct", "batt_at",
+    "readiness", "readiness_tier", "hrv", "hrv_baseline", "sleep_min",
+    "sleep_need_min", "rhr", "updated_at", "batt_pct", "batt_at",
   ]
   private static let doubleKeys = ["strain"]
-  private static let stringKeys = ["coach_line", "stress_band", "batt_name"]
+  private static let stringKeys = ["readiness_band", "coach_line", "batt_name"]
   private static let boolKeys = ["has_data", "batt_charging", "theme_dark"]
 
   private var appGroupId: String {
@@ -53,9 +53,12 @@ final class WatchBridge: NSObject, WCSessionDelegate {
   }
 
   /// Push the latest snapshot to the watch. `updateApplicationContext` delivers a
-  /// single coalesced latest-state in the background (perfect for "today's numbers");
-  /// the complication transfer keeps the watch face reasonably fresh within its
-  /// daily budget. Both are best-effort.
+  /// single coalesced latest-state in the background — exactly right for "today's
+  /// numbers". Best-effort.
+  ///
+  /// No complication transfer: the watch ships no complications (their sources
+  /// were never in the Xcode project), so `transferCurrentComplicationUserInfo`
+  /// was spending a scarce daily budget on a face that cannot show it.
   func pushCurrentState() {
     guard WCSession.isSupported() else { return }
     let s = WCSession.default
@@ -63,11 +66,6 @@ final class WatchBridge: NSObject, WCSessionDelegate {
     let payload = snapshot()
     guard !payload.isEmpty else { return }
     do { try s.updateApplicationContext(payload) } catch { /* transient — next push retries */ }
-    #if os(iOS)
-    if s.isComplicationEnabled {
-      s.transferCurrentComplicationUserInfo(payload)
-    }
-    #endif
   }
 
   // MARK: - WCSessionDelegate

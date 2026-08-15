@@ -634,12 +634,13 @@ class _MetricDetailState extends State<MetricDetail> {
             ],
             // The dots are already beside the big number two rows up; twice on
             // one card reads as two different claims.
+            series: series,
             child: CustomPaint(
               size: Size.infinite,
               // Fill only when the axis genuinely starts at zero. Shaded to a
               // baseline of 52 bpm, a 52→60 week reads as a mountain — the
               // truncated-axis form with the truncation hidden.
-              painter: LineChart(series, spec.color,
+              painter: LineChart(series, p.on(spec.color),
                   fill: axis?.min == 0,
                   dots: series.length <= 40,
                   t: animate(c, 1),

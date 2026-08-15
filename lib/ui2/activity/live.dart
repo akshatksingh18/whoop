@@ -21,6 +21,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -491,7 +492,10 @@ class LiveShellState extends State<LiveShell> {
           Padding(
             padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x5),
             child: Row(children: [
-              _round(p, LucideIcons.lock, p.card2, p.ink2, 'Lock screen', null),
+              // A control with no callback is announced as content and does
+              // nothing when activated. Locking the screen is not implemented,
+              // so the affordance is not drawn.
+              const SizedBox(width: 54),
               const SizedBox(width: S.x4),
               Expanded(
                 child: Pressable(
@@ -540,7 +544,20 @@ class LiveShellState extends State<LiveShell> {
 
 /// The one big number. [F.n48] and no bigger — a display size that only
 /// exists on one screen is how seven type steps became forty.
-Widget bigNum(P p, String v, String unit) => Row(
+/// Speak a transition. A haptic reaches a wrist and nothing else — the two
+/// moments a paced session actually has to announce (rest is over, work
+/// begins) were buzz-only, so a screen-reader user driving an interval workout
+/// had no signal at all.
+void say(BuildContext c, String what) =>
+    SemanticsService.sendAnnouncement(View.of(c), what, TextDirection.ltr);
+
+/// [ExcludeSemantics] because it is rebuilt every second for the length of a
+/// workout: left in the tree it re-announces itself at 1 Hz, which makes a
+/// screen reader unusable for exactly as long as the session lasts. The
+/// elapsed time is on the shell's own label; the moments worth hearing are
+/// announced explicitly (see [say]).
+Widget bigNum(P p, String v, String unit) => ExcludeSemantics(
+    child: Row(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.baseline,
       textBaseline: TextBaseline.alphabetic,
@@ -555,7 +572,7 @@ Widget bigNum(P p, String v, String unit) => Row(
           Text(unit, style: F.t2.copyWith(color: p.ink3)),
         ],
       ],
-    );
+    ));
 
 /// Up to three supporting numbers. A stat with nothing behind it is omitted,
 /// never rendered as a dash — and an entirely empty row is no row.
@@ -623,7 +640,7 @@ class LiveHeart extends StatelessWidget {
           const SizedBox(width: S.x4),
           // The zone's OWN colour, the one the bar underneath paints it in. A
           // fixed green said "zone 5" and "zone 1" in the same breath.
-          Pill('Zone $z', ZoneBar.cols[(z - 1).clamp(0, 4)]),
+          Pill('Zone $z', ZoneBar.pigment[(z - 1).clamp(0, 4)]),
         ],
       ]),
       if (feed.zoneMinutes.length == 5) ...[
@@ -634,11 +651,11 @@ class LiveHeart extends StatelessWidget {
           height: 10,
           legend: [
             for (var i = 0; i < 5; i++)
-              ('Z${i + 1} · ${feed.zoneMinutes[i].round()}m', ZoneBar.cols[i]),
+              ('Z${i + 1} · ${feed.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
           ],
           child: CustomPaint(
               size: Size.infinite,
-              painter: ZoneBar(_fractions(feed.zoneMinutes))),
+              painter: ZoneBar(_fractions(feed.zoneMinutes), p)),
         ),
       ],
     ]);
@@ -944,6 +961,9 @@ class _LiveStrengthState extends State<LiveStrength> {
       if (restLeft <= 0) {
         t.cancel();
         HapticFeedback.mediumImpact();
+        // A buzz is not a message. The rest-over moment was reachable only by
+        // feeling the watch, or by watching a number nobody was told to watch.
+        say(context, 'Rest over');
       }
     });
   }
@@ -961,6 +981,9 @@ class _LiveStrengthState extends State<LiveStrength> {
   Future<void> addExercise() async {
     final picked = await showModalBottomSheet<String>(
       context: context,
+      // A sheet does not consult `pageTransitionsTheme`, so reduced motion has
+      // to be handed to it here or the panel slides up at full duration.
+      sheetAnimationStyle: sheetMotion(context),
       backgroundColor: P.of(context).card,
       shape: const RoundedRectangleBorder(borderRadius: R.rXl),
       builder: (c) {
@@ -1442,7 +1465,6 @@ class _LiveSwimState extends State<LiveSwim> {
               children: [
                 for (final len in pools) ...[
                   Pressable(
-                    expand: false,
                     semanticLabel: '$len metre pool',
                     onTap: () {
                       setState(() => poolLen = len);
@@ -1563,7 +1585,15 @@ class _LiveFlowState extends State<LiveFlow>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (Motion.enabled(context) && !breath.isAnimating) breath.forward();
+    // Both directions. The gate used to guard only the START, so turning
+    // reduced motion on mid-session left the ring looping anyway — and there is
+    // no way to turn it back off from inside a yoga flow.
+    final on = Motion.enabled(context);
+    if (on && !breath.isAnimating) {
+      breath.forward();
+    } else if (!on && breath.isAnimating) {
+      breath.stop();
+    }
   }
 
   @override
@@ -1595,14 +1625,18 @@ class _LiveFlowState extends State<LiveFlow>
           Container(
             height: 210,
             decoration: BoxDecoration(
-                borderRadius: R.rXl, color: p.wash(C.teal, strength: 1.6)),
+                borderRadius: R.rXl, color: p.wash(C.teal)),
             child: Stack(alignment: Alignment.center, children: [
               AnimatedBuilder(
                 animation: breath,
+                // Through `animate`, or reduced motion draws the pacer
+                // PERMANENTLY COLLAPSED: `forward()` never runs, the value
+                // stays 0, and `BreathRing` bottoms out at 55% of its radius.
+                // Reduced motion made the ring wrong, not still.
                 builder: (_, _) => CustomPaint(
                     size: const Size(170, 170),
                     painter: BreathRing(
-                        Curves.easeInOut.transform(breath.value),
+                        animate(ctx, Curves.easeInOut.transform(breath.value)),
                         p.on(C.teal))),
               ),
               Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1860,6 +1894,7 @@ class _LiveIntervalState extends State<LiveInterval> {
           return;
         }
         HapticFeedback.mediumImpact();
+        say(context, work ? 'Rest' : 'Work');
         if (work) {
           work = false;
           left = restSec;

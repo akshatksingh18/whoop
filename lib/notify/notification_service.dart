@@ -491,4 +491,16 @@ class NotificationService {
       await _plugin.cancel(id);
     } catch (_) {}
   }
+
+  /// Drop every notification this app has scheduled or posted.
+  ///
+  /// Part of "Delete everything": a scheduled alarm or wind-down reminder that
+  /// survives a full reset fires days later, about data that is gone. The
+  /// per-id [cancel] cannot reach them, because the ids live in the
+  /// preferences the reset is clearing at the same time.
+  Future<void> cancelAll() async {
+    try {
+      await _plugin.cancelAll();
+    } catch (_) {}
+  }
 }

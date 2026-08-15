@@ -145,7 +145,6 @@ class _JournalComposeState extends State<JournalCompose> {
                             children: [
                               for (final t in kJournalPresetTags)
                                 Pressable(
-                                  expand: false,
                                   onTap: () => setState(
                                     () => _tags.contains(t)
                                         ? _tags.remove(t)
@@ -326,7 +325,6 @@ class _Step extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Pressable(
-      expand: false,
       semanticLabel: icon == LucideIcons.plus ? 'Increase' : 'Decrease',
       onTap: enabled ? onTap : null,
       child: Container(
@@ -376,18 +374,26 @@ class OsTextField extends StatelessWidget {
             borderRadius: R.rMd,
             border: Border.all(color: p.line),
           ),
-          child: TextField(
-            controller: controller,
-            maxLines: lines,
-            minLines: 1,
-            keyboardType: keyboard,
-            style: F.body.copyWith(color: p.ink),
-            cursorColor: p.on(C.domMind),
-            decoration: InputDecoration(
-              isDense: true,
-              border: InputBorder.none,
-              hintText: hint,
-              hintStyle: F.body.copyWith(color: p.ink3),
+          // The label is drawn as a sibling `Text`, which a screen reader reads
+          // on the way past and then forgets. Focused, the field itself
+          // announced only its HINT — and the hint disappears the moment the
+          // user types, leaving "text field" with no way to ask what it is for.
+          child: Semantics(
+            label: label,
+            textField: true,
+            child: TextField(
+              controller: controller,
+              maxLines: lines,
+              minLines: 1,
+              keyboardType: keyboard,
+              style: F.body.copyWith(color: p.ink),
+              cursorColor: p.on(C.domMind),
+              decoration: InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: hint,
+                hintStyle: F.body.copyWith(color: p.ink3),
+              ),
             ),
           ),
         ),

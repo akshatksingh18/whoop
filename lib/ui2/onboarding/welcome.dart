@@ -187,9 +187,16 @@ class WelcomeView extends StatelessWidget {
                 onTap: busy ? null : onImport),
             const SizedBox(height: S.x3),
             Text(
+              // Was: "imported days are marked as imported — they are never
+              // mixed into days this app measured itself". There is no source
+              // column on day_result or metric_series, two of the four
+              // importers write no marker at all, and imported values do feed
+              // the same rolling baselines. What IS true is the half that
+              // protects data: no import overwrites a day this band measured.
               'Raw sensor exports, an OpenStrap backup, or a vendor CSV. '
-              'Imported days are marked as imported — they are never mixed '
-              'into days this app measured itself.',
+              'Imported days sit alongside days this app measured and feed '
+              'the same baselines — but a day the band already measured is '
+              'never overwritten.',
               style: F.cap.copyWith(color: p.ink3),
             ),
             if (busy) ...[

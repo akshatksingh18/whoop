@@ -236,6 +236,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   'heart-rate reserve. '
                   '${days == 7 ? 'Last seven days.' : '$days of the last '
                       'seven days produced a figure.'}',
+              series: d.trimp7,
               child: CustomPaint(
                   size: Size.infinite,
                   // Today is the last slot, always — not "the newest value".
@@ -493,10 +494,10 @@ class _HistoryRow extends StatelessWidget {
             height: 8,
             legend: [
               for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${w.zoneMinutes[i].round()}m', ZoneBar.cols[i]),
+                ('Z${i + 1} · ${w.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
             ],
             child: CustomPaint(
-                size: Size.infinite, painter: ZoneBar(w.zoneFractions)),
+                size: Size.infinite, painter: ZoneBar(w.zoneFractions, p)),
           ),
         ],
         const SizedBox(height: S.x4),
@@ -773,6 +774,34 @@ List<double> _spread(List<double> v) {
   return [for (final x in v) (x - lo) / (hi - lo)];
 }
 
+/// The stored `[{t, v}]` heart-rate curve as one slot per MINUTE of the
+/// session, `null` where nothing was recorded.
+///
+/// The store emits a point only for minutes that had samples, so dropping `t`
+/// and keeping the values closed every dropout up: a band that lost the link
+/// for ten minutes drew a trace that ran straight across them, under an axis
+/// labelled `Start … 47:20`. The x position of a sample is its index, so the
+/// index has to be the minute.
+List<double?> _denseMinutes(Object? hr) {
+  final pts = <(int, double)>[
+    for (final e in (hr as List? ?? const []))
+      if (e is Map && e['t'] is num && e['v'] is num)
+        ((e['t'] as num).toInt(), (e['v'] as num).toDouble()),
+  ];
+  if (pts.isEmpty) return const [];
+  final t0 = pts.first.$1;
+  final n = (pts.last.$1 - t0) ~/ 60 + 1;
+  // A session longer than a day, or timestamps that are not what we think they
+  // are: fall back to the values rather than allocating a nonsense array.
+  if (n < 1 || n > 24 * 60) return [for (final p in pts) p.$2];
+  final out = List<double?>.filled(n, null);
+  for (final p in pts) {
+    final i = (p.$1 - t0) ~/ 60;
+    if (i >= 0 && i < n) out[i] = p.$2;
+  }
+  return out;
+}
+
 /// One past session, opened from history — built from what the stores hold
 /// rather than from the six columns the list row carries.
 Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
@@ -781,12 +810,8 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   if (repo == null) return out;
   try {
     final b = await repo.getWorkout(w.id);
-    final curve = <double>[
-      for (final e in (b['hr'] as List? ?? const []))
-        if (e is Map && e['v'] is num) (e['v'] as num).toDouble(),
-    ];
     out = out.copyWith(
-      hr: curve,
+      hr: _denseMinutes(b['hr']),
       // The session's own mean, computed over its heart-rate stream.
       avgHr: (b['avg_hr'] as num?)?.round(),
       maxHr: (b['max_hr'] as num?)?.round(),

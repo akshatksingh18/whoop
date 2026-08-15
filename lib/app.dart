@@ -12,6 +12,7 @@ import 'state/prefs.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
+import 'widget/widget_service.dart';
 import 'ui2/activity/catalogue.dart';
 import 'ui2/activity/live.dart';
 import 'ui2/onboarding/pairing.dart';
@@ -92,6 +93,15 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // delivering whenever the OS feels like it is worse than one that is
       // honest about when it fires.
       unawaited(app.runBackupIfDue());
+      // Re-publish the widget snapshot. `has_data` is decided WHEN THE
+      // SNAPSHOT IS WRITTEN (WidgetService.push evaluates isStale there), and
+      // the widget process never runs Dart — so a snapshot written while fresh
+      // stays `has_data: true` forever, and the staleness rule can only ever
+      // fire if something re-evaluates it. Foreground is the one moment we
+      // know the app is alive and the numbers may have aged: it is cheap (one
+      // repository read) and it is what stops a week-old readiness sitting on
+      // a lock screen looking current.
+      unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
@@ -190,6 +200,7 @@ class _Gate extends StatelessWidget {
           // the user lands on if the splash's safety cap fires before init
           // completes.
           AppRoute.loading => const _Loading(),
+          AppRoute.failed => const _InitFailed(),
           AppRoute.welcome => const WelcomeScreen(),
           AppRoute.pairing => PairingScreen(
               onSkip: () => OnboardingBypass.mark(OnboardingBypass.kPairing)),
@@ -214,6 +225,63 @@ class _Loading extends StatelessWidget {
     return Scaffold(
       backgroundColor: p.bg,
       body: Center(child: CircularProgressIndicator(color: p.on(C.green))),
+    );
+  }
+}
+
+/// Start-up threw. The one screen whose job is to not be a spinner.
+///
+/// It names the failure with the actual message rather than a friendlier guess,
+/// says the data is still on the device (it is — nothing here deletes, and an
+/// unopenable database rebuilds itself in `LocalDb`), and offers the retry.
+class _InitFailed extends StatelessWidget {
+  const _InitFailed();
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final app = c.watch<AppState>();
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('OpenStrap could not start',
+                    style: F.t2.copyWith(color: p.ink)),
+                const SizedBox(height: 8),
+                Text(
+                  'Your data is still on this device — nothing was deleted. '
+                  'This is a start-up step failing, and it will fail the same '
+                  'way each launch until it is fixed.',
+                  style: F.body.copyWith(color: p.ink2, height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: p.card2,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SelectableText(
+                    app.initError ?? 'No error was recorded.',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: app.retryInit,
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -415,10 +483,21 @@ class _ShellState extends State<_Shell> {
 class _LiveSessionBar extends StatelessWidget {
   const _LiveSessionBar();
 
+  /// The activity behind the open session.
+  ///
+  /// The draft FIRST (it carries the private flag and the entered weight), but
+  /// `activeWorkout.type` as the fallback — a session started by the gesture
+  /// path creates no draft, and neither does one rehydrated from a `sessions`
+  /// row after a crash. Keying on the draft alone meant both of those left the
+  /// workout open with no way to reach or end it, and `startWorkout` refuses
+  /// every later workout while one is open.
+  static Activity? _activityFor(AppState app) => activityByName(
+      LiveDraft.current?.activityKey ?? app.activeWorkout?.type);
+
   Future<void> _resume(BuildContext c) async {
     final app = c.read<AppState>();
     final draft = LiveDraft.current;
-    final a = draft == null ? null : activityByName(draft.activityKey);
+    final a = _activityFor(app);
     if (a == null) return;
     final nav = Navigator.of(c);
     // The lifter's previous and best. Absent renders as "First time on this
@@ -426,8 +505,8 @@ class _LiveSessionBar extends StatelessWidget {
     final history = await loadSetHistory();
     await nav.push(MaterialPageRoute<void>(
       builder: (_) => liveFor(a,
-          private: draft!.private,
-          weightKg: draft.weightKg,
+          private: draft?.private ?? false,
+          weightKg: draft?.weightKg,
           host: activityHost(app, history: history)),
     ));
   }
@@ -435,12 +514,36 @@ class _LiveSessionBar extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final draft = LiveDraft.current;
-    final a = draft == null ? null : activityByName(draft.activityKey);
+    final app = c.read<AppState>();
+    final a = _activityFor(app);
     // A session the app is holding but this build cannot draw — an older
-    // build's, or one rehydrated from a `sessions` row after a crash. Saying
-    // nothing beats offering a button that opens the wrong screen.
-    if (a == null) return const SizedBox.shrink();
+    // build's type key, say. Never nothing: the bar is the ONLY control that
+    // can end an open session, and hiding it left the workout open forever
+    // with every later one refused. Offer the one action that is certainly
+    // right rather than a button that opens the wrong screen.
+    if (a == null) {
+      return Container(
+        decoration: BoxDecoration(
+          color: p.card,
+          border: Border(top: BorderSide(color: p.line)),
+        ),
+        child: Pressable(
+          semanticLabel: 'Finish the session that is still running',
+          onTap: () => app.stopWorkout(),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+            child: Row(children: [
+              Expanded(
+                child: Text('Session running — tap to finish',
+                    style: F.body.copyWith(color: p.ink)),
+              ),
+              Icon(LucideIcons.square, size: 18, color: p.ink3),
+            ]),
+          ),
+        ),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: p.card,

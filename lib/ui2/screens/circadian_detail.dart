@@ -20,6 +20,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
@@ -83,14 +84,28 @@ class CircadianData {
     final cos = cd['circadian_cosinor'];
     final npV = envValue(np) ?? const {};
 
+    // One column per CALENDAR night, not per derived day. `availableDays`
+    // returns only the days that produced a result, so walking it directly
+    // packed a 42-night actogram out of whatever 42 days happened to exist —
+    // a fortnight of no records closed up, and every column left of it moved.
+    // An actogram is a picture of when things happen; the x spacing IS the
+    // measurement.
     final days = await repo.availableDays(); // newest first
-    final take = days.length <= _nights ? days : days.sublist(0, _nights);
+    final have = days.toSet();
     final cols = <List<double>?>[];
     final labels = <String>[];
-    for (final day in take.reversed) {
-      final n = await repo.getDaySleepV2(day);
-      cols.add(_column(n['onset_ts'] as num?, n['wake_ts'] as num?));
-      labels.add(day);
+    if (days.isNotEmpty) {
+      final a = DateTime.parse(days.first);
+      for (var back = _nights - 1; back >= 0; back--) {
+        final day = dayLabelOf(DateTime(a.year, a.month, a.day - back));
+        labels.add(day);
+        if (!have.contains(day)) {
+          cols.add(null);
+          continue;
+        }
+        final n = await repo.getDaySleepV2(day);
+        cols.add(_column(n['onset_ts'] as num?, n['wake_ts'] as num?));
+      }
     }
 
     return CircadianData(
@@ -215,7 +230,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
                   'column is a night with no record.',
               child: CustomPaint(
                 size: Size.infinite,
-                painter: Actogram(d.actogram, C.indigo),
+                painter: Actogram(d.actogram, p.on(C.indigo)),
               ),
             ),
           ),

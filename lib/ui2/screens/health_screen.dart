@@ -703,6 +703,7 @@ class _HealthScreenState extends State<HealthScreen> {
     final win = denseDays(pts, days);
     final have = [for (final v in win) ?v];
     final axis = AxisSpec.of(have, ticks: 2);
+    final p = P.of(c);
     return ChartFrame(
       title: 'RMSSD, ${have.length} of the last $days nights',
       unit: 'ms',
@@ -715,9 +716,10 @@ class _HealthScreenState extends State<HealthScreen> {
       empty: have.length < 2
           ? const NoData(message: 'One night is not a trend yet')
           : null,
+      series: win,
       child: CustomPaint(
         size: Size.infinite,
-        painter: LineChart(win, C.green, t: animate(c, 1), axis: axis),
+        painter: LineChart(win, p.on(C.green), t: animate(c, 1), axis: axis),
       ),
     );
   }
@@ -882,14 +884,19 @@ class _HealthScreenState extends State<HealthScreen> {
           title: const Text('Add a result'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              DropdownButton<LabMarker>(
-                isExpanded: true,
-                value: marker,
-                items: [
-                  for (final m in l.markers)
-                    DropdownMenuItem(value: m, child: Text(m.label)),
-                ],
-                onChanged: (m) => setLocal(() => marker = m ?? marker),
+              // Unlabelled it announces only its current value — a marker
+              // name, with no statement of what the field is.
+              Semantics(
+                label: 'Marker',
+                child: DropdownButton<LabMarker>(
+                  isExpanded: true,
+                  value: marker,
+                  items: [
+                    for (final m in l.markers)
+                      DropdownMenuItem(value: m, child: Text(m.label)),
+                  ],
+                  onChanged: (m) => setLocal(() => marker = m ?? marker),
+                ),
               ),
               TextField(
                 controller: value,

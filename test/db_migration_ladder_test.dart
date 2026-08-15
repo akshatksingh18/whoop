@@ -693,11 +693,16 @@ void main() {
       expect(absent.first['ax'], isNull);
       expect(absent.first['skin_temp_raw'], isNull);
 
-      // The forensic counter index survives the table rename.
+      // The counter index is GONE — nothing ever read by `counter`, and it cost
+      // a non-sequential b-tree insert per 1 Hz record on the ingest path. An
+      // upgrade from a version that HAD it must drop it, not carry it forward.
       final idx = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decoded_onehz'",
       );
-      expect(idx.map((r) => r['name']), contains('idx_decoded_onehz_counter'));
+      expect(
+        idx.map((r) => r['name']),
+        isNot(contains('idx_decoded_onehz_counter')),
+      );
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');

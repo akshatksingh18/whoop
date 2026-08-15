@@ -120,6 +120,134 @@ const kCsvExportSets = <CsvExportSet>[
     sql: 'SELECT taken_on, marker, value, unit, note FROM lab_result '
         'ORDER BY taken_on ASC, marker ASC',
   ),
+  // ── everything below is data the user TYPED IN ──────────────────────────────
+  //
+  // The six sets above are all derived, so the export used to be able to hand
+  // back everything the band measured and nothing the user had written down —
+  // every meal, every dose, every habit, every set, every breathing session
+  // and the cycle log came out only as a SQLite file, which is not a format
+  // anybody can read. Hand-entered data is the data that is hardest to
+  // reproduce and that no re-derive can ever rebuild.
+  CsvExportSet(
+    name: 'nutrition',
+    title: 'Nutrition',
+    columns: [
+      'date',
+      'at_ts',
+      'meal',
+      'label',
+      'quantity',
+      'unit',
+      'kcal',
+      'protein_g',
+      'carbs_g',
+      'fat_g',
+      'fibre_g',
+      'sugar_g',
+      'sat_fat_g',
+      'sodium_mg',
+      'source',
+    ],
+    sql: '''
+      SELECT date, at_ts, meal, label, quantity, unit, kcal, protein_g,
+             carbs_g, fat_g, fibre_g, sugar_g, sat_fat_g, sodium_mg, source
+      FROM food_entry ORDER BY date ASC, at_ts ASC
+    ''',
+  ),
+  CsvExportSet(
+    name: 'medication',
+    title: 'Medication',
+    // Joined to the definition so the file names the medication rather than
+    // an opaque key — the export has to be readable without the app.
+    columns: [
+      'date',
+      'medication',
+      'kind',
+      'slot_min',
+      'taken_ts',
+      'skipped',
+      'dose_value',
+      'dose_unit',
+      'note',
+    ],
+    sql: '''
+      SELECT d.date, COALESCE(m.label, d.med_key) AS medication,
+             COALESCE(m.kind, '') AS kind, d.slot_min, d.taken_ts, d.skipped,
+             COALESCE(d.dose_value, m.dose_value) AS dose_value,
+             COALESCE(m.dose_unit, '') AS dose_unit, d.note
+      FROM med_dose d LEFT JOIN med_def m ON m.key = d.med_key
+      ORDER BY d.date ASC, d.slot_min ASC
+    ''',
+  ),
+  CsvExportSet(
+    name: 'habits',
+    title: 'Habits',
+    columns: ['date', 'field', 'label', 'value', 'unit', 'at_min'],
+    // Built-in fields live in code, not journal_field_def, so the label and
+    // unit are empty for those — the `field` key still identifies them.
+    sql: '''
+      SELECT j.date, j.field, COALESCE(f.label, '') AS label, j.value,
+             COALESCE(f.unit, '') AS unit, j.at_min
+      FROM journal_metric j LEFT JOIN journal_field_def f ON f.key = j.field
+      ORDER BY j.date ASC, j.field ASC
+    ''',
+  ),
+  CsvExportSet(
+    name: 'strength',
+    title: 'Strength sets',
+    columns: [
+      'at_ts',
+      'session_id',
+      'exercise',
+      'set_index',
+      'reps',
+      'load_kg',
+      'rpe',
+      'hold_sec',
+      'rest_sec',
+      'note',
+    ],
+    sql: '''
+      SELECT s.at_ts, s.session_id, COALESCE(e.label, s.exercise_key) AS exercise,
+             s.set_index, s.reps, s.load_kg, s.rpe, s.hold_sec, s.rest_sec, s.note
+      FROM strength_set s LEFT JOIN exercise_def e ON e.key = s.exercise_key
+      ORDER BY s.at_ts ASC, s.session_id ASC, s.seq ASC
+    ''',
+  ),
+  CsvExportSet(
+    name: 'breathing',
+    title: 'Breathing sessions',
+    columns: ['started_at', 'ended_at', 'pattern', 'seconds', 'coherence'],
+    sql: 'SELECT started_at, ended_at, pattern, seconds, coherence '
+        'FROM breathing_session ORDER BY started_at ASC',
+  ),
+  CsvExportSet(
+    name: 'cycle',
+    title: 'Cycle log',
+    columns: ['date', 'kind', 'note', 'symptoms'],
+    sql: '''
+      SELECT c.date, c.kind, c.note,
+             COALESCE(s.symptoms_json, '') AS symptoms
+      FROM cycle_log c LEFT JOIN cycle_symptom s ON s.date = c.date
+      ORDER BY c.date ASC
+    ''',
+  ),
+];
+
+/// What CSV deliberately does NOT carry, and why. Shown to the user on the
+/// export screen, because "your data" with a silent gap in it is the same
+/// dishonesty as a fabricated number.
+///
+/// All of it IS in the whole-database export — a `.db` is lossless by
+/// construction, which is exactly what makes it the wrong format for reading
+/// and the right one for keeping.
+const kCsvExportExclusions = <String>[
+  'Raw 1 Hz sensor rows and beat-to-beat intervals — millions of rows, and a '
+      'spreadsheet cannot open them',
+  'Undecodable band frames',
+  'GPS route points',
+  'Sync state and rolling baselines — internal bookkeeping, not measurements',
+  'Your profile, preferences and API key — settings, not data',
 ];
 
 /// Characters that make Excel, Google Sheets and LibreOffice treat a cell as a

@@ -291,6 +291,13 @@ String axisHm(double minutes) {
 /// One decimal — skin temperature, kilograms, pace.
 String axisFixed(double v) => v.toStringAsFixed(1);
 
+/// [axisInt] when the number is whole enough to be read that way, [axisFixed]
+/// otherwise. For prose rather than for a gridline: a spoken summary has no
+/// caller-chosen format to borrow when the chart was drawn without an axis,
+/// and "zero point three degrees" must not become "zero".
+String axisFixedOrInt(double v) =>
+    (v - v.roundToDouble()).abs() < .05 ? axisInt(v) : axisFixed(v);
+
 /// Smoothing is only honest below this many points. Above it the polyline is
 /// already sub-pixel and a cubic through min/max pairs invents overshoot that
 /// is not in the data.
@@ -627,19 +634,32 @@ class Hypnogram extends CustomPainter {
   final List<SleepStage> stages;
   final double t;
 
-  Hypnogram(this.stages, {this.t = 1});
+  /// The surface's palette. A painter is the one place in this library that
+  /// used to spend RAW pigment: `C.sky` measures **1.67:1** on a white card, so
+  /// the Light lane — the lane most of a night is spent in — was very nearly
+  /// invisible in the light theme. A lane's colour IS the information, so it
+  /// goes through the same solver every label does.
+  final P p;
 
-  static const cols = <SleepStage, Color>{
+  Hypnogram(this.stages, this.p, {this.t = 1});
+
+  static const pigment = <SleepStage, Color>{
     SleepStage.awake: C.orange,
     SleepStage.rem: C.teal,
     SleepStage.light: C.sky,
     SleepStage.deep: C.blue,
   };
 
+  /// The lane colours as drawn. Four lanes at four different heights, so hue is
+  /// never the only channel here — y position already carries the stage.
+  static Map<SleepStage, Color> cols(P p) =>
+      {for (final e in pigment.entries) e.key: p.on(e.value)};
+
   /// Hand straight to `ChartFrame.legend`. Derived from [cols] rather than
-  /// retyped, so a lane can never be recoloured without its key following.
-  static List<(String, Color)> get legend =>
-      [for (final s in SleepStage.values) (s.label, cols[s]!)];
+  /// retyped, so a lane can never be recoloured without its key following, and
+  /// the swatch is the mark's real colour rather than the pigment behind it.
+  static List<(String, Color)> legend(P p) =>
+      [for (final s in SleepStage.values) (s.label, p.on(pigment[s]!))];
 
   /// One column per drawable slot, with a STATED precedence: awake wins.
   ///
@@ -680,6 +700,7 @@ class Hypnogram extends CustomPainter {
     final v = columns(stages, (s.width / 2).floor());
     final lane = s.height / 4, w = s.width / v.length;
     final n = (v.length * t.clamp(0, 1)).round().clamp(1, v.length);
+    final ink = cols(p);
     for (var i = 0; i < n; i++) {
       final st = v[i];
       cv.drawRRect(
@@ -688,50 +709,68 @@ class Hypnogram extends CustomPainter {
               i * w, st.index * lane + 2, max(w - .8, 2), lane - 5),
           const Radius.circular(2),
         ),
-        Paint()..color = cols[st]!,
+        Paint()..color = ink[st]!,
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant Hypnogram o) => o.t != t || o.stages != stages;
+  bool shouldRepaint(covariant Hypnogram o) =>
+      o.t != t || o.stages != stages || o.p.dark != p.dark;
 }
 
 /// Time-in-zone as one stacked bar. [z] is five fractions summing to ≤ 1.
 class ZoneBar extends CustomPainter {
   final List<double> z;
+  final P p;
 
-  ZoneBar(this.z);
+  ZoneBar(this.z, this.p);
 
-  static const cols = [C.blueSoft, C.blue, C.green, C.orange, C.red];
+  static const pigment = [C.blueSoft, C.blue, C.green, C.orange, C.red];
+
+  /// The bands as drawn — solved against the surface, like every other mark.
+  /// `blueSoft` measured 1.80:1 on a white card, so zone 1 was a pale smear.
+  static List<Color> cols(P p) => [for (final c in pigment) p.on(c)];
 
   /// Five bands of colour mean nothing without their numbers. Derived from
   /// [cols] for the same reason [Hypnogram.legend] is.
-  static List<(String, Color)> get legend =>
-      [for (var i = 0; i < cols.length; i++) ('Zone ${i + 1}', cols[i])];
+  static List<(String, Color)> legend(P p) =>
+      [for (var i = 0; i < pigment.length; i++) ('Zone ${i + 1}', p.on(pigment[i]))];
+
+  /// How short zone 1 is drawn relative to zone 5.
+  ///
+  /// Solving each band against the CARD does nothing for zone 4 against zone 5:
+  /// those measure 1.34:1 against EACH OTHER, and unlike [Hypnogram] a stacked
+  /// bar has no lane position to separate them with. So the ordinal gets a
+  /// second channel — the bands step up in height toward the hard end, which is
+  /// the thing the colour was trying to say anyway.
+  static const _floor = .6;
 
   @override
   void paint(Canvas cv, Size s) {
     var x = 0.0;
-    for (var i = 0; i < z.length && i < cols.length; i++) {
+    final ink = cols(p);
+    final n = pigment.length;
+    for (var i = 0; i < z.length && i < n; i++) {
       final w = z[i] * s.width;
       if (!w.isFinite) continue;
       // Advance first: skipping the draw must not also skip the band's width,
       // or every later band shifts left by it.
       x += w;
       if (w <= .5) continue;
+      final h = s.height * (_floor + (1 - _floor) * i / (n - 1));
       cv.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(x - w, 0, max(w - 2, 1), s.height),
+          Rect.fromLTWH(x - w, s.height - h, max(w - 2, 1), h),
           const Radius.circular(3),
         ),
-        Paint()..color = cols[i],
+        Paint()..color = ink[i],
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant ZoneBar o) => o.z != z;
+  bool shouldRepaint(covariant ZoneBar o) => o.z != z || o.p.dark != p.dark;
 }
 
 /// Actogram — hour of day (rows) × date (columns). The circadian view.
@@ -788,15 +827,25 @@ class HeatMap extends CustomPainter {
     for (var w = 0; w < weeks.length; w++) {
       for (var d = 0; d < 7 && d < weeks[w].length; d++) {
         final v = weeks[w][d];
+        // Absence is an OUTLINE, not a fainter fill. Drawn as a filled track
+        // the two measured 1.00:1 against the faintest real value — a day that
+        // was measured and a day that was not were literally the same colour,
+        // which is an honesty bug wearing a contrast bug's clothes. A shape
+        // difference survives any palette and any colour vision.
+        final empty = v == null;
         cv.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromLTWH(w * cw + 1, d * ch + 1, cw - 2.5, ch - 2.5),
             const Radius.circular(2),
           ),
-          Paint()
-            ..color = v == null
-                ? track
-                : color.withValues(alpha: .18 + v.clamp(0.0, 1.0) * .74),
+          empty
+              ? (Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1
+                ..color = track)
+              : (Paint()
+                ..color =
+                    color.withValues(alpha: .3 + v.clamp(0.0, 1.0) * .62)),
         );
       }
     }

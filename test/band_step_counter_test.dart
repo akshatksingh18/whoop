@@ -117,14 +117,15 @@ void main() {
     test('a legacy substrate with no step array reads ABSENT everywhere', () {
       // Rows written before the field existed decode to an empty list; every
       // index must answer "absent", and slicing must not throw.
-      const legacy = Substrate(
-        tsSec: [1, 2, 3],
-        hr: [60, 60, 60],
-        rrTsMs: [],
-        rrMs: [],
-        ax: [0, 0, 0],
-        ay: [0, 0, 0],
-        az: [1, 1, 1],
+      // Not `const`: the constructor packs the double arrays into Float64Lists.
+      final legacy = Substrate(
+        tsSec: const [1, 2, 3],
+        hr: const [60, 60, 60],
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: const [0, 0, 0],
+        ay: const [0, 0, 0],
+        az: const [1, 1, 1],
         spo2Red: [0, 0, 0],
         spo2Ir: [0, 0, 0],
         skinTemp: [0, 0, 0],

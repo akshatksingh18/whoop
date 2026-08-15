@@ -21,6 +21,11 @@ enum OpenStrapShared {
 
   static var hasData: Bool { defaults()?.bool(forKey: "has_data") ?? false }
   static var readiness: Int { defaults()?.object(forKey: "readiness") as? Int ?? -1 }
+  /// The phone's own band label, published as `readiness_band` (thresholds:
+  /// `readinessBand` in lib/ui2/screens/home_screen.dart). Siri used to carry a
+  /// fourth private copy of the cut-offs, so it called 65 "moderate" while the
+  /// phone said "Steady" and the widget drew orange.
+  static var readinessBand: String { defaults()?.string(forKey: "readiness_band") ?? "" }
   static var strain: Double { defaults()?.object(forKey: "strain") as? Double ?? -1 }
   static var hrv: Int { defaults()?.object(forKey: "hrv") as? Int ?? -1 }
   static var rhr: Int { defaults()?.object(forKey: "rhr") as? Int ?? -1 }
@@ -37,17 +42,20 @@ enum OpenStrapShared {
 
 @available(iOS 16.0, *)
 struct RecoveryIntent: AppIntent {
-  static var title: LocalizedStringResource = "Check Recovery"
-  static var description = IntentDescription("Ask OpenStrap for today's recovery.")
+  static var title: LocalizedStringResource = "Check Readiness"
+  static var description = IntentDescription("Ask OpenStrap for today's readiness.")
   static var openAppWhenRun = false
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.readiness >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.noData))
     }
-    let r = OpenStrapShared.readiness
-    let tier = r < 34 ? "Take it easy today." : (r < 67 ? "A moderate day looks good." : "You're primed to push.")
-    return .result(dialog: "Your recovery is \(r) percent. \(tier)")
+    // "Readiness, out of 100" — the app's own name and unit. It is not a
+    // percentage and it is not called Recovery anywhere else in the product.
+    let band = OpenStrapShared.readinessBand
+    let line = "Your readiness is \(OpenStrapShared.readiness) out of 100."
+    return .result(dialog: IntentDialog(
+      stringLiteral: band.isEmpty ? line : "\(line) \(band)."))
   }
 }
 
@@ -111,11 +119,12 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: RecoveryIntent(),
       phrases: [
+        "\(.applicationName) readiness",
+        "What's my readiness in \(.applicationName)",
         "\(.applicationName) recovery",
-        "What's my recovery in \(.applicationName)",
         "How recovered am I in \(.applicationName)",
       ],
-      shortTitle: "Recovery",
+      shortTitle: "Readiness",
       systemImageName: "bolt.heart")
 
     AppShortcut(

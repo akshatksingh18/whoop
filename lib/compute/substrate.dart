@@ -12,6 +12,7 @@
 // offset), with a noon-to-noon fallback so a day always exists when there's data.
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -81,7 +82,54 @@ class Substrate {
   /// [accelPresentAt].
   final List<int> stepCount;
 
-  const Substrate({
+  /// Pack a `List<double>` into a `Float64List` (an already-packed list passes
+  /// straight through).
+  ///
+  /// A growable `List<double>` in Dart AOT is a list of POINTERS to boxed
+  /// doubles — an 8-byte slot plus a 16-byte heap object per element, 24 B in
+  /// all. `Float64List` stores the bits inline at 8. These five arrays are the
+  /// substrate's whole memory story: ~6.9 MB/day of pure boxing at 1 Hz, held
+  /// across three overlapping windows per day and three concurrent derive
+  /// lanes. It also turns the isolate hand-off into a memcpy of a typed buffer
+  /// instead of an object-graph walk over ~400 000 boxes.
+  ///
+  /// Bit-exact: a `Float64List` holds the same IEEE-754 doubles, so nothing
+  /// derived from them moves. (The int arrays are deliberately left alone —
+  /// Dart already stores small ints inline as Smis, so an `Int32List` would buy
+  /// 4 B/element in exchange for a silent-truncation edge.)
+  static List<double> _packed(List<double> l) =>
+      l is Float64List ? l : Float64List.fromList(l);
+
+  factory Substrate({
+    required List<int> tsSec,
+    required List<int> hr,
+    required List<double> rrTsMs,
+    required List<double> rrMs,
+    required List<double> ax,
+    required List<double> ay,
+    required List<double> az,
+    required List<int> spo2Red,
+    required List<int> spo2Ir,
+    required List<int> skinTemp,
+    required List<int> skinContact,
+    List<int> stepCount = const [],
+  }) =>
+      Substrate._(
+        tsSec: tsSec,
+        hr: hr,
+        rrTsMs: _packed(rrTsMs),
+        rrMs: _packed(rrMs),
+        ax: _packed(ax),
+        ay: _packed(ay),
+        az: _packed(az),
+        spo2Red: spo2Red,
+        spo2Ir: spo2Ir,
+        skinTemp: skinTemp,
+        skinContact: skinContact,
+        stepCount: stepCount,
+      );
+
+  const Substrate._({
     required this.tsSec,
     required this.hr,
     required this.rrTsMs,
@@ -96,7 +144,7 @@ class Substrate {
     this.stepCount = const [],
   });
 
-  static const Substrate empty = Substrate(
+  static const Substrate empty = Substrate._(
     tsSec: [],
     hr: [],
     rrTsMs: [],
@@ -248,14 +296,25 @@ class Substrate {
 
   /// Filter THIS substrate's sparse RR to beats whose end time (epoch ms) falls
   /// in [startSec, endSec). Returns (rrTsMs, rrMs).
+  /// Counted first, then filled, so the beats land straight in a `Float64List`.
+  /// A growable `<double>[]` here would box every beat only for the constructor
+  /// to pack it back — and this runs on every slice, of which there are three
+  /// per day.
   (List<double>, List<double>) _filterRr(int startSec, int endSec) {
     final loMs = startSec * 1000.0, hiMs = endSec * 1000.0;
-    final ts = <double>[], rr = <double>[];
+    var n = 0;
+    for (var i = 0; i < rrMs.length; i++) {
+      final t = rrTsMs[i];
+      if (t >= loMs && t < hiMs) n++;
+    }
+    final ts = Float64List(n), rr = Float64List(n);
+    var j = 0;
     for (var i = 0; i < rrMs.length; i++) {
       final t = rrTsMs[i];
       if (t >= loMs && t < hiMs) {
-        ts.add(t);
-        rr.add(rrMs[i]);
+        ts[j] = t;
+        rr[j] = rrMs[i];
+        j++;
       }
     }
     return (ts, rr);
@@ -279,9 +338,20 @@ class Substrate {
   static Substrate fromJson(Map<String, dynamic> m) {
     List<int> ints(Map<String, dynamic> m, String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    List<double> dbls(String k) =>
-        ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
-        
+    // Straight into a Float64List — see [_packed]. This runs on the RECEIVING
+    // (main) isolate for every substrate handed back from a worker, so the
+    // growable intermediate was ~400 000 boxes allocated and immediately
+    // thrown away, on the UI thread.
+    Float64List dbls(String k) {
+      final src = (m[k] as List?) ?? const [];
+      final out = Float64List(src.length);
+      for (var i = 0; i < src.length; i++) {
+        out[i] = (src[i] as num).toDouble();
+      }
+      return out;
+    }
+
+
     final tsSec = ints(m, 'ts_sec');
     final n = tsSec.length;
     
@@ -291,7 +361,7 @@ class Substrate {
     }
     List<double> safeD(String k) {
       final l = dbls(k);
-      return (l.isEmpty && n > 0) ? List<double>.filled(n, 0.0) : l;
+      return (l.isEmpty && n > 0) ? Float64List(n) : l;
     }
 
     return Substrate(

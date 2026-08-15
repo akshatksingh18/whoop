@@ -23,11 +23,20 @@ and `paint_activity.dart` (painters), `app_shell.dart` (the five tabs).
 | `BorderRadius.circular(12)` | `R.rMd` (`R.rSm` … `R.rPill`) |
 | `.repeat(` | a caller-owned phase value — see `BreathRing.t` |
 | `Duration(…)` | `Motion.fast/base/slow` through `motion(context, …)` |
-| `GestureDetector` / `InkWell` | `Pressable` |
+| `GestureDetector` / `InkWell` / `Listener` | `Pressable`, or `Scrubber` for a drag |
 
 Two more tests back it: `ui2_contrast_test.dart` sweeps every accent × every
-surface × both themes at a 4.5:1 floor, and `ui2_golden_test.dart` captures
+surface × both themes at a 4.5:1 floor — **including what the painters draw**,
+because a mark's colour is information — and `ui2_golden_test.dart` captures
 every component in light/dark at 1.0× and 2.0× text scale.
+
+Above 2.0× there are no PNGs, on purpose: iOS reaches 3.1× and Android about
+2.6× effective, and 174 more images per tier is 174 more images nobody reviews.
+Instead the same case list is pumped at 1.0/1.4/2.0/3.0/3.1× with **any
+`RenderFlex` overflow failing the build**, and every `Pressable` in every case
+is measured against 44 pt. Both sweeps exist because the 2.0× goldens passed
+with fixtures like `'52'` and `'38 min'` while six components overflowed at
+that scale on a real duration.
 
 **When you add a screen, add its components to the golden case list.** That is
 the whole reason visual fixes stopped regressing.
@@ -113,13 +122,20 @@ Confidence is **always** these three dots. Never a percentage, never a banner.
 ### Pressable — the only gesture primitive
 
 ```dart
-Pressable({required Widget child, VoidCallback? onTap,
-           String? semanticLabel, bool expand = true})
+Pressable({required Widget child, VoidCallback? onTap, String? semanticLabel})
+
+Scrubber({required double? value, required ValueChanged<double> onChanged,
+          required String label, required String Function(double) describe,
+          required Widget child, double step = .05})
 ```
 
-Applies the 44 pt minimum and gates its press animation. Pass
-`semanticLabel` for anything without visible text. `expand: false` only for a
-control genuinely inline in a text run.
+`Pressable` applies the 44 pt minimum and gates its press animation. Pass
+`semanticLabel` for anything without visible text. **There is no `expand`** —
+it used to drop the constraint entirely and the doc comment claimed a hit slop
+that did not exist.
+
+`Scrubber` is the only drag: it carries the slider role, so increase/decrease
+reach it without a pointer, and `describe` is what those steps say out loud.
 
 ### Layout primitives
 
@@ -235,8 +251,8 @@ Bars(List<double> d, Color color, Color track,
      {int highlight = -1, double t = 1, AxisSpec? axis})
 Ring(double v, Color color, Color track, {double stroke = 10, double t = 1})
 MacroRing(double v, Color color, Color track)
-Hypnogram(List<SleepStage> stages, {double t = 1})   // enum: awake, rem, light, deep
-ZoneBar(List<double> z)                              // five fractions
+Hypnogram(List<SleepStage> stages, P p, {double t = 1})  // awake/rem/light/deep
+ZoneBar(List<double> z, P p)                         // five fractions
 Actogram(List<List<double>?> days, Color color)      // per day, 24 slots; null = no record
 HeatMap(List<List<double?>> weeks, Color color, Color track)  // null = no data
 Spectrum(List<double> psd, {double split = .28, Color lf, Color hf})
@@ -307,10 +323,16 @@ ChartFrame({
   String? footnote,             // 'Your usual range 52–64 bpm'
   Conf? conf,                   // ConfDots in the header
   Widget? empty,                // non-null MEANS NO DATA — `const NoData()`
+  List<double?> series = const [],   // the SPOKEN version of the chart
 })
 
 NoData({String message = 'No data yet'})
 ```
+
+Pass `series:` as well as the painter's data. A picture has no screen-reader
+form, so the frame turns the series into one sentence — latest, range,
+direction — and marks itself `excludeSemantics`, because what it read out
+before was the bare axis tick numbers and every header value twice.
 
 Four rules:
 
@@ -333,8 +355,16 @@ Four rules:
    `['30 days ago', '15', 'Today']` under a seven-day window is worse than no
    labels. With three labels they mark the start, middle and end of the data.
 3. **More than one colour means a `legend`.** Use the painters' own, never
-   retyped: `Hypnogram.legend`, `ZoneBar.legend`, `Spectrum.legend` (instance),
-   `IntervalLadder.legend` (instance).
+   retyped: `Hypnogram.legend(p)`, `ZoneBar.legend(p)`, `Spectrum.legend`
+   (instance), `IntervalLadder.legend` (instance). The swatch is the mark's
+   *solved* colour, so the key and the plot can never disagree.
+
+   The two painters that own a palette take `P` for exactly that reason: raw
+   `C.sky` measures 1.67:1 on a white card, so the Light lane was invisible in
+   light mode. Everything else takes its colour from the caller — pass
+   `p.on(accent)`, never the pigment. `ZoneBar` also steps its bands up in
+   height, because zone 4 against zone 5 is 1.34:1 *to each other* and a
+   stacked bar has no lane position to separate them with.
 4. **Empty is `empty:`, not an empty axis.** `empty: const NoData(message: '…')` keeps
    the title and the unit and drops the axis entirely. A whole metric with no
    value is still a `StatusCard` — `NoData` is the smaller case where the

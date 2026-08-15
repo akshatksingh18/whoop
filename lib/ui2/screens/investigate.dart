@@ -148,7 +148,7 @@ class _InvestigateState extends State<Investigate> {
           // days that were read out of somebody else's export.
           ('Source',
               d.importedFrom == null
-                  ? 'Band records · derived on this device'
+                  ? 'Band records · derived on this phone'
                   : 'Imported · ${d.importedFrom}'),
           ('Algorithm version',
               d.algoVersion == null ? '—' : 'v${d.algoVersion}'),
@@ -222,9 +222,7 @@ class _InvestigateState extends State<Investigate> {
       if (freq['total'] == null)
         const StatusCard(
           'No frequency-domain spectrum for this night',
-          'The bands are Welch-averaged over segments long enough to resolve '
-              'each one, so a short or broken recording returns nothing rather '
-              'than a number computed off too few beats.',
+          'The recording was too short to resolve the bands.',
         ),
       const SizedBox(height: S.x3),
       MonoTable('Non-linear', [
@@ -268,8 +266,7 @@ class _InvestigateState extends State<Investigate> {
       return [
         StatusCard(
           'No stored series',
-          'Nothing has been written for ${spec.title.toLowerCase()} yet, so '
-              'there is nothing to take apart.',
+          'Nothing stored for ${spec.title.toLowerCase()} yet.',
           icon: spec.icon,
         ),
       ];

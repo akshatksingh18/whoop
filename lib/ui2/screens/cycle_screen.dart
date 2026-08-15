@@ -174,8 +174,8 @@ class _CycleTabState extends State<CycleTab> {
     if (!d.enabled) {
       return StatusCard(
         'Cycle tracking is off',
-        'Nothing is recorded, predicted or shown until you turn it on. Like '
-            'everything else here it stays on this device.',
+        'Nothing is recorded or predicted until you turn it on. It stays on '
+            'this phone.',
         fix: 'Turn on cycle tracking',
         icon: LucideIcons.circleDot,
         onFix: () => _setEnabled(true),
@@ -188,8 +188,7 @@ class _CycleTabState extends State<CycleTab> {
         if (d.cycleDay == null)
           StatusCard(
             'No period logged yet',
-            'Every number here is counted from the days you log. Nothing is '
-                'inferred from your heart rate or your temperature.',
+            'Counted from the days you log. Nothing is inferred from your body.',
             fix: 'Log a period start today',
             icon: LucideIcons.calendarPlus,
             onFix: _logStart,
@@ -255,8 +254,7 @@ class _CycleTabState extends State<CycleTab> {
             ]),
             const SizedBox(height: S.x2),
             Text(
-              'Placed by counting back from your mean cycle length. It is not '
-              'measured, and it is not contraception.',
+              'Counted back from your mean cycle. Not contraception.',
               style: F.over.copyWith(color: p.ink3, height: 1.5),
             ),
           ],
@@ -385,8 +383,7 @@ class _CycleTabState extends State<CycleTab> {
     if (d.logs.isEmpty) {
       return const StatusCard(
         'Nothing logged yet',
-        'A logged start is the only input this domain has. Everything above '
-            'is counted from them.',
+        'A logged start is the only input.',
         icon: LucideIcons.calendarDays,
       );
     }

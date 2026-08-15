@@ -1,11 +1,11 @@
 // WatchBridge — phone → Apple Watch data ferry (WatchConnectivity).
 //
 // iPhone and Apple Watch do NOT share an App Group container (they're separate
-// devices), so the watch cannot read `group.wtf.openstrap` directly. This bridge
+// devices), so the watch cannot read the phone's App Group directly. This bridge
 // takes the exact snapshot the app already writes for the home-screen widget
 // (WidgetService → home_widget → App Group UserDefaults) and pushes it to the
-// watch over WCSession. The watch caches it locally and its glance + complications
-// render from that. One source of truth: we never recompute here, we mirror.
+// watch over WCSession. The watch caches it locally and its glance renders from
+// that (there are no complications — see WatchStore.swift). One source of truth: we never recompute here, we mirror.
 //
 // Trigger: Dart calls the `syncWatch` method on the existing `openstrap/ios_config`
 // channel right after it updates the widget (see WidgetService). We also push on
@@ -29,7 +29,9 @@ final class WatchBridge: NSObject, WCSessionDelegate {
 
   private var appGroupId: String {
     Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String
-      ?? "group.wtf.openstrap"
+      // Same fallback as AppGroup.swift and WidgetService.fallbackAppGroupId —
+      // see the note there.
+      ?? "group.com.example.openstrap"
   }
 
   /// Activate the WCSession. Safe to call once at launch; no-op if unsupported

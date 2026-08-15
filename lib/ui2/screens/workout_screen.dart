@@ -18,6 +18,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
+import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
@@ -194,9 +195,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return StatusCard(
         'No training load yet',
         d.loadNote ??
-            'Fitness and fatigue are exponential averages over 42 and 7 days. '
-                'They need about two weeks of recorded sessions before they '
-                'mean anything, so nothing is shown until then.',
+            'Fitness and fatigue are 42-day and 7-day averages. They need '
+                'about two weeks of sessions.',
         icon: LucideIcons.trendingUp,
       );
     }
@@ -333,9 +333,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       if (d.weightKg == null)
         StatusCard(
           'Calorie estimates need your weight',
-          'Every activity carries a published MET value, but turning that '
-              'into kilocalories needs your body mass. Until then the '
-              'catalogue shows MET.',
+          kCalorieNeedsWeight,
           fix: 'Add weight in profile',
           // A CTA that cannot be tapped is worse than no CTA. Health's copy of
           // this card has always gone here.
@@ -345,10 +343,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       else
         const StatusCard(
           'Calorie figures are estimates',
-          'They come from published MET values for each activity and your '
-              'body weight, then get refined by heart rate during the '
-              'session. Nothing here measures energy directly, and no error '
-              'bar has been computed for the estimate — so none is quoted.',
+          kCalorieWhy,
           icon: LucideIcons.flame,
         ),
     ];
@@ -361,8 +356,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       return [
         StatusCard(
           'No sessions recorded yet',
-          'Workouts appear here once you start one, or once the strap detects '
-              'a bout of sustained effort on its own.',
+          // Auto-detection writes `workout_suggestions` and nothing reads it
+          // (lib/app.dart:339), so a detected effort never arrives here. The
+          // string used to tell the user to wait for it.
+          'Sessions appear here once you start one.',
           fix: 'Start a workout',
           onFix: () => _openPicker(c, d),
           icon: LucideIcons.dumbbell,
@@ -609,6 +606,21 @@ LiveFeed _feedOf(AppState app) {
     hrCurve: w?.perMinuteHr() ?? const [],
     distanceKm: app.liveDistanceKm,
     gpsActive: app.routeTracking,
+    bandConnected: app.isConnected,
+    // Both were implemented at the state layer and read by nothing, so a
+    // location denial showed as an absent map and no sentence at all.
+    routeIssue: app.routeLocationIssue,
+    onFixRoute: () {
+      final issue = app.routeLocationIssue;
+      if (issue == null) return;
+      // A plain denial can be asked again; the rest can only be fixed in
+      // Settings, and re-asking there would do nothing.
+      if (issue == GpsPermissionStatus.denied) {
+        app.retryRouteTracking();
+      } else {
+        GpsSource.openSettingsFor(issue);
+      }
+    },
   );
 }
 

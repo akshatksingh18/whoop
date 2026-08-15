@@ -180,9 +180,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
           score == null
               ? const StatusCard(
                   'No stress reading last night',
-                  'It is measured from a long enough resting window to read '
-                      'autonomic tension, and last night did not have one. '
-                      'There is deliberately no stand-in number.',
+                  'Needs a long enough resting stretch. Last night had none.',
                   icon: LucideIcons.activity,
                 )
               : SignalCard(
@@ -261,9 +259,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
           drivers.isEmpty
               ? const StatusCard(
                   'No readiness drivers yet',
-                  'They come from the cross-day readiness breakdown, which '
-                      'needs enough nights to know what normal looks like for '
-                      'you before it can say what moved.',
+                  'Needs enough nights to know what normal looks like for you.',
                   icon: LucideIcons.sparkles,
                 )
               : Surface(
@@ -283,9 +279,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
         if (drivers.isNotEmpty) ...[
           const SizedBox(height: S.x3),
           Text(
-            'These are the inputs that moved readiness, not a points ledger — '
-            'the breakdown does not emit per-driver point deltas, so none are '
-            'invented here.',
+            'What moved readiness. Direction only, no point totals.',
             style: F.cap.copyWith(color: P.of(c).ink3, height: 1.45),
           ),
         ],
@@ -294,9 +288,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
           needSec == null
               ? const StatusCard(
                   'No sleep need yet',
-                  'Your need is learned from your own unconstrained nights, '
-                      'not from a rounded eight hours. Until there are enough '
-                      'of them there is no honest number to show.',
+                  'Learned from nights you woke up on your own. Not enough of '
+                  'them yet.',
                   icon: LucideIcons.bedDouble,
                 )
               : Surface(
@@ -379,18 +372,10 @@ class _WellnessScreenState extends State<WellnessScreen> {
         children: [
           StatusCard(
             'No habits yet',
-            'A habit here is a plain yes-or-no you answer once a day. It costs '
-                'a row, not a new part of the app — the journal already stores '
-                'exactly this shape.',
+            'A habit is a yes-or-no you answer once a day.',
             fix: 'Add a habit',
             icon: LucideIcons.circleCheck,
             onFix: () => _addHabit(c),
-          ),
-          const SizedBox(height: S.x4),
-          Text(
-            'No streaks. A missed day never resets anything — the count '
-            'repairs itself.',
-            style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
       );
@@ -436,12 +421,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
               ),
             ),
           ),
-        const SizedBox(height: S.x2),
-        Text(
-          'No streaks. A missed day never resets anything — the count repairs '
-          'itself.',
-          style: F.cap.copyWith(color: p.ink3, height: 1.5),
-        ),
         const SizedBox(height: S.x4),
         BigButton(
           'Add a habit',
@@ -490,8 +469,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
         if (_meds.isEmpty)
           StatusCard(
             'Nothing scheduled',
-            'Add what you take and when, and this becomes a checklist plus an '
-                'honest adherence count. Nothing leaves the phone.',
+            'Add what you take and when. Nothing leaves the phone.',
             fix: 'Add a medication',
             icon: LucideIcons.pill,
             onFix: () => _addMed(c),
@@ -517,9 +495,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
                 _adherence.of,
                 _adherence.of == 0
                     ? 'No dose has come due in the last seven days'
-                    : 'Doses taken of those scheduled in the last seven days. '
-                          'A dose still ahead of you today is not counted '
-                          'against you.',
+                    : 'Taken, of those scheduled in the last seven days. A dose'
+                      ' still ahead of you does not count against you.',
                 C.blue,
               ),
             ),

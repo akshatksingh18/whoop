@@ -20,7 +20,7 @@ import SwiftUI
 
 private let kAppGroup = AppGroup.identifier
 
-// MARK: - Theme (mirrors OpenStrapWidget's Ember-on-Paper / Char)
+// MARK: - Theme (lib/ui2/theme.dart; mirrors OpenStrapWidget's)
 
 private extension Color {
   init(_ r: Int, _ g: Int, _ b: Int) {
@@ -30,10 +30,10 @@ private extension Color {
 
 private struct BattPal {
   let bg: Color, ink: Color, inkMuted: Color, track: Color
-  static let light = BattPal(bg: Color(244, 241, 236), ink: Color(26, 23, 20),
-                             inkMuted: Color(165, 156, 144), track: Color(236, 231, 223))
-  static let dark  = BattPal(bg: Color(30, 26, 21), ink: Color(241, 236, 227),
-                             inkMuted: Color(126, 116, 102), track: Color(42, 37, 31))
+  static let light = BattPal(bg: Color(0xFF, 0xFF, 0xFF), ink: Color(0x0F, 0x17, 0x2A),
+                             inkMuted: Color(0x62, 0x71, 0x88), track: Color(0xE2, 0xE8, 0xF0))
+  static let dark  = BattPal(bg: Color(0x15, 0x1C, 0x26), ink: Color(0xF1, 0xF5, 0xF9),
+                             inkMuted: Color(0x7F, 0x8D, 0xA0), track: Color(0x23, 0x2D, 0x3B))
   static var current: BattPal {
     let isDark = UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false
     return isDark ? .dark : .light
@@ -45,41 +45,65 @@ private extension Color {
   static var battInk: Color { BattPal.current.ink }
   static var battInkMuted: Color { BattPal.current.inkMuted }
   static var battTrack: Color { BattPal.current.track }
-  static let battCoral     = Color(255, 90, 54)
-  static let battCoralDeep = Color(232, 67, 31)
-  static let battGood      = Color(43, 182, 115)
-  static let battCharge    = Color(124, 168, 240)
+  // Raw ui2 pigment: a battery bar is non-text UI, so it spends `C.*` directly.
+  static let battLow      = Color(0xF9, 0x73, 0x16)   // C.orange
+  static let battCritical = Color(0xEF, 0x44, 0x44)   // C.red
+  static let battGood     = Color(0x22, 0xC5, 0x5E)   // C.green
+  static let battCharge   = Color(0x3B, 0x82, 0xF6)   // C.blue
 }
 
 // MARK: - Model
 
+/// A battery reading older than this is not the band's current level — we
+/// simply have not talked to it. Shorter than the metrics widget's 26 h
+/// (OpenStrapWidget.swift) on purpose: readiness describes a night that stays
+/// true all day, a battery percentage describes right now.
+private let kBattStaleAfter: TimeInterval = 86_400
+
 struct BatteryEntry: TimelineEntry {
-  let date: Date
-  let name: String      // strap advertising name (falls back to "Strap")
+  var date: Date
+  let name: String      // the band's advertising name (falls back to "Band")
   let pct: Int          // -1 = never seen the band
   let charging: Bool
   let updatedAt: Int    // epoch seconds, 0 = unknown
-  let stale: Bool       // last reading is old enough that we mute it
 
   static let placeholder = BatteryEntry(
     date: Date(), name: "Band", pct: 68, charging: false,
-    updatedAt: Int(Date().timeIntervalSince1970), stale: false)
+    updatedAt: Int(Date().timeIntervalSince1970))
 
   var hasData: Bool { pct >= 0 }
+
+  /// Computed from THIS ENTRY'S date, not from `Date()` at read time — the same
+  /// reason the metrics widget does it: a flag frozen when the timeline was
+  /// built can never go stale on its own, so WidgetKit renders the flip from an
+  /// entry it already holds (see getTimeline).
+  var stale: Bool {
+    guard hasData, updatedAt > 0 else { return false }
+    return date.timeIntervalSince1970 - Double(updatedAt) > kBattStaleAfter
+  }
+
+  /// The instant this reading stops being the band's current level.
+  var stalenessDeadline: Date? {
+    guard hasData, updatedAt > 0 else { return nil }
+    let at = Date(timeIntervalSince1970: Double(updatedAt) + kBattStaleAfter)
+    return at > date ? at : nil
+  }
+
+  func at(_ d: Date) -> BatteryEntry { var c = self; c.date = d; return c }
   var t: Double { pct >= 0 ? min(max(Double(pct) / 100.0, 0), 1) : 0 }
 
   /// Coral when low, deep-coral when critical, blue while charging, otherwise ink.
   var color: Color {
     if !hasData { return .battInkMuted }
     if charging { return .battCharge }
-    if pct <= 10 { return .battCoralDeep }
-    if pct <= 25 { return .battCoral }
+    if pct <= 10 { return .battCritical }
+    if pct <= 25 { return .battLow }
     return .battGood
   }
 
   var valueText: String { pct >= 0 ? "\(pct)%" : "" }
 
-  /// Icon: a charging bolt while plugged in, otherwise the strap glyph
+  /// Icon: a charging bolt while plugged in, otherwise the band glyph
   /// (mirrors the app's device icon, HugeIcons SmartWatch01).
   var symbol: String { charging ? "bolt.fill" : "applewatch" }
 }
@@ -93,12 +117,9 @@ private enum BatteryStore {
     let charging = d?.object(forKey: "batt_charging") as? Bool ?? false
     let at = d?.object(forKey: "batt_at") as? Int ?? 0
     let raw = (d?.string(forKey: "batt_name") ?? "").trimmingCharacters(in: .whitespaces)
-    let name = raw.isEmpty ? "Strap" : raw
-    // Mute (still show the number, but greyed) once the reading is > 24h old —
-    // we genuinely don't know the current level if we haven't talked to the band.
-    let stale = at > 0 && (Int(Date().timeIntervalSince1970) - at) > 86_400
+    let name = raw.isEmpty ? "Band" : raw
     return BatteryEntry(date: Date(), name: name, pct: pct, charging: charging,
-                        updatedAt: at, stale: stale)
+                        updatedAt: at)
   }
 }
 
@@ -114,10 +135,16 @@ struct BatteryProvider: TimelineProvider {
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<BatteryEntry>) -> Void) {
-    let entry = BatteryStore.read()
-    let next = Calendar.current.date(byAdding: .minute, value: 30, to: Date())
-      ?? Date().addingTimeInterval(1800)
-    completion(Timeline(entries: [entry], policy: .after(next)))
+    // Second entry at the staleness deadline: the reading labels itself "last
+    // known" at exactly that moment with no process wake. The 30-min `.after`
+    // only picks up a newer snapshot.
+    let now = Date()
+    let entry = BatteryStore.read().at(now)
+    var entries = [entry]
+    if let deadline = entry.stalenessDeadline { entries.append(entry.at(deadline)) }
+    let next = Calendar.current.date(byAdding: .minute, value: 30, to: now)
+      ?? now.addingTimeInterval(1800)
+    completion(Timeline(entries: entries, policy: .after(next)))
   }
 }
 
@@ -144,7 +171,7 @@ private struct BattBar: View {
   }
 }
 
-/// Home-screen small: strap name + level + linear bar.
+/// Home-screen small: band name + level + linear bar.
 private struct BatterySmallView: View {
   let e: BatteryEntry
   var body: some View {
@@ -159,7 +186,10 @@ private struct BatterySmallView: View {
         .minimumScaleFactor(0.6).lineLimit(1)
       Spacer(minLength: 8)
       if e.hasData { BattBar(t: e.t, color: e.color, height: 9) }
-      Text(e.charging ? "Charging" : (e.hasData ? "Battery" : "Not connected yet"))
+      // Dimming alone does not SAY anything. A reading we can no longer vouch
+      // for names itself, on every family.
+      Text(e.charging ? "Charging"
+           : (e.stale ? "Last known level" : (e.hasData ? "Battery" : "Not connected yet")))
         .font(.system(size: 10, weight: .medium)).foregroundColor(.battInkMuted)
         .padding(.top, 5)
     }
@@ -211,6 +241,9 @@ private struct BatteryRectangularView: View {
       } else {
         Text("Not connected yet").font(.system(size: 12)).foregroundStyle(.secondary)
       }
+      if e.stale {
+        Text("Last known").font(.system(size: 11)).foregroundStyle(.secondary)
+      }
     }
   }
 }
@@ -241,7 +274,9 @@ struct OpenStrapBatteryEntryView: View {
     case .accessoryRectangular: BatteryRectangularView(e: entry)
     case .accessoryInline:
       Label(
-        entry.hasData ? "\(entry.name) \(entry.pct)%" : "\(entry.name) not connected",
+        entry.hasData
+          ? "\(entry.name) \(entry.pct)%\(entry.stale ? " · last known" : "")"
+          : "\(entry.name) not connected",
         systemImage: entry.symbol)
     default: BatterySmallView(e: entry)
     }

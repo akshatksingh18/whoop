@@ -193,8 +193,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
         if (day == null || !day.logged)
           StatusCard(
             'Nothing logged today',
-            'One tap records that you ate, with no numbers at all. That is a '
-                'complete entry — the detail is optional and always has been.',
+            'One tap is a complete log. Numbers are optional.',
             fix: 'Log an eating occasion',
             icon: LucideIcons.utensils,
             onFix: _logFood,
@@ -262,9 +261,8 @@ class _NutritionScreenState extends State<NutritionScreen> {
           const SizedBox(height: S.x4),
           Observation(
             '${w.daysExcluded} of the last ${w.span} days could not be counted',
-            'A day is counted only when every occasion carries an energy '
-                'figure and the log reaches the evening. Partial days are '
-                'left out of the averages instead of dragging them down.',
+            'A day counts once every occasion carries an energy figure. Partial'
+            ' days are left out, not averaged down.',
             'Nothing to fix if that is genuinely how you ate.',
           ),
         ],
@@ -298,9 +296,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
           counted == 0
               ? const StatusCard(
                   'No complete day to average yet',
-                  'An average over partial days is an average of the meals we '
-                      'happened to see. A day counts once every occasion has '
-                      'an energy figure and the log reaches the evening.',
+                  'Averages need complete days. You have none.',
                   icon: LucideIcons.chartNoAxesColumn,
                 )
               : Surface(
@@ -334,8 +330,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   const SizedBox(height: S.x3),
                   Text(
                     'Eaten is the mean of $counted complete days. Burned is '
-                        'today\'s estimated expenditure, not a weekly mean — '
-                        'there is no expenditure history to average yet.',
+                    'today only.',
                     style: F.cap.copyWith(color: P.of(c).ink3, height: 1.45),
                   ),
                 ],
@@ -372,8 +367,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             : [_dayShort(w.days.first.date), 'Today'],
         footnote: w.daysExcluded == 0
             ? null
-            : '${w.daysExcluded} of these bars is a partial day — a floor, and '
-                'left out of the averages below.',
+            : '${w.daysExcluded} partial, left out of the averages below.',
         empty: axis == null ? const NoData(message: 'Nothing logged yet') : null,
         series: vals,
         child: axis == null
@@ -466,8 +460,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
         if (set.isEmpty)
           StatusCard(
             'No targets set',
-            'A target here is one you type. Nothing adapts it for you — that '
-                'needs weight history and about three weeks of complete days.',
+            'A target here is one you type. Nothing adapts it for you.',
             fix: 'Set a target',
             icon: LucideIcons.target,
             onFix: _editTargets,
@@ -509,9 +502,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
               ),
               const SizedBox(height: S.x3),
               Text(
-                'A basal rate from your height, weight, age and sex, plus what '
-                'your heart rate says you spent on top of it. It is an '
-                'estimate, and it is sensitive to every one of those.',
+                'BMR from your profile, plus heart-rate expenditure on top.',
                 style: F.cap.copyWith(color: p.ink2, height: 1.55),
               ),
               const SizedBox(height: S.x4),

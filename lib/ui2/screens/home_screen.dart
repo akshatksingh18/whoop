@@ -21,6 +21,7 @@ import '../../data/local_repository.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
+import '../../theme/theme_switcher.dart' show themedRoute;
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'metric_detail.dart';
@@ -32,20 +33,17 @@ import 'sleep_detail.dart';
 /// Page padding. The bottom inset clears the shell's floating nav.
 const pad = EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x16 + S.x8);
 
-/// Push a detail screen. The transition goes through the motion gate, so
-/// reduced motion gets an instant cut rather than a slower slide.
-void go(BuildContext c, Widget w) => Navigator.of(c).push(PageRouteBuilder(
-      transitionDuration: motion(c, Motion.slow),
-      reverseTransitionDuration: motion(c, Motion.base),
-      pageBuilder: (_, a, _) => FadeTransition(
-        opacity: a,
-        child: SlideTransition(
-          position: Tween(begin: const Offset(.04, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
-          child: w,
-        ),
-      ),
-    ));
+/// Push a detail screen. Every drill-down in ui2 goes through here.
+///
+/// This was a raw `PageRouteBuilder` with its own fade+slide, which silently
+/// killed the iOS edge-swipe-back on all ~20 screens it pushes — a
+/// PageRouteBuilder has no interactive back-gesture machinery. The app's own
+/// transition is registered in the theme instead (see page_transitions.dart),
+/// so a plain route gets the fade-through on Android and the Cupertino slide
+/// WITH swipe-back on iOS. [themedRoute] also keeps the pushed screen
+/// re-colouring on an appearance change and names the route for Crashlytics.
+void go(BuildContext c, Widget w) => Navigator.of(c)
+    .push(themedRoute((_) => w, name: w.runtimeType.toString()));
 
 /// The repo, or null when there is no AppState above us — which is the case in
 /// every golden. A screen with no repo renders its absent states, which is
@@ -286,13 +284,11 @@ StatusCard? staleInsightsCard(
     'Your cross-day insights are being rebuilt',
     switch (s['kind']) {
       'algo_version' =>
-        'How these are computed changed with the last update, so the stored '
-            'rollup no longer matches what the app would produce today.',
+        'How these are computed changed with the last update.',
       'stale' => 'The last rollup was built '
           '${built == null || built.isEmpty ? 'over a week ago' : 'on ${prettyDay(built)}'}'
           ', which is too old to stand behind.',
-      _ => 'The stored rollup carries no version stamp, so there is no way to '
-          'tell what it was computed from.',
+      _ => 'The stored rollup carries no version stamp.',
     },
     fix: onSync == null ? '' : 'Sync the band',
     icon: LucideIcons.refreshCw,
@@ -354,13 +350,20 @@ String prettyDay(String? dayId) {
 }
 
 /// The readiness band. `readiness_glassbox` carries no label of its own, so the
-/// banding is ours and lives in one place.
-({String label, Color color}) readinessBand(num? v) {
-  if (v == null) return (label: 'Not scored', color: C.n400);
-  if (v >= 80) return (label: 'Good to go', color: C.green);
-  if (v >= 60) return (label: 'Steady', color: C.green);
-  if (v >= 40) return (label: 'Take it easy', color: C.orange);
-  return (label: 'Rest today', color: C.red);
+/// banding is ours and lives in one place — this one.
+///
+/// [tier] is that same banding in a form the native surfaces can read.
+/// `WidgetService.push` publishes it as `readiness_tier` (and [label] as
+/// `readiness_band`) so the widget, the Watch and Siri paint it in their own
+/// palettes instead of each keeping a private copy of the cut-offs. They did,
+/// and a 65 rendered green on the phone, orange on the widget and yellow on
+/// the wrist. -1 = not scored.
+({String label, Color color, int tier}) readinessBand(num? v) {
+  if (v == null) return (label: 'Not scored', color: C.n400, tier: -1);
+  if (v >= 80) return (label: 'Good to go', color: C.green, tier: 3);
+  if (v >= 60) return (label: 'Steady', color: C.green, tier: 2);
+  if (v >= 40) return (label: 'Take it easy', color: C.orange, tier: 1);
+  return (label: 'Rest today', color: C.red, tier: 0);
 }
 
 /// Glass-box driver keys are the pipeline's own short names.
@@ -528,8 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ? const Center(child: CircularProgressIndicator())
             : StatusCard(
                 'Nothing derived yet',
-                'Your day is built from the band\'s own recordings, and none '
-                    'have been processed yet.',
+                'No band recordings processed yet.',
                 fix: syncOf(c) == null ? '' : 'Sync the band',
                 icon: LucideIcons.watch,
                 onFix: syncOf(c),
@@ -588,8 +590,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // ── the one number ──
       if (rv == null)
         StatusCard.forMetric('Readiness is not scored today', d.readiness,
-                why: 'Readiness needs a night of beat-to-beat data plus enough '
-                    'history to know what normal looks like for you.') ??
+                why: 'Needs a night of beat-to-beat data, plus your own history'
+                     ' to compare it to.') ??
             const SizedBox.shrink()
       else
         Surface(
@@ -715,8 +717,7 @@ class _HomeScreenState extends State<HomeScreen> {
           conf: ConfX.of(d.calories),
           onTap: () => go(c, const MetricDetail('calories'))),
       () => StatusCard.forMetric('No energy estimate', d.calories,
-          why: 'Calories are estimated from heart rate, and need your weight '
-              'and age.'),
+          why: 'Estimated from heart rate. Needs your weight and age.'),
     );
 
     return Column(children: [
@@ -793,11 +794,9 @@ class _HomeScreenState extends State<HomeScreen> {
               // "none are established yet" is the COLD-START reason, and it is
               // a wrong answer when the baselines exist and are being withheld.
               why: d.insightsStale != null
-                  ? 'Your sleep need and training target come out of the '
-                      'cross-day rollup, which is being rebuilt.'
-                  : 'A plan comes from your own baselines — sleep need, a '
-                      'training target, a step goal — and none are established '
-                      'yet.') ??
+                  ? 'The cross-day rollup they come from is being rebuilt.'
+                  : 'A plan comes from your own baselines. None are established'
+                    ' yet.') ??
           const SizedBox.shrink();
     }
 

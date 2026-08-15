@@ -23,7 +23,9 @@ import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
 import '../../state/app_state.dart';
+import '../activity/share.dart' show shareOrigin;
 import '../onboarding/welcome.dart' show ImportOutcome, runImport;
+import '../screens/home_screen.dart' show dbRebuiltCard;
 import '../ui2.dart';
 import 'profile.dart';
 
@@ -64,6 +66,9 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<String> _exportCsv() async {
+    // Read before the export runs: an anchor taken after a multi-second await
+    // may be measuring a screen the user has already left.
+    final origin = shareOrigin(context);
     final res = await exportCsvFiles(kCsvExportSets);
     if (res.paths.isEmpty) {
       return res.hasFailures
@@ -71,7 +76,7 @@ class _DataScreenState extends State<DataScreen> {
           : 'Nothing to export yet.';
     }
     await Share.shareXFiles([for (final p in res.paths) XFile(p)],
-        subject: 'OpenStrap export');
+        subject: 'OpenStrap export', sharePositionOrigin: origin);
     final n = res.paths.length;
     final failed = res.hasFailures
         ? ' ${res.failed.length} set(s) failed: ${res.failed.join(', ')}.'
@@ -80,10 +85,17 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<String> _exportDb() async {
+    final origin = shareOrigin(context);
     // VACUUM INTO — a transactionally consistent snapshot, not a file copy.
     final path = await LocalDb.exportCopy();
-    await Share.shareXFiles([XFile(path)], subject: 'OpenStrap database');
+    await Share.shareXFiles([XFile(path)],
+        subject: 'OpenStrap database', sharePositionOrigin: origin);
     return 'Database shared. It is the complete copy — keep it somewhere safe.';
+  }
+
+  Future<String> _reanalyze(AppState app) async {
+    final n = await app.reanalyzeAll();
+    return '$n day${n == 1 ? '' : 's'} re-analyzed.';
   }
 
   Future<String> _backupNow(AppState app) async {
@@ -117,6 +129,7 @@ class _DataScreenState extends State<DataScreen> {
     final p = P.of(c);
     final last = app.lastBackupAt;
     final o = _outcome;
+    final rebuilt = dbRebuiltCard(app.dbRebuild);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -129,6 +142,16 @@ class _DataScreenState extends State<DataScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
+                // Home shows this too, on the launch it happened. It belongs
+                // here as well because this is the screen someone opens when
+                // they notice their food log is empty, and it is the only
+                // screen where the card is ALSO an instruction: the
+                // quarantined file it names is a .db, and "Import a file"
+                // three rows down is what reads one back.
+                if (rebuilt != null) ...[
+                  rebuilt,
+                  const SizedBox(height: S.x5),
+                ],
                 settingsGroup(c, 'Export', [
                   SetRow(LucideIcons.fileSpreadsheet, C.green,
                       'Export as spreadsheets',
@@ -173,6 +196,21 @@ class _DataScreenState extends State<DataScreen> {
                           'never overwritten',
                       onTap: _busy ? null : () => _run(() => _import(app))),
                 ]),
+                const SizedBox(height: S.x5),
+                settingsGroup(c, 'Rebuild', [
+                  // The engine puts days on hold after a ≥3 h timezone jump
+                  // "until Re-analyze data runs" — and nothing in the app ran
+                  // it. A flight abroad quietly stopped days updating with no
+                  // control anywhere to release them.
+                  SetRow(LucideIcons.refreshCcw, C.blue, 'Re-analyze everything',
+                      sub: 'Scores every day again from what is stored. Needed '
+                          'after a long-haul flight, and after an import that '
+                          'landed days out of order',
+                      value: app.reanalyzeProgress,
+                      onTap: _busy || app.reanalyzing
+                          ? null
+                          : () => _run(() => _reanalyze(app))),
+                ]),
                 if (_busy) ...[
                   const SizedBox(height: S.x6),
                   Center(child: CircularProgressIndicator(color: p.on(C.blue))),
@@ -180,6 +218,19 @@ class _DataScreenState extends State<DataScreen> {
                 if (_note != null && _note!.isNotEmpty) ...[
                   const SizedBox(height: S.x5),
                   StatusCard('Done', _note!, icon: LucideIcons.check),
+                ],
+                if (app.importRollupError != null) ...[
+                  const SizedBox(height: S.x5),
+                  StatusCard(
+                    'The days landed, the summaries did not',
+                    'Every imported row is in the database, but rebuilding the '
+                        'cross-day summaries over them threw '
+                        '(${app.importRollupError}), so trends and insights '
+                        'still describe the data you had before.',
+                    fix: 'Re-analyze everything',
+                    icon: LucideIcons.triangleAlert,
+                    onFix: _busy ? null : () => _run(() => _reanalyze(app)),
+                  ),
                 ],
                 if (o != null) ...[
                   const SizedBox(height: S.x5),

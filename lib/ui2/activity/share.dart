@@ -20,6 +20,20 @@ import '../theme.dart';
 import 'catalogue.dart';
 import 'summary.dart';
 
+/// The rect an iPad or Mac share popover points at.
+///
+/// `UIActivityViewController` is a popover on those, and `share_plus` throws
+/// rather than guessing when it is given no anchor — which is how every iPad
+/// share in this app failed silently. Any `share_plus` call from a widget
+/// should pass this.
+Rect shareOrigin(BuildContext c) {
+  final box = c.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) {
+    return const Rect.fromLTWH(0, 0, 1, 1);
+  }
+  return box.localToGlobal(Offset.zero) & box.size;
+}
+
 class ShareSheet extends StatefulWidget {
   final ActivityResult result;
   const ShareSheet(this.result, {super.key});
@@ -45,6 +59,9 @@ class _ShareSheetState extends State<ShareSheet> {
   Future<void> _share() async {
     if (_sharing) return;
     _sharing = true;
+    // Both read the tree, so both are read before the first await.
+    final origin = shareOrigin(context);
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final boundary =
           _card.currentContext?.findRenderObject() as RenderRepaintBoundary?;
@@ -52,12 +69,21 @@ class _ShareSheetState extends State<ShareSheet> {
       final image = await boundary.toImage(pixelRatio: 3);
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       if (png == null) return;
-      await Share.shareXFiles([
-        XFile.fromData(png.buffer.asUint8List(),
-            mimeType: 'image/png', name: '${r.activity.typeKey}.png'),
-      ]);
-    } catch (_) {
-      // A share sheet the OS refused to open is not worth an error dialog.
+      await Share.shareXFiles(
+        [
+          XFile.fromData(png.buffer.asUint8List(),
+              mimeType: 'image/png', name: '${r.activity.typeKey}.png'),
+        ],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      // A share that quietly does nothing is worse than one that says it
+      // failed: this swallowed every iPad share for the life of the screen.
+      if (mounted) {
+        messenger.showSnackBar(
+            const SnackBar(content: Text('Could not open the share sheet.')));
+      }
+      debugPrint('share failed: $e');
     } finally {
       _sharing = false;
     }
@@ -187,9 +213,8 @@ class _ShareSheetState extends State<ShareSheet> {
                   if (stats.isEmpty)
                     const StatusCard(
                       'Nothing measured to include',
-                      'This session recorded no heart rate, distance or '
-                          'calories, so the card carries its time and nothing '
-                          'else.',
+                      'No heart rate, distance or calories. The card carries '
+                      'its time.',
                       icon: LucideIcons.circleHelp,
                     )
                   else
@@ -262,9 +287,8 @@ class _ShareSheetState extends State<ShareSheet> {
                     const SizedBox(height: S.x4),
                     const StatusCard(
                       'This session is private',
-                      'It is hidden from summaries and exports. Sharing a card '
-                          'from it is a deliberate one-off and does not change '
-                          'that.',
+                      'Hidden from summaries and exports. Sharing one card does'
+                      ' not change that.',
                       icon: LucideIcons.lock,
                     ),
                   ],

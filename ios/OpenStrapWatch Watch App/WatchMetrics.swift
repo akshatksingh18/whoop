@@ -9,9 +9,17 @@
 //
 // HONESTY: the phone forbids a bare dash and a zero-filled ring for an absent
 // metric. Text helpers return "" and ring fractions return a negative sentinel
-// so the views can leave the slot empty instead of drawing "0".
+// so the views can leave the slot empty instead of drawing "0". And `hasData`
+// is not enough on its own — it is a bool frozen when the phone pushed, so the
+// wrist gates on `fresh`, which ages `updatedAt` at render time.
 
 import Foundation
+
+/// How old a snapshot may be before the wrist stops presenting it as today's
+/// answer: one whole missed wake cycle plus a little grace. Same value and same
+/// reasoning as `kStaleAfter` in ios/OpenStrapWidget/OpenStrapWidget.swift —
+/// separate build targets, so it cannot be one declaration.
+let kStaleAfter: TimeInterval = 26 * 3600
 
 struct WatchMetrics {
   var hasData: Bool
@@ -57,6 +65,14 @@ struct WatchMetrics {
       themeDark: d.object(forKey: "theme_dark") as? Bool ?? true)
   }
 
+  /// Is this still today's answer? An unknown timestamp is not a claim of
+  /// staleness (a snapshot that never got a push has `hasData` false anyway).
+  var fresh: Bool {
+    guard hasData else { return false }
+    guard updatedAt > 0 else { return true }
+    return Date().timeIntervalSince1970 - Double(updatedAt) <= kStaleAfter
+  }
+
   // MARK: Display helpers
   // "" = no measurement. The score the phone calls READINESS out of 100 is not
   // a percentage and is not called Recovery — one number, one name, one unit.
@@ -74,7 +90,8 @@ struct WatchMetrics {
 
   // Ring fractions; negative = nothing measured, so draw the track only.
   var readinessFraction: Double { readiness >= 0 ? Double(readiness) / 100.0 : -1 }
-  /// Strain ring fraction 0–1 (0–21 scale).
+  /// Strain ring fraction 0–1. 0–21 is the headline scale `strainScore` maps
+  /// TRIMP onto (analytics/lib/src/onehz/clinical/load_trimp.dart:104-122).
   var strainFraction: Double { strain >= 0 ? min(strain / 21.0, 1) : -1 }
   /// Sleep-vs-need fraction 0–1.
   var sleepFraction: Double {

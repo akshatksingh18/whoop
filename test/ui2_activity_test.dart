@@ -16,6 +16,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
@@ -601,6 +602,129 @@ void main() {
       expect(find.text('40 kg × 8'), findsWidgets,
           reason: 'a typed set is the one thing nothing can recompute');
       expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a collapsed group builds none of its rows', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      // AnimatedCrossFade builds both of its children whatever it is showing,
+      // so every group's rows used to exist while every group was shut.
+      expect(find.byType(ActivityRow), findsNothing);
+
+      await tester.tap(find.text(activityLibrary.first.name));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActivityRow).evaluate().length,
+          activityLibrary.first.items.length,
+          reason: 'the open group, and only the open group');
+    });
+
+    testWidgets('a location denial is named on the live screen',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      var fixed = 0;
+      await tester.pumpWidget(_frame(
+          LiveMeasured(activityByName('running')!,
+              feed: () => LiveFeed(
+                    hr: 132,
+                    bandConnected: true,
+                    routeIssue: GpsPermissionStatus.deniedForever,
+                    onFixRoute: () => fixed++,
+                  )),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      // The old screen drew no pill, no map and no sentence.
+      expect(find.text('No route: location not allowed'), findsOneWidget);
+      await tester.tap(find.text('Open Settings'));
+      await tester.pump();
+      expect(fixed, 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an absent heart rate says which absence it is',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      Future<void> pumpWith(bool connected) async {
+        await tester.pumpWidget(_frame(
+            LiveMeasured(activityByName('running')!,
+                feed: () => LiveFeed(bandConnected: connected)),
+            Brightness.light,
+            1.0));
+        await tester.pumpAndSettle();
+      }
+
+      await pumpWith(false);
+      expect(find.textContaining('not connected'), findsOneWidget);
+      await pumpWith(true);
+      expect(find.textContaining('finger-width'), findsOneWidget,
+          reason: 'a fit instruction only makes sense for a band that is there');
+    });
+
+    testWidgets('the strength screen still follows the band it does not tick '
+        'for', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      var hr = 96;
+      await tester.pumpWidget(_frame(
+          LiveStrength(activityByName('weight_training')!,
+              feed: () => LiveFeed(hr: hr, bandConnected: true)),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('96'), findsOneWidget);
+
+      // The body is built once and left alone by the 1 Hz tick — but the heart
+      // rate on it is measured, so it must not freeze with the rest.
+      hr = 141;
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('141'), findsOneWidget);
+    });
+
+    testWidgets('a session that failed to save says so and can retry',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      var attempts = 0;
+      final r = _result(Arch.route);
+      await tester.pumpWidget(_frame(
+          ActivitySummary(r, weightKg: 72.4, onRetrySave: () async {
+            attempts++;
+            if (attempts == 1) throw StateError('disk');
+            return r;
+          }),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      // The summary used to be identical to a successful one.
+      expect(find.text('This session is not saved yet'), findsOneWidget);
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(find.text('This session is not saved yet'), findsOneWidget,
+          reason: 'a retry that threw has not saved anything either');
+
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(find.text('This session is not saved yet'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 

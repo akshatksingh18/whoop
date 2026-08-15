@@ -191,7 +191,6 @@ class AppState extends ChangeNotifier {
   int? _lastRecTs;
   Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
-  String? lastError;
   bool busy = false;
 
   bool _keepAlive = false;
@@ -393,13 +392,19 @@ class AppState extends ChangeNotifier {
 
   /// Another device's exported OpenStrap DB (.db) → merge into the local store.
   /// Returns total rows copied across tables.
+  /// Set when an import landed its rows but the rollup rebuild after it threw.
+  /// The days are in the database and the summaries built from them are not, so
+  /// reporting only the row count would claim a success the user does not have.
+  String? importRollupError;
+
   Future<int> importEdgeBackup(String path) async {
+    importRollupError = null;
     final counts = await LocalDb.importFromDbFile(path);
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
-    } catch (_) {
-      /* best-effort */
+    } catch (e) {
+      importRollupError = '$e';
     }
     notifyListeners();
     return counts.values.fold<int>(0, (a, b) => a + b);
@@ -3490,7 +3495,6 @@ class AppState extends ChangeNotifier {
       // fall through to the full connect → subscribe → drain path below
     }
     _setBusy(true);
-    lastError = null;
     _keepAlive = true;
     // From here on we WANT a link for the life of the process, so the level-
     // triggered supervisor runs from here on too (issue #208).
@@ -3523,10 +3527,12 @@ class AppState extends ChangeNotifier {
       // config) and live-stream toggles ride the same link as the historical
       // burst. The per-revision packet accounting counts data-role frames only,
       // so these command exchanges don't perturb the burst packet counts.
+      // No message is kept here on purpose: the engine already knows WHY the
+      // link is not up (blocker, bond refusal, repair, quarantine…) and says so
+      // through `engine.bandStatus`, which every surface renders. A second,
+      // staler sentence stored beside it could only disagree with it.
       if (!await engine.connectToRemoteId(band.remoteId)) {
-        lastError =
-            'Could not reach your band. Is it nearby and free '
-            '(official WHOOP app force-quit)?';
+        _log('Session start: could not reach the band.');
         return;
       }
       await engine.getBattery();
@@ -3573,7 +3579,7 @@ class AppState extends ChangeNotifier {
       );
       _startBackfillTimer();
     } catch (e) {
-      lastError = e.toString();
+      _log('Session start failed: $e');
     } finally {
       if (!engine.isConnected || !_keepAlive) {
         _stopBackfillTimer();
@@ -3959,7 +3965,6 @@ class AppState extends ChangeNotifier {
   int spotRemaining = 0; // seconds left in the current scan
   Map<String, dynamic>?
   spotResult; // last result {rmssd, sdnn, mean_hr, n_beats, ok}
-  String? spotError;
   final List<String> _spotFrames = [];
   Timer? _spotTimer;
   bool _spotEnabledStreams =
@@ -3968,13 +3973,12 @@ class AppState extends ChangeNotifier {
   /// Begin a 60s live HRV reading. Requires a connected band.
   Future<void> startSpotCheck() async {
     if (spotActive) return;
-    if (!isConnected) {
-      spotError = 'Connect your band first.';
-      notifyListeners();
-      return;
-    }
+    // There is no spot-check screen, so there is nowhere to say any of this.
+    // Four hand-written failure strings used to be stored here and read by
+    // nobody — a field that looks like it means something and reaches no one is
+    // worse than no field. Whoever builds the screen brings the copy with it.
+    if (!isConnected) return;
     spotActive = true;
-    spotError = null;
     spotResult = null;
     spotRemaining = spotDuration;
     _spotFrames.clear();
@@ -4030,13 +4034,8 @@ class AppState extends ChangeNotifier {
           ? null
           : await repo!.spotCheck(frames);
       spotResult = res;
-      if (res == null) {
-        spotError = 'No reading captured — keep the band snug and still.';
-      } else if (res['ok'] != true) {
-        spotError = 'Not enough clean beats — try again, sitting still.';
-      }
     } catch (e) {
-      spotError = 'Spot check failed: ${e is RepositoryException ? e.body : e}';
+      _log('[spot] failed: ${e is RepositoryException ? e.body : e}');
     } finally {
       spotActive = false;
       notifyListeners();

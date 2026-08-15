@@ -32,7 +32,7 @@ struct OpenStrapBreathingAttributes: ActivityAttributes {
   var startedAt: Date
 }
 
-// MARK: - Palette (mirrors OpenStrapWidgetLiveActivity's, kept local —
+// MARK: - Palette (lib/ui2/theme.dart; mirrors OpenStrapWidgetLiveActivity's, kept local —
 // that file's helpers are `private` to it, so a small deliberate duplication
 // here is safer than widening that file's access just to share four colors)
 
@@ -46,11 +46,15 @@ private extension Color {
 
 private struct BreathingPal {
   let clayPaper: Color, ink: Color, inkMuted: Color
+  /// `P.on(C.teal)` — the Mind accent as TEXT on this surface.
+  let onMind: Color
   let isDark: Bool
-  static let light = BreathingPal(clayPaper: Color(246, 242, 236), ink: Color(26, 23, 20),
-                                  inkMuted: Color(150, 142, 131), isDark: false)
-  static let dark  = BreathingPal(clayPaper: Color(32, 28, 23), ink: Color(241, 236, 227),
-                                  inkMuted: Color(126, 116, 102), isDark: true)
+  static let light = BreathingPal(clayPaper: Color(0xFF, 0xFF, 0xFF), ink: Color(0x0F, 0x17, 0x2A),
+                                  inkMuted: Color(0x62, 0x71, 0x88),
+                                  onMind: Color(0x12, 0x76, 0x74), isDark: false)
+  static let dark  = BreathingPal(clayPaper: Color(0x15, 0x1C, 0x26), ink: Color(0xF1, 0xF5, 0xF9),
+                                  inkMuted: Color(0x7F, 0x8D, 0xA0),
+                                  onMind: Color(0x14, 0xB8, 0xA6), isDark: true)
   static var current: BreathingPal {
     (UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false)
       ? .dark : .light
@@ -61,7 +65,13 @@ private extension Color {
   static var bClayPaper: Color { BreathingPal.current.clayPaper }
   static var bInk: Color { BreathingPal.current.ink }
   static var bInkMuted: Color { BreathingPal.current.inkMuted }
-  static let bRecovery = Color(43, 182, 115) // matches DomainAccent.recovery
+  /// Breathing is the Mind domain — `C.teal` in lib/ui2/theme.dart, the fifth
+  /// tab's accent. Raw pigment for glyphs and keylines…
+  static let bMind = Color(0x14, 0xB8, 0xA6)
+  /// …`P.fill(C.teal)` for anything white sits on (buttons, tints)…
+  static let bMindFill = Color(0x0F, 0x85, 0x78)
+  /// …and `P.on(C.teal)` for accent TEXT.
+  static var bOnMind: Color { BreathingPal.current.onMind }
 }
 
 private func coherenceText(_ v: Double) -> String { v >= 0 ? "\(Int(v.rounded()))%" : "Calibrating…" }
@@ -90,9 +100,9 @@ private struct BreathingLockScreenView: View {
     HStack(spacing: 14) {
       if #available(iOSApplicationExtension 17.0, *) {
         Image(systemName: "wind").font(.system(size: 26))
-          .foregroundStyle(Color.bRecovery).symbolEffect(.pulse, options: .repeating)
+          .foregroundStyle(Color.bMind).symbolEffect(.pulse, options: .repeating)
       } else {
-        Image(systemName: "wind").font(.system(size: 26)).foregroundStyle(Color.bRecovery)
+        Image(systemName: "wind").font(.system(size: 26)).foregroundStyle(Color.bMind)
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(coherenceText(score))
@@ -109,7 +119,7 @@ private struct BreathingLockScreenView: View {
         Button(intent: EndBreathingIntent()) {
           Image(systemName: "stop.fill").font(.system(size: 12, weight: .bold))
         }
-        .tint(Color.bRecovery).buttonBorderShape(.capsule)
+        .tint(Color.bMindFill).buttonBorderShape(.capsule)
       }
     }
     .padding(16)
@@ -126,18 +136,18 @@ struct OpenStrapBreathingLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: OpenStrapBreathingAttributes.self) { context in
       BreathingLockScreenView(context: context)
-        .activitySystemActionForegroundColor(Color.bRecovery)
+        .activitySystemActionForegroundColor(Color.bMindFill)
     } dynamicIsland: { context in
       let score = context.state.coherenceScore
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          Image(systemName: "wind").font(.system(size: 18)).foregroundStyle(Color.bRecovery)
+          Image(systemName: "wind").font(.system(size: 18)).foregroundStyle(Color.bMind)
         }
         DynamicIslandExpandedRegion(.trailing) {
           VStack(alignment: .trailing, spacing: 0) {
             Text(coherenceText(score))
               .font(.system(size: 18, weight: .bold, design: .rounded))
-              .foregroundStyle(Color.bRecovery).contentTransition(.numericText())
+              .foregroundStyle(Color.bOnMind).contentTransition(.numericText())
             Text("COHERENCE").font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
           }
         }
@@ -151,18 +161,18 @@ struct OpenStrapBreathingLiveActivity: Widget {
             Button(intent: EndBreathingIntent()) {
               Label("End session", systemImage: "stop.fill").font(.system(size: 12, weight: .bold))
             }
-            .tint(Color.bRecovery).buttonBorderShape(.capsule)
+            .tint(Color.bMindFill).buttonBorderShape(.capsule)
           }
         }
       } compactLeading: {
-        Image(systemName: "wind").font(.system(size: 14)).foregroundStyle(Color.bRecovery)
+        Image(systemName: "wind").font(.system(size: 14)).foregroundStyle(Color.bMind)
       } compactTrailing: {
         Text(score >= 0 ? "\(Int(score.rounded()))%" : "·")
-          .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.bRecovery)
+          .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.bOnMind)
       } minimal: {
-        Image(systemName: "wind").font(.system(size: 12)).foregroundStyle(Color.bRecovery)
+        Image(systemName: "wind").font(.system(size: 12)).foregroundStyle(Color.bMind)
       }
-      .keylineTint(Color.bRecovery)
+      .keylineTint(Color.bMind)
     }
   }
 }

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/models/payloads.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show readinessBand;
 import 'package:openstrap_edge/widget/widget_service.dart';
 
 void main() {
@@ -66,6 +67,60 @@ void main() {
       'sleep': {'duration_min': 437, 'need_min': 462},
     }));
     expect(written['sleep_need_min'], 462);
+  });
+
+  // `readinessBand` is the ONLY copy of the readiness cut-offs. The widget, the
+  // Watch and Siri each used to carry their own, so a score of 65 was green on
+  // the phone, orange on the widget and yellow on the wrist — and 38 was red
+  // here and yellow there. They now render the published tier and label, which
+  // makes these boundaries a four-surface contract.
+  group('readiness banding', () {
+    test('tiers at the boundaries', () {
+      expect(readinessBand(100).tier, 3);
+      expect(readinessBand(80).tier, 3);
+      expect(readinessBand(79.9).tier, 2);
+      expect(readinessBand(65).tier, 2);
+      expect(readinessBand(60).tier, 2);
+      expect(readinessBand(59.9).tier, 1);
+      expect(readinessBand(40).tier, 1);
+      expect(readinessBand(38).tier, 0);
+      expect(readinessBand(0).tier, 0);
+    });
+
+    test('an unscored day is tier -1, which every native reader paints grey',
+        () {
+      expect(readinessBand(null).tier, -1);
+    });
+
+    test('every scored tier has a label to say out loud', () {
+      for (final v in const [0, 40, 60, 80, 100]) {
+        expect(readinessBand(v).label, isNotEmpty);
+      }
+    });
+
+    test('the tier and its label are published for the native surfaces',
+        () async {
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {'readiness': 65},
+      }));
+      expect(written['readiness'], 65);
+      expect(written['readiness_tier'], 2);
+      expect(written['readiness_band'], 'Steady');
+    });
+
+    test('an unscored readiness publishes the -1 / "" sentinels, never a band',
+        () async {
+      await WidgetService.push(TodayData.fromJson({'daily': const {}}));
+      expect(written['readiness'], -1);
+      expect(written['readiness_tier'], -1);
+      expect(written['readiness_band'], '');
+    });
+
+    test('clear() blanks both — the widget outlives the database', () async {
+      await WidgetService.clear();
+      expect(written['readiness_tier'], -1);
+      expect(written['readiness_band'], '');
+    });
   });
 
   // The widget, the Watch mirror and the Siri intents all render whatever was

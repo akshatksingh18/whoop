@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:openstrap_edge/app.dart';
+import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
@@ -195,6 +196,53 @@ void main() {
     });
   });
 
+  // The first screen a new user sees is the worst place to be vague, and the
+  // vaguest thing it could say is a hardware instruction for a phone setting.
+  group('a phone-side block is named as a phone-side block', () {
+    test('a permission refusal is not "no band in range"', () {
+      expect(classifyPairError(Exception('scan failed: permission denied')),
+          PairPhase.bluetoothBlocked);
+      expect(classifyPairError(Exception('bluetooth unauthorized')),
+          PairPhase.bluetoothBlocked);
+    });
+
+    test('a typed transport failure carries its own verdict', () {
+      // `adapterOff` matches NONE of the string matcher's phrases, so reading
+      // this exception as text would demote a switched-off radio to a band
+      // fault and send the user walking around the house.
+      const e = BleUnavailableException(BleBlocker.adapterOff);
+      expect(pairBlocker(e), BleBlocker.adapterOff);
+      expect(classifyPairError(e), PairPhase.bluetoothBlocked);
+    });
+
+    test('a band-side failure is still a band-side failure', () {
+      expect(classifyPairError(Exception('gatt 133')), PairPhase.failed);
+      expect(classifyPairError(Exception('createBond refused')),
+          PairPhase.bondRefused);
+      expect(classifyPairError(Exception('Pairing cancelled.')),
+          PairPhase.cancelled);
+    });
+
+    testWidgets('the screen says what the BLE layer says, in its words',
+        (tester) async {
+      _tallView(tester);
+      final s = bandStatusFor(
+          connection: 'disconnected', blocker: BleBlocker.permissionDenied);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: PairingView(
+            phase: PairPhase.bluetoothBlocked,
+            blocker: BleBlocker.permissionDenied,
+            onPair: () {}),
+      ));
+      expect(find.text(s.title), findsOneWidget);
+      expect(find.text(s.reason), findsOneWidget);
+      expect(find.text(s.fix!), findsOneWidget);
+      // The state this used to land in.
+      expect(find.text('No band in range'), findsNothing);
+    });
+  });
+
   group('profile setup keeps its promise', () {
     testWidgets('continue is gated on sex alone, and blanks stay blank',
         (tester) async {
@@ -323,6 +371,67 @@ void main() {
         src('A', SourceTier.wristOptical),
       ], preferred: ['B']);
       expect(ranked.first.name, 'B');
+    });
+  });
+
+  group('a source row states what is measuring, not what is switched on', () {
+    HealthSource phone({bool connected = false}) => HealthSource(
+        name: 'This phone',
+        kind: '',
+        tier: SourceTier.phone,
+        icon: LucideIcons.smartphone,
+        connected: connected);
+
+    HealthSource band({bool connected = true, bool syncing = false}) =>
+        HealthSource(
+            name: 'WHOOP 4.0',
+            kind: '',
+            tier: SourceTier.wristOptical,
+            icon: LucideIcons.watch,
+            connected: connected,
+            syncing: syncing,
+            isBand: true);
+
+    test('the phone is a source only once steps have actually arrived', () {
+      // It used to say "Connected", unconditionally, while HealthKit was
+      // returning nothing — a confident claim of a source measuring nothing.
+      expect(sourceState(phone()), 'No steps arriving');
+      expect(sourceState(phone(connected: true)), 'Reporting steps');
+      // And it never says "connected" about a thing with no radio link.
+      expect(sourceState(phone(connected: true)), isNot(contains('onnected')));
+    });
+
+    test('an offload in progress is not an idle link', () {
+      expect(sourceState(band(syncing: true)), 'Syncing');
+      expect(sourceState(band()), 'Connected');
+      expect(sourceState(band(connected: false)), 'Not connected');
+    });
+
+    testWidgets('a fault is named on the row, with its own fix',
+        (tester) async {
+      _tallView(tester);
+      final s = bandStatusFor(
+          connection: 'disconnected', autoReconnectPaused: true,
+          bondRefusals: 5);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(sources: [band(connected: false)], status: s),
+      ));
+      expect(find.text(s.title), findsOneWidget);
+      expect(find.text(s.fix!), findsOneWidget);
+    });
+
+    testWidgets('an ordinary disconnect does not get a failure card',
+        (tester) async {
+      _tallView(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(
+            sources: [band(connected: false)],
+            status: bandStatusFor(connection: 'disconnected')),
+      ));
+      // Exactly one "Not connected": the row. No card repeating it.
+      expect(find.text('Not connected'), findsOneWidget);
     });
   });
 

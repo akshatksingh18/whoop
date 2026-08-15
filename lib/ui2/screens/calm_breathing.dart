@@ -200,9 +200,11 @@ class _Setup extends StatelessWidget {
         const SizedBox(height: S.x4),
         Text('Take a breath.', style: F.t1.copyWith(color: p.ink)),
         const SizedBox(height: S.x2),
+        // The buzz is band-dependent and this screen does not yet know whether
+        // the band will accept the session, so it is not promised here. The
+        // `!banded` card during the run is where that gets said.
         Text(
-          'Pick a pace. The ring leads, the strap buzzes at each change, and '
-          'you can put the phone down.',
+          'The ring leads. Put the phone down.',
           style: F.cap.copyWith(color: p.ink2, height: 1.5),
         ),
         for (final b in kBreathPatterns)
@@ -328,9 +330,8 @@ class _Running extends StatelessWidget {
           const SizedBox(height: S.x6),
           const StatusCard(
             'No coherence score for this session',
-            'Coherence is measured from your heart beat timing, which comes '
-                'from the band. It is not connected, so this session paces you '
-                'but is not scored or saved.',
+            'Scoring needs beat timing from the band. Not connected, so this '
+                'one paces you but is not saved.',
             icon: LucideIcons.bluetoothOff,
           ),
         ],
@@ -404,8 +405,7 @@ class _Result extends StatelessWidget {
       'No coherence score for this session',
       m,
       why: app.breathingError ??
-          'Coherence needs a clean run of beat timings across the whole '
-              'session. Not enough of them landed to score it honestly.',
+          'Too few clean beat timings across the session to score it.',
     );
     return ListView(
       children: [

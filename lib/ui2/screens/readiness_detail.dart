@@ -112,8 +112,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       ] else ...[
         if (v == null)
           StatusCard.forMetric('Readiness is not scored', d.readiness,
-                  why: 'The composite needs a night of beat-to-beat data and '
-                      'enough of your own history to know what normal is.') ??
+                  why: 'Needs a night of beat-to-beat data, plus your own '
+                      'history to compare it to.') ??
               const SizedBox.shrink()
         else
           Surface(
@@ -154,30 +154,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
               const SizedBox(width: S.x3),
               Expanded(
                 child: Text(
-                  '${d.inputsUsed} of ${d.breakdown.length} inputs had enough '
-                  'history last night. Missing inputs are re-weighted across '
-                  'the rest, never counted as zero.',
+                  '${d.inputsUsed}/${d.breakdown.length} inputs · missing ones '
+                  're-weighted, never zeroed',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),
             ]),
           ),
-          const SizedBox(height: S.x3),
-          Text(
-              'The score above is a weighted composite. The rows are a parallel '
-              'view of the same ${d.breakdown.length} inputs, each ranked '
-              'against your own history — they explain the direction, not the '
-              'arithmetic. A row marked "within your usual spread" moved by '
-              'less than the smallest change this measurement can tell apart '
-              'from noise.',
-              style: F.over.copyWith(color: p.ink3, height: 1.5)),
         ] else if (v != null)
           Section(
             'What went into it',
             const StatusCard(
               'No breakdown yet',
-              'Each input is ranked against your own history, and that ranking '
-                  'needs about two weeks of nights before it means anything.',
+              'Ranking each input against your own history takes about two '
+                  'weeks of nights.',
               icon: LucideIcons.listTree,
             ),
           ),
@@ -189,7 +179,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           !d.series.any((v) => v != null)
               ? const StatusCard(
                   'No readiness history',
-                  'One score is stored per day, and no day has produced one yet.',
+                  '0 days scored.',
+                  fix: 'Wear the band overnight',
                   icon: LucideIcons.chartLine,
                 )
               : Surface(child: _history(c, d)),

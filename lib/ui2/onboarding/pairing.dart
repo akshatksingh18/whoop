@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/ble_state.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
@@ -59,6 +60,11 @@ enum PairPhase {
   idle,
   scanning,
 
+  /// The phone's own Bluetooth stack refused us — permission, radio off, or no
+  /// BLE at all. Nothing about the band is known yet, and every band-side
+  /// instruction ("wake it, hold it close") is a wasted walk around the house.
+  bluetoothBlocked,
+
   /// The scan completed and found nothing in range.
   notFound,
 
@@ -74,9 +80,24 @@ enum PairPhase {
   paired,
 }
 
-/// Classify a thrown pairing error. Pure — this is the whole reason the two
+/// The phone-side blocker behind a thrown pairing error, or null when the
+/// failure is genuinely about the band.
+///
+/// [BleUnavailableException] is checked before the string matcher because it
+/// carries the verdict already: its `adapterOff` case does not contain any of
+/// the phrases the matcher looks for, so classifying it by text alone would
+/// silently demote a radio-off to a band fault.
+BleBlocker? pairBlocker(Object error) => error is BleUnavailableException
+    ? error.blocker
+    : classifyBleBlocker(error: error);
+
+/// Classify a thrown pairing error. Pure — this is the whole reason the
 /// distinct states exist rather than one "Couldn't pair".
 PairPhase classifyPairError(Object error, {int bondRefusals = 0}) {
+  // First, because this is the one failure that is not about the band at all.
+  // It used to fall through to `failed` (or, via a null scan, to "No band in
+  // range"), which sends someone who revoked a permission looking for hardware.
+  if (pairBlocker(error) != null) return PairPhase.bluetoothBlocked;
   final s = error.toString().toLowerCase();
   if (s.contains('cancel') || s.contains('dismiss')) return PairPhase.cancelled;
   if (bondRefusals > 0 || s.contains('bond') || s.contains('encrypt')) {
@@ -98,12 +119,14 @@ class PairingScreen extends StatefulWidget {
 class _PairingScreenState extends State<PairingScreen> {
   PairPhase _phase = PairPhase.idle;
   String _detail = '';
+  BleBlocker? _blocker;
 
   Future<void> _pair() async {
     final app = context.read<AppState>();
     setState(() {
       _phase = PairPhase.scanning;
       _detail = '';
+      _blocker = null;
     });
     try {
       if (await app.accessorySetupSupported()) {
@@ -121,6 +144,7 @@ class _PairingScreenState extends State<PairingScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
+        _blocker = pairBlocker(e);
         _phase = classifyPairError(e, bondRefusals: app.device.bondRefusals);
         _detail = '$e';
       });
@@ -131,6 +155,7 @@ class _PairingScreenState extends State<PairingScreen> {
   Widget build(BuildContext c) => PairingView(
         phase: _phase,
         detail: _detail,
+        blocker: _blocker,
         onPair: _pair,
         onSkip: widget.onSkip,
       );
@@ -142,11 +167,15 @@ class PairingView extends StatelessWidget {
   final VoidCallback onPair;
   final VoidCallback? onSkip;
 
+  /// Which phone-side blocker, when [phase] is `bluetoothBlocked`.
+  final BleBlocker? blocker;
+
   const PairingView({
     super.key,
     required this.phase,
     required this.onPair,
     this.detail = '',
+    this.blocker,
     this.onSkip,
   });
 
@@ -154,17 +183,33 @@ class PairingView extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final busy = phase == PairPhase.scanning;
+    // The copy for this one lives in the BLE layer, so this screen and the
+    // Devices screen cannot drift into two different accounts of one state.
+    final blocked = phase == PairPhase.bluetoothBlocked
+        ? bandStatusFor(connection: 'disconnected', blocker: blocker)
+        : null;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
           children: [
-            Icon(LucideIcons.bluetooth, size: 36, color: p.on(C.blue)),
+            Icon(
+                blocked == null
+                    ? LucideIcons.bluetooth
+                    : LucideIcons.bluetoothOff,
+                size: 36,
+                color: p.on(C.blue)),
             const SizedBox(height: S.x5),
-            Text(_title(phase), style: F.t1.copyWith(color: p.ink)),
+            Text(_title(phase, blocker), style: F.t1.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
-            Text(_body(phase), style: F.body.copyWith(color: p.ink2)),
+            Text(_body(phase, blocker), style: F.body.copyWith(color: p.ink2)),
+            if (blocked?.fix != null) ...[
+              const SizedBox(height: S.x3),
+              Text(blocked!.fix!,
+                  style: F.body.copyWith(
+                      color: p.on(C.blue), fontWeight: FontWeight.w600)),
+            ],
             if (busy) ...[
               const SizedBox(height: S.x8),
               Center(child: CircularProgressIndicator(color: p.on(C.blue))),
@@ -194,7 +239,10 @@ class PairingView extends StatelessWidget {
     );
   }
 
-  static String _title(PairPhase phase) => switch (phase) {
+  static String _title(PairPhase phase, [BleBlocker? blocker]) =>
+      switch (phase) {
+        PairPhase.bluetoothBlocked =>
+          bandStatusFor(connection: 'disconnected', blocker: blocker).title,
         PairPhase.idle => 'Wake the band and hold it close',
         PairPhase.scanning => 'Looking for your band',
         PairPhase.notFound => 'No band in range',
@@ -204,7 +252,10 @@ class PairingView extends StatelessWidget {
         PairPhase.paired => 'Paired',
       };
 
-  static String _body(PairPhase phase) => switch (phase) {
+  static String _body(PairPhase phase, [BleBlocker? blocker]) =>
+      switch (phase) {
+        PairPhase.bluetoothBlocked =>
+          bandStatusFor(connection: 'disconnected', blocker: blocker).reason,
         PairPhase.idle =>
           'Take the band off the charger, put it on your wrist and keep the '
               'phone within arm’s reach.',

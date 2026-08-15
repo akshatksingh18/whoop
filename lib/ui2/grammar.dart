@@ -633,7 +633,12 @@ class InsightCard extends StatelessWidget {
 class _Cta extends StatelessWidget {
   final String label;
   final Color color;
-  const _Cta(this.label, this.color);
+
+  /// The arrow is the promise that this goes somewhere. A `StatusCard` whose
+  /// fix is advice ("Wear the band overnight") has nothing to tap, so it gets
+  /// the emphasis without the arrow — 60% of cards were drawing a dead link.
+  final bool arrow;
+  const _Cta(this.label, this.color, {this.arrow = true});
 
   @override
   Widget build(BuildContext c) =>
@@ -644,8 +649,10 @@ class _Cta extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis),
         ),
-        const SizedBox(width: S.x1),
-        Icon(LucideIcons.arrowRight, size: 13, color: color),
+        if (arrow) ...[
+          const SizedBox(width: S.x1),
+          Icon(LucideIcons.arrowRight, size: 13, color: color),
+        ],
       ]);
 }
 
@@ -764,7 +771,7 @@ class StatusCard extends StatelessWidget {
         Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
         if (fix.isNotEmpty) ...[
           const SizedBox(height: S.x3),
-          _Cta(fix, p.on(C.blue)),
+          _Cta(fix, p.on(C.blue), arrow: onFix != null),
         ],
       ]),
     );

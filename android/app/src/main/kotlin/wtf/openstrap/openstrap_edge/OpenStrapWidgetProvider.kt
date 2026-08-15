@@ -69,10 +69,11 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         val w = StrapWidgets
         val pal = w.pal(prefs)
 
-        // has_data is the app saying "this snapshot is empty, or it describes a
-        // day more than one behind". Nothing here used to read it, so a week-old
-        // readiness rendered as today's.
-        if (!prefs.getBoolean("has_data", false)) return buildNoData(context, pal)
+        // `has_data` alone was never enough: it is frozen when the app pushes,
+        // so a phone that stops syncing keeps a week-old readiness on the home
+        // screen looking exactly like this morning's. StrapWidgets.fresh() ages
+        // `updated_at` here, on every render.
+        if (!w.fresh(prefs)) return buildNoData(context, pal)
 
         // Snapshot (sentinels: -1 = no data — mirrors OpenStrapEntry).
         val readiness = w.readInt(prefs, "readiness", -1)
@@ -89,25 +90,31 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         // draws the track alone rather than an arc pinned at empty (which reads
         // as a real value of zero).
         val readinessT = if (readiness >= 0) readiness / 100.0 else -1.0
-        val readinessColor = w.readinessColor(w.readInt(prefs, "readiness_tier", -1), pal)
+        val tier = w.readInt(prefs, "readiness_tier", -1)
+        val readinessArc = w.readinessArc(tier)
+        val readinessColor = w.readinessColor(tier, pal)
+        // 0-21 is the headline scale strainScore maps TRIMP onto
+        // (analytics/lib/src/onehz/clinical/load_trimp.dart:104-122).
         val strainT = if (strain >= 0) (strain / 21.0).coerceAtMost(1.0) else -1.0
         val sleepT = if (sleepMin >= 0 && needMin > 0) {
             (sleepMin.toDouble() / needMin).coerceAtMost(1.0)
         } else {
             -1.0
         }
-        val hrvT = when {
-            hrv < 0 -> -1.0
-            hrvBaseline > 0 -> (hrv / (1.5 * hrvBaseline)).coerceAtMost(1.0)
-            else -> (hrv / 100.0).coerceAtMost(1.0)
+        // HRV against YOUR OWN baseline: a full ring is at or above it. There
+        // is no population scale for RMSSD, so with no baseline there is no
+        // denominator and the arc is not drawn. This used to divide by a
+        // hard-coded 100 (and by 1.5 x baseline), neither of which exists
+        // anywhere in the pipeline.
+        val hrvT = if (hrv >= 0 && hrvBaseline > 0) {
+            (hrv.toDouble() / hrvBaseline).coerceAtMost(1.0)
+        } else {
+            -1.0
         }
-        // HRV reads green at/above your baseline, warmer as it drops below it.
-        val hrvColor = when {
-            hrv < 0 || hrvBaseline <= 0 -> pal.inkMuted
-            hrv >= hrvBaseline -> w.GOOD
-            hrv >= (0.8 * hrvBaseline).toInt() -> w.WARN
-            else -> w.BAD
-        }
+        // HRV carries its domain accent and no colour judgement: a "0.8 x
+        // baseline is amber" cut-off was invented here and appears in no
+        // analytics output.
+        val hrvColor = if (hrv >= 0) w.GREEN else w.N400
 
         // "" = no measurement. A bare dash is the one rendering the phone's
         // grammar forbids outright.
@@ -127,7 +134,7 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         // iOS headline treatment, compressed into a cell).
         views.setImageViewBitmap(
             R.id.ring_readiness,
-            w.ringBitmap(context, ringDp, strokeDp, pal.track, readinessColor, readinessT),
+            w.ringBitmap(context, ringDp, strokeDp, pal.track, readinessArc, readinessT),
         )
         views.setTextViewText(R.id.val_readiness, readinessText)
         views.setTextColor(R.id.val_readiness, readinessColor)
@@ -142,8 +149,8 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
             views.setTextColor(value, pal.ink)
             views.setTextColor(cap, pal.inkMuted)
         }
-        metric(R.id.ring_strain, R.id.val_strain, R.id.cap_strain, w.CORAL, strainT, strainText)
-        metric(R.id.ring_sleep, R.id.val_sleep, R.id.cap_sleep, w.SLEEP_BLUE, sleepT, w.hm(sleepMin))
+        metric(R.id.ring_strain, R.id.val_strain, R.id.cap_strain, w.PURPLE, strainT, strainText)
+        metric(R.id.ring_sleep, R.id.val_sleep, R.id.cap_sleep, w.BLUE, sleepT, w.hm(sleepMin))
         metric(R.id.ring_hrv, R.id.val_hrv, R.id.cap_hrv, hrvColor, hrvT, hrvText)
         return views
     }

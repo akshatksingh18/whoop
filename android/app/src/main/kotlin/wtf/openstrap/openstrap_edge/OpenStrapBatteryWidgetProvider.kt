@@ -39,19 +39,19 @@ class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
 
         val pct = w.readInt(prefs, "batt_pct", -1)
         val charging = prefs.getBoolean("batt_charging", false)
-        val at = w.readInt(prefs, "batt_at", 0)
+        val at = w.readLong(prefs, "batt_at", 0)
         val rawName = (prefs.getString("batt_name", "") ?: "").trim()
-        val name = rawName.ifEmpty { "Strap" }
-        val stale = at > 0 && (System.currentTimeMillis() / 1000 - at) > 86_400
+        val name = rawName.ifEmpty { "Band" }
+        val stale = at > 0L && (System.currentTimeMillis() / 1000 - at) > 86_400L
 
         // Colour rules mirror BatteryEntry.color: blue while charging, coral when
         // low, deep-coral when critical, green otherwise — muted with no/old data.
         val color = when {
             pct < 0 || stale -> pal.inkMuted
-            charging -> w.SLEEP_BLUE
-            pct <= 10 -> w.CORAL_DEEP
-            pct <= 25 -> w.CORAL
-            else -> w.GOOD
+            charging -> w.BLUE
+            pct <= 10 -> w.RED
+            pct <= 25 -> w.ORANGE
+            else -> w.GREEN
         }
         // -1 = never seen the band: track only, and the word instead of a dash
         // over a ring at empty, which reads as "the band is at 0%".
@@ -59,9 +59,12 @@ class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
         // on the caption line. A dash over a ring at empty reads as "0%".
         val t = if (pct >= 0) (pct / 100.0).coerceIn(0.0, 1.0) else -1.0
         val valueText = if (pct >= 0) "$pct%" else ""
+        // Dimming alone does not SAY anything — a reading we can no longer
+        // vouch for names itself, exactly as it does on iOS.
         val caption = when {
             pct < 0 -> "Not connected yet"
             charging -> "⚡ $name"
+            stale -> "$name · last known"
             else -> name
         }
 

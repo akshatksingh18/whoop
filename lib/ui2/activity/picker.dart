@@ -46,6 +46,13 @@ class _ActivityPickerState extends State<ActivityPicker> {
   String q = '';
   int group = -1;
 
+  /// The group that was open before this one. [AnimatedCrossFade] builds both
+  /// of its children whatever it is showing, so building every group's rows
+  /// unconditionally cost about 960 widgets for the twelve on screen. Only the
+  /// open group is built now, plus this one so its collapse still has
+  /// something to fade out.
+  int closing = -1;
+
   void _pick(BuildContext c, Activity a) {
     if (widget.onPick != null) return widget.onPick!(c, a);
     Navigator.of(c).push(MaterialPageRoute(
@@ -156,8 +163,10 @@ class _ActivityPickerState extends State<ActivityPicker> {
                   const SizedBox(height: S.x5),
                   for (var gi = 0; gi < activityLibrary.length; gi++) ...[
                     Pressable(
-                      onTap: () =>
-                          setState(() => group = group == gi ? -1 : gi),
+                      onTap: () => setState(() {
+                        closing = group;
+                        group = group == gi ? -1 : gi;
+                      }),
                       child: Padding(
                         padding:
                             const EdgeInsets.symmetric(vertical: S.x3),
@@ -185,21 +194,25 @@ class _ActivityPickerState extends State<ActivityPicker> {
                       crossFadeState: group == gi
                           ? CrossFadeState.showFirst
                           : CrossFadeState.showSecond,
-                      firstChild: Surface(
-                        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                        child: Column(children: [
-                          for (var i = 0;
-                              i < activityLibrary[gi].items.length;
-                              i++) ...[
-                            ActivityRow(activityLibrary[gi].items[i],
-                                weightKg: widget.weightKg,
-                                onTap: () =>
-                                    _pick(c, activityLibrary[gi].items[i])),
-                            if (i < activityLibrary[gi].items.length - 1)
-                              Divider(color: p.line, height: 1),
-                          ],
-                        ]),
-                      ),
+                      firstChild: group == gi || closing == gi
+                          ? Surface(
+                              pad: const EdgeInsets.symmetric(
+                                  horizontal: S.x4),
+                              child: Column(children: [
+                                for (var i = 0;
+                                    i < activityLibrary[gi].items.length;
+                                    i++) ...[
+                                  ActivityRow(activityLibrary[gi].items[i],
+                                      weightKg: widget.weightKg,
+                                      onTap: () => _pick(
+                                          c, activityLibrary[gi].items[i])),
+                                  if (i <
+                                      activityLibrary[gi].items.length - 1)
+                                    Divider(color: p.line, height: 1),
+                                ],
+                              ]),
+                            )
+                          : const SizedBox(width: double.infinity),
                       secondChild: const SizedBox(width: double.infinity),
                     ),
                     Divider(color: p.line, height: 1),
@@ -208,18 +221,14 @@ class _ActivityPickerState extends State<ActivityPicker> {
                   if (widget.weightKg == null)
                     const StatusCard(
                       'Calorie estimates need your weight',
-                      'Every activity here carries a published MET value, but '
-                          'turning that into kilocalories needs your body '
-                          'mass. Until then the catalogue shows MET instead.',
+                      kCalorieNeedsWeight,
                       fix: 'Add weight in profile',
                       icon: LucideIcons.flame,
                     )
                   else
                     const StatusCard(
                       'Calorie figures are estimates',
-                      'They come from published MET values for each activity '
-                          'and your body weight, then get refined by heart '
-                          'rate during the session. Expect roughly ±15%.',
+                      kCalorieWhy,
                       icon: LucideIcons.flame,
                     ),
                 ],

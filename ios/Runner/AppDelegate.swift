@@ -49,9 +49,14 @@ import BackgroundTasks
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // Whenever the phone app comes to the foreground, mirror the latest App Group
-  // snapshot to the watch. This makes the watch fresh on any app open, not only
-  // when the Today screen happens to call WidgetService.push().
+  // Whenever the phone app comes to the foreground, mirror the App Group
+  // snapshot to the watch, so the wrist is not waiting on the next derive.
+  //
+  // It mirrors whatever is already there — nothing rewrites the group on a mere
+  // foreground, only a completed derive does (AppState → WidgetService.refresh).
+  // So this can ship yesterday's snapshot, and that is survivable only because
+  // the watch ages `updated_at` itself (WatchMetrics.fresh) and shows its
+  // no-recent-data state rather than yesterday's numbers.
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
     WatchBridge.shared.pushCurrentState()

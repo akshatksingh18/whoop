@@ -197,6 +197,14 @@ const activityLibrary = <ActGroup>[
   ]),
 ];
 
+/// The two things the app has to say about a calorie figure, in one place
+/// because they were said in four and drifted: one site kept quoting a "±15%"
+/// error bar that no estimator computes, long after the others dropped it.
+const kCalorieWhy =
+    'MET value × your weight, refined by heart rate. Nothing measures energy '
+    'directly.';
+const kCalorieNeedsWeight = 'MET on its own is not a kilocalorie.';
+
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[
   Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,

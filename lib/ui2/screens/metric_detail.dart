@@ -261,12 +261,9 @@ const _specs = <String, MetricSpec>{
     color: C.orange,
     icon: LucideIcons.thermometer,
     higherBetter: false,
-    suppress: 'This is a deviation, not a temperature — and worse, the same '
-        'stored series carries three different units depending on where a '
-        'night came from: a unitless score from the band, degrees Celsius from '
-        'a WHOOP CSV, and WHOOP\'s own index from a cloud export. A line '
-        'across mixed units would be wrong in a way you could not see.',
-    suppressFix: 'Tonight\'s deviation is still shown on Vitals',
+    suppress: 'A deviation, not a temperature. Imported nights carry different '
+              'units, so they are not charted together.',
+    suppressFix: 'Shown tonight on Vitals',
     method: 'The night\'s mean raw sensor reading, expressed as distance from '
         'your own recent nights. There is no conversion to degrees anywhere in '
         'the path.',
@@ -517,8 +514,7 @@ class _MetricDetailState extends State<MetricDetail> {
         else
           StatusCard(
             'No history for ${spec.title.toLowerCase()} yet',
-            'This chart is built from one value per day, and no day in this '
-                'window produced one.',
+            'No day in this window produced a value.',
             fix: 'Wear the band overnight to start the series',
             icon: spec.icon,
           ),
@@ -732,8 +728,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ),
       const SizedBox(height: S.x3),
       Text(
-          'These are patterns in your own logs, not causes. A day you tagged is '
-          'different from a day you did not in more ways than the tag.',
+          'Patterns in your own logs, not causes.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }

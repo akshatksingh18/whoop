@@ -373,7 +373,13 @@ class ActivitySummary extends StatefulWidget {
   /// Body weight, for the calorie note. Null when the profile has none.
   final double? weightKg;
 
-  const ActivitySummary(this.result, {super.key, this.weightKg});
+  /// Set only when persisting the session threw. Non-null means this summary
+  /// is drawn from something that is NOT in the database, and calling it tries
+  /// the write again.
+  final Future<ActivityResult> Function()? onRetrySave;
+
+  const ActivitySummary(this.result,
+      {super.key, this.weightKg, this.onRetrySave});
 
   @override
   State<ActivitySummary> createState() => _ActivitySummaryState();
@@ -383,9 +389,31 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   int tab = 0;
   static const _tabs = ['Overview', 'Splits', 'Graphs'];
 
+  /// Whether the session is still only on screen. Starts true whenever a
+  /// retry was handed down, because that is what being handed one means.
+  late bool unsaved = widget.onRetrySave != null;
+  bool _saving = false;
+
   ActivityResult get r => widget.result;
   Activity get a => r.activity;
   Arch get arch => r.arch;
+
+  Future<void> _retrySave() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    var ok = false;
+    try {
+      await widget.onRetrySave!();
+      ok = true;
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      unsaved = !ok;
+    });
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -431,6 +459,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   List<Widget> _overview(BuildContext c, P p) {
     final hero = _hero();
     return [
+      if (unsaved) ...[
+        StatusCard(
+          'This session is not saved yet',
+          'Writing it to this phone failed.',
+          fix: _saving ? 'Saving' : 'Try again',
+          onFix: _saving ? null : _retrySave,
+          icon: LucideIcons.triangleAlert,
+        ),
+        const SizedBox(height: S.x5),
+      ],
       Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
@@ -477,14 +515,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Expanded(
             child: Text(
                 widget.weightKg == null
-                    ? 'Calories need your body weight — without it there is no '
-                        'way to turn ${a.met.toStringAsFixed(1)} MET and a '
-                        'heart rate into kilocalories, so none is shown.'
-                    // No error bar is quoted because none is computed — the
-                    // "±15%" this used to claim had no estimator behind it,
-                    // and the Workout tab says so in as many words.
-                    : 'Calories are estimated from heart rate, '
-                        '${a.met.toStringAsFixed(1)} MET and your body weight.',
+                    ? 'Calories need your weight. $kCalorieNeedsWeight'
+                    : 'Estimated from ${a.met.toStringAsFixed(1)} MET, your '
+                        'weight and heart rate.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.5)),
           ),
         ]),
@@ -584,8 +617,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             // a button that cannot be tapped is worse than no button.
             const StatusCard(
               'No route for this session',
-              'Location was off, unavailable, or this activity was not '
-                  'recorded with GPS, so there is no line to draw.',
+              'Location was off, or this activity was not recorded with GPS.',
               icon: LucideIcons.map,
             ),
           ];
@@ -629,8 +661,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No muscle map for this session',
-              'The map is drawn from the exercises you logged and how much '
-                  'volume each took. Nothing was logged with a load.',
+              '0 exercises logged with a load.',
               icon: LucideIcons.personStanding,
             ),
           ];
@@ -643,8 +674,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               title: 'MUSCLE GROUPS',
               unit: '% of this session',
               height: 190,
-              footnote: 'Share of the volume you logged, relative to the '
-                  'hardest-worked group — not absolute load.',
+              footnote: 'Share of your logged volume, relative to the hardest-'
+                        'worked group.',
               child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -671,8 +702,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No rounds recorded',
-              'An interval session draws its ladder from the work and rest '
-                  'blocks you ran. None were logged.',
+              '0 rounds logged.',
               icon: LucideIcons.timer,
             ),
           ];
@@ -737,8 +767,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No laps counted',
-              'Nothing on your wrist can see a pool wall, so laps are counted '
-                  'by hand during the swim. None were.',
+              '0 laps tapped. No sensor can see a pool wall.',
               icon: LucideIcons.waves,
             ),
           ];
@@ -769,8 +798,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No elevation profile',
-              'The climb comes from the altitude in your recorded route. This '
-                  'session has no route, or the fixes carried no altitude.',
+              'No route, or the route carried no altitude.',
               icon: LucideIcons.mountain,
             ),
           ];
@@ -814,9 +842,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             StatusCard(
               'No heart rate for this session',
-              'The strap reported nothing while this session was running — it '
-                  'was off the wrist, or the link had dropped.',
-              fix: 'Check strap connection',
+              'The band reported nothing while this was running.',
+              fix: 'Check band connection',
               // The band, its battery and its link all live behind the
               // profile's sources list. The CTA used to be paint.
               onFix: () => openProfile(c),
@@ -922,9 +949,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               padding: EdgeInsets.only(top: S.x4),
               child: StatusCard(
                 'Some sets had no load',
-                'Bodyweight and unrecorded sets are counted in the set and rep '
-                    'totals but left out of volume — putting them in at zero '
-                    'kilos would make a real session look like an empty one.',
+                'Counted in sets and reps, but left out of volume.',
                 icon: LucideIcons.info,
               ),
             ),
@@ -998,8 +1023,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No splits for this session',
-              'Splits come from a recorded distance. Without GPS or a distance '
-                  'there is nothing to divide into kilometres.',
+              'Splits need a recorded distance.',
               icon: LucideIcons.list,
             ),
           ];
@@ -1056,8 +1080,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No sets logged',
-              'A strength session is the sets you logged — load, reps and '
-                  'effort. Nothing was entered during this one.',
+              '0 sets logged.',
               icon: LucideIcons.dumbbell,
             ),
           ];
@@ -1086,7 +1109,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         if (r.rounds.isEmpty) {
           return [
             const StatusCard('No rounds recorded',
-                'This session logged no work and rest blocks.',
+                '0 rounds logged.',
                 icon: LucideIcons.timer),
           ];
         }
@@ -1155,7 +1178,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         if (r.lapSecs.isEmpty) {
           return [
             const StatusCard('No laps counted',
-                'Laps are counted by hand during the swim. None were.',
+                '0 laps tapped. No sensor can see a pool wall.',
                 icon: LucideIcons.waves),
           ];
         }
@@ -1206,8 +1229,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           const StatusCard(
             'No splits for this activity',
-            'Splits belong to activities that break into equal pieces — '
-                'kilometres, sets, rounds or laps. This one does not.',
+            'This activity does not break into equal pieces.',
             icon: LucideIcons.list,
           ),
         ];
@@ -1255,9 +1277,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       return [
         StatusCard(
           'No series to plot',
-          'Graphs are drawn from the per-minute streams a session recorded. '
-              'This one recorded none — the strap was off, or the link dropped.',
-          fix: 'Check strap connection',
+          'This session recorded no per-minute streams.',
+          fix: 'Check band connection',
           onFix: () => openProfile(c),
           icon: LucideIcons.chartLine,
         ),
@@ -1303,11 +1324,21 @@ class _MuscleRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: S.x3),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text(label, style: F.cap.copyWith(color: p.ink)),
+          // Flexible, not Spacer-only: a long muscle-group name at 2x text
+          // scale leaves the percentage no room, and tabular digits are wider
+          // than proportional ones.
+          Flexible(
+            child: Text(label,
+                style: F.cap.copyWith(color: p.ink),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
           const Spacer(),
           Text('${(v * 100).round()}%',
-              style:
-                  F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+              style: F.cap.copyWith(
+                  color: p.ink2,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
         const SizedBox(height: S.x1),
         PaceBar(v, C.purple),

@@ -25,9 +25,11 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-// Prefs only — a synchronous key/value façade, not the app. The rule this file
-// keeps is no AppState and no LocalDb: the live screens describe a session,
-// the caller owns it.
+// The permission enum only — a pure value type, no geolocator call from this
+// file. The rule this file keeps is no AppState and no LocalDb: the live
+// screens describe a session, the caller owns it. Prefs is a synchronous
+// key/value façade, not the app.
+import '../../gps/gps_source.dart' show GpsPermissionStatus;
 import '../../state/prefs.dart';
 import '../charts.dart';
 import '../grammar.dart';
@@ -62,6 +64,21 @@ class LiveFeed {
   /// one is being recorded.
   final bool gpsActive;
 
+  /// Why no route is being recorded, when the reason is a location permission
+  /// the user can still fix. Null when nothing is wrong. Without this a denied
+  /// permission simply produced no map and no sentence.
+  final GpsPermissionStatus? routeIssue;
+
+  /// What to do about [routeIssue] — re-ask, or open Settings. It rides on the
+  /// feed because the feed is the one thing every live screen already has, and
+  /// the caller owns which of the two it is.
+  final VoidCallback? onFixRoute;
+
+  /// Whether the band is connected right now. An absent heart rate means one
+  /// thing when the band is streaming and something else entirely when it
+  /// dropped ten minutes ago.
+  final bool bandConnected;
+
   const LiveFeed({
     this.hr,
     this.maxHr,
@@ -74,6 +91,9 @@ class LiveFeed {
     this.hrCurve = const [],
     this.route = const [],
     this.gpsActive = false,
+    this.routeIssue,
+    this.onFixRoute,
+    this.bandConnected = false,
   });
 
   static const none = LiveFeed();
@@ -112,7 +132,7 @@ class SetHistory {
 ///
 /// Picker → setup → live is three constructors deep, and every one of these
 /// used to be an optional parameter that no caller passed — which is how the
-/// setup screen ended up saying "No strap connected" while the band was
+/// setup screen ended up saying "No band connected" while the band was
 /// streaming. One object, threaded once, and a default that is honest about
 /// having no app behind it (tests, previews).
 class ActivityHost {
@@ -135,7 +155,7 @@ class ActivityHost {
   /// Previous and best set per exercise key, from the user's own log.
   final Map<String, SetHistory> history;
 
-  /// Whether the strap is connected right now.
+  /// Whether the band is connected right now.
   final bool bandConnected;
 
   const ActivityHost({
@@ -343,12 +363,20 @@ class LiveShell extends StatefulWidget {
   final bool private;
   final double? weightKg;
 
-  /// The archetype's middle. Rebuilt every tick with elapsed seconds.
+  /// The archetype's middle. Rebuilt every tick with elapsed seconds, unless
+  /// [bodyFollowsClock] says it has nothing that changes with the clock.
   final Widget Function(BuildContext c, int elapsed) body;
 
+  /// Whether [body] shows anything that moves with the clock or the band.
+  /// False builds it once per rebuild of this shell and leaves the 1 Hz tick
+  /// alone: a strength session is entirely typed, so ticking redrew a set list
+  /// that cannot have changed, once a second, for the length of the workout.
+  final bool bodyFollowsClock;
+
   /// Anything pinned above the transport controls — the strength logger's
-  /// "Log set", for instance.
-  final Widget Function(BuildContext c, int elapsed)? footer;
+  /// "Log set", for instance. It gets no clock: it is rebuilt when the screen
+  /// that owns it changes, not on the tick.
+  final Widget Function(BuildContext c)? footer;
 
   /// What this session became, built when the user stops it.
   final ActivityResult Function(int elapsed) result;
@@ -362,6 +390,7 @@ class LiveShell extends StatefulWidget {
     super.key,
     required this.body,
     required this.result,
+    this.bodyFollowsClock = true,
     this.subtitle = '',
     this.private = false,
     this.weightKg,
@@ -377,7 +406,14 @@ class LiveShellState extends State<LiveShell> {
   /// Seeded from the draft, so reopening a minimised session — or relaunching
   /// after a kill — carries on from where the session actually is rather than
   /// from zero.
-  late int elapsed = LiveDraft.current?.elapsedSec ?? 0;
+  ///
+  /// A listenable rather than a field behind `setState`: the tick used to
+  /// rebuild and re-lay-out this whole screen once a second for the length of
+  /// a workout — header, transport controls and all — when the only thing that
+  /// moves is the middle.
+  late final ValueNotifier<int> clock =
+      ValueNotifier<int>(LiveDraft.current?.elapsedSec ?? 0);
+  int get elapsed => clock.value;
   late bool paused = LiveDraft.current?.pausedAt != null;
   Timer? _t;
 
@@ -393,9 +429,9 @@ class LiveShellState extends State<LiveShell> {
       if (!mounted) return;
       final d = LiveDraft.current;
       if (d != null) {
-        setState(() => elapsed = d.elapsedSec);
+        clock.value = d.elapsedSec;
       } else if (!paused) {
-        setState(() => elapsed++);
+        clock.value++;
       }
     });
   }
@@ -403,6 +439,7 @@ class LiveShellState extends State<LiveShell> {
   @override
   void dispose() {
     _t?.cancel();
+    clock.dispose();
     super.dispose();
   }
 
@@ -419,10 +456,17 @@ class LiveShellState extends State<LiveShell> {
     // could add. A failure here must still land the user on their summary —
     // losing the screen is worse than losing the enrichment.
     var result = draft;
+    // A throw here is `stopWorkout` or the strength write failing, which means
+    // the session is NOT in the database. The summary still opens, because
+    // losing the screen is worse — but it is told, so it can say so and offer
+    // the retry instead of drawing a plausible summary of nothing.
+    final onFinish = widget.onFinish;
+    Future<ActivityResult> Function()? retrySave;
     try {
-      result = await widget.onFinish?.call(draft) ?? draft;
+      result = await onFinish?.call(draft) ?? draft;
     } catch (_) {
       result = draft;
+      retrySave = onFinish == null ? null : () => onFinish(draft);
     }
     // The session is over: no draft to reopen, and no resume bar.
     LiveDraft.clear();
@@ -432,7 +476,8 @@ class LiveShellState extends State<LiveShell> {
     // on "choose an activity", immediately after finishing one.
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
-        builder: (_) => ActivitySummary(result, weightKg: widget.weightKg),
+        builder: (_) => ActivitySummary(result,
+            weightKg: widget.weightKg, onRetrySave: retrySave),
       ),
       (r) => r.isFirst,
     );
@@ -479,15 +524,31 @@ class LiveShellState extends State<LiveShell> {
             ]),
           ),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x4),
-              children: [widget.body(c, elapsed)],
+            // The tick reaches the body and stops there. A body that does not
+            // follow the clock is handed through as `child`, which is the same
+            // widget instance on every tick — so its whole subtree is skipped
+            // rather than rebuilt — and the parts of it that DO move once a
+            // second ask for the tick themselves, through [LiveTick].
+            child: _LiveClock(
+              clock,
+              child: Builder(
+                builder: (bc) => ValueListenableBuilder<int>(
+                  valueListenable: clock,
+                  child: widget.bodyFollowsClock
+                      ? null
+                      : widget.body(bc, clock.value),
+                  builder: (bc2, e, child) => ListView(
+                    padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x4),
+                    children: [child ?? widget.body(bc2, e)],
+                  ),
+                ),
+              ),
             ),
           ),
           if (widget.footer != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x5),
-              child: widget.footer!(c, elapsed),
+              child: widget.footer!(c),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x5),
@@ -538,6 +599,36 @@ class LiveShellState extends State<LiveShell> {
           child: Icon(i, size: 20, color: fg),
         ),
       );
+}
+
+/// The shell's clock, offered to the body without subscribing anyone to it.
+/// Looked up with `getInheritedWidgetOfExactType` (see [LiveTick]) rather than
+/// depended on, because depending on it is the 1 Hz whole-screen rebuild this
+/// exists to avoid.
+class _LiveClock extends InheritedWidget {
+  final ValueNotifier<int> clock;
+  const _LiveClock(this.clock, {required super.child});
+
+  @override
+  bool updateShouldNotify(_LiveClock old) => old.clock != clock;
+}
+
+/// The one part of a body that does follow the clock, in a body that mostly
+/// does not. Outside a [LiveShell] it builds once at zero, which is what a
+/// preview or a widget test wants.
+class LiveTick extends StatelessWidget {
+  final Widget Function(BuildContext c, int elapsed) builder;
+  const LiveTick(this.builder, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final clock = c.getInheritedWidgetOfExactType<_LiveClock>()?.clock;
+    return clock == null
+        ? builder(c, 0)
+        : ValueListenableBuilder<int>(
+            valueListenable: clock,
+            builder: (bc, e, _) => builder(bc, e));
+  }
 }
 
 // ══════════════ SHARED PIECES ══════════════
@@ -621,12 +712,21 @@ class LiveHeart extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     if (feed.hr == null) {
-      return const StatusCard(
-        'No heart rate yet',
-        'The strap has not reported a beat since this session started. It '
-            'needs to be snug, a finger-width above the wrist bone.',
-        icon: LucideIcons.heartPulse,
-      );
+      // One card used to cover both, and it told a user whose band had
+      // dropped mid-session to adjust the fit of a band that was not there.
+      return feed.bandConnected
+          ? const StatusCard(
+              'No heart rate yet',
+              'The band is connected but has not reported a beat, so it needs '
+                  'to be snug, a finger-width above the wrist bone.',
+              icon: LucideIcons.heartPulse,
+            )
+          : const StatusCard(
+              'No heart rate',
+              'The band is not connected, so nothing is arriving for this '
+                  'session.',
+              icon: LucideIcons.heartPulse,
+            );
     }
     final z = feed.zone;
     return Column(children: [
@@ -667,6 +767,42 @@ class LiveHeart extends StatelessWidget {
     return [for (final m in mins) m / total];
   }
 }
+
+/// Why this session is being recorded without a route, and the one thing that
+/// would fix it. The session keeps running either way — a missing map is not a
+/// reason to stop a run — but it is named rather than left blank.
+Widget _routeIssueCard(GpsPermissionStatus issue, VoidCallback? onFix) =>
+    switch (issue) {
+      GpsPermissionStatus.serviceOff => StatusCard(
+          'No route: location is off',
+          'Location services are off on this phone, so no fixes are arriving.',
+          fix: 'Turn on location',
+          onFix: onFix,
+          icon: LucideIcons.mapPin,
+        ),
+      GpsPermissionStatus.denied => StatusCard(
+          'No route: location not allowed',
+          'This session is recording everything except the map.',
+          fix: 'Allow location',
+          onFix: onFix,
+          icon: LucideIcons.mapPin,
+        ),
+      GpsPermissionStatus.deniedForever => StatusCard(
+          'No route: location not allowed',
+          'Location is denied for this app, which only Settings can change.',
+          fix: 'Open Settings',
+          onFix: onFix,
+          icon: LucideIcons.mapPin,
+        ),
+      // `granted` cannot reach here: it is never stored as an issue.
+      _ => StatusCard(
+          'No route: location failed',
+          'The phone returned an error when asked for a fix.',
+          fix: 'Try again',
+          onFix: onFix,
+          icon: LucideIcons.mapPin,
+        ),
+    };
 
 /// MET-derived calories for the elapsed time, or the feed's own figure when
 /// the band produced one. Null when body weight is unknown — the whole point
@@ -772,6 +908,11 @@ class LiveMeasured extends StatelessWidget {
           if (f.gpsActive) ...[
             const SizedBox(height: S.x3),
             const Pill('Recording route', C.green, icon: LucideIcons.mapPin),
+          ] else if (f.routeIssue != null) ...[
+            // A denied permission used to produce no pill, no map and no
+            // sentence: the run finished and the route was simply missing.
+            const SizedBox(height: S.x4),
+            _routeIssueCard(f.routeIssue!, f.onFixRoute),
           ],
           const SizedBox(height: S.x8),
           statRow(p, [
@@ -1037,7 +1178,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           widget.feed?.call() ?? LiveFeed.none, widget.weightKg, elapsed,
           widget.private,
           strength: log),
-      footer: (ctx, _) => restLeft > 0
+      footer: (ctx) => restLeft > 0
           ? Row(children: [
               Expanded(
                 child: BigButton('+30s',
@@ -1058,11 +1199,15 @@ class _LiveStrengthState extends State<LiveStrength> {
             ])
           : BigButton('Log set',
               icon: LucideIcons.plus, color: C.purple, onTap: logSet),
-      body: (ctx, elapsed) => _body(ctx, elapsed),
+      // Nothing here is measured: the sets, reps and load are typed, and the
+      // one live thing on the screen is the heart-rate block, which asks for
+      // the tick itself.
+      bodyFollowsClock: false,
+      body: (ctx, _) => _body(ctx),
     );
   }
 
-  Widget _body(BuildContext c, int elapsed) {
+  Widget _body(BuildContext c) {
     final p = P.of(c);
     final volume = log.volumeKg;
     final hist = widget.history[key];
@@ -1130,8 +1275,12 @@ class _LiveStrengthState extends State<LiveStrength> {
         }),
       ),
       const SizedBox(height: S.x2),
+      // Tabular: this counts up mid-lift, and proportional digits made the
+      // label shuffle sideways on every set.
       Text('Set ${setsHere.length + 1}',
-          style: F.cap.copyWith(color: p.ink3)),
+          style: F.cap.copyWith(
+              color: p.ink3,
+              fontFeatures: const [FontFeature.tabularFigures()])),
       const SizedBox(height: S.x6),
 
       if (restLeft > 0) _rest_(p) else ..._entry(p),
@@ -1190,8 +1339,8 @@ class _LiveStrengthState extends State<LiveStrength> {
       if (hist?.previous == null && hist?.best == null)
         const StatusCard(
           'First time on this lift',
-          'Previous and best appear once you have logged this exercise before '
-              '— they come from your own history, not a population table.',
+          'Previous and best come from your own history, once you have logged '
+          'this lift.',
           icon: LucideIcons.history,
         )
       else
@@ -1201,7 +1350,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           Expanded(child: _ref(p, 'Best', hist?.best, gold: true)),
         ]),
       const SizedBox(height: S.x5),
-      LiveHeart(widget.feed?.call() ?? LiveFeed.none),
+      LiveTick((_, _) => LiveHeart(widget.feed?.call() ?? LiveFeed.none)),
     ]);
   }
 
@@ -1492,8 +1641,7 @@ class _LiveSwimState extends State<LiveSwim> {
             final secs = lapSecs;
             if (secs.isEmpty) {
               return Text(
-                  'Pool length and stroke are yours to set — no sensor knows '
-                  'them. Lap times appear as you tap.',
+                  'No sensor knows pool length or stroke.',
                   textAlign: TextAlign.center,
                   style: F.over.copyWith(color: p.ink3));
             }

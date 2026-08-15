@@ -201,8 +201,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
         if (drawn == 0)
           const StatusCard(
             'No nights to plot yet',
-            'The actogram is one column per night of recorded sleep, and none '
-                'have been scored.',
+            '0 nights scored.',
             fix: 'Wear the band overnight',
             icon: LucideIcons.calendarClock,
           )
@@ -225,9 +224,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
                   ? const []
                   : [d.labels.first, d.labels.last],
               legend: const [('Asleep', C.indigo)],
-              footnote: '$drawn night${drawn == 1 ? '' : 's'} drawn, one column '
-                  'each. A darker block is more of that hour asleep; a blank '
-                  'column is a night with no record.',
+              footnote: '$drawn night${drawn == 1 ? '' : 's'}, one column each. '
+                  'Darker is more of that hour asleep.',
               child: CustomPaint(
                 size: Size.infinite,
                 painter: Actogram(d.actogram, p.on(C.indigo)),
@@ -249,10 +247,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
             return InsightCard(
               'Your free-day clock runs ${_hm(d.jetlag.value!)} '
               '${later ? 'later' : 'earlier'}',
-              'The gap between when you sleep on free days and on working days '
-                  'is what makes the first working morning hard. It is measured '
-                  'from ${(d.nFree ?? 0).round()} free nights and '
-                  '${(d.nWork ?? 0).round()} working nights.',
+              'From ${(d.nFree ?? 0).round()} free nights and '
+              '${(d.nWork ?? 0).round()} working nights.',
               icon: LucideIcons.clock,
               color: C.indigo,
             );
@@ -289,9 +285,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
     if (rows.isEmpty) {
       return StatusCard.forMetric('Your rhythm is not established yet',
               d.regularity,
-              why: 'Chronotype and social jetlag are measured by comparing free '
-                  'nights against working nights, which takes a few weeks of '
-                  'both.') ??
+              why: 'Comparing free nights against working nights takes a few '
+                   'weeks of both.') ??
           const SizedBox.shrink();
     }
 
@@ -334,10 +329,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
       return StatusCard.forMetric('Rhythm strength is not measured yet',
               d.rhythm,
               unit: 'days',
-              why: 'It needs a run of calendar-consecutive days where every '
-                  'one of the 24 hours was recorded. An hour is never filled '
-                  'in, because an imputed hour is exactly the smooth signal '
-                  'this measure rewards.') ??
+              why: 'Needs consecutive days with all 24 hours recorded. A '
+                   'missing hour is never filled in.') ??
           const SizedBox.shrink();
     }
 
@@ -346,10 +339,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
       _table(p, rows),
       const SizedBox(height: S.x3),
       Text(
-        '${used == null ? 'A run of' : '$used'} consecutive fully-recorded '
-        'day${used == 1 ? '' : 's'} of hourly heart-rate means, not '
-        'accelerometry — so the 10- and 5-hour windows are the highest- and '
-        'lowest-HR parts of your day rather than the most and least active.',
+        '${used == null ? 'A run of' : '$used'} fully-recorded '
+        'day${used == 1 ? '' : 's'}, HR-based. So these are your highest and '
+        'lowest HR hours, not your busiest.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

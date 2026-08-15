@@ -328,15 +328,14 @@ class _HealthScreenState extends State<HealthScreen> {
         C.purple,
         'Stress',
         (stressBlock is Map ? stressBlock['level']?.toString() : null) ??
-            'Autonomic tension',
+            'Stress',
         stressScore == null ? '' : '${stressScore.round()}',
         // 0–100, and the scale has to be on the row. Wellness has always shown
         // it for the same number.
         '/100',
         d.spark('stress', 24),
         'stress',
-        whyAbsent: 'No resting window long enough to read autonomic tension '
-            'last night. There is deliberately no substitute number.');
+        whyAbsent: 'No resting stretch long enough last night.');
 
     final respMetric = d.resp;
     row(respMetric, LucideIcons.wind, C.teal, 'Respiratory rate', 'Asleep',
@@ -389,8 +388,7 @@ class _HealthScreenState extends State<HealthScreen> {
         weight == null
             ? StatusCard(
                 'No weight recorded',
-                'Weight is used to estimate energy expenditure, and none is '
-                    'set on your profile.',
+                'Energy estimates need it.',
                 fix: 'Add it in Profile',
                 icon: LucideIcons.scale,
                 onFix: () => go(c, const ProfileHome()),
@@ -419,8 +417,7 @@ class _HealthScreenState extends State<HealthScreen> {
                 const SizedBox(height: S.x3),
                 const StatusCard(
                   'No weight history',
-                  'Only one current value is stored, so there is no trend to '
-                      'draw and no change to report.',
+                  'Only the current value is stored.',
                   icon: LucideIcons.chartLine,
                 ),
               ]),
@@ -455,7 +452,7 @@ class _HealthScreenState extends State<HealthScreen> {
       if (s.isEmpty) {
         return StatusCard(
           'No $label trend yet',
-          'One value is stored per day and none have been produced.',
+          '0 days stored.',
           icon: LucideIcons.chartLine,
         );
       }
@@ -533,8 +530,7 @@ class _HealthScreenState extends State<HealthScreen> {
               const SizedBox(height: S.x4),
               if (chrono.isEmpty && sjlH == null && sri == null)
                 Text(
-                    'Measured by comparing your free nights against your working '
-                    'nights. It takes a few weeks of both.',
+                    'Compares your free nights against your working nights.',
                     style: F.cap.copyWith(color: p.ink3, height: 1.5))
               else
                 InlineMetrics([
@@ -642,8 +638,7 @@ class _HealthScreenState extends State<HealthScreen> {
       if (rows.isEmpty)
         StatusCard(
           'Nothing measured for this day',
-          'Vitals come from the band\'s own recordings, and none reached this '
-              'day.',
+          'No band recordings reached this day.',
           fix: syncOf(c) == null ? '' : 'Sync the band',
           icon: LucideIcons.watch,
           onFix: syncOf(c),
@@ -663,9 +658,8 @@ class _HealthScreenState extends State<HealthScreen> {
         const SizedBox(height: S.x4),
         StatusCard(
           'Skin temperature is relative, not a temperature',
-          'This sensor is not calibrated against a thermometer, so there is no '
-              'honest way to print a °C figure. What is shown is how far last '
-              'night sits from your own recent nights.',
+          'Not calibrated against a thermometer, so no °C. Shown as distance '
+          'from your own recent nights.',
           fix: 'How this is computed',
           icon: LucideIcons.thermometer,
           onFix: () => go(c, const MetricDetail('skin_temp')),
@@ -780,9 +774,7 @@ class _HealthScreenState extends State<HealthScreen> {
       if (rows.isEmpty)
         const StatusCard(
           'No lab results yet',
-          'Blood work is the only absolute measurement in this app — a '
-              'laboratory calibrates against a standard, and a wrist sensor '
-              'does not. Nothing has been entered.',
+          'Nothing logged yet.',
           icon: LucideIcons.testTube,
         )
       else ...[
@@ -796,7 +788,7 @@ class _HealthScreenState extends State<HealthScreen> {
           ]),
         ),
         const SizedBox(height: S.x3),
-        Text('Last panel ${lastDraw ?? ''} · entered by hand',
+        Text('Last panel ${lastDraw ?? ''} · logged by hand',
             style: F.over.copyWith(color: p.ink3)),
       ],
       const SizedBox(height: S.x4),
@@ -806,11 +798,10 @@ class _HealthScreenState extends State<HealthScreen> {
           soft: true,
           onTap: () => _addLab(c, l)),
       const SizedBox(height: S.x4),
-      Text(
-          'Every laboratory publishes its own reference interval, from its own '
-          'assay and its own local population. The range on your own report is '
-          'the one that applies to you — a value outside the one shown here is '
-          '"outside the typical range", not "abnormal".',
+      // The app never prints "abnormal" anywhere, so it does not need to say
+      // it does not. What the user cannot know without being told is that the
+      // range shown here is not the range their own lab used.
+      Text('Ranges differ by lab. Use the one on your report.',
           style: F.over.copyWith(color: p.ink3, height: 1.6)),
     ]);
   }

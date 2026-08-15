@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-  Shown when the app publishes has_data = false: the snapshot is empty, or it
-  describes a day more than one behind. The rings layouts have nowhere to put a
+  Shown when the snapshot is empty, describes a day more than one behind, or is
+  older than StrapWidgets.STALE_AFTER_SEC (has_data is frozen at push time, so
+  the age of updated_at is what actually answers "is this today's?"). The rings layouts have nowhere to put a
   reason, and a stale readiness rendered at full confidence is the thing the
   phone's honesty contract exists to prevent — so this replaces them entirely.
   Text colours set at render time (theme_dark).
@@ -28,7 +29,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:gravity="center"
-        android:text="Open OpenStrap and sync your strap."
+        android:text="Open OpenStrap and sync your band."
         android:textSize="11sp"
         android:maxLines="2" />
 </LinearLayout>

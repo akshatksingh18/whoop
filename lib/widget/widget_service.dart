@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../data/local_repository.dart';
 import '../models/payloads.dart';
+import '../ui2/screens/home_screen.dart' show readinessBand;
 
 class WidgetService {
   static const _platform = MethodChannel('openstrap/ios_config');
@@ -122,9 +123,21 @@ class WidgetService {
       // nothing on it to say so.
       await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty && !isStale(t));
       // Headline composite Readiness + the three rings (Strain · Sleep · HRV).
-      await setI(
-        'readiness',
-        t.readiness.isEmpty ? -1 : t.readiness.value!.round(),
+      final rv = t.readiness.isEmpty ? null : t.readiness.value;
+      await setI('readiness', rv == null ? -1 : rv.round());
+      // The banding, published rather than re-derived. The widget, the Watch
+      // and Siri each carried their own thresholds, so the same 65 read green
+      // here, orange on the widget and yellow on the wrist. They now render
+      // `readiness_tier` (colour) and `readiness_band` (label) and decide
+      // nothing themselves — see `readinessBand`, the only copy of the cut-offs.
+      final band = readinessBand(rv);
+      await setI('readiness_tier', band.tier);
+      await HomeWidget.saveWidgetData<String>(
+        // '' for "no data", like every other string key here. Every native
+        // reader gates its label on `readiness >= 0` anyway, so "Not scored"
+        // would only ever be text nobody sees.
+        'readiness_band',
+        band.tier < 0 ? '' : band.label,
       );
       await setI('hrv', hrv == null ? -1 : hrv.rmssd.round());
       await setI(
@@ -146,10 +159,6 @@ class WidgetService {
       await HomeWidget.saveWidgetData<String>(
         'coach_line',
         _coachLine(t.coach),
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'stress_band',
-        t.stress?.band ?? '',
       );
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
@@ -180,6 +189,7 @@ class WidgetService {
       await HomeWidget.saveWidgetData<bool>('has_data', false);
       for (final k in const [
         'readiness',
+        'readiness_tier',
         'hrv',
         'hrv_baseline',
         'sleep_min',
@@ -191,11 +201,9 @@ class WidgetService {
       }
       await HomeWidget.saveWidgetData<double>('strain', -1.0);
       for (final k in const [
+        'readiness_band',
         'coach_line',
-        'stress_band',
         'batt_name',
-        'backend_url',
-        'access_jwt',
       ]) {
         await HomeWidget.saveWidgetData<String>(k, '');
       }
@@ -266,16 +274,6 @@ class WidgetService {
     } catch (_) {
       /* widgets unavailable — ignore */
     }
-  }
-
-  /// Store the backend URL + access JWT so the widget can self-refresh /today
-  /// (~hourly) even when the app is closed. Call alongside push() when signed in.
-  static Future<void> saveAuth(String url, String? jwt) async {
-    try {
-      await init();
-      await HomeWidget.saveWidgetData<String>('backend_url', url);
-      await HomeWidget.saveWidgetData<String>('access_jwt', jwt ?? '');
-    } catch (_) {}
   }
 
   /// True once (and clears) if the Live Activity's Finish button was tapped.

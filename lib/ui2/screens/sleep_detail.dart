@@ -23,6 +23,14 @@ SleepStage _stageOf(Object? raw) => switch (raw?.toString()) {
       _ => SleepStage.light,
     };
 
+/// Two call sites drew this byte-identical card; one const so they cannot
+/// drift apart.
+const _noOvernightLines = StatusCard(
+  'No overnight signal lines',
+  'No overnight recordings reached this day.',
+  icon: LucideIcons.activity,
+);
+
 class SleepData {
   final String? day;
   final Map<String, dynamic> night;
@@ -166,8 +174,7 @@ class _SleepDetailState extends State<SleepDetail> {
         const SizedBox(height: S.x2),
         const StatusCard(
           'No night to show',
-          'A night is scored from a continuous stretch of band recordings. '
-              'None long enough was found for this day.',
+          'No stretch of band recordings long enough to score.',
           fix: 'Wear the band overnight and sync in the morning',
           icon: LucideIcons.moon,
         ),
@@ -219,8 +226,7 @@ class _SleepDetailState extends State<SleepDetail> {
           if (stages.isEmpty)
             const StatusCard(
               'No hypnogram for this night',
-              'Staging needs both movement and beat timing across the night, '
-                  'and one of them was missing.',
+              'Staging needs movement and beat timing. One was missing.',
               icon: LucideIcons.chartNoAxesColumn,
             )
           else
@@ -250,9 +256,8 @@ class _SleepDetailState extends State<SleepDetail> {
       const SizedBox(height: S.x4),
       StatusCard(
         'Stages are a low-confidence estimate',
-        'A wrist sensor infers stages from movement and beat timing. Total '
-            'sleep and timing are reliable; the split between light, deep and '
-            'REM is an overlay, and deep sleep is the weakest of the three.',
+        'Total sleep and timing are reliable. The light, deep and REM split is '
+        'an overlay, and deep is the weakest of the three.',
         fix: 'How this is computed',
         icon: LucideIcons.moon,
         // A staging caveat used to open the HRV workbench.
@@ -395,8 +400,7 @@ class _SleepDetailState extends State<SleepDetail> {
     if (present.isEmpty) {
       return const StatusCard(
         'No stage split for this night',
-        'The stager needs beat timing across the whole window, and this night '
-            'did not have it.',
+        'No beat timing across the whole window.',
         icon: LucideIcons.chartNoAxesColumn,
       );
     }
@@ -485,8 +489,7 @@ class _SleepDetailState extends State<SleepDetail> {
     if (rows.isEmpty) {
       return StatusCard.forMetric('Nothing to judge the night by yet',
               d.regularity,
-              why: 'Efficiency, latency and regularity each need their own '
-                  'inputs, and none were available.') ??
+              why: 'None of their inputs were available.') ??
           const SizedBox.shrink();
     }
 
@@ -555,12 +558,7 @@ class _SleepDetailState extends State<SleepDetail> {
     final all = [...hr, ...hrv, ...resp];
 
     if (all.isEmpty) {
-      return const StatusCard(
-        'No overnight signal lines',
-        'Heart rate, beat variability and breathing are drawn from the night\'s '
-            'own recordings, and none reached this day.',
-        icon: LucideIcons.activity,
-      );
+      return _noOvernightLines;
     }
 
     // ONE grid for all three lanes. `NightStack` reads index as instant, so
@@ -629,12 +627,7 @@ class _SleepDetailState extends State<SleepDetail> {
     lane(resp, 'Breathing', 'br/min', p.on(C.teal));
 
     if (series.isEmpty) {
-      return const StatusCard(
-        'No overnight signal lines',
-        'Heart rate, beat variability and breathing are drawn from the night\'s '
-            'own recordings, and none reached this day.',
-        icon: LucideIcons.activity,
-      );
+      return _noOvernightLines;
     }
     return Surface(
       child: ChartFrame(
@@ -660,9 +653,8 @@ class _SleepDetailState extends State<SleepDetail> {
     final need = d.need.value;
     if (need == null) {
       return StatusCard.forMetric('Sleep need not established', d.need,
-              why: 'Your sleep need is learned from your own nights. Until it '
-                  'is, there is no honest number to give — and eight hours is '
-                  'a slogan, not your need.') ??
+              why: 'Learned from your own nights. Eight hours is a slogan, not '
+                   'your need.') ??
           const SizedBox.shrink();
     }
     return Surface(

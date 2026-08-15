@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/ble_state.dart' show BandStatus;
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../ui2.dart';
@@ -67,6 +68,10 @@ class HealthSource {
   final SourceTier tier;
   final IconData icon;
   final bool connected;
+
+  /// Records are landing right now. Narrower than [connected] — an idle link
+  /// is not a sync, and a multi-minute offload used to look identical to one.
+  final bool syncing;
   final double? batteryPct;
   final bool charging;
   final DateTime? lastData;
@@ -80,6 +85,7 @@ class HealthSource {
     required this.tier,
     required this.icon,
     this.connected = false,
+    this.syncing = false,
     this.batteryPct,
     this.charging = false,
     this.lastData,
@@ -99,18 +105,25 @@ List<HealthSource> liveSources(AppState app) => [
           tier: SourceTier.wristOptical,
           icon: LucideIcons.watch,
           connected: app.isConnected,
+          syncing: app.syncingNow,
           batteryPct: app.device.batteryPct,
           charging: app.device.charging ?? false,
           lastData: app.lastRecordAt,
           isBand: true,
         ),
       if (app.phoneStepsEnabled)
-        const HealthSource(
+        HealthSource(
           name: 'This phone',
           kind: 'Motion coprocessor',
           tier: SourceTier.phone,
           icon: LucideIcons.smartphone,
-          connected: true,
+          // NOT the toggle. On iOS `requestAuthorization` reports success even
+          // when the user denied READ, so the toggle sits on while every read
+          // comes back empty — this row used to hardcode `true` and claim a
+          // source that was measuring nothing. Steps actually banked is the
+          // only evidence the phone is a source.
+          connected: app.phoneStepsLastSyncedDays != null &&
+              (app.phoneStepsLastTotal ?? 0) > 0,
         ),
     ];
 
@@ -146,6 +159,10 @@ class MyDevices extends StatelessWidget {
     final app = c.watch<AppState>();
     return MyDevicesView(
       sources: rankSources(liveSources(app)),
+      // The band row's dot says connected or not. That covers six different
+      // problems with six different fixes, and a user cannot fix a problem the
+      // app will not name — so the engine's own verdict rides alongside it.
+      status: app.isPaired ? app.engine.bandStatus : null,
       // This used to clear a preference and nothing else — the gate that
       // renders the pairing step is MaterialApp.home, underneath this pushed
       // screen, so the button appeared completely inert. And the gate is no
@@ -182,11 +199,16 @@ class MyDevicesView extends StatelessWidget {
   final List<HealthSource> sources;
   final VoidCallback? onPair;
 
-  const MyDevicesView({super.key, this.sources = const [], this.onPair});
+  /// The band's own state, from `bandStatusFor`. Null when nothing is paired.
+  final BandStatus? status;
+
+  const MyDevicesView(
+      {super.key, this.sources = const [], this.onPair, this.status});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final fault = status?.isFault == true ? status : null;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -201,6 +223,12 @@ class MyDevicesView extends StatelessWidget {
               children: [
                 for (final s in sources) ...[
                   SourceRow(s, onTap: () => goto(c, DeviceDetail(s))),
+                  if (s.isBand && fault != null) ...[
+                    const SizedBox(height: S.x2),
+                    StatusCard(fault.title, fault.reason,
+                        fix: fault.fix ?? '',
+                        icon: LucideIcons.bluetoothOff),
+                  ],
                   const SizedBox(height: S.x3),
                 ],
                 if (sources.isEmpty)
@@ -237,6 +265,19 @@ class MyDevicesView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The one line under a source's name.
+///
+/// "Not connected" is a statement about a radio link, and the phone has none:
+/// it is either handing steps over or it is not, which is exactly the failure
+/// the row used to hide behind a hardcoded "Connected".
+String sourceState(HealthSource s) {
+  if (s.tier == SourceTier.phone) {
+    return s.connected ? 'Reporting steps' : 'No steps arriving';
+  }
+  if (s.syncing) return 'Syncing';
+  return s.connected ? 'Connected' : 'Not connected';
 }
 
 /// One connected source.
@@ -280,9 +321,14 @@ class SourceRow extends StatelessWidget {
                       shape: BoxShape.circle),
                 ),
                 const SizedBox(width: 5),
-                Text(s.connected ? 'Connected' : 'Not connected',
-                    style: F.over.copyWith(
-                        color: s.connected ? p.on(C.green) : p.ink3)),
+                // Flexible because this string is not fixed: "Not connected"
+                // and "No steps arriving" are 10 px wider than the column at
+                // 390 pt, and an unflexed Text in a Wrap simply overflows.
+                Flexible(
+                  child: Text(sourceState(s),
+                      style: F.over.copyWith(
+                          color: s.connected ? p.on(C.green) : p.ink3)),
+                ),
               ]),
               if (battery != null)
                 Row(mainAxisSize: MainAxisSize.min, children: [
@@ -351,9 +397,10 @@ class DeviceDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
-    final app = s.isBand ? c.read<AppState>() : null;
+    final app = s.isBand ? c.watch<AppState>() : null;
     return DeviceDetailView(
       s,
+      status: app?.engine.bandStatus,
       onFind: app?.buzzBand,
       onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
@@ -396,13 +443,18 @@ class DeviceDetailView extends StatelessWidget {
   final HealthSource s;
   final VoidCallback? onFind, onForget;
 
-  const DeviceDetailView(this.s, {super.key, this.onFind, this.onForget});
+  /// The band's own state, from `bandStatusFor`. Null for a non-band source.
+  final BandStatus? status;
+
+  const DeviceDetailView(this.s,
+      {super.key, this.onFind, this.onForget, this.status});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final battery = s.batteryPct;
     final last = s.lastData;
+    final fault = status?.isFault == true ? status : null;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -428,12 +480,19 @@ class DeviceDetailView extends StatelessWidget {
                 const SizedBox(height: S.x5),
                 Center(child: Text(s.name, style: F.t2.copyWith(color: p.ink))),
                 const SizedBox(height: S.x2),
-                Center(
-                    child: Text(
-                        s.connected ? 'Connected' : 'Not connected',
-                        style: F.cap.copyWith(
-                            color: s.connected ? p.on(C.green) : p.ink3))),
+                // A fault names itself in the card below; repeating its title
+                // here would say the same thing twice in two type sizes.
+                if (fault == null)
+                  Center(
+                      child: Text(status?.title ?? sourceState(s),
+                          style: F.cap.copyWith(
+                              color: s.connected ? p.on(C.green) : p.ink3))),
                 const SizedBox(height: S.x6),
+                if (fault != null) ...[
+                  StatusCard(fault.title, fault.reason,
+                      fix: fault.fix ?? '', icon: LucideIcons.bluetoothOff),
+                  const SizedBox(height: S.x5),
+                ],
                 TierRow(s.tier, filled: true),
                 const SizedBox(height: S.x5),
                 Surface(

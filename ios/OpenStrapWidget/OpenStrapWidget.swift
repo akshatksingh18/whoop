@@ -14,21 +14,36 @@
 //  Shows three rings: Strain · Sleep · HRV. (Recovery was retired — the app no
 //  longer surfaces a recovery score; HRV is the real measured autonomic signal.)
 //
-//  HONESTY: `has_data` is the Dart side saying "this snapshot is empty or more
-//  than a day old" — every view here gates on it, and an absent metric is drawn
-//  as an empty slot, never as a dash over a ring pinned at zero. The readiness
-//  BANDING is not computed here: Dart publishes `readiness_tier` so the phone,
-//  the widget, the watch and Siri cannot disagree about what 65 means.
+//  HONESTY: nothing here is allowed to look current when it isn't. `has_data`
+//  is the Dart side saying "this snapshot is empty or describes a day more than
+//  one behind" — but it is a bool frozen at push time, so on a phone that stops
+//  syncing it stays true forever. Freshness is therefore computed HERE, at
+//  render time, from `updated_at` (see `OpenStrapEntry.fresh`), and every family
+//  gates on that. An absent metric is drawn as an empty slot, never as a dash
+//  over a ring pinned at zero. The readiness BANDING is not computed here: Dart
+//  publishes `readiness_tier` so the phone, the widget, the watch and Siri
+//  cannot disagree about what 65 means.
 
 import WidgetKit
 import SwiftUI
 
 private let kAppGroup = AppGroup.identifier
 
-// MARK: - Theme (Ember on Paper / Char)
+// MARK: - Theme (lib/ui2/theme.dart)
 // The app writes "theme_dark" into the App Group to mirror its in-app appearance
-// (which already resolves "System" to the actual OS brightness). Surfaces + ink
-// flip between paper and char; the ember coral + ring accents stay constant.
+// (which already resolves "System" to the actual OS brightness).
+//
+// These are ui2's tokens, not the retired lib/theme/tokens.dart ones — the
+// widget sits on the same home screen as the app and had been painting the
+// previous design system's palette. Surfaces are `P.card` (a widget IS a card),
+// the track is `P.track`, muted ink is `P.ink3`.
+//
+// Accents come in two forms, and the distinction is the whole point of ui2's
+// palette: RAW pigment (`C.*`) is for arcs and fills — non-text UI — while an
+// accent used as TEXT is run through `P.on()`, which nudges it toward the page
+// ink until it clears WCAG AA 4.5:1 on the worst surface it can land on. Those
+// solved values are precomputed here (`onGood`/`onWarn`/`onBad`/`onNone`);
+// re-deriving them means running P.on's binary search, not eyeballing a hex.
 
 private extension Color {
   init(_ r: Int, _ g: Int, _ b: Int) {
@@ -36,17 +51,29 @@ private extension Color {
   }
 }
 
+/// Raw pigment — arcs and fills only. Identical in both themes, like `C` in
+/// lib/ui2/theme.dart.
+enum C {
+  static let green  = Color(0x22, 0xC5, 0x5E)
+  static let orange = Color(0xF9, 0x73, 0x16)
+  static let red    = Color(0xEF, 0x44, 0x44)
+  static let blue   = Color(0x3B, 0x82, 0xF6)   // sleep
+  static let purple = Color(0x8B, 0x5C, 0xF6)   // strain / movement
+  static let n400   = Color(0x94, 0xA3, 0xB8)
+}
+
 private struct Pal {
   let bg: Color, ink: Color, inkMuted: Color, track: Color
-  let good: Color, warn: Color, bad: Color
-  static let light = Pal(bg: Color(244, 241, 236), ink: Color(26, 23, 20),
-                         inkMuted: Color(165, 156, 144), track: Color(236, 231, 223),
-                         good: Color(43, 182, 115), warn: Color(245, 166, 35),
-                         bad: Color(229, 72, 77))
-  static let dark  = Pal(bg: Color(30, 26, 21), ink: Color(241, 236, 227),
-                         inkMuted: Color(126, 116, 102), track: Color(42, 37, 31),
-                         good: Color(52, 201, 136), warn: Color(247, 181, 58),
-                         bad: Color(242, 97, 104))
+  /// Tier accents solved for TEXT (`P.on`), per brightness.
+  let onGood: Color, onWarn: Color, onBad: Color, onNone: Color
+  static let light = Pal(bg: Color(0xFF, 0xFF, 0xFF), ink: Color(0x0F, 0x17, 0x2A),
+                         inkMuted: Color(0x62, 0x71, 0x88), track: Color(0xE2, 0xE8, 0xF0),
+                         onGood: Color(0x1A, 0x79, 0x48), onWarn: Color(0xA5, 0x52, 0x1D),
+                         onBad: Color(0xB9, 0x39, 0x3E), onNone: Color(0x60, 0x6B, 0x80))
+  static let dark  = Pal(bg: Color(0x15, 0x1C, 0x26), ink: Color(0xF1, 0xF5, 0xF9),
+                         inkMuted: Color(0x7F, 0x8D, 0xA0), track: Color(0x23, 0x2D, 0x3B),
+                         onGood: Color(0x22, 0xC5, 0x5E), onWarn: Color(0xF8, 0x7F, 0x2A),
+                         onBad: Color(0xEF, 0x73, 0x73), onNone: Color(0x97, 0xA6, 0xBA))
   static var isDark: Bool {
     UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false
   }
@@ -58,19 +85,27 @@ private extension Color {
   static var ink: Color { Pal.current.ink }
   static var inkMuted: Color { Pal.current.inkMuted }
   static var surfaceAlt: Color { Pal.current.track }
-  static var good: Color { Pal.current.good }
-  static var warn: Color { Pal.current.warn }
-  static var bad: Color { Pal.current.bad }
-  static let coral      = Color(255, 90, 54)
-  static let coralDeep  = Color(232, 67, 31)
-  static let sleepBlue  = Color(124, 168, 240)
 }
 
 // MARK: - Model
 
+/// How old the snapshot may be before the widget stops presenting it as today's
+/// answer. The app pushes on every completed derivation and on every finished
+/// sync, so under normal use this is refreshed each morning; 26 h is one whole
+/// missed wake cycle plus a couple of hours of grace for a wandering wake time.
+/// Past it, the readiness on the home screen is at best the morning before
+/// last's, and the honest render is the no-data state, not a stale number with
+/// nothing on it to say so.
+///
+/// Kept in step with the same constant on the Watch (WatchMetrics.swift), in
+/// Siri (OpenStrapIntents.swift) and on Android (StrapWidgets.kt) — three
+/// separate build targets, so it cannot be one declaration.
+let kStaleAfter: TimeInterval = 26 * 3600
+
 struct OpenStrapEntry: TimelineEntry {
-  let date: Date
+  var date: Date
   let hasData: Bool
+  let updatedAt: Int      // epoch sec of the last push, 0 = unknown
   let readiness: Int      // -1 = none (composite 0..100) — the headline
   let tier: Int           // -1 = not scored · 0 rest · 1 easy · 2 steady · 3 good
   let band: String        // the phone's own label for `tier` ("Steady", …)
@@ -83,9 +118,37 @@ struct OpenStrapEntry: TimelineEntry {
   let coachLine: String
 
   static let placeholder = OpenStrapEntry(
-    date: Date(), hasData: true, readiness: 72, tier: 2, band: "Steady",
+    date: Date(), hasData: true, updatedAt: Int(Date().timeIntervalSince1970),
+    readiness: 72, tier: 2, band: "Steady",
     strain: 12.4, sleepMin: 437, needMin: 480, hrv: 62, hrvBaseline: 58, rhr: 54,
     coachLine: "Room to push today")
+
+  /// Is this snapshot still today's answer, AS OF THIS ENTRY'S DATE?
+  ///
+  /// `hasData` alone is not enough and never was: it is frozen the moment Dart
+  /// writes it, so a phone that has not synced for a week keeps a week-old
+  /// readiness on the home screen looking exactly like this morning's. The age
+  /// is measured against `date` rather than `Date()` so that WidgetKit can
+  /// render the flip from a timeline entry it already holds — see getTimeline.
+  ///
+  /// An unknown timestamp (0) is not a claim of staleness, matching
+  /// `WidgetService.isStale`; a snapshot that never got a push has `has_data`
+  /// false anyway.
+  var fresh: Bool {
+    guard hasData else { return false }
+    guard updatedAt > 0 else { return true }
+    return date.timeIntervalSince1970 - Double(updatedAt) <= kStaleAfter
+  }
+
+  /// The instant this entry stops being today's answer, or nil if it already is
+  /// not (or never had a timestamp to age).
+  var stalenessDeadline: Date? {
+    guard hasData, updatedAt > 0 else { return nil }
+    let at = Date(timeIntervalSince1970: Double(updatedAt) + kStaleAfter)
+    return at > date ? at : nil
+  }
+
+  func at(_ d: Date) -> OpenStrapEntry { var c = self; c.date = d; return c }
 
   // Ring fractions (0…1). A negative fraction means "no measurement" — Ring
   // draws the track only, and no view fills an arc against a value we don't have.
@@ -95,28 +158,41 @@ struct OpenStrapEntry: TimelineEntry {
   /// the tier onto the widget's own surface palette and nothing more. Do not
   /// re-derive a band from `readiness` here — that is how the phone, the widget
   /// and the watch ended up disagreeing about the same score.
-  var readinessColor: Color {
+  /// Arc pigment (raw `C`) and text pigment (`P.on`-solved) for the tier.
+  var readinessArc: Color {
     switch tier {
-    case 3, 2: return .good
-    case 1: return .warn
-    case 0: return .bad
-    default: return .inkMuted
+    case 3, 2: return C.green
+    case 1: return C.orange
+    case 0: return C.red
+    default: return C.n400
     }
   }
+  var readinessColor: Color {
+    let p = Pal.current
+    switch tier {
+    case 3, 2: return p.onGood
+    case 1: return p.onWarn
+    case 0: return p.onBad
+    default: return p.onNone
+    }
+  }
+  /// 0–21 is the real headline scale (`strainScore` log-maps TRIMP onto it —
+  /// analytics/lib/src/onehz/clinical/load_trimp.dart:104-122), not a widget
+  /// invention. Siri says "out of twenty-one" for the same reason.
   var strainT: Double { strain >= 0 ? min(strain / 21.0, 1) : -1 }
   var sleepT: Double { (sleepMin >= 0 && needMin > 0) ? min(Double(sleepMin) / Double(needMin), 1) : -1 }
+  /// HRV against YOUR OWN baseline: a full ring is at or above it. There is no
+  /// population scale for RMSSD, so with no baseline there is no denominator
+  /// and the arc is simply not drawn — this used to divide by a hard-coded 100
+  /// (and by 1.5 × baseline), neither of which exists anywhere in the pipeline.
   var hrvT: Double {
-    guard hrv >= 0 else { return -1 }
-    if hrvBaseline > 0 { return min(Double(hrv) / (1.5 * Double(hrvBaseline)), 1) }
-    return min(Double(hrv) / 100.0, 1)
+    guard hrv >= 0, hrvBaseline > 0 else { return -1 }
+    return min(Double(hrv) / Double(hrvBaseline), 1)
   }
-  // HRV reads green at/above your baseline, warmer as it drops below it.
-  var hrvColor: Color {
-    guard hrv >= 0, hrvBaseline > 0 else { return .inkMuted }
-    if hrv >= hrvBaseline { return .good }
-    if hrv >= Int(0.8 * Double(hrvBaseline)) { return .warn }
-    return .bad
-  }
+  /// HRV carries its domain accent (`C.green`, as on the phone's Health trend)
+  /// and no colour judgement: a "0.8 × baseline is amber" cut-off was invented
+  /// here and appears in no analytics output.
+  var hrvColor: Color { hrv >= 0 ? C.green : C.n400 }
 }
 
 // MARK: - Shared store (App Group, read-only)
@@ -129,6 +205,7 @@ private enum Store {
     return OpenStrapEntry(
       date: Date(),
       hasData: d?.bool(forKey: "has_data") ?? false,
+      updatedAt: d?.object(forKey: "updated_at") as? Int ?? 0,
       readiness: d?.object(forKey: "readiness") as? Int ?? -1,
       tier: d?.object(forKey: "readiness_tier") as? Int ?? -1,
       band: d?.string(forKey: "readiness_band") ?? "",
@@ -152,11 +229,26 @@ struct Provider: TimelineProvider {
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<OpenStrapEntry>) -> Void) {
-    // Push-driven: the app reloads timelines after every derive. The hourly
-    // re-render exists so `has_data` can go stale on its own if it doesn't.
-    let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
-      ?? Date().addingTimeInterval(3600)
-    completion(Timeline(entries: [Store.read()], policy: .after(next)))
+    // Push-driven: the app reloads timelines after every derive. Two things
+    // keep it honest when it doesn't.
+    //
+    // The SECOND ENTRY is the load-bearing one. `fresh` is a function of the
+    // entry's own date, so an entry scheduled at the staleness deadline renders
+    // the no-data state at exactly that moment — WidgetKit switches to it with
+    // no process wake, no budget spend and nothing for the app to do. A widget
+    // that only ever re-read a bool at push time is how a week-old readiness
+    // sat on the home screen looking like this morning's.
+    //
+    // The hourly `.after` is the cheap belt-and-braces: it picks up a new
+    // snapshot the app wrote while we were not reloaded, and re-arms the
+    // deadline entry.
+    let now = Date()
+    let entry = Store.read().at(now)
+    var entries = [entry]
+    if let deadline = entry.stalenessDeadline { entries.append(entry.at(deadline)) }
+    let next = Calendar.current.date(byAdding: .hour, value: 1, to: now)
+      ?? now.addingTimeInterval(3600)
+    completion(Timeline(entries: entries, policy: .after(next)))
   }
 }
 
@@ -228,10 +320,10 @@ private struct TripleRings: View {
     HStack(spacing: 0) {
       MetricRing(label: "STRAIN",
                  value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "",
-                 t: e.strainT, color: .coral, size: size, line: line, valueSize: valueSize)
+                 t: e.strainT, color: C.purple, size: size, line: line, valueSize: valueSize)
         .frame(maxWidth: .infinity)
       MetricRing(label: "SLEEP", value: hm(e.sleepMin),
-                 t: e.sleepT, color: .sleepBlue, size: size, line: line, valueSize: valueSize - 1)
+                 t: e.sleepT, color: C.blue, size: size, line: line, valueSize: valueSize - 1)
         .frame(maxWidth: .infinity)
       MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "",
                  t: e.hrvT, color: e.hrvColor, size: size, line: line, valueSize: valueSize)
@@ -248,7 +340,7 @@ private struct ReadinessRow: View {
   var body: some View {
     HStack(spacing: 12) {
       ZStack {
-        Ring(t: e.readinessT, color: e.readinessColor, lineWidth: 9)
+        Ring(t: e.readinessT, color: e.readinessArc, lineWidth: 9)
         if e.readiness >= 0 {
           Text("\(e.readiness)").font(numFont(22)).foregroundColor(e.readinessColor)
         }
@@ -274,12 +366,12 @@ private struct SmallView: View {
     VStack(spacing: 10) {
       HStack(spacing: 0) {
         MetricRing(label: "READY", value: e.readiness >= 0 ? "\(e.readiness)" : "",
-                   t: e.readinessT, color: e.readinessColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
+                   t: e.readinessT, color: e.readinessArc, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
         MetricRing(label: "STRAIN", value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "",
-                   t: e.strainT, color: .coral, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
+                   t: e.strainT, color: C.purple, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
       }
       HStack(spacing: 0) {
-        MetricRing(label: "SLEEP", value: hm(e.sleepMin), t: e.sleepT, color: .sleepBlue, size: 44, line: 6, valueSize: 12).frame(maxWidth: .infinity)
+        MetricRing(label: "SLEEP", value: hm(e.sleepMin), t: e.sleepT, color: C.blue, size: 44, line: 6, valueSize: 12).frame(maxWidth: .infinity)
         MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "", t: e.hrvT, color: e.hrvColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
       }
     }
@@ -311,7 +403,7 @@ private struct NoDataView: View {
     case .accessoryRectangular:
       VStack(alignment: .leading, spacing: 2) {
         Text("No recent data").font(.system(size: 13, weight: .bold)).widgetAccentable()
-        Text("Open OpenStrap and sync your strap.")
+        Text("Open OpenStrap and sync your band.")
           .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
       }
     case .accessoryInline:
@@ -321,7 +413,7 @@ private struct NoDataView: View {
         Image(systemName: "bolt.heart").font(.system(size: 22)).foregroundColor(.inkMuted)
         Text("No recent data")
           .font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundColor(.ink)
-        Text("Open OpenStrap and sync your strap.")
+        Text("Open OpenStrap and sync your band.")
           .font(.system(size: 11)).multilineTextAlignment(.center).foregroundColor(.inkMuted)
       }
       .padding(12)
@@ -391,7 +483,7 @@ struct OpenStrapWidgetEntryView: View {
   private var isSystem: Bool { family == .systemSmall || family == .systemMedium }
 
   @ViewBuilder private var content: some View {
-    if !entry.hasData {
+    if !entry.fresh {
       NoDataView()
     } else {
       switch family {

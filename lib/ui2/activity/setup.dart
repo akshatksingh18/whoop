@@ -20,7 +20,7 @@ class ActivitySetup extends StatefulWidget {
   final Activity a;
   final double? weightKg;
 
-  /// The app behind the screen — the feed, the session lifecycle, the strap's
+  /// The app behind the screen — the feed, the session lifecycle, the band's
   /// real connection state and the user's own lifting history.
   final ActivityHost host;
 
@@ -168,7 +168,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       // permission dialog had not even been shown for.
                       _row(p, LucideIcons.mapPin, 'Route',
                           'Recorded if location is available, and kept on '
-                              'this device',
+                              'this phone',
                           null),
                       Divider(color: p.line, height: 1),
                     ],
@@ -177,8 +177,8 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         LucideIcons.heartPulse,
                         'Heart rate',
                         widget.host.bandConnected
-                            ? 'Strap connected'
-                            : 'No strap connected — the session still runs, '
+                            ? 'Band connected'
+                            : 'No band connected. The session still runs, '
                                 'without heart rate',
                         widget.host.bandConnected),
                     Divider(color: p.line, height: 1),
@@ -201,16 +201,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
                     Expanded(
                       child: Text(
                           est == null
-                              ? 'Calories cannot be estimated without your '
-                                  'body weight — ${a.met.toStringAsFixed(1)} '
-                                  'MET on its own is not a kilocalorie.'
-                              // No error bar: nothing computes one, and the
-                              // "±15%" this used to quote was a number with
-                              // no estimator behind it.
-                              : 'About $est kcal for $targetMin min at your '
-                                  'weight. Estimated from '
-                                  '${a.met.toStringAsFixed(1)} MET, refined '
-                                  'by heart rate once you start.',
+                              ? 'Calories need your weight. '
+                                  '$kCalorieNeedsWeight'
+                              : 'About $est kcal for $targetMin min, from '
+                                  '${a.met.toStringAsFixed(1)} MET and your '
+                                  'weight. Heart rate refines it.',
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),
@@ -219,7 +214,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   const SizedBox(height: S.x4),
                   StatusCard(
                     'A session is already running',
-                    'Only one can be live at a time — the strap, the zone '
+                    'Only one can be live at a time — the band, the zone '
                         'tally and the route recorder all belong to it.',
                     fix: LiveDraft.current == null
                         ? ''
@@ -252,7 +247,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
   /// only where a route can be recorded — a treadmill was being sold "distance
   /// and pace" that nothing in this app can measure indoors.
   String _trackLabel(Track t) => switch (t) {
-        Track.sets => 'Sets, reps and load — entered by you',
+        Track.sets => 'Sets, reps and load — logged by you',
         Track.distance when widget.a.gps => 'Distance, pace and heart rate',
         Track.distance || Track.duration => 'Time and heart rate',
         Track.interval => 'Rounds and heart rate',

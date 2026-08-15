@@ -1,9 +1,9 @@
-// Edge Watch App — the on-wrist glance for today's recovery, strain and sleep.
+// OpenStrap Watch App — the on-wrist glance for today's readiness, strain and sleep.
 //
 // Read-only mirror of the phone's derived metrics (received over WCSession by
-// WatchStore). Styled to match the phone app: "Ember on Paper" (light) / "Char"
-// (dark), tracking the app's own theme via the `theme_dark` flag it syncs. No
-// compute, no BLE — the WHOOP band is the sensor and the phone does the analytics.
+// WatchStore). Styled to match the phone app: it spends lib/ui2/theme.dart's
+// tokens, tracking the app's own theme via the `theme_dark` flag it syncs. No
+// compute, no BLE — the band is the sensor and the phone does the analytics.
 
 import SwiftUI
 
@@ -21,7 +21,7 @@ struct OpenStrapWatchApp: App {
   }
 }
 
-// MARK: - Palette (mirrors lib/theme/tokens.dart — Ember on Paper / Char)
+// MARK: - Palette (mirrors lib/ui2/theme.dart)
 
 extension Color {
   init(hex: UInt32) {
@@ -34,36 +34,61 @@ extension Color {
   }
 }
 
+/// ui2's raw pigment (`C` in lib/ui2/theme.dart). Arcs and fills only — an
+/// accent used as TEXT goes through the solved `on*` members of `Palette`,
+/// which are `P.on()`'s output for this brightness.
+enum C {
+  static let green = Color(hex: 0x22C55E)
+  static let orange = Color(hex: 0xF97316)
+  static let red = Color(hex: 0xEF4444)
+  static let blue = Color(hex: 0x3B82F6)     // sleep
+  static let purple = Color(hex: 0x8B5CF6)   // strain / movement
+  static let n400 = Color(hex: 0x94A3B8)
+}
+
 struct Palette {
   let bg, surface, surfaceAlt, divider: Color
   let ink, inkSoft, inkMuted: Color
-  let coral, coralSoft, coralInk: Color
-  let good, warn, bad, cool: Color
+  /// `P.on(C.green)` + `P.wash(C.green)` — the Home accent as text, and the
+  /// tinted card it sits on.
+  let onHome, homeWash: Color
+  /// Tier accents as TEXT (`P.on`).
+  let onGood, onWarn, onBad, onNone: Color
 
-  static let ember = Palette(
-    bg: Color(hex: 0xF4F1EC), surface: Color(hex: 0xFFFFFF),
-    surfaceAlt: Color(hex: 0xECE7DF), divider: Color(hex: 0xE6E0D6),
-    ink: Color(hex: 0x16130F), inkSoft: Color(hex: 0x6B6157), inkMuted: Color(hex: 0xA59C90),
-    coral: Color(hex: 0xFF5A36), coralSoft: Color(hex: 0xFFE7DF), coralInk: Color(hex: 0x7A2A16),
-    good: Color(hex: 0x2BB673), warn: Color(hex: 0xF5A623), bad: Color(hex: 0xE5484D),
-    cool: Color(hex: 0x7CA8F0))
+  static let light = Palette(
+    bg: Color(hex: 0xF8FAFC), surface: Color(hex: 0xFFFFFF),
+    surfaceAlt: Color(hex: 0xF1F5F9), divider: Color(hex: 0xE2E8F0),
+    ink: Color(hex: 0x0F172A), inkSoft: Color(hex: 0x475569), inkMuted: Color(hex: 0x627188),
+    onHome: Color(hex: 0x1A7948), homeWash: Color(hex: 0xE7F9ED),
+    onGood: Color(hex: 0x1A7948), onWarn: Color(hex: 0xA5521D),
+    onBad: Color(hex: 0xB9393E), onNone: Color(hex: 0x606B80))
 
-  static let char = Palette(
-    bg: Color(hex: 0x14110D), surface: Color(hex: 0x1E1A15),
-    surfaceAlt: Color(hex: 0x2A251F), divider: Color(hex: 0x302A22),
-    ink: Color(hex: 0xF1ECE3), inkSoft: Color(hex: 0xB6AB9C), inkMuted: Color(hex: 0x7E7466),
-    coral: Color(hex: 0xFF6B47), coralSoft: Color(hex: 0x3A2018), coralInk: Color(hex: 0xFFB59E),
-    good: Color(hex: 0x34C988), warn: Color(hex: 0xF7B53A), bad: Color(hex: 0xF26168),
-    cool: Color(hex: 0x8FB4F2))
+  static let dark = Palette(
+    bg: Color(hex: 0x0B1017), surface: Color(hex: 0x151C26),
+    surfaceAlt: Color(hex: 0x1D2632), divider: Color(hex: 0x232D3B),
+    ink: Color(hex: 0xF1F5F9), inkSoft: Color(hex: 0x94A3B8), inkMuted: Color(hex: 0x7F8DA0),
+    onHome: Color(hex: 0x22C55E), homeWash: Color(hex: 0x173A30),
+    onGood: Color(hex: 0x22C55E), onWarn: Color(hex: 0xF87F2A),
+    onBad: Color(hex: 0xEF7373), onNone: Color(hex: 0x97A6BA))
 
-  /// Readiness tier → colour. The tier is computed once, in Dart, and shipped
-  /// as `readiness_tier`; this only paints it.
+  /// Readiness tier → arc pigment. The tier is computed once, in Dart, and
+  /// shipped as `readiness_tier`; this only paints it.
+  func readinessArc(_ tier: Int) -> Color {
+    switch tier {
+    case 3, 2: return C.green
+    case 1: return C.orange
+    case 0: return C.red
+    default: return C.n400
+    }
+  }
+
+  /// The same tier, solved for TEXT.
   func readiness(_ tier: Int) -> Color {
     switch tier {
-    case 3, 2: return good
-    case 1: return warn
-    case 0: return bad
-    default: return inkMuted
+    case 3, 2: return onGood
+    case 1: return onWarn
+    case 0: return onBad
+    default: return onNone
     }
   }
 }
@@ -73,26 +98,23 @@ struct Palette {
 struct WatchGlanceView: View {
   @EnvironmentObject var store: WatchStore
   private var m: WatchMetrics { store.metrics }
-  private var p: Palette { m.themeDark ? .char : .ember }
+  private var p: Palette { m.themeDark ? .dark : .light }
 
   var body: some View {
     ZStack {
+      // Flat surface. ui2 has no glow: the phone is cards on a plain ground,
+      // and the wrist is one of its cards.
       p.bg.ignoresSafeArea()
-      // Signature coral ember glow, top-trailing (matches the app's GlowCard/recap).
-      RadialGradient(
-        colors: [p.coral.opacity(m.themeDark ? 0.20 : 0.16), .clear],
-        center: .topTrailing, startRadius: 2, endRadius: 130)
-        .ignoresSafeArea()
 
       ScrollView {
         VStack(spacing: 12) {
-          if !m.hasData { empty } else {
+          if !m.fresh { empty } else {
             readinessHero
             HStack(spacing: 10) {
               MetricCard(p: p, title: "STRAIN", value: m.strainText,
-                         fraction: m.strainFraction, accent: p.coral)
+                         fraction: m.strainFraction, accent: C.purple)
               MetricCard(p: p, title: "SLEEP", value: m.sleepText,
-                         fraction: m.sleepFraction, accent: p.cool)
+                         fraction: m.sleepFraction, accent: C.blue)
             }
             HStack(spacing: 8) {
               StatCell(p: p, label: "HRV", value: m.hrvText, unit: "ms")
@@ -108,15 +130,20 @@ struct WatchGlanceView: View {
     .onAppear { store.requestRefresh() }
   }
 
+  /// Nothing to show — either the phone has never pushed, or what it pushed is
+  /// old enough that it is no longer today's answer. The two say different
+  /// things: a snapshot going stale is not the same as never having one, and a
+  /// stale number rendered as current is exactly what this state exists to
+  /// prevent.
   private var empty: some View {
     VStack(spacing: 8) {
       Image(systemName: "heart.text.square")
         .font(.system(size: 32))
         .foregroundStyle(p.inkMuted)
-      Text("No data yet")
+      Text(m.hasData ? "No recent data" : "No data yet")
         .font(.system(size: 16, weight: .semibold, design: .rounded))
         .foregroundStyle(p.ink)
-      Text("Open OpenStrap on your iPhone and sync your strap.")
+      Text("Open OpenStrap on your iPhone and sync your band.")
         .font(.system(size: 12))
         .multilineTextAlignment(.center)
         .foregroundStyle(p.inkSoft)
@@ -129,13 +156,13 @@ struct WatchGlanceView: View {
   /// is no arc: an arc trimmed to zero is a ring pinned at empty, which reads
   /// as "your readiness is 0".
   private var readinessHero: some View {
-    let tint = p.readiness(m.tier)
+    let arc = p.readinessArc(m.tier)
     return ZStack {
-      Circle().stroke(tint.opacity(0.18), lineWidth: 11)
+      Circle().stroke(p.divider, lineWidth: 11)
       if m.readinessFraction > 0 {
         Circle()
           .trim(from: 0, to: m.readinessFraction)
-          .stroke(tint, style: StrokeStyle(lineWidth: 11, lineCap: .round))
+          .stroke(arc, style: StrokeStyle(lineWidth: 11, lineCap: .round))
           .rotationEffect(.degrees(-90))
       }
       VStack(spacing: -2) {
@@ -164,16 +191,16 @@ struct WatchGlanceView: View {
     HStack(alignment: .top, spacing: 6) {
       Image(systemName: "sparkles")
         .font(.system(size: 11))
-        .foregroundStyle(p.coralInk)
+        .foregroundStyle(p.onHome)
       Text(m.coachLine)
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(p.coralInk)
+        .foregroundStyle(p.onHome)
       Spacer(minLength: 0)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 8)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(p.coralSoft, in: RoundedRectangle(cornerRadius: 12))
+    .background(p.homeWash, in: RoundedRectangle(cornerRadius: 12))
   }
 }
 

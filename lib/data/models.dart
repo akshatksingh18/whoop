@@ -169,6 +169,15 @@ class RawRecord {
 /// archive the raw bytes durably (never pruned) so they can be re-decoded once
 /// the format is understood. Archived as part of the SAME durable commit that
 /// runs BEFORE the HISTORY_END ACK, so the safe-trim invariant holds.
+/// [ArchiveRecord.reason] for a record the plausibility gate refused.
+///
+/// Load-bearing, not a label: three separate decisions branch on it — whether
+/// the burst counts as offload progress, whether the band may be told to trim,
+/// and whether a derive pass is scheduled. A typo in any one of them either
+/// wedges the offload or lets the band erase data we distrusted, so the string
+/// exists once.
+const String kGateDroppedReason = 'gate_dropped';
+
 class ArchiveRecord {
   final int counter;
   final String hex; // full inner bytes, hex

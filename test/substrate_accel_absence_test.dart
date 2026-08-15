@@ -1,8 +1,9 @@
 // P0 REGRESSION — absent gravity must not be read back as perfect stillness.
 //
-// `sampleFromGen5V18Lenient` correctly ABSTAINS on a gravity vector that fails
-// the magnitude gate (ax/ay/az stay null) while keeping HR/RR. But
-// `decoded_onehz.ax/ay/az` are REAL NOT NULL, so the persistence layer writes
+// A gen5 v18 record whose gravity vector fails the magnitude gate keeps its
+// HR/RR and reports the accel as ABSENT (ax/ay/az stay null) rather than
+// discarding the whole second. But `decoded_onehz.ax/ay/az` are REAL NOT NULL,
+// so the persistence layer writes
 // `decoded.ax ?? 0` and the substrate loader reads `?? 0` back — turning
 // "we did not measure this" into "the wrist was at exactly (0,0,0)".
 //
@@ -11,9 +12,9 @@
 // z-angle, which is the van Hees immobility criterion satisfied maximally.
 // Measured against the pinned analytics: 8 h of (0,0,0) yields 28 501 immobile
 // seconds and `vanHeesSleepWindow.present == true` — a fabricated ~7.9 h night,
-// fully staged, from data that does not exist. The PR's own commit message
-// notes the strict gate rejected EVERY v18 record on fw 50.40.1.0, so this is
-// the ordinary case for that firmware, not a corner.
+// fully staged, from data that does not exist. The strict gravity gate rejected
+// EVERY v18 record we have looked at, so this is the ordinary case, not a
+// corner.
 //
 // Two sentinels were tried and REJECTED, both verified against the pinned
 // analytics rather than assumed:

@@ -446,7 +446,7 @@ class BleEngine {
   /// Opt-in: send the gen5 "R22" 16-flag SET_CONFIG enable sequence
   /// (`kGen5R22EnableFlags`) before the historical offload on a gen5 link,
   /// unlocking the v20 (optical)/v21 (IMU)/v26 (PPG) deep buffers. Defaults to
-  /// OFF — the official WHOOP app never sends this either, the sequence is
+  /// OFF — the sequence is
   /// UNTESTED on physical hardware, and without it a gen5 strap still serves
   /// its always-on v18 per-second stream perfectly well. Wire a caller-owned
   /// settings read here to make it a real user-facing toggle.
@@ -1133,7 +1133,11 @@ class BleEngine {
         '[SPO2] hist=v$version count=$count base=inner '
         'whoop4_optical(red@64 ir@66 temp@68 amb@70) '
         'ts=${r.tsEpoch} red=${r.spo2RedRaw} ir=${r.spo2IrRaw} '
+        // deprecated names, but this is a raw-bytes debug line — logging them
+        // under the label we've always used is the point.
+        // ignore: deprecated_member_use
         'temp=${r.skinTempRaw} amb=${r.ambientRaw} '
+        // ignore: deprecated_member_use
         'ppg_green=${r.ppgGreen} ppg_red_ir=${r.ppgRedIr}',
       );
       return;
@@ -2184,7 +2188,9 @@ class BleEngine {
     required bool enabled,
     required DateTime? targetWake,
     Duration duration = const Duration(minutes: 90),
-    int intervalSeconds = 60,
+    // 61, not 60: gen5 refuses an interval of 60 or less outright, so the
+    // round number is the one value that guarantees the mode never engages.
+    int intervalSeconds = 61,
     String reason = 'wake_window',
   }) async {
     if (_session?.connected != true) return;
@@ -2356,7 +2362,7 @@ class BleEngine {
     final band = _session?.band ?? BandProfile.gen4;
     final decoded = _maybeAugmentClockEpoch(
       frame,
-      _maybeAugmentDataRange(frame, decodeFrame(frame, profile: band)),
+      decodeFrame(frame, profile: band),
     );
     // gen5-only, debug-visibility ONLY (never persisted, never gated on):
     // log the strap's own console text (now decoded by protocol's
@@ -2495,14 +2501,34 @@ class BleEngine {
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
       sample = decodeGen5HistoricalSample(frame.inner);
-    } else if (kKnownRecordVersions.contains(recType)) {
-      // EVERY gen4 layout version protocol has a field map for — not just
-      // v24/v12. v7/v9/v18/v25 decode fine through the same chain and used to
-      // fall through to `undecodable_rec_v*` purely because this branch never
-      // routed them (a real export carried ~50k readable v25 records archived
-      // as undecodable). gen5 also ships a v18, with a completely different
-      // layout — the `isGen5` branch above claims it first, so this is gen4
-      // only.
+    } else if (recType != Record.r25 &&
+        kKnownRecordVersions.contains(recType)) {
+      // Every gen4 layout version protocol has a field map for — not just
+      // v24/v12. v7/v9/v18 decode fine through the same chain and used to fall
+      // through to `undecodable_rec_v*` purely because this branch never routed
+      // them. gen5 also ships a v18 with a completely different layout; the
+      // `isGen5` branch above claims it first, so this is gen4 only.
+      //
+      // v25 is EXCLUDED on purpose and keeps going to the archive, exactly as
+      // before. Not because the decode is wrong — it is right, and checked
+      // against 20k of these records: the timestamp at inner[7] is monotonic
+      // and steps by exactly 1 s, and the gravity vector reads a mean |g| of
+      // 0.97 with 19999/20000 inside the plausible window.
+      //
+      // The record genuinely has NO heart rate. Every byte and u16 offset was
+      // scanned for anything in a bpm range with physiological drift across
+      // 18k consecutive one-second pairs; the only matches are the packet type,
+      // the timestamp's high bytes and a gravity high byte. What sits between
+      // is a 24-slot raw waveform buffer spanning the full i16 range — the band
+      // ships samples here and computes HR into the v24 records instead.
+      //
+      // So `_parseV25` reporting `hr: 0` is an honest absence. The collision is
+      // downstream: `decoded_onehz.hr` is NOT NULL and `hr == 0` is this app's
+      // off-skin sentinel, so banking v25 would assert "the band was off the
+      // wrist" for every one of those seconds — ~50k in one real export — while
+      // the genuine gravity keeps the accel-coverage gate happy with the
+      // window. The gravity IS worth having; it needs a nullable `hr` column
+      // first. Until then the bytes are archived and nothing is lost.
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;
@@ -2525,6 +2551,9 @@ class BleEngine {
           az: r.accelG.length > 2 ? r.accelG[2] : 0,
           spo2RedRaw: r.spo2RedRaw,
           spo2IrRaw: r.spo2IrRaw,
+          // stored raw under the column it's always had. nothing reads it as a
+          // temperature — that's what the deprecation is warning about.
+          // ignore: deprecated_member_use
           skinTempRaw: r.skinTempRaw,
         );
       }
@@ -2567,7 +2596,7 @@ class BleEngine {
       // and the batch-ACK then let the band trim those bytes away for good.
       // The archive rides the same pre-ACK transaction, so the bytes survive
       // and a later pass can re-time them once the clock correlation is known.
-      _archiveHistoricalFrame(frame, counter, reason: 'gate_dropped');
+      _archiveHistoricalFrame(frame, counter, reason: kGateDroppedReason);
       return;
     }
     final raw = RawRecord(
@@ -2592,8 +2621,15 @@ class BleEngine {
   void _absorbState(Decoded d) {
     final f = d.fields;
     if (d.kind == 'cmd_response' && f['opcode'] == Cmd.getDataRange) {
-      final oldest = (f['history_oldest'] as num?)?.toInt();
-      final newest = (f['history_newest'] as num?)?.toInt();
+      // `range_oldest`/`range_newest` come from the reply's real field map.
+      // These used to come from a local byte-scan that took the min/max of every
+      // 4-byte window that looked like a unix time — which is how a cross-field
+      // read once landed as "newest" in 2034 and left `backlogRemains` true
+      // forever, chasing a target the band could never reach. The scanner was
+      // then given a tighter ceiling instead of being replaced, and it kept
+      // running alongside the correct value, feeding a different decision.
+      final oldest = (f['range_oldest'] as num?)?.toInt();
+      final newest = (f['range_newest'] as num?)?.toInt();
       if (oldest != null) _strapHistoryOldestTs = oldest;
       if (newest != null) _strapHistoryNewestTs = newest;
       unawaited(
@@ -2654,6 +2690,19 @@ class BleEngine {
       state.wristOn = f['on_wrist'] as bool;
       onState(state);
     }
+    // A GET_CLOCK reply releases the read gate whether or not a usable epoch
+    // came out of it — "the read completed" and "the read produced a plausible
+    // clock" are different questions. A revision byte we do not recognise, or a
+    // corrupt above-ceiling value, yields no `clock_epoch` at all; leaving the
+    // gate to time out would then cost 3 s on EVERY clock read, stalling both
+    // the connect-path SET_CLOCK decision and the drain gate.
+    if (d.kind == 'cmd_response' &&
+        (f['opcode'] == Cmd.getClock || f['opcode'] == Cmd.getClockGen5)) {
+      final pendingRead = _clockReadPending;
+      if (pendingRead != null && !pendingRead.isCompleted) {
+        pendingRead.complete();
+      }
+    }
     if (f.containsKey('clock_epoch')) {
       final dev = f['clock_epoch'] as int;
       final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -2670,21 +2719,15 @@ class BleEngine {
       } else if (!_phoneClockSuspect) {
         _phoneClockSuspectSince = null;
       }
-      // Release the gate waiting on THIS read (see [_readClock]). Done as soon
-      // as the verdict above is settled, before the alarm-correlation work
-      // below, because the verdict is all a gate is waiting for.
+      // The read gate is released above, on the reply itself, not here.
       //
-      // UNCORRELATED: any fresh clock_epoch releases the waiter, including a
-      // reply to setClock()'s read-back or the keep-alive poll. Telling them
-      // apart needs the echoed request seq, which the pinned protocol does not
-      // surface — see the pin note in pubspec.yaml and OpenStrap/protocol#28.
-      // The reply that lands is still a real strap read from this session, so
-      // the verdict is fresh; it may just answer a request a few hundred ms
-      // older than ours.
-      final pendingRead = _clockReadPending;
-      if (pendingRead != null && !pendingRead.isCompleted) {
-        pendingRead.complete();
-      }
+      // UNCORRELATED either way: any GET_CLOCK reply releases the waiter,
+      // including one answering setClock()'s read-back or the keep-alive poll.
+      // Telling them apart needs the echoed request seq, which the pinned
+      // protocol does not surface — see the pin note in pubspec.yaml and
+      // OpenStrap/protocol#28. The reply that lands is still a real strap read
+      // from this session, so the verdict is fresh; it may just answer a
+      // request a few hundred ms older than ours.
       if (_phoneClockSuspect != wasSuspect) {
         _log(_phoneClockSuspect
             ? '[SYNC] Phone clock appears wrong: strap RTC=$dev is > 1 day ahead '
@@ -3203,19 +3246,18 @@ class BleEngine {
       }
       final r = d.bufferedRecTsRange;
       final droppedThisBurstForLog = droppedThisBurst;
-      // BANKED RECORDS ONLY — archives deliberately do not count. Every
-      // gate-dropped record is archived now, so a drop-only burst always
-      // buffers archives; counting them would mean the no-progress gate below
-      // could never fire in exactly the case it was written for (the cursor
-      // walks past pollution while nothing usable is ever banked). Archives
-      // are still committed in the same transaction either way — this only
-      // decides whether the band may TRIM.
-      // Banked records, plus archives that are NOT plausibility drops. Counting
-      // every archive would make blockedNoDurableProgress unfireable (a
-      // drop-only burst archives too); counting none of them wedges a burst
-      // that is entirely records we cannot decode — e.g. a gen4 R10 historical,
-      // which has its own decoder and is not in kKnownRecordVersions — into
-      // being re-delivered forever.
+      // Banked records, plus archives that are NOT plausibility drops.
+      //
+      // Counting EVERY archive makes blockedNoDurableProgress unfireable in the
+      // one case it exists for — a drop-only burst archives too, so the band
+      // would be cleared to trim flash we never read. Counting NO archive wedges
+      // a burst that is entirely records we cannot decode (a gen4 R10
+      // historical has its own decoder and is not in kKnownRecordVersions) into
+      // being re-delivered forever. Hence the split, not a bare record count.
+      //
+      // This only decides whether the band may TRIM. Archives are committed in
+      // the same transaction regardless — except on the no-progress path, which
+      // returns before commit precisely because there is nothing to bank.
       final hadDurableRows =
           d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
       _log(
@@ -3516,16 +3558,27 @@ class BleEngine {
 
   int _counterFromInner(Uint8List inner) =>
       inner.length >= 7 ? u32(inner, 3) : 0;
-  String _innerHex(Uint8List inner) =>
-      inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  static const _hexDigits = '0123456789abcdef';
+  // Called once per stored record, once per archived record and once per live
+  // frame, so it runs ~50k times in an offload on the UI isolate. The obvious
+  // `map(toRadixString).join()` allocates a String per byte plus a List plus
+  // the join: ~146 ms/50k at 120 bytes, and ~1.2 s/50k at v21's 1232.
+  String _innerHex(Uint8List inner) {
+    final out = Uint8List(inner.length * 2);
+    for (var i = 0; i < inner.length; i++) {
+      final b = inner[i];
+      out[i * 2] = _hexDigits.codeUnitAt(b >> 4);
+      out[i * 2 + 1] = _hexDigits.codeUnitAt(b & 0x0F);
+    }
+    return String.fromCharCodes(out);
+  }
 
   /// Send the gen5 "R22" 16-flag SET_CONFIG enable sequence
   /// (protocol's `buildR22EnableSequence`/`kGen5R22EnableFlags`), unlocking
   /// the v20 (optical)/v21 (IMU)/v26 (PPG) deep-buffer historical records.
   /// Sequential, ~40ms apart (same spacing discipline as the gen4 5-packet
-  /// INIT) — the official WHOOP app never sends this, and neither does
-  /// OpenStrap unless [gen5DeepBuffersEnabled] opts in (see the constructor
-  /// doc). UNTESTED on physical hardware. No-op on a gen4 link.
+  /// INIT). Not sent unless [gen5DeepBuffersEnabled] opts in (see the
+  /// constructor doc). UNTESTED on physical hardware. No-op on a gen4 link.
   ///
   /// Written directly via [_write] (not [_send]) because the pre-built
   /// frames already carry their own sequence numbers — going through `_send`
@@ -3571,26 +3624,48 @@ class BleEngine {
       // drain must not start while the phone clock is suspect, or the records
       // it pulls get stamped against a clock we do not trust.
       _log('Sending gen5 CLIENT_HELLO + offload…');
-      var ok = await _write(gen5ClientHello());
-      await Future.delayed(const Duration(milliseconds: 120));
-      // Opt-in deep-buffer sequence, BEFORE the offload trigger (SET_CONFIG
-      // flags must land before SEND_HISTORICAL_DATA to take effect for this
-      // drain). Default OFF — see [gen5DeepBuffersEnabled].
-      if (gen5DeepBuffersEnabled()) {
-        await enableGen5DeepBuffers();
-      }
-      // Same band-aware helpers the refresh/backfill/retry paths use, so the
-      // gen5 offload command format is identical everywhere.
-      ok = await _sendGetDataRange() && ok;
-      await Future.delayed(const Duration(milliseconds: 120));
-      if (drain) {
-        ok = await _sendHistoricalData() && ok;
-      } else {
-        _log('gen5 INIT: skipping the drain (phone clock suspect).');
-      }
-      if (_connectSetup) {
-        _connectSetup = false;
-        unawaited(_applyLinkPriority());
+      var ok = false;
+      // try/finally for the same reason the gen4 loop below has one: other
+      // paths rely on `_connectSetup` being cleared here, and a throw anywhere
+      // above the clear leaves the link pinned at setup priority for the whole
+      // connection with `_applyLinkPriority` early-returning forever.
+      try {
+        ok = await _write(gen5ClientHello());
+        await Future.delayed(const Duration(milliseconds: 120));
+        // Opt-in deep-buffer sequence, BEFORE the offload trigger (SET_CONFIG
+        // flags must land before SEND_HISTORICAL_DATA to take effect for this
+        // drain). Default OFF — see [gen5DeepBuffersEnabled].
+        if (gen5DeepBuffersEnabled()) {
+          await enableGen5DeepBuffers();
+        }
+        // Same band-aware helpers the refresh/backfill/retry paths use, so the
+        // gen5 offload command format is identical everywhere.
+        //
+        // Stop at the first failure, exactly as the gen4 loop below does — and
+        // here for a second reason. The caller pre-arms `_offloadActive` and
+        // rolls it back when this returns false, which is only sound while
+        // "false" implies the drain trigger never went out. Firing
+        // SEND_HISTORICAL_DATA after an earlier write failed breaks that: the
+        // band floods while the caller clears `_offloadActive`, so link priority
+        // steps back down mid-drain, maintenance traffic resumes, and the
+        // offload branches all take the not-offloading path.
+        if (ok) {
+          ok = await _sendGetDataRange();
+          await Future.delayed(const Duration(milliseconds: 120));
+        }
+        if (!drain) {
+          _log('gen5 INIT: skipping the drain (phone clock suspect).');
+        } else if (ok) {
+          ok = await _sendHistoricalData();
+        }
+        if (!ok) {
+          _log('gen5 INIT write failed — abandoning the remaining packets.');
+        }
+      } finally {
+        if (_connectSetup) {
+          _connectSetup = false;
+          unawaited(_applyLinkPriority());
+        }
       }
       return ok;
     }
@@ -3794,7 +3869,7 @@ class BleEngine {
   ///   [6..8]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
   ///   [8..20]  12-byte haptic pattern (see [AlarmPayloads.defaultHaptics])
   /// ```
-  /// WHOOP 5 requires slot index 1 (official-app HCI capture): index 0 is
+  /// WHOOP 5 requires slot index 1: index 0 is
   /// rejected with `arm info is invalid, error 0xb`. The short 7-byte
   /// time-only form ([setAlarmSimple]) is ACKed but never buzzes. The strap
   /// confirms via event 56 and reports firing via 57/58 + 60.
@@ -3996,10 +4071,19 @@ class BleEngine {
     }
     await _sendToggleImu(true);
     await Future.delayed(const Duration(milliseconds: 100));
-    await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
+    // gen4 only. On gen5 this opcode is the SAVE-to-history toggle, not the
+    // realtime stream — the realtime one is the next opcode up — so arming it
+    // here would write a save enable on every live-stream start, next door to
+    // the persistent-optical footgun that leaves the LEDs on and drains the
+    // battery. gen5's own 1 Hz stream already carries per-second HR, so there
+    // is nothing to gain until the roles are confirmed on hardware. The OFF
+    // writes in disableLiveStreams stay unconditional.
+    if (!isGen5) {
+      await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
+    }
     _log(
-      'Live streams enabled (optical: wrist-gated'
-      '${isGen5 ? "; gen5 IMU rev1" : ""}).',
+      'Live streams enabled ('
+      '${isGen5 ? "gen5 IMU rev1; optical skipped" : "optical: wrist-gated"}).',
     );
   }
 
@@ -4225,36 +4309,6 @@ class BleEngine {
     );
   }
 
-  Decoded _maybeAugmentDataRange(Frame frame, Decoded decoded) {
-    if (decoded.kind != 'cmd_response') return decoded;
-    final opcode = decoded.fields['opcode'];
-    if (opcode != Cmd.getDataRange) return decoded;
-    final payload = frame.inner.length > 3
-        ? Uint8List.sublistView(frame.inner, 3)
-        : Uint8List(0);
-    // We scan every byte offset for a plausible unix u32 (the field layout isn't
-    // fully pinned), so the UPPER bound must be tight: a data-range timestamp can
-    // never be in the FUTURE. The old ceiling (2100000000 ≈ year 2036) let a
-    // spurious cross-field read land as "newest" — observed 2020230636 (year
-    // 2034) — which made `history_newest` garbage, so backlogRemains was
-    // PERMANENTLY true and the offload never recognized completion (it chased a
-    // 2034 target forever). Cap at wall-clock + 1 day (clock skew slack).
-    final maxPlausible =
-        (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
-    final ts = <int>[];
-    for (var off = 0; off + 4 <= payload.length; off++) {
-      final v = u32(payload, off);
-      if (v >= 1600000000 && v <= maxPlausible) {
-        ts.add(v);
-      }
-    }
-    if (ts.isEmpty) return decoded;
-    final fields = <String, dynamic>{...decoded.fields};
-    fields['history_oldest'] = ts.reduce((a, b) => a < b ? a : b);
-    fields['history_newest'] = ts.reduce((a, b) => a > b ? a : b);
-    return Decoded(decoded.kind, fields);
-  }
-
   /// Make sure a GET_CLOCK reply always carries a `clock_epoch` — INCLUDING an
   /// implausible one.
   ///
@@ -4287,25 +4341,20 @@ class BleEngine {
     // payload[1] = status). gen5 leads the body with a revision byte and puts
     // the u32 seconds at payload[3]; gen4 has them at payload[2].
     final at = isGen5Clock ? 3 : 2;
-    if (payload.length >= at + 4) {
-      final fields = <String, dynamic>{
-        ...decoded.fields,
-        'clock_epoch': u32(payload, at),
-      };
-      return Decoded(decoded.kind, fields);
-    }
-    // FALLBACK ONLY — a reply shorter than the documented shape. A scan is a
-    // guess, so it stays gated on plausibility: an arbitrary 4-byte window that
-    // happens to land in the epoch range must not become "the strap's clock".
-    final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    for (var o = 0; o + 4 <= payload.length; o++) {
-      final v = u32(payload, o);
-      if (isPlausibleUnix(v, wallNow)) {
-        final fields = <String, dynamic>{...decoded.fields, 'clock_epoch': v};
-        return Decoded(decoded.kind, fields);
-      }
-    }
-    return decoded;
+    if (payload.length < at + 4) return decoded;
+    final v = u32(payload, at);
+    // Only the UNSET-RTC case is worth surfacing. Protocol already emits
+    // clock_epoch for anything inside the plausible window, so everything that
+    // reaches here is outside it — below the floor (the low strap counter this
+    // augmenter exists for) or above the ceiling, which is a corrupt reply and
+    // ~4% of u32 space. Forwarding the high side sets `_phoneClockSuspect` off
+    // a garbage reading, and that defers the history refresh AND skips the very
+    // SET_CLOCK that would repair the strap.
+    if (v >= kMinPlausibleUnix) return decoded;
+    return Decoded(decoded.kind, <String, dynamic>{
+      ...decoded.fields,
+      'clock_epoch': v,
+    });
   }
 }
 
@@ -4379,7 +4428,7 @@ class DrainController {
   /// plausibility drops. A burst of records we simply cannot decode has still
   /// been preserved and may be trimmed; a burst we merely distrusted has not.
   int get bufferedProgressArchives =>
-      _archives.where((a) => a.reason != 'gate_dropped').length;
+      _archives.where((a) => a.reason != kGateDroppedReason).length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets
@@ -4448,8 +4497,25 @@ class DrainController {
   /// that failed). Buffered for archival in the next atomic commit — never dropped,
   /// never ACKed away before it is durably set aside.
   void onUndecodableRecord(ArchiveRecord a) {
-    records++;
-    recordsThisOffload++;
+    // A plausibility-gated drop is NOT progress, in either counter.
+    //
+    // `recordsThisOffload` feeds `banked` at the HISTORY_COMPLETE terminal: a
+    // strap with a wandered RTC can drop every record and still reach COMPLETE,
+    // and counting those resets the empty-sync streak so `syncClockLost` never
+    // fires and the RTC remedy never surfaces. `records` is not diagnostics
+    // either — `report.records > 0` schedules a derive pass and sets the sync
+    // ledger to `partial`, so counting drops there means a 50k-record offload
+    // that banked NOTHING still triggers a full derive, every backfill, forever.
+    //
+    // A record we merely could not DECODE is different: it is archived
+    // durably and is genuinely ACKable progress, so it counts in both.
+    //
+    // `_lastProgressAt` always bumps — frames really are arriving, and it drives
+    // the 60 s idle watchdog, which must not fire mid-burst.
+    if (a.reason != kGateDroppedReason) {
+      records++;
+      recordsThisOffload++;
+    }
     _lastProgressAt = DateTime.now();
     if (_buffering) {
       _archives.add(a);

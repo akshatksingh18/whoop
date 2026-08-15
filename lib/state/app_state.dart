@@ -3615,7 +3615,8 @@ class AppState extends ChangeNotifier {
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
         duration: HighFreqWakeWindow.lease,
-        intervalSeconds: 60,
+        intervalSeconds: 61, // gen5 rejects <= 60
+
         reason: plan.source,
       );
       _log(

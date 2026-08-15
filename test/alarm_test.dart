@@ -67,7 +67,7 @@ void main() {
       expect(g4[1], 0x00);
       expect(g5.length, 21); // gen5 adds the crescendo byte
       expect(g5[0], 0x04);
-      expect(g5[1], 0x01); // official WHOOP app slot
+      expect(g5[1], 0x01); // gen5 arms slot 1
       expect(g5.sublist(8, 20), AlarmPayloads.defaultHaptics);
       expect(g5[20], 0, reason: 'crescendo flag, off by default');
       // Gen5 ignores a caller-supplied index so slot 0 cannot be armed by accident.

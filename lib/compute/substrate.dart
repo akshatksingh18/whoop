@@ -95,8 +95,8 @@ class Substrate {
   /// Whether second [i] carries a REAL gravity vector.
   ///
   /// `decoded_onehz.ax/ay/az` are `REAL NOT NULL`, so a record decoded without
-  /// a usable gravity vector (the gen5 v18 lenient path, which deliberately
-  /// abstains on accel while keeping HR/RR) is stored as exact `(0, 0, 0)`.
+  /// a usable gravity vector — gen5 v18 keeps HR/RR and reports the accel as
+  /// absent rather than discarding the second — is stored as exact `(0, 0, 0)`.
   /// That is not a reading a real device can produce — a gravity vector always
   /// has magnitude ~1 g, and every decoder that emits one gates on
   /// `magSq >= 0.25` — so exact zero is an unambiguous ABSENT marker rather
@@ -316,7 +316,13 @@ Substrate decodeSubstrate(List<String> hexes) {
     }
     spo2Red[i] = r.spo2RedRaw;
     spo2Ir[i] = r.spo2IrRaw;
+    // both deprecated: neither field is what its name says. still filled here so
+    // the substrate keeps round-tripping, but _daySkinTempCurve and the
+    // fit_quality diagnostic both derive from them and shouldn't — separate fix,
+    // it moves user-facing output and needs an algo version bump.
+    // ignore: deprecated_member_use
     skinTemp[i] = r.skinTempRaw;
+    // ignore: deprecated_member_use
     skinContact[i] = r.skinContact;
     // RR beats: anchored at the record second (epoch ms). Beats within a record
     // share its second; time order is preserved by the record sort above.

@@ -2582,24 +2582,37 @@ class LocalDb {
 
   /// Gen4 historical R10-lite (hr-only, no accel/optical) must stay out of
   /// `decoded_onehz` — they belong in the legacy `samples` table only.
-  static bool _isGen4R10LiteHistorical(Uint8List inner) =>
-      inner.isNotEmpty &&
-      inner[0] == proto.PacketType.historicalData &&
-      inner.length > 1 &&
-      inner[1] == proto.Record.r10;
+  ///
+  /// Matched on the hex prefix rather than decoded bytes: this runs once per
+  /// record inside the offload transaction, and parsing 240 hex chars to read
+  /// two of them costs ~13 ms per 50k records plus a Uint8List of garbage each.
+  static final _gen4R10LitePrefix =
+      '${proto.PacketType.historicalData.toRadixString(16).padLeft(2, '0')}'
+      '${proto.Record.r10.toRadixString(16).padLeft(2, '0')}';
+  static bool _isGen4R10LiteHistorical(String hex) =>
+      hex.length >= 4 && hex.substring(0, 4).toLowerCase() == _gen4R10LitePrefix;
 
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
-    // Parse hex when possible so Gen4 R10-lite can be rejected even when a
-    // complete preferred Sample is supplied. Invalid/placeholder hex (test
-    // fixtures, corrupt imports) must NOT abort before the preferred paths —
-    // commit 1f85b10 returned null on hexToBytes failure and zeroed
-    // decoded_onehz for every insertRecord that used non-hex placeholders.
+    // Reject Gen4 R10-lite even when a complete preferred Sample is supplied.
+    // Invalid/placeholder hex (test fixtures, corrupt imports) must NOT abort
+    // before the preferred paths — commit 1f85b10 returned null on hexToBytes
+    // failure and zeroed decoded_onehz for every insertRecord that used non-hex
+    // placeholders. The bytes are now parsed lazily, below, for that reason too.
+    if (_isGen4R10LiteHistorical(raw.hex)) return null;
+    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
+    // The band's OWN decode outranks the other generation's decoder. A gen5 v18
+    // has no gen4 optics so hasDecodedOneHz is false, and feeding it to the v24
+    // map is not harmless: HR sits at byte 14 in both layouts and gravity is
+    // exactly one byte off, so whenever an axis lands in |g| ∈ [0.746, 0.75)
+    // the misread collapses into a believable vector instead of failing the
+    // plausibility gate — about 0.6% of records, ~550 rows a day. Those rows
+    // keep the right hr and ts (so they look fine) while carrying a fabricated
+    // gravity vector, fabricated optics, and none of the gen5 RR beats.
+    if (preferred != null && preferred.tsEpoch > 0) return preferred;
     Uint8List? bytes;
     try {
       bytes = proto.hexToBytes(raw.hex);
     } catch (_) {}
-    if (bytes != null && _isGen4R10LiteHistorical(bytes)) return null;
-    if (preferred != null && preferred.hasDecodedOneHz) return preferred;
     if (bytes != null) {
       try {
         // Legacy decoder first, firmware-fallback chain second — see
@@ -2618,15 +2631,12 @@ class LocalDb {
             az: r.accelG.length > 2 ? r.accelG[2] : 0,
             spo2RedRaw: r.spo2RedRaw,
             spo2IrRaw: r.spo2IrRaw,
+            // raw column passthrough, same as the ble path. not read as a temp.
+            // ignore: deprecated_member_use
             skinTempRaw: r.skinTempRaw,
           );
         }
       } catch (_) {}
-    }
-    // Gen5 v18 / lenient samples carry HR/RR/gravity but lack gen4 optics —
-    // `hasDecodedOneHz` stays false, yet they are honest 1 Hz substrate rows.
-    if (preferred != null && preferred.tsEpoch > 0) {
-      return preferred;
     }
     return null;
   }

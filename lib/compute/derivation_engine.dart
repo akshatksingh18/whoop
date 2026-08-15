@@ -711,7 +711,19 @@ import 'substrate.dart';
 //   Days already finalized at v62 hold those RR-less results permanently — they
 //   are never revisited at the same version — so this needs the bump to be
 //   re-derived onto real beats.
-const int kAlgoVersion = 63;
+// v64 - TWO 1 Hz SUBSTRATE CHANGES, BOTH OF WHICH MOVE day_result.
+//   1. Sleep segmentation is skipped and reported absent when accelerometer
+//      coverage over the window is under 50% (kMinAccelCoverageForVanHees).
+//      A sparse-accel night now falls through to the HR-led path instead of
+//      running van Hees over gaps — a different sleep window and hypnogram.
+//   2. Gen4 R10-lite historical records no longer write decoded_onehz rows.
+//      They are hr-only, and were previously being read through the v24 field
+//      map and admitted whenever the misread happened to look physiological.
+//      Fewer, honester 1 Hz rows for any day that received them.
+//
+//   day_result is keyed (day_id, algo_version), so days finalized at v63 keep
+//   the old segmentation forever unless the version moves.
+const int kAlgoVersion = 64;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

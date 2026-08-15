@@ -130,10 +130,10 @@ void main() {
     const unix = 1785801600;
     const counter = 42;
     final inner = _buildGen5V18LenientInner(unix: unix, counter: counter, hr: 72);
-    // Built directly: the engine-side lenient v18 decoder that used to produce
-    // this shape is gone (protocol's decoder no longer rejects a whole record
-    // over its gravity vector). What this test pins is the PERSISTENCE of a
-    // null-accel sample, which is independent of who decoded it.
+    // Built directly rather than decoded: what this test pins is the
+    // PERSISTENCE of a null-accel sample, independent of which decoder produced
+    // it. Protocol emits exactly this shape for a v18 whose gravity vector
+    // fails the magnitude gate — the rest of the second is kept.
     final sample = Sample(tsEpoch: unix, counter: counter, hr: 72);
     expect(sample.ax, isNull);
 

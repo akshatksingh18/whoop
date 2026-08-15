@@ -171,20 +171,59 @@ void main() {
         reason: 'a mixed burst that banked something may still ACK',
       );
     });
+
+    test('a gate-dropped record is neither durable progress nor offload progress',
+        () {
+      // The two tests above pass `hadDurableRows` in as a literal, so the thing
+      // that actually COMPUTES it has never been covered — and it has been
+      // patched twice. Both halves belong to the same rule: a record we dropped
+      // for implausibility is archived (so it is not lost) but must not look
+      // like progress, or the band gets told it may trim flash we never read
+      // and the wandered-RTC remedy never surfaces.
+      DrainController drain() => DrainController(
+            onRecord: (_, _) async {},
+            onRecordsBatch: null,
+            onCommit: (_, _, _, {archives}) async {},
+            onArchive: (_) async {},
+            log: (_) {},
+          );
+      ArchiveRecord archive(String reason) => ArchiveRecord(
+            counter: 1,
+            hex: '2f18${reason.hashCode.toRadixString(16)}',
+            packetType: 0x2F,
+            capturedAt: 0,
+            reason: reason,
+          );
+
+      final dropped = drain()..onUndecodableRecord(archive('gate_dropped'));
+      expect(dropped.bufferedProgressArchives, 0);
+      expect(dropped.recordsThisOffload, 0,
+          reason: 'a drop-only burst must leave `banked` false at COMPLETE');
+
+      final undecodable = drain()..onUndecodableRecord(archive('undecodable_v22'));
+      expect(undecodable.bufferedProgressArchives, 1,
+          reason: 'a version we cannot read IS progress once it is set aside');
+      expect(undecodable.recordsThisOffload, 1);
+    });
   });
 
   group('P0 — every gen4 version the decoder can read is decoded', () {
-    test('v25 decodes instead of being archived as undecodable', () {
+    test('v25 is still archived — it has no heart rate to bank', () {
+      // The other versions here decode into 1 Hz rows; v25 deliberately does
+      // not. It carries a timestamp and a gravity vector and nothing else, and
+      // the decoder reports hr 0 because the record has no HR field. hr is NOT
+      // NULL in decoded_onehz and 0 is the off-skin sentinel, so banking v25
+      // would claim the band was off the wrist for every one of those seconds
+      // — while the real gravity makes the accel-coverage gate accept the
+      // window. Archiving keeps the bytes for a re-decode once hr is nullable.
       final ts = _wallNow() - 7200;
       final h = _Ingest();
       h.feed(_v25Inner(ts: ts, counter: 4242));
 
-      expect(h.archives, isEmpty,
-          reason: 'OLD BEHAVIOUR: undecodable_rec_v25, ~50k of them in one '
-              'real export');
-      expect(h.samples, hasLength(1));
-      expect(h.samples.single!.tsEpoch, ts);
-      expect(h.samples.single!.counter, 4242);
+      expect(h.samples, isEmpty, reason: 'no fabricated hr 0 row');
+      expect(h.archives, hasLength(1), reason: 'bytes kept, nothing lost');
+      expect(h.archives.single.reason, 'undecodable_rec_v25');
+      expect(h.archives.single.counter, 4242);
     });
 
     test('v9 and v7 decode too', () {

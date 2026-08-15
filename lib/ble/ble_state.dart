@@ -357,13 +357,16 @@ class TrimAckPolicy {
   /// [commitDurable]   — the atomic commit completed (pass `true` when asking
   ///                     the pre-commit question "should I even commit this
   ///                     token?").
-  /// [hadDurableRows]  — this burst buffered at least one RECORD to bank before
-  ///                     ACK. Archives deliberately do NOT count: a
-  ///                     plausibility-dropped record is archived too, so
-  ///                     counting archives would make this gate unfireable
-  ///                     exactly in the drop-only case it exists for. Pass
-  ///                     `true` when unknown (pre-commit stale/discard checks
-  ///                     only).
+  /// [hadDurableRows]  — this burst buffered at least one RECORD to bank, or
+  ///                     one archive that is NOT a plausibility drop, before
+  ///                     ACK. Plausibility drops are excluded on purpose: they
+  ///                     are archived too, so counting them would make this
+  ///                     gate unfireable exactly in the drop-only case it
+  ///                     exists for. Records we simply cannot decode DO count —
+  ///                     they are durably set aside, and excluding them wedges
+  ///                     an undecodable-only burst into endless re-delivery.
+  ///                     Pass `true` when unknown (pre-commit stale/discard
+  ///                     checks only).
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
@@ -710,8 +713,8 @@ class DeriveDebouncer {
 ///
 /// Alarm opcodes: SET_ALARM_TIME 0x42, GET_ALARM_TIME 0x43, RUN_ALARM 0x44,
 /// DISABLE_ALARM 0x45. The RICH SET form (haptic waveform + time) is the one
-/// that actually FIRES: WHOOP 4 uses alarm slot index 0; WHOOP 5 uses index 1
-/// (official-app HCI capture). The SHORT time-only form is ACKed but never
+/// that actually FIRES: WHOOP 4 uses alarm slot index 0; WHOOP 5 uses index 1.
+/// The SHORT time-only form is ACKed but never
 /// buzzes (no waveform to play). Prefer [setPayloadForBand] for arming.
 class AlarmPayloads {
   /// The strap's stock 12-byte wake-buzz haptic pattern:
@@ -770,9 +773,8 @@ class AlarmPayloads {
 
   /// Generation-correct SET_ALARM_TIME body — 20 bytes on gen4, 21 on gen5.
   ///
-  /// WHOOP 4: slot index 0 (HW-verified). WHOOP 5: slot **index 1** — captured
-  /// from the official WHOOP Android app on fw 50.40.1.0. Index 0 is rejected
-  /// with console `arm info is invalid, error 0xb`. On gen5 the [index]
+  /// WHOOP 4: slot index 0 (HW-verified). WHOOP 5: slot **index 1**. Index 0 is
+  /// rejected with console `arm info is invalid, error 0xb`. On gen5 the [index]
   /// argument is ignored so callers cannot accidentally arm slot 0.
   static List<int> setPayloadForBand(
     DateTime when, {

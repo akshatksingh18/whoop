@@ -205,6 +205,10 @@ class ActivityResult {
 
   // route / journey
   final List<Offset> route; // normalised 0…1
+  /// The SAME points in degrees, in the same order — kept alongside [route]
+  /// rather than instead of it because the painters want a unit box and a
+  /// basemap wants the globe. Empty when the session had no GPS.
+  final List<(double lat, double lng)> geo;
   final List<double>? routePace; // per-point 0…1, colours the route
   final double? distanceKm;
   final List<double> elevationM;
@@ -243,6 +247,7 @@ class ActivityResult {
     this.hr = const [],
     this.zoneMinutes = const [],
     this.route = const [],
+    this.geo = const [],
     this.routePace,
     this.distanceKm,
     this.elevationM = const [],
@@ -268,6 +273,7 @@ class ActivityResult {
     List<double?>? hr,
     List<double>? zoneMinutes,
     List<Offset>? route,
+    List<(double lat, double lng)>? geo,
     List<double>? routePace,
     double? distanceKm,
     List<double>? elevationM,
@@ -288,6 +294,7 @@ class ActivityResult {
         hr: hr ?? this.hr,
         zoneMinutes: zoneMinutes ?? this.zoneMinutes,
         route: route ?? this.route,
+        geo: geo ?? this.geo,
         routePace: routePace ?? this.routePace,
         distanceKm: distanceKm ?? this.distanceKm,
         elevationM: elevationM ?? this.elevationM,

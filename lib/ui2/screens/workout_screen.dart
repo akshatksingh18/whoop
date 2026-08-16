@@ -780,6 +780,7 @@ ActivityResult _withRoute(ActivityResult r, WorkoutRoute route) {
   final haveSpeed = speeds.every((s) => s != null && s >= 0);
   return r.copyWith(
     route: _normalise(pts),
+    geo: [for (final p in pts) (p.lat, p.lng)],
     routePace: haveSpeed ? _spread([for (final s in speeds) s!]) : null,
     distanceKm: route.distanceMeters / 1000,
     elevationM: haveAlt ? [for (final a in alt) a!] : const [],

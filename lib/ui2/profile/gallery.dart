@@ -31,6 +31,7 @@ import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityRow;
+import '../activity/poster.dart' show PosterCard;
 import '../activity/share.dart' show ShareCard;
 import '../activity/summary.dart';
 import '../onboarding/profile_setup.dart' show UnlockContract;
@@ -704,6 +705,11 @@ Map<String, Widget> extraCases() => {
       ..._onboardingCases(),
       ..._stateCases(),
       ..._shareCases(),
+      // No `mosaic`: a gallery that needs the network is a gallery that fails
+      // on a plane. This is the card's honest no-basemap face, which is also
+      // what a user with no signal gets.
+      'poster': PosterCard(_finished, const {'Time', 'Pace', 'Heart rate'}),
+      'poster_no_stats': PosterCard(_finished, const {}),
     };
 
 /// The SECOND state of every card.

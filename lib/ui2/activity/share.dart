@@ -6,8 +6,10 @@
 // session actually has. Nothing on the card is invented: if a session has no
 // distance, "Distance" is not offered, so it cannot be shared.
 
+import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -17,9 +19,12 @@ import '../../state/units_controller.dart';
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
+import '../profile/profile.dart' show SetRow;
 import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
+import 'poster.dart';
 import 'summary.dart';
+import 'tiles.dart';
 
 /// The rect an iPad or Mac share popover points at.
 ///
@@ -44,9 +49,12 @@ class ShareSheet extends StatefulWidget {
 }
 
 class _ShareSheetState extends State<ShareSheet> {
-  /// The textured card when this session has one, the plain card when it does
-  /// not — never an index into an option that is not offered.
-  late int style = _styles.length - 1;
+  /// The poster when the session has coordinates, the textured card when it
+  /// has a texture, the plain card otherwise — never an index into an option
+  /// that is not offered.
+  late int style = _canPoster
+      ? _styles.indexWhere((s) => s.$1 == 'Poster')
+      : _styles.length - 1;
   late final Set<String> chosen = {
     for (final s in _available(widget.result).take(4)) s.$1,
   };
@@ -55,6 +63,16 @@ class _ShareSheetState extends State<ShareSheet> {
   /// screen rather than re-drawing a second, slightly different one.
   final _card = GlobalKey();
   bool _sharing = false;
+
+  /// The user's own picture, and only ever the user's. Nothing here fetches
+  /// or generates one.
+  File? _photo;
+
+  /// The basemap. Fetched once per session, off the build, and held so that
+  /// flipping between styles does not re-hit the tile server — see the usage
+  /// policy note in tiles.dart.
+  RouteMosaic? _mosaic;
+  bool _mapTried = false;
 
   ActivityResult get r => widget.result;
   Arch get arch => r.arch;
@@ -92,14 +110,58 @@ class _ShareSheetState extends State<ShareSheet> {
     }
   }
 
+  /// The user's own picture, from this phone. No upload, no fetch, no stock
+  /// backdrop picked by activity type — the card either has their photo on it
+  /// or it has the accent gradient.
+  Future<void> _pickPhoto() async {
+    try {
+      final picked = await FilePicker.platform
+          .pickFiles(type: FileType.image, allowMultiple: false);
+      final path = picked?.files.single.path;
+      if (path != null && mounted) setState(() => _photo = File(path));
+    } catch (e) {
+      debugPrint('photo pick failed: \$e');
+    }
+  }
+
+  /// Fetch the basemap once, the first time a poster is actually going to be
+  /// drawn. Not in `initState`: a session whose owner never opens the poster
+  /// style should never hit the tile server at all.
+  Future<void> _ensureMap() async {
+    if (_mapTried || !_canPoster) return;
+    _mapTried = true;
+    // Read the palette before the await — the widget may be gone after it.
+    final p = P.of(context);
+    final bg = Color.lerp(C.n900, C.white, .06)!;
+    final m = await buildRouteMosaic(
+      r.geo,
+      // The card's own map box, at export resolution (`toImage` runs at 3x).
+      width: kPosterMapW.round() * 3,
+      height: kPosterMapH.round() * 3,
+      bg: bg,
+      ink: p.inkOnFill,
+    );
+    if (!mounted) {
+      m?.dispose();
+      return;
+    }
+    setState(() => _mosaic = m);
+  }
+
   /// The card has exactly two looks — with the archetype's own texture behind
   /// the numbers, and without — and index 1 is the one with it. The other two
   /// names on each of these lists were labels for a card identical to
   /// 'Minimal': a 'Photo' style on a screen that cannot attach a photo, a
   /// 'Splits' style that drew the same lap bars as 'Lanes'. A choice that
   /// changes nothing is not a choice.
+  /// A poster needs real coordinates, not the normalised shape the painters
+  /// draw. A session recorded before `geo` existed, or one with no GPS at
+  /// all, simply is not offered the style.
+  bool get _canPoster => r.geo.length >= 2;
+
   List<(String, IconData)> get _styles => [
     ('Minimal', LucideIcons.type),
+    if (_canPoster) ('Poster', LucideIcons.image),
     // Only when there is something to draw. `_art` falls back to nothing when
     // the session has no route, no sets, no rounds — which made the option an
     // invisible no-op rather than an absence.
@@ -117,6 +179,20 @@ class _ShareSheetState extends State<ShareSheet> {
         Arch.strength || Arch.flow => ('Minimal', LucideIcons.type),
       },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // The poster is the default for a session that went somewhere, so the map
+    // has to start loading with the screen rather than on a tap nobody makes.
+    if (_canPoster) WidgetsBinding.instance.addPostFrameCallback((_) => _ensureMap());
+  }
+
+  @override
+  void dispose() {
+    _mosaic?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -138,7 +214,18 @@ class _ShareSheetState extends State<ShareSheet> {
                   Center(
                     child: RepaintBoundary(
                       key: _card,
-                      child: ShareCard(r, style, chosen),
+                      // BY NAME. The list is a different length per
+                      // archetype, so index 1 is not always the same style —
+                      // the same bug the summary screen's tabs already carry
+                      // a comment about.
+                      child: _styles[style].$1 == 'Poster'
+                          ? PosterCard(r, chosen,
+                              photo: _photo == null
+                                  ? null
+                                  : FileImage(_photo!),
+                              mosaic: _mosaic)
+                          : ShareCard(r, _styles[style].$1 == 'Minimal' ? 0 : 1,
+                              chosen),
                     ),
                   ),
                   const SizedBox(height: S.x6),
@@ -150,7 +237,10 @@ class _ShareSheetState extends State<ShareSheet> {
                       children: [
                         for (var i = 0; i < _styles.length; i++) ...[
                           Pressable(
-                            onTap: () => setState(() => style = i),
+                            onTap: () {
+                              setState(() => style = i);
+                              if (_styles[i].$1 == 'Poster') _ensureMap();
+                            },
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 vertical: S.x3,
@@ -195,6 +285,38 @@ class _ShareSheetState extends State<ShareSheet> {
                       ],
                     ),
                   ),
+                  if (_styles[style].$1 == 'Poster') ...[
+                    const SizedBox(height: S.x5),
+                    Text('YOUR PHOTO', style: F.over.copyWith(color: p.ink3)),
+                    const SizedBox(height: S.x3),
+                    Surface(
+                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                      child: Column(children: [
+                        SetRow(LucideIcons.imagePlus, r.activity.color,
+                            _photo == null ? 'Add a photo' : 'Change photo',
+                            sub: _photo == null
+                                ? 'From this phone. Nothing is uploaded'
+                                : _photo!.path.split('/').last,
+                            onTap: _pickPhoto),
+                        if (_photo != null) ...[
+                          Divider(color: p.line, height: 1),
+                          SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
+                              chevron: false,
+                              onTap: () => setState(() => _photo = null)),
+                        ],
+                      ]),
+                    ),
+                    if (_mapTried && _mosaic == null) ...[
+                      const SizedBox(height: S.x3),
+                      const StatusCard(
+                        'No map for this card',
+                        'The map tiles could not be fetched, so the route is '
+                            'drawn on its own. Everything else on the card is '
+                            'unchanged.',
+                        icon: LucideIcons.mapPinOff,
+                      ),
+                    ],
+                  ],
                   const SizedBox(height: S.x5),
                   Text('INCLUDE', style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
@@ -312,6 +434,17 @@ bool _hasArt(ActivityResult r) => switch (r.arch) {
   Arch.flow => false,
   Arch.match || Arch.basic => r.hr.length >= 2,
 };
+
+/// The stats a card may print, in offer order — the public name for
+/// [_available], so the poster and the small card cannot drift apart about
+/// what a session measured.
+List<(String, String)> shareStats(ActivityResult r, [UnitsController? u]) =>
+    _available(r, u);
+
+/// The one big number, its unit, and the line under it. Public for the same
+/// reason as [shareStats]: two styles describing one session must agree.
+(String, String, String) shareHero(ActivityResult r, UnitsController? u) =>
+    _heroOf(r, u);
 
 /// The stats this session can honestly put on a card, in offer order.
 ///
@@ -472,32 +605,7 @@ class ShareCard extends StatelessWidget {
     Arch.match || Arch.basic => r.activity.name,
   };
 
-  (String, String, String) _hero(UnitsController? u) {
-    final fallback = (hms(r.duration), '', r.activity.name);
-    final km = r.distanceKm;
-    return switch (arch) {
-      Arch.route || Arch.journey =>
-        km == null
-            ? fallback
-            : (
-                (u == null ? km : u.distanceValue(km * 1000))
-                    .toStringAsFixed(2),
-                u?.distanceUnit ?? 'km',
-                r.gainM == null
-                    ? r.activity.name
-                    : '+${r.gainM!.round()} m elevation',
-              ),
-      Arch.strength =>
-        r.strength.volumeKg == null
-            ? fallback
-            : (grouped(r.strength.volumeKg!), 'kg', 'Total volume'),
-      Arch.laps =>
-        r.swimMetres == null
-            ? fallback
-            : (grouped(r.swimMetres!), 'm', '${r.lapCount} laps'),
-      Arch.interval || Arch.flow || Arch.match || Arch.basic => fallback,
-    };
-  }
+  (String, String, String) _hero(UnitsController? u) => _heroOf(r, u);
 
   /// The texture is the archetype's real defining object drawn from the real
   /// data. Nothing to draw → nothing drawn.
@@ -573,4 +681,31 @@ class ShareCard extends StatelessWidget {
         );
     }
   }
+}
+
+(String, String, String) _heroOf(ActivityResult r, UnitsController? u) {
+  final fallback = (hms(r.duration), '', r.activity.name);
+  final km = r.distanceKm;
+  return switch (r.arch) {
+    Arch.route || Arch.journey =>
+      km == null
+          ? fallback
+          : (
+              (u == null ? km : u.distanceValue(km * 1000))
+                  .toStringAsFixed(2),
+              u?.distanceUnit ?? 'km',
+              r.gainM == null
+                  ? r.activity.name
+                  : '+${r.gainM!.round()} m elevation',
+            ),
+    Arch.strength =>
+      r.strength.volumeKg == null
+          ? fallback
+          : (grouped(r.strength.volumeKg!), 'kg', 'Total volume'),
+    Arch.laps =>
+      r.swimMetres == null
+          ? fallback
+          : (grouped(r.swimMetres!), 'm', '${r.lapCount} laps'),
+    Arch.interval || Arch.flow || Arch.match || Arch.basic => fallback,
+  };
 }

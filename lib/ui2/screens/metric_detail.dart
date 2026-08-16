@@ -380,9 +380,12 @@ class MetricDetail extends StatefulWidget {
 }
 
 class _MetricDetailState extends State<MetricDetail> {
-  static const _windows = [7, 30, 182, 365];
-  static const _labels = ['7 days', '30 days', '6 months', 'Year'];
-  int _range = 1;
+  // Today is its own window, not the left edge of the 7-day one. Asking "what
+  // is it right now" and "what has it been lately" are different questions,
+  // and a range list that starts at 7 days made the first one unanswerable.
+  static const _windows = [1, 7, 30, 182, 365];
+  static const _labels = ['Today', '7 days', '30 days', '6 months', 'Year'];
+  int _range = 2;
   MetricData? _d;
   bool _loading = true;
 
@@ -480,8 +483,12 @@ class _MetricDetailState extends State<MetricDetail> {
           const Center(child: CircularProgressIndicator())
         else
           StatusCard(
-            'No history for ${spec.title.toLowerCase()} yet',
-            'No day in this window produced a value.',
+            win == 1
+                ? 'Nothing recorded today'
+                : 'No history for ${spec.title.toLowerCase()} yet',
+            win == 1
+                ? 'Today has not produced a value yet.'
+                : 'No day in this window produced a value.',
             fix: 'Wear the band overnight to start the series',
             icon: spec.icon,
           ),
@@ -491,7 +498,12 @@ class _MetricDetailState extends State<MetricDetail> {
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         _hero(c, spec, all, series, vals, win),
-        Section('Your normal range', _range3(c, spec, vals, d.percentile)),
+        // On Today the window holds one value, and its lowest, typical and
+        // highest would all be that same number. The normal range is a
+        // property of your history, not of the window — so on Today it reads
+        // the whole series.
+        Section('Your normal range',
+            _range3(c, spec, win == 1 ? valuesOf(all) : vals, d.percentile)),
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
         const SizedBox(height: S.x5),
@@ -537,11 +549,16 @@ class _MetricDetailState extends State<MetricDetail> {
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            'Daily average · ${vals.length} of $win day${win == 1 ? '' : 's'}',
+            win == 1
+                ? 'Today'
+                : 'Daily average · ${vals.length} of $win days',
             style: F.cap.copyWith(color: p.ink3),
           ),
         ),
-        if (asOf.isNotEmpty) ...[
+        // On a multi-day window the average is the headline, so the newest
+        // reading needs its own line. On Today they are the same number, and
+        // printing it twice would read as two different facts.
+        if (win > 1 && asOf.isNotEmpty) ...[
           const SizedBox(height: S.x2),
           Align(
             alignment: Alignment.centerLeft,
@@ -550,7 +567,12 @@ class _MetricDetailState extends State<MetricDetail> {
                 style: F.cap.copyWith(color: p.ink3)),
           ),
         ],
-        const SizedBox(height: S.x5),
+        // No chart on Today. These series carry one value per day, so a
+        // one-day window is a single point — and a single point drawn on an
+        // axis is a shape pretending to be a trend. "Your normal range" below
+        // is the context that actually helps here.
+        if (win > 1) const SizedBox(height: S.x5),
+        if (win > 1)
         Builder(builder: (c) {
           // One axis, shared by the labels and the curve. `min` unit metrics
           // print `7h 30m` on the gridlines rather than `450`.

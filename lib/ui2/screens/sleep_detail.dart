@@ -38,12 +38,29 @@ const _recordNights = 14;
 /// enough to still be "you lately" rather than "you last season".
 const _window = 28;
 
-SleepStage _stageOf(Object? raw) => switch (raw?.toString()) {
+/// A per-second label from the segmenter, or NULL for a second nobody watched.
+///
+/// `unobserved` is not a stage. The catch-all used to be `SleepStage.light`, so
+/// every second the band never recorded was drawn — and read — as light sleep:
+/// a three-hour hole came out as three hours of sleep. Null draws as a gap, and
+/// an unrecognised label from an older bundle now goes the same way, which is
+/// the honest direction to fail in.
+SleepStage? _stageOf(Object? raw) => switch (raw?.toString()) {
       'wake' || 'awake' => SleepStage.awake,
       'rem' => SleepStage.rem,
       'deep' => SleepStage.deep,
-      _ => SleepStage.light,
+      'light' || 'nrem' => SleepStage.light,
+      _ => null,
     };
+
+/// 15-minute bands. The stager sees a wrist, so "you fell asleep in 7 minutes"
+/// is a precision nobody measured.
+String _solBand(double m) {
+  if (m < 15) return 'under 15 minutes';
+  if (m >= 60) return 'over an hour';
+  final lo = (m ~/ 15) * 15;
+  return '$lo–${lo + 15} minutes';
+}
 
 /// Two call sites drew this byte-identical card; one const so they cannot
 /// drift apart.
@@ -88,6 +105,17 @@ class SleepData {
   final List<double> tstHistory, deepHistory, effHistory;
   final List<int> onsetHistory;
 
+  /// The shape of last night, as the pipeline published it to `metric_series`.
+  /// Not recomputed here: `_sleepRuns` in `onehz_pipeline.dart` owns where a run
+  /// ends, and a second definition on this screen is how the hypnogram and the
+  /// sentence under it start disagreeing.
+  ///
+  ///   * [unobservedMin] — minutes of the in-bed window nobody watched.
+  ///   * [awakenings] — sustained wake runs, a FLOOR, never a total.
+  ///   * [longestSleepMin] — the longest unbroken stretch; never bridges a hole.
+  ///   * [solMin] — sleep-onset latency, and ONLY on a user-set window.
+  final double? unobservedMin, awakenings, longestSleepMin, solMin;
+
   const SleepData({
     this.day,
     this.night = const {},
@@ -99,6 +127,10 @@ class SleepData {
     this.deepHistory = const [],
     this.effHistory = const [],
     this.onsetHistory = const [],
+    this.unobservedMin,
+    this.awakenings,
+    this.longestSleepMin,
+    this.solMin,
   });
 
   bool get hasNight => night['duration_min'] is num;
@@ -106,10 +138,10 @@ class SleepData {
   /// Stage samples for the painter — the segment list resampled onto a fixed
   /// number of columns so a four-hour segment and a four-minute one stay in
   /// proportion.
-  List<SleepStage> get stages {
+  List<SleepStage?> get stages {
     final pts = night['hypnogram'];
     if (pts is! List || pts.length < 2) return const [];
-    final ts = <int>[], st = <SleepStage>[];
+    final ts = <int>[], st = <SleepStage?>[];
     for (final e in pts) {
       if (e is Map && e['t'] is num) {
         ts.add((e['t'] as num).round());
@@ -144,6 +176,17 @@ class SleepData {
     return pts.length <= _window ? pts : pts.sublist(pts.length - _window);
   }
 
+  /// One stored scalar for ONE day. `metric_series` stamps a day at local noon,
+  /// which is exactly what [_noonOf] builds, so this is an equality match rather
+  /// than a nearest-point search.
+  static double? _on(Object? chart, int? noon) {
+    if (noon == null) return null;
+    for (final p in pointsOf(chart)) {
+      if (p.t == noon) return p.v;
+    }
+    return null;
+  }
+
   static Future<SleepData> load(LocalRepository repo) async {
     final today = await repo.getToday();
     // THE NIGHT `getToday` ACTUALLY SERVED. Home's Sleep card is that night, so
@@ -176,6 +219,13 @@ class SleepData {
     final deep = _trailing(await repo.getChart('deep'), cut);
     // Stored as whole percent; the night's own `efficiency` is 0…1.
     final eff = _trailing(await repo.getChart('efficiency'), cut);
+    // The shape of THIS night. Four scalar series, read for one day each — the
+    // day bundle's `accounting` carries the same figures but `_daySleep` does
+    // not re-export them, and metric_series is one row per day per key.
+    final unobserved = _on(await repo.getChart('unobserved_min'), cut);
+    final wakeups = _on(await repo.getChart('awakenings'), cut);
+    final longest = _on(await repo.getChart('longest_sleep_min'), cut);
+    final sol = _on(await repo.getChart('sol_min'), cut);
     final wins = await repo.sleepWindows(days: _window + 1);
     final onsets = <int>[
       for (final w in wins.reversed)
@@ -194,6 +244,10 @@ class SleepData {
       deepHistory: deep,
       effHistory: eff,
       onsetHistory: onsets,
+      unobservedMin: unobserved,
+      awakenings: wakeups,
+      longestSleepMin: longest,
+      solMin: sol,
     );
   }
 }
@@ -269,7 +323,7 @@ class _SleepDetailState extends State<SleepDetail> {
 
     return detailScaffold(c, 'Sleep', sub: (d.day ?? '').toUpperCase(), [
       // ── 1 · THE ANSWER ──
-      _answer(c, p, n),
+      _answer(c, p, d, n),
 
       // ── 2 · THE NIGHT ITSELF ──
       const SizedBox(height: S.x3),
@@ -280,7 +334,7 @@ class _SleepDetailState extends State<SleepDetail> {
       ...?_windowCard(c, p, d, n),
 
       // ── 3 · WHAT IT WAS MADE OF ──
-      Section('Stages', _stages(c, p, n, n['duration_min'] as num?)),
+      Section('Stages', _stages(c, p, d, n, n['duration_min'] as num?)),
 
       // ── 4 · AGAINST THE USER'S OWN NIGHTS ──
       if (_versusUsual(c, p, d, n) case final versus?)
@@ -310,12 +364,19 @@ class _SleepDetailState extends State<SleepDetail> {
 
   /// Total sleep, when it ran, and the two ratios that qualify it. Everything
   /// here is measured; nothing is a judgement.
-  Widget _answer(BuildContext c, P p, Map<String, dynamic> n) {
+  Widget _answer(BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final tst = n['duration_min'] as num?;
     final eff = n['efficiency'] as num?;
     final inBed = n['in_bed_min'] as num?;
     final from = clockOfTs(n['onset_ts'] as num?);
     final to = clockOfTs(n['wake_ts'] as num?);
+    // Wall clock minus the minutes nobody watched. `efficiency_pct` has always
+    // divided by this, so on a night with a hole the honest denominator just
+    // read as a worse night unless the screen says which window it is.
+    final unobserved = d.unobservedMin;
+    final watched = (inBed == null || unobserved == null || unobserved <= 0)
+        ? null
+        : math.max(0, inBed - unobserved);
     return Surface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(hm(tst), style: F.n48.copyWith(color: p.ink)),
@@ -337,9 +398,20 @@ class _SleepDetailState extends State<SleepDetail> {
           const SizedBox(height: S.x4),
           InlineMetrics([
             if (inBed != null) ('IN BED', hm(inBed), C.indigo),
+            if (watched != null) ('WATCHED', hm(watched), C.sky),
             if (eff != null)
-              ('ASLEEP OF THAT', _pct(eff * 100), C.green),
+              (watched == null ? 'ASLEEP OF THAT' : 'ASLEEP',
+                  _pct(eff * 100), C.green),
           ]),
+        ],
+        if (watched != null) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            'We watched ${hm(watched)} of your ${hm(inBed!)} in bed; the rest '
+            'is not a measurement. Asleep, and the stage shares below, are out '
+            'of the time we watched.',
+            style: F.over.copyWith(color: p.ink3, height: 1.5),
+          ),
         ],
       ]),
     );
@@ -394,6 +466,21 @@ class _SleepDetailState extends State<SleepDetail> {
             Text(
               'Staging could not find the edges, so the times are a best '
               'guess.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ],
+          // SLP-02 — settling time, and ONLY here. On the auto path the window
+          // is built from stillness gated on a sleep-ish heart rate, so it
+          // cannot begin before you are already lying quiet: the 40 minutes of
+          // tossing falls outside it and the latency would come out near zero.
+          // On a window the user asserted, the number means what people think
+          // it means. The pipeline abstains for both reasons; this only draws
+          // what it published.
+          if (mine && d.solMin != null) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              'From the start of your window to asleep: '
+              '${_solBand(d.solMin!)}.',
               style: F.cap.copyWith(color: p.ink3),
             ),
           ],
@@ -544,7 +631,7 @@ class _SleepDetailState extends State<SleepDetail> {
           // it used to still print REM in its key.
           legend: [
             for (final e in Hypnogram.legend(p))
-              if (stages.any((s) => s.label == e.$1)) e,
+              if (stages.any((s) => s?.label == e.$1)) e,
           ],
           child: _hypnogram(c, p, stages, n),
         ),
@@ -556,16 +643,66 @@ class _SleepDetailState extends State<SleepDetail> {
               : 'Tap or drag the chart for any moment of the night.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
+        if (_shape(d) case final shape?) ...[
+          const SizedBox(height: S.x2),
+          Text(shape, style: F.over.copyWith(color: p.ink3, height: 1.5)),
+        ],
       ]),
     );
+  }
+
+  /// The shape of the night in one line — how broken it was, and the longest
+  /// piece of it. Null when the pipeline published neither.
+  ///
+  /// The count is a FLOOR and says so: our stager sees sustained wake, and the
+  /// 3-15 s cortical arousals a PSG counts are invisible to a 1 Hz wrist, so the
+  /// true number is higher than this one. Five minutes is a choice, not
+  /// physiology, so it is stated rather than assumed. No arousal index, no
+  /// explanation, only the shape.
+  String? _shape(SleepData d) {
+    final w = d.awakenings?.round();
+    final longest = d.longestSleepMin;
+    final parts = [
+      if (w != null)
+        w == 0
+            ? 'No wake-ups of 5 minutes or more; shorter ones are invisible to '
+                'a wrist.'
+            : 'At least $w wake-up${w == 1 ? '' : 's'} of 5 minutes or more; '
+                'shorter ones are invisible to a wrist.',
+      if (longest != null) 'Longest unbroken stretch ${hm(longest)}.',
+    ];
+    return parts.isEmpty ? null : parts.join(' ');
+  }
+
+  /// The night split into stretches we watched and holes we did not:
+  /// `(stages, columns)`, where a null stage list is time the band was not
+  /// recording and is drawn as NOTHING.
+  ///
+  /// A gap is the only honest mark for "not a measurement". There is no fifth
+  /// lane and there should not be one — a lane is a stage, and this is the
+  /// absence of one.
+  static List<(List<SleepStage>?, int)> _runs(List<SleepStage?> st) {
+    final out = <(List<SleepStage>?, int)>[];
+    var i = 0;
+    while (i < st.length) {
+      var j = i;
+      while (j + 1 < st.length && (st[j + 1] == null) == (st[i] == null)) {
+        j++;
+      }
+      out.add(st[i] == null
+          ? (null, j - i + 1)
+          : (st.sublist(i, j + 1).cast<SleepStage>(), j - i + 1));
+      i = j + 1;
+    }
+    return out;
   }
 
   /// A [Scrubber], not a drag gesture: what matters is where the pointer IS,
   /// and the 44 pt tap rule does not apply to a continuous readout. What DOES
   /// apply is that the readout has to exist without a pointer — [Scrubber]
   /// carries the slider role and speaks [describe] at each step.
-  Widget _hypnogram(
-          BuildContext c, P p, List<SleepStage> stages, Map<String, dynamic> n) =>
+  Widget _hypnogram(BuildContext c, P p, List<SleepStage?> stages,
+          Map<String, dynamic> n) =>
       Scrubber(
         value: _scrub,
         onChanged: (v) => setState(() => _scrub = v),
@@ -579,14 +716,26 @@ class _SleepDetailState extends State<SleepDetail> {
           final at = (t0 == null || t1 == null || t1 <= t0)
               ? '${(v * 100).round()}% through the night'
               : clockOfTs(t0 + ((t1 - t0) * v).round());
-          return st == null ? at : '$at, ${_stageName(st)}';
+          return '$at, ${st == null ? 'not measured' : _stageName(st)}';
         },
         child: SizedBox(
           height: 132,
           child: Stack(children: [
-            CustomPaint(
-                size: Size.infinite,
-                painter: Hypnogram(stages, p, t: animate(c, 1))),
+            // One painter per watched stretch, laid out by its width in
+            // columns, with nothing at all where the band was not recording.
+            // Every painter gets the same height, so the four lanes stay on the
+            // same four lines across the whole night.
+            Row(children: [
+              for (final (st, cols) in _runs(stages))
+                Expanded(
+                  flex: cols,
+                  child: st == null
+                      ? const SizedBox.expand()
+                      : CustomPaint(
+                          size: Size.infinite,
+                          painter: Hypnogram(st, p, t: animate(c, 1))),
+                ),
+            ]),
             if (_scrub != null)
               // Aligned by fraction rather than by a measured offset, so the
               // cursor needs no width from the layout.
@@ -649,7 +798,11 @@ class _SleepDetailState extends State<SleepDetail> {
                 style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             const Spacer(),
             if (stage != null)
-              Pill(_stageName(stage), Hypnogram.pigment[stage] ?? C.blue),
+              Pill(_stageName(stage), Hypnogram.pigment[stage] ?? C.blue)
+            else if (stages.isNotEmpty)
+              // Not a stage, so not a Pill: this instant has no colour because
+              // the band was not recording it.
+              Text('Not measured', style: F.cap.copyWith(color: p.ink3)),
           ]),
           if (items.isEmpty) ...[
             const SizedBox(height: S.x3),
@@ -720,7 +873,8 @@ class _SleepDetailState extends State<SleepDetail> {
     ]);
   }
 
-  Widget _stages(BuildContext c, P p, Map<String, dynamic> n, num? tst) {
+  Widget _stages(
+      BuildContext c, P p, SleepData d, Map<String, dynamic> n, num? tst) {
     final rows = <(String, num?, Color)>[
       ('Deep', n['deep_min'] as num?, C.blue),
       ('REM', n['rem_min'] as num?, C.teal),
@@ -762,7 +916,12 @@ class _SleepDetailState extends State<SleepDetail> {
       // The stager is a wrist ESTIMATE and Deep is the weakest of the four —
       // an HR-depth overlay, not an EEG read. Said once, here, rather than
       // decorating every number with a caveat.
-      Text('Shares of your time in bed. Deep is the least certain of the four.',
+      // The four rows sum to TST + WASO, which excludes the seconds nobody
+      // watched — so on a night with a hole "your time in bed" was the wrong
+      // denominator to name.
+      Text(
+          '${(d.unobservedMin ?? 0) > 0 ? 'Shares of the time we watched' : 'Shares of your time in bed'}. '
+          'Deep is the least certain of the four.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }
@@ -937,8 +1096,12 @@ class _SleepDetailState extends State<SleepDetail> {
 
     extreme((n['duration_min'] as num?)?.toDouble(), d.tstHistory, 'You slept',
         'Your shortest night lately', 'Your longest night lately', hm);
-    extreme((n['deep_min'] as num?)?.toDouble(), d.deepHistory, 'Deep sleep came to',
-        'Least deep sleep lately', 'Most deep sleep lately', hm);
+    // SLP-13a — NO deep-sleep extreme. `segment.dart` emits
+    // `deep_low_confidence` and calls the Light/Deep split unvalidated; ranking
+    // last night's deep minutes against 28 other nights of the same unvalidated
+    // split is the most confident wrong claim the screen could make. The row in
+    // "Against your usual" stays, because a band is a distribution, not a
+    // record claim.
 
     // Detection against the user's own resting baseline, never a diagnosis: a
     // sleeping heart rate this far above baseline is the signal the illness

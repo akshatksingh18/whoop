@@ -39,7 +39,19 @@ class _FakeRepo extends LocalRepository {
   final Map<String, dynamic> insights;
   final List<String> days;
 
-  _FakeRepo({this.insights = const {}, this.days = const []});
+  /// day id -> the `daytime_hrv` block `getDayHeart` serves for it.
+  final Map<String, Map<String, dynamic>> daytimeHrv;
+
+  _FakeRepo(
+      {this.insights = const {},
+      this.days = const [],
+      this.daytimeHrv = const {}});
+
+  @override
+  Future<Map<String, dynamic>> getDayHeart(String date) async =>
+      {'daytime_hrv': ?daytimeHrv[date]};
+  @override
+  Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
 
   @override
   Future<Map<String, dynamic>> getToday() async => const {};
@@ -333,6 +345,219 @@ void main() {
         salvaged: const {'day_result': 0},
       ))!;
       expect(card.why, contains('Nothing could be read back'));
+    });
+  });
+
+  // ── the absence diagnostic reaches the user, not just Firebase ──
+  //
+  // `readiness_absent_diag` is produced on every day readiness comes back
+  // absent — which input was missing, how many of your own nights are behind
+  // each — and its only destination was a telemetry breadcrumb.
+  group('why is this blank', () {
+    Future<void> pump(WidgetTester t, Widget w) async {
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light), home: Scaffold(body: w)));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('the empty hero on Home is a door, not a dead end', (t) async {
+      await pump(
+          t,
+          HomeScreen(
+              hour: 10,
+              data: const HomeData(
+                  dayId: '2026-05-20',
+                  steps: Metric(
+                      value: 4200,
+                      unit: 'steps',
+                      confidence: .9,
+                      tier: MetricTier.high))));
+      expect(find.text('Readiness is not scored today'), findsOneWidget);
+      expect(find.text('See what was missing'), findsOneWidget);
+    });
+
+    testWidgets('the detail names each input and QUOTES the pipeline',
+        (t) async {
+      await pump(
+          t,
+          const ReadinessDetail(
+              data: ReadinessData(absentDiag: {
+            'hrv': {'value': true, 'baseline_n': 6, 'baseline_sd': 0.11},
+            'rhr': {'value': false, 'baseline_n': 6, 'baseline_sd': 1.2},
+            'note': 'need_baseline:have=6,need=14',
+          })));
+      expect(find.text('What went into it'), findsNothing);
+      expect(find.text('What was missing'), findsOneWidget);
+      // Presence and history are separate facts, and both are the pipeline's.
+      expect(find.textContaining('Measured · 6 nights'), findsOneWidget);
+      expect(find.textContaining('Not measured · 6 nights'), findsOneWidget);
+      // The note is turned into English by the machinery that already parses
+      // it — and never into a date. 14 − 6 = 8.
+      expect(find.textContaining('Need 8 more nights'), findsOneWidget);
+    });
+
+    testWidgets('a scored day carries no diagnostic at all', (t) async {
+      await pump(
+          t,
+          const ReadinessDetail(
+              data: ReadinessData(
+                  readiness: Metric(
+                      value: 74, confidence: .8, tier: MetricTier.high))));
+      expect(find.text('What was missing'), findsNothing);
+    });
+  });
+
+  // ── L4: the coverage denominator under a long trend ──
+  group('wear strip', () {
+    Future<void> pump(WidgetTester t, MetricData d) async {
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(body: MetricDetail('resting_hr', data: d))));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('says how much of the window was actually worn', (t) async {
+      // Twelve worn days inside a thirty-day window. The line above is drawn
+      // from the same twelve and used to be the only thing on the card.
+      await pump(
+          t,
+          MetricData(
+            daysAvailable: 40,
+            series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
+            wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
+          ));
+      expect(find.text('Worn'), findsOneWidget);
+      expect(find.textContaining('12 of these 30 days have a wear record'),
+          findsOneWidget);
+    });
+
+    testWidgets('a seven-day window does not get one', (t) async {
+      // A week you either wore or did not; the denominator changes nothing.
+      await pump(
+          t,
+          MetricData(
+            daysAvailable: 40,
+            series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
+            wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
+          ));
+      await t.tap(find.text('7 days'));
+      await t.pumpAndSettle();
+      expect(find.text('Worn'), findsNothing);
+    });
+  });
+
+  // ── CV-10: three states, and "not screened" is not "clear" ──
+  group('irregular-rhythm strip', () {
+    testWidgets('counts the days it ran and refuses to reassure', (t) async {
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv',
+            data: InvestigateData(day: _day(0), rhythmPoints: [
+              for (var i = 9; i >= 0; i--) (t: _noon(i), v: i == 3 ? 1.0 : 0.0),
+            ])),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Irregular-rhythm screen'), findsOneWidget);
+      expect(find.textContaining('Ran on 10 days, raised its flag on 1'),
+          findsOneWidget);
+      // The permanent line. Not a tooltip, and not optional.
+      expect(find.textContaining('A clear strip is not a negative result'),
+          findsOneWidget);
+    });
+  });
+
+  // ── CV-09: daytime HRV by hour, weekly median, today excluded ──
+  //
+  // The gate is the feature (an ungated bin of walking enters as low HRV), so
+  // the aggregation on top of it must not undo the honesty: never today alone,
+  // never a mean an outlier can drag, and an hour with too few quiet stretches
+  // behind it is ABSENT rather than drawn.
+  group('daytime HRV by hour', () {
+    /// One `daytime_hrv` block: bins at [hour] on the day [back] days ago.
+    Map<String, dynamic> block(int back, int hour, List<double> vs) {
+      final n = DateTime.now();
+      final base = DateTime(n.year, n.month, n.day - back, hour)
+              .millisecondsSinceEpoch ~/
+          1000;
+      return {
+        'timeline': [
+          for (var i = 0; i < vs.length; i++)
+            {'t': base + i * 300, 'rmssd': vs[i], 'n': 9},
+        ],
+      };
+    }
+
+    test('an hour needs three stretches, and takes their middle value',
+        () async {
+      final d = await CircadianData.load(_FakeRepo(
+        days: [for (var i = 1; i <= 3; i++) _day(i)],
+        daytimeHrv: {
+          // 09:00 gets three bins across three days -> drawn, median 40.
+          _day(1): block(1, 9, [10, 40]),
+          _day(2): block(2, 9, [90]),
+          // 14:00 gets two -> not enough, absent.
+          _day(3): block(3, 14, [50, 55]),
+        },
+      ));
+      expect(d.hourly[9], 40, reason: 'the middle of 10, 40, 90 — not the mean');
+      expect(d.hourly[14], isNull, reason: 'two stretches is not an hour');
+      expect(d.hourlyN[9], 3);
+      expect(d.hourlyDays, 3);
+    });
+
+    test('today is never in it', () async {
+      final d = await CircadianData.load(_FakeRepo(
+        days: [_day(0), _day(1)],
+        daytimeHrv: {
+          _day(0): block(0, 9, [10, 10, 10, 10]),
+          _day(1): block(1, 20, [30, 30, 30]),
+        },
+      ));
+      expect(d.hourly[9], isNull,
+          reason: "today's own bins are a handful of windows, not a median");
+      expect(d.hourly[20], 30);
+      expect(d.hourlyDays, 1);
+    });
+
+    testWidgets('the card refuses to read as a stress meter', (t) async {
+      t.view.physicalSize = const Size(390 * 3, 2600 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: CircadianDetail(
+            data: CircadianData(
+          hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
+          hourlyN: List<int>.filled(24, 5),
+          hourlyDays: 7,
+          jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
+          midFreeH: 4.5,
+          midWorkH: 3.0,
+          nFree: 3,
+          nWork: 9,
+        )),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('This is not a stress score'), findsOneWidget);
+      // How deep each drawn hour is, not just a grand total.
+      expect(find.textContaining('middle value of 5–5 five-minute stretches'),
+          findsOneWidget);
+      expect(find.textContaining('12 of 24 hours'), findsOneWidget);
+      // The InsightCard this section was paid for with is gone, and its one
+      // extra fact — the DIRECTION, which is the sign of free minus work — is
+      // on the row it belongs to.
+      expect(find.textContaining('free-day clock runs'), findsNothing);
+      expect(find.text('1h 30m later'), findsOneWidget);
+      expect(find.text('3 / 9'), findsOneWidget);
     });
   });
 }

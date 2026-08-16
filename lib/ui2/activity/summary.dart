@@ -208,6 +208,13 @@ class ActivityResult {
   final List<double?> hr;
   final List<double> zoneMinutes; // five, Z1..Z5
 
+  /// How much of the session window the stored trace actually covers, 0–100.
+  /// 1 Hz means one sample a second, so the banked sample count against the
+  /// window length is the honest coverage of everything drawn off it. Null on a
+  /// live session (nothing has been banked yet) and on any session scored
+  /// before the trace column existed.
+  final int? traceCoveragePct;
+
   // route / journey
   final List<Offset> route; // normalised 0…1
   /// The SAME points in degrees, in the same order — kept alongside [route]
@@ -251,6 +258,7 @@ class ActivityResult {
     this.strain,
     this.hr = const [],
     this.zoneMinutes = const [],
+    this.traceCoveragePct,
     this.route = const [],
     this.geo = const [],
     this.routePace,
@@ -277,6 +285,7 @@ class ActivityResult {
     int? maxHr,
     List<double?>? hr,
     List<double>? zoneMinutes,
+    int? traceCoveragePct,
     List<Offset>? route,
     List<(double lat, double lng)>? geo,
     List<double>? routePace,
@@ -298,6 +307,7 @@ class ActivityResult {
         strain: strain,
         hr: hr ?? this.hr,
         zoneMinutes: zoneMinutes ?? this.zoneMinutes,
+        traceCoveragePct: traceCoveragePct ?? this.traceCoveragePct,
         route: route ?? this.route,
         geo: geo ?? this.geo,
         routePace: routePace ?? this.routePace,
@@ -699,16 +709,34 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ]),
       );
 
-  /// What the calorie figure was actually made of.
+  /// What the calorie figure was actually made of — or why there isn't one.
   ///
   /// It claimed heart rate on every session, including the ones scored from
   /// MET and weight alone because no beat ever arrived — printed three cards
   /// under 'The band reported nothing while this was running'. Without a curve
   /// there is no heart rate in the number: `_kcal` falls through to
   /// `Activity.kcal`, which is MET × weight × minutes and nothing else.
+  ///
+  /// It also described a figure that was not on the screen. A session scored
+  /// from the substrate only banks kcal when the profile carries a real HRmax
+  /// AND a real resting HR (`manual_session.dart` refuses to persist one built
+  /// on the 220/60 fallback), so a stored session very often has no calorie
+  /// stat at all — and this card still explained how it had been estimated.
+  /// When there is no number, say which anchor is missing and point at the
+  /// effort measure that does not need one.
   String _calorieBasis() {
     if (widget.weightKg == null) return 'Calories need your weight.';
     final met = a.met.toStringAsFixed(1);
+    if (r.calories == null) {
+      return r.strain == null
+          ? 'No calorie figure for this session. An energy estimate from heart '
+              'rate needs your maximum and resting heart rates, and one of '
+              'them is not set.'
+          : 'No calorie figure for this session — an energy estimate from '
+              'heart rate needs your maximum and resting heart rates, and one '
+              'of them is not set. Strain above is the effort that was '
+              'measured, on its own 0–21 scale.';
+    }
     return r.avgHr == null
         ? 'Estimated from $met MET and your weight. No heart rate reached '
             'this session, so none of it is in the figure.'
@@ -999,18 +1027,34 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// The heart-rate trace, framed — the one chart both `basic` and `match`
   /// are built on, so they cannot end up with two different axes for one
   /// measurement.
+  /// What the trace does NOT cover.
+  ///
+  /// A session older than `rawRetentionDays` is drawn from the trace frozen at
+  /// score time, and a band that dropped the link mid-session froze a trace
+  /// with holes in it. Without this the chart draws a confident thin line
+  /// across a sync gap and nothing on the screen says the minutes are missing.
+  // ponytail: one threshold, no band. 90% is "a couple of minutes lost on an
+  // hour"; below that the gap is worth a sentence.
+  String? get _traceNote {
+    final pct = r.traceCoveragePct;
+    if (pct == null || pct >= 90) return null;
+    return 'Partial trace — the band handed over $pct% of these minutes.';
+  }
+
   Widget _hrFrame(P p, {double height = 130}) {
     final axis = AxisSpec.of(r.hr.whereType<double>());
     final hard = r.hardMinutes;
+    final note = [
+      if (hard != null) '${hard.round()} min above 80% of your maximum.',
+      ?_traceNote,
+    ];
     return ChartFrame(
       title: 'HEART RATE',
       unit: 'bpm',
       height: height,
       yAxis: axis,
       xLabels: ['Start', hms(r.duration)],
-      footnote: hard == null
-          ? null
-          : '${hard.round()} min above 80% of your maximum.',
+      footnote: note.isEmpty ? null : note.join(' '),
       series: r.hr,
       child: CustomPaint(
           size: Size.infinite,
@@ -1465,6 +1509,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 height: 110,
                 yAxis: axis,
                 xLabels: ['Start', hms(r.duration)],
+                // The gap belongs to the heart-rate trace, not to the altitude
+                // the phone recorded alongside it.
+                footnote: g.$1 == 'Heart rate' ? _traceNote : null,
                 series: g.$4,
                 child: CustomPaint(
                     size: Size.infinite,

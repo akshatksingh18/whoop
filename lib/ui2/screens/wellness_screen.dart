@@ -28,6 +28,7 @@ import '../ui2.dart';
 import 'calm_breathing.dart';
 import 'cycle_screen.dart';
 import 'journal_compose.dart';
+import 'metric_detail.dart' show detailScaffold;
 import 'sleep_detail.dart';
 
 class WellnessScreen extends StatefulWidget {
@@ -113,7 +114,10 @@ class _WellnessScreenState extends State<WellnessScreen> {
       // A habit is a custom field with a ceiling of one — a per-day yes/no.
       // That is exactly what journal_field_def already stores, which is why
       // there is no habit table.
-      _habits = [for (final s in specs) if (s.custom && s.max == 1) s];
+      _habits = [
+        for (final s in specs)
+          if (s.custom && s.max == 1) s,
+      ];
       _fields = specs;
       _habitHistory = history;
       _loading = false;
@@ -412,11 +416,11 @@ class _WellnessScreenState extends State<WellnessScreen> {
                         onTap: _writingField
                             ? null
                             : () => _setField(
-                                  h.key,
-                                  (_todayFields[h.key]?.value ?? 0) >= 1
-                                      ? null
-                                      : 1,
-                                ),
+                                h.key,
+                                (_todayFields[h.key]?.value ?? 0) >= 1
+                                    ? null
+                                    : 1,
+                              ),
                       ),
                     ],
                   ),
@@ -438,6 +442,21 @@ class _WellnessScreenState extends State<WellnessScreen> {
           color: C.domMind,
           soft: true,
           onTap: () => _addHabit(c),
+        ),
+        // MIND-01/04/12 — the whole dose-response and habit-difference half of
+        // journal analysis, plus the weekday test, behind ONE door. It has
+        // lived here computed-and-discarded for months; putting the rows on
+        // this tab would bury the thing the tab is for, which is ticking.
+        const SizedBox(height: S.x5),
+        ActionCard(
+          'What you log, against your numbers',
+          'Dose, habit difference, and the day of the week',
+          'Open',
+          LucideIcons.scatterChart,
+          C.domMind,
+          onTap: () => Navigator.of(c).push(
+            MaterialPageRoute<void>(builder: (_) => const JournalFindings()),
+          ),
         ),
       ],
     );
@@ -580,7 +599,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
     final ok = await confirmRemove(
       context,
       title: 'Remove ${d.label}?',
-      body: 'It stops being scheduled and stops counting towards adherence. '
+      body:
+          'It stops being scheduled and stops counting towards adherence. '
           'The doses you already marked stay.',
     );
     if (!ok || !mounted) return;
@@ -796,3 +816,254 @@ class _Check extends StatelessWidget {
     );
   }
 }
+
+// ══════════════════ WHAT YOU LOG, AGAINST YOUR NUMBERS ══════════════════
+//
+// MIND-01 (dose response), MIND-04 (habits), MT-06 (caffeine timing),
+// MT-07 (alcohol phrasing) and MIND-12 (weekday) all answer the same question
+// from the same place, so they are one screen behind one tap rather than five
+// cards competing on the Habits tab.
+//
+// EVERYTHING HERE IS ASSOCIATION ON YOUR OWN DAYS. Never cause, never a
+// recommendation, never a nudge. The confound is total and stated: the days you
+// do a thing are days you were already that kind of day.
+//
+// The empty state is the DEFAULT outcome, not an error. 9 built-in numeric
+// fields × 4 outcomes is 36 simultaneous tests, so a per-test gate manufactures
+// about two findings per user out of pure noise; analytics corrects the whole
+// grid with Benjamini-Hochberg and most people will see nothing. A screen that
+// cannot say "nothing separated itself" is a screen that will invent something.
+
+class JournalFindings extends StatefulWidget {
+  /// Non-null skips the repository, the way every other detail screen here
+  /// takes its fixture.
+  final List<Map<String, dynamic>>? rows;
+  final Map<String, dynamic>? weekday;
+
+  const JournalFindings({super.key, this.rows, this.weekday});
+
+  @override
+  State<JournalFindings> createState() => _JournalFindingsState();
+}
+
+class _JournalFindingsState extends State<JournalFindings> {
+  List<Map<String, dynamic>> _rows = const [];
+  Map<String, dynamic> _weekday = const {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.rows != null) {
+      _rows = widget.rows!;
+      _weekday = widget.weekday ?? const {};
+      _loading = false;
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final repo = context.read<AppState>().repo;
+    if (repo == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final j = await repo.getJournalInsights(range: '90d');
+      final w = await repo.getWeekdayEffect();
+      if (!mounted) return;
+      setState(() {
+        _rows = [
+          for (final e in (j['numeric_insights'] as List? ?? const []))
+            if (e is Map) e.cast<String, dynamic>(),
+        ];
+        _weekday = w;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    if (_loading) {
+      return detailScaffold(c, 'What you log', const [
+        SizedBox(height: S.x8),
+        Center(child: CircularProgressIndicator()),
+      ]);
+    }
+    final p = P.of(c);
+    final doses = [
+      for (final r in _rows)
+        if (r['binary'] != true) r,
+    ];
+    final habits = [
+      for (final r in _rows)
+        if (r['binary'] == true) r,
+    ];
+    return detailScaffold(c, 'What you log', [
+      const SizedBox(height: S.x2),
+      if (_rows.isEmpty)
+        const StatusCard(
+          'Nothing separated itself yet',
+          'Everything you log is tested against your recovery, HRV, resting '
+              'heart rate and sleep efficiency at once, and the bar is set so '
+              'that running that many comparisons cannot manufacture a result. '
+              'Nothing has cleared it.',
+          icon: LucideIcons.scatterChart,
+        )
+      else ...[
+        if (habits.isNotEmpty) Section('The days you did it', _list(c, habits)),
+        if (doses.isNotEmpty)
+          Section('How much, and what followed', _list(c, doses)),
+        const SizedBox(height: S.x2),
+        Text(
+          'Association on your own days — never cause. The days you do a thing '
+          'are days you were already that kind of day. Corrected together for '
+          'the number of comparisons; anything that did not survive is simply '
+          'not here.',
+          style: F.over.copyWith(color: p.ink3, height: 1.5),
+        ),
+      ],
+      Section('Which day of the week', _weekdayCard(c)),
+    ]);
+  }
+
+  Widget _list(BuildContext c, List<Map<String, dynamic>> rows) => Surface(
+    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+    child: Column(
+      children: [
+        for (final r in rows)
+          DriverRow(label: _headline(r), detail: _detail(r)),
+      ],
+    ),
+  );
+
+  // ── copy ────────────────────────────────────────────────────────────────
+
+  /// MT-07's whole change: the outcome's own units on the days she logged it,
+  /// not a rank correlation read out loud. "On the 11 nights you logged
+  /// alcohol, your resting HR ran 6 bpm higher" is the same finding the rho
+  /// carried and a sentence a person can check against their own memory.
+  String _headline(Map<String, dynamic> r) {
+    final field = (r['field_label'] ?? '').toString();
+    final outcome = (r['outcome_label'] ?? '').toString();
+    final unit = (r['unit'] ?? '').toString();
+    if (r['binary'] == true) {
+      final delta = (r['delta'] as num?)?.toDouble() ?? 0;
+      return 'On the ${r['n_with']} days you logged $field, $outcome ran '
+          '${_amount(delta.abs(), unit)} ${delta > 0 ? 'higher' : 'lower'}';
+    }
+    final n = r['n'];
+    final slope = (r['slope_per_unit'] as num?)?.toDouble();
+    final rho = (r['rho'] as num?)?.toDouble() ?? 0;
+    if (slope == null) {
+      return 'On the $n days you logged $field, more of it went with '
+          '${rho > 0 ? 'higher' : 'lower'} $outcome';
+    }
+    final (per, step) = _perUnit(r);
+    return 'On the $n days you logged $field, $outcome ran '
+        '${_amount((slope * per).abs(), unit)} '
+        '${slope > 0 ? 'higher' : 'lower'} per $step';
+  }
+
+  String _detail(Map<String, dynamic> r) {
+    if (r['binary'] == true) {
+      final d = (r['cohens_d'] as num?)?.toDouble();
+      return 'Against the ${r['n_without']} days you did not'
+          '${d == null ? '' : ' · d ${d.abs().toStringAsFixed(1)}'}.';
+    }
+    final lo = (r['rho_low'] as num?)?.toDouble();
+    final hi = (r['rho_high'] as num?)?.toDouble();
+    final rho = (r['rho'] as num?)?.toDouble();
+    final ci = (lo == null || hi == null)
+        ? ''
+        : ' (${lo.toStringAsFixed(2)} to ${hi.toStringAsFixed(2)})';
+    final base = rho == null
+        ? ''
+        : 'Rank correlation ${rho.toStringAsFixed(2)}$ci. ';
+    // MT-06's own ceiling, said where the finding is: `at_min` is the LAST
+    // occurrence, so timing cannot tell two coffees from five, and a late
+    // stressful day produces both the late coffee and the bad night.
+    if (r['field'] == 'caffeine_last_min') {
+      return '${base}This is your LAST caffeine of the day only — two cups and '
+          'five look identical here, so "later" can quietly mean "more". A '
+          'long, stressful day produces both the late coffee and the poor '
+          'night.';
+    }
+    return base.trim();
+  }
+
+  /// How to say one step of this field. Minutes-past-midnight is unreadable per
+  /// minute, so caffeine timing is stated per HOUR later — a slope, never a
+  /// cutoff time, which is a threshold read off a dozen self-reported points.
+  (double, String) _perUnit(Map<String, dynamic> r) {
+    if (r['field'] == 'caffeine_last_min') return (60.0, 'hour later');
+    final u = (r['field_unit'] ?? '').toString();
+    // Singular: the phrase is "per unit", "per mg", "per point".
+    final one = u.isEmpty
+        ? 'point'
+        : (u.endsWith('s') ? u.substring(0, u.length - 1) : u);
+    return (1.0, one);
+  }
+
+  String _amount(double v, String unit) {
+    final n = v >= 10 ? v.round().toString() : v.toStringAsFixed(1);
+    return unit.isEmpty ? n : '$n $unit';
+  }
+
+  // ── MIND-12 ─────────────────────────────────────────────────────────────
+
+  /// Two gates, and both of them refusing is the normal answer. Kruskal-Wallis
+  /// across the seven groups, then a permutation test on the biggest gap — the
+  /// second one is what pays for having looked at seven days and reported the
+  /// worst. Without it this is a machine for manufacturing weekday
+  /// superstitions.
+  Widget _weekdayCard(BuildContext c) {
+    if (_weekday['present'] != true) {
+      return const StatusCard(
+        'Not enough weeks yet',
+        'Testing seven weekdays against each other needs at least eight weeks '
+            'of derived days, with five of every weekday in them.',
+        icon: LucideIcons.calendarDays,
+      );
+    }
+    if (_weekday['meaningful'] != true) {
+      return const StatusCard(
+        'No day of the week stands out',
+        'Your seven weekdays are not separable from each other once looking at '
+            'all seven is paid for.',
+        icon: LucideIcons.calendarDays,
+      );
+    }
+    final day = (_weekday['peak_weekday'] as num?)?.toInt() ?? 1;
+    final delta = (_weekday['peak_delta'] as num?)?.toDouble() ?? 0;
+    final n = (_weekday['n_by_weekday'] as Map?)?['$day'];
+    return Surface(
+      pad: const EdgeInsets.symmetric(horizontal: S.x4),
+      child: DriverRow(
+        label:
+            '${_weekdayName(day)}s: readiness runs '
+            '${delta.abs().round()} ${delta > 0 ? 'higher' : 'lower'} than '
+            'your overall median',
+        detail:
+            'From $n of them. A weekday is a container for what you do on '
+            'it, not a cause — nothing here is advice.',
+      ),
+    );
+  }
+}
+
+const _kWeekdayNames = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+String _weekdayName(int weekday) => _kWeekdayNames[(weekday - 1).clamp(0, 6)];

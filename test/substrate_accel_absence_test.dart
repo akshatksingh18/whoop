@@ -30,6 +30,7 @@ import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
 
 Substrate _sub({
@@ -286,6 +287,101 @@ void main() {
       final atOrAbove = calendarDays(
           night(accelPresent: true, presentFraction: kMinAccelCoverageForVanHees + 0.1));
       expect(atOrAbove.any((d) => d.sleepSource == 'auto'), isTrue);
+    });
+  });
+
+  // CV-09 — daytime HRV had no motion gate at all: RR was filtered to
+  // 300-2000 ms and successive deltas to 200 ms and nothing else, so a bin of
+  // walking entered the average as low HRV and the number read as stress when
+  // it was posture. The gate is the feature.
+  group('daytime HRV is motion-gated', () {
+    // A still hour and a moving hour, each with a steady RR the estimator can
+    // resolve. Still beats are ~1000 ms apart with a small alternation; moving
+    // beats alternate hard, so an ungated RMSSD over both is much larger.
+    Substrate twoHours({required String? family}) {
+      const t0 = 1750000000;
+      final ts = <int>[], hr = <int>[];
+      final ax = <double>[], ay = <double>[], az = <double>[];
+      for (var i = 0; i < 7200; i++) {
+        ts.add(t0 + i);
+        hr.add(60);
+        final moving = i >= 3600;
+        // Still: gravity only. Moving: a large dynamic component, so
+        // ||a|| - 1 g is far above the quiet cut.
+        ax.add(moving ? 0.4 * ((i % 2) == 0 ? 1 : -1) : 0.02);
+        ay.add(moving ? 0.4 : 0.01);
+        az.add(1.0);
+      }
+      final rrTs = <double>[], rrMs = <double>[];
+      for (var i = 0; i < 7200; i++) {
+        final moving = i >= 3600;
+        rrTs.add((t0 + i) * 1000.0);
+        rrMs.add(
+          moving
+              ? (i.isEven ? 940.0 : 1060.0) // ~120 ms swings
+              : (i.isEven ? 995.0 : 1005.0),
+        ); // ~10 ms swings
+      }
+      final n = ts.length;
+      return Substrate(
+        tsSec: ts,
+        hr: hr,
+        rrTsMs: rrTs,
+        rrMs: rrMs,
+        ax: ax,
+        ay: ay,
+        az: az,
+        spo2Red: List<int>.filled(n, 0),
+        spo2Ir: List<int>.filled(n, 0),
+        skinTemp: List<int>.filled(n, 0),
+        skinContact: List<int>.filled(n, 0),
+        deviceFamily: family,
+      );
+    }
+
+    test('the moving hour never reaches the average', () {
+      final out = DerivationEngine.daytimeHrv(twoHours(family: 'gen4'), 0, 0);
+      final timeline = (out['timeline'] as List).cast<Map>();
+      expect(timeline, isNotEmpty);
+      // 3600 s of still = twelve 5-min bins (thirteen when the hour straddles a
+      // bin edge), and nothing at all from the moving hour — an ungated pass
+      // produces roughly twice as many.
+      expect(timeline.length, inInclusiveRange(12, 13));
+      // Every bin sits inside the still hour.
+      expect((timeline.last['t'] as num) - 1750000000, lessThan(3600));
+      // ~10 ms alternation, not the ~120 ms one.
+      expect(out['mean_rmssd'] as num, lessThan(30));
+      // Each bin says how many quiet pairs it was built from.
+      expect(timeline.first['n'] as int, greaterThan(100));
+    });
+
+    test('an unknown strap has no quiet cut, so it refuses', () {
+      final out = DerivationEngine.daytimeHrv(twoHours(family: null), 0, 0);
+      expect(out['mean_rmssd'], isNull);
+      expect(out['n_buckets'], 0);
+      expect(out['note'], contains('unknown_device_family'));
+    });
+
+    test('absent gravity is not stillness — it produces no quiet bins', () {
+      final sub = twoHours(family: 'gen4');
+      final n = sub.length;
+      final blank = Substrate(
+        tsSec: sub.tsSec,
+        hr: sub.hr,
+        rrTsMs: sub.rrTsMs,
+        rrMs: sub.rrMs,
+        ax: List<double>.filled(n, 0),
+        ay: List<double>.filled(n, 0),
+        az: List<double>.filled(n, 0),
+        spo2Red: sub.spo2Red,
+        spo2Ir: sub.spo2Ir,
+        skinTemp: sub.skinTemp,
+        skinContact: sub.skinContact,
+        deviceFamily: 'gen4',
+      );
+      final out = DerivationEngine.daytimeHrv(blank, 0, 0);
+      expect(out['mean_rmssd'], isNull);
+      expect(out['n_buckets'], 0);
     });
   });
 }

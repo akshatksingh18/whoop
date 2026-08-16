@@ -183,7 +183,7 @@ void main() {
       DrainController drain() => DrainController(
             onRecord: (_, _) async {},
             onRecordsBatch: null,
-            onCommit: (_, _, _, {archives}) async {},
+            onCommit: (_, _, _, {archives, deviceFamily}) async {},
             onArchive: (_) async {},
             log: (_) {},
           );

@@ -48,6 +48,9 @@ Substrate _daySub() {
     spo2Ir: List<int>.filled(n, 0),
     skinTemp: List<int>.filled(n, 0),
     skinContact: List<int>.filled(n, 0),
+    // Stamped: with no family there is no HR ceiling, so TRIMP has nothing to
+    // band against and strain is absent for that reason instead (hr_max.dart).
+    deviceFamily: 'gen4',
   );
 }
 
@@ -152,6 +155,7 @@ void main() {
       sleepOnsetSec: onset,
       sleepOffsetSec: offset,
       profile: const {'age': 35, 'sex': 'm', 'weight_kg': 75, 'height_cm': 178},
+      deviceFamily: 'gen4',
     ).toJson());
 
     final timeline = ((bundle['series'] as Map)['hrv_timeline'] as List)

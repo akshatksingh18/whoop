@@ -16,10 +16,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
+import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
 import 'package:openstrap_edge/ui2/activity/poster.dart';
@@ -125,6 +127,26 @@ Future<void> _loadType() async {
     }
     await loader.load();
   }
+}
+
+/// Enough repo for [DayStrainData.load]: the persisted strain curve and the
+/// day's wear, which is all that screen reads.
+class _StrainRepo extends LocalRepository {
+  final List<Map<String, Object?>> curve;
+  _StrainRepo(this.curve);
+
+  @override
+  Future<Map<String, dynamic>> getDayStrain(String date) async => {
+        'curve': curve,
+        'strain': 12.4,
+        'zones': const {},
+        'hr': const {'max': 168},
+        'max_hr_used': 190,
+      };
+
+  @override
+  Future<Map<String, dynamic>> getDayWear(String date) async =>
+      const {'worn_min': 600, 'coverage_pct': 42};
 }
 
 void main() {
@@ -406,6 +428,43 @@ void main() {
     });
   });
 
+  group('the day-strain trace is a picture of a day', () {
+    final day = DateTime(2026, 5, 20);
+    int at(int h, int m) =>
+        DateTime(day.year, day.month, day.day, h, m).millisecondsSinceEpoch ~/
+            1000;
+
+    test('a gap in wear stays a gap, and the day comes off the curve', () async {
+      final d = await DayStrainData.load(_StrainRepo([
+        {'t': at(7, 0), 'v': 1.0},
+        {'t': at(7, 1), 'v': 1.2},
+        // three hours the band recorded nothing at all
+        {'t': at(10, 1), 'v': 5.0},
+      ]));
+      // `getDayStrain` serves the last SETTLED bundle while today is still
+      // deriving, so the day is read off the timestamps rather than off the
+      // label we asked for — a screen headed "Today" over yesterday's trace is
+      // the whole reason for it.
+      expect(d.day, day);
+      expect(d.curve.length, 1440, reason: 'one slot per minute of that day');
+      expect(d.curve[7 * 60], 1.0);
+      expect(d.curve[7 * 60 + 1], 1.2);
+      expect(d.curve[10 * 60 + 1], 5.0);
+      // Dropping the timestamps and keeping the values would close the gap up
+      // and draw three hours of climb nobody measured.
+      expect(d.curve.sublist(7 * 60 + 2, 10 * 60 + 1).every((v) => v == null),
+          isTrue);
+      expect(d.wornMin, 600);
+      expect(d.coveragePct, 42);
+    });
+
+    test('no curve is no day and no chart', () async {
+      final d = await DayStrainData.load(_StrainRepo(const []));
+      expect(d.day, isNull);
+      expect(d.hasCurve, isFalse);
+    });
+  });
+
   group('formatting', () {
     test('clock rolls into hours, grouped separates thousands', () {
       expect(clock(59), '00:59');
@@ -424,6 +483,73 @@ void main() {
     setUpAll(() async {
       TestWidgetsFlutterBinding.ensureInitialized();
       await _loadType();
+    });
+
+    testWidgets('day strain leads with the curve, and explains an empty day',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final day = DateTime(2026, 5, 20);
+      final curve = List<double?>.filled(1440, null);
+      for (var m = 7 * 60; m < 19 * 60; m++) {
+        curve[m] = (m - 7 * 60) / 60 * 1.4;
+      }
+      await tester.pumpWidget(_frame(
+          DayStrainDetail(
+            data: DayStrainData(
+              day: day,
+              curve: curve,
+              strain: 16.8,
+              zoneMin: const [212, 96, 41, 18, 4],
+              maxHrUsed: 190,
+              peakHr: 171,
+              wornMin: 743,
+              // Under the floor, so the "not comparable to a full day" card is
+              // the one being exercised here.
+              coveragePct: 51,
+            ),
+          ),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('—'), findsNothing);
+      // The assumed ceiling is PRINTED, not laundered into the score.
+      expect(find.textContaining('190 bpm'), findsOneWidget);
+      expect(find.textContaining('51%'), findsOneWidget);
+
+      // iOS reaches 3.1x. The inline metrics row and the five-swatch zone key
+      // are the two things on this screen that can overflow there.
+      await tester.pumpWidget(_frame(
+          DayStrainDetail(
+            data: DayStrainData(
+              day: day,
+              curve: curve,
+              strain: 16.8,
+              zoneMin: const [212, 96, 41, 18, 4],
+              maxHrUsed: 190,
+              peakHr: 171,
+              wornMin: 743,
+              coveragePct: 51,
+            ),
+          ),
+          Brightness.dark,
+          3.1));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(_frame(
+          const DayStrainDetail(data: DayStrainData()),
+          Brightness.dark,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('—'), findsNothing);
+      expect(find.byType(StatusCard), findsWidgets,
+          reason: 'a day with no trace has to say why, not draw a flat line');
     });
 
     for (final arch in Arch.values) {

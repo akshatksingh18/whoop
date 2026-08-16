@@ -5,9 +5,12 @@
 // parallel percentile view of the same four inputs. Presenting the second as
 // if it decomposed the first would be a small lie that is very hard to catch.
 
+import 'dart:convert' show jsonDecode;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
@@ -19,6 +22,15 @@ class ReadinessData {
   final Metric readiness;
   final List<Map<String, dynamic>> breakdown;
   final int inputsUsed;
+
+  /// `readiness_absent_diag` off the stored bundle — per input `{value,
+  /// baseline_n, baseline_sd}` plus the composite's own `note`. Produced on
+  /// EVERY day readiness comes back absent, and until now its only destination
+  /// was a Firebase breadcrumb: the app told its developer why the number was
+  /// missing and never told the person looking at the gap.
+  ///
+  /// Null when readiness scored, which is the same fact as the number existing.
+  final Map<String, dynamic>? absentDiag;
 
   /// The night this score describes, when it is NOT last night — the same
   /// resolution Home's hero uses. The screen used to carry no date anywhere.
@@ -36,7 +48,22 @@ class ReadinessData {
     this.inputsUsed = 0,
     this.heldOverNight,
     this.series = const [],
+    this.absentDiag,
   });
+
+  /// The absence diagnostic off a stored day bundle. Read straight from
+  /// `day_result` the way `InvestigateData.load` reads `imported` — no
+  /// repository accessor exists and this is the only screen that wants it.
+  static Future<Map<String, dynamic>?> _absentDiag(String? day) async {
+    if (day == null) return null;
+    final payload = (await LocalDb.dayResult(day))?['payload_json'];
+    if (payload is! String || !payload.contains('"readiness_absent_diag"')) {
+      return null;
+    }
+    final b = jsonDecode(payload);
+    final diag = b is Map ? b['readiness_absent_diag'] : null;
+    return diag is Map ? diag.cast<String, dynamic>() : null;
+  }
 
   static Future<ReadinessData> load(LocalRepository repo) async {
     final today = await repo.getToday();
@@ -63,6 +90,12 @@ class ReadinessData {
       inputsUsed: (v['inputs_used'] as num?)?.toInt() ?? 0,
       heldOverNight: heldOverNightOf(today),
       series: denseDays(pointsOf(chart), 90),
+      // Only read when there is nothing to explain away — a scored day has no
+      // diag in its bundle anyway, and this is one more day_result decode.
+      absentDiag: metricOf(daily is Map ? daily['readiness'] : null).value != null
+          ? null
+          : await _absentDiag(heldOverNightOf(today) ??
+              (today['status'] as Map?)?['today_day']?.toString()),
     );
   }
 }
@@ -119,12 +152,14 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else ...[
-        if (v == null)
+        if (v == null) ...[
           StatusCard.forMetric('Readiness is not scored', d.readiness,
                   why: 'Needs a night of beat-to-beat data, plus your own '
                       'history to compare it to.') ??
-              const SizedBox.shrink()
-        else
+              const SizedBox.shrink(),
+          if (d.absentDiag != null)
+            Section('What was missing', _absence(c, p, d.absentDiag!)),
+        ] else
           Surface(
             child: Column(children: [
               SizedBox(
@@ -231,6 +266,61 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             axis: axis),
       ),
     );
+  }
+
+  /// The pipeline's own absence diagnostic, one row per input. Two facts per
+  /// row and neither is inferred here: did last night produce this input, and
+  /// how many of your own nights are behind it. The line underneath QUOTES the
+  /// composite's note rather than guessing a reason from the rows above it —
+  /// and it never turns a night count into a date, because nothing in the
+  /// pipeline knows when you will next wear the band.
+  Widget _absence(BuildContext c, P p, Map<String, dynamic> diag) {
+    final rows = <(String, String)>[];
+    for (final k in const ['hrv', 'rhr', 'resp', 'temp']) {
+      final e = diag[k];
+      if (e is! Map) continue;
+      final n = (e['baseline_n'] as num?)?.toInt() ?? 0;
+      rows.add((
+        driverLabel(k),
+        '${e['value'] == true ? 'Measured' : 'Not measured'} · '
+            '$n night${n == 1 ? '' : 's'} of your own history',
+      ));
+    }
+    final note = diag['note']?.toString();
+    final need = needMessageFromNote(note);
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (rows.isNotEmpty)
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) Divider(color: p.line, height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x3),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
+                      Text(rows[i].$2,
+                          style: F.over.copyWith(color: p.ink3)),
+                    ]),
+              ),
+            ],
+          ]),
+        ),
+      const SizedBox(height: S.x3),
+      Text(
+        need != null
+            ? '$need. Each input is ranked against your own nights, so the '
+                'score cannot start before there are enough of them.'
+            : (note != null && note.isNotEmpty
+                ? note
+                : 'Everything above was present, and the comparison against '
+                    'your own history still could not be made.'),
+        style: F.cap.copyWith(color: p.ink3, height: 1.5),
+      ),
+    ]);
   }
 
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {

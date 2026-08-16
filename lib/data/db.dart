@@ -96,6 +96,7 @@ class LocalDb {
     // Derived once, from raw that no longer exists.
     'day_result',
     'metric_series',
+    'metric_series_version',
     'baselines',
     'raw_archive',
     'sync_cursor',
@@ -246,7 +247,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 40;
+  static const int schemaVersion = 42;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -672,6 +673,34 @@ class LocalDb {
             'INTEGER NOT NULL DEFAULT 0',
           );
         }
+        if (oldV < 41) {
+          // Which strap measured the row (see _ensureDeviceFamilyColumns).
+          // ADD COLUMN only, idempotent, and a no-op on a table this ladder has
+          // not created yet — a throw in here rolls the WHOLE ladder back.
+          await _ensureDeviceFamilyColumns(db);
+        }
+        if (oldV < 42) {
+          // ADDITIVE ONLY, and every step is a no-op on a table this ladder has
+          // not created yet — a throw in here rolls the WHOLE ladder back.
+          //
+          //  * decoded_onehz.ambient_raw — the gen4 ambient-light channel,
+          //    which until now was decoded and thrown away on every record.
+          //  * sessions.trace_json / trace_samples — the frozen session trace.
+          //  * metric_series_version — which build's maths wrote each day's
+          //    scalars, backfilled from the version day_result already carries.
+          //  * band_backlog — the strap's ring-buffer bookkeeping.
+          //
+          // No rewrite pass and no delete: `onUpgrade` runs inside openDatabase
+          // under iOS's CPU watchdog (invariant 11). The raw_archive thinning
+          // that lands with this version is deliberately NOT here — it runs on
+          // the retention path, off the launch path, where a 500 MB back
+          // catalogue can be cleared without a launch hang.
+          await _ensureDecodedOneHzBandFields(db);
+          await _ensureSessionTraceColumns(db);
+          await _createMetricSeriesVersion(db);
+          await _backfillMetricSeriesVersion(db);
+          await _createBandBacklog(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -778,7 +807,15 @@ class LocalDb {
   /// determination, and the HR-validity flag plus the second HR byte that
   /// corroborates the primary one. They used to be decoded and dropped.
   ///
-  /// Additive and safe on a populated DB: seven nullable columns, no rewrite of
+  /// v42 adds `ambient_raw` here rather than in its own helper. It is the other
+  /// direction (gen4-only — gen5 has no per-second equivalent), but it needs
+  /// the exact same treatment for the exact same reason: the mid-ladder
+  /// `_backfillDecodedStore` writes through `_queueDecodedOneHz`, which names
+  /// the column, so every rebuild path has to hand it back before the backfill
+  /// runs or the whole exclusive ladder rolls back. That is what this helper is
+  /// for, and every rebuild already calls it.
+  ///
+  /// Additive and safe on a populated DB: eight nullable columns, no rewrite of
   /// the (million-row) table, no backfill. Existing rows read NULL — which is
   /// the truth for them, since the values were never stored. `skin_temp_raw`,
   /// `skin_contact` and the `spo2_*` columns are deliberately left alone; they
@@ -792,12 +829,37 @@ class LocalDb {
       'on_wrist': 'INTEGER',
       'hr_valid': 'INTEGER',
       'hr_alt': 'INTEGER',
+      // Ambient-light ADC, u16 @inner[70] on a gen4 R24 record. A RELATIVE
+      // count on the user's own scale, never lux — and one-sided: bright means
+      // bright, dark means nothing (a sleeve or a duvet reads dark in a lit
+      // room). 0 is the absent sentinel, not a reading — see _queueDecodedOneHz.
+      'ambient_raw': 'INTEGER',
     };
     final have = await _columnsOf(db, 'decoded_onehz');
     if (have.isEmpty) return; // table not created yet — the DDL carries them
     for (final e in cols.entries) {
       if (have.contains(e.key)) continue;
       await _addColumnIfMissing(db, 'decoded_onehz', e.key, e.value);
+    }
+  }
+
+  /// v41: `device_family` — WHICH STRAP MEASURED THIS ROW.
+  ///
+  /// Stamped AT INGEST from the link that produced it (`ble_engine` pins the
+  /// generation at service discovery), because that is the only moment anyone
+  /// actually knows. It is never inferred from the data afterwards and never
+  /// backfilled with a guess: a gen4 skin-temp ADC count and a gen5 centi-°C
+  /// reading share `decoded_onehz`'s columns, so a wrong stamp is worse than no
+  /// stamp. Existing rows — and anything imported, which came from no link at
+  /// all — read NULL, meaning UNKNOWN PROVENANCE, which readers must treat as
+  /// its own case (analytics: `deviceFamilyOf` → null → refuse) rather than as
+  /// gen4.
+  ///
+  /// Nullable TEXT, no DEFAULT, ever: a default would turn "we don't know" into
+  /// a claim about the sensor.
+  static Future<void> _ensureDeviceFamilyColumns(Database db) async {
+    for (final t in const ['decoded_onehz', 'decoded_rr', 'sessions']) {
+      await _addColumnIfMissing(db, t, 'device_family', 'TEXT');
     }
   }
 
@@ -1472,6 +1534,10 @@ class LocalDb {
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
     void Function(String)? onCheckpoint,
+    // Which strap this batch came off, from the LIVE LINK (the engine pins it at
+    // service discovery). Null = the caller could not name it, which lands as
+    // NULL = unknown provenance. Never defaulted to gen4.
+    String? deviceFamily,
   }) async {
     void checkpoint(String msg) {
       try {
@@ -1586,7 +1652,12 @@ class LocalDb {
             }, conflictAlgorithm: ConflictAlgorithm.ignore);
             ops++;
           }
-          ops += _queueDecodedOneHz(batch, raw, sample);
+          ops += _queueDecodedOneHz(
+            batch,
+            raw,
+            sample,
+            deviceFamily: deviceFamily,
+          );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
           if (ops >= chunkOps) await flushChunk();
@@ -1666,6 +1737,62 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_metric_series_key ON metric_series(key, date)',
     );
+    await _createMetricSeriesVersion(db);
+  }
+
+  /// metric_series_version — which build's maths produced a day's scalars.
+  ///
+  /// `day_result` is versioned (PK day_id, algo_version); `metric_series` is
+  /// not, and cannot become so — `v_metric` and `v_daily` are pivots over it
+  /// and `v_daily` is in the coach's allow-list, so widening the PK changes
+  /// what the coach sees. So the stamp lives beside it, one row per day.
+  ///
+  /// WHAT IT IS FOR. Days lock at finalized ~48 h after wake and are never
+  /// recomputed on a bump, and the 1 Hz substrate is gone at 3 days, so a March
+  /// day physically cannot be re-derived in December. `kAlgoVersion` moved
+  /// 65 → 66 → 68 inside two weeks. A 12-month chart therefore splices values
+  /// from several different algorithms with nothing marking the seams. This
+  /// does NOT make those values comparable — nothing can. It makes the
+  /// incomparability VISIBLE, so a change-point search can refuse to run across
+  /// a seam instead of reporting the day the maths changed as a finding about
+  /// the user.
+  static Future<void> _createMetricSeriesVersion(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS metric_series_version (
+        date TEXT PRIMARY KEY,
+        algo_version INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Backfill the stamp from `day_result`, which has carried the version all
+  /// along. `INSERT OR IGNORE`, so a stamp already written by [putDayResult]
+  /// wins — that one is exact, this one infers.
+  ///
+  /// `skipped`/`partial` rows are excluded because those passes do not write
+  /// `metric_series` at all (see [putDayResult]), so their version never
+  /// produced the values being stamped. MAX per day is the same rule the serve
+  /// seam uses; it is only wrong for a day last written by a ROLLED-BACK build,
+  /// and going forward [putDayResult] records that case exactly.
+  static Future<void> _backfillMetricSeriesVersion(Database db) async {
+    // `day_result` may not exist yet on an upgrade path that has not reached
+    // the rung which creates it (or on a DB that never had it). A SELECT from a
+    // missing table throws, and a throw inside onUpgrade rolls the WHOLE ladder
+    // back and quarantines the user's database — the standing trap this file is
+    // full of guards against. Nothing to infer from, so infer nothing.
+    if ((await _columnsOf(db, 'day_result')).isEmpty) return;
+    await db.execute(
+      'INSERT OR IGNORE INTO metric_series_version (date, algo_version) '
+      'SELECT day_id, MAX(algo_version) FROM day_result '
+      'WHERE skipped = 0 AND partial = 0 GROUP BY day_id',
+    );
+  }
+
+  /// The algo version behind each day's `metric_series` scalars, oldest first.
+  /// Days with no stamp are simply absent — never guessed at.
+  static Future<List<Map<String, dynamic>>> metricSeriesVersions() async {
+    final db = await instance;
+    return db.query('metric_series_version', orderBy: 'date ASC');
   }
 
   // ── VERSIONED IMMUTABLE DERIVED STORE (ARCHITECTURE_V2 invariant 6) ─────────
@@ -1959,6 +2086,9 @@ class LocalDb {
         hrr_bpm REAL,
         source TEXT NOT NULL DEFAULT 'manual',
         private INTEGER NOT NULL DEFAULT 0,
+        device_family TEXT,
+        trace_json TEXT,
+        trace_samples INTEGER,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -2081,6 +2211,29 @@ class LocalDb {
     await db.execute('DROP TABLE IF EXISTS raw_records');
   }
 
+  /// v42 — THE FROZEN SESSION TRACE. Everything the detail screen draws that is
+  /// rebuilt from the 1 Hz substrate on every open: the minute HR curve, the
+  /// zone bands, drift, time-to-peak, the recovery curve. `decoded_onehz` is
+  /// pruned at `rawRetentionDays`, so every one of those went permanently blank
+  /// on a session's fourth day — the summary scalars survived in their own
+  /// columns and the whole chart half of the screen did not.
+  ///
+  /// `trace_samples` is the 1 Hz sample COUNT the trace was built from, kept
+  /// with it so a session the band only partly handed over reads as partial
+  /// instead of drawing a confident thin line over a sync gap. NOT backfilled —
+  /// those seconds are gone; a session that aged out before this shipped has no
+  /// trace and never will.
+  ///
+  /// Its own helper, and NOT [_ensureSessionSchema], because the ladder rung
+  /// must not run that one: it also creates an index, which throws on a DB
+  /// whose `sessions` table this ladder has not created yet, and a throw inside
+  /// onUpgrade quarantines the whole database. `_addColumnIfMissing` is a no-op
+  /// on a missing table.
+  static Future<void> _ensureSessionTraceColumns(Database db) async {
+    await _addColumnIfMissing(db, 'sessions', 'trace_json', 'TEXT');
+    await _addColumnIfMissing(db, 'sessions', 'trace_samples', 'INTEGER');
+  }
+
   static Future<void> _ensureSessionSchema(Database db) async {
     await _addColumnIfMissing(db, 'sessions', 'steps', 'INTEGER');
     await _addColumnIfMissing(db, 'sessions', 'hrr_bpm', 'REAL');
@@ -2100,6 +2253,11 @@ class LocalDb {
       'private',
       'INTEGER NOT NULL DEFAULT 0',
     );
+    // Which strap measured this workout (v41) — see _ensureDeviceFamilyColumns.
+    // NULL on every existing row, on a hand-entered session, and on an import:
+    // no link produced them, so their provenance is genuinely unknown.
+    await _addColumnIfMissing(db, 'sessions', 'device_family', 'TEXT');
+    await _ensureSessionTraceColumns(db);
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,
     // [sessionsInRange], [liveSessions] — was a full table scan plus a full
@@ -2556,7 +2714,9 @@ class LocalDb {
         skin_temp_c REAL,
         on_wrist INTEGER,
         hr_valid INTEGER,
-        hr_alt INTEGER
+        hr_alt INTEGER,
+        ambient_raw INTEGER,
+        device_family TEXT
       )
     ''');
     // Every band-computed column above is NULLABLE ON PURPOSE: only a gen5 band
@@ -2593,9 +2753,12 @@ class LocalDb {
         beat_index INTEGER NOT NULL,
         rr_ts_ms INTEGER NOT NULL,
         rr_ms INTEGER NOT NULL,
+        device_family TEXT,
         PRIMARY KEY (rec_ts, beat_index)
       )
     ''');
+    // Existing installs get it here (ADD COLUMN, idempotent).
+    await _ensureDeviceFamilyColumns(db);
   }
 
   /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
@@ -3011,6 +3174,9 @@ class LocalDb {
             // raw column passthrough, same as the ble path. not read as a temp.
             // ignore: deprecated_member_use
             skinTempRaw: r.skinTempRaw,
+            // gen4 ambient-light ADC. 0 (unconfirmed optical block) is turned
+            // into NULL at the write, not here — see _queueDecodedOneHz.
+            ambientRaw: r.ambientRaw,
           );
         }
       } catch (_) {}
@@ -3022,7 +3188,12 @@ class LocalDb {
   /// Returns the number of batch operations added, so a caller committing a
   /// large offload can chunk the batch to bound the native argument-list size
   /// (see [commitSyncBatch]).
-  static int _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
+  static int _queueDecodedOneHz(
+    Batch batch,
+    RawRecord raw,
+    Sample? sample, {
+    String? deviceFamily,
+  }) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) {
       // Gen4 R10-lite has no accel/optical, so it stays out of decoded_onehz —
@@ -3033,11 +3204,17 @@ class LocalDb {
       if (sample != null &&
           sample.rrIntervalsMs.isNotEmpty &&
           _isGen4R10LiteHistorical(raw.hex)) {
-        return _queueRrBeats(batch, _recTsFrom(raw, sample), sample);
+        return _queueRrBeats(
+          batch,
+          _recTsFrom(raw, sample),
+          sample,
+          deviceFamily: deviceFamily,
+        );
       }
       return 0;
     }
     final recTs = _recTsFrom(raw, decoded);
+    final ambient = decoded.ambientRaw == 0 ? null : decoded.ambientRaw;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
     // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
@@ -3066,9 +3243,26 @@ class LocalDb {
       'on_wrist': decoded.onWrist,
       'hr_valid': decoded.hrValid == null ? null : (decoded.hrValid! ? 1 : 0),
       'hr_alt': decoded.hrAlt,
+      // 0 IS THE ABSENT SENTINEL, NOT A READING. records.dart:501 emits
+      // `ambientRaw: optical ? u16@70 : 0`, so every unconfirmed record version
+      // reports 0 — writing that through would turn "we did not read the
+      // channel" into a real measurement of total darkness on a one-sided
+      // signal where dark already means nothing. Omitted-when-null (same form
+      // as device_family) so the mid-ladder backfill can't name a column a
+      // pre-v42 rebuild has not handed back yet.
+      'ambient_raw': ?ambient,
+      // Which strap measured this second. Stamped from the live link; unknown
+      // provenance is NULL, never a guess. See _ensureDeviceFamilyColumns.
+      //
+      // OMITTED when null rather than written as null — same stored value (the
+      // column has no DEFAULT), but this map is also used by the MID-LADDER
+      // `_backfillDecodedStore`, which runs before the v41 rung adds the
+      // column. Naming a column that does not exist yet throws inside
+      // onUpgrade's single transaction and quarantines the whole database.
+      'device_family': ?deviceFamily,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     return 1 /* the decoded_onehz insert */ +
-        _queueRrBeats(batch, recTs, decoded);
+        _queueRrBeats(batch, recTs, decoded, deviceFamily: deviceFamily);
   }
 
   /// `rec_ts` for one raw+decoded pair.
@@ -3090,7 +3284,12 @@ class LocalDb {
   /// Clear the second before reinserting so a SHRINKING beat count can't strand
   /// stale high-index beats — parent and child share the rec_ts key, so this
   /// single DELETE replaces the old counter-based orphan guard.
-  static int _queueRrBeats(Batch batch, int recTs, Sample decoded) {
+  static int _queueRrBeats(
+    Batch batch,
+    int recTs,
+    Sample decoded, {
+    String? deviceFamily,
+  }) {
     batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
     var ops = 1;
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
@@ -3101,6 +3300,8 @@ class LocalDb {
         'beat_index': i,
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
+        // Omitted when null — see _queueDecodedOneHz.
+        'device_family': ?deviceFamily,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       ops++;
     }
@@ -3188,6 +3389,81 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_band_battery_ts ON band_battery(ts DESC)',
     );
+    await _createBandBacklog(db);
+  }
+
+  /// band_backlog — the strap's own ring-buffer bookkeeping, one row per
+  /// connect. `pages_behind` is fully parsed by the protocol
+  /// (`control.dart:652`) and arrives on a response edge already reads; until
+  /// now it had zero readers anywhere in the app and was decoded and dropped.
+  ///
+  /// DEVICE STATE, NOT PHYSIOLOGY. It can claim exactly what it says: how much
+  /// the band is still holding, and whether its ring has wrapped. That is the
+  /// one distinction the app currently cannot draw — a STALLED offload versus
+  /// an idle one — and `wrap_count` moving between two connects is a hard fact
+  /// that data was overwritten before we ever saw it.
+  ///
+  /// NOT PRUNED, for the band_battery reason: a 3-day cap on a series whose
+  /// only use is comparing today's reading to the last one destroys it. Six
+  /// narrow columns per connect is not a storage problem.
+  ///
+  /// `device_family` rides along because a page and a record mean different
+  /// things on different straps — `free_records` on gen4 and on gen5 must never
+  /// be put on the same axis or divided by the same records-per-day.
+  ///
+  /// `batchId` is deliberately NOT stored: it is a ring wrap count, not a
+  /// unique batch id, so nothing here may be used to dedupe a batch.
+  static Future<void> _createBandBacklog(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS band_backlog (
+        ts INTEGER PRIMARY KEY,
+        written INTEGER,
+        used INTEGER,
+        capacity INTEGER,
+        trim_page INTEGER,
+        wrap_count INTEGER,
+        free_records INTEGER,
+        device_family TEXT
+      )
+    ''');
+  }
+
+  /// Record one connect's `pages_behind` reading. [ts] is epoch SECONDS.
+  ///
+  /// LOGGING ONLY for now, by instruction: no copy, no notification, no
+  /// headroom estimate. `free_records / records-per-day` is the headroom in
+  /// days and `wrap_count` moving means a loss already happened, but the
+  /// records-per-day divisor is per-device and has to be established from real
+  /// logged data before any number goes in front of a user. This is what
+  /// establishes it.
+  static Future<void> putBandBacklog({
+    required int ts,
+    int? written,
+    int? used,
+    int? capacity,
+    int? trimPage,
+    int? wrapCount,
+    int? freeRecords,
+    String? deviceFamily,
+  }) async {
+    final db = await instance;
+    await db.insert('band_backlog', {
+      'ts': ts,
+      'written': written,
+      'used': used,
+      'capacity': capacity,
+      'trim_page': trimPage,
+      'wrap_count': wrapCount,
+      'free_records': freeRecords,
+      // Unknown provenance stays NULL — never defaulted to gen4.
+      'device_family': deviceFamily,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The most recent [limit] backlog readings, newest first.
+  static Future<List<Map<String, dynamic>>> bandBacklog({int limit = 60}) async {
+    final db = await instance;
+    return db.query('band_backlog', orderBy: 'ts DESC', limit: limit);
   }
 
   /// Additive: add the `millivolts` column to an existing band_battery table.
@@ -3197,8 +3473,10 @@ class LocalDb {
       _addColumnIfMissing(db, 'band_battery', 'millivolts', 'INTEGER');
 
   /// Durable archive for historical records we received but could not decode
-  /// (unknown/unsupported version). NEVER pruned — the whole point is that a
-  /// future firmware's records survive until we understand the format. Keyed by
+  /// (unknown/unsupported version). Thinned to a stated SAMPLE RATE behind the
+  /// retention edge and otherwise kept forever — the point is that a future
+  /// firmware's records survive until we understand the format, and a sample is
+  /// what a decode needs. See [thinRawArchiveBefore] for the numbers. Keyed by
   /// frame `hex` (content identity), like `events`/`band_events` — NOT by
   /// `counter`. The strap resets its record counter to ~0 on every reboot, so
   /// two DISTINCT undecodable frames from different boots can collide on a
@@ -3342,6 +3620,62 @@ class LocalDb {
       'captured_at': a.capturedAt,
       'reason': a.reason,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// One in this many `undecodable_rec_v20` frames is kept behind the retention
+  /// edge. A STATED RATE, not a byte budget, so what survives is auditable: a
+  /// future decode gets 1 record a minute of whatever the band was banking,
+  /// which is a sample, not a recording.
+  ///
+  /// Sampled on `counter`, which resets to ~0 on a band reboot — that makes the
+  /// sample slightly uneven across reboots and does not matter at all; what it
+  /// buys is a rule you can re-run and get the same rows back.
+  static const int rawArchiveKeepEvery = 60;
+
+  /// The one `reason` this thinning applies to, and the reason it exists.
+  ///
+  /// MEASURED on the real MG export: `undecodable_rec_v20` is 115,672 rows of
+  /// 4,256-char hex = 492 MB of the 538 MB `raw_archive` holds, banked in 11
+  /// days. That is ~45 MB/day, ~16 GB/year, and `auto_backup.dart` gzips the
+  /// whole database on a schedule. Nothing else in the table is close: v26 is
+  /// 25,804 rows for 3.9 MB and gen4's v25 is 28,395 rows for 4.3 MB — both
+  /// 152-char frames, and v25 is a channel we have since identified, so
+  /// thinning either would cost real evidence and save nothing. One `reason`,
+  /// one WHERE clause. A future format that turns out to be this big gets its
+  /// own line here, by name — the diagnostics already break the table down by
+  /// reason, so it shows up before it hurts.
+  static const String _thinnedArchiveReason = 'undecodable_rec_v20';
+
+  /// Thin the undecodable archive: drop all but 1-in-[rawArchiveKeepEvery]
+  /// `undecodable_rec_v20` frames captured before [beforeMs]. Returns the rows
+  /// deleted.
+  ///
+  /// Gated on `captured_at` and NOT `rec_ts`: `rec_ts` is NULL for every row in
+  /// this table on all three real exports (142,511 of 142,511), which is not an
+  /// accident — we archive a frame precisely BECAUSE we could not decode it, so
+  /// we never learned its record time. When we received it is the only time we
+  /// have.
+  ///
+  /// Called only from [pruneDecodedBeforeRecTs], so full-rate frames live
+  /// exactly as long as the 1 Hz substrate they arrived with, and the sample
+  /// lives forever.
+  static Future<int> thinRawArchiveBefore(int beforeMs) async {
+    final db = await instance;
+    return db.transaction((txn) => _thinRawArchiveVia(txn, beforeMs));
+  }
+
+  static Future<int> _thinRawArchiveVia(
+    DatabaseExecutor txn,
+    int beforeMs,
+  ) async {
+    return txn.delete(
+      'raw_archive',
+      // `counter` is NOT NULL in practice but the column is nullable, and
+      // `NULL % 60` is NULL — so a counter-less row would never match and would
+      // be kept. Keeping an unsampleable frame is the safe direction.
+      where: 'reason = ? AND captured_at < ? AND counter % ? != 0',
+      whereArgs: [_thinnedArchiveReason, beforeMs, rawArchiveKeepEvery],
+    );
   }
 
   /// How many undecodable records we've archived, and by reason — for the sync
@@ -3739,7 +4073,7 @@ class LocalDb {
         'SELECT counter, rec_ts, hr, ax, ay, az, '
         'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
         'step_count, step_cadence, activity_class, skin_temp_c, '
-        'on_wrist, hr_valid, hr_alt '
+        'on_wrist, hr_valid, hr_alt, device_family '
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts <= ? '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
@@ -3750,7 +4084,7 @@ class LocalDb {
       'SELECT counter, rec_ts, hr, ax, ay, az, '
       'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
       'step_count, step_cadence, activity_class, skin_temp_c, '
-      'on_wrist, hr_valid, hr_alt '
+      'on_wrist, hr_valid, hr_alt, device_family '
       'FROM decoded_onehz '
       'WHERE rec_ts >= ? AND rec_ts <= ? '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
@@ -3843,6 +4177,21 @@ class LocalDb {
             'date': dayId,
             'key': e.key,
             'value': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        // Whose maths wrote those scalars (see _createMetricSeriesVersion).
+        // REPLACE, not IGNORE: the last pass to write the series is the one
+        // that owns the stamp, including a ROLLED-BACK build writing a lower
+        // version over a higher one — that is the case a MAX() over day_result
+        // gets wrong, and the reason this is a stamp and not a query.
+        //
+        // Inside the same transaction as the values, so the stamp and what it
+        // describes can never disagree. Skipped when the series map is empty:
+        // an empty map wrote nothing, so there is nothing to attribute.
+        if (series.isNotEmpty) {
+          await txn.insert('metric_series_version', {
+            'date': dayId,
+            'algo_version': algoVersion,
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
@@ -4387,6 +4736,11 @@ class LocalDb {
       await copyRawRange(startSec, endSec);
       await copyRows('day_result', where: 'day_id = ?', whereArgs: [dayId]);
       await copyRows('metric_series', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows(
+        'metric_series_version',
+        where: 'date = ?',
+        whereArgs: [dayId],
+      );
       await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
       await copyRows(
         'journal_metric',
@@ -4495,6 +4849,7 @@ class LocalDb {
       }
       await deleteByIn(txn, 'day_result', 'day_id', sorted);
       await deleteByIn(txn, 'metric_series', 'date', sorted);
+      await deleteByIn(txn, 'metric_series_version', 'date', sorted);
       await deleteByIn(txn, 'journal', 'date', sorted);
       await deleteByIn(txn, 'journal_metric', 'date', sorted);
       await deleteByIn(txn, 'cycle_log', 'date', sorted);
@@ -4696,6 +5051,7 @@ class LocalDb {
       'band_battery',
       'day_result',
       'metric_series',
+      'metric_series_version',
       'sessions',
       'notifications',
       'baselines',
@@ -5105,6 +5461,8 @@ class LocalDb {
       'live_coverage',
       'workout_route',
       'notif_fired',
+      'metric_series_version',
+      'band_backlog',
     ];
 
     final missingTables = <String>[];
@@ -5128,7 +5486,16 @@ class LocalDb {
       if (miss.isNotEmpty) missingColumns[table] = miss;
     }
 
-    expect('sessions', sessionCols, ['id', 'start_ts', 'status', 'steps']);
+    expect('sessions', sessionCols, [
+      'id',
+      'start_ts',
+      'status',
+      'steps',
+      // The frozen trace: a build that lost these columns silently blanks the
+      // chart half of every session older than the substrate window.
+      'trace_json',
+      'trace_samples',
+    ]);
     expect('sync_ledger', syncLedgerCols, [
       'chunk_id',
       'kind',
@@ -6313,6 +6680,8 @@ class LocalDb {
     required int? maxHr,
     required String zoneMinJson,
     int? avgHr,
+    String? traceJson,
+    int? traceSamples,
   }) async {
     final db = await instance;
     return db.update(
@@ -6326,6 +6695,11 @@ class LocalDb {
         // previously-banked average because THIS pass found no substrate would
         // delete a real measurement.
         'avg_hr': ?avgHr,
+        // Same rule for the frozen trace: only ever written when this pass
+        // actually read a window. A pass that found no substrate must not wipe
+        // the trace banked by an earlier one — the substrate is gone for good.
+        'trace_json': ?traceJson,
+        'trace_samples': ?traceSamples,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -6623,8 +6997,34 @@ class LocalDb {
           await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);
       deleted +=
           await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
-      deleted += await txn.delete('band_events',
-          where: 'ts < ?', whereArgs: [cutoffSec]);
+      // band_events keeps its WEAR AND CHARGE TRANSITIONS forever; everything
+      // else in it goes at the cutoff. `detectNaps` rejects bouts that overlap
+      // an off-wrist or on-charger span, and those spans are built by
+      // `_toggleSpans` out of exactly these four ids — so with them pruned at
+      // 3 days, any re-derive of an older day ran the nap detector with BOTH
+      // rejection lists empty and a charging session on the desk could score as
+      // a nap. Nap history rewrote itself, quietly, just for being looked at.
+      //
+      // Same shape as the band_battery exemption below (a 3-day cap
+      // structurally destroys a lifetime series), and the same size argument:
+      // on the three real exports these four ids are 87, 22 and 12 rows across
+      // 8 to 11 days — a few thousand a year. Event 33 alone is ~1900 A DAY,
+      // which is why the exemption is four ids and not the whole table.
+      deleted += await txn.delete(
+        'band_events',
+        where: 'ts < ? AND event_id NOT IN (?, ?, ?, ?)',
+        whereArgs: [
+          cutoffSec,
+          proto.EventId.chargingOn,
+          proto.EventId.chargingOff,
+          proto.EventId.wristOn,
+          proto.EventId.wristOff,
+        ],
+      );
+      // THE UNDECODABLE ARCHIVE IS THINNED, NOT KEPT WHOLE. See
+      // [thinRawArchiveBefore] — this is the only caller, so the archive is
+      // capped by the same retention pass that caps the substrate.
+      deleted += await _thinRawArchiveVia(txn, cutoffSec * 1000);
       // band_battery is NOT pruned here. It was, at the 3-day substrate cutoff,
       // which structurally capped the battery-health series at 3 days — while
       // batteryHealth() reports `charge_cycles` (rising 0→1 charging edges) and

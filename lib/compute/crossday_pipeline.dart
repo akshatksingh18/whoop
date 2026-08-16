@@ -30,10 +30,15 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 /// Returns a JSON-safe map of the latest/aggregate cross-day results. Every
 /// absent family serializes its honest `Metric.absent` envelope (value "—",
 /// confidence 0) or null — never a fabricated number.
+/// [cycleStartDates] are the user's own logged cycle-start days (`YYYY-MM-DD`,
+/// any order). They are a CALENDAR log, never a detection: everything derived
+/// from them says "the second half of your logged cycle", never "your luteal
+/// phase". Empty ⇒ every cycle-aware family behaves exactly as it did before.
 Map<String, dynamic> buildCrossDayBundle(
   List<Map<String, dynamic>> daysOldestFirst,
-  Map<String, dynamic> profile,
-) {
+  Map<String, dynamic> profile, {
+  List<String> cycleStartDates = const [],
+}) {
   final days = daysOldestFirst;
   final n = days.length;
 
@@ -91,9 +96,16 @@ Map<String, dynamic> buildCrossDayBundle(
   final load = ana.ctlAtlTsb(dailyTrimp);
 
   // ── skin-temp illness flag (Smarr, cycle-aware) ────────────────────────────
+  // WH-01 — the `luteal` argument was written, typed and never passed, so the
+  // `lutealConfound` branch has never once executed and the flag has been
+  // crying "elevated" for the two weeks a month when a sustained rise is the
+  // most ordinary thing in the world. It ANNOTATES, never silences: the day
+  // exception still fires, with the confound named. Suppressing a real illness
+  // is worse than the false alarm.
+  final luteal = _lutealFlags(dates, cycleStartDates);
   final tempIllness = ana.tempIllnessFlag(dates, [
     for (var i = 0; i < n; i++) settled(i, tempList[i]),
-  ]);
+  ], luteal: luteal);
 
   // ── circadian: mid-sleep, free/work split, jetlag, chronotype, sleep debt ──
   // mid-sleep epoch = (onset+wake)/2; local clock-hours in [0,24) via mod-day.
@@ -343,36 +355,14 @@ Map<String, dynamic> buildCrossDayBundle(
     tsb: ls?.tsb,
   );
 
-  // ── VO₂max + Fitness Age (physiological age). Resting VO₂max (Uth HRmax:RHR)
-  //    over the baseline RHR; Fitness Age composites VO₂max + RHR + HRV + sleep +
-  //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
-  final age = _numOrNull(profile['age']);
-  final maxHr = age == null ? null : 208 - 0.7 * age; // Tanaka
-  final baseRhr = _median(<double>[for (final v in rhrList) ?v]);
-  final baseRmssd = _median(<double>[for (final v in rmssdList) ?v]);
-  // No `sex`/`age`: analytics dropped both from these two — neither formula
-  // ever read them, so they promised an adjustment the maths does not make.
-  final vo2 = ana.vo2maxEstimate(restingHr: baseRhr, maxHr: maxHr);
-  final medTstMin = _median(<double>[
-    for (final d in days) ?_numOrNull(d['tst_min']),
-  ]);
-  final medSteps = _median(<double>[
-    for (final d in days) ?_numOrNull(d['steps']),
-  ]);
-  final physAge = age == null
-      ? const ana.Metric<ana.PhysioAge>.absent(
-          tier: ana.Tier.estimate,
-          inputs_used: ['profile'],
-        )
-      : ana.physiologicalAge(
-          chronologicalAge: age,
-          vo2max: vo2.present ? vo2.value : null,
-          restingHr: baseRhr,
-          rmssd: baseRmssd,
-          sleepDurationH: medTstMin == null ? null : medTstMin / 60.0,
-          sleepEfficiency: _median(effs),
-          dailySteps: medSteps,
-        );
+  // VO₂max and Fitness Age used to be computed here. Both are DELETED, not
+  // disabled. `maxHr` was a constant per user and `vo2maxEstimate` returned
+  // 15.3·maxHr/restingHr, so the app's VO₂max was exactly k/RHR — the RHR chart
+  // with a different unit on the axis. `physiologicalAge` then subtracted
+  // (vo2max−35)/5 AND added (rhr−60)/6: the same variable, the same direction,
+  // counted twice, with divisors chosen by nobody. There is no honest version
+  // as a number — not in years, not in mL/kg/min, and not as a trend — and a
+  // submaximal estimate is 13-15 % MAPE, i.e. the same class of thing.
 
   // ── latest per-family flags + JSON-safe assembly ───────────────────────────
   final latestIllness = illness.isEmpty ? null : illness.last;
@@ -448,8 +438,6 @@ Map<String, dynamic> buildCrossDayBundle(
       'wake': wakeRec.toJson((v) => v.toJson()),
     },
     'strain_coach': strainTgt.toJson((v) => v.toJson()),
-    'vo2max': vo2.toJson(),
-    'fitness_age': physAge.toJson((v) => v.toJson()),
     'percentiles': percentiles,
     'recent': recent,
   };
@@ -579,6 +567,54 @@ bool _isFreeDay(String? date) {
   final dt = DateTime.tryParse(date);
   if (dt == null) return false;
   return dt.weekday == DateTime.saturday || dt.weekday == DateTime.sunday;
+}
+
+/// Per-night "is this date in the SECOND HALF of the cycle it belongs to",
+/// parallel to [dates]. All-false when there is nothing to count from.
+///
+/// Each date walks back to its NEAREST PRECEDING logged start — NOT through
+/// `getCycle`, which counts from the LAST start only and therefore produces
+/// nonsense for every historical day. The cycle's length is the gap to the NEXT
+/// logged start; the still-open cycle uses the median of her own completed
+/// gaps, and with fewer than two completed cycles there is no length to use, so
+/// the open cycle contributes nothing rather than a guess.
+///
+/// A date more than 1.5 cycles past its start is a lapse in logging, not a
+/// four-week luteal phase — it stops counting.
+List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
+  final out = List<bool>.filled(dates.length, false);
+  final starts = <DateTime>[
+    for (final s in cycleStartDates) ?DateTime.tryParse(s),
+  ]..sort();
+  if (starts.isEmpty) return out;
+
+  final gaps = <double>[
+    for (var i = 1; i < starts.length; i++)
+      starts[i].difference(starts[i - 1]).inDays.toDouble(),
+  ].where((g) => g >= 15 && g <= 60).toList();
+  final medianGap = _median(gaps);
+
+  for (var i = 0; i < dates.length; i++) {
+    final d = DateTime.tryParse(dates[i]);
+    if (d == null) continue;
+    // Nearest PRECEDING start (inclusive: the start day is cycle day 1).
+    var si = -1;
+    for (var k = 0; k < starts.length; k++) {
+      if (starts[k].isAfter(d)) break;
+      si = k;
+    }
+    if (si < 0) continue; // before she ever logged — nothing to count from
+    final elapsed = d.difference(starts[si]).inDays;
+    // Closed cycle → its own measured length. Open cycle → her median, if she
+    // has one.
+    final len = si + 1 < starts.length
+        ? starts[si + 1].difference(starts[si]).inDays.toDouble()
+        : medianGap;
+    if (len == null || len < 15) continue;
+    if (elapsed > 1.5 * len) continue; // stale log, not a long luteal phase
+    if (elapsed >= len / 2) out[i] = true;
+  }
+  return out;
 }
 
 /// Guard on how far [_denseDailyTrimp] will densify. Past this the input is not

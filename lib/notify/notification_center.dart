@@ -197,6 +197,10 @@ class NotificationCenter {
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
     await svc.cancel(NotificationService.idStillness);
+    // The hydration reminder is gone (MT-14) — everything that armed it is
+    // deleted. This cancel stays because #28 actually shipped it: a phone that
+    // upgrades still has up to 24 daily-repeating slots standing in the OS, and
+    // nothing else will ever clear them.
     for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
       await svc.cancel(NotificationService.idWaterBase + i);
     }
@@ -230,47 +234,6 @@ class NotificationCenter {
       // A week of sleep, strain and recovery lives on Health.
       route: kRouteRecap,
     );
-  }
-
-  // Default waking window when quiet hours are off (so we never ping at 3am).
-  static const int _waterDayStartMin = 8 * 60; // 08:00
-  static const int _waterDayEndMin = 22 * 60; // 22:00
-
-  /// The wall-clock fire times (minutes-from-midnight, ascending) for the
-  /// hydration reminder — one per slot across the waking window, spaced by the
-  /// (clamped) interval, capped at [NotificationService.maxWaterSlots]. Returns
-  /// empty when hydration is off — which is now always: `waterEnabled` defaults
-  /// false and the three-class rule gives it no switch to turn it on with. PURE;
-  /// the only remaining consumer is the strap-buzz timer in AppState, which this
-  /// therefore keeps permanently idle.
-  static List<int> waterSlotMinutes(NotificationPrefs prefs) {
-    if (!prefs.remindersEnabled || !prefs.waterEnabled) return const [];
-
-    final interval = prefs.waterIntervalMin.clamp(
-        NotificationPrefs.waterIntervalMinAllowed,
-        NotificationPrefs.waterIntervalMaxAllowed);
-
-    // Waking window = outside quiet hours when enabled, else the daytime default.
-    // quietEnd is wake-up; quietStart is bedtime. Fall back to 08:00–22:00 if the
-    // window is degenerate (start <= end, or quiet hours disabled).
-    var startMin = _waterDayStartMin, endMin = _waterDayEndMin;
-    if (prefs.quietEnabled && prefs.quietStartMin > prefs.quietEndMin) {
-      startMin = prefs.quietEndMin; // wake
-      endMin = prefs.quietStartMin; // bed
-    }
-    if (endMin - startMin < interval) {
-      // Window too short for even one spaced slot — fire once mid-window.
-      startMin = (startMin + endMin) ~/ 2;
-      endMin = startMin + 1;
-    }
-
-    final slots = <int>[];
-    for (var t = startMin;
-        t < endMin && slots.length < NotificationService.maxWaterSlots;
-        t += interval) {
-      slots.add(t);
-    }
-    return slots;
   }
 
   /// Clear the three AI slots (morning briefing, evening recap, pre-sleep

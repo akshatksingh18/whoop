@@ -51,6 +51,18 @@ class Sample {
   /// heart rate and must never be displayed as one.
   final int? hrAlt;
 
+  /// Ambient-light ADC count — GEN4 ONLY (gen5 sends no per-second equivalent).
+  ///
+  /// Relative, on the user's own scale, forever: never lux, never a daylight
+  /// goal. It measures what the WRIST saw, so the signal is one-sided — bright
+  /// means bright, dark means nothing (a sleeve, a duvet or an arm under the
+  /// pillow reads dark in a floodlit room).
+  ///
+  /// 0 means ABSENT, not dark: the decoder emits 0 for any record version it
+  /// has not confirmed the optical block on. The DB write maps 0 → NULL so an
+  /// unconfirmed record never lands as a real reading of total darkness.
+  final int? ambientRaw;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -69,6 +81,7 @@ class Sample {
     this.onWrist,
     this.hrValid,
     this.hrAlt,
+    this.ambientRaw,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -93,6 +106,7 @@ class Sample {
     onWrist: onWrist,
     hrValid: hrValid,
     hrAlt: hrAlt,
+    ambientRaw: ambientRaw,
   );
 
   bool get wristOn => hr > 0;
@@ -131,6 +145,8 @@ class Sample {
       onWrist: (m['on_wrist'] as num?)?.toInt(),
       hrValid: valid == null ? null : valid != 0,
       hrAlt: (m['hr_alt'] as num?)?.toInt(),
+      // Already 0-mapped-to-NULL on the way in, so a stored value is a reading.
+      ambientRaw: (m['ambient_raw'] as num?)?.toInt(),
     );
   }
 }

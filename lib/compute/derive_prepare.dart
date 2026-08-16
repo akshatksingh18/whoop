@@ -412,6 +412,21 @@ class _PrepareAccumulator {
   /// See [Substrate.stepCount] for why the sentinel is not 0.
   final List<int> stepCount = [];
 
+  /// The DISTINCT non-null `device_family` stamps seen across every page fed in
+  /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
+  /// family. Zero (nothing stamped: pre-v41 rows, imports, the raw-hex replay
+  /// path) or more than one (the athlete changed straps inside this window) ⇒
+  /// null, i.e. UNKNOWN, and per-family metrics refuse. Cheaper than a
+  /// per-second array and it answers the only question anyone asks.
+  final Set<String> _families = {};
+
+  void _noteFamily(Object? v) {
+    if (v is String && v.isNotEmpty) _families.add(v);
+  }
+
+  String? get deviceFamily =>
+      _families.length == 1 ? _families.first : null;
+
   /// Defensive numeric read. The decoded-page rows come straight out of SQLite,
   /// where a column's storage class is per-VALUE, not per-column — a row written
   /// by an older/importing path can hand back a String or null where an INTEGER
@@ -458,6 +473,7 @@ class _PrepareAccumulator {
     for (final row in frames) {
       final recTs = _num(row['rec_ts'])?.toInt();
       if (recTs == null || recTs <= 0) continue;
+      _noteFamily(row['device_family']);
       tsSec.add(recTs);
       hr.add(plausibleHrOrZero(_num(row['hr'])?.toInt() ?? 0));
       // The 1 Hz arrays are POSITIONAL — one entry per second, 1:1 with tsSec —
@@ -517,5 +533,6 @@ class _PrepareAccumulator {
     skinTemp: skinTemp,
     skinContact: skinContact,
     stepCount: stepCount,
+    deviceFamily: deviceFamily,
   );
 }

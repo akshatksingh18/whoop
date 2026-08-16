@@ -325,6 +325,12 @@ class MetricData {
   /// days masquerade as 30 continuous ones — the chart then joins straight
   /// across a sync gap and calls the newest stored point "Today".
   final List<ChartPoint> series;
+
+  /// L4 — THE DENOMINATOR. Worn minutes for the same days, off the same
+  /// `getChart` call. A long trend drawn without it is an attendance chart
+  /// wearing a physiology label: it cannot make a sparse month comparable, only
+  /// refuse to pretend one is.
+  final List<ChartPoint> wear;
   final Map<String, dynamic>? percentile;
   final List<Map<String, dynamic>> movers;
 
@@ -335,6 +341,7 @@ class MetricData {
 
   const MetricData({
     this.series = const [],
+    this.wear = const [],
     this.percentile,
     this.movers = const [],
     this.daysAvailable = 0,
@@ -363,6 +370,7 @@ class MetricData {
     }
     return MetricData(
       series: pointsOf(chart),
+      wear: pointsOf({'points': chart['wear']}),
       percentile: pct,
       movers: movers,
       daysAvailable: days.length,
@@ -497,7 +505,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals, win),
+        _hero(c, spec, all, series, vals, win, d.wear),
         // On Today the window holds one value, and its lowest, typical and
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
@@ -528,7 +536,8 @@ class _MetricDetailState extends State<MetricDetail> {
   // really do average to the same number, and "1 of 30 days" says so where
   // a bare figure looked like a bug.
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
-      List<double?> series, List<double> vals, int win) {
+      List<double?> series, List<double> vals, int win,
+      List<ChartPoint> wear) {
     final p = P.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
     final latest = vals.last;
@@ -626,6 +635,45 @@ class _MetricDetailState extends State<MetricDetail> {
             ),
           );
         }),
+        // L4 — the coverage denominator, under the curve it belongs to.
+        //
+        // Deliberately unflattering, and gated to the ranges where it changes
+        // the reading: a 7-day chart is one week you either wore or did not,
+        // while a 6-month line drawn over four worn nights a month is an
+        // attendance chart with a physiology label on it. It cannot make a
+        // sparse month comparable — only refuse to pretend.
+        //
+        // A day with no `worn_min` row draws NOTHING, not a zero: wear older
+        // than the 3-day substrate window is knowable only through this derived
+        // key, and nothing here reconstructs it. Same card, not a new one; the
+        // denominator is part of reading the chart, not a second claim.
+        if (win >= 30 && spec.chartKey != 'wear' && wear.isNotEmpty)
+          Builder(builder: (c) {
+            final hrs = [
+              for (final v in denseDays(wear, win)) v == null ? null : v / 60,
+            ];
+            final have = [for (final v in hrs) ?v];
+            if (have.isEmpty) return const SizedBox.shrink();
+            final axis =
+                AxisSpec.of(have, ticks: 2, floor: 0, ceil: 24, format: axisInt);
+            return Padding(
+              padding: const EdgeInsets.only(top: S.x4),
+              child: ChartFrame(
+                title: 'Worn',
+                unit: 'h a day',
+                height: 56,
+                yAxis: axis,
+                series: hrs,
+                footnote: '${have.length} of these $win days have a wear '
+                    'record. The rest are gaps in both charts — the line above '
+                    'is not carried across one.',
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: Bars(hrs, p.ink3, axis: axis),
+                ),
+              ),
+            );
+          }),
       ]),
     );
   }

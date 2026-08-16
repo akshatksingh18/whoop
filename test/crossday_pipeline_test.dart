@@ -437,4 +437,48 @@ void main() {
       expect((coach2['wake'] as Map)['value'], isA<Map>());
     });
   });
+
+  // CV-02. VO2max was exactly k/RHR — the resting-HR chart with the wrong
+  // unit on the axis — and fitness age counted the same variable twice, in
+  // the same direction. Both are deleted, not hidden.
+  test('publishes no VO2max and no fitness age', () {
+    final out = buildCrossDayBundle(_synthDays(30), const {
+      'age': 34,
+      'sex': 'm',
+    });
+    expect(out.containsKey('vo2max'), isFalse);
+    expect(out.containsKey('fitness_age'), isFalse);
+  });
+
+  // WH-01. The `luteal` argument was written, typed and never passed, so the
+  // confound branch had never once executed and the flag cried wolf for two
+  // weeks a month.
+  group('the luteal argument reaches the temperature flag', () {
+    // The published row is the LATEST day, which for _synthDays(30) anchored
+    // on 2024-01-01 is 2024-01-30.
+    bool lutealOn(List<String> starts) {
+      final out = buildCrossDayBundle(
+        _synthDays(30),
+        const {},
+        cycleStartDates: starts,
+      );
+      return ((out['temp_illness'] as Map)['luteal'] as bool?) ?? false;
+    }
+
+    test('a day in the second half of its own cycle is marked', () {
+      // Two starts 28 days apart, so the open cycle inherits her median
+      // length; 2024-01-30 is day 30 of a 28-day cycle.
+      expect(lutealOn(const ['2023-12-04', '2024-01-01']), isTrue);
+    });
+
+    test('a day just after a start is not', () {
+      expect(lutealOn(const ['2024-01-01', '2024-01-29']), isFalse);
+    });
+
+    test('with no cycle log nothing is marked — we do not guess', () {
+      expect(lutealOn(const []), isFalse);
+      // One start alone gives no measured length either.
+      expect(lutealOn(const ['2024-01-01']), isFalse);
+    });
+  });
 }

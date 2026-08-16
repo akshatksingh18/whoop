@@ -13,6 +13,7 @@ import 'dart:convert' show jsonDecode;
 import 'dart:math' show sqrt;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
@@ -29,6 +30,21 @@ class InvestigateData {
   final String? importedFrom;
   final Map<String, dynamic> hrv; // getDayHrv
   final Map<String, dynamic> heart; // getDayHeart
+
+  /// `respiration.cvhr_apnea` — the whole envelope, because the note is the
+  /// difference between a screen that abstained and a screen that ran and
+  /// counted nothing.
+  final Object? cvhr;
+
+  /// The stored `prsa_dc` series, dated. Deceleration capacity is the one
+  /// HRV-family number with hard outcome evidence behind it and its only
+  /// reader was a single row in the table below.
+  final List<ChartPoint> dcPoints;
+
+  /// The stored `irregular_rhythm_flag` series (1/0 per DERIVED day). A day
+  /// with no row and a day the screen abstained are the same absence here, and
+  /// nothing downstream guesses which.
+  final List<ChartPoint> rhythmPoints;
   final int? coveragePct;
   final int? windowStart, windowEnd;
   final List<double> series;
@@ -39,6 +55,9 @@ class InvestigateData {
     this.importedFrom,
     this.hrv = const {},
     this.heart = const {},
+    this.cvhr,
+    this.dcPoints = const [],
+    this.rhythmPoints = const [],
     this.coveragePct,
     this.windowStart,
     this.windowEnd,
@@ -61,6 +80,13 @@ class InvestigateData {
     final win = lungs['sleep_window'];
     final series =
         spec.suppress != null ? const <double>[] : seriesOf(await repo.getChart(spec.chartKey));
+    final hrvish = key == 'hrv' || key == 'rmssd_whole';
+    final dc = hrvish
+        ? pointsOf(await repo.getChart('prsa_dc'))
+        : const <ChartPoint>[];
+    final rhythm = hrvish
+        ? pointsOf(await repo.getChart('irregular_rhythm_flag'))
+        : const <ChartPoint>[];
 
     // An imported day says so. `imported`/`source` are written by the importers
     // onto the bundle itself; a day derived here has neither.
@@ -79,6 +105,9 @@ class InvestigateData {
       importedFrom: importedFrom,
       hrv: hrv,
       heart: heart,
+      cvhr: lungs['cvhr'],
+      dcPoints: dc,
+      rhythmPoints: rhythm,
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
       windowStart: win is Map ? (win['start'] as num?)?.toInt() : null,
       windowEnd: win is Map ? (win['end'] as num?)?.toInt() : null,
@@ -137,6 +166,7 @@ class _InvestigateState extends State<Investigate> {
         const Center(child: CircularProgressIndicator()),
       ] else ...[
         if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
+        if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
         const SizedBox(height: S.x3),
         MonoTable('Provenance', [
           ('Day', d.day ?? '—'),
@@ -261,6 +291,14 @@ class _InvestigateState extends State<Investigate> {
         ('Acceleration capacity', ms(ac['capacity_ms'])),
         ('DC anchors', dc['anchors'] == null ? '—' : thousands(dc['anchors'] as num)),
       ]),
+      if (d.dcPoints.isNotEmpty) ...[
+        const SizedBox(height: S.x3),
+        _dcTrend(c, d, beats),
+      ],
+      if (d.rhythmPoints.isNotEmpty) ...[
+        const SizedBox(height: S.x3),
+        _rhythmStrip(c, d),
+      ],
       const SizedBox(height: S.x3),
       // Beats analysed is the only MEASURED row this table ever had; the other
       // three were constants sitting under a heading that made them look
@@ -269,6 +307,152 @@ class _InvestigateState extends State<Investigate> {
         ('Beats analysed', beats == null ? '—' : thousands(beats as num)),
         ('Beats analysed, 24 h',
             irr24['n_beats'] == null ? '—' : thousands(irr24['n_beats'] as num)),
+      ]),
+    ];
+  }
+
+  /// CV-03 — deceleration capacity as a trend. UNCOLOURED, and that is the
+  /// whole design: DC has real outcome evidence behind it (Bauer 2006) and the
+  /// strata are ECG post-MI, while our beats are pulse arrivals. PRSA anchors
+  /// on decelerations, and pulse-arrival jitter attenuates DC by an amount that
+  /// varies with signal quality night to night — so a rising line can be a
+  /// cleaner-signal line. No colour, no threshold, no reference range, ever.
+  /// The beat count goes on the card because the artifact gate is load-bearing.
+  Widget _dcTrend(BuildContext c, InvestigateData d, Object? beats) {
+    final p = P.of(c);
+    final win = denseDays(d.dcPoints, 30);
+    final vals = [for (final v in win) ?v];
+    final axis = AxisSpec.of(vals, ticks: 3, format: axisFixed);
+    return Surface(
+      child: ChartFrame(
+        title: 'Deceleration capacity',
+        unit: 'ms',
+        height: 110,
+        yAxis: axis,
+        xLabels: const ['29 days ago', 'Today'],
+        series: win,
+        footnote: 'Your own nights only — no reference range, and none exists '
+            'for pulse arrivals. Night-to-night signal quality moves this line '
+            'on its own'
+            '${beats is num ? ', and last night was ${thousands(beats)} beats' : ''}.',
+        child: CustomPaint(
+          size: Size.infinite,
+          // p.ink3, not an accent. A colour here would be a verdict.
+          painter: LineChart(win, p.ink3,
+              fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
+              axis: axis),
+        ),
+      ),
+    );
+  }
+
+  /// CV-10 — the irregular-rhythm SCREEN, night by night.
+  ///
+  /// Three states and they must look like three states: a filled square is a
+  /// day the screen ran, darker when it raised its flag, and an OUTLINE is a
+  /// day it did not run at all. `metric_series` stores one value per day, so a
+  /// day with no record and a day the screen abstained on are the same absence
+  /// — the copy says "did not run" and does not guess which.
+  ///
+  /// Screening, not detection. Wrist optical cannot separate an ectopic beat
+  /// from a dropped beat from a motion artifact, so there is no percentage of
+  /// abnormal beats here and no AF, PVC or ectopy vocabulary anywhere near it.
+  /// The footnote is permanent, not a tooltip: a clear strip means nothing.
+  Widget _rhythmStrip(BuildContext c, InvestigateData d) {
+    final p = P.of(c);
+    const weeks = 12;
+    final grid = _weekGrid(d.rhythmPoints, weeks);
+    final ran = d.rhythmPoints.length;
+    final raised = d.rhythmPoints.where((e) => e.v >= 1).length;
+    return Surface(
+      child: ChartFrame(
+        title: 'Irregular-rhythm screen',
+        unit: 'one square per day',
+        height: 96,
+        xLabels: const ['12 weeks ago', 'This week'],
+        legend: [('Screen ran', p.on(C.purple))],
+        footnote: 'Ran on $ran day${ran == 1 ? '' : 's'}, raised its flag on '
+            '$raised. An outlined square is a day it did not run. A clear '
+            'strip is not a negative result: this is a screen on pulse '
+            'timing, and it cannot tell an ectopic beat from a dropped beat '
+            'from the band moving on your wrist.',
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: HeatMap(grid, p.on(C.purple), p.line),
+        ),
+      ),
+    );
+  }
+
+  /// [pts] as calendar weeks — one column per week, Monday at the top, the last
+  /// column being the week that contains today. `null` is a day with no stored
+  /// value, which [HeatMap] draws as an outline rather than a fainter fill.
+  static List<List<double?>> _weekGrid(List<ChartPoint> pts, int weeks) {
+    final tail = 7 - DateTime.now().weekday; // days left in the current week
+    final all = [
+      ...denseDays(pts, weeks * 7 - tail),
+      ...List<double?>.filled(tail, null),
+    ];
+    return [for (var w = 0; w < weeks; w++) all.sublist(w * 7, w * 7 + 7)];
+  }
+
+  // ── breathing-disturbance texture ──
+  //
+  // The screen already counted the cycles; it accumulated each one's depth and
+  // width and threw everything but the two means away. The quartiles are the
+  // shape those means hide: a night of a few deep dips and a night of many
+  // shallow ones share a mean.
+  //
+  // Numbers, no adjectives, no interpretation, no category — and Investigate
+  // only. Nothing here is a sleep-apnea finding and no copy anywhere near it
+  // names a breathing disorder or a mechanism.
+  List<Widget> _cvhrPanels(InvestigateData d) {
+    final v = envValue(d.cvhr);
+    final note = metricOf(d.cvhr).note;
+    if (v == null) {
+      // ABSTAINED, not "nothing found". The screen hard-gates on beat count and
+      // artifact fraction, and zero cycles over six observed hours is a
+      // different night from a screen that never ran.
+      return [
+        const SizedBox(height: S.x3),
+        StatusCard(
+          'The cycle screen did not run for this night',
+          note?.isNotEmpty == true
+              ? note!
+              : 'Not enough clean beats to run it.',
+          icon: LucideIcons.wind,
+        ),
+      ];
+    }
+
+    String q(Object? qs, String unit, int dp) {
+      if (qs is! List || qs.length < 3) return '—';
+      final xs = [for (final e in qs) if (e is num) e];
+      if (xs.length < 3) return '—';
+      return '${xs.map((e) => e.toStringAsFixed(dp)).join(' · ')} $unit';
+    }
+
+    final hours = v['analyzed_hours'] as num?;
+    return [
+      const SizedBox(height: S.x3),
+      MonoTable('Heart-rate cycles', [
+        ('Cycles counted', v['cycle_count'] == null
+            ? '—'
+            : thousands(v['cycle_count'] as num)),
+        ('Observed hours analysed',
+            hours == null ? '—' : '${hours.toStringAsFixed(2)} h'),
+        ('Cycles per observed hour', v['cvhr_per_hour'] == null
+            ? '—'
+            : (v['cvhr_per_hour'] as num).toStringAsFixed(2)),
+        ('Mean cycle length', v['mean_width_sec'] == null
+            ? '—'
+            : '${(v['mean_width_sec'] as num).toStringAsFixed(1)} s'),
+        ('Mean dip depth', v['mean_depth_ms'] == null
+            ? '—'
+            : '${(v['mean_depth_ms'] as num).toStringAsFixed(1)} ms'),
+        // p25 · p50 · p75 of the SAME per-cycle lists the means come from.
+        ('Cycle length, quartiles', q(v['width_quartiles_sec'], 's', 1)),
+        ('Dip depth, quartiles', q(v['depth_quartiles_ms'], 'ms', 1)),
       ]),
     ];
   }

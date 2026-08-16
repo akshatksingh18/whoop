@@ -23,6 +23,7 @@ import '../../gps/route_models.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
+import '../activity/day_strain.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
@@ -226,8 +227,63 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ),
       ),
-      Section('Training load', _loadCard(c, p, d)),
+      Section(
+        'Training load',
+        Column(children: [
+          _loadCard(c, p, d),
+          // TS-08 — a SECOND axis, beside the cardiovascular one and never
+          // inside it. Its own card because that is what "not fused" means:
+          // one bar is heartbeats over time, the other is kilos off the floor,
+          // and they do not add up to anything. Drawn only when the week has
+          // any, so a runner never sees an empty kilo chart.
+          if (d.tonnage7.any((v) => v != null)) ...[
+            const SizedBox(height: S.x3),
+            _tonnageCard(p, d),
+          ],
+        ]),
+        // TS-02 — the door onto the day's own strain trace. `getDayStrain` and
+        // `series.strain_curve` were both fully implemented and read by no
+        // screen. A link, not a card: this tab is about the fortnight, and the
+        // shape of one day belongs behind a tap.
+        action: "Today's strain",
+        onAction: () => Navigator.of(c)
+            .push(MaterialPageRoute(builder: (_) => const DayStrainDetail())),
+      ),
     ];
+  }
+
+  /// Kilos moved per day over the same seven slots the TRIMP chart uses.
+  ///
+  /// INCOMPLETE BY DESIGN, and the footnote says so: `load_kg` is deliberately
+  /// nullable so a bodyweight set is not a zero-kilo set, which means a week of
+  /// pull-ups contributes nothing here and must not be read as an easy week.
+  /// No records, no bests, no comparison with last week.
+  Widget _tonnageCard(P p, _WorkoutData d) {
+    final end = d.trimpEnd ?? DateTime.now();
+    final axis = AxisSpec.of([for (final v in d.tonnage7) ?v], floor: 0);
+    return Surface(
+      child: ChartFrame(
+        title: 'MECHANICAL LOAD',
+        unit: 'kg lifted',
+        height: 88,
+        yAxis: axis,
+        xLabels: [
+          for (var i = 6; i >= 0; i--)
+            _weekdayLetter(end.subtract(Motion.tick * 86400 * i)),
+        ],
+        footnote: 'Reps × load over the sets you logged with a weight. '
+            '${d.tonnagePartial ? 'Sets logged without one are not in it, so '
+                'this is a floor rather than a total. ' : ''}'
+            'Exact for what you typed and worthless across exercises — kept '
+            'out of strain and recovery for that reason.',
+        series: d.tonnage7,
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: Bars(d.tonnage7, p.on(C.orange),
+              axis: axis, t: animate(context, 1)),
+        ),
+      ),
+    );
   }
 
   Widget _loadCard(BuildContext c, P p, _WorkoutData d) {
@@ -290,8 +346,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         const SizedBox(height: S.x4),
         // Absent is absent. `?? 0` used to render "Fatigue 0" — a rest week —
         // for a pipeline that had simply not produced the number.
+        //
+        // No 'Fitness' entry: it is `l.ctl`, which the headline two rows up is
+        // already printing at 34 pt under the word "fitness". One number, once.
         InlineMetrics([
-          ('Fitness', l.ctl.round().toString(), C.blue),
           ('Fatigue', l.atl?.round().toString() ?? 'Not yet', C.orange),
           (
             'Form',
@@ -591,6 +649,20 @@ class _HistoryRow extends StatelessWidget {
 /// did not come from.
 String _weekdayLetter(DateTime d) =>
     const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][d.weekday - 1];
+
+/// Which of the seven slots [at] falls in — 6 being [end]'s own day — or null
+/// when it is outside the window.
+///
+/// UTC midnights for the same reason [lastSevenDays] uses them: the day after a
+/// spring-forward is 23 h long, and `inDays` floors that into the neighbouring
+/// slot.
+int? _daySlot(DateTime at, DateTime end) {
+  final slot = 6 -
+      DateTime.utc(end.year, end.month, end.day)
+          .difference(DateTime.utc(at.year, at.month, at.day))
+          .inDays;
+  return slot < 0 || slot > 6 ? null : slot;
+}
 
 /// `getChart` points → one slot per calendar day for the seven ending [end],
 /// index 6 being [end] itself. A day with no point is null, which the painter
@@ -937,6 +1009,11 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // The session's own mean, computed over its heart-rate stream.
       avgHr: (b['avg_hr'] as num?)?.round(),
       maxHr: (b['max_hr'] as num?)?.round(),
+      // How much of the window the trace behind those numbers actually covers.
+      // Sessions past `rawRetentionDays` are served from the frozen trace, and
+      // one frozen mid-dropout has to read as partial rather than draw a
+      // confident line across the gap.
+      traceCoveragePct: (b['trace_coverage_pct'] as num?)?.toInt(),
     );
   } catch (_) {
     // Enrichment is best-effort; the scalars on the row still render.
@@ -1049,6 +1126,15 @@ class _WorkoutData {
   /// The day slot 6 belongs to. Carried so the x labels are read off the same
   /// anchor the buckets were built with, not off a second `DateTime.now()`.
   final DateTime? trimpEnd;
+
+  /// Kilos moved per day over the SAME seven slots as [trimp7]. Null is a day
+  /// with nothing logged; a bodyweight-only day is also null, because a set
+  /// with no `load_kg` has a volume nobody measured — not a volume of zero.
+  final List<double?> tonnage7;
+
+  /// Whether any set in that week was logged without a load, which makes every
+  /// bar above a floor rather than a total.
+  final bool tonnagePartial;
   final List<_PastWorkout> workouts;
   final Set<int> weekDays; // 0 = Monday
   final int weekCount;
@@ -1067,6 +1153,8 @@ class _WorkoutData {
     this.loadNote,
     this.trimp7 = const [],
     this.trimpEnd,
+    this.tonnage7 = const [],
+    this.tonnagePartial = false,
     this.workouts = const [],
     this.weekDays = const {},
     this.weekCount = 0,
@@ -1164,6 +1252,34 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     }
     past.sort((a, b) => b.start.compareTo(a.start));
 
+    // TS-08 — mechanical load, on the same seven slots the TRIMP chart uses.
+    // One indexed read per session in the window, in parallel, and only for the
+    // window: `strength_set` has no per-week aggregate and this is a handful of
+    // rows either way.
+    // ponytail: N queries per screen load. If a lifter with a session every day
+    // ever feels it, the fix is a SUM(reps*load_kg) GROUP BY in LocalDb, not a
+    // cache here.
+    final tonnage7 = List<double?>.filled(7, null);
+    var tonnagePartial = false;
+    final tonnageJobs = <Future<void>>[];
+    for (final w in past) {
+      final slot = _daySlot(w.start, end);
+      if (slot == null || w.id.isEmpty) continue;
+      tonnageJobs.add(LocalDb.strengthSets(w.id).then((rows) {
+        if (rows.isEmpty) return;
+        final log = _logFrom(rows);
+        if (log.hasUnloadedSets) tonnagePartial = true;
+        final v = log.volumeKg;
+        if (v == null) return; // bodyweight-only session: no kilos to add
+        tonnage7[slot] = (tonnage7[slot] ?? 0) + v;
+      }));
+    }
+    try {
+      await Future.wait(tonnageJobs);
+    } catch (_) {
+      // Nobody lifting is the normal case; a partial sum is still honest.
+    }
+
     final weekStart = end.subtract(Motion.tick * 86400 * (end.weekday - 1));
     final thisWeek = [for (final w in past) if (w.start.isAfter(weekStart)) w];
 
@@ -1200,6 +1316,8 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       loadNote: note,
       trimp7: trimp,
       trimpEnd: end,
+      tonnage7: tonnage7,
+      tonnagePartial: tonnagePartial,
       workouts: past,
       weekDays: {for (final w in thisWeek) w.start.weekday - 1},
       weekCount: thisWeek.length,

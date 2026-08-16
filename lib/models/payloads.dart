@@ -148,7 +148,6 @@ class TodayData {
     return readiness.value!.round();
   }
 
-  Metric get vo2max => metricOf(_daily, 'vo2max');
   Metric get fitness => metricOf(_daily, 'fitness');
   Metric get form => metricOf(_daily, 'form');
   Metric get strain => metricOf(_daily, 'strain');

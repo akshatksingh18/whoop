@@ -125,9 +125,12 @@ class NotificationService {
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
 
-  /// Hydration reminders occupy a contiguous slot band [idWaterBase ..
-  /// idWaterBase + maxWaterSlots) — one daily-repeating slot per fire time across
-  /// the waking window. Still inside the disjoint <3000 scheduled-reminder band.
+  /// Dead slot band, kept only so the cancel loop in
+  /// [NotificationCenter.scheduleStandingReminders] can clear it. #28 shipped
+  /// hydration reminders as up to 24 daily-repeating slots in [idWaterBase ..
+  /// idWaterBase + maxWaterSlots); MT-14 deleted everything that armed them, but
+  /// the OS still holds the ones already scheduled on an upgrading phone. Do not
+  /// reuse these ids for anything new.
   static const int idWaterBase = 2100;
   static const int maxWaterSlots = 24;
 

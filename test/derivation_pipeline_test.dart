@@ -225,6 +225,141 @@ void main() {
     expect(rhrMetric['value'], isNotNull);
     expect(rhrMetric['value'], isNot('—'));
   }, skip: skipNoFixture);
+
+  // ── synthetic, fixture-free: the seams the day bundle publishes ────────────
+  group('the day bundle seams', () {
+    const t0 = 1786700000;
+
+    Map<String, dynamic> bundleFor({
+      required List<String> stages,
+      String sleepSource = 'auto',
+      int tempEvery = 1,
+      String? deviceFamily = 'gen4',
+    }) {
+      final n = stages.length;
+      final ts = <int>[for (var i = 0; i < n; i++) t0 + i];
+      final hr = <int>[for (var i = 0; i < n; i++) 55];
+      return deriveDayBundle(DayBundleInput(
+        date: '2026-08-15',
+        dayTsSec: ts,
+        dayHr: hr,
+        sleepTsSec: ts,
+        sleepHr: hr,
+        sleepRrTsMs: const [],
+        sleepRrMs: const [],
+        sleepSpo2Red: List<int>.filled(n, 0),
+        sleepSpo2Ir: List<int>.filled(n, 0),
+        // One temp sample every `tempEvery` seconds; 0 is the absent sentinel.
+        sleepSkinTemp: <int>[
+          for (var i = 0; i < n; i++) i % tempEvery == 0 ? 3000 : 0,
+        ],
+        sleepJson: {
+          'tst_sec': n,
+          'in_bed_sec': n,
+          'unobserved_sec': stages.where((s) => s == 'unobserved').length,
+          'window': {'onset_ms': t0 * 1000, 'offset_ms': (t0 + n) * 1000},
+        },
+        hypnoStages: stages,
+        sleepOnsetSec: t0,
+        sleepOffsetSec: t0 + n,
+        profile: const {
+          'age': 35,
+          'sex': 'm',
+          'weight_kg': 75,
+          'height_cm': 178,
+        },
+        deviceFamily: deviceFamily,
+        sleepSource: sleepSource,
+      ).toJson());
+    }
+
+    Map<String, dynamic> accountingOf(Map<String, dynamic> b) =>
+        (((b['sleep'] as Map)['accounting'] as Map)['value'] as Map)
+            .cast<String, dynamic>();
+
+    // Two hours of sleep, a one-hour hole, two more hours. A naive longest-run
+    // bridges the hole and prints five hours of unbroken sleep.
+    test('the longest unbroken stretch never bridges an unobserved hole', () {
+      final acc = accountingOf(bundleFor(stages: <String>[
+        ...List<String>.filled(7200, 'light'),
+        ...List<String>.filled(3600, 'unobserved'),
+        ...List<String>.filled(7200, 'light'),
+      ]));
+      expect(acc['longest_sleep_sec'], 7200);
+      expect(acc['unobserved_sec'], 3600);
+      expect(acc['observed_in_bed_sec'], 14400);
+      // And the hole is not an awakening — we did not see anyone wake up.
+      expect(acc['awakenings'], 0);
+    });
+
+    test('only sustained wake runs count as awakenings', () {
+      final acc = accountingOf(bundleFor(stages: <String>[
+        ...List<String>.filled(3600, 'light'),
+        ...List<String>.filled(600, 'wake'),
+        ...List<String>.filled(3600, 'rem'),
+        ...List<String>.filled(60, 'wake'),
+        ...List<String>.filled(3600, 'light'),
+      ]));
+      expect(acc['awakenings'], 1);
+    });
+
+    // On the auto path the window cannot begin before you are already still
+    // with a sleep-ish heart rate, so a latency measured off it is not the
+    // number people read it as.
+    test('sleep-onset latency is published only on a forced window', () {
+      final stages = <String>[
+        ...List<String>.filled(900, 'wake'),
+        ...List<String>.filled(3600, 'light'),
+      ];
+      expect(accountingOf(bundleFor(stages: stages))['sol_sec'], isNull);
+      expect(
+        accountingOf(
+            bundleFor(stages: stages, sleepSource: 'manual'))['sol_sec'],
+        900,
+      );
+      // …and never when the leading edge went unwatched.
+      expect(
+        accountingOf(bundleFor(
+          stages: <String>[
+            'unobserved',
+            ...List<String>.filled(899, 'wake'),
+            ...List<String>.filled(3600, 'light'),
+          ],
+          sleepSource: 'manual',
+        ))['sol_sec'],
+        isNull,
+      );
+    });
+
+    // How much of "last night" a nightly skin temperature is actually made of.
+    test('the temperature mean carries its coverage fraction', () {
+      final scalars =
+          (bundleFor(stages: List<String>.filled(7200, 'light'), tempEvery: 10)[
+                  'scalars'] as Map)
+              .cast<String, dynamic>();
+      expect(scalars['skin_temp_adc'], isNotNull);
+      expect(scalars['skin_temp_coverage_frac'] as num, closeTo(0.1, 0.001));
+    });
+
+    // One ceiling, dispatched on the strap — and no ceiling at all when we
+    // cannot say which strap measured the heart rate.
+    test('an unstamped strap gets no HR ceiling, so nothing is banded on one',
+        () {
+      final stamped =
+          (bundleFor(stages: List<String>.filled(3600, 'light'))['scalars']
+                  as Map)
+              .cast<String, dynamic>();
+      expect(stamped['max_hr_used'] as num, closeTo(208 - 0.7 * 35, 0.001));
+      final unstamped = (bundleFor(
+        stages: List<String>.filled(3600, 'light'),
+        deviceFamily: null,
+      )['scalars'] as Map)
+          .cast<String, dynamic>();
+      expect(unstamped['max_hr_used'], isNull);
+      expect(unstamped['trimp'], isNull);
+      expect(unstamped['calories'], isNull);
+    });
+  });
 }
 
 /// Minimal mirror of LocalRepositoryImpl.getToday() shaping (no DB).

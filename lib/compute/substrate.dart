@@ -82,6 +82,22 @@ class Substrate {
   /// [accelPresentAt].
   final List<int> stepCount;
 
+  /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
+  ///
+  /// Stamped at ingest into `decoded_onehz.device_family` and carried here so
+  /// the pure pipeline can dispatch on it (analytics: `deviceFamilyOf` →
+  /// `calibrationFor`). It is ONE value for the whole substrate, not a
+  /// per-second array, because the question a metric asks is "which sensor
+  /// package produced this window", and a window that mixes two answers has no
+  /// single answer.
+  ///
+  /// NULL means UNKNOWN — no stamp (every row predating schema v41, anything
+  /// imported, anything replayed from raw hex), OR the rows disagree. Both are
+  /// the same instruction to a reader: REFUSE, do not assume gen4. A gen4 skin
+  /// temp is an ADC count and a gen5 one is centi-°C in the same column, so
+  /// guessing here is how a fabricated number gets published.
+  final String? deviceFamily;
+
   /// Pack a `List<double>` into a `Float64List` (an already-packed list passes
   /// straight through).
   ///
@@ -113,8 +129,10 @@ class Substrate {
     required List<int> skinTemp,
     required List<int> skinContact,
     List<int> stepCount = const [],
+    String? deviceFamily,
   }) =>
       Substrate._(
+        deviceFamily: deviceFamily,
         tsSec: tsSec,
         hr: hr,
         rrTsMs: _packed(rrTsMs),
@@ -142,6 +160,7 @@ class Substrate {
     required this.skinTemp,
     required this.skinContact,
     this.stepCount = const [],
+    this.deviceFamily,
   });
 
   static const Substrate empty = Substrate._(
@@ -255,6 +274,7 @@ class Substrate {
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
+      deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -281,6 +301,7 @@ class Substrate {
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
+      deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -298,6 +319,7 @@ class Substrate {
       spo2Ir: const [],
       skinTemp: const [],
       skinContact: const [],
+      deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -342,6 +364,8 @@ class Substrate {
         'skin_temp': skinTemp,
         'skin_contact': skinContact,
         'step_count': stepCount,
+        // Null (unknown provenance) is a real answer — emit the key regardless.
+        'device_family': deviceFamily,
       };
 
   static Substrate fromJson(Map<String, dynamic> m) {
@@ -391,6 +415,7 @@ class Substrate {
         final l = ints(m, 'step_count');
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
+      deviceFamily: m['device_family'] as String?,
     );
   }
 }

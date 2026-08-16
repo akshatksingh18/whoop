@@ -65,12 +65,16 @@ typedef BatchSink =
 /// durable half of the safe-trim invariant: it MUST complete before the engine
 /// writes the HISTORY_END ACK, so the band never trims flash we haven't banked.
 /// [trimTokenHex] is the hex of the HISTORY_END 8-byte continuation token.
+/// [deviceFamily] is which strap produced these rows (`'gen4'`/`'gen5'`, pinned
+/// at service discovery) — stamped into the ledger at ingest, because this is
+/// the only moment anyone knows it. Null when no link has identified itself.
 typedef CommitSyncBatchSink =
     Future<void> Function(
       List<RawRecord> raws,
       List<Sample?> samples,
       String? trimTokenHex, {
       List<ArchiveRecord>? archives,
+      String? deviceFamily,
     });
 
 /// Persist an UNDECODABLE historical record (unknown/unsupported version) to the
@@ -504,6 +508,15 @@ class BleEngine {
   final Future<int?> Function(String name)? cursorReader;
 
   final DeviceState state = DeviceState();
+
+  /// The device family every row this link produces is stamped with — `'gen4'`
+  /// or `'gen5'`, pinned once at service discovery. NULL until a link has
+  /// actually identified itself, and NULL is not gen4: it means we do not know
+  /// which sensor package measured the row, so a per-family metric must refuse
+  /// rather than assume. Deliberately reads `state.generation` (set only after
+  /// the service UUID matched) rather than `_session.band`, which DEFAULTS to
+  /// gen4 before discovery has run.
+  String? get linkDeviceFamily => state.generation;
 
   // ── PROCESS-WIDE SINGLE-OWNER GUARD ─────────────────────────────────────────
   // The strap streams its historical offload to EVERY subscribed central. If two
@@ -1030,6 +1043,16 @@ class BleEngine {
   DateTime? _lastClockVerifyAt;
   int? _sessionOldestUnix; // strap's banked-data window (GET_DATA_RANGE)
   int? _sessionNewestUnix;
+  Map<String, dynamic>? _lastPagesBehind;
+
+  /// The strap's own ring-buffer bookkeeping from the last GET_DATA_RANGE reply
+  /// — `{written, used, capacity, trim_page, wrap_count, free_records}`, exactly
+  /// as protocol parsed it (SD-08). Null until a reply carried it.
+  ///
+  /// DEVICE STATE, not physiology: it can claim what it says and nothing more.
+  /// `wrap_count` is a ring wrap counter, NOT a unique batch id — never build
+  /// dedupe on it.
+  Map<String, dynamic>? get lastPagesBehind => _lastPagesBehind;
   // Lifetime count of GET_DATA_RANGE reads rejected by isCorruptFutureRtc —
   // see the range_oldest/range_newest handler below.
   int _corruptDataRangeCount = 0;
@@ -2484,10 +2507,16 @@ class BleEngine {
     List<Sample?> samples,
     String? trimTokenHex, {
     List<ArchiveRecord>? archives,
+    String? deviceFamily,
   }) async {
     final hasArchives = archives != null && archives.isNotEmpty;
     if (raws.isEmpty && trimTokenHex == null && !hasArchives) return;
-    await onCommitBatch!(raws, samples, trimTokenHex, archives: archives);
+    // Stamp the family HERE, from the link that produced the chunk: this is the
+    // last point that knows it. Callers may override (tests / a replay that
+    // knows better); null falls back to the live link, which is itself null
+    // before discovery has pinned one.
+    await onCommitBatch!(raws, samples, trimTokenHex,
+        archives: archives, deviceFamily: deviceFamily ?? linkDeviceFamily);
     if (raws.isNotEmpty || hasArchives) _noteStored();
   }
 
@@ -3085,6 +3114,18 @@ class BleEngine {
         );
       }
     }
+    // The OTHER half of the same GET_DATA_RANGE reply: the strap's own ring
+    // bookkeeping, parsed since forever and read by nobody. Deliberately NOT
+    // inside the block above — `pages_behind` is emitted independently of the
+    // epochs, and pages are pages whatever the RTC says, so a corrupt-clock
+    // reply still carries a usable backlog. The clock gate stays exactly as it
+    // is; this reads a different field.
+    final pb = f['pages_behind'];
+    if (pb is Map) {
+      _lastPagesBehind =
+          Map<String, dynamic>.unmodifiable(pb.cast<String, dynamic>());
+      unawaited(_recordPagesBehind(_lastPagesBehind!));
+    }
     if (d.kind == 'cmd_response' && f['hello'] is HelloInfo) {
       final h = f['hello'] as HelloInfo;
       // Serial now comes from the fixed offset in the HELLO body (see
@@ -3222,6 +3263,65 @@ class BleEngine {
     } catch (e) {
       _log('[SYNC] ledger write failed (non-fatal, continuing): $e');
     }
+  }
+
+  /// SD-08. Persist the strap's ring-buffer bookkeeping and log how it moved
+  /// since the last connect.
+  ///
+  /// Device state, not physiology, so it can claim exactly what it says: how
+  /// many records the ring holds, how much room is left, and how many times it
+  /// has wrapped. `wrap_count` moving between two connects means the ring
+  /// overwrote records — possibly ones we never drained. We only LOG that for
+  /// now (ring-buffer-loss-warning): the "you lost N days" wording needs a real
+  /// records-per-day divisor, and a week of these lines is how we get one. No
+  /// notification, no copy, no user-facing claim.
+  ///
+  /// Sink is its OWN `sync_ledger` row (`chunk_id='backlog'`), not the shared
+  /// `capture` one: this rides the same reply as `range_seen`, both writes are
+  /// un-awaited, and they would race over the row's single `status`. sync_ledger
+  /// is never pruned, and one row carries the PREVIOUS snapshot forward, which
+  /// is the only history the wrap check needs. A real per-connect series wants
+  /// its own table beside `band_battery`; one call site to move when it exists.
+  Future<void> _recordPagesBehind(Map<String, dynamic> pb) async {
+    int? asInt(Object? v) => v is num ? v.toInt() : null;
+    final used = asInt(pb['used']);
+    final free = asInt(pb['free_records']);
+    final wrap = asInt(pb['wrap_count']);
+    final written = asInt(pb['written']);
+    final capacity = asInt(pb['capacity']);
+    final trimPage = asInt(pb['trim_page']);
+
+    int? prevWrap;
+    try {
+      final meta = (await LocalDb.syncLedgerEntry('backlog'))?['meta_json'];
+      if (meta is String && meta.isNotEmpty) {
+        final decoded = jsonDecode(meta);
+        if (decoded is Map) prevWrap = asInt(decoded['backlog_wrap_count']);
+      }
+    } catch (_) {/* no prior snapshot — first connect since install */}
+
+    final wrapped = (prevWrap != null && wrap != null && wrap > prevWrap)
+        ? wrap - prevWrap
+        : 0;
+    _log('[BACKLOG] used=$used free=$free wrap=$wrap (prev=$prevWrap, '
+        '+$wrapped) written=$written/$capacity trim_page=$trimPage');
+
+    await _bestEffortLedgerWrite(
+      () => LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'backlog',
+        kind: 'device_state',
+        status: 'seen',
+        metaPatch: {
+          'backlog_used_records': used,
+          'backlog_free_records': free,
+          'backlog_wrap_count': wrap,
+          'backlog_written_page': written,
+          'backlog_capacity_pages': capacity,
+          'backlog_trim_page': trimPage,
+          'backlog_seen_at': DateTime.now().millisecondsSinceEpoch,
+        },
+      ),
+    );
   }
 
   /// Refuse to echo a HISTORY_END token, for one of the [TrimAckVerdict]

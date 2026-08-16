@@ -65,6 +65,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           <double>[for (var i = 0; i < 60; i++) 140.0],
           profile: _anchored,
+          deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'the Keytel anchors alone do not buy a day figure',
@@ -78,8 +79,24 @@ void main() {
             heightCm: 178,
             sex: 'm',
           ),
+          deviceFamily: 'gen4',
         ),
         isNotNull,
+      );
+      // And no strap stamp is its own refusal: the ceiling the flex gate is a
+      // fraction of belongs to a sensor package we cannot name.
+      expect(
+        DerivationEngine.wakeDayEnergy(
+          <double>[for (var i = 0; i < 60; i++) 140.0],
+          profile: const Profile(
+            ageYears: 34,
+            weightKg: 72,
+            heightCm: 178,
+            sex: 'm',
+          ),
+        ),
+        isNull,
+        reason: 'unknown device family is not gen4 with a different badge',
       );
     });
   });

@@ -22,7 +22,9 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 /// Deterministic — a golden that depends on a random number is a golden that
 /// records noise.
 List<double> _series(int n, double base, double amp) => List<double>.generate(
-    n, (i) => base + ((i * 37) % 17) / 17 * amp - amp / 2);
+  n,
+  (i) => base + ((i * 37) % 17) / 17 * amp - amp / 2,
+);
 
 /// The same series with the timestamps a real `getChart` carries: one point per
 /// day, ending TODAY, stamped at local noon the way `metric_series` reads back.
@@ -38,8 +40,13 @@ List<ChartPoint> _points(int n, double base, double amp) {
   return [
     for (var i = 0; i < n; i++)
       (
-        t: DateTime(now.year, now.month, now.day - (n - 1 - i), 12)
-                .millisecondsSinceEpoch ~/
+        t:
+            DateTime(
+              now.year,
+              now.month,
+              now.day - (n - 1 - i),
+              12,
+            ).millisecondsSinceEpoch ~/
             1000,
         v: vs[i],
       ),
@@ -47,12 +54,12 @@ List<ChartPoint> _points(int n, double base, double amp) {
 }
 
 Map<String, dynamic> _metric(num? v, String tier, {String? note}) => {
-      'value': v ?? '—',
-      'confidence': v == null ? 0 : 0.8,
-      'tier': tier,
-      'inputs_used': const <String>[],
-      'note': ?note,
-    };
+  'value': v ?? '—',
+  'confidence': v == null ? 0 : 0.8,
+  'tier': tier,
+  'inputs_used': const <String>[],
+  'note': ?note,
+};
 
 // ── fixtures ──
 
@@ -63,16 +70,55 @@ final _home = HomeData(
   drivers: const [
     {'label': 'hrv', 'contribution': 6.2, 'detail': 'lifting your score'},
     {'label': 'rhr', 'contribution': 3.1, 'detail': 'lifting your score'},
-    {'label': 'temp', 'contribution': -1.4, 'detail': 'dragging your score down'},
+    {
+      'label': 'temp',
+      'contribution': -1.4,
+      'detail': 'dragging your score down',
+    },
   ],
-  sleepMin: const Metric(value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),
-  sleepEff: const Metric(value: 91, unit: '%', confidence: .8, tier: MetricTier.estimate),
-  rhr: const Metric(value: 52, unit: 'bpm', confidence: .8, tier: MetricTier.high),
-  steps: const Metric(value: 8642, unit: 'steps', confidence: .6, tier: MetricTier.estimate),
-  calories: const Metric(value: 640, unit: 'kcal', confidence: .6, tier: MetricTier.estimate),
-  caloriesTotal: const Metric(value: 2310, unit: 'kcal', confidence: .6, tier: MetricTier.estimate),
+  sleepMin: const Metric(
+    value: 465,
+    unit: 'min',
+    confidence: .8,
+    tier: MetricTier.estimate,
+  ),
+  sleepEff: const Metric(
+    value: 91,
+    unit: '%',
+    confidence: .8,
+    tier: MetricTier.estimate,
+  ),
+  rhr: const Metric(
+    value: 52,
+    unit: 'bpm',
+    confidence: .8,
+    tier: MetricTier.high,
+  ),
+  steps: const Metric(
+    value: 8642,
+    unit: 'steps',
+    confidence: .6,
+    tier: MetricTier.estimate,
+  ),
+  calories: const Metric(
+    value: 640,
+    unit: 'kcal',
+    confidence: .6,
+    tier: MetricTier.estimate,
+  ),
+  caloriesTotal: const Metric(
+    value: 2310,
+    unit: 'kcal',
+    confidence: .6,
+    tier: MetricTier.estimate,
+  ),
   stepGoal: 8000,
-  sleepNeedMin: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+  sleepNeedMin: const Metric(
+    value: 462,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
   bedtime: const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
   strainTarget: const {'value': 11.4, 'low': 9.2, 'high': 13.6},
 );
@@ -111,7 +157,8 @@ final _health = HealthData(
       'confidence': .5,
       'tier': 'RELATIVE',
       'inputs_used': const ['skin_temp_raw'],
-      'note': 'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
+      'note':
+          'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
     },
     'illness': {'state': 'green'},
   },
@@ -154,7 +201,12 @@ final _health = HealthData(
     'resp_rate': _points(60, 14.2, 1.8),
   },
   daysWithData: 24,
-  need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+  need: const Metric(
+    value: 462,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
 );
 
 const _healthCold = HealthData(daysWithData: 2);
@@ -174,17 +226,34 @@ final _vitals = VitalsData(
   hrv: const {'rmssd': 68.2},
 );
 
-const _labs = LabsData(markers: kLabMarkers, results: [
-  {'marker': 'ldl', 'taken_on': '2026-03-12', 'value': 104.0, 'unit': 'mg/dL'},
-  {'marker': 'hdl', 'taken_on': '2026-03-12', 'value': 58.0, 'unit': 'mg/dL'},
-  {'marker': 'hba1c', 'taken_on': '2026-03-12', 'value': 5.2, 'unit': '%'},
-  {'marker': 'ferritin', 'taken_on': '2026-03-12', 'value': 96.0, 'unit': 'ng/mL'},
-]);
+const _labs = LabsData(
+  markers: kLabMarkers,
+  results: [
+    {
+      'marker': 'ldl',
+      'taken_on': '2026-03-12',
+      'value': 104.0,
+      'unit': 'mg/dL',
+    },
+    {'marker': 'hdl', 'taken_on': '2026-03-12', 'value': 58.0, 'unit': 'mg/dL'},
+    {'marker': 'hba1c', 'taken_on': '2026-03-12', 'value': 5.2, 'unit': '%'},
+    {
+      'marker': 'ferritin',
+      'taken_on': '2026-03-12',
+      'value': 96.0,
+      'unit': 'ng/mL',
+    },
+  ],
+);
 
 final _metricDetail = MetricData(
   series: _points(60, 54, 6),
   daysAvailable: 60,
-  percentile: const {'percentile_of_you': 22.0, 'n': 59, 'label': 'lower than usual'},
+  percentile: const {
+    'percentile_of_you': 22.0,
+    'n': 59,
+    'label': 'lower than usual',
+  },
   movers: const [
     {
       'tag': 'alcohol',
@@ -210,23 +279,47 @@ final _metricDetail = MetricData(
 final _readiness = ReadinessData(
   readiness: const Metric(value: 82, confidence: .8, tier: MetricTier.high),
   breakdown: const [
-    {'label': 'hrv', 'weight': .4, 'weighted_contribution': 6.2, 'past_mdc': true, 'used': true},
-    {'label': 'rhr', 'weight': .3, 'weighted_contribution': 3.1, 'past_mdc': true, 'used': true},
-    {'label': 'resp', 'weight': .2, 'weighted_contribution': 0.4, 'past_mdc': false, 'used': true},
-    {'label': 'temp', 'weight': .1, 'weighted_contribution': -1.4, 'past_mdc': true, 'used': true},
+    {
+      'label': 'hrv',
+      'weight': .4,
+      'weighted_contribution': 6.2,
+      'past_mdc': true,
+      'used': true,
+    },
+    {
+      'label': 'rhr',
+      'weight': .3,
+      'weighted_contribution': 3.1,
+      'past_mdc': true,
+      'used': true,
+    },
+    {
+      'label': 'resp',
+      'weight': .2,
+      'weighted_contribution': 0.4,
+      'past_mdc': false,
+      'used': true,
+    },
+    {
+      'label': 'temp',
+      'weight': .1,
+      'weighted_contribution': -1.4,
+      'past_mdc': true,
+      'used': true,
+    },
   ],
   inputsUsed: 4,
   series: _series(90, 74, 18),
 );
 
 const _readinessCold = ReadinessData(
-    readiness: Metric(note: 'need_baseline:have=5,need=14'));
+  readiness: Metric(note: 'need_baseline:have=5,need=14'),
+);
 
 /// Onset as a LOCAL wall-clock instant, not a fixed epoch. The screen formats
 /// timestamps in the device zone, so anchoring the fixture the same way is what
 /// makes these goldens byte-identical on a machine in another timezone.
-final _onsetTs =
-    DateTime(2026, 5, 19, 23, 7).millisecondsSinceEpoch ~/ 1000;
+final _onsetTs = DateTime(2026, 5, 19, 23, 7).millisecondsSinceEpoch ~/ 1000;
 
 /// One night, built as segments the way the repo emits them.
 List<Map<String, dynamic>> _hypno() {
@@ -259,29 +352,29 @@ List<Map<String, dynamic>> _hypno() {
 /// is the one "unusual" item that comes from the night itself rather than from
 /// a comparison against history.
 Map<String, dynamic> _night({bool elevated = false}) => {
-      'duration_min': 443,
-      'in_bed_min': 486,
-      'awake_min': 20,
-      'efficiency': .91,
-      'onset_ts': _onsetTs,
-      'wake_ts': _onsetTs + 486 * 60,
-      'light_min': 170,
-      'deep_min': 85,
-      'rem_min': 95,
-      'hypnogram': _hypno(),
-      'cycle_count': 5,
-      'cycles_mean_min': 92,
-      'advanced': const {'sol_s': 780},
-      'nocturnal': {
-        'sleeping_hr_avg': 52,
-        'sleeping_hr_min': 46,
-        'day_hr_avg': 68,
-        'vs_baseline_bpm': elevated ? 4.6 : 0.4,
-        'dip_pct': .24,
-        'elevated': elevated,
-      },
-      'resp': const {'value': 14.2, 'confidence': .6},
-    };
+  'duration_min': 443,
+  'in_bed_min': 486,
+  'awake_min': 20,
+  'efficiency': .91,
+  'onset_ts': _onsetTs,
+  'wake_ts': _onsetTs + 486 * 60,
+  'light_min': 170,
+  'deep_min': 85,
+  'rem_min': 95,
+  'hypnogram': _hypno(),
+  'cycle_count': 5,
+  'cycles_mean_min': 92,
+  'advanced': const {'sol_s': 780},
+  'nocturnal': {
+    'sleeping_hr_avg': 52,
+    'sleeping_hr_min': 46,
+    'day_hr_avg': 68,
+    'vs_baseline_bpm': elevated ? 4.6 : 0.4,
+    'dip_pct': .24,
+    'elevated': elevated,
+  },
+  'resp': const {'value': 14.2, 'confidence': .6},
+};
 
 final _timeline = {
   'hr': [
@@ -307,8 +400,8 @@ final _timeline = {
 /// ±[amp]. The screen's comparison is quartiles of the user's own nights, so a
 /// fixture only has to be a distribution — not a plausible calendar.
 List<double> _nights(int n, double base, double amp) => [
-      for (var i = 0; i < n; i++) base + ((i * 37) % 17) / 17 * amp - amp / 2,
-    ];
+  for (var i = 0; i < n; i++) base + ((i * 37) % 17) / 17 * amp - amp / 2,
+];
 
 /// Last night landed OUTSIDE the recent range on deep sleep (85 min against a
 /// 55–80 history) and the sleeping heart rate ran high — so the comparison
@@ -317,8 +410,18 @@ final _sleep = SleepData(
   day: '2026-05-20',
   night: _night(elevated: true),
   timeline: _timeline,
-  need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
-  debt: const Metric(value: 22, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+  need: const Metric(
+    value: 462,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
+  debt: const Metric(
+    value: 22,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
   bedtime: const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
   tstHistory: _nights(28, 452, 90),
   deepHistory: _nights(28, 67, 25),
@@ -335,7 +438,12 @@ final _sleepTypical = SleepData(
   day: '2026-05-20',
   night: _night(),
   timeline: _timeline,
-  need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+  need: const Metric(
+    value: 462,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
   bedtime: const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
   tstHistory: _nights(28, 443, 120),
   deepHistory: _nights(28, 85, 40),
@@ -384,7 +492,11 @@ CircadianData _circadian() {
     labels: labels,
     chronotypeLabel: 'slight evening type',
     jetlag: const Metric(value: 1.7, confidence: .6, tier: MetricTier.estimate),
-    regularity: const Metric(value: 78, confidence: .7, tier: MetricTier.estimate),
+    regularity: const Metric(
+      value: 78,
+      confidence: .7,
+      tier: MetricTier.estimate,
+    ),
     midFreeH: 4.2,
     midWorkH: 2.5,
     nFree: 9,
@@ -418,18 +530,24 @@ CircadianData _circadian() {
   );
 }
 
-/// A cycle with two logged starts — the floor at which a prediction exists at
-/// all — plus a partial current cycle of derived nights behind it.
+/// A cycle with four logged starts — three measured gaps, so the prediction
+/// can state a width — plus a partial current cycle of derived nights behind
+/// it.
 final _cycle = CycleData(
   enabled: true,
   phase: 'luteal',
   cycleDay: 19,
   daysUntilNext: 9,
-  meanLength: 28,
+  medianLength: 28,
+  gapN: 3,
+  // A phase only exists once she has declared she cycles (WH-07).
+  reproState: 'cycling',
   predictedNext: '2026-05-29',
-  fertileStart: '2026-05-23',
-  fertileEnd: '2026-05-27',
+  predictedFrom: '2026-05-25',
+  predictedTo: '2026-06-02',
   logs: const [
+    {'date': '2026-02-18', 'kind': 'start'},
+    {'date': '2026-03-14', 'kind': 'start'},
     {'date': '2026-04-13', 'kind': 'start'},
     {'date': '2026-05-11', 'kind': 'start'},
   ],
@@ -443,7 +561,17 @@ final _cycle = CycleData(
         'skin_temp_idx': 0.2,
       },
   ],
-  symptoms: const {},
+  // Enough logged days across three cycles for the WH-06 look-back to have
+  // something to count. It renders folded away; the disclosure is the point.
+  symptoms: const {
+    '2026-02-19': ['cramps', 'fatigue'],
+    '2026-02-21': ['cramps'],
+    '2026-03-01': ['bloating'],
+    '2026-03-15': ['cramps', 'low mood'],
+    '2026-04-14': ['cramps'],
+    '2026-04-30': ['acne'],
+    '2026-05-12': ['cramps', 'fatigue'],
+  },
 );
 
 /// Tracking on, nothing logged: the state a user lands in the moment they
@@ -519,78 +647,84 @@ final _investigate = InvestigateData(
 );
 
 Map<String, Widget> _cases() => {
-      'home': HomeScreen(data: _home, hour: 20),
-      'home_cold': const HomeScreen(data: _homeCold, hour: 20),
-      'health_overview': HealthScreen(data: _health, tab: 0),
-      'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
-      'health_trends': HealthScreen(data: _health, tab: 1),
-      'health_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 2),
-      'health_labs': HealthScreen(data: _health, labs: _labs, tab: 3),
-      'health_labs_cold':
-          HealthScreen(data: _health, labs: const LabsData(), tab: 3),
-      'metric_detail': MetricDetail('resting_hr', data: _metricDetail),
-      'metric_detail_cold':
-          const MetricDetail('resting_hr', data: MetricData()),
-      'metric_detail_suppressed':
-          const MetricDetail('skin_temp', data: MetricData()),
-      'readiness_detail': ReadinessDetail(data: _readiness),
-      'readiness_detail_cold': const ReadinessDetail(data: _readinessCold),
-      'sleep_detail': SleepDetail(data: _sleep),
-      'sleep_detail_typical': SleepDetail(data: _sleepTypical),
-      'sleep_detail_new': SleepDetail(data: _sleepNew),
-      'sleep_detail_cold': const SleepDetail(data: _sleepCold),
-      'circadian_detail': CircadianDetail(data: _circadian()),
-      'circadian_detail_cold':
-          const CircadianDetail(data: CircadianData()),
-      'investigate_hrv': Investigate('hrv', data: _investigate),
-      'investigate_generic':
-          const Investigate('steps', data: InvestigateData(series: [])),
-      // CycleTab renders a Column so it drops into Wellness's own ListView;
-      // the golden supplies the scroller the tab does not own.
-      'cycle': _scroll(CycleTab(data: _cycle)),
-      'cycle_empty': _scroll(const CycleTab(data: _cycleEmpty)),
-      'cycle_off': _scroll(const CycleTab(data: CycleData())),
-    };
+  'home': HomeScreen(data: _home, hour: 20),
+  'home_cold': const HomeScreen(data: _homeCold, hour: 20),
+  'health_overview': HealthScreen(data: _health, tab: 0),
+  'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
+  'health_trends': HealthScreen(data: _health, tab: 1),
+  'health_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 2),
+  'health_labs': HealthScreen(data: _health, labs: _labs, tab: 3),
+  'health_labs_cold': HealthScreen(
+    data: _health,
+    labs: const LabsData(),
+    tab: 3,
+  ),
+  'metric_detail': MetricDetail('resting_hr', data: _metricDetail),
+  'metric_detail_cold': const MetricDetail('resting_hr', data: MetricData()),
+  'metric_detail_suppressed': const MetricDetail(
+    'skin_temp',
+    data: MetricData(),
+  ),
+  'readiness_detail': ReadinessDetail(data: _readiness),
+  'readiness_detail_cold': const ReadinessDetail(data: _readinessCold),
+  'sleep_detail': SleepDetail(data: _sleep),
+  'sleep_detail_typical': SleepDetail(data: _sleepTypical),
+  'sleep_detail_new': SleepDetail(data: _sleepNew),
+  'sleep_detail_cold': const SleepDetail(data: _sleepCold),
+  'circadian_detail': CircadianDetail(data: _circadian()),
+  'circadian_detail_cold': const CircadianDetail(data: CircadianData()),
+  'investigate_hrv': Investigate('hrv', data: _investigate),
+  'investigate_generic': const Investigate(
+    'steps',
+    data: InvestigateData(series: []),
+  ),
+  // CycleTab renders a Column so it drops into Wellness's own ListView;
+  // the golden supplies the scroller the tab does not own.
+  'cycle': _scroll(CycleTab(data: _cycle)),
+  'cycle_empty': _scroll(const CycleTab(data: _cycleEmpty)),
+  'cycle_off': _scroll(const CycleTab(data: CycleData())),
+};
 
 Widget _scroll(Widget child) => ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
-      children: [child],
-    );
+  padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+  children: [child],
+);
 
 final _shot = GlobalKey();
 
 /// Full-viewport, because these are pages. A page golden that is shrink-wrapped
 /// hides exactly the overflow a page golden exists to catch.
 Widget _frame(Widget child, Brightness b, double scale) => MediaQuery(
-      data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(b),
-        home: Builder(
-          builder: (c) => RepaintBoundary(
-            key: _shot,
-            child: child is Scaffold
-                ? child
-                : Scaffold(
-                    backgroundColor: P.of(c).bg,
-                    body: SafeArea(child: child),
-                  ),
-          ),
-        ),
+  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+  child: MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: buildTheme(b),
+    home: Builder(
+      builder: (c) => RepaintBoundary(
+        key: _shot,
+        child: child is Scaffold
+            ? child
+            : Scaffold(
+                backgroundColor: P.of(c).bg,
+                body: SafeArea(child: child),
+              ),
       ),
-    );
+    ),
+  ),
+);
 
 Future<void> _loadType() async {
-  final files = Directory('assets/fonts/Manrope')
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.ttf'));
+  final files = Directory(
+    'assets/fonts/Manrope',
+  ).listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'));
   for (final family in const ['Manrope', '.SF Pro Text', 'Menlo']) {
     final loader = FontLoader(family);
     for (final f in files) {
-      loader.addFont(f
-          .readAsBytes()
-          .then((b) => ByteData.sublistView(Uint8List.fromList(b))));
+      loader.addFont(
+        f.readAsBytes().then(
+          (b) => ByteData.sublistView(Uint8List.fromList(b)),
+        ),
+      );
     }
     await loader.load();
   }
@@ -628,18 +762,25 @@ void main() {
     }
   }
 
-  testWidgets('a min-unit metric does not print its unit twice', (tester) async {
+  testWidgets('a min-unit metric does not print its unit twice', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
 
     // `metricValue('min', v)` is already "7h 23m"; the hero used to print
     // `spec.unit` beside it, so Time asleep read "7h 23m min".
-    await tester.pumpWidget(_frame(
-        MetricDetail('sleep',
-            data: MetricData(series: _points(30, 443, 0), daysAvailable: 30)),
+    await tester.pumpWidget(
+      _frame(
+        MetricDetail(
+          'sleep',
+          data: MetricData(series: _points(30, 443, 0), daysAvailable: 30),
+        ),
         Brightness.light,
-        1));
+        1,
+      ),
+    );
     await tester.pumpAndSettle();
     final mins = tester
         .widgetList<Text>(find.byType(Text))
@@ -660,18 +801,25 @@ void main() {
     final stale = [
       for (final p in _points(8, 54, 6)) (t: p.t - 4 * 86400, v: p.v),
     ];
-    await tester.pumpWidget(_frame(
-        MetricDetail('resting_hr',
-            data: MetricData(
-              series: stale,
-              daysAvailable: 30,
-              percentile: const {'percentile_of_you': 22.0},
-            )),
+    await tester.pumpWidget(
+      _frame(
+        MetricDetail(
+          'resting_hr',
+          data: MetricData(
+            series: stale,
+            daysAvailable: 30,
+            percentile: const {'percentile_of_you': 22.0},
+          ),
+        ),
         Brightness.light,
-        1));
+        1,
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(find.textContaining('Your reading from 4 days ago sits at the 22nd'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Your reading from 4 days ago sits at the 22nd'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('an absent metric never renders a bare em-dash', (tester) async {
@@ -694,25 +842,189 @@ void main() {
       const HealthScreen(data: _healthCold, labs: LabsData(), tab: 3),
       _scroll(const CycleTab(data: CycleData())),
       _scroll(const CycleTab(data: _cycleEmpty)),
+      const JournalFindings(rows: [], weekday: {}),
       // The readiness row that used to hold the app's one reachable em-dash:
       // a driver marked used whose weighted contribution never arrived.
       const ReadinessDetail(
-          data: ReadinessData(
-        readiness: Metric(value: 74, confidence: .8, tier: MetricTier.high),
-        breakdown: [
-          {'label': 'hrv', 'weight': .4, 'used': true, 'past_mdc': true},
-        ],
-        inputsUsed: 1,
-      )),
+        data: ReadinessData(
+          readiness: Metric(value: 74, confidence: .8, tier: MetricTier.high),
+          breakdown: [
+            {'label': 'hrv', 'weight': .4, 'used': true, 'past_mdc': true},
+          ],
+          inputsUsed: 1,
+        ),
+      ),
     ]) {
       await tester.pumpWidget(_frame(w, Brightness.light, 1));
       await tester.pumpAndSettle();
       final dashes = tester
           .widgetList<Text>(find.byType(Text))
           .where((t) => (t.data ?? '').trim() == '—');
-      expect(dashes, isEmpty,
-          reason: '${w.runtimeType} rendered a bare em-dash. An absent value '
-              'is a StatusCard: what is missing, why, what fixes it.');
+      expect(
+        dashes,
+        isEmpty,
+        reason:
+            '${w.runtimeType} rendered a bare em-dash. An absent value '
+            'is a StatusCard: what is missing, why, what fixes it.',
+      );
     }
   });
+
+  // ── MIND-01 / MIND-04 / MT-06 / MT-07 ────────────────────────────────────
+  testWidgets(
+    'journal findings say nothing when nothing survived, and phrase a dose and '
+    'a tick box as the different things they are',
+    (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1800 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      // MIND-01's required empty state. 36 simultaneous tests corrected as one
+      // family means most people see this, and it has to be shippable copy.
+      await tester.pumpWidget(
+        _frame(
+          const JournalFindings(rows: [], weekday: {}),
+          Brightness.light,
+          1,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Nothing separated itself yet'), findsOneWidget);
+
+      await tester.pumpWidget(
+        _frame(
+          const JournalFindings(
+            key: ValueKey('rows'),
+            rows: [
+              // MIND-04: a habit is a group difference, with both day counts.
+              {
+                'field': 'walk_after_lunch',
+                'field_label': 'Walk after lunch',
+                'binary': true,
+                'outcome_label': 'HRV',
+                'unit': 'ms',
+                'delta': 4.2,
+                'cohens_d': .61,
+                'n_with': 9,
+                'n_without': 21,
+                'n': 30,
+              },
+              // MT-07: the outcome's own units on the days she logged it, not
+              // a rank correlation read out loud.
+              {
+                'field': 'alcohol_units',
+                'field_label': 'Alcohol',
+                'field_unit': 'units',
+                'binary': false,
+                'outcome_label': 'Resting HR',
+                'unit': 'bpm',
+                'rho': .52,
+                'rho_low': .18,
+                'rho_high': .74,
+                'slope_per_unit': 2.0,
+                'n': 11,
+              },
+              // MT-06: minutes past midnight is unreadable per minute, and a
+              // cutoff time is a threshold read off a dozen self-reports.
+              {
+                'field': 'caffeine_last_min',
+                'field_label': 'Last caffeine, clock time',
+                'field_unit': 'min past midnight',
+                'binary': false,
+                'outcome_label': 'Sleep efficiency',
+                'unit': '%',
+                'rho': -.44,
+                'rho_low': -.7,
+                'rho_high': -.1,
+                'slope_per_unit': -0.05,
+                'n': 14,
+              },
+            ],
+            weekday: {},
+          ),
+          Brightness.light,
+          1,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('On the 9 days you logged Walk after lunch'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Against the 21 days you did not'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'On the 11 days you logged Alcohol, Resting HR ran 2.0 bpm '
+          'higher per unit',
+        ),
+        findsOneWidget,
+      );
+      // Per hour, never a cutoff time.
+      expect(
+        find.textContaining('Sleep efficiency ran 3.0 % lower per hour later'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('LAST caffeine of the day only'),
+        findsOneWidget,
+      );
+      // Nothing here may read as a cause or a recommendation.
+      expect(find.textContaining('never cause'), findsOneWidget);
+    },
+  );
+
+  // ── WH-06 ────────────────────────────────────────────────────────────────
+  testWidgets(
+    'the symptom look-back counts against the days she LOGGED, is folded away '
+    'until asked for, and stays absent under two cycles',
+    (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _frame(_scroll(CycleTab(data: _cycle)), Brightness.light, 1),
+      );
+      await tester.pumpAndSettle();
+      // Folded: the chips are the thing, the history is behind a tap.
+      expect(find.text('What you usually notice'), findsOneWidget);
+      expect(find.textContaining('one per week of the cycle'), findsNothing);
+
+      await tester.tap(find.text('What you usually notice'));
+      await tester.pumpAndSettle();
+      // cramps on 5 of the 7 logged days; the denominator sentence names the
+      // days she logged, never the calendar.
+      expect(find.text('cramps'), findsWidgets);
+      expect(find.textContaining('You logged something on'), findsOneWidget);
+
+      // One logged start is not two cycles — nothing to count over, so the
+      // control is not offered at all.
+      await tester.pumpWidget(
+        _frame(
+          // Own key: CycleTab takes its fixture in initState, so reusing the
+          // element would keep the previous one alive.
+          _scroll(
+            CycleTab(
+              key: const ValueKey('one-start'),
+              data: CycleData(
+                enabled: true,
+                cycleDay: 3,
+                logs: const [
+                  {'date': '2026-05-11', 'kind': 'start'},
+                ],
+                symptoms: _cycle.symptoms,
+              ),
+            ),
+          ),
+          Brightness.light,
+          1,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('What you usually notice'), findsNothing);
+    },
+  );
 }

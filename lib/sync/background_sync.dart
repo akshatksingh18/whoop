@@ -69,10 +69,11 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
+      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           LocalDb.commitSyncBatch(raws, samples,
               trimToken: trimTokenHex,
               archives: archives,
+              deviceFamily: deviceFamily,
               onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,

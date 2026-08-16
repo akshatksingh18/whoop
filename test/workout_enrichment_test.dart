@@ -323,4 +323,61 @@ void main() {
     w.zoneSeconds[5] = 30; // Z5: 0.5 min
     expect(w.zoneMinutes(), [0.0, 5.0, 1.5, 0.0, 0.5]);
   });
+
+  // LAST in the file on purpose — it prunes the 1 Hz substrate every test above
+  // depends on.
+  test('the session trace outlives the substrate (TS-01)', () async {
+    const s = 1200000;
+    const e = 1200600;
+    await LocalDb.putSession({
+      'id': 'w-frozen',
+      'start_ts': s,
+      'end_ts': e,
+      'type': 'run',
+      'status': 'done',
+      'duration_min': 10,
+      'source': 'manual',
+      'created_at': s * 1000,
+    });
+    await _insertHr(s, s + 299, (_) => 120, counterBase: 110000);
+    await _insertHr(s + 300, e - 1, (_) => 150, counterBase: 120000);
+
+    // First open scores it, which is also what freezes the trace.
+    final live = await repo.getWorkout('w-frozen');
+    expect((live['hr'] as List).isNotEmpty, isTrue);
+    expect(live['trace_samples'], 600);
+    expect(live['trace_coverage_pct'], 100);
+
+    // The band's 1 Hz window ages out — which is what used to blank the whole
+    // chart half of this screen on day four, permanently.
+    await LocalDb.pruneDecodedBeforeRecTs(e + 100000);
+    expect(await LocalDb.hrSamplesInRange(s, e), isEmpty);
+
+    final frozen = await repo.getWorkout('w-frozen');
+    expect(frozen['hr'], live['hr']);
+    expect(frozen['zone_bands'], live['zone_bands']);
+    expect(frozen['time_to_peak_min'], live['time_to_peak_min']);
+    expect(frozen['hr_drift_pct'], live['hr_drift_pct']);
+    expect(frozen['min_hr'], live['min_hr']);
+    expect(frozen['trace_samples'], 600);
+    // avg_hr survives in its own column, as it already did.
+    expect(frozen['avg_hr'], live['avg_hr']);
+
+    // A session that aged out before the column existed gets NO trace — never
+    // a reconstructed one.
+    await LocalDb.putSession({
+      'id': 'w-pre-trace',
+      'start_ts': s - 10000,
+      'end_ts': s - 9400,
+      'type': 'run',
+      'status': 'done',
+      'duration_min': 10,
+      'source': 'manual',
+      'created_at': (s - 10000) * 1000,
+    });
+    final none = await repo.getWorkout('w-pre-trace');
+    expect(none['hr'], isNull);
+    expect(none['zone_bands'], isNull);
+    expect(none['trace_samples'], isNull);
+  });
 }

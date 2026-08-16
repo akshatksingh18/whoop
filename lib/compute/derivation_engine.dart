@@ -43,6 +43,7 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'hr_max.dart' show estimatedMaxHr, kHrFloorBpm;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -2768,6 +2769,14 @@ class DerivationEngine {
       profile: profile.toMap(),
       dayConfidence: day.confidence,
       dayFlags: day.flags,
+      // WHICH STRAP measured this day, so the pipeline can dispatch its
+      // per-family constants (today: the HR ceiling) and REFUSE on an unknown
+      // family instead of borrowing gen4's.
+      deviceFamily: daySub.deviceFamily,
+      // Whether the sleep window was the user's own assertion or the detector's
+      // guess — sleep-onset latency only means what people think it means on a
+      // forced window.
+      sleepSource: day.sleepSource,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -3193,6 +3202,20 @@ class DerivationEngine {
         'irregular_rhythm_flag': sc('irregular_rhythm_flag'),
         'brv_cv': sc('brv_cv'),
         'hrr_bpm': sc('hrr_bpm'),
+        // Recovery time constant (s) from the same tail `hrr_bpm` comes off.
+        // Alongside it, never instead of it — the fit gate abstains often.
+        'hrr_tau_s': sc('hrr_tau_s'),
+        // Deceleration capacity (ms), personal trend only — no reference range,
+        // no colour, no threshold, ever.
+        'prsa_dc': sc('prsa_dc'),
+        // How much of the sleep window the temp channel actually covered.
+        'skin_temp_coverage_frac': sc('skin_temp_coverage_frac'),
+        // Sleep shape: hours nobody watched, sustained awakenings (a floor),
+        // longest unbroken stretch, and forced-window sleep-onset latency.
+        'unobserved_min': sc('unobserved_min'),
+        'awakenings': sc('awakenings'),
+        'longest_sleep_min': sc('longest_sleep_min'),
+        'sol_min': sc('sol_min'),
       },
     );
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
@@ -3536,6 +3559,13 @@ class DerivationEngine {
         return;
       }
       final profileMap = profile.toMap();
+      // Her own logged cycle starts. Read on the DB-owning isolate (sqflite),
+      // passed in as plain strings so the bundle stays pure. Only `start`
+      // markers — the other kinds are not what a cycle is counted from.
+      final cycleStarts = <String>[
+        for (final r in await LocalDb.cycleLogs())
+          if (r['kind'] == 'start' && r['date'] is String) r['date'] as String,
+      ];
       // Encode INSIDE the isolate too — a real ~3.5-4.7s main-isolate hang was
       // caught in production (Crashlytics jank_watchdog, correlated with a
       // heavy derive pass) coming from jsonEncode-ing this bundle back on the
@@ -3554,10 +3584,15 @@ class DerivationEngine {
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final (bundleJson, dropped) = await _runIsolateCancellable(
         () {
-          final bundle = buildCrossDayBundle(days, profileMap)
-            ..['algo_version'] = kAlgoVersion
-            ..['built_for_day'] = builtForDay
-            ..['built_at_epoch'] = builtAtEpoch;
+          final bundle =
+              buildCrossDayBundle(
+                  days,
+                  profileMap,
+                  cycleStartDates: cycleStarts,
+                )
+                ..['algo_version'] = kAlgoVersion
+                ..['built_for_day'] = builtForDay
+                ..['built_at_epoch'] = builtAtEpoch;
           // Encode-safety BEFORE jsonEncode, never a try/catch around it: one
           // non-finite leaf must cost that leaf, not the whole artifact.
           final paths = <String>[];
@@ -4191,8 +4226,14 @@ class DerivationEngine {
     List<double> wakeHrPerMin, {
     required Profile profile,
     int? dayMinutes,
+    String? deviceFamily,
   }) {
     if (!profile.hasCalorieAnchors) return null;
+    // `dailyEnergy`'s flex gate is a fraction of HRmax, so an absent ceiling is
+    // an absent gate — the whole triple abstains rather than bill a day against
+    // some other strap's number. See hr_max.dart.
+    final hrmax = estimatedMaxHr(profile.ageYears, deviceFamily);
+    if (hrmax == null) return null;
     final heightCm = profile.heightCm;
     if (heightCm == null) return null;
     // Off-skin samples are the package's 0 sentinel; billing them would credit
@@ -4210,7 +4251,7 @@ class DerivationEngine {
         age: profile.ageYears!.toDouble(),
         sex: _workoutSex(profile.sex),
       ),
-      hrmax: profile.hrMaxTanaka,
+      hrmax: hrmax,
       dayMinutes: dayMinutes ?? 1440,
     );
     return (active: e.active, basal: e.basal, total: e.total);
@@ -4686,7 +4727,9 @@ class DerivationEngine {
     // age/weight are read by `wakeDayEnergy` straight off the profile now, so
     // they are no longer unpacked here — TRIMP only needs the sex constant.
     final sex = profile.sex?.toLowerCase();
-    final hrMax = profile.hrMaxTanaka; // null when age is unknown
+    // ONE definition (hr_max.dart): null when age is unknown OR when we cannot
+    // say which strap measured this day.
+    final hrMax = estimatedMaxHr(profile.ageYears, daySub.deviceFamily);
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
     double? strain;
     // Why the headline is absent, in the order the gates below apply. Absence
@@ -4695,7 +4738,11 @@ class DerivationEngine {
     String? strainAbsent = perMin.isEmpty
         ? 'no_wake_minutes'
         : hrMax == null
-            ? 'need_age'
+        ? (profile.ageYears == null
+              ? 'need_age'
+              // We know the age; we do not know what measured the HR, so we
+              // have no ceiling to band it against.
+              : ana.unknownFamilyNote(daySub.deviceFamily))
             : dayHrValid.isEmpty
                 ? 'no_hr_samples'
                 : rhrForTrimp == null
@@ -4788,6 +4835,7 @@ class DerivationEngine {
         perMin,
         profile: profile,
         dayMinutes: motion.length,
+        deviceFamily: daySub.deviceFamily,
       );
       if (energy != null) {
         calories = energy.active;
@@ -5173,8 +5221,53 @@ class DerivationEngine {
     ];
   }
 
+  /// Quiet-second ENMO cut (g), per sensor package.
+  ///
+  /// ENMO here is `||a|| − 1 g` — the same amplitude index `restlessness_map`
+  /// and `enmoSeries` use. A sedentary/still wrist sits at ~0.01-0.02 g and
+  /// walking at ~0.066 g, so 0.02 g separates sitting from moving without
+  /// pretending to separate postures. Listed per family because the cut is only
+  /// meaningful against that family's accel scale; an unknown strap gets no cut
+  /// and the whole block refuses.
+  static const Map<ana.DeviceFamily, double> _quietEnmoCutG = {
+    ana.DeviceFamily.gen4: 0.02,
+    ana.DeviceFamily.gen5: 0.02,
+  };
+
+  @visibleForTesting
+  static Map<String, dynamic> daytimeHrv(
+          Substrate s, int onsetSec, int offsetSec) =>
+      _daytimeHrv(s, onsetSec, offsetSec);
+
+  /// Daytime HRV, MOTION-GATED. The gate is the feature, not a refinement: an
+  /// RR series filtered only on plausibility lets a bin of walking into the
+  /// average as low HRV, and the number then reads as stress when it is
+  /// posture. Only beats whose own second was still — a real gravity vector,
+  /// ENMO under the family's quiet cut — are paired.
+  ///
+  /// Absent accel is NOT stillness (see [Substrate.accelPresentAt]), and an
+  /// unknown device family has no cut we can stand behind. Both refuse.
   static Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
     const binSec = 300;
+    final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);
+    if (cut == null) {
+      return {
+        'timeline': const <Map<String, dynamic>>[],
+        'mean_rmssd': null,
+        'n_buckets': 0,
+        'note': ana.unknownFamilyNote(s.deviceFamily),
+      };
+    }
+    // The seconds we can call still. Built once over the day substrate; a
+    // second with no gravity vector never lands here, so it can only break a
+    // pair, never join one.
+    final quiet = <int>{};
+    for (var i = 0; i < s.length; i++) {
+      if (!s.accelPresentAt(i)) continue;
+      final mag = math.sqrt(
+          s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
+      if ((mag - 1.0).abs() <= cut) quiet.add(s.tsSec[i]);
+    }
     final bins = <int, List<double>>{};
     double? prev;
     for (var k = 0; k < s.rrMs.length; k++) {
@@ -5182,6 +5275,10 @@ class DerivationEngine {
       if (offsetSec > onsetSec && tSec >= onsetSec && tSec < offsetSec) {
         prev = null;
         continue; // skip the sleep window
+      }
+      if (!quiet.contains(tSec)) {
+        prev = null; // moving, or no accel to say otherwise — break the pair
+        continue;
       }
       final v = s.rrMs[k];
       if (v < 300 || v > 2000) {
@@ -5201,7 +5298,14 @@ class DerivationEngine {
       final sq = bins[b]!;
       if (sq.length < 5) continue;
       final rmssd = math.sqrt(sq.reduce((a, c) => a + c) / sq.length);
-      timeline.add({'t': b * binSec, 'rmssd': (rmssd * 10).round() / 10.0});
+      // `n` is how many quiet beat-pairs this bin is built from — an hour built
+      // from three of them is not a reading and the card has to be able to say
+      // so (or drop the hour).
+      timeline.add({
+        't': b * binSec,
+        'rmssd': (rmssd * 10).round() / 10.0,
+        'n': sq.length,
+      });
       means.add(rmssd);
     }
     final mean = means.isEmpty
@@ -5833,6 +5937,7 @@ class DerivationEngine {
     );
     bundlePatch['workout_suggestions'] = wc.boutJson;
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
+    if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
 
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
@@ -5954,10 +6059,13 @@ class DerivationEngine {
 
       // HRR per bout from the per-second HR tail bracketing each bout end.
       final drops = <double>[];
+      final taus = <double>[];
       final boutJson = <Map<String, dynamic>>[];
       for (final b in bouts) {
-        final m = _hrrForBout(s, b.endSec);
+        final r = _hrrForBout(s, b.endSec);
+        final m = r.hrrBpm;
         if (m != null) drops.add(m);
+        if (r.tauSec != null) taus.add(r.tauSec!);
         boutJson.add({
           'start': b.startSec,
           'end': b.endSec,
@@ -5966,6 +6074,7 @@ class DerivationEngine {
           'duration_min': b.durationMin,
           'sport': b.sport,
           if (m != null) 'hrr_bpm': double.parse(m.toStringAsFixed(1)),
+          if (r.tauSec != null) 'hrr_tau_s': r.tauSec!.round(),
         });
       }
       // Also fill HRR for already-saved sessions (manual/live) retrospectively
@@ -5976,7 +6085,9 @@ class DerivationEngine {
         final id = r['id'];
         final endTs = r['end_ts'];
         if (id is! String || endTs is! int) continue;
-        final m = _hrrForBout(s, endTs);
+        final rec = _hrrForBout(s, endTs);
+        final m = rec.hrrBpm;
+        if (rec.tauSec != null) taus.add(rec.tauSec!);
         if (m != null) {
           drops.add(m);
           sessionHrr.add((id, double.parse(m.toStringAsFixed(1))));
@@ -5986,6 +6097,13 @@ class DerivationEngine {
           ? null
           : double.parse(
               (drops.reduce((a, c) => a + c) / drops.length).toStringAsFixed(1));
+      // Mean tau over the bouts that SURVIVED the residual gate — deliberately
+      // a different denominator from `hrrBpm`'s, because the gate abstains
+      // often and pretending otherwise would average a fit never made.
+      final hrrTauS = taus.isEmpty
+          ? null
+          : double.parse(
+              (taus.reduce((a, c) => a + c) / taus.length).toStringAsFixed(1));
 
       // Persist + notify only for RECENT days (≤ ~36 h old) so imports/re-analyze
       // don't resurface 90 days of prompts.
@@ -6019,6 +6137,7 @@ class DerivationEngine {
       return _WorkoutCompute(
         boutJson: boutJson,
         hrrBpm: hrrBpm,
+        hrrTauS: hrrTauS,
         sessionHrrWrites: sessionHrr,
         suggestionsToPersist: toPersist,
         notifBout: notif,
@@ -6029,11 +6148,14 @@ class DerivationEngine {
     }
   }
 
-  /// HRR-60s for a bout ending at [endSec]: build the per-second HR tail around
-  /// the end index and delegate to [ana.hrRecovery]. Returns the drop (bpm) or null.
-  static double? _hrrForBout(Substrate s, int endSec) {
+  /// HRR-60s + the recovery time constant for a bout ending at [endSec]: build
+  /// the per-second HR tail around the end index, delegate the drop to
+  /// [ana.hrRecovery] and fit tau over the same tail. Either half may be null.
+  static ({double? hrrBpm, double? tauSec}) _hrrForBout(
+      Substrate s, int endSec) {
+    const none = (hrrBpm: null, tauSec: null);
     final n = s.length;
-    if (n == 0) return null;
+    if (n == 0) return none;
     // Find the index nearest the bout end.
     var endIdx = -1;
     for (var i = 0; i < n; i++) {
@@ -6051,7 +6173,11 @@ class DerivationEngine {
     // said this about `hrRecovery`'s own +60 s; the slice feeding it never
     // followed. ±30/+75 SECONDS around the bout end, so the 60-second sample is
     // always inside the window when the data exists at all.
-    const preSec = 30, postSec = 75;
+    // +180 s, not +75: HRR-60 only ever needed to reach the 60-second sample,
+    // but tau is fitted over the whole decay and a 75-second tail is one time
+    // constant of curve. Widening does NOT move `hrr_bpm` — `hrRecovery` locates
+    // its recovery point on the CLOCK and stops at the first sample past +60 s.
+    const preSec = 30, postSec = 180;
     var lo = endIdx;
     while (lo > 0 && s.tsSec[lo - 1] >= endSec - preSec) {
       lo--;
@@ -6065,13 +6191,90 @@ class DerivationEngine {
     // gappy tail the recovery sample would otherwise be many minutes
     // post-exercise and the drop is overstated, read by the user as a fitness
     // marker.
+    final tailTs = <int>[for (var i = lo; i <= hi; i++) s.tsSec[i]];
     final m = ana.hrRecovery(
       tail,
       endIndex: endIdx - lo,
       recoverySec: 60,
-      tsSec: <int>[for (var i = lo; i <= hi; i++) s.tsSec[i]],
+      tsSec: tailTs,
     );
-    return m.present ? m.value!.dropBpm : null;
+    return (
+      hrrBpm: m.present ? m.value!.dropBpm : null,
+      tauSec: _recoveryTau(tail, tailTs, endIdx - lo),
+    );
+  }
+
+  /// Recovery time constant (s) from a monoexponential fit of the post-exercise
+  /// HR decay: `hr(t) = C + A*exp(-t/tau)` over 0…180 s after the bout end.
+  ///
+  /// Grid-search tau; A and C fall out of a linear least squares once tau is
+  /// fixed, so there is no optimiser here and no starting point to get wrong.
+  ///
+  /// PUBLISHED ALONGSIDE HRR-60, NEVER INSTEAD OF IT. tau is not
+  /// intensity-invariant — HR recovery is biphasic and the fast-phase constant
+  /// is itself intensity-dependent, so one exponential over 0-180 s conflates
+  /// the two phases. The gate below abstains rather than fit a shape that is not
+  /// there: it needs a clean stop (enough samples, a real fall, no long hole)
+  /// and a residual small against the decay it claims to describe.
+  @visibleForTesting
+  static double? recoveryTau(List<int> hr, List<int> tsSec, int endIdx) =>
+      _recoveryTau(hr, tsSec, endIdx);
+
+  static double? _recoveryTau(List<int> hr, List<int> tsSec, int endIdx) {
+    if (endIdx < 0 || endIdx >= hr.length) return null;
+    final t = <double>[], y = <double>[];
+    final t0 = tsSec[endIdx];
+    var lastTs = t0;
+    for (var i = endIdx; i < hr.length; i++) {
+      if (tsSec[i] - lastTs > 30) break; // hole — the tail stops here
+      lastTs = tsSec[i];
+      if (hr[i] < kHrFloorBpm) continue;
+      t.add((tsSec[i] - t0).toDouble());
+      y.add(hr[i].toDouble());
+    }
+    // Need most of the 180 s and a real fall to fit at all.
+    if (t.length < 60 || t.last < 120) return null;
+    final peak = y.reduce(math.max);
+    final floor = y.reduce(math.min);
+    if (peak - floor < 15) return null; // no fall — not a recovery
+
+    double? bestTau;
+    var bestSse = double.infinity;
+    for (var tau = 15.0; tau <= 240.0; tau += 2.5) {
+      // Linear LS of y ~ C + A*x where x = exp(-t/tau).
+      var sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+      final n = t.length;
+      for (var i = 0; i < n; i++) {
+        final x = math.exp(-t[i] / tau);
+        sx += x;
+        sy += y[i];
+        sxx += x * x;
+        sxy += x * y[i];
+      }
+      final den = n * sxx - sx * sx;
+      if (den.abs() < 1e-9) continue;
+      final a = (n * sxy - sx * sy) / den;
+      final c = (sy - a * sx) / n;
+      if (a <= 0) continue; // rising, not decaying
+      var sse = 0.0;
+      for (var i = 0; i < n; i++) {
+        final r = y[i] - (c + a * math.exp(-t[i] / tau));
+        sse += r * r;
+      }
+      if (sse < bestSse) {
+        bestSse = sse;
+        bestTau = tau;
+      }
+    }
+    if (bestTau == null) return null;
+    // Residual gate. An RMSE over 3 bpm means the tail is not the single decay
+    // we just claimed it was — abstain rather than loosen it.
+    final rmse = math.sqrt(bestSse / t.length);
+    if (rmse > 3.0) return null;
+    // A tau pinned to either end of the grid is the search running out of room,
+    // not a measurement.
+    if (bestTau <= 15.0 || bestTau >= 240.0) return null;
+    return bestTau;
   }
 
   /// Low-confidence WRIST ORIENTATION during the sleep window (`positionSeries`).
@@ -6200,7 +6403,6 @@ class DerivationEngine {
         mainTstMin: mainTstMin,
         mainEfficiency: mainEfficiency,
       );
-
   /// Test seam for [_attachNaps] — the day-boundary attribution rules (drop
   /// tomorrow's leading nap, drop yesterday's trailing one) decide which day a
   /// nap's minutes are credited to, and are cheap to state directly.
@@ -6366,12 +6568,14 @@ class _DayBlocksOutput {
 class _WorkoutCompute {
   final List<Map<String, dynamic>> boutJson;
   final double? hrrBpm;
+  final double? hrrTauS;
   final List<(String, double)> sessionHrrWrites;
   final List<Map<String, dynamic>> suggestionsToPersist;
   final ({int endSec, int durationMin})? notifBout;
   const _WorkoutCompute({
     required this.boutJson,
     required this.hrrBpm,
+    required this.hrrTauS,
     required this.sessionHrrWrites,
     required this.suggestionsToPersist,
     required this.notifBout,
@@ -6379,6 +6583,7 @@ class _WorkoutCompute {
   const _WorkoutCompute.empty()
       : boutJson = const [],
         hrrBpm = null,
+      hrrTauS = null,
         sessionHrrWrites = const [],
         suggestionsToPersist = const [],
         notifBout = null;

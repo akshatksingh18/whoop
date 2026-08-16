@@ -104,7 +104,11 @@ void main() {
       ),
     );
     expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
-    expect(find.text('Most deep sleep lately'), findsOneWidget);
+    // SLP-13a — the Light/Deep split is unvalidated and flagged
+    // `deep_low_confidence` all the way up, so ranking last night's deep
+    // minutes against 20 other nights of the same split is not a claim we own.
+    expect(find.text('Most deep sleep lately'), findsNothing);
+    expect(find.textContaining('Deep sleep came to'), findsNothing);
     expect(find.text('Sleeping heart rate ran high'), findsOneWidget);
     // Detection against the user's own baseline is never a diagnosis, and the
     // card has to say so on the card.
@@ -219,6 +223,96 @@ void main() {
       expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
     });
   }
+
+  // ── SLP-01 · a hole in the record is not sleep ────────────────────────────
+
+  test('an unobserved stretch is not light sleep', () {
+    // First half of the window never recorded, second half deep. The old
+    // `_ => SleepStage.light` catch-all turned the whole first half into light
+    // sleep, so a band that dropped four hours drew — and read — as a night.
+    final st = SleepData(night: {
+      ..._night(),
+      'hypnogram': [
+        {'t': _onset, 'stage': 'unobserved'},
+        {'t': _onset + 243 * 60, 'stage': 'deep'},
+        {'t': _onset + 486 * 60, 'stage': 'deep'},
+      ],
+    }).stages;
+    expect(st.first, isNull);
+    expect(st.last, SleepStage.deep);
+    // Nothing in the hole became a stage, and nothing outside it became a hole.
+    expect(st.where((s) => s == null).length, closeTo(st.length / 2, 4));
+    expect(st.contains(SleepStage.light), isFalse);
+  });
+
+  testWidgets('a night with a hole names the window it was measured over',
+      (t) async {
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: _night(),
+        tstHistory: _flat(20, 440),
+        unobservedMin: 106, // 486 in bed, 380 watched
+      ),
+    );
+    expect(find.text('WATCHED'), findsOneWidget);
+    expect(find.text('6h 20m'), findsOneWidget);
+    expect(find.textContaining('is not a measurement'), findsOneWidget);
+    // The four stage rows sum to TST + WASO, which excludes the hole.
+    expect(find.textContaining('Shares of the time we watched'), findsOneWidget);
+  });
+
+  testWidgets('a fully observed night says nothing about watching', (t) async {
+    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+    expect(find.text('WATCHED'), findsNothing);
+    expect(find.text('ASLEEP OF THAT'), findsOneWidget);
+    expect(find.textContaining('Shares of your time in bed'), findsOneWidget);
+  });
+
+  // ── SLP-02 · settling time, forced windows only ───────────────────────────
+
+  testWidgets('sleep-onset latency is banded, and only on your own window',
+      (t) async {
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: {..._night(), 'sleep_source': 'manual'},
+        solMin: 37,
+      ),
+    );
+    expect(find.textContaining('30–45 minutes'), findsOneWidget);
+    // Never a single minute: the stager sees a wrist.
+    expect(find.textContaining('37 minutes'), findsNothing);
+  });
+
+  testWidgets('an auto window never claims a settling time', (t) async {
+    await _pump(
+      t,
+      SleepData(day: '2026-05-20', night: _night(), solMin: 37),
+    );
+    expect(find.textContaining('to asleep'), findsNothing);
+  });
+
+  // ── SLP-03 · the shape of the night ───────────────────────────────────────
+
+  testWidgets('wake-ups are a floor with the threshold stated', (t) async {
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: _night(),
+        awakenings: 3,
+        longestSleepMin: 162,
+      ),
+    );
+    expect(find.textContaining('At least 3 wake-ups of 5 minutes or more'),
+        findsOneWidget);
+    expect(find.textContaining('invisible to a wrist'), findsOneWidget);
+    expect(
+        find.textContaining('Longest unbroken stretch 2h 42m'), findsOneWidget);
+  });
 
   testWidgets('tonight is one takeaway, not six numbers', (t) async {
     await _pump(

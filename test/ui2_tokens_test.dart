@@ -95,20 +95,20 @@ void main() {
   final root = Directory('lib/ui2');
 
   test('lib/ui2 exists and is where the design system lives', () {
-    expect(root.existsSync(), isTrue,
-        reason: 'run this from the package root');
+    expect(root.existsSync(), isTrue, reason: 'run this from the package root');
     expect(
       root.listSync().whereType<File>().where((f) => f.path.endsWith('.dart')),
       isNotEmpty,
     );
   });
 
-  final files = root
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final files =
+      root
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   for (final rule in _rules) {
     test('no ${rule.name} outside the token boundary', () {
@@ -138,37 +138,47 @@ void main() {
     for (final f in root.listSync().whereType<File>()) {
       final name = f.uri.pathSegments.last;
       if (!name.endsWith('.dart') || name == 'ui2.dart') continue;
-      expect(barrel, contains("export '$name';"),
-          reason: '$name is not exported from lib/ui2/ui2.dart — a component '
-              'nobody can import is a component nobody will use.');
+      expect(
+        barrel,
+        contains("export '$name';"),
+        reason:
+            '$name is not exported from lib/ui2/ui2.dart — a component '
+            'nobody can import is a component nobody will use.',
+      );
     }
   });
 
   test('every component is in the gallery', () {
     final gallery = File('lib/ui2/profile/gallery.dart').readAsStringSync();
     final missing = <String>[];
-    for (final f in root
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))) {
+    for (final f
+        in root
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))) {
       for (final line in codeLines(f.readAsStringSync())) {
         // Public only. A private class is one file's own scaffolding, not a
         // piece of the vocabulary anybody else can spend.
-        final m = RegExp(r'^class ([A-Z]\w*) extends St(ateless|ateful)Widget')
-            .firstMatch(line);
+        final m = RegExp(
+          r'^class ([A-Z]\w*) extends St(ateless|ateful)Widget',
+        ).firstMatch(line);
         final name = m?.group(1);
         if (name == null || _notComponents.contains(name)) continue;
         if (!gallery.contains(name)) missing.add(name);
       }
     }
-    expect(missing, isEmpty,
-        reason: 'The gallery claims to hold every component in lib/ui2, and '
-            'these are not in it:\n  ${missing.join('\n  ')}\n\n'
-            'Add a case to gallery.dart, or add the name to _notComponents in '
-            'this file with the reason it is a screen and not a component. '
-            'A gallery that is only MOSTLY complete is one nobody trusts, and '
-            'the sweeps it feeds (overflow at 3.1x, the 44 pt tap floor) only '
-            'cover what is in it.');
+    expect(
+      missing,
+      isEmpty,
+      reason:
+          'The gallery claims to hold every component in lib/ui2, and '
+          'these are not in it:\n  ${missing.join('\n  ')}\n\n'
+          'Add a case to gallery.dart, or add the name to _notComponents in '
+          'this file with the reason it is a screen and not a component. '
+          'A gallery that is only MOSTLY complete is one nobody trusts, and '
+          'the sweeps it feeds (overflow at 3.1x, the 44 pt tap floor) only '
+          'cover what is in it.',
+    );
   });
 }
 
@@ -191,7 +201,8 @@ const _notComponents = {
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
-  'SleepDetail', 'CircadianDetail', 'Investigate', 'JournalCompose',
+  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'Investigate',
+  'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',
   // a live session — a stateful screen with a clock, per archetype
   'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',

@@ -48,6 +48,7 @@ abstract class LocalRepository {
   // ── today / summaries ────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getToday() =>
       throw UnimplementedError('re-layer: getToday');
+
   /// Sleep ONSET/OFFSET for the most recent [days] days, newest first.
   ///
   /// One projected query over `day_result.window_json` — no bundle decode and
@@ -61,6 +62,7 @@ abstract class LocalRepository {
   /// looks like rather than being handed a silently shorter list.
   Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) =>
       throw UnimplementedError('re-layer: sleepWindows');
+
   /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.
   ///
   /// Pass `includeDetected: false` when only saved sessions are wanted: the
@@ -71,6 +73,7 @@ abstract class LocalRepository {
     int? to,
     bool includeDetected = true,
   }) => throw UnimplementedError('re-layer: getSessions');
+
   /// Cross-day analytics rollup (illness/anomaly/load/SRI/jetlag/chronotype/
   /// sleep-debt/percentile/glass-box/BRV) — the seam the cross-day screens and
   /// notifications read. Empty map when no rollup has been computed yet.
@@ -140,6 +143,7 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>
       throw UnimplementedError('re-layer: endWorkout');
+
   /// Log a COMPLETED workout the athlete times themselves — one the band never
   /// detected, or detected too narrowly. Scored from the 1 Hz substrate over
   /// [startTs, endTs] (epoch SECONDS); a window with no substrate is still
@@ -148,8 +152,7 @@ abstract class LocalRepository {
     required int startTs,
     required int endTs,
     required String type,
-  }) =>
-      throw UnimplementedError('re-layer: logManualWorkout');
+  }) => throw UnimplementedError('re-layer: logManualWorkout');
 
   /// Retime an existing session and re-score it over the new window. Used to
   /// widen an auto-detected fragment to the real session. Returns
@@ -160,8 +163,7 @@ abstract class LocalRepository {
     String id, {
     required int startTs,
     required int endTs,
-  }) =>
-      throw UnimplementedError('re-layer: setWorkoutWindow');
+  }) => throw UnimplementedError('re-layer: setWorkoutWindow');
 
   /// Saved session spans (excluding stranded live rows), for the manual-entry
   /// form's overlap check.
@@ -178,6 +180,14 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: postJournal');
   Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) =>
       throw UnimplementedError('re-layer: getJournalInsights');
+
+  /// MIND-12 — does one day of the week actually cost you, on ONE outcome.
+  ///
+  /// Deliberately one outcome and not four: the omnibus + permutation gate pays
+  /// for having looked at seven weekdays, not for having also looked at four
+  /// metrics. Empty map when there is nothing to say.
+  Future<Map<String, dynamic>> getWeekdayEffect({String key = 'readiness'}) =>
+      throw UnimplementedError('re-layer: getWeekdayEffect');
 
   /// One day's numeric journal fields, keyed by field name.
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>
@@ -203,13 +213,18 @@ abstract class LocalRepository {
   // ── menstrual cycle ────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getCycle() =>
       throw UnimplementedError('re-layer: getCycle');
-  Future<void> postCycleLog(String date, {String kind = 'start', String? note}) =>
-      throw UnimplementedError('re-layer: postCycleLog');
+  Future<void> postCycleLog(
+    String date, {
+    String kind = 'start',
+    String? note,
+  }) => throw UnimplementedError('re-layer: postCycleLog');
   Future<void> deleteCycleLog(String date) =>
       throw UnimplementedError('re-layer: deleteCycleLog');
-  Future<void> postCycleSymptoms(String date, List<String> symptoms,
-          {String? note}) =>
-      throw UnimplementedError('re-layer: postCycleSymptoms');
+  Future<void> postCycleSymptoms(
+    String date,
+    List<String> symptoms, {
+    String? note,
+  }) => throw UnimplementedError('re-layer: postCycleSymptoms');
   Future<Map<String, List<String>>> getCycleSymptoms() =>
       throw UnimplementedError('re-layer: getCycleSymptoms');
 
@@ -226,6 +241,5 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> breathingCoherence(
     List<String> records, {
     double? pacedHz,
-  }) =>
-      throw UnimplementedError('re-layer: breathingCoherence');
+  }) => throw UnimplementedError('re-layer: breathingCoherence');
 }

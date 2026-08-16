@@ -22,6 +22,47 @@
 
 import 'dart:math' as math;
 
+import 'package:openstrap_analytics/onehz.dart' as ana;
+
+// ── THE app's HR ceiling for zones / TRIMP / calories ────────────────────────
+//
+// There used to be five of these. `220 − age` at local_repository_impl.dart,
+// app_state.dart and analytics' load_trimp; Tanaka `208 − 0.7·age` inlined in
+// onehz_pipeline and crossday_pipeline; and `(220 − age) + 25` here. At 30 that
+// is 190 vs 187, at 60 it is 160 vs 166 — so the same day's `zone_timeline` and
+// the same day's session `zone_bands` were banded off different ceilings for
+// one user, with nothing on screen saying so. [estimatedMaxHr] is the one
+// definition; route every zone/TRIMP/calorie caller through it.
+//
+// `hrCeilingForAge` below is NOT one of them and is deliberately left alone: it
+// is an artefact-plausibility bound with headroom above the estimate, whose job
+// is to drop impossible samples before a spike defines a peak. Folding it into
+// the training ceiling would clip real effort.
+
+/// Age coefficients per sensor package: HRmax ≈ `intercept − slope · age`.
+///
+/// Both families carry Tanaka (2001) today. They are listed SEPARATELY on
+/// purpose — the number a strap's zones should be banded on is a property of
+/// what that strap can actually measure at intensity (wrist PPG under-reads
+/// where a chest strap does not), so the day a family earns its own ceiling it
+/// changes one entry here rather than everyone's.
+const Map<ana.DeviceFamily, (double, double)> _maxHrByFamily = {
+  ana.DeviceFamily.gen4: (208.0, 0.7),
+  ana.DeviceFamily.gen5: (208.0, 0.7),
+};
+
+/// Estimated HRmax (bpm) for [age] as measured by [deviceFamily], or null.
+///
+/// Null on unknown age AND on an unknown/unstamped strap — see device.dart's
+/// contract: an uncalibrated family is not gen4 with a different badge, so it
+/// gets no ceiling rather than gen4's. Every dependent figure (zones, TRIMP,
+/// strain, Keytel calories) then goes honestly absent.
+double? estimatedMaxHr(num? age, String? deviceFamily) {
+  if (age == null || age <= 0) return null;
+  final c = ana.calibrationFor(_maxHrByFamily, deviceFamily);
+  return c == null ? null : c.$1 - c.$2 * age.toDouble();
+}
+
 /// Below this a sample is sensor dropout/garbage, not a heartbeat.
 const int kHrFloorBpm = 30;
 

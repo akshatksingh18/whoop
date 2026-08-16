@@ -824,11 +824,27 @@ class _HomeScreenState extends State<HomeScreen> {
         )
       else ...[
         // ── the one number ──
+        //
+        // The empty state is a DOOR, not a dead end. The pipeline records why
+        // readiness came back absent on every day it does — which input was
+        // missing, how many of your own nights are behind each one — and that
+        // diagnostic used to go nowhere but a Firebase breadcrumb. It belongs
+        // one tap away, on the Readiness screen: a wall of per-input
+        // diagnostics on Home makes the app read as broken.
         if (rv == null)
-          StatusCard.forMetric('Readiness is not scored today', d.readiness,
-                  why: 'Needs a night of beat-to-beat data, plus your own '
-                      'history to compare it to.') ??
-              const SizedBox.shrink()
+          Builder(builder: (c) {
+            final need = needMessageFromNote(d.readiness.note);
+            return StatusCard(
+              'Readiness is not scored today',
+              need != null
+                  ? '$need to know what normal looks like for you.'
+                  : 'Needs a night of beat-to-beat data, plus your own '
+                      'history to compare it to.',
+              fix: 'See what was missing',
+              icon: LucideIcons.batteryCharging,
+              onFix: () => go(c, const ReadinessDetail()),
+            );
+          })
         else
           ReadinessHero(
             readiness: d.readiness,

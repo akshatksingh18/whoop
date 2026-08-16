@@ -50,6 +50,9 @@ Substrate _synthDay(int startSec, int durSec, {int hr = 82}) {
     spo2Ir: List<int>.filled(n, 0),
     skinTemp: List<int>.filled(n, 3000),
     skinContact: List<int>.filled(n, 0),
+    // Stamped, or there is no HR ceiling and everything banded on it (strain,
+    // TRIMP, zones, calories) abstains — see hr_max.dart.
+    deviceFamily: 'gen4',
   );
 }
 
@@ -308,6 +311,7 @@ void main() {
         spo2Ir: sub.spo2Ir,
         skinTemp: sub.skinTemp,
         skinContact: sub.skinContact,
+        deviceFamily: sub.deviceFamily,
       );
       await DerivationEngine().deriveImportedDays(flat, const Profile(), {
         dayLabel,

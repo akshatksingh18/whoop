@@ -50,6 +50,20 @@ class CircadianData {
   final Metric rhythm;
   final Map<String, dynamic> rhythmV, cosinorV, coverage;
 
+  /// CV-09 — daytime RMSSD by hour of day, one slot per hour, `null` for an
+  /// hour with too few quiet stretches behind it to be a reading. The WEEKLY
+  /// median, never a value for today: a single day's hour is two or three
+  /// five-minute windows.
+  final List<double?> hourly;
+
+  /// How the hourly row was built: derived days walked, how many quiet
+  /// 5-minute stretches EACH hour is made of (24 slots, parallel to [hourly]),
+  /// and the estimator's own note when it refused — an unknown strap family has
+  /// no ENMO cut we can stand behind, so it gets none rather than gen4's.
+  final int hourlyDays;
+  final List<int> hourlyN;
+  final String? hourlyNote;
+
   const CircadianData({
     this.actogram = const [],
     this.labels = const [],
@@ -64,7 +78,19 @@ class CircadianData {
     this.rhythmV = const {},
     this.cosinorV = const {},
     this.coverage = const {},
+    this.hourly = const [],
+    this.hourlyDays = 0,
+    this.hourlyN = const [],
+    this.hourlyNote,
   });
+
+  /// The middle value of [xs], which must be non-empty. A median, not a mean:
+  /// one bin of a stairwell would drag an hour's average and nothing about the
+  /// motion gate catches a slow climb.
+  static double _median(List<double> xs) {
+    final s = [...xs]..sort();
+    return s[s.length ~/ 2];
+  }
 
   static Future<CircadianData> load(LocalRepository repo) async {
     final cd = await repo.getInsights();
@@ -102,9 +128,41 @@ class CircadianData {
       }
     }
 
+    // The rolling week, TODAY EXCLUDED — today's daytime bins are a handful of
+    // five-minute windows and this row is only honest as a weekly median.
+    final today = dayLabelOf(DateTime.now());
+    // ponytail: 7 more bundle decodes on a screen that already does 42. If
+    // this screen ever feels slow the fix is one repo method that reads
+    // `daytime_hrv` without the payload, not a smaller week.
+    final week = days.where((d) => d != today).take(7).toList();
+    final byHour = List.generate(24, (_) => <double>[]);
+    String? hourlyNote;
+    for (final day in week) {
+      final dh = (await repo.getDayHeart(day))['daytime_hrv'];
+      if (dh is! Map) continue;
+      hourlyNote ??= dh['note']?.toString();
+      final tl = dh['timeline'];
+      for (final e in (tl is List ? tl : const [])) {
+        if (e is! Map) continue;
+        final t = e['t'], v = e['rmssd'];
+        if (t is! num || v is! num) continue;
+        final h = DateTime.fromMillisecondsSinceEpoch(t.round() * 1000).hour;
+        byHour[h].add(v.toDouble());
+      }
+    }
+    // An hour built from one or two stretches is not an hour. It goes absent
+    // rather than being drawn faintly or averaged with its neighbours.
+    final hourly = [
+      for (final xs in byHour) xs.length < 3 ? null : _median(xs),
+    ];
+
     return CircadianData(
       actogram: cols,
       labels: labels,
+      hourly: hourly,
+      hourlyDays: week.length,
+      hourlyN: [for (final xs in byHour) xs.length],
+      hourlyNote: hourlyNote,
       chronotypeLabel: (chronoV['type_label'] ?? '').toString(),
       jetlag: envMetric(sjl, sjlV['abs_hours'] as num?),
       regularity: envMetric(reg, regV['sri'] as num?),
@@ -229,23 +287,13 @@ class _CircadianDetailState extends State<CircadianDetail> {
 
         Section('Rhythm strength', _strength(c, p, d)),
 
-        if (d.midFreeH != null && d.midWorkH != null && d.jetlag.value != null
-            && d.jetlag.value! >= 1) ...[
-          const SizedBox(height: S.x4),
-          Builder(builder: (c) {
-            // `abs_hours` is unsigned. The direction is the SIGN of free minus
-            // work, and this card used to assert "later" from a magnitude.
-            final later = d.midFreeH! >= d.midWorkH!;
-            return InsightCard(
-              'Your free-day clock runs ${_hm(d.jetlag.value!)} '
-              '${later ? 'later' : 'earlier'}',
-              'From ${(d.nFree ?? 0).round()} free nights and '
-              '${(d.nWork ?? 0).round()} working nights.',
-              icon: LucideIcons.clock,
-              color: C.indigo,
-            );
-          }),
-        ],
+        // The social-jetlag InsightCard that used to sit here restated three
+        // rows of the table above it as a sentence. Its one extra fact — the
+        // DIRECTION, which is the sign of free minus work and not the unsigned
+        // magnitude the card used to assert "later" from — is on the Social
+        // jetlag row itself now, and the night counts are beside it. One card
+        // off, so the hourly row below can go on.
+        Section('When you are still', _stillness(c, p, d)),
       ],
     ]);
   }
@@ -253,6 +301,71 @@ class _CircadianDetailState extends State<CircadianDetail> {
   String _hm(num hours) {
     final m = (hours * 60).round();
     return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+  }
+
+  /// CV-09 — daytime HRV by hour of day, motion-gated.
+  ///
+  /// THE GATE IS THE FEATURE. The estimator pairs only beats whose own second
+  /// was still — a real gravity vector, ENMO under that strap family's quiet
+  /// cut — so a bin of walking cannot enter as low variability. An unknown
+  /// strap family has no cut we can stand behind and the whole block refuses
+  /// rather than borrowing gen4's.
+  ///
+  /// IT IS NOT STRESS, and the copy has to survive being read by someone who
+  /// wants it to be: posture, digestion, temperature, talking, caffeine and a
+  /// warm room move this as much as anything psychological. So: a weekly
+  /// median and never today's, no colour, no band, no verdict, and an hour
+  /// with too few quiet stretches behind it is absent rather than drawn faint.
+  Widget _stillness(BuildContext c, P p, CircadianData d) {
+    final have = [for (final v in d.hourly) ?v];
+    if (have.isEmpty) {
+      return StatusCard(
+        'No still moments to read yet',
+        d.hourlyNote?.isNotEmpty == true
+            ? d.hourlyNote!
+            : 'This reads beat timing only from the seconds you were not '
+                'moving, and the last '
+                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} had too '
+                'few of them to build an hour from.',
+        icon: LucideIcons.activity,
+      );
+    }
+    final axis = AxisSpec.of(have, ticks: 3, floor: 0, format: axisInt);
+    final drawn = d.hourly.where((v) => v != null).length;
+    // The per-hour depth, as a range. A bar chart has nowhere to print 24
+    // counts and "how many quiet stretches is this hour?" is the question that
+    // decides whether an hour means anything.
+    final counts = [
+      for (var h = 0; h < d.hourly.length && h < d.hourlyN.length; h++)
+        if (d.hourly[h] != null) d.hourlyN[h],
+    ]..sort();
+    final lo = counts.isEmpty ? 0 : counts.first;
+    final hi = counts.isEmpty ? 0 : counts.last;
+    return Surface(
+      child: ChartFrame(
+        title: 'Beat-to-beat variability while still',
+        unit: 'ms',
+        height: 120,
+        yAxis: axis,
+        // The row is 24 hours of the local clock, so both edges and the middle
+        // are wall-clock times rather than positions in an array.
+        xLabels: [clock(0), clock(12 * 60), clock(23 * 60)],
+        series: d.hourly,
+        footnote: 'Each hour is the middle value of $lo–$hi five-minute '
+            'stretches you were actually still, over the last '
+            '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
+            'today\'s alone. $drawn of 24 hours had at least three stretches; '
+            'the rest are blank. This is not a stress score: posture, '
+            'digestion, a warm room, talking and caffeine move it as much as '
+            'anything psychological.',
+        child: CustomPaint(
+          size: Size.infinite,
+          // Uncoloured. A hue here would be a verdict about an hour of your
+          // day, and there is no verdict available.
+          painter: Bars(d.hourly, p.ink3, axis: axis, t: animate(c, 1)),
+        ),
+      ),
+    );
   }
 
   Widget _rhythm(BuildContext c, P p, CircadianData d) {
@@ -263,7 +376,18 @@ class _CircadianDetailState extends State<CircadianDetail> {
         ('Mid-sleep, free days', _hourClock(d.midFreeH)),
       if (d.midWorkH != null)
         ('Mid-sleep, working days', _hourClock(d.midWorkH)),
-      if (d.jetlag.value != null) ('Social jetlag', _hm(d.jetlag.value!)),
+      // `abs_hours` is UNSIGNED. Whether the free-day clock runs later or
+      // earlier is the sign of free minus work; the card that used to say
+      // "later" read it off the magnitude.
+      if (d.jetlag.value != null)
+        (
+          'Social jetlag',
+          '${_hm(d.jetlag.value!)}'
+              '${d.midFreeH == null || d.midWorkH == null ? '' : (d.midFreeH! >= d.midWorkH! ? ' later' : ' earlier')}',
+        ),
+      if (d.nFree != null && d.nWork != null)
+        ('Free / working nights compared',
+            '${d.nFree!.round()} / ${d.nWork!.round()}'),
       if (d.regularity.value != null)
         ('Regularity index', '${d.regularity.value!.round()} / 100'),
     ];

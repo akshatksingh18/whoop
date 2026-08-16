@@ -87,6 +87,35 @@ class _JournalComposeState extends State<JournalCompose> {
     });
   }
 
+  /// MT-06 — when the LAST one landed.
+  ///
+  /// `at_min` has been in the schema, the CSV and the round trip for ages with
+  /// nothing anywhere in the UI that could set it, so it was null for every
+  /// user and the analysis that wants it had nothing to read. The control only
+  /// appears once a dose is logged: a time with no dose is not a fact about
+  /// anything.
+  Future<void> _setTime(String key) async {
+    final cur = _values[key];
+    if (cur == null) return;
+    final at = await showTimePicker(
+      context: context,
+      initialTime: cur.atMinuteOfDay == null
+          ? TimeOfDay.now()
+          : TimeOfDay(
+              hour: cur.atMinuteOfDay! ~/ 60,
+              minute: cur.atMinuteOfDay! % 60,
+            ),
+      helpText: 'When was the last one?',
+    );
+    if (at == null || !mounted) return;
+    setState(() {
+      _values[key] = JournalMetricValue(
+        cur.value,
+        atMinuteOfDay: at.hour * 60 + at.minute,
+      );
+    });
+  }
+
   Future<void> _save() async {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
@@ -104,11 +133,7 @@ class _JournalComposeState extends State<JournalCompose> {
       body: SafeArea(
         child: Column(
           children: [
-            NavBar(
-              'Journal',
-              sub: _date,
-              onBack: () => Navigator.of(c).pop(),
-            ),
+            NavBar('Journal', sub: _date, onBack: () => Navigator.of(c).pop()),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
@@ -131,7 +156,11 @@ class _JournalComposeState extends State<JournalCompose> {
                                   FieldStepper(
                                     spec: s,
                                     value: _values[s.key]?.value,
+                                    atMin: _values[s.key]?.atMinuteOfDay,
                                     onChanged: (v) => _set(s.key, v),
+                                    onTime: s.hasTime
+                                        ? () => _setTime(s.key)
+                                        : null,
                                   ),
                               ],
                             ),
@@ -216,9 +245,7 @@ class MoodPicker extends StatelessWidget {
           ),
           const SizedBox(height: S.x1),
           Text(
-            value == null
-                ? 'Not answered yet'
-                : 'Mood $value of 5',
+            value == null ? 'Not answered yet' : 'Mood $value of 5',
             style: F.cap.copyWith(color: p.ink3),
           ),
           const SizedBox(height: S.x4),
@@ -264,6 +291,8 @@ class FieldStepper extends StatelessWidget {
     required this.spec,
     required this.value,
     required this.onChanged,
+    this.atMin,
+    this.onTime,
   });
 
   final JournalFieldSpec spec;
@@ -272,6 +301,13 @@ class FieldStepper extends StatelessWidget {
   /// today" is a logged zero, "did not say" is an absence.
   final double? value;
   final ValueChanged<double?> onChanged;
+
+  /// The LAST occurrence, in local minutes past midnight. Null = not said.
+  final int? atMin;
+
+  /// Non-null on a field whose spec says timing matters. The row only offers
+  /// it once a dose exists — an hour on its own is not a measurement.
+  final VoidCallback? onTime;
 
   @override
   Widget build(BuildContext c) {
@@ -290,6 +326,17 @@ class FieldStepper extends StatelessWidget {
                   v == null ? 'Not logged' : spec.formatWithUnit(v),
                   style: F.over.copyWith(color: p.ink3),
                 ),
+                if (v != null && v > 0 && onTime != null)
+                  Pressable(
+                    semanticLabel: 'When was the last ${spec.label}',
+                    onTap: onTime,
+                    child: Text(
+                      atMin == null
+                          ? 'Add the time of the last one'
+                          : 'Last at ${formatMinuteOfDay(atMin!)}',
+                      style: F.over.copyWith(color: p.on(C.blue)),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -368,10 +415,7 @@ class OsTextField extends StatelessWidget {
         Text(label.toUpperCase(), style: F.over.copyWith(color: p.ink3)),
         const SizedBox(height: S.x2),
         Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: S.x3,
-            vertical: S.x2,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
           decoration: BoxDecoration(
             color: p.card,
             borderRadius: R.rMd,

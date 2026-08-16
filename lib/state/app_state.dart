@@ -74,7 +74,6 @@ import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
-import '../notify/water_buzzer.dart';
 import '../sync/background_sync.dart' show checkSyncStaleness;
 import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
@@ -164,13 +163,6 @@ class AppState extends ChangeNotifier {
   /// Relay selected phone-app notifications to the strap as a buzz (Android only).
   /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
   late final NotificationRelay notificationRelay = NotificationRelay(
-    buzz: () => engine.buzz(),
-    isConnected: () => engine.isConnected,
-  );
-
-  /// Fires a strap haptic at each hydration-reminder slot (best-effort, only when
-  /// the band is connected). Armed at launch + whenever notification prefs change.
-  late final WaterBuzzer _waterBuzzer = WaterBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
   );
@@ -1074,10 +1066,11 @@ class AppState extends ChangeNotifier {
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
+      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           LocalDb.commitSyncBatch(raws, samples,
               trimToken: trimTokenHex,
               archives: archives,
+              deviceFamily: deviceFamily,
               onCheckpoint: (msg) => _log('[COMMIT] $msg')),
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
@@ -1205,7 +1198,6 @@ class AppState extends ChangeNotifier {
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
-    _waterBuzzer.dispose();
     // Owned notifiers/observers. notificationRelay in particular holds a
     // WidgetsBindingObserver, a 120 s Timer.periodic and a StreamSubscription —
     // its observer accumulated on the binding across every hot restart.
@@ -1273,18 +1265,6 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugHandleAlarmEvent(int id) =>
       _handleAlarmEvent(id, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-
-  /// (Re)arm the strap-buzz timer for the hydration reminder from the current
-  /// notification prefs. Call at launch and whenever the prefs change (the
-  /// Notifications screen passes [prefs] so we skip a reload). Slot times come
-  /// from the same NotificationCenter helper the OS scheduler uses.
-  Future<void> armWaterReminder([NotificationPrefs? prefs]) async {
-    final p = prefs ?? await NotificationPrefs.load();
-    _waterBuzzer.configure(
-      enabled: p.waterEnabled && p.remindersEnabled,
-      slotMinutes: NotificationCenter.waterSlotMinutes(p),
-    );
-  }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
   /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
@@ -1999,9 +1979,6 @@ class AppState extends ChangeNotifier {
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
     // OFF the critical path so it can never block/break boot. Guarded internally.
     unawaited(_initCompanion());
-    unawaited(
-      armWaterReminder(),
-    ); // arm the hydration strap-buzz (timers don't persist)
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
@@ -4249,6 +4226,9 @@ class AppState extends ChangeNotifier {
         'type': type,
         'status': 'live',
         'source': 'manual',
+        // Which strap is measuring this workout, if one is linked right now.
+        // Null when nothing is connected — unknown provenance, not gen4.
+        'device_family': engine.linkDeviceFamily,
         'created_at': start.millisecondsSinceEpoch,
       }),
     );
@@ -4497,6 +4477,12 @@ class AppState extends ChangeNotifier {
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
     final zoneMin = w.zoneMinutes();
     final endTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // Which strap measured this workout. `putSession` is INSERT OR REPLACE, so
+    // an omitted key would blank the stamp startWorkout banked — keep that one
+    // when the link has since dropped rather than downgrading a real answer to
+    // "unknown".
+    final bandFamily = engine.linkDeviceFamily ??
+        ((await LocalDb.session(id))?['device_family'] as String?);
     final sessionRow = {
       'id': id,
       'start_ts': w.startTime.millisecondsSinceEpoch ~/ 1000,
@@ -4512,6 +4498,7 @@ class AppState extends ChangeNotifier {
       ),
       if (wSteps != null && wSteps > 0) 'steps': wSteps,
       'source': 'manual',
+      'device_family': bandFamily,
       'created_at': w.startTime.millisecondsSinceEpoch,
     };
     // AWAITED, and the live state is not cleared until it lands. This was

@@ -112,5 +112,44 @@ void main() {
       expect(engine.strapHistoryNewestTs, isNull);
       expect(engine.state.dataRangeNewest, isNull);
     });
+
+    // SD-08. `pages_behind` was parsed by protocol and read by nobody.
+    test('pages_behind is read off the same reply', () {
+      final engine = newEngine();
+      final now = wallNow();
+
+      engine.debugAbsorbDecoded(Decoded('cmd_response', {
+        'opcode': Cmd.getDataRange,
+        'range_oldest': now - 86400,
+        'range_newest': now - 60,
+        'pages_behind': const {
+          'written': 1200,
+          'used': 4000,
+          'capacity': 2048,
+          'trim_page': 900,
+          'wrap_count': 3,
+          'free_records': 500,
+        },
+      }));
+
+      expect(engine.lastPagesBehind?['free_records'], 500);
+      expect(engine.lastPagesBehind?['wrap_count'], 3);
+    });
+
+    test('a corrupt-clock reply still yields its backlog', () {
+      final engine = newEngine();
+      final now = wallNow();
+      // The epochs are rejected by isCorruptFutureRtc; the page counters are
+      // not timestamps and must not be thrown away with them.
+      engine.debugAbsorbDecoded(Decoded('cmd_response', {
+        'opcode': Cmd.getDataRange,
+        'range_oldest': now - 86400,
+        'range_newest': now + 400 * 86400,
+        'pages_behind': const {'free_records': 7, 'wrap_count': 1},
+      }));
+
+      expect(engine.strapHistoryNewestTs, isNull);
+      expect(engine.lastPagesBehind?['free_records'], 7);
+    });
   });
 }

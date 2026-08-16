@@ -20,6 +20,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/ble_state.dart' show BandStatus;
+import '../../data/db.dart' show LocalDb;
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
@@ -385,16 +386,37 @@ class TierRow extends StatelessWidget {
 
 // ══════════════════ DEVICE DETAIL ══════════════════
 
-class DeviceDetail extends StatelessWidget {
+class DeviceDetail extends StatefulWidget {
   final HealthSource s;
   const DeviceDetail(this.s, {super.key});
 
   @override
+  State<DeviceDetail> createState() => _DeviceDetailState();
+}
+
+class _DeviceDetailState extends State<DeviceDetail> {
+  /// Held, not rebuilt: this screen watches AppState, so a FutureBuilder given
+  /// a fresh `batteryHealth()` on every build would rescan the sample table on
+  /// every connection tick.
+  Map<String, dynamic>? _health;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.s.isBand) return;
+    LocalDb.batteryHealth().then((h) {
+      if (mounted) setState(() => _health = h);
+    }).catchError((_) {});
+  }
+
+  @override
   Widget build(BuildContext c) {
+    final s = widget.s;
     final app = s.isBand ? c.watch<AppState>() : null;
     return DeviceDetailView(
       s,
       status: app?.engine.bandStatus,
+      health: _health,
       onFind: app?.buzzBand,
       onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
@@ -440,8 +462,12 @@ class DeviceDetailView extends StatelessWidget {
   /// The band's own state, from `bandStatusFor`. Null for a non-band source.
   final BandStatus? status;
 
+  /// `LocalDb.batteryHealth()` — the recent `band_battery` series, which is the
+  /// one table nothing prunes. Null until it loads, and on a non-band source.
+  final Map<String, dynamic>? health;
+
   const DeviceDetailView(this.s,
-      {super.key, this.onFind, this.onForget, this.status});
+      {super.key, this.onFind, this.onForget, this.status, this.health});
 
   @override
   Widget build(BuildContext c) {
@@ -500,9 +526,20 @@ class DeviceDetailView extends StatelessWidget {
                     child: Column(children: [
                       SetRow(LucideIcons.batteryMedium, C.green, 'Battery',
                           value: battery == null ? '' : '${battery.round()}%',
+                          // L11 — the band's own charge history, on the row
+                          // that already exists rather than a new one. Within
+                          // THIS band only: `charge_cycles` counts rising
+                          // charging edges, not full cycles, and the millivolts
+                          // are the highest reading seen while charging — so
+                          // neither is ever put against a cell spec, turned
+                          // into a percentage of original capacity, or read as
+                          // "replace the battery".
                           sub: battery == null
                               ? 'Not reported since the last connection'
-                              : (s.charging ? 'Charging' : ''),
+                              : [
+                                  if (s.charging) 'Charging',
+                                  ?_chargeHistory(health),
+                                ].join(' · '),
                           chevron: false),
                       Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
@@ -531,6 +568,17 @@ class DeviceDetailView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "12 charges logged, up to 4,180 mV" — or null when there is no history to
+/// report yet. Two facts about this band and nothing derived from them: nothing
+/// here knows the pack's design capacity, and a charging EDGE is not a cycle.
+String? _chargeHistory(Map<String, dynamic>? h) {
+  final cycles = (h?['charge_cycles'] as num?)?.toInt() ?? 0;
+  if (cycles <= 0) return null;
+  final mv = (h?['full_charge_mv'] as num?)?.toInt();
+  return '$cycles charge${cycles == 1 ? '' : 's'} logged'
+      '${mv == null ? '' : ', up to $mv mV'}';
 }
 
 /// "Thu 4 Sep, 07:12" — local, which is what every day label in this app is.

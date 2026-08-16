@@ -102,6 +102,56 @@ void main() {
     });
   });
 
+  group('a formatted stat splits into a number and a unit', () {
+    test('…when the tail is actually a unit', () {
+      expect(splitStatUnit('148 bpm'), ('148', 'bpm'));
+      expect(splitStatUnit('5:01 /km'), ('5:01', '/km'));
+      expect(splitStatUnit('2,310 kcal'), ('2,310', 'kcal'));
+      expect(splitStatUnit('+412 m'), ('+412', 'm'));
+    });
+
+    test('…and never otherwise', () {
+      // The one that made this a function rather than a `split(' ').last`:
+      // the last word of a duration is not a unit of anything, and setting
+      // '02m' in the unit slot prints the time as '1h'.
+      expect(splitStatUnit('1h 02m'), ('1h 02m', null));
+      expect(splitStatUnit('10h 24m 18s'), ('10h 24m 18s', null));
+      expect(splitStatUnit('12'), ('12', null));
+    });
+  });
+
+  test('the pace ramp runs fast-green to slow-red, and clamps', () {
+    expect(paceColor(1), C.green);
+    expect(paceColor(0), C.red);
+    // Nothing off the ends: a speed of 1.4 is a GPS artefact, not a colour
+    // outside the palette.
+    expect(paceColor(9), C.green);
+    expect(paceColor(-3), C.red);
+  });
+
+  testWidgets('the poster prints the stats it was given and no others',
+      (t) async {
+    t.view.physicalSize = const Size(390 * 3, 900 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.dark),
+      home: Scaffold(
+        body: Center(child: PosterCard(_run, const {'Heart rate'})),
+      ),
+    ));
+    await t.pumpAndSettle();
+
+    expect(t.takeException(), isNull);
+    expect(find.text('HEART RATE'), findsOneWidget);
+    // One row, and no filler where the other two would have been. Every
+    // running card in the world pads this slot with cadence; this session did
+    // not measure cadence.
+    expect(find.byType(PosterStatRow), findsOneWidget);
+    expect(find.text('TIME'), findsNothing);
+  });
+
   testWidgets('the poster draws without a basemap', (t) async {
     // The no-signal card. It must render the route on its own surface and
     // keep every number, rather than showing a hole where the map was.

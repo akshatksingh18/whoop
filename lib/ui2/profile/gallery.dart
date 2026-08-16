@@ -22,10 +22,13 @@
 import 'dart:math';
 
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
@@ -34,9 +37,10 @@ import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityRow;
-import '../activity/poster.dart' show PosterCard, kPosterMapH, kPosterMapW;
+import '../activity/poster.dart'
+    show PosterCard, PosterStatRow, kPosterMapH, kPosterMapW;
 import '../activity/tiles.dart';
-import '../activity/share.dart' show ShareCard;
+import '../activity/share.dart' show ShareCard, shareOrigin;
 import '../activity/summary.dart';
 import '../onboarding/profile_setup.dart' show UnlockContract;
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
@@ -714,6 +718,33 @@ Map<String, Widget> extraCases() => {
       // what a user with no signal gets.
       'poster': PosterCard(_finished, const {'Time', 'Pace', 'Heart rate'}),
       'poster_no_stats': PosterCard(_finished, const {}),
+      // The poster's stat row on its own, on a normal card — it takes its ink
+      // from the page when none is given, which is the whole reason it is not
+      // a private widget inside poster.dart.
+      'poster_stat_row': Surface(
+        child: Column(children: [
+          const PosterStatRow(
+              icon: LucideIcons.gauge,
+              label: 'Pace',
+              value: '5:12',
+              unit: '/km',
+              accent: C.domMove),
+          const SizedBox(height: S.x3),
+          const PosterStatRow(
+              icon: LucideIcons.flame,
+              label: 'Calories',
+              value: '2,310',
+              unit: 'kcal',
+              accent: C.orange),
+          const SizedBox(height: S.x3),
+          // No unit, and the longest duration anyone will post.
+          const PosterStatRow(
+              icon: LucideIcons.timer,
+              label: 'Time',
+              value: '10h 24m 18s',
+              accent: C.domHealth),
+        ]),
+      ),
     };
 
 /// The SECOND state of every card.
@@ -1154,6 +1185,12 @@ class _PosterPreviewState extends State<_PosterPreview> {
   bool _loading = false;
   bool _tried = false;
 
+  /// The card, as pixels. This is the only place in the app a share can be
+  /// exercised without a recorded session, so it captures the SAME way the
+  /// share sheet does — boundary, 3×, `shareXFiles` with an anchor.
+  final _card = GlobalKey();
+  bool _sharing = false;
+
   @override
   void dispose() {
     _mosaic?.dispose();
@@ -1194,6 +1231,38 @@ class _PosterPreviewState extends State<_PosterPreview> {
     } catch (_) {/* cancelled, or no picker — neither is an error */}
   }
 
+  /// Share the card that is on screen, rather than re-drawing a second,
+  /// slightly different one. The anchor is `shareOrigin` from share.dart and
+  /// not a rect invented here: `UIActivityViewController` is a popover on iPad
+  /// and `share_plus` throws rather than guessing without one.
+  Future<void> _share() async {
+    if (_sharing) return;
+    _sharing = true;
+    final origin = shareOrigin(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final boundary =
+          _card.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final image = await boundary.toImage(pixelRatio: 3);
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (png == null) return;
+      await Share.shareXFiles(
+        [
+          XFile.fromData(png.buffer.asUint8List(),
+              mimeType: 'image/png', name: 'poster.png'),
+        ],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Could not open the share sheet.')));
+      debugPrint('gallery share failed: $e');
+    } finally {
+      _sharing = false;
+    }
+  }
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -1201,11 +1270,14 @@ class _PosterPreviewState extends State<_PosterPreview> {
       Text('poster · live', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x2),
       Center(
-        child: PosterCard(
-          _demoRun,
-          const {'Time', 'Pace', 'Heart rate'},
-          photo: _photo == null ? null : FileImage(_photo!),
-          mosaic: _mosaic,
+        child: RepaintBoundary(
+          key: _card,
+          child: PosterCard(
+            _demoRun,
+            const {'Time', 'Pace', 'Heart rate'},
+            photo: _photo == null ? null : FileImage(_photo!),
+            mosaic: _mosaic,
+          ),
         ),
       ),
       const SizedBox(height: S.x3),
@@ -1226,6 +1298,10 @@ class _PosterPreviewState extends State<_PosterPreview> {
             SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
                 chevron: false, onTap: () => setState(() => _photo = null)),
           ],
+          Divider(color: p.line, height: 1),
+          SetRow(LucideIcons.share2, C.blue, 'Share this card',
+              sub: 'The real export — the boundary above, at 3×',
+              chevron: false, onTap: _share),
         ]),
       ),
       if (_tried && !_loading && _mosaic == null) ...[

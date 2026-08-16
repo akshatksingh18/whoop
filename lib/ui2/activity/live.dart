@@ -2034,6 +2034,17 @@ class _LiveIntervalState extends State<LiveInterval> {
     super.initState();
     _t = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
+      // PAUSE STOPS THE INTERVAL ENGINE. Without this the countdown kept
+      // running while the session was paused: it buzzed and announced
+      // "Work"/"Rest" at a phone in your pocket, advanced the round pips, and
+      // BANKED IntervalRounds you never performed — so a five-minute pause
+      // wrote four rounds of 45 s work into the summary while the elapsed
+      // clock, which does subtract pauses, said the session was shorter than
+      // the rounds it listed.
+      //
+      // The heart-rate sample is skipped too: readings taken while you stand
+      // still would drag the round's mean down toward resting.
+      if (LiveDraft.current?.pausedAt != null) return;
       final hr = widget.feed?.call().hr;
       if (hr != null && hr > 0) _roundHr.add(hr);
       setState(() {

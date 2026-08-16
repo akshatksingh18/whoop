@@ -45,10 +45,49 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   Future<_WorkoutData>? _load;
 
+  /// The revision this screen's data was loaded at.
+  ///
+  /// `_load ??=` alone meant the screen read the database exactly once, for the
+  /// life of the widget — so a session you had just finished was absent from
+  /// History, "This week", "Tracked" and the weekly load until the app was
+  /// restarted. `AppState.insightsRevision` already ticks after every derive
+  /// and now after a session is durably written, so re-reading when it moves
+  /// covers the manual finish, the gesture path and the Live Activity alike.
+  int _loadedAt = -1;
+
+  /// Held so the listener can be removed in [dispose], where `context.read`
+  /// is not safe, and so a second `didChangeDependencies` cannot subscribe
+  /// twice — `ValueNotifier.addListener` stacks duplicates.
+  ValueNotifier<int>? _rev;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _load ??= _loadWorkoutData(context.read<AppState>());
+    final app = context.read<AppState>();
+    if (!identical(_rev, app.insightsRevision)) {
+      _rev?.removeListener(_onRevision);
+      _rev = app.insightsRevision..addListener(_onRevision);
+    }
+    if (_load == null) {
+      _loadedAt = app.insightsRevision.value;
+      _load = _loadWorkoutData(app);
+    }
+  }
+
+  void _onRevision() {
+    if (!mounted) return;
+    final app = context.read<AppState>();
+    if (app.insightsRevision.value == _loadedAt) return;
+    setState(() {
+      _loadedAt = app.insightsRevision.value;
+      _load = _loadWorkoutData(app);
+    });
+  }
+
+  @override
+  void dispose() {
+    _rev?.removeListener(_onRevision);
+    super.dispose();
   }
 
   @override

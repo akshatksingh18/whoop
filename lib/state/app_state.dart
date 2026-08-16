@@ -4675,6 +4675,11 @@ class AppState extends ChangeNotifier {
     // propagates instead of being reported as a finished, saved session.
     try {
       await LocalDb.putSession(sessionRow);
+      // The session is durable — tell the screens that read sessions. Without
+      // this the Workout tab, which loads once and caches, showed no trace of
+      // the workout you had just finished in History, "This week", "Tracked"
+      // or the weekly load until the app was restarted.
+      _bumpInsightsRevision();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();

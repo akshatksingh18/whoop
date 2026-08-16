@@ -279,6 +279,29 @@ void main() {
     });
   });
 
+  // ── the headline number must not claim a day it did not come from ──
+  group('held-over overnight', () {
+    Widget frame(HomeData d) => MaterialApp(
+        theme: buildTheme(Brightness.light), home: Scaffold(body: HomeScreen(data: d, hour: 20)));
+
+    final readiness = const Metric(value: 82, confidence: .8, tier: MetricTier.high);
+
+    testWidgets('a settled overnight still says Today', (t) async {
+      await t.pumpWidget(frame(HomeData(readiness: readiness, dayId: '2026-05-20')));
+      expect(find.text("Today's readiness"), findsOneWidget);
+    });
+
+    testWidgets('a held-over night names its own date instead', (t) async {
+      // getToday holds the last scored night over until today's settles, so
+      // this is an ordinary morning before the first sync — not a rare case.
+      await t.pumpWidget(frame(HomeData(
+          readiness: readiness, dayId: '2026-05-20', heldOverNight: '2026-05-16')));
+      expect(find.text("Today's readiness"), findsNothing,
+          reason: 'the number is four days old; calling it today is the bug');
+      expect(find.textContaining('16 May'), findsOneWidget);
+    });
+  });
+
   // ── a rebuild the user never hears about is data quietly vanishing ──
   group('dbRebuiltCard', () {
     test('says nothing when nothing was rebuilt', () {

@@ -207,7 +207,15 @@ class _WellnessScreenState extends State<WellnessScreen> {
   Future<void> _setField(String key, double? v) async {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
-    final next = {..._todayFields};
+    // RE-READ THE DAY, do not write from the snapshot this tab loaded with.
+    //
+    // `postJournalMetrics` -> `putJournalMetrics` DELETES the whole day and
+    // re-inserts what it is handed, so writing a merge of `_todayFields` — a
+    // copy taken when the tab last loaded — silently deleted every journal
+    // field written since. Open Wellness, go and write your journal from the
+    // compose screen, come back without the tab reloading, tick one habit, and
+    // the journal entry was gone.
+    final next = {...await repo.getJournalMetrics(_date)};
     if (v == null) {
       next.remove(key);
     } else {

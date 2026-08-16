@@ -419,6 +419,20 @@ class HomeData {
   /// case, and the screen owes the user the reason.
   final Map<String, dynamic>? insightsStale;
 
+  /// The night the overnight block actually came from, when it is NOT today's.
+  ///
+  /// `getToday` holds the last scored night over whenever today's has not
+  /// settled — which is every morning before the first sync, and the whole of
+  /// any gap after one. Readiness, sleep, resting HR, HRV and skin temperature
+  /// then all describe that night while steps and active energy describe
+  /// today, so one screen shows two different days. The old UI withheld the
+  /// score outright (`TodayData.settledReadinessScore`, still pinned by
+  /// `test/readiness_flash_test.dart`); ui2 never consulted the gate.
+  ///
+  /// Withholding is the wrong answer here — the number is real and it is the
+  /// most recent one there is. Naming its night is the right one.
+  final String? heldOverNight;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -434,6 +448,7 @@ class HomeData {
     this.sleepNeedMin = Metric.empty,
     this.bedtime = Metric.empty,
     this.strainTarget,
+    this.heldOverNight,
     this.insightsStale,
   });
 
@@ -457,9 +472,19 @@ class HomeData {
 
     final strain = today['coach'];
 
+    // The night the overnight block actually came from, when it is NOT today's.
+    // `getToday` stamps `overnight_day` with the night it served.
+    final st = today['status'] is Map
+        ? (today['status'] as Map)
+        : const <String, dynamic>{};
+    final heldOver = st['showing_prior_overnight'] == true
+        ? st['overnight_day']?.toString()
+        : null;
+
     return HomeData(
       name: profile['name']?.toString(),
       dayId: (today['status'] as Map?)?['today_day']?.toString(),
+      heldOverNight: heldOver,
       readiness: metricOf(d('readiness')),
       drivers: [
         for (final e in (gbDrivers is List ? gbDrivers : const []))
@@ -617,7 +642,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Today's readiness",
+                      // Names the night it came from when that is not last
+                      // night. The overnight block is held over until today's
+                      // settles, so before the first sync of the morning — and
+                      // for the whole of any gap after one — this number
+                      // describes an older night while the steps and energy
+                      // beside it describe today.
+                      Text(
+                          d.heldOverNight == null
+                              ? "Today's readiness"
+                              : 'Readiness · ${prettyDay(d.heldOverNight)}',
                           style: F.cap.copyWith(color: p.ink2)),
                       const SizedBox(height: S.x3),
                       Row(

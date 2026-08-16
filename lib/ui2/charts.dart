@@ -701,16 +701,40 @@ class Hypnogram extends CustomPainter {
     final lane = s.height / 4, w = s.width / v.length;
     final n = (v.length * t.clamp(0, 1)).round().clamp(1, v.length);
     final ink = cols(p);
-    for (var i = 0; i < n; i++) {
+
+    // Drawn as RUNS, not columns. One rect per column left a 0.8 pt gap between
+    // every pair of neighbours, so a solid two-hour stretch of light sleep came
+    // out as a picket fence and a continuous night read as fragmented data.
+    // A run is one rect however long it is, and a step joins it to the next —
+    // which is what a hypnogram is: a line that moves between four levels, not
+    // a scatter of blocks.
+    final step = Paint()
+      ..color = p.line
+      ..strokeWidth = 1;
+    var i = 0;
+    while (i < n) {
       final st = v[i];
+      var j = i;
+      while (j + 1 < n && v[j + 1] == st) {
+        j++;
+      }
+      final x0 = i * w, x1 = (j + 1) * w;
+      final y = st.index * lane + 2, h = lane - 5;
       cv.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(
-              i * w, st.index * lane + 2, max(w - .8, 2), lane - 5),
+          Rect.fromLTWH(x0, y, max(x1 - x0 - .8, 2), h),
           const Radius.circular(2),
         ),
         Paint()..color = ink[st]!,
       );
+      // The riser to the next level. Faint on purpose: it carries continuity,
+      // and the lanes already carry the stage.
+      if (j + 1 < n) {
+        final next = v[j + 1];
+        final a = y + h / 2, b = next.index * lane + 2 + h / 2;
+        cv.drawLine(Offset(x1, min(a, b)), Offset(x1, max(a, b)), step);
+      }
+      i = j + 1;
     }
   }
 

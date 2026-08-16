@@ -258,43 +258,104 @@ List<Map<String, dynamic>> _hypno() {
   return out;
 }
 
+/// One night's map. [elevated] drives the nocturnal-heart-rate detection, which
+/// is the one "unusual" item that comes from the night itself rather than from
+/// a comparison against history.
+Map<String, dynamic> _night({bool elevated = false}) => {
+      'duration_min': 443,
+      'in_bed_min': 486,
+      'awake_min': 20,
+      'efficiency': .91,
+      'onset_ts': _onsetTs,
+      'wake_ts': _onsetTs + 486 * 60,
+      'light_min': 170,
+      'deep_min': 85,
+      'rem_min': 95,
+      'hypnogram': _hypno(),
+      'cycle_count': 5,
+      'cycles_mean_min': 92,
+      'advanced': const {'sol_s': 780},
+      'nocturnal': {
+        'sleeping_hr_avg': 52,
+        'sleeping_hr_min': 46,
+        'day_hr_avg': 68,
+        'vs_baseline_bpm': elevated ? 4.6 : 0.4,
+        'dip_pct': .24,
+        'elevated': elevated,
+      },
+      'resp': const {'value': 14.2, 'confidence': .6},
+    };
+
+final _timeline = {
+  'hr': [
+    for (var i = 0; i < 120; i++)
+      {'t': _onsetTs + i * 240, 'v': 52 + (i % 11) - 5},
+  ],
+  'hrv': [
+    for (var i = 0; i < 120; i++)
+      {'t': _onsetTs + i * 240, 'v': 62 + (i % 17) - 8},
+  ],
+  'resp': [
+    for (var i = 0; i < 120; i++)
+      {'t': _onsetTs + i * 240, 'v': 14 + (i % 5) / 2},
+  ],
+  // Relative skin temperature — the fourth lane, in deviation units, never °C.
+  'skin_temp': [
+    for (var i = 0; i < 60; i++)
+      {'t': _onsetTs + i * 480, 'v': -0.2 + (i % 7) / 20},
+  ],
+};
+
+/// [n] nights of history, deterministic, centred on [base] with a spread of
+/// ±[amp]. The screen's comparison is quartiles of the user's own nights, so a
+/// fixture only has to be a distribution — not a plausible calendar.
+List<double> _nights(int n, double base, double amp) => [
+      for (var i = 0; i < n; i++) base + ((i * 37) % 17) / 17 * amp - amp / 2,
+    ];
+
+/// Last night landed OUTSIDE the recent range on deep sleep (85 min against a
+/// 55–80 history) and the sleeping heart rate ran high — so the comparison
+/// rows, both extremes and the nocturnal detection are all on screen.
 final _sleep = SleepData(
   day: '2026-05-20',
-  night: {
-    'duration_min': 443,
-    'in_bed_min': 486,
-    'awake_min': 20,
-    'efficiency': .91,
-    'onset_ts': _onsetTs,
-    'wake_ts': _onsetTs + 486 * 60,
-    'light_min': 170,
-    'deep_min': 85,
-    'rem_min': 95,
-    'hypnogram': _hypno(),
-    'cycle_count': 5,
-    'cycles_mean_min': 92,
-    'advanced': const {'sol_s': 780},
-  },
-  timeline: {
-    'hr': [
-      for (var i = 0; i < 120; i++)
-        {'t': _onsetTs + i * 240, 'v': 52 + (i % 11) - 5},
-    ],
-    'hrv': [
-      for (var i = 0; i < 120; i++)
-        {'t': _onsetTs + i * 240, 'v': 62 + (i % 17) - 8},
-    ],
-    'resp': [
-      for (var i = 0; i < 120; i++)
-        {'t': _onsetTs + i * 240, 'v': 14 + (i % 5) / 2},
-    ],
-  },
+  night: _night(elevated: true),
+  timeline: _timeline,
   need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
   debt: const Metric(value: 22, unit: 'min', confidence: .7, tier: MetricTier.estimate),
   bedtime: const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
-  wake: const Metric(value: 420, confidence: .7, tier: MetricTier.estimate),
-  regularity: const Metric(value: 78, confidence: .7, tier: MetricTier.estimate),
-  strainBonusMin: 14,
+  tstHistory: _nights(28, 452, 90),
+  deepHistory: _nights(28, 67, 25),
+  effHistory: _nights(28, 89, 8),
+  onsetHistory: [
+    for (var i = 0; i < 28; i++)
+      _onsetTs - (i + 1) * 86400 + (((i * 37) % 17) - 8) * 300,
+  ],
+);
+
+/// The common night: everything inside the user's own range, nothing to report.
+/// "Nothing stood out" is an answer, and this is the state most nights are in.
+final _sleepTypical = SleepData(
+  day: '2026-05-20',
+  night: _night(),
+  timeline: _timeline,
+  need: const Metric(value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+  bedtime: const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
+  tstHistory: _nights(28, 443, 120),
+  deepHistory: _nights(28, 85, 40),
+  effHistory: _nights(28, 91, 12),
+  onsetHistory: [
+    for (var i = 0; i < 28; i++)
+      _onsetTs - (i + 1) * 86400 + (((i * 37) % 17) - 8) * 600,
+  ],
+);
+
+/// A first-week user: a real night, and no history to judge it against. This is
+/// what the screen looks like for a fortnight, and it must not pretend.
+final _sleepNew = SleepData(
+  day: '2026-05-20',
+  night: _night(),
+  timeline: _timeline,
+  tstHistory: const [430, 465, 410],
 );
 
 const _sleepCold = SleepData();
@@ -478,6 +539,8 @@ Map<String, Widget> _cases() => {
       'readiness_detail': ReadinessDetail(data: _readiness),
       'readiness_detail_cold': const ReadinessDetail(data: _readinessCold),
       'sleep_detail': SleepDetail(data: _sleep),
+      'sleep_detail_typical': SleepDetail(data: _sleepTypical),
+      'sleep_detail_new': SleepDetail(data: _sleepNew),
       'sleep_detail_cold': const SleepDetail(data: _sleepCold),
       'circadian_detail': CircadianDetail(data: _circadian()),
       'circadian_detail_cold':
@@ -578,6 +641,7 @@ void main() {
       const HealthScreen(data: _healthCold),
       const ReadinessDetail(data: _readinessCold),
       const SleepDetail(data: _sleepCold),
+      SleepDetail(data: _sleepNew),
       const CircadianDetail(data: CircadianData()),
       const MetricDetail('resting_hr', data: MetricData()),
       const MetricDetail('skin_temp', data: MetricData()),

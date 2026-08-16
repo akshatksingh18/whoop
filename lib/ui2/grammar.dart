@@ -1510,7 +1510,11 @@ class ChartFrame extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: S.x1),
-                  Text(label, style: tick),
+                  // Flexible, because `Wrap` hands each item the frame's full
+                  // width and no more: a key like "Breathing (br/min)" is wider
+                  // than a 390 pt card at 2× text and overflowed the item
+                  // rather than wrapping inside it.
+                  Flexible(child: Text(label, style: tick)),
                 ]),
             ]),
           ),

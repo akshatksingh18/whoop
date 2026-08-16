@@ -1,5 +1,13 @@
 // A real map under a route, as a still picture.
 //
+// THIS IS THE ONLY THING IN THE APP THAT TALKS TO A SERVER ABOUT YOUR DATA.
+// The z/x/y of a tile is a Web-Mercator encoding of the route's bounding box,
+// so asking for one tells openstreetmap.org roughly where the session
+// happened. Everything else here stays on the phone, so this cannot be
+// implicit: [mapTilesAllowed] is off until the user turns it on, and
+// [buildRouteMosaic] refuses without it. A card with no basemap is still a
+// card — the route draws on the card's own ground.
+//
 // The share card is EXPORTED — `RenderRepaintBoundary.toImage` runs once and
 // whatever is on screen at that instant is what leaves the phone. An
 // interactive map widget loads its tiles asynchronously and would export blank
@@ -10,6 +18,8 @@
 // OpenStreetMap's tile usage policy is not decoration. This file honours it:
 //   · a real User-Agent naming the app and its repo (the policy's first rule);
 //   · a disk cache, so a card re-rendered ten times fetches once;
+//   · at most [_maxParallel] requests in flight, which is what the policy
+//     allows — a card used to hand all forty of its tiles to one `Future.wait`;
 //   · a hard ceiling of [_maxTiles] per card and one zoom level per card, so
 //     there is no bulk download here under any input;
 //   · [kOsmAttribution], which the caller MUST render on the card. Tiles
@@ -29,12 +39,29 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../../state/prefs.dart';
 import '../theme.dart';
 
 /// Required on any card that draws [buildRouteMosaic]'s output.
 const kOsmAttribution = '© OpenStreetMap contributors';
 
+/// Whether the user has said the basemap may be fetched.
+///
+/// Default OFF and persisted, like every other outbound path in this app
+/// (crash reports, health contribution, update checks). The share sheet asks
+/// in the one place it matters, in the words this actually does: drawing a
+/// basemap asks openstreetmap.org for the tiles covering the route.
+const kMapTilesConsent = 'share.map_tiles';
+
+bool get mapTilesAllowed => Prefs.getBool(kMapTilesConsent, false);
+
+void setMapTilesAllowed(bool on) => Prefs.setBool(kMapTilesConsent, on);
+
 const _tileSize = 256;
+
+/// Requests in flight at once. OSM's usage policy caps this at two and treats
+/// parallel bulk pulls as grounds for blocking.
+const _maxParallel = 2;
 
 /// Per card, as a runaway guard only.
 ///
@@ -199,10 +226,10 @@ Future<ui.Image?> _tile(int z, int x, int y, http.Client client) async {
 
 /// Fetch a basemap that frames [geo], and project the route onto it.
 ///
-/// Returns null when there is no route, no network, or every tile failed —
-/// and the caller must then fall back to drawing the route on its own. A
-/// missing map is a plainer card; a half-loaded one is a broken picture that
-/// somebody else receives.
+/// Returns null when [mapTilesAllowed] is off, when there is no route, no
+/// network, or ANY tile failed — and the caller must then fall back to drawing
+/// the route on its own. A missing map is a plainer card; a half-loaded one is
+/// a broken picture that somebody else receives.
 ///
 /// [pad] is the fraction of the frame left around the route, so the line never
 /// runs into the card's edge. It is also the only zoom control there is, and
@@ -291,6 +318,10 @@ Future<RouteMosaic?> buildRouteMosaic(
   required Color ink,
   double pad = .02,
 }) async {
+  // The consent boundary, at the door rather than at each caller. The tile
+  // request encodes where the session was, so nothing may ask for one until
+  // the user has said it may.
+  if (!mapTilesAllowed) return null;
   if (geo.length < 2 || width <= 0 || height <= 0) return null;
 
   var loLat = geo.first.$1, hiLat = loLat;
@@ -319,26 +350,45 @@ Future<RouteMosaic?> buildRouteMosaic(
   final x0 = frame.x0, x1 = frame.x1, y0 = frame.y0, y1 = frame.y1;
 
   final n = math.pow(2, z).toInt();
+  // Longitude wraps; latitude does not. An out-of-range row is empty ocean off
+  // the top or bottom of the world, not a tile to ask for.
+  final want = <(int, int)>[
+    for (var x = x0; x < x1; x++)
+      for (var y = y0; y < y1; y++)
+        if (y >= 0 && y < n) (x, y),
+  ];
+  if (want.isEmpty) return null;
+
   final client = http.Client();
   final fetched = <(int, int), ui.Image>{};
+  var missing = false;
   try {
-    final jobs = <Future<void>>[];
-    for (var x = x0; x < x1; x++) {
-      for (var y = y0; y < y1; y++) {
-        // Longitude wraps; latitude does not. An out-of-range row is empty
-        // ocean off the top or bottom of the world, not a tile to ask for.
-        if (y < 0 || y >= n) continue;
-        final wx = x % n, wy = y;
-        jobs.add(_tile(z, wx < 0 ? wx + n : wx, wy, client).then((img) {
-          if (img != null) fetched[(x, y)] = img;
-        }));
-      }
+    // [_maxParallel] at a time, and stop at the first failure: the card needs
+    // every tile, so there is nothing to gain from asking for the rest.
+    for (var i = 0; i < want.length && !missing; i += _maxParallel) {
+      await Future.wait([
+        for (final (x, y) in want.skip(i).take(_maxParallel))
+          _tile(z, (x % n + n) % n, y, client).then((img) {
+            if (img == null) {
+              missing = true;
+            } else {
+              fetched[(x, y)] = img;
+            }
+          }),
+      ]);
     }
-    await Future.wait(jobs);
   } finally {
     client.close();
   }
-  if (fetched.isEmpty) return null;
+  // ALL of them or none. A mosaic with a tile missing draws a hard-edged
+  // near-black square where that tile should be, and it is drawn, exported and
+  // sent to somebody else with nothing on screen saying it is broken.
+  if (missing || fetched.length != want.length) {
+    for (final img in fetched.values) {
+      img.dispose();
+    }
+    return null;
+  }
 
   // Top-left of the frame in tile units, so a tile at (x, y) lands at
   // ((x - originX) * 256, (y - originY) * 256).

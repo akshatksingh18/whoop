@@ -123,53 +123,64 @@ class _CalmBreathingState extends State<CalmBreathing>
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: S.x5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Pressable(
-                  semanticLabel: 'Close breathing',
-                  onTap: () async {
-                    if (_running) await _stop();
-                    if (c.mounted) Navigator.of(c).pop();
-                  },
-                  child: Icon(LucideIcons.x, size: 22, color: p.ink2),
+    // Swiping back is the same exit as the X, and it used to be a different
+    // one: the ticker stopped, nothing banked the session, `breathingActive`
+    // stayed true, and the band's live streams stayed on until the app died.
+    return PopScope(
+      canPop: !_running,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || !_running) return;
+        await _stop();
+        if (mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Pressable(
+                    semanticLabel: 'Close breathing',
+                    onTap: () async {
+                      if (_running) await _stop();
+                      if (c.mounted) Navigator.of(c).pop();
+                    },
+                    child: Icon(LucideIcons.x, size: 22, color: p.ink2),
+                  ),
                 ),
-              ),
-              Expanded(
-                child: _finished
-                    ? _Result(onDone: () => Navigator.of(c).pop())
-                    : _running
-                    ? _Running(
-                        pattern: _pattern,
-                        elapsed: _elapsed,
-                        target: _target,
-                        banded: _banded,
-                      )
-                    : _Setup(
-                        pattern: _pattern,
-                        minutes: _minutes,
-                        onPattern: (v) => setState(() => _pattern = v),
-                        onMinutes: (v) => setState(() => _minutes = v),
-                      ),
-              ),
-              BigButton(
-                _running ? 'End session' : (_finished ? 'Done' : 'Begin'),
-                icon: _running ? LucideIcons.square : LucideIcons.play,
-                color: C.domMind,
-                soft: _running,
-                onTap: _running
-                    ? _stop
-                    : (_finished ? () => Navigator.of(c).pop() : _start),
-              ),
-              const SizedBox(height: S.x6),
-            ],
+                Expanded(
+                  child: _finished
+                      ? _Result(onDone: () => Navigator.of(c).pop())
+                      : _running
+                      ? _Running(
+                          pattern: _pattern,
+                          elapsed: _elapsed,
+                          target: _target,
+                          banded: _banded,
+                        )
+                      : _Setup(
+                          pattern: _pattern,
+                          minutes: _minutes,
+                          onPattern: (v) => setState(() => _pattern = v),
+                          onMinutes: (v) => setState(() => _minutes = v),
+                        ),
+                ),
+                BigButton(
+                  _running ? 'End session' : (_finished ? 'Done' : 'Begin'),
+                  icon: _running ? LucideIcons.square : LucideIcons.play,
+                  color: C.domMind,
+                  soft: _running,
+                  onTap: _running
+                      ? _stop
+                      : (_finished ? () => Navigator.of(c).pop() : _start),
+                ),
+                const SizedBox(height: S.x6),
+              ],
+            ),
           ),
         ),
       ),
@@ -321,10 +332,7 @@ class _Running extends StatelessWidget {
         Text(_clock(elapsed), style: F.n34.copyWith(color: p.ink2)),
         if (target != null) ...[
           const SizedBox(height: S.x1),
-          Text(
-            'of ${_clock(target!)}',
-            style: F.cap.copyWith(color: p.ink3),
-          ),
+          Text('of ${_clock(target!)}', style: F.cap.copyWith(color: p.ink3)),
         ],
         if (!banded) ...[
           const SizedBox(height: S.x6),
@@ -395,17 +403,25 @@ class _Result extends StatelessWidget {
     final p = P.of(c);
     final app = c.watch<AppState>();
     final raw = app.breathingResult;
+    // Only the patterns the setup list marks "Scored" are scored. The
+    // estimator runs for any pattern, so Box and 4-7-8 used to show a
+    // coherence number here that `stopBreathingSession` then stored as null —
+    // a number the user was shown and that exists nowhere afterwards.
+    final rated = app.breathingPattern.coherenceRated;
     // The estimator returns {ok, score, confidence, tier, note}; `score` is
     // its value field, so it is renamed on the way into the envelope rather
     // than hand-mapping tiers at the call site.
-    final m = raw == null || raw['ok'] != true
+    final m = !rated || raw == null || raw['ok'] != true
         ? null
         : Metric.parse({...raw, 'value': raw['score']});
     final absent = StatusCard.forMetric(
       'No coherence score for this session',
       m,
-      why: app.breathingError ??
-          'Too few clean beat timings across the session to score it.',
+      why: !rated
+          ? '${app.breathingPattern.label} is not scored. Resonance breathing '
+                'is the one paced at the rate the score is defined against.'
+          : app.breathingError ??
+                'Too few clean beat timings across the session to score it.',
     );
     return ListView(
       children: [

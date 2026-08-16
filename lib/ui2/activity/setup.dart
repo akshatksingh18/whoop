@@ -1,10 +1,18 @@
 // Set the session up, then start it.
 //
-// One screen, four decisions, and only the ones this activity can honour: a
-// distance goal is not offered to a lift, and the GPS row is not offered to an
-// indoor bike. The privacy toggle is offered to everything and defaults on for
-// the entries that carry `private` — same posture Apple Health takes, and the
-// copy says exactly what it does.
+// One screen, and only the decisions this activity can honour: the GPS row is
+// not offered to an indoor bike. The privacy toggle is offered to everything
+// and defaults on for the entries that carry `private` — same posture Apple
+// Health takes, and the copy says exactly what it does.
+//
+// THERE IS NO GOAL PICKER. There used to be — Open / Time / Distance /
+// Calories, with a minutes stepper under Time — and not one of the four
+// reached the session: `LiveDraft` has no goal field, no live screen mentions
+// a target, and nothing alerts when one is met. Its only real effect was that
+// the calorie line quoted '45 min', a duration the user had not chosen and
+// could not see anywhere else on the screen. A control that changes nothing is
+// not a simpler control, it is a promise. The estimate is a RATE now, on the
+// same thirty-minute basis the picker's rows use, so the two screens compare.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -14,7 +22,9 @@ import '../theme.dart';
 import 'catalogue.dart';
 import 'live.dart';
 
-enum Goal { open, time, distance, calories }
+/// The window the calorie estimate is quoted over — the same one
+/// [ActivityRow] uses in the picker, so a row and this screen agree.
+const _estimateMin = 30;
 
 class ActivitySetup extends StatefulWidget {
   final Activity a;
@@ -36,9 +46,7 @@ class ActivitySetup extends StatefulWidget {
 }
 
 class _ActivitySetupState extends State<ActivitySetup> {
-  Goal goal = Goal.open;
   late bool private = widget.a.private;
-  int targetMin = 45;
 
   bool _starting = false;
   bool _refused = false;
@@ -82,19 +90,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
     ));
   }
 
-  /// A distance goal only makes sense where something measures distance.
-  List<Goal> get goals => [
-        Goal.open,
-        Goal.time,
-        if (widget.a.gps) Goal.distance,
-        if (widget.weightKg != null) Goal.calories,
-      ];
-
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final a = widget.a;
-    final est = a.kcal(widget.weightKg, targetMin);
+    final est = a.kcal(widget.weightKg, _estimateMin);
 
     return Scaffold(
       backgroundColor: p.bg,
@@ -126,39 +126,6 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   ]),
                 ),
                 const SizedBox(height: S.x8),
-                Text('GOAL', style: F.over.copyWith(color: p.ink3)),
-                const SizedBox(height: S.x3),
-                SubTabs(
-                    [for (final g in goals) _goalLabel(g)],
-                    goals.indexOf(goal),
-                    (i) => setState(() => goal = goals[i]),
-                    color: a.color),
-                const SizedBox(height: S.x5),
-                if (goal == Goal.time) ...[
-                  Surface(
-                    child: Row(children: [
-                      Text('$targetMin minutes',
-                          style: F.n34.copyWith(color: p.ink)),
-                      const Spacer(),
-                      Pressable(
-                        semanticLabel: 'Less time',
-                        onTap: () => setState(
-                            () => targetMin = (targetMin - 5).clamp(5, 300)),
-                        child: Icon(LucideIcons.minus,
-                            size: 20, color: p.ink2),
-                      ),
-                      const SizedBox(width: S.x4),
-                      Pressable(
-                        semanticLabel: 'More time',
-                        onTap: () => setState(
-                            () => targetMin = (targetMin + 5).clamp(5, 300)),
-                        child:
-                            Icon(LucideIcons.plus, size: 20, color: p.ink2),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: S.x4),
-                ],
                 Surface(
                   pad: const EdgeInsets.symmetric(horizontal: S.x4),
                   child: Column(children: [
@@ -199,7 +166,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       child: Text(
                           est == null
                               ? 'Calories need your weight.'
-                              : 'About $est kcal for $targetMin min, from '
+                              : 'About $est kcal per $_estimateMin min, from '
                                   '${a.met.toStringAsFixed(1)} MET and your '
                                   'weight.',
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
@@ -230,13 +197,6 @@ class _ActivitySetupState extends State<ActivitySetup> {
       ),
     );
   }
-
-  String _goalLabel(Goal g) => switch (g) {
-        Goal.open => 'Open',
-        Goal.time => 'Time',
-        Goal.distance => 'Distance',
-        Goal.calories => 'Calories',
-      };
 
   /// What this session will actually produce. Distance and pace are promised
   /// only where a route can be recorded — a treadmill was being sold "distance

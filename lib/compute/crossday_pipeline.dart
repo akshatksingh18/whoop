@@ -18,10 +18,6 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-// Pure value helper — the shared sex normalisation, so this pipeline agrees
-// with day derivation about what a stored profile means.
-import 'profile.dart' show workoutSex;
-
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
 ///
@@ -351,17 +347,12 @@ Map<String, dynamic> buildCrossDayBundle(
   //    over the baseline RHR; Fitness Age composites VO₂max + RHR + HRV + sleep +
   //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
   final age = _numOrNull(profile['age']);
-  final sexStr = (profile['sex'] as String?)?.toLowerCase();
-  final sex = workoutSex(sexStr) == 'female' ? ana.Sex.female : ana.Sex.male;
   final maxHr = age == null ? null : 208 - 0.7 * age; // Tanaka
   final baseRhr = _median(<double>[for (final v in rhrList) ?v]);
   final baseRmssd = _median(<double>[for (final v in rmssdList) ?v]);
-  final vo2 = ana.vo2maxEstimate(
-    restingHr: baseRhr,
-    maxHr: maxHr,
-    sex: sex,
-    age: age,
-  );
+  // No `sex`/`age`: analytics dropped both from these two — neither formula
+  // ever read them, so they promised an adjustment the maths does not make.
+  final vo2 = ana.vo2maxEstimate(restingHr: baseRhr, maxHr: maxHr);
   final medTstMin = _median(<double>[
     for (final d in days) ?_numOrNull(d['tst_min']),
   ]);
@@ -375,7 +366,6 @@ Map<String, dynamic> buildCrossDayBundle(
         )
       : ana.physiologicalAge(
           chronologicalAge: age,
-          sex: sex,
           vo2max: vo2.present ? vo2.value : null,
           restingHr: baseRhr,
           rmssd: baseRmssd,
@@ -397,11 +387,17 @@ Map<String, dynamic> buildCrossDayBundle(
   // never passed, and the notification was dead code. The value is already
   // computed right here (`rhrList`, parallel to `dates`) — emit it rather than
   // delete a wanted feature. Null stays null (the consumer filters on `is num`).
+  //
+  // The rhr here is deliberately RAW (not `settled`) — the trend wants today's
+  // partial value. The flag travels with it so the one consumer that fires an
+  // ALERT off the latest value can stand down on a half-drained night instead
+  // of announcing a trend shift that corrects an hour later.
   final recent = <Map<String, dynamic>>[];
   for (var i = 0; i < n; i++) {
     recent.add({
       'date': dates[i],
       'rhr': rhrList[i],
+      'unsettled': unsettled[i],
       'illness': i < illness.length && illness[i].state == ana.IllnessState.red,
       'anomaly': i < anomaly.length && anomaly[i].flagged,
       'temp':

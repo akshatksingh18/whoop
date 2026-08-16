@@ -23,6 +23,16 @@ class ImportOutcome {
   final String source;
   final int days;
 
+  /// Sessions written. A vendor export whose workouts CSV is the only file
+  /// selected lands 60 of these and 0 days, and reporting only the days made
+  /// that read as an import that did nothing.
+  final int workouts;
+
+  /// Days present in the source that were NOT written because this device
+  /// already holds a measured day for that date. Never overwritten, and never
+  /// silently dropped from the report either.
+  final int skippedDays;
+
   /// Rows whose day had already been derived and pruned before they arrived.
   final int lateRows;
 
@@ -32,15 +42,30 @@ class ImportOutcome {
 
   final String? error;
 
+  /// The rows landed and the cross-day rebuild over them threw. Not an error:
+  /// the data is in the database, the summaries built from it are not.
+  final String? rollupError;
+
+  /// Part of a mixed selection could not be read while the rest imported.
+  final String? readError;
+
   const ImportOutcome({
     required this.source,
     this.days = 0,
+    this.workouts = 0,
+    this.skippedDays = 0,
     this.lateRows = 0,
     this.strandedDays = 0,
     this.error,
+    this.rollupError,
+    this.readError,
   });
 
   bool get lostSomething => lateRows > 0 || strandedDays > 0;
+
+  /// Nothing at all landed. A zero under a green tick is a no-op that reads as
+  /// a success, which is the one thing an import report must never do.
+  bool get nothingLanded => days == 0 && workouts == 0 && skippedDays == 0;
 }
 
 class WelcomeScreen extends StatefulWidget {
@@ -81,7 +106,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       final outcome = await runImport(app, paths);
       if (!mounted) return;
       setState(() => _outcome = outcome);
-      if (outcome.days > 0) await app.completeImportOnboard();
+      // Anything that landed counts as bringing history in — a workouts-only
+      // vendor export writes sessions and no days, and the gate used to sit
+      // there as though the import had not happened.
+      if (!outcome.nothingLanded) await app.completeImportOnboard();
     } catch (e) {
       if (mounted) {
         setState(() =>
@@ -105,21 +133,31 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 /// result. Pure enough to test: the only collaborator is [AppState]'s import
 /// surface.
 Future<ImportOutcome> runImport(AppState app, List<String> paths) async {
-  final db = paths.where((p) => p.toLowerCase().endsWith('.db')).toList();
+  // EVERY group runs, not the first one that matches. The picker is
+  // multi-select and this used to return inside the winning branch, so a
+  // backup selected alongside a vendor CSV imported the backup and threw the
+  // CSV away without a word.
+  final db = paths.where(_isDbBackup).toList();
+  final raw = paths.where(_isRawExport).toList();
+  final csv =
+      paths.where((p) => !_isDbBackup(p) && !_isRawExport(p)).toList();
+
+  final sources = <String>[];
+  var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
+  String? rollupError;
+
   if (db.isNotEmpty) {
-    var days = 0;
+    sources.add('OpenStrap backup');
     for (final p in db) {
       days += await app.importEdgeBackup(p);
+      // The rows are in and the rollup rebuild threw. AppState's own note:
+      // reporting the row count alone claims a success the user does not have
+      // — which is exactly what this path did until now.
+      rollupError ??= app.importRollupError;
     }
-    return ImportOutcome(source: 'OpenStrap backup', days: days);
   }
-  final raw = paths
-      .where((p) =>
-          p.toLowerCase().endsWith('.noopbak') ||
-          p.toLowerCase().endsWith('.zip'))
-      .toList();
   if (raw.isNotEmpty) {
-    var days = 0, late = 0, stranded = 0;
+    sources.add('Raw sensor export');
     for (final p in raw) {
       days += await app.importNoopCsv(p);
       final r = app.lastNoopImport;
@@ -128,14 +166,51 @@ Future<ImportOutcome> runImport(AppState app, List<String> paths) async {
         stranded += r.strandedDates.length;
       }
     }
-    return ImportOutcome(
-        source: 'Raw sensor export',
-        days: days,
-        lateRows: late,
-        strandedDays: stranded);
   }
-  final days = await app.importWhoopCsvs(paths);
-  return ImportOutcome(source: 'Vendor CSV export', days: days);
+  String? readError;
+  if (csv.isNotEmpty) {
+    // The catch-all group: anything that is not a backup or a raw export is
+    // handed to the vendor importer, so it is also where junk in a mixed
+    // selection lands. Throwing from here would report an OpenStrap backup
+    // that HAS just landed as a failed import, so it is caught and named
+    // instead — unless it is the only thing that was picked.
+    try {
+      days += await app.importWhoopCsvs(csv);
+      sources.add('Vendor CSV export');
+      final r = app.lastWhoopImport;
+      if (r != null) {
+        workouts += r.workouts;
+        skipped += r.skippedExistingDays;
+      }
+    } catch (e) {
+      if (db.isEmpty && raw.isEmpty) rethrow;
+      readError = '$e';
+    }
+  }
+
+  return ImportOutcome(
+    source: sources.isEmpty ? 'Nothing selected' : sources.join(' + '),
+    days: days,
+    workouts: workouts,
+    skippedDays: skipped,
+    lateRows: late,
+    strandedDays: stranded,
+    rollupError: rollupError,
+    readError: readError,
+  );
+}
+
+bool _isDbBackup(String path) {
+  final p = path.toLowerCase();
+  // `.db.unopenable-<ms>` is what a corrupt-database rebuild quarantines the
+  // old file as, and the rebuilt card points the user straight at it. Matching
+  // only the `.db` suffix handed that SQLite file to the vendor-CSV importer.
+  return p.endsWith('.db') || p.contains('.db.unopenable-');
+}
+
+bool _isRawExport(String path) {
+  final p = path.toLowerCase();
+  return p.endsWith('.noopbak') || p.endsWith('.zip');
 }
 
 class WelcomeView extends StatelessWidget {
@@ -231,6 +306,25 @@ class ImportReport extends StatelessWidget {
         icon: LucideIcons.triangleAlert,
       );
     }
+    // A zero is not a success. Same tick, same words, nothing in the database.
+    if (o.nothingLanded) {
+      return StatusCard(
+        'Nothing was imported',
+        o.readError ??
+            'The file was read but there was nothing in it this app could '
+                'use, or every day in it was one this band had already '
+                'measured.',
+        fix: 'Try another file',
+        icon: LucideIcons.fileWarning,
+      );
+    }
+    final also = [
+      if (o.workouts > 0)
+        '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
+      if (o.skippedDays > 0)
+        '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
+            'here and left alone',
+    ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
@@ -241,10 +335,31 @@ class ImportReport extends StatelessWidget {
               Text('${o.days} day${o.days == 1 ? '' : 's'} imported',
                   style: F.head.copyWith(color: p.ink)),
               Text(o.source, style: F.over.copyWith(color: p.ink3)),
+              if (also.isNotEmpty)
+                Text(also.join(' · '), style: F.over.copyWith(color: p.ink3)),
             ]),
           ),
         ]),
       ),
+      if (o.readError != null) ...[
+        const SizedBox(height: S.x3),
+        StatusCard(
+          'One of those files could not be read',
+          'The rest imported. ${o.readError}',
+          icon: LucideIcons.fileWarning,
+        ),
+      ],
+      if (o.rollupError != null) ...[
+        const SizedBox(height: S.x3),
+        StatusCard(
+          'The days landed, the summaries did not',
+          'Every imported row is in the database, but rebuilding the cross-day '
+              'summaries over them threw (${o.rollupError}), so trends and '
+              'insights still describe the data you had before. Re-analyze '
+              'everything from Your data rebuilds them.',
+          icon: LucideIcons.triangleAlert,
+        ),
+      ],
       if (o.lostSomething) ...[
         const SizedBox(height: S.x3),
         StatusCard(

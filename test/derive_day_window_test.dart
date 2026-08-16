@@ -126,42 +126,64 @@ void main() {
       }
     });
 
-    test('calendarDays resolves the offset AT the day being segmented', () {
+    test('the habitual prior is fed STORED history and resolved per block', () {
       // Zone-independent: inject the resolver and inspect what it was asked
       // for. The old code never asked at all — it read
       // `DateTime.now().timeZoneOffset`, a constant applied to every
       // historical day regardless of the offset actually in effect then.
+      //
+      // It also could never ask, because the only history it had was the days
+      // inside THIS call and a live call spans ~36 h against a 14-day minimum.
+      // `priorSleep` is the stored history; the resolver is asked once per
+      // history block, so being asked at all proves the prior ran.
       final dayStart = DateTime(2020, 1, 15).millisecondsSinceEpoch ~/ 1000;
       final sub = _synthDay(dayStart + 3600, 900);
-      final asked = <int>[];
-      final days = calendarDays(
-        sub,
-        // An override forces the segmentation branch (and therefore the
-        // habitual-midsleep prior) to run on a short synthetic capture.
-        override: SleepWindowOverride(
-          dayId: '2020-01-15',
-          onsetSec: dayStart + 3700,
-          offsetSec: dayStart + 4300,
-          source: 'manual',
-        ),
-        tzOffsetAt: (t) {
-          asked.add(t);
-          return DateTime.fromMillisecondsSinceEpoch(t * 1000).timeZoneOffset
-              .inSeconds;
-        },
-      );
+      // 14 nights of 23:00 → 07:00, one per day, ending the day before.
+      final prior = <({int startSec, int endSec, String dayKey})>[
+        for (var d = 14; d >= 1; d--)
+          (
+            startSec: dayStart - d * 86400 - 3600,
+            endSec: dayStart - d * 86400 + 7 * 3600,
+            dayKey: '2020-01-${(15 - d).toString().padLeft(2, '0')}',
+          ),
+      ];
+      List<int> askedWith(List<({int startSec, int endSec, String dayKey})> h) {
+        final asked = <int>[];
+        final days = calendarDays(
+          sub,
+          // An override forces the segmentation branch (and therefore the
+          // habitual-midsleep prior) to run on a short synthetic capture.
+          override: SleepWindowOverride(
+            dayId: '2020-01-15',
+            onsetSec: dayStart + 3700,
+            offsetSec: dayStart + 4300,
+            source: 'manual',
+          ),
+          priorSleep: h,
+          tzOffsetAt: (t) {
+            asked.add(t);
+            return DateTime.fromMillisecondsSinceEpoch(t * 1000).timeZoneOffset
+                .inSeconds;
+          },
+        );
+        expect(days, isNotEmpty);
+        return asked;
+      }
 
-      expect(days, isNotEmpty);
+      expect(askedWith(const []), isEmpty,
+          reason: 'no history → the prior abstains, nothing to convert');
+
+      final asked = askedWith(prior);
       expect(asked, isNotEmpty,
-          reason: 'the offset must be RESOLVED per day, not read off '
-              'DateTime.now() once');
+          reason: 'stored history must REACH the prior — without it the '
+              'selector is stuck on the 03:30 cold-start anchor forever');
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       for (final t in asked) {
-        expect(t, dayStart,
-            reason: 'resolved at the local midnight of the day being '
-                'segmented');
         expect((t - nowSec).abs(), greaterThan(86400),
             reason: 'a historical instant, emphatically not "now"');
+        expect(t, lessThan(dayStart),
+            reason: 'each block converts at ITS OWN instant, not one frozen '
+                'offset for the whole history (the DST bypass)');
       }
     });
   });
@@ -259,6 +281,53 @@ void main() {
           reason: 'the abstention must be about MISSING inputs only');
       expect(got['calories'], isNotNull);
       expect(got['calories_total'], isNotNull);
+    });
+  });
+
+  // ── absent accel is not stillness ─────────────────────────────────────────
+
+  group('a day with no gravity vector publishes no movement figure', () {
+    // gen5 thin 1 Hz and gen4 R10-historical decode HR without a usable accel,
+    // so the whole day lands as exact (0,0,0) — the absent sentinel. Both
+    // `_activeMinutes` and `_restlessness` skip every such second and then
+    // returned the zeros they started with: "0 active minutes" and "a
+    // perfectly still, unbroken night", measured from nothing.
+    test('active_min is absent, not 0', () async {
+      const dayLabel = '2026-04-13';
+      final dayStart = DateTime(2026, 4, 13).millisecondsSinceEpoch ~/ 1000;
+      final sub = _synthDay(dayStart + 9 * 3600, 2 * 3600);
+      final flat = Substrate(
+        tsSec: sub.tsSec,
+        hr: sub.hr,
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: List<double>.filled(sub.length, 0),
+        ay: List<double>.filled(sub.length, 0),
+        az: List<double>.filled(sub.length, 0),
+        spo2Red: sub.spo2Red,
+        spo2Ir: sub.spo2Ir,
+        skinTemp: sub.skinTemp,
+        skinContact: sub.skinContact,
+      );
+      await DerivationEngine().deriveImportedDays(flat, const Profile(), {
+        dayLabel,
+      });
+      expect(
+        await LocalDb.metricValueOn(dayLabel, 'active_min'),
+        isNull,
+        reason: 'no gravity vector all day — absent, not a measured zero',
+      );
+
+      // Control: the SAME day with a real gravity vector does publish one, so
+      // the null above is about the absent accel and not about the fixture.
+      const ctlLabel = '2026-04-14';
+      final ctlStart = DateTime(2026, 4, 14).millisecondsSinceEpoch ~/ 1000;
+      await DerivationEngine().deriveImportedDays(
+        _synthDay(ctlStart + 9 * 3600, 2 * 3600),
+        const Profile(),
+        {ctlLabel},
+      );
+      expect(await LocalDb.metricValueOn(ctlLabel, 'active_min'), isNotNull);
     });
   });
 }

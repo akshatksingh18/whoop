@@ -118,12 +118,14 @@ class _ActivityPickerState extends State<ActivityPicker> {
               children: [
                 if (searching)
                   if (results.isEmpty)
+                    // No `fix`: the 'Custom activity' row it pointed at is
+                    // gone (it carried an invented MET), and a fix string
+                    // paints a call to action that cannot be tapped.
                     const StatusCard(
                       'No activity matches that',
                       'The catalogue covers about seventy activities with a '
-                          'published energy cost.',
-                      fix: 'Use Custom activity',
-                      icon: LucideIcons.plus,
+                          'published energy cost. Pick the closest one.',
+                      icon: LucideIcons.search,
                     )
                   else
                     Surface(

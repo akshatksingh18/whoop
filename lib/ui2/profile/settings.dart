@@ -15,6 +15,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/auto_backup.dart';
 import '../../notify/notification_center.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
@@ -151,12 +152,17 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
         content: Text(
           last == null
               ? 'Nothing was ever uploaded. Nothing will be.'
+              // What we KNOW, not what we hope: the revocation is posted
+              // once, unawaited, with no retry queue, so offline it never
+              // arrives and nothing here can tell.
               : 'Nothing further will be uploaded.\n\n'
                   'One copy of your database was uploaded on '
                   '${last.toLocal().toString().split('.').first}. The server '
-                  'keeps only the most recent copy per device, and it has been '
-                  'told your consent is withdrawn — but we cannot show you '
-                  'that it is gone, so this is what we know.',
+                  'keeps only the most recent copy per device. We tried to '
+                  'tell it your consent is withdrawn — that message is sent '
+                  'once and is not retried, so if this phone is offline it '
+                  'will not have arrived, and we cannot show you that the copy '
+                  'is gone either.',
         ),
         actions: [
           TextButton(
@@ -225,6 +231,15 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   );
   if (ok != true) return;
   await app.resetAllData();
+  // "with no copy anywhere else" was false while automatic backup was on:
+  // `wipeAll` deletes rows and cannot touch files, so up to [kBackupsKept]
+  // gzipped whole-database copies survived in a folder the user can browse and
+  // Import a file can read straight back.
+  try {
+    await pruneBackups(await backupDirectory(), keep: 0);
+  } catch (_) {
+    // No backup folder is the normal case — nothing to delete.
+  }
   // resetAllData swaps the gate to Welcome, which is UNDER this screen —
   // without this the user stays on Settings, reading a profile that has been
   // deleted.
@@ -520,10 +535,17 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             deviceEnabled: !prefs.deviceEnabled))),
+                    // Says what it DOES, which is nothing yet: every caller of
+                    // `scheduleStandingReminders` omits `weeklyFinding`, and
+                    // the lookback is armed only when one is passed — so the
+                    // row promised a Sunday notification no install has ever
+                    // received. The switch stays because it is the off switch
+                    // for the day something does write that finding.
                     SetRow(LucideIcons.calendarDays, C.purple,
                         'Weekly lookback',
-                        sub: 'Sunday evening, and only for a week that found '
-                            'something',
+                        sub: 'Sunday evening, for a week that found something. '
+                            'Nothing writes that finding yet, so none has been '
+                            'sent',
                         value: prefs.remindersEnabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -598,6 +620,10 @@ class EditProfile extends StatelessWidget {
     final app = c.read<AppState>();
     return EditProfileView(
       initial: app.user ?? const {},
+      // The app SHOWED lb and EDITED kg: Health converted on the way out, this
+      // form did not convert on the way in, so typing back the 172 lb the app
+      // had just printed stored 172 kg.
+      units: c.watch<UnitsController>(),
       onSave: (fields) async {
         // A field the user CLEARED must be removed, not merged over — the
         // profile map is a merge, so writing only what is present would keep
@@ -617,22 +643,28 @@ class EditProfileView extends StatefulWidget {
   final Map<String, dynamic> initial;
   final Future<void> Function(Map<String, dynamic> fields) onSave;
 
+  /// Display units for the height and weight fields. Null is metric, which is
+  /// also what the storage is — the conversion only exists for imperial.
+  final UnitsController? units;
+
   const EditProfileView(
-      {super.key, required this.onSave, this.initial = const {}});
+      {super.key, required this.onSave, this.initial = const {}, this.units});
 
   @override
   State<EditProfileView> createState() => _EditProfileViewState();
 }
 
 class _EditProfileViewState extends State<EditProfileView> {
+  late final UnitsController _u =
+      widget.units ?? UnitsController.seed(UnitSystem.metric);
   late final _name =
       TextEditingController(text: '${widget.initial['name'] ?? ''}');
   late final _age =
       TextEditingController(text: _s(widget.initial['age']));
   late final _height =
-      TextEditingController(text: _s(widget.initial['height_cm']));
+      TextEditingController(text: _u.heightField(widget.initial['height_cm'] as num?));
   late final _weight =
-      TextEditingController(text: _s(widget.initial['weight_kg']));
+      TextEditingController(text: _u.weightField(widget.initial['weight_kg'] as num?));
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
 
   static String _s(Object? v) => v == null ? '' : '$v';
@@ -644,6 +676,35 @@ class _EditProfileViewState extends State<EditProfileView> {
     _height.dispose();
     _weight.dispose();
     super.dispose();
+  }
+
+  /// A field that cannot be read is NOT a cleared field.
+  ///
+  /// Every key here is written unconditionally, precisely so a cleared one is
+  /// removed rather than merged over — which meant a typo ("78 kg", "78,5")
+  /// parsed to null and wiped the stored weight while the screen popped as if
+  /// it had saved. Blank still clears; a typo now stops the save and says so.
+  void _save() {
+    final age = Typed.of(_age.text);
+    final height = Typed.of(_height.text);
+    final weight = Typed.of(_weight.text);
+    final bad = [
+      if (age.bad) 'Age',
+      if (height.bad) _u.heightLabel,
+      if (weight.bad) _u.weightLabel,
+    ];
+    if (bad.isNotEmpty) {
+      sayUnreadable(context, bad);
+      return;
+    }
+    widget.onSave({
+      'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
+      'sex': _sex,
+      'age': age.value?.round(),
+      // Typed in the units on the label, stored in metric.
+      'height_cm': height.value == null ? null : _u.heightToCm(_height.text),
+      'weight_kg': weight.value == null ? null : _u.weightToKg(_weight.text),
+    });
   }
 
   @override
@@ -658,13 +719,7 @@ class _EditProfileViewState extends State<EditProfileView> {
             child: NavBar('Edit profile',
                 trailing: Pressable(
                   semanticLabel: 'Save',
-                  onTap: () => widget.onSave({
-                    'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
-                    'sex': _sex,
-                    'age': num.tryParse(_age.text.trim())?.round(),
-                    'height_cm': num.tryParse(_height.text.trim())?.toDouble(),
-                    'weight_kg': num.tryParse(_weight.text.trim())?.toDouble(),
-                  }),
+                  onTap: _save,
                   child: Text('Save',
                       style: F.body.copyWith(
                           color: p.on(C.green), fontWeight: FontWeight.w600)),
@@ -706,9 +761,11 @@ class _EditProfileViewState extends State<EditProfileView> {
                 const SizedBox(height: S.x4),
                 _text(c, _age, 'AGE (YEARS)', TextInputType.number),
                 const SizedBox(height: S.x4),
-                _text(c, _height, 'HEIGHT (CM)', TextInputType.number),
+                _text(c, _height, _u.heightLabel.toUpperCase(),
+                    TextInputType.number),
                 const SizedBox(height: S.x4),
-                _text(c, _weight, 'WEIGHT (KG)', TextInputType.number),
+                _text(c, _weight, _u.weightLabel.toUpperCase(),
+                    TextInputType.number),
                 const SizedBox(height: S.x6),
                 const StatusCard(
                   'These four change your numbers',

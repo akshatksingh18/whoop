@@ -150,7 +150,8 @@ ProgressCard(String label, String value, String target, double frac,
 // C · changing over time
 TrendCard(String label, String value, String unit, String delta,
           String window, List<double> series, Color color,
-          {bool up = false, bool good = true, VoidCallback? onTap})
+          {bool up = false, bool? good = true, VoidCallback? onTap})
+          // good: null = no baseline. No arrow, no verdict.
 
 // D · something the system noticed
 InsightCard(String headline, String reason,
@@ -197,7 +198,8 @@ GoalTrajectory(String label, String current, String target, String rate,
                double frac, Color color, {bool rateDown = true})
 Observation(String headline, String detail,
             {String advice = '', VoidCallback? onTap})
-Consistency(int have, int of, String label, Color color)
+Consistency(int have, int of, String label, Color color,
+            {String unit = 'days'})
 ```
 
 `Consistency` is **not a streak**. It reads "18 of 24 days" and never resets to
@@ -234,7 +236,7 @@ the bar-chart equivalent. Both are exported; use them if you write a painter.
 LineChart(List<double> d, Color color,
           {bool fill = true, bool dots = false, double t = 1, Color? dotInk,
            AxisSpec? axis})
-Bars(List<double> d, Color color, Color track,
+Bars(List<double> d, Color color,
      {int highlight = -1, double t = 1, AxisSpec? axis})
 Ring(double v, Color color, Color track, {double stroke = 10, double t = 1})
 MacroRing(double v, Color color, Color track)
@@ -286,7 +288,8 @@ class AxisSpec {
   double t(double v);                   // 0 at min, 1 at max, CLAMPED
   List<double> get tickValues;          // top-first
 
-  /// Rounded out to steps a human would pick. null for an empty series —
+  /// Rounded out to steps a human would pick, and only to steps [format] can
+  /// print — no gridline at 55.5 under `axisInt`. null for an empty series,
   /// which is the signal to render the frame's empty state.
   static AxisSpec? of(Iterable<double> d, {int ticks = 3,
       String Function(double) format = axisInt,
@@ -373,9 +376,6 @@ AppShell({required Widget Function(BuildContext, ShellDomain) builder,
 
 enum ShellDomain { home, health, nutrition, workout, wellness }
   // .label · .icon · .accent
-
-Domain.of(context)  -> ShellDomain   // the enclosing domain
-Domain.ink(context) -> Color         // its AA-safe accent
 ```
 
 Tabs build lazily and are kept alive after first visit. **There is no sixth

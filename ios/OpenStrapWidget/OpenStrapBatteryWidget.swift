@@ -92,10 +92,17 @@ struct BatteryEntry: TimelineEntry {
   func at(_ d: Date) -> BatteryEntry { var c = self; c.date = d; return c }
   var t: Double { pct >= 0 ? min(max(Double(pct) / 100.0, 0), 1) : 0 }
 
+  /// `charging` is a fact about the moment the app last wrote, so it goes stale
+  /// with the level it came with. Without this the widget said "Charging" in
+  /// blue, with a bolt, about a band that came off the puck four days ago —
+  /// the charge branch was tested before the staleness branch everywhere.
+  /// Mirrored in OpenStrapBatteryWidgetProvider.kt — keep the two in step.
+  var chargingNow: Bool { charging && !stale }
+
   /// Coral when low, deep-coral when critical, blue while charging, otherwise ink.
   var color: Color {
     if !hasData { return .battInkMuted }
-    if charging { return .battCharge }
+    if chargingNow { return .battCharge }
     if pct <= 10 { return .battCritical }
     if pct <= 25 { return .battLow }
     return .battGood
@@ -105,7 +112,7 @@ struct BatteryEntry: TimelineEntry {
 
   /// Icon: a charging bolt while plugged in, otherwise the band glyph
   /// (mirrors the app's device icon, HugeIcons SmartWatch01).
-  var symbol: String { charging ? "bolt.fill" : "applewatch" }
+  var symbol: String { chargingNow ? "bolt.fill" : "applewatch" }
 }
 
 // MARK: - Shared store (App Group, read-only here)
@@ -188,8 +195,8 @@ private struct BatterySmallView: View {
       if e.hasData { BattBar(t: e.t, color: e.color, height: 9) }
       // Dimming alone does not SAY anything. A reading we can no longer vouch
       // for names itself, on every family.
-      Text(e.charging ? "Charging"
-           : (e.stale ? "Last known level" : (e.hasData ? "Battery" : "Not connected yet")))
+      Text(!e.hasData ? "Not connected yet"
+           : (e.stale ? "Last known level" : (e.charging ? "Charging" : "Battery")))
         .font(.system(size: 10, weight: .medium)).foregroundColor(.battInkMuted)
         .padding(.top, 5)
     }

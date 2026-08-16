@@ -59,8 +59,10 @@ class HealthData {
     return metricOf(d is Map ? d[k] : null);
   }
 
-  /// Every one of these is a real envelope from the pipeline. They are read in
-  /// one place so Overview and Trends cannot disagree about the same night.
+  /// Every one of these is a real envelope from the pipeline, read in one
+  /// place so Overview cannot disagree with itself. Trends is a different
+  /// question — it plots what is STORED, and dates its hero when the newest
+  /// stored point is not today's.
   Metric get hrv {
     final b = today['hrv'];
     final rmssd = b is Map ? b['rmssd'] as num? : null;
@@ -121,13 +123,17 @@ class HealthData {
 }
 
 class VitalsData {
-  final Map<String, dynamic> timeline, lungs, wear, hrv, night;
+  /// The day these four blocks describe. When today has no derived record the
+  /// loader falls back to the newest one there is, which is routinely days ago
+  /// — and every row was captioned "Today" regardless.
+  final String? day;
+  final Map<String, dynamic> timeline, lungs, wear, hrv;
   const VitalsData({
+    this.day,
     this.timeline = const {},
     this.lungs = const {},
     this.wear = const {},
     this.hrv = const {},
-    this.night = const {},
   });
 
   static Future<VitalsData> load(LocalRepository repo) async {
@@ -136,14 +142,24 @@ class VitalsData {
     final days = await repo.availableDays();
     if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
     if (day == null) return const VitalsData();
+    final timeline = await repo.getDayTimeline(day);
     return VitalsData(
-      timeline: await repo.getDayTimeline(day),
+      // The repository stamps the bundle it actually served; prefer it over the
+      // day we asked for, which is what its own comment says to do.
+      day: timeline['date']?.toString() ?? day,
+      timeline: timeline,
       lungs: await repo.getDayLungs(day),
       wear: await repo.getDayWear(day),
       hrv: await repo.getDayHrv(day),
-      night: await repo.getDaySleepV2(day),
     );
   }
+}
+
+/// Whole calendar days between a `'YYYY-MM-DD'` day id and today, or null when
+/// there is no day. Zero or less means the day IS today.
+int? _behind(String? dayId) {
+  final d = dayId == null ? null : DateTime.tryParse(dayId);
+  return d == null ? null : calendarDaysBetween(d, DateTime.now());
 }
 
 class LabsData {
@@ -230,22 +246,43 @@ class _HealthScreenState extends State<HealthScreen> {
     }
   }
 
+  /// A tab's read THREW. `_v`/`_l` stay null on that path and null renders the
+  /// spinner, so swallowing the error left the tab spinning silently for as
+  /// long as the user stayed on it — there was no absent state on that path at
+  /// all, whatever the old comment here said.
+  bool _vFailed = false, _lFailed = false;
+
   Future<void> _loadVitals() async {
     final repo = repoOf(context);
     if (repo == null || _v != null) return;
     try {
       final v = await VitalsData.load(repo);
-      if (mounted) setState(() => _v = v);
-    } catch (_) {/* the tab renders its absent states */}
+      if (mounted) setState(() => (_v = v, _vFailed = false));
+    } catch (_) {
+      if (mounted) setState(() => _vFailed = true);
+    }
   }
 
   Future<void> _loadLabs() async {
     if (_l != null) return;
     try {
       final l = await LabsData.load();
-      if (mounted) setState(() => _l = l);
-    } catch (_) {/* the tab renders its absent states */}
+      if (mounted) setState(() => (_l = l, _lFailed = false));
+    } catch (_) {
+      if (mounted) setState(() => _lFailed = true);
+    }
   }
+
+  /// The one card both failed reads render. Not "nothing logged yet" — a read
+  /// that went wrong and an empty table are different states.
+  StatusCard _readFailed(String what, VoidCallback retry) => StatusCard(
+        'Could not read your $what',
+        'The stored rows failed to load. Nothing was deleted — this is a read '
+            'that went wrong.',
+        fix: 'Try again',
+        icon: LucideIcons.databaseZap,
+        onFix: retry,
+      );
 
   void _select(int i) {
     setState(() => _tab = i);
@@ -297,21 +334,41 @@ class _HealthScreenState extends State<HealthScreen> {
           onTap: () => go(c, MetricDetail(metricKey))));
     }
 
-    final rhr = d.daily('resting_hr');
-    row(rhr, LucideIcons.heart, C.red, 'Resting heart rate', 'Overnight',
-        rhr.value == null ? '' : '${rhr.value!.round()}', 'bpm',
-        d.spark('resting_hr', 24), 'resting_hr',
-        whyAbsent: 'Resting heart rate is read from sleep, and no night was '
-            'scored.');
-
-    final hrvMetric = d.hrv;
-    row(hrvMetric, LucideIcons.activity, C.green, 'HRV', 'RMSSD, asleep',
-        hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
-        d.spark('hrv', 24), 'hrv',
-        whyAbsent: 'Beat-to-beat intervals were not clean enough last night.');
+    // Five of these rows come off the overnight block, and `getToday` holds
+    // that block over until today's settles. "Last night" / "Overnight" were
+    // fixed literals, so a days-old night was stated as last night's — while
+    // the Trends tab one tap away correctly said "as of 4 days ago" about the
+    // same numbers.
+    final night = heldOverNightOf(d.today);
+    String ofNight(String s) => night == null ? s : '$s · ${prettyDay(night)}';
 
     final sleepMin = d.sleepMin;
-    row(sleepMin, LucideIcons.moon, C.blue, 'Sleep', 'Last night',
+
+    final rhr = d.daily('resting_hr');
+    row(rhr, LucideIcons.heart, C.red, 'Resting heart rate', ofNight('Overnight'),
+        rhr.value == null ? '' : '${rhr.value!.round()}', 'bpm',
+        d.spark('resting_hr', 24), 'resting_hr',
+        // Sleep duration and nocturnal RHR are gated separately, so "no night
+        // was scored" is often the wrong reason and contradicts the Sleep row
+        // sitting two lines down.
+        whyAbsent: sleepMin.isEmpty
+            ? 'Read from sleep, and no night was scored.'
+            : 'Read from sleep, and that night had no stretch of beats clean '
+                'enough to take one from.');
+
+    final hrvMetric = d.hrv;
+    row(hrvMetric, LucideIcons.activity, C.green, 'HRV',
+        ofNight('RMSSD, asleep'),
+        hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
+        d.spark('hrv', 24), 'hrv',
+        // Blaming signal quality unconditionally told a day-one user their
+        // sensor produced dirty data on a night that never happened.
+        whyAbsent: sleepMin.isEmpty
+            ? 'Read only from sleep, and no night was scored.'
+            : 'Beat-to-beat intervals were not clean enough that night.');
+
+    row(sleepMin, LucideIcons.moon, C.blue, 'Sleep',
+        night == null ? 'Last night' : prettyDay(night),
         hm(sleepMin.value), '', d.spark('sleep', 24), 'sleep',
         whyAbsent: 'No sleep period long enough to score was recorded.');
 
@@ -323,8 +380,8 @@ class _HealthScreenState extends State<HealthScreen> {
         LucideIcons.brain,
         C.purple,
         'Stress',
-        (stressBlock is Map ? stressBlock['level']?.toString() : null) ??
-            'Stress',
+        ofNight((stressBlock is Map ? stressBlock['level']?.toString() : null) ??
+            'Stress'),
         stressScore == null ? '' : '${stressScore.round()}',
         // 0–100, and the scale has to be on the row. Wellness has always shown
         // it for the same number.
@@ -334,7 +391,8 @@ class _HealthScreenState extends State<HealthScreen> {
         whyAbsent: 'No resting stretch long enough last night.');
 
     final respMetric = d.resp;
-    row(respMetric, LucideIcons.wind, C.teal, 'Respiratory rate', 'Asleep',
+    row(respMetric, LucideIcons.wind, C.teal, 'Respiratory rate',
+        ofNight('Asleep'),
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
         d.spark('resp_rate', 24), 'resp_rate',
@@ -357,6 +415,11 @@ class _HealthScreenState extends State<HealthScreen> {
     // never been given a temperature series. `z` is its own standardised
     // deviation, so the sentence can say how far out the night sat.
     final illnessZ = illness is Map ? (illness['z'] as num?) : null;
+    // The payload carries the night it is about. It is one entry per DERIVED
+    // day, so after a gap "Last night" named a night the user did not wear the
+    // band for.
+    final illnessDay = illness is Map ? illness['date']?.toString() : null;
+    final illnessBehind = _behind(illnessDay);
     final weight = (d.profile['weight_kg'] as num?);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -378,9 +441,15 @@ class _HealthScreenState extends State<HealthScreen> {
         Observation(
           state == 'red'
               ? 'Several nights in a row are away from your normal'
-              : 'Last night sat outside your normal range',
-          'Your nocturnal resting heart rate is tracking above your own '
-              'baseline${illnessZ == null ? '' : ', '
+              : (illnessBehind == null || illnessBehind <= 0
+                  ? 'Last night sat outside your normal range'
+                  : '${prettyDay(illnessDay)} sat outside your normal range'),
+          // The RUN is what is above baseline — the accumulator only clears
+          // after two nights back under. The stored z is the LATEST night's own
+          // deviation and can be negative while the run is still up, which read
+          // as "tracking above your own baseline, 1.3 deviations below it".
+          'Your nocturnal resting heart rate has been running above your own '
+              'baseline${illnessZ == null ? '' : '; that night sat '
                   '${illnessZ.abs().toStringAsFixed(1)} standardised deviations '
                   '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watch reads '
               'that one signal; it names a pattern, and it does not name a '
@@ -444,7 +513,10 @@ class _HealthScreenState extends State<HealthScreen> {
     /// need" while still subtracting the 28-day AVERAGE — so the arrow and the
     /// figure under it read as sleep debt and were not. One of the two had to
     /// become true; the debt is the more useful of the pair.
-    Widget trend(String key, String label, String unit, Color col, Metric m,
+    // No `Metric` argument: this card is drawn entirely from the stored
+    // series, so taking the envelope only implied a cross-check that was
+    // never made.
+    Widget trend(String key, String label, String unit, Color col,
         {bool higherBetter = true, double? against, String? againstLabel}) {
       final pts = d.points(key);
       // Statistics off the STORED values; the painter gets the dense window.
@@ -485,24 +557,25 @@ class _HealthScreenState extends State<HealthScreen> {
         win,
         col,
         up: delta >= 0,
-        good: (delta >= 0) == higherBetter,
+        // Null with no baseline: an arrow and a good/bad hue about a
+        // comparison the card has just said it cannot make.
+        good: base == null ? null : (delta >= 0) == higherBetter,
         onTap: () => go(c, MetricDetail(metricKey)),
       );
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       trend('resting_hr', 'Resting heart rate', 'bpm', C.red,
-          d.daily('resting_hr'),
           higherBetter: false),
       const SizedBox(height: S.x3),
-      trend('hrv', 'HRV', 'ms', C.green, d.hrv),
+      trend('hrv', 'HRV', 'ms', C.green),
       const SizedBox(height: S.x3),
       if (d.need.value == null)
-        trend('sleep', 'Time asleep', '', C.blue, d.sleepMin)
+        trend('sleep', 'Time asleep', '', C.blue)
       else
         // `need` here is `crossday.sleep_coach.need` — the COMPUTED need. It is
         // never `sleep.need_min`, which is a hardcoded 480.
-        trend('sleep', 'Time asleep', '', C.blue, d.sleepMin,
+        trend('sleep', 'Time asleep', '', C.blue,
             against: d.need.value!.toDouble(),
             againstLabel: 'vs your ${hm(d.need.value)} need'),
 
@@ -567,11 +640,24 @@ class _HealthScreenState extends State<HealthScreen> {
     final p = P.of(c);
     final v = _v;
     if (v == null) {
-      return const Padding(
-        padding: EdgeInsets.only(top: S.x8),
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return _vFailed
+          ? _readFailed('vitals', () {
+              setState(() => _vFailed = false);
+              _loadVitals();
+            })
+          : const Padding(
+              padding: EdgeInsets.only(top: S.x8),
+              child: Center(child: CircularProgressIndicator()),
+            );
     }
+
+    // WHICH DAY this tab is showing. Every row here used to say "Today" for a
+    // day the loader had fallen back to, which after a sync gap is days ago.
+    final behind = _behind(v.day);
+    final dayWord = behind == null || behind <= 0 ? 'Today' : prettyDay(v.day);
+    // Skin temperature comes off the latest OVERNIGHT bundle, not the day the
+    // other three rows describe, so it gets its own night when they differ.
+    final tempNight = heldOverNightOf(d.today);
 
     final highs = v.timeline['highs'];
     num? high(String k) {
@@ -596,7 +682,7 @@ class _HealthScreenState extends State<HealthScreen> {
       if (lo != null && hi != null)
         MetricRow(LucideIcons.heart, C.red, 'Heart rate',
             '${lo.round()} – ${hi.round()}',
-            sub: 'Today', unit: 'bpm'),
+            sub: dayWord, unit: 'bpm'),
       if (resp != null)
         MetricRow(LucideIcons.wind, C.teal, 'Respiratory rate',
             resp.toStringAsFixed(1),
@@ -610,11 +696,17 @@ class _HealthScreenState extends State<HealthScreen> {
         MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature',
             '${skinTemp.value! >= 0 ? '+' : '−'}'
                 '${skinTemp.value!.abs().toStringAsFixed(2)}',
-            sub: 'vs your own nights', unit: 'SD'),
+            sub: tempNight == null
+                ? 'vs your own nights'
+                : 'vs your own nights · ${prettyDay(tempNight)}',
+            unit: 'SD'),
       if (worn != null)
         MetricRow(LucideIcons.watch, C.green, 'Wear time', hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
-            sub: coverage == null ? 'Today' : '${coverage.round()}% of the day'),
+            sub: coverage == null
+                ? dayWord
+                : '${coverage.round()}% of '
+                    '${dayWord == 'Today' ? 'the day' : dayWord}'),
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -694,10 +786,15 @@ class _HealthScreenState extends State<HealthScreen> {
     final p = P.of(c);
     final l = _l;
     if (l == null) {
-      return const Padding(
-        padding: EdgeInsets.only(top: S.x8),
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return _lFailed
+          ? _readFailed('lab results', () {
+              setState(() => _lFailed = false);
+              _loadLabs();
+            })
+          : const Padding(
+              padding: EdgeInsets.only(top: S.x8),
+              child: Center(child: CircularProgressIndicator()),
+            );
     }
 
     final sex = (_d?.profile['sex'])?.toString();
@@ -859,16 +956,36 @@ class _HealthScreenState extends State<HealthScreen> {
       ),
     );
 
-    if (ok != true) return;
-    final v = double.tryParse(value.text.trim());
+    if (ok != true || !mounted) return;
+    // Blood work typed by hand is exactly the input nobody notices is missing,
+    // so nothing here fails quietly: the dialog used to close on Save and the
+    // result was dropped whenever the value carried its unit ("78 ng/mL") or
+    // the date was written the other way round.
+    final v = Typed.of(value.text);
     final date = takenOn.text.trim();
-    if (v == null || DateTime.tryParse(date) == null) return;
-    await LocalDb.putLabResult(
-      marker: marker.key,
-      takenOn: date,
-      value: v,
-      unit: marker.unit,
-    );
+    if (v.value == null || DateTime.tryParse(date) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(v.value == null
+            ? 'The value needs to be a number on its own, without the unit. '
+                'Nothing was saved.'
+            : 'The date needs to be YYYY-MM-DD. Nothing was saved.'),
+      ));
+      return;
+    }
+    try {
+      await LocalDb.putLabResult(
+        marker: marker.key,
+        takenOn: date,
+        value: v.value!,
+        unit: marker.unit,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not save it: $e')));
+      }
+      return;
+    }
     _l = null;
     await _loadLabs();
   }

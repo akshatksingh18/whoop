@@ -183,10 +183,19 @@ class Substrate {
   /// vector — gen5 v18 keeps HR/RR and reports the accel as absent rather than
   /// discarding the second, and the gen4 R10-historical path decodes HR only —
   /// still occupies its slot, as exact `(0, 0, 0)`.
-  /// That is not a reading a real device can produce — a gravity vector always
-  /// has magnitude ~1 g, and every decoder that emits one gates on
-  /// `magSq >= 0.25` — so exact zero is an unambiguous ABSENT marker rather
-  /// than a measurement.
+  /// That is not a reading a real device can produce: an accelerometer at rest
+  /// reads ~1 g and one in motion reads more, so all three axes landing on
+  /// EXACTLY 0.0 is an all-zero payload, i.e. no measurement. Exact zero is
+  /// therefore the ABSENT marker.
+  ///
+  /// This used to rest on "every decoder gates on `magSq >= 0.25`", which is no
+  /// longer true — protocol 539a97b dropped that gate from the gen5 v18 decoder
+  /// (it is a bound on a NORMALISED gravity vector and gen5 emits per-axis raw
+  /// means, so it rejected real workout seconds). A gen5 all-zero accel payload
+  /// now decodes as `gravityG: [0,0,0]` and lands here, where it reads as
+  /// absent — the right answer, but reached by physics rather than by a gate
+  /// upstream. Restoring an all-zero ⇒ absent check in the gen5 decoder would
+  /// make it explicit again.
   ///
   /// This matters because absent accel does not merely go unused: a run of
   /// `(0, 0, 0)` has a constant z-angle of exactly 0.0°, which the van Hees
@@ -684,10 +693,20 @@ String localDateLabel(int epochSec) {
 /// habitual-midsleep prior is resolved AT THE DAY BEING SEGMENTED rather than
 /// at "now" (a zone-independent way to test the DST/travel fix, since the
 /// machine running the test may sit in a zone that never changes offset).
+///
+/// [priorSleep] seeds the habitual-midsleep prior with sleep windows ALREADY
+/// STORED for earlier days. Without it the prior is unreachable in production:
+/// the history is accumulated as this function walks days, every live call
+/// spans at most ~36 h (one target day + its nocturnal lookback), and
+/// `habitualMidsleepSecFromHistory` needs 14 distinct days — so the selector
+/// always fell back to the fixed 03:30 cold-start anchor, and a night-shift
+/// sleeper's 4 h main block lost the alignment bonus to a shorter block nearer
+/// 03:30. Days found in THIS call still win (a full restage sees them all).
 List<PhysioDay> calendarDays(
   Substrate sub, {
   SleepWindowOverride? override,
   int Function(int epochSec)? tzOffsetAt,
+  List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
 }) {
   final tzOffset = tzOffsetAt ?? tzOffsetSecondsAt;
   if (sub.isEmpty) return const [];
@@ -697,7 +716,9 @@ List<PhysioDay> calendarDays(
   final dataEnd = sub.tsSec.last + 1;
 
   final days = <PhysioDay>[];
-  final sleepHistory = <({int startSec, int endSec, String dayKey})>[];
+  final sleepHistory = <({int startSec, int endSec, String dayKey})>[
+    ...priorSleep,
+  ];
   var dayStart = _localMidnight(dataStart);
   var guard = 0;
   while (dayStart < dataEnd && guard++ < 400) {
@@ -733,12 +754,16 @@ List<PhysioDay> calendarDays(
       // the CURRENT UTC offset to those historical instants, so re-deriving days
       // from the other side of a DST transition (or a trip) shifted every
       // historical midsleep by an hour — which can change which candidate sleep
-      // the selector's alignment bonus picks. Resolve the offset AT THE DAY
-      // BEING SEGMENTED instead of "whenever this code happens to run", so a
+      // the selector's alignment bonus picks. Resolve the offset AT EACH BLOCK'S
+      // OWN INSTANT instead of "whenever this code happens to run", so a
       // re-derive of an old day is reproducible regardless of today's zone.
+      // One offset frozen for the whole history is the DST bypass analytics
+      // warns about — with a real ≥14-day history (see [priorSleep]) it will
+      // regularly straddle a transition — and `tzOffset` is already a pure
+      // ts → offset function, so pass it as the resolver.
       final habitualMidsleepSec = ana.habitualMidsleepSecFromHistory(
         sleepHistory,
-        tzOffsetSeconds: tzOffset(dayStart),
+        tzOffsetResolver: tzOffset,
       );
       // Daytime HR baseline = valid HR before the nocturnal search window.
       final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];

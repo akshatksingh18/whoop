@@ -29,6 +29,10 @@ import '../screens/home_screen.dart' show dbRebuiltCard;
 import '../ui2.dart';
 import 'profile.dart';
 
+/// What an action has to say for itself: the line to show, and whether it is a
+/// failure. Without the second half every outcome rendered as "Done ✓".
+typedef _Note = (String text, bool failed);
+
 class DataScreen extends StatefulWidget {
   const DataScreen({super.key});
 
@@ -39,17 +43,26 @@ class DataScreen extends StatefulWidget {
 class _DataScreenState extends State<DataScreen> {
   bool _busy = false;
   String? _note;
+
+  /// Whether [_note] is a failure. Every outcome used to render as "Done" with
+  /// a green check — a thrown FileSystemException from the export included.
+  bool _noteFailed = false;
   ImportOutcome? _outcome;
 
-  void _say(String s) {
-    if (mounted) setState(() => _note = s);
+  void _say(String s, {bool failed = false}) {
+    if (mounted) {
+      setState(() {
+        _note = s;
+        _noteFailed = failed;
+      });
+    }
   }
 
   /// Run [job] with the screen locked, reporting whatever it says or throws.
   ///
   /// Every action on this screen is slow, destructive-adjacent or both, and a
   /// second tap while one is running would race the first over the same files.
-  Future<void> _run(Future<String> Function() job) async {
+  Future<void> _run(Future<_Note> Function() job) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -57,23 +70,24 @@ class _DataScreenState extends State<DataScreen> {
       _outcome = null;
     });
     try {
-      _say(await job());
+      final (text, failed) = await job();
+      _say(text, failed: failed);
     } catch (e) {
-      _say('Failed: $e');
+      _say('Failed: $e', failed: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<String> _exportCsv() async {
+  Future<_Note> _exportCsv() async {
     // Read before the export runs: an anchor taken after a multi-second await
     // may be measuring a screen the user has already left.
     final origin = shareOrigin(context);
     final res = await exportCsvFiles(kCsvExportSets);
     if (res.paths.isEmpty) {
       return res.hasFailures
-          ? 'Nothing exported (${res.failed.join(', ')} failed).'
-          : 'Nothing to export yet.';
+          ? ('Nothing exported (${res.failed.join(', ')} failed).', true)
+          : ('Nothing to export yet.', false);
     }
     await Share.shareXFiles([for (final p in res.paths) XFile(p)],
         subject: 'OpenStrap export', sharePositionOrigin: origin);
@@ -81,46 +95,47 @@ class _DataScreenState extends State<DataScreen> {
     final failed = res.hasFailures
         ? ' ${res.failed.length} set(s) failed: ${res.failed.join(', ')}.'
         : '';
-    return '$n file${n == 1 ? '' : 's'} shared.$failed';
+    return ('$n file${n == 1 ? '' : 's'} shared.$failed', res.hasFailures);
   }
 
-  Future<String> _exportDb() async {
+  Future<_Note> _exportDb() async {
     final origin = shareOrigin(context);
     // VACUUM INTO — a transactionally consistent snapshot, not a file copy.
     final path = await LocalDb.exportCopy();
     await Share.shareXFiles([XFile(path)],
         subject: 'OpenStrap database', sharePositionOrigin: origin);
-    return 'Database shared. It is the complete copy.';
+    return ('Database shared. It is the complete copy.', false);
   }
 
-  Future<String> _reanalyze(AppState app) async {
+  Future<_Note> _reanalyze(AppState app) async {
     final n = await app.reanalyzeAll();
-    return '$n day${n == 1 ? '' : 's'} re-analyzed.';
+    return ('$n day${n == 1 ? '' : 's'} re-analyzed.', false);
   }
 
-  Future<String> _backupNow(AppState app) async {
+  Future<_Note> _backupNow(AppState app) async {
     final outcome = await app.runBackupNow();
-    if (outcome.error != null) return 'Backup failed: ${outcome.error}';
-    if (!outcome.succeeded) return 'Backup skipped.';
-    return 'Backed up to ${outcome.path}';
+    if (outcome.error != null) return ('Backup failed: ${outcome.error}', true);
+    if (!outcome.succeeded) return ('Backup skipped.', false);
+    return ('Backed up to ${outcome.path}', false);
   }
 
-  Future<String> _import(AppState app) async {
+  Future<_Note> _import(AppState app) async {
     FilePickerResult? picked;
     try {
       picked = await FilePicker.platform
           .pickFiles(allowMultiple: true, withReadStream: false);
     } catch (e) {
-      return 'Could not open the file picker: $e';
+      return ('Could not open the file picker: $e', true);
     }
     final paths = (picked?.files ?? const [])
         .map((f) => f.path)
         .whereType<String>()
         .toList();
-    if (paths.isEmpty) return ''; // cancelled — not a failure, say nothing
+    // cancelled — not a failure, say nothing
+    if (paths.isEmpty) return ('', false);
     final outcome = await runImport(app, paths);
     if (mounted) setState(() => _outcome = outcome);
-    return '';
+    return ('', false);
   }
 
   @override
@@ -145,9 +160,12 @@ class _DataScreenState extends State<DataScreen> {
                 // Home shows this too, on the launch it happened. It belongs
                 // here as well because this is the screen someone opens when
                 // they notice their food log is empty, and it is the only
-                // screen where the card is ALSO an instruction: the
-                // quarantined file it names is a .db, and "Import a file"
-                // three rows down is what reads one back.
+                // screen where the card is ALSO an instruction: "Import a
+                // file" three rows down reads the quarantined file back.
+                // (It is named `openstrap.db.unopenable-<ms>`, not `.db` —
+                // `runImport` matches that shape explicitly, because routing
+                // on the suffix alone sent a SQLite file into the vendor-CSV
+                // importer.)
                 if (rebuilt != null) ...[
                   rebuilt,
                   const SizedBox(height: S.x5),
@@ -209,7 +227,10 @@ class _DataScreenState extends State<DataScreen> {
                 ],
                 if (_note != null && _note!.isNotEmpty) ...[
                   const SizedBox(height: S.x5),
-                  StatusCard('Done', _note!, icon: LucideIcons.check),
+                  StatusCard(_noteFailed ? 'That did not work' : 'Done', _note!,
+                      icon: _noteFailed
+                          ? LucideIcons.triangleAlert
+                          : LucideIcons.check),
                 ],
                 if (app.importRollupError != null) ...[
                   const SizedBox(height: S.x5),
@@ -227,13 +248,30 @@ class _DataScreenState extends State<DataScreen> {
                 if (o != null) ...[
                   const SizedBox(height: S.x5),
                   StatusCard(
-                    o.error != null ? 'Import failed' : o.source,
+                    o.error != null
+                        ? 'Import failed'
+                        : o.nothingLanded
+                            ? 'Nothing was imported'
+                            : o.source,
                     o.error ??
-                        '${o.days} day${o.days == 1 ? '' : 's'} imported.'
-                            '${o.lostSomething ? ' ${o.lateRows} row(s) '
-                                'arrived too late and ${o.strandedDays} '
-                                'day(s) could not be derived on their own.' : ''}',
-                    icon: o.error != null
+                        (o.nothingLanded
+                            ? o.readError ??
+                                'The file was read and there was nothing in it '
+                                    'this app could use, or every day in it '
+                                    'was one this band had already measured.'
+                            : '${o.days} day${o.days == 1 ? '' : 's'} imported.'
+                                '${o.workouts > 0 ? ' ${o.workouts} workout(s) '
+                                    'written.' : ''}'
+                                '${o.skippedDays > 0 ? ' ${o.skippedDays} '
+                                    'day(s) this band had already measured were '
+                                    'left alone.' : ''}'
+                                '${o.lostSomething ? ' ${o.lateRows} row(s) '
+                                    'arrived too late and ${o.strandedDays} '
+                                    'day(s) could not be derived on their '
+                                    'own.' : ''}'
+                                '${o.readError != null ? ' One file could not '
+                                    'be read: ${o.readError}' : ''}'),
+                    icon: o.error != null || o.nothingLanded
                         ? LucideIcons.triangleAlert
                         : LucideIcons.check,
                   ),

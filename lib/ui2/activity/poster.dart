@@ -263,9 +263,12 @@ class PosterCard extends StatelessWidget {
                 child: _column(accent, stats, posterHero(r, u)),
               ),
               // The credit. On the card because the map is on the card, and
-              // absent when there are no tiles — crediting OpenStreetMap for
-              // a map that is not there would be its own small lie.
-              if (mosaic != null)
+              // absent when no tiles are DRAWN — crediting OpenStreetMap for
+              // a map that is not there would be its own small lie. A photo
+              // card is exactly that case: `PosterMap` takes its corner form
+              // and never touches the mosaic, so the tiles are fetched and
+              // then not used.
+              if (_tilesDrawn)
                 Positioned(
                   right: S.x2,
                   bottom: S.x1,
@@ -282,6 +285,11 @@ class PosterCard extends StatelessWidget {
   }
 
   bool get _compact => format.height < _compactBelow;
+
+  /// Whether any tile pixel actually lands on the card — which is the credit's
+  /// condition, not whether a mosaic was fetched. Mirrors the `overPhoto`
+  /// branch in [PosterMap.paint].
+  bool get _tilesDrawn => mosaic != null && photo == null;
 
   Widget _column(
     Color accent,
@@ -684,7 +692,18 @@ class PosterMap extends CustomPainter {
       canvas.translate(
           (size.width - m.width * k) / 2, (size.height - m.height * k) / 2);
       canvas.scale(k, k);
-      canvas.drawImage(m.image, Offset.zero, Paint()..isAntiAlias = true);
+      // `filterQuality` defaults to none, i.e. nearest-neighbour — and this
+      // draws a 900 px mosaic into a 300 pt card, so the preview moiréd while
+      // the export (3x, k·3 = 1) was pixel-exact. The card the user approves
+      // has to be the card that ships. The mosaic builder already composites
+      // its tiles at medium.
+      canvas.drawImage(
+        m.image,
+        Offset.zero,
+        Paint()
+          ..isAntiAlias = true
+          ..filterQuality = FilterQuality.medium,
+      );
       canvas.restore();
     }
 

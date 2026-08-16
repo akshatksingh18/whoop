@@ -291,53 +291,45 @@ void main() {
       expect(saved!['weight_kg'], 78.4);
       expect(saved!.containsKey('height_cm'), isFalse);
     });
+
+    testWidgets('a number it cannot read stops the save instead of dropping it',
+        (tester) async {
+      _tallView(tester);
+      Map<String, dynamic>? saved;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ProfileSetupView(onSave: (f) async => saved = f),
+      ));
+      await tester.tap(find.text('Male'));
+      await tester.enterText(find.byType(TextField).at(2), '78 kg');
+      await tester.pump();
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+
+      // Blank is unknown; "78 kg" is not blank, and writing the profile
+      // without it would have read as a save that worked.
+      expect(saved, isNull);
+    });
   });
 
-  group('the day-0 contract', () {
-    test('the unlock date is exactly the nights still owed', () {
-      final now = DateTime(2026, 8, 22);
-      expect(UnlockContract.unlockDate(now, 3, 14), DateTime(2026, 9, 2));
-      // Already unlocked: today, not a date in the past.
-      expect(UnlockContract.unlockDate(now, 14, 14), DateTime(2026, 8, 22));
-      expect(UnlockContract.unlockDate(now, 20, 14), DateTime(2026, 8, 22));
+  group('a typed number is blank, a number, or unreadable', () {
+    test('the three cases stay apart', () {
+      expect(Typed.of('  ').blank, isTrue);
+      expect(Typed.of('  ').bad, isFalse);
+      expect(Typed.of('78.4').value, 78.4);
+      // A comma decimal is 1.5 to half of Europe and 15 to the other half, and
+      // a unit suffix is not a number at all. Neither is guessed at.
+      for (final s in ['78 kg', '1,5', '1,200', 'twelve']) {
+        expect(Typed.of(s).bad, isTrue, reason: s);
+        expect(Typed.of(s).value, isNull, reason: s);
+      }
     });
+  });
 
+  group('dates', () {
     test('the date reads as a date a person can hold', () {
       expect(formatDay(DateTime(2026, 9, 3)), 'Thu 3 Sep');
       expect(formatDay(DateTime(2026, 1, 1)), 'Thu 1 Jan');
-    });
-
-    testWidgets('it locks the headline and shows live HR instead',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: Scaffold(
-          body: UnlockContract(
-              metric: 'Readiness',
-              have: 3,
-              need: 14,
-              liveHr: 61,
-              now: DateTime(2026, 8, 22)),
-        ),
-      ));
-      expect(find.text('Opens Wed 2 Sep'), findsOneWidget);
-      expect(find.text('3 of 14 nights banked'), findsOneWidget);
-      expect(find.text('61'), findsOneWidget);
-      // Never a number standing in for the locked metric.
-      expect(find.text('—'), findsNothing);
-    });
-
-    testWidgets('with no band streaming it says so rather than showing 0',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: Scaffold(
-          body: UnlockContract(
-              metric: 'Readiness', have: 0, need: 14, now: DateTime(2026, 8, 22)),
-        ),
-      ));
-      expect(find.text('Band not streaming'), findsOneWidget);
-      expect(find.text('0'), findsNothing);
     });
   });
 
@@ -365,12 +357,14 @@ void main() {
       expect(ranked.first.name, 'New band');
     });
 
-    test('a user preference is the last word, not the first', () {
+    // There is no user preference: the parameter had no caller and no control
+    // anywhere in the app, so the last tiebreak is the name.
+    test('a tie inside a tier falls back to the name', () {
       final ranked = rankSources([
         src('B', SourceTier.wristOptical),
         src('A', SourceTier.wristOptical),
-      ], preferred: ['B']);
-      expect(ranked.first.name, 'B');
+      ]);
+      expect(ranked.first.name, 'A');
     });
   });
 

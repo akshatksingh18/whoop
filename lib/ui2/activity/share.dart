@@ -75,8 +75,18 @@ class _ShareSheetState extends State<ShareSheet> {
   final _mosaics = <PosterFormat, RouteMosaic>{};
   final _mapTried = <PosterFormat>{};
 
+  /// The formats with a fetch in flight. Without this the sheet showed "the
+  /// tiles could not be fetched" for the whole duration of a fetch that was
+  /// still running, because `_mapTried` is set before the first await.
+  final _mapLoading = <PosterFormat>{};
+
+  /// Whether the tile fetch is allowed at all. Persisted, default off — see
+  /// [mapTilesAllowed].
+  late bool _mapConsent = mapTilesAllowed;
+
   RouteMosaic? get _mosaic => _mosaics[_format];
   bool get _mapTried_ => _mapTried.contains(_format);
+  bool get _mapBusy => _mapLoading.contains(_format);
 
   ActivityResult get r => widget.result;
 
@@ -131,16 +141,39 @@ class _ShareSheetState extends State<ShareSheet> {
     }
   }
 
-  /// Fetch the basemap once, for a session that went somewhere.
+  /// Turn the basemap on or off, and mean it.
+  ///
+  /// Off drops the tiles already on the card as well as the consent — leaving
+  /// a fetched map on screen after the user said no would make the switch a
+  /// label rather than a control.
+  void _toggleMap() {
+    final on = !_mapConsent;
+    setMapTilesAllowed(on);
+    setState(() {
+      _mapConsent = on;
+      if (!on) {
+        for (final m in _mosaics.values) {
+          m.dispose();
+        }
+        _mosaics.clear();
+        _mapTried.clear();
+      }
+    });
+    if (on) _ensureMap();
+  }
+
+  /// Fetch the basemap once, for a session that went somewhere — and only
+  /// once the user has said openstreetmap.org may be asked for it.
   ///
   /// It used to be deferred until the Poster style was selected, so a session
   /// whose owner never opened it never hit the tile server. There is no style
   /// to select now — a card with no photo IS the map — so a session with
-  /// coordinates always needs one, and it is fetched once, on open, and held.
+  /// coordinates needs one, and it is fetched once per format and held.
   Future<void> _ensureMap() async {
     final f = _format;
-    if (_mapTried.contains(f) || !_hasRoute) return;
+    if (!_mapConsent || _mapTried.contains(f) || !_hasRoute) return;
     _mapTried.add(f);
+    setState(() => _mapLoading.add(f));
     // Midnight, both ends, and NOT the reader's palette.
     //
     // This card is exported and sent to someone else — it is dark whichever
@@ -162,6 +195,7 @@ class _ShareSheetState extends State<ShareSheet> {
       return;
     }
     setState(() {
+      _mapLoading.remove(f);
       if (m != null) _mosaics[f] = m;
     });
   }
@@ -203,14 +237,22 @@ class _ShareSheetState extends State<ShareSheet> {
                   // off it — the card prints everything the session has, and
                   // the only thing the reader chooses is whether their photo
                   // is behind it.
+                  // scaleDown, so a narrow viewport shrinks the card WHOLE.
+                  // The boundary underneath keeps its authored 300 pt width
+                  // whatever the screen does, and `toImage` reads the boundary
+                  // — so a 320 pt phone exports the same 1:1 square as a big
+                  // one instead of the 0.96:1 Instagram crops.
                   Center(
-                    child: RepaintBoundary(
-                      key: _card,
-                      child: PosterCard(
-                        r,
-                        photo: _photo == null ? null : FileImage(_photo!),
-                        mosaic: _mosaic,
-                        format: _format,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: RepaintBoundary(
+                        key: _card,
+                        child: PosterCard(
+                          r,
+                          photo: _photo == null ? null : FileImage(_photo!),
+                          mosaic: _mosaic,
+                          format: _format,
+                        ),
                       ),
                     ),
                   ),
@@ -248,10 +290,48 @@ class _ShareSheetState extends State<ShareSheet> {
                       ],
                     ]),
                   ),
+                  // The one thing on this screen that leaves the phone. Off
+                  // until it is turned on, in the words of what it does — the
+                  // tiles are addressed by where the route is, so asking for
+                  // them tells openstreetmap.org roughly where you were.
+                  if (_hasRoute) ...[
+                    const SizedBox(height: S.x6),
+                    Text('BASEMAP', style: F.over.copyWith(color: p.ink3)),
+                    const SizedBox(height: S.x3),
+                    Surface(
+                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                      child: SetRow(
+                        LucideIcons.map,
+                        r.activity.color,
+                        'Draw the real map',
+                        sub: 'Asks openstreetmap.org for the tiles covering '
+                            'this route. Off, the route draws on its own',
+                        value: _mapConsent ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: _toggleMap,
+                      ),
+                    ),
+                  ],
+                  // A fetch in flight is not a failure. This card used to
+                  // appear the instant a format was selected and sit there for
+                  // the whole fetch, because `_mapTried` is set before the
+                  // first await.
+                  if (_hasRoute && _mapBusy) ...[
+                    const SizedBox(height: S.x3),
+                    const StatusCard(
+                      'Fetching the map',
+                      'The card draws as soon as every tile is here.',
+                      icon: LucideIcons.map,
+                    ),
+                  ]
                   // Only when a map was expected AND is missing. A lift never
                   // had one to lose, and telling its owner the tiles failed
-                  // would be explaining an absence that is not one.
-                  if (_hasRoute && _mapTried_ && _mosaic == null) ...[
+                  // would be explaining an absence that is not one — and
+                  // neither is a basemap the user has switched off.
+                  else if (_hasRoute &&
+                      _mapConsent &&
+                      _mapTried_ &&
+                      _mosaic == null) ...[
                     const SizedBox(height: S.x3),
                     const StatusCard(
                       'No map for this card',
@@ -356,7 +436,18 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
     Arch.strength =>
       r.strength.volumeKg == null
           ? fallback
-          : (grouped(r.strength.volumeKg!), 'kg', 'Total volume'),
+          : (
+              grouped(r.strength.volumeKg!),
+              'kg',
+              // The same caption the summary picks, off the same fact.
+              // `volumeKg` is Σ over the sets that HAVE a load, so calling it
+              // a total on a session with bodyweight sets in it asserts a
+              // total that leaves some of them out — and the screen this card
+              // was made from says exactly that.
+              r.strength.hasUnloadedSets
+                  ? 'Volume of the loaded sets'
+                  : 'Total volume',
+            ),
     Arch.laps =>
       r.swimMetres == null
           ? fallback

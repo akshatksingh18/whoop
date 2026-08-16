@@ -17,10 +17,12 @@ import 'metric_detail.dart';
 
 class ReadinessData {
   final Metric readiness;
-  final String narrative;
   final List<Map<String, dynamic>> breakdown;
   final int inputsUsed;
-  final Metric glassbox;
+
+  /// The night this score describes, when it is NOT last night — the same
+  /// resolution Home's hero uses. The screen used to carry no date anywhere.
+  final String? heldOverNight;
 
   /// DENSE — one slot per calendar day, `null` where no score was stored. The
   /// chart under it is dated, and `seriesOf` (values only) cannot date
@@ -30,10 +32,9 @@ class ReadinessData {
 
   const ReadinessData({
     this.readiness = Metric.empty,
-    this.narrative = '',
     this.breakdown = const [],
     this.inputsUsed = 0,
-    this.glassbox = Metric.empty,
+    this.heldOverNight,
     this.series = const [],
   });
 
@@ -49,13 +50,18 @@ class ReadinessData {
 
     return ReadinessData(
       readiness: metricOf(daily is Map ? daily['readiness'] : null),
-      narrative: (v['narrative'] ?? '').toString(),
+      // `narrative` and the glass-box `score` are DELIBERATELY not read. Both
+      // belong to the deprecated percentile score, which bands at 70/40 while
+      // the headline composite bands at 80/60/40 — printing its verdict under
+      // the ring put "You're ready" directly beneath "45 · Take it easy". The
+      // breakdown below IS worth keeping; it is a parallel ranking of the same
+      // four inputs, and the footer now says so.
       breakdown: [
         for (final e in (bd is List ? bd : const []))
           if (e is Map) e.cast<String, dynamic>(),
       ],
       inputsUsed: (v['inputs_used'] as num?)?.toInt() ?? 0,
-      glassbox: envMetric(gb, v['score'] as num?),
+      heldOverNight: heldOverNightOf(today),
       series: denseDays(pointsOf(chart), 90),
     );
   }
@@ -105,7 +111,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final v = d.readiness.value;
     final band = readinessBand(v);
 
-    return detailScaffold(c, 'Readiness', [
+    return detailScaffold(c, 'Readiness',
+        sub: d.heldOverNight == null
+            ? ''
+            : prettyDay(d.heldOverNight).toUpperCase(), [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -134,12 +143,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                   ]),
                 ]),
               ),
-              if (d.narrative.isNotEmpty) ...[
-                const SizedBox(height: S.x5),
-                Text(d.narrative,
-                    textAlign: TextAlign.center,
-                    style: F.body.copyWith(color: p.ink2, height: 1.5)),
-              ],
             ]),
           ),
 
@@ -152,7 +155,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             child: Row(children: [
               Expanded(
                 child: Text(
-                  '${d.inputsUsed}/${d.breakdown.length} inputs',
+                  '${d.inputsUsed}/${d.breakdown.length} inputs. Each one is '
+                  'ranked against your own history — a parallel view of the '
+                  'same inputs, not slices of the number above.',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),
@@ -212,7 +217,13 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       unit: '/100',
       height: 120,
       yAxis: axis,
-      xLabels: ['${win.length} day${win.length == 1 ? '' : 's'} ago', 'Today'],
+      // Slot 0 is `length - 1` days behind today, not `length` — the last slot
+      // IS today. MetricDetail draws the same `recovery` series and already
+      // counts it this way; the two screens dated one chart differently.
+      xLabels: [
+        '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
+        'Today',
+      ],
       series: win,
       child: CustomPaint(
         size: Size.infinite,
@@ -224,26 +235,45 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
 
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {
     final rows = d.breakdown;
+    // THE WEIGHT THAT WAS USED, not the catalog weight. The score is
+    // `wpsum / wsum` over the USABLE inputs only, so the raw .40/.30/.18/.12
+    // are what each input would have carried had everything been present — with
+    // skin temperature missing, HRV's 40% actually carried 45.5%.
+    final wsum = rows
+        .where((r) => r['used'] == true)
+        .fold<double>(0, (a, r) => a + ((r['weight'] as num?)?.toDouble() ?? 0));
     return Surface(
       pad: const EdgeInsets.symmetric(horizontal: S.x4),
       child: Column(children: [
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) Divider(color: p.line, height: 1),
-          _row(p, rows[i]),
+          _row(p, rows[i], wsum),
         ],
       ]),
     );
   }
 
-  Widget _row(P p, Map<String, dynamic> r) {
+  Widget _row(P p, Map<String, dynamic> r, double wsum) {
     final key = r['label']?.toString() ?? '';
-    final weight = (r['weight'] as num?) ?? 0;
+    final raw = (r['weight'] as num?)?.toDouble();
     final contribution = (r['weighted_contribution'] as num?);
     final used = r['used'] == true;
     final pastMdc = r['past_mdc'] == true;
-    // The temperature input is a raw sensor deviation, not a calibrated
-    // temperature, and it is 10% of the score. It gets said, every time.
-    final caveat = key == 'temp' ? ' · relative, uncalibrated' : '';
+    // No weight, or an input that carried none, means no percentage — `?? 0`
+    // printed a confident "0% weight" for a number nobody reported.
+    final share = !used || raw == null || wsum <= 0 ? null : raw / wsum;
+
+    final parts = [
+      if (share != null) '${(share * 100).round()}% weight',
+      if (!used) 'not available',
+      if (used && contribution == null) 'contribution not reported',
+      // The temperature input is a raw sensor deviation, not a calibrated
+      // temperature. It gets said, every time.
+      if (key == 'temp') 'relative, uncalibrated',
+      // An unlabelled glyph is not an explanation. This is the
+      // smallest-worthwhile-change gate, so it says what it means.
+      if (used && !pastMdc) 'within your usual spread',
+    ];
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
@@ -251,14 +281,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(driverLabel(key), style: F.body.copyWith(color: p.ink)),
-            Text(
-                '${(weight * 100).round()}% weight'
-                '${used ? '' : ' · not available'}'
-                '${used && contribution == null ? ' · contribution not reported' : ''}'
-                '$caveat'
-                // An unlabelled glyph is not an explanation. This is the
-                // smallest-worthwhile-change gate, so it says what it means.
-                '${used && !pastMdc ? ' · within your usual spread' : ''}',
+            Text(parts.join(' · '),
                 style: F.over.copyWith(color: p.ink3)),
           ]),
         ),

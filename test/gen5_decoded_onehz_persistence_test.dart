@@ -270,6 +270,40 @@ void main() {
     );
   });
 
+  test('an R10-lite record KEEPS its R-R beats — they have nowhere else to go',
+      () async {
+    const ts = 1780000320;
+    const counter = 4343;
+    final inner = _buildR10LiteInner(ts: ts, counter: counter, hr: 58);
+    final sample = Sample(
+      tsEpoch: ts,
+      counter: counter,
+      hr: 58,
+      rrIntervalsMs: const [1010, 1030],
+    );
+    final raw = RawRecord(
+      counter: counter,
+      packetType: PacketType.historicalData,
+      hex: _bytesToHex(inner),
+      capturedAt: ts * 1000,
+      recTs: ts,
+    );
+    await LocalDb.commitSyncBatch([raw], [sample]);
+
+    final db = await LocalDb.instance;
+    // Still out of the 1 Hz substrate — no accel, no optics.
+    expect(
+      await db.query('decoded_onehz', where: 'rec_ts = ?', whereArgs: [ts]),
+      isEmpty,
+    );
+    // But the beats land. `samples` is (counter, ts, hr) and cannot hold them,
+    // the record commits as decoded so it is never archived, and the band is
+    // then acked to trim it — dropping them here was permanent, not degraded.
+    final rr = await db.query('decoded_rr',
+        where: 'rec_ts = ?', whereArgs: [ts], orderBy: 'beat_index ASC');
+    expect([for (final r in rr) r['rr_ms']], [1010, 1030]);
+  });
+
   // Protects the hex-conversion fallback in `LocalDb._decodeOneHzSample`: when
   // the raw hex cannot be parsed, a timestamp-valid preferred Sample must still
   // reach `decoded_onehz` rather than the record being lost.

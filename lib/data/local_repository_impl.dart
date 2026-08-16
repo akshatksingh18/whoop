@@ -193,12 +193,6 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> patchProfile(Map<String, dynamic> fields) async {
-    // AppState.updateProfile persists; the screen calls that path. We echo back.
-    return {...?getProfileMap(), ...fields};
-  }
-
-  @override
   Future<Map<String, dynamic>> setStepGoal(int goal) async => {
     ...?getProfileMap(),
     'step_goal': goal,
@@ -210,8 +204,15 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getToday() async {
+    // Refresh when the row is missing OR when its `today_day` is no longer the
+    // real local day. The row is stamped by the last derive, so an app left
+    // running over midnight (band on the charger, or an imported-only user)
+    // kept serving yesterday's finished bundle as today: yesterday's steps,
+    // kcal and strain on Home, yesterday's date in the greeting, and the
+    // frozen headline matching so the readiness went un-flagged too.
     var todayFresh = await _freshness('today');
-    if (todayFresh == null) {
+    if (todayFresh == null ||
+        todayFresh['today_day']?.toString() != _todayLocalLabel()) {
       await LocalDb.refreshComputeFreshness();
       todayFresh = await _freshness('today');
     }
@@ -337,6 +338,10 @@ class LocalRepositoryImpl extends LocalRepository {
         : {
             'rmssd': rmssd,
             'sdnn': _scalar(b, 'sdnn'),
+            // Same baseline getDayHeart emits. Without it TodayData.hrv.baseline
+            // was always null, WidgetService pushed -1, and the HRV ring on the
+            // widget and the Watch could never fill on any day.
+            'baseline': (await _seriesMean('rmssd'))?.round(),
             'confidence': (hrvTime?['confidence'] as num?) ?? 0.5,
           };
 
@@ -485,6 +490,11 @@ class LocalRepositoryImpl extends LocalRepository {
     final w = b['wear'] is Map ? (b['wear'] as Map).cast<String, dynamic>() : null;
     final fromBlock = (w?['worn_min'] as num?);
     if (fromBlock != null) return fromBlock;
+    // The scalar step getDayWear has. Without it an imported day (scalars.worn_min,
+    // no wear/coverage block) showed a wear figure on Vitals and nothing at all in
+    // today.daily.wear_min — same stored number, two answers.
+    final scalar = (_sub(b, 'scalars')?['worn_min'] as num?);
+    if (scalar != null) return scalar;
     final cov = _sub(b, 'coverage');
     final total = (cov?['hr_samples'] as num?)?.toInt();
     return total == null ? null : (total / 60).round();
@@ -1050,8 +1060,11 @@ class LocalRepositoryImpl extends LocalRepository {
       // Wear = RECORD presence, not valid HR (HR drops out during daytime
       // motion). Fall back to the total record count, never hr_valid.
       'worn_min': wornMin,
-      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt() ??
-          (hrSamples == null ? null : (hrSamples > 0 ? 100 : 0)),
+      // MISSING IS NOT 100% either. This used to read `hrSamples > 0 ? 100 : 0`,
+      // so one HR sample claimed the band was worn for the whole day and the
+      // row printed "Wear time 20m · 100% of the day". The engine wear block is
+      // the only thing that measures coverage; without it we say nothing.
+      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt(),
       'segments': w?['segments'] ?? const [],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
@@ -1143,9 +1156,9 @@ class LocalRepositoryImpl extends LocalRepository {
     // showing yesterday's step count as "today's steps" is actively wrong, not
     // just stale. When today's own row hasn't been derived yet, use today's
     // interim wake_day_features estimate instead of whatever _bundleForDate
-    // fell back to (same source getToday() uses for the Today screen). The
-    // caller is expected to fold AppState.liveSteps on top of this, matching
-    // Today's base+live composition exactly.
+    // fell back to (same source getToday() uses for the Today screen). This is
+    // the settled BASE only — a caller showing live steps folds AppState.liveSteps
+    // on top, the way Today composes base+live.
     num? stepsBase;
     if (_isTodayLabel(date) && await _bundle(date) == null) {
       final wf = await _wakeFeatures(date);
@@ -1161,13 +1174,15 @@ class LocalRepositoryImpl extends LocalRepository {
       // Secondary 0–100 Edwards "effort" strain (zone-weighted, per-second wake HR).
       'effort': _scalar(b, 'strain_effort'),
       'load': cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
-      // HR-zone minutes (Z1–Z5 by %HRmax) — the strain detail's zone bars.
+      // HR-zone minutes (Z1–Z5 by %HRmax) — the zone bars. `?? 0` on all five
+      // turned a day with no zone block into five confident 0-minute bars; a
+      // day we never measured reads null so the caller can say nothing.
       'zones': {
-        'z1': (zones?['z1'] as num?)?.toInt() ?? 0,
-        'z2': (zones?['z2'] as num?)?.toInt() ?? 0,
-        'z3': (zones?['z3'] as num?)?.toInt() ?? 0,
-        'z4': (zones?['z4'] as num?)?.toInt() ?? 0,
-        'z5': (zones?['z5'] as num?)?.toInt() ?? 0,
+        'z1': (zones?['z1'] as num?)?.toInt(),
+        'z2': (zones?['z2'] as num?)?.toInt(),
+        'z3': (zones?['z3'] as num?)?.toInt(),
+        'z4': (zones?['z4'] as num?)?.toInt(),
+        'z5': (zones?['z5'] as num?)?.toInt(),
       },
       'curve': [
         for (final p in curve.whereType<Map>()) {'t': p['t'], 'v': p['v']},
@@ -1340,37 +1355,20 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── lists / summaries ─────────────────────────────────────────────────────
 
   @override
-  Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) async {
-    final rows = await LocalDb.recentDayResults(60);
-    final out = <Map<String, dynamic>>[];
-    for (final r in rows) {
-      final b = _decode(r['payload_json']);
-      if (b == null) continue;
-      final acct = _sub(b, 'sleep.accounting.value');
-      final tst = (acct?['tst_sec'] as num?);
-      if (tst == null) continue;
-      out.add({
-        'date': r['date'],
-        'duration_min': (tst / 60).round(),
-        'efficiency': acct?['efficiency_pct'],
-        'flags': {
-          'duration': {'c': 0.6, 'tier': 'ESTIMATE', 'beta': true},
-        },
-      });
-    }
-    return out;
-  }
-
-  @override
   Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) async {
     final rows = await LocalDb.sleepWindowRows(days);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
       final date = r['day_id'] as String?;
       if (date == null || date.isEmpty) continue;
-      // `window_json` is the sleep-window Metric envelope written by the
-      // derivation engine; `value` is the string '—' on a night with no sleep,
-      // so it is only a Map when a window was actually found.
+      // `window_json` comes in TWO shapes and always has. The derivation
+      // engine writes `SleepWindow.toJson()` — a BARE {onset_ms, offset_ms,
+      // spt_sec} — and so do both importers; only this reader ever expected a
+      // Metric envelope, so onset_ts/wake_ts were null for every night ever
+      // stored and Sleep's "earlier/later than usual" row never appeared for
+      // anyone. Take the envelope's `value` when there is one, else the map
+      // itself. (`value` is the string '—' on a night with no sleep, so it
+      // only counts when it is a Map.)
       Map<String, dynamic>? env;
       try {
         final decoded = jsonDecode((r['window_json'] as String?) ?? '{}');
@@ -1379,7 +1377,9 @@ class LocalRepositoryImpl extends LocalRepository {
         env = null;
       }
       final v = env?['value'];
-      final val = v is Map ? v.cast<String, dynamic>() : null;
+      final val = v is Map
+          ? v.cast<String, dynamic>()
+          : (env?['onset_ms'] != null || env?['offset_ms'] != null ? env : null);
       final onsetMs = (val?['onset_ms'] as num?)?.toDouble();
       final offsetMs = (val?['offset_ms'] as num?)?.toDouble();
       out.add({
@@ -1391,23 +1391,6 @@ class LocalRepositoryImpl extends LocalRepository {
       });
     }
     return out;
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) async {
-    final rows = await LocalDb.recentDayResults(60);
-    return [
-      for (final r in rows)
-        {
-          'date': r['date'],
-          'strain': (() {
-            final b = _decode(r['payload_json']);
-            // Headline 0–21 strain (fall back to nothing if older bundle).
-            return _scalar(b, 'strain');
-          })(),
-          'flags': const {},
-        },
-    ];
   }
 
   @override
@@ -1446,329 +1429,7 @@ class LocalRepositoryImpl extends LocalRepository {
     return manual;
   }
 
-  @override
-  Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {
-    // The Recap card (ui/recap/recap_screen.dart) reads a `metrics` map
-    // (avg/total/delta_pct per key), daily `series` for the mini-viz, a
-    // `worn_days` count (its emptiness gate), and `from_epoch`/`to_epoch` for
-    // the period label. Build all of that from the persisted metric_series
-    // rows. NOTE: the old stub returned `{days:[…]}` — the wrong shape — so
-    // `_isEmpty` always saw metrics={} / worn_days=0 and the recap was stuck on
-    // "Not enough data yet" for BOTH week and month regardless of data.
-    final days = range == '7d' ? 7 : 30;
-
-    Future<Map<String, double>> seriesMap(String key) async {
-      final rows = await LocalDb.metricSeries(key); // ascending by date
-      final m = <String, double>{};
-      for (final r in rows) {
-        final v = (r['value'] as num?)?.toDouble();
-        if (v != null) m[r['date'] as String] = v;
-      }
-      return m;
-    }
-
-    final strain = await seriesMap('strain');
-    final rhr = await seriesMap('rhr');
-    final tst = await seriesMap('tst_min'); // minutes (recap _hm() formats h/m)
-    final cals = await seriesMap('calories');
-    final steps = await seriesMap('steps');
-
-    // Anchor on the most recent day that has ANY data.
-    final allDates = <String>{
-      ...strain.keys,
-      ...rhr.keys,
-      ...tst.keys,
-      ...cals.keys,
-      ...steps.keys,
-    };
-    if (allDates.isEmpty) {
-      return {'metrics': const {}, 'series': const {}, 'worn_days': 0};
-    }
-
-    DateTime parseD(String s) {
-      final p = s.split('-');
-      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
-    }
-
-    String ymd(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
-    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
-
-    final anchor = allDates.map(parseD).reduce((a, b) => a.isAfter(b) ? a : b);
-    final start = anchor.subtract(Duration(days: days - 1));
-    final prevEnd = start.subtract(const Duration(days: 1));
-    final prevStart = prevEnd.subtract(Duration(days: days - 1));
-
-    List<double> windowVals(Map<String, double> m, DateTime s, DateTime e) {
-      final out = <double>[];
-      var d = s;
-      while (!d.isAfter(e)) {
-        final v = m[ymd(d)];
-        if (v != null) out.add(v);
-        d = d.add(const Duration(days: 1));
-      }
-      return out;
-    }
-
-    double? mean(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
-    double? total(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b);
-    double? pctDelta(double? now, double? prev) =>
-        (now == null || prev == null || prev == 0)
-            ? null
-            : (now - prev) / prev * 100.0;
-    double? round1(double? v) =>
-        v == null ? null : double.parse(v.toStringAsFixed(1));
-
-    // Daily series (oldest→newest), present days only, as [{t, v}].
-    List<Map<String, dynamic>> daily(Map<String, double> m) {
-      final out = <Map<String, dynamic>>[];
-      var d = start;
-      while (!d.isAfter(anchor)) {
-        final v = m[ymd(d)];
-        if (v != null) out.add({'t': secOf(d), 'v': v});
-        d = d.add(const Duration(days: 1));
-      }
-      return out;
-    }
-
-    final strainAvg = mean(windowVals(strain, start, anchor));
-    final strainPrev = mean(windowVals(strain, prevStart, prevEnd));
-    final rhrAvg = mean(windowVals(rhr, start, anchor));
-    final rhrPrev = mean(windowVals(rhr, prevStart, prevEnd));
-    final tstAvg = mean(windowVals(tst, start, anchor));
-    final calTotal = total(windowVals(cals, start, anchor));
-
-    // Worn days = distinct days in the window with any metric present.
-    var worn = 0;
-    var wd = start;
-    while (!wd.isAfter(anchor)) {
-      final k = ymd(wd);
-      if (strain.containsKey(k) ||
-          rhr.containsKey(k) ||
-          tst.containsKey(k) ||
-          cals.containsKey(k) ||
-          steps.containsKey(k)) {
-        worn++;
-      }
-      wd = wd.add(const Duration(days: 1));
-    }
-
-    return {
-      'from_epoch': secOf(start),
-      'to_epoch': secOf(anchor),
-      'worn_days': worn,
-      'metrics': {
-        'strain': {
-          'avg': round1(strainAvg),
-          'delta_pct': round1(pctDelta(strainAvg, strainPrev)),
-        },
-        'resting_hr': {
-          'avg': round1(rhrAvg),
-          'delta_pct': round1(pctDelta(rhrAvg, rhrPrev)),
-        },
-        'sleep_duration': {'avg': round1(tstAvg)},
-        'calories': {'total': round1(calTotal)},
-      },
-      'series': {
-        'strain': daily(strain),
-        'steps': daily(steps),
-      },
-    };
-  }
-
   // ── trends + records + charts ──────────────────────────────────────────────
-
-  @override
-  Future<Map<String, dynamic>> getTrend(
-    String metric, {
-    String scale = 'week',
-    String? anchor,
-  }) async {
-    final key = _trendKey(metric);
-    final rows = await LocalDb.metricSeries(key); // ascending by date
-    final byDate = <String, double>{};
-    for (final r in rows) {
-      final v = (r['value'] as num?)?.toDouble();
-      if (v != null) byDate[r['date'] as String] = v;
-    }
-    final (unit, label) = _unitLabel(metric);
-    final base = {
-      'baseline': {'resting_hr': await _seriesMean('rhr')},
-    };
-    if (byDate.isEmpty) {
-      return {'buckets': const [], 'unit': unit, 'label': label, ...base};
-    }
-
-    DateTime parseD(String s) {
-      final p = s.split('-');
-      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
-    }
-
-    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
-    String ymd(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-    double? meanOf(Iterable<double> xs) {
-      final l = xs.toList();
-      return l.isEmpty ? null : l.reduce((a, b) => a + b) / l.length;
-    }
-
-    final anchorDay = anchor != null
-        ? parseD(anchor)
-        : parseD(rows.last['date'] as String);
-
-    // Mean of the metric over [start, endInclusive] calendar days.
-    double? windowMean(DateTime start, DateTime endIncl) {
-      final vals = <double>[];
-      var d = start;
-      while (!d.isAfter(endIncl)) {
-        final v = byDate[ymd(d)];
-        if (v != null) vals.add(v);
-        d = d.add(const Duration(days: 1));
-      }
-      return meanOf(vals);
-    }
-
-    final buckets = <Map<String, dynamic>>[];
-    if (scale == 'week') {
-      // 7 daily buckets ending at the anchor day.
-      for (var i = 6; i >= 0; i--) {
-        final day = anchorDay.subtract(Duration(days: i));
-        final v = byDate[ymd(day)];
-        buckets.add({
-          'value': v ?? 0.0,
-          'has': v != null,
-          't_start': secOf(day),
-          't_end': secOf(day.add(const Duration(days: 1))),
-        });
-      }
-    } else if (scale == 'month') {
-      // 4 weekly buckets (mean of each week) ending at the anchor week.
-      for (var w = 3; w >= 0; w--) {
-        final end = anchorDay.subtract(Duration(days: w * 7));
-        final start = end.subtract(const Duration(days: 6));
-        final m = windowMean(start, end);
-        buckets.add({
-          'value': m ?? 0.0,
-          'has': m != null,
-          't_start': secOf(start),
-          't_end': secOf(end.add(const Duration(days: 1))),
-        });
-      }
-    } else {
-      // quarter → 3 monthly buckets (mean of each calendar month).
-      for (var mo = 2; mo >= 0; mo--) {
-        final monthStart = DateTime.utc(
-          anchorDay.year,
-          anchorDay.month - mo,
-          1,
-        );
-        final nextMonth = DateTime.utc(
-          monthStart.year,
-          monthStart.month + 1,
-          1,
-        );
-        final m = windowMean(
-          monthStart,
-          nextMonth.subtract(const Duration(days: 1)),
-        );
-        buckets.add({
-          'value': m ?? 0.0,
-          'has': m != null,
-          't_start': secOf(monthStart),
-          't_end': secOf(nextMonth),
-        });
-      }
-    }
-
-    // Summary: avg over present buckets + delta vs the immediately-prior window.
-    final present = [
-      for (final b in buckets)
-        if (b['has'] == true) b['value'] as double,
-    ];
-    final avg = meanOf(present);
-    final spanDays = scale == 'week' ? 7 : (scale == 'month' ? 28 : 90);
-    final prevEnd = anchorDay.subtract(Duration(days: spanDays));
-    final prevAvg = windowMean(
-      prevEnd.subtract(Duration(days: spanDays - 1)),
-      prevEnd,
-    );
-    final delta = (avg != null && prevAvg != null) ? avg - prevAvg : null;
-
-    return {
-      'buckets': buckets,
-      'unit': unit,
-      'label': label,
-      'summary': {
-        'avg': avg == null ? null : double.parse(avg.toStringAsFixed(1)),
-        'delta_vs_prev': delta == null
-            ? null
-            : double.parse(delta.toStringAsFixed(1)),
-        'total': present.length,
-      },
-      ...base,
-    };
-  }
-
-  /// Display (unit, label) per trend metric.
-  (String, String) _unitLabel(String metric) {
-    switch (metric) {
-      case 'resting_hr':
-        return ('bpm', 'resting HR');
-      case 'hrv':
-        return ('ms', 'HRV');
-      case 'recovery':
-        return ('%', 'recovery');
-      case 'strain':
-        return ('', 'strain');
-      case 'stress':
-        return ('', 'stress');
-      case 'spo2':
-        return ('dips/h', 'oxygen dips');
-      case 'sleep':
-        return ('h', 'sleep');
-      case 'active_min':
-        return ('min', 'active');
-      case 'calories':
-        return ('kcal', 'calories');
-      case 'calories_total':
-        return ('kcal', 'total calories');
-      case 'steps':
-        return ('steps', 'steps');
-      case 'resp_rate':
-        return ('rpm', 'respiratory rate');
-      case 'light':
-        return ('min', 'light sleep');
-      case 'deep':
-        return ('min', 'deep sleep');
-      case 'rem':
-        return ('min', 'REM sleep');
-      case 'tst':
-        return ('min', 'time asleep');
-      case 'lf_hf':
-        return ('', 'LF / HF');
-      case 'hrv_cv':
-        return ('%', 'HRV stability');
-      case 'dip':
-        return ('%', 'nocturnal HR dip');
-      case 'efficiency':
-        return ('%', 'sleep efficiency');
-      case 'wear':
-        return ('', 'wear'); // minutes; the screen formats as Hh Mm
-      case 'skin_temp':
-        return ('', 'skin temp'); // relative z vs baseline
-      case 'hrr':
-        return ('bpm', 'HR recovery'); // 60-s post-exercise drop; higher = fitter
-      case 'brv':
-        return ('', 'breathing variability'); // CV of per-window respiratory rate
-      default:
-        return ('', metric);
-    }
-  }
 
   String _trendKey(String metric) {
     switch (metric) {
@@ -1837,11 +1498,21 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
       };
     }
-    final rows = await LocalDb.metricSeries(_trendKey(metric));
+    final key = _trendKey(metric);
+    final rows = await LocalDb.metricSeries(key);
+    // THE PIN WINS. getToday serves the frozen morning headline for readiness,
+    // but metric_series is rewritten by every later re-derive of the same day —
+    // which is the pin's whole reason for existing — so Readiness detail drew
+    // 74 in the ring and 69 as today's point in the chart underneath it. One
+    // day, one readiness number.
+    final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
     return {
       'points': [
         for (final r in rows)
-          {'t': _dateToEpoch(r['date'] as String), 'v': r['value']},
+          {
+            't': _dateToEpoch(r['date'] as String),
+            'v': r['date'] == pin?.day ? pin!.value : r['value'],
+          },
       ],
     };
   }
@@ -1864,14 +1535,11 @@ class LocalRepositoryImpl extends LocalRepository {
     // displayed records and streaks are gone (see profile.dart), so every one
     // of those keys had zero consumers — and streaks are banned by this app's
     // own grammar anyway.
-    var workoutsTracked = 0;
-    final sessions = await LocalDb.sessionsInRange(
-        0, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-    for (final s in sessions) {
-      if (s['status'] == 'live') continue; // not finished, not tracked
-      workoutsTracked++;
-    }
-    return {'workouts_tracked': workoutsTracked};
+    //
+    // The count itself is now done in SQL. It used to pull EVERY session row an
+    // install had ever written — full payloads, sorted by start_ts — across the
+    // platform channel to add up one integer, while the tab was opening.
+    return {'workouts_tracked': await LocalDb.finishedSessionCount()};
   }
 
   // ── workouts (manual / live / auto) — local sessions store ──────────────────
@@ -1904,6 +1572,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'zone_min': zoneMin,
       // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
       'source': r['source'],
+      // "Keep this one off the shared surfaces." NOT NULL DEFAULT 0 in the
+      // schema, so a row that predates the column reads false, which is what it
+      // has always meant.
+      'private': (r['private'] as num?)?.toInt() == 1,
     };
   }
 
@@ -2096,6 +1768,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// 1 Hz HR — the shape the zones card + summary bar parse.
   List<Map<String, dynamic>> _zoneBands(List<int> hr) {
     final maxHr = _profileMaxHr();
+    if (maxHr == null) return const []; // no age ⇒ no ceiling ⇒ no bands
     const names = ['Warm-up', 'Fat burn', 'Aerobic', 'Threshold', 'Max effort'];
     const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
     final secs = List<int>.filled(5, 0);
@@ -2177,9 +1850,17 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  int _profileMaxHr() {
-    final age = (getProfileMap()?['age'] as num?)?.toDouble() ?? 30.0;
-    return (220 - age).round();
+  /// The DISPLAY HRmax (220−age), or null when the profile has no age.
+  ///
+  /// It used to substitute age 30 → a flat 190 bpm ceiling, which is the exact
+  /// thing `Profile.hrMaxTanaka` forbids ("the caller must NOT substitute
+  /// 220−age or any default — that would fabricate a ceiling"). Age is optional
+  /// in onboarding, so a user who skipped it got zone bars computed against a
+  /// stranger's ceiling, persisted onto the session, with nothing saying so.
+  /// No age, no zones.
+  int? _profileMaxHr() {
+    final age = (getProfileMap()?['age'] as num?)?.toDouble();
+    return age == null ? null : (220 - age).round();
   }
 
   /// Profile age in years, or null when unset — the input to the physiological
@@ -2188,6 +1869,10 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
+
+  @override
+  Future<void> setWorkoutPrivate(String id, bool private) async =>
+      LocalDb.setSessionPrivate(id, private);
 
   @override
   Future<Map<String, dynamic>> startWorkout(
@@ -2224,12 +1909,6 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> setWorkoutType(String id, String type) async {
-    await LocalDb.setSessionType(id, type);
-    return {'workout_id': id, 'type': type};
-  }
-
-  @override
   Future<List<SessionSpan>> savedSessionSpans() async {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
@@ -2259,21 +1938,6 @@ class LocalRepositoryImpl extends LocalRepository {
         // same window is an UPDATE of that row, not a collision with it. Pass
         // the id we are about to write as the one to skip in the overlap check.
         validateAgainstId: manualSessionId(startTs),
-      );
-
-  @override
-  Future<Map<String, dynamic>> logDetectedWorkout({
-    required int startTs,
-    required int endTs,
-    required String type,
-  }) =>
-      _writeManualSession(
-        startTs: startTs,
-        endTs: endTs,
-        type: type,
-        sessionId: 'auto:$startTs',
-        source: 'auto',
-        validateAgainstId: 'auto:$startTs',
       );
 
   @override
@@ -2351,7 +2015,10 @@ class LocalRepositoryImpl extends LocalRepository {
       hrTs: hrTs,
       hrBpm: hrBpm,
       profile: profile,
-      zoneMaxHr: _profileMaxHr().toDouble(),
+      // 0 is `zoneMinutesFor`'s own "no ceiling" input — it returns an empty
+      // split, so a profile with no age persists no zone_min rather than a
+      // split against an invented 190 bpm.
+      zoneMaxHr: _profileMaxHr()?.toDouble() ?? 0,
       restingHr: restingHr,
     );
 
@@ -2428,7 +2095,7 @@ class LocalRepositoryImpl extends LocalRepository {
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
-        zoneMaxHr: _profileMaxHr().toDouble(),
+        zoneMaxHr: _profileMaxHr()?.toDouble() ?? 0,
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
       );

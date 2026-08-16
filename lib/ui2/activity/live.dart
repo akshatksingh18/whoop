@@ -1746,6 +1746,14 @@ class _LiveFlowState extends State<LiveFlow>
   ];
 
   int pose = 0;
+
+  /// The furthest pose this session actually reached.
+  ///
+  /// The record used to be `poses.sublist(0, pose + 1)` off the LIVE index,
+  /// so stepping back to hold Bridge again deleted the two poses after it from
+  /// a session in which they were done — and going back to Mountain at the end
+  /// recorded '1 poses'.
+  int reached = 0;
   int hold = 30;
   Timer? _hold;
 
@@ -1764,6 +1772,7 @@ class _LiveFlowState extends State<LiveFlow>
   void initState() {
     super.initState();
     pose = (LiveDraft.current?.data['pose'] as num?)?.toInt() ?? 0;
+    reached = (LiveDraft.current?.data['pose_max'] as num?)?.toInt() ?? pose;
     _hold = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
       setState(() => hold = hold > 0 ? hold - 1 : 30);
@@ -1775,9 +1784,11 @@ class _LiveFlowState extends State<LiveFlow>
   void _go(int to) {
     setState(() {
       pose = to.clamp(0, poses.length - 1);
+      if (pose > reached) reached = pose;
       hold = 30;
     });
     LiveDraft.current?.put('pose', pose);
+    LiveDraft.current?.put('pose_max', reached);
   }
 
   @override
@@ -1812,7 +1823,7 @@ class _LiveFlowState extends State<LiveFlow>
       result: (elapsed) => _baseResult(widget.a,
           widget.feed?.call() ?? LiveFeed.none, widget.weightKg, elapsed,
           widget.private,
-          poses: poses.sublist(0, pose + 1)),
+          poses: poses.sublist(0, reached + 1)),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
@@ -2066,6 +2077,9 @@ class _LiveIntervalState extends State<LiveInterval> {
   // LOST; it is a timer, and a timer that keeps running while the screen is
   // gone needs the countdown to live on the draft's clock. Do that if anyone
   // actually minimises intervals.
+  /// [rounds] is how many pips the row starts with, NOT a plan the session
+  /// runs to: nothing stops this timer at the eighth round, so a session that
+  /// keeps going simply grows the row.
   static const workSec = 45, restSec = 30, rounds = 8;
 
   int round = 1;
@@ -2116,7 +2130,12 @@ class _LiveIntervalState extends State<LiveInterval> {
           _roundHr.clear();
           work = true;
           left = workSec;
-          if (round < rounds) round++;
+          // UNCAPPED. `done` is unconditional and the timer never stops at the
+          // eighth round, so `if (round < rounds) round++` froze the live
+          // counter at 8 while the summary counted 11 — two screens, one
+          // session, two round counts. [rounds] is the pip row's floor now,
+          // not a limit the session has.
+          round++;
         }
       });
     });
@@ -2144,10 +2163,12 @@ class _LiveIntervalState extends State<LiveInterval> {
         final p = P.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         final col = work ? C.red : C.teal;
+        // At least the eight the row is drawn for, and more once the session
+        // has done more. '/ 8' was a denominator nothing enforced.
+        final pips = round > rounds ? round : rounds;
         return Column(children: [
           const SizedBox(height: S.x5),
-          Text('ROUND $round / $rounds',
-              style: F.over.copyWith(color: p.ink3)),
+          Text('ROUND $round', style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x4),
           Text(clock(left), style: F.n48.copyWith(color: p.on(col))),
           const SizedBox(height: S.x2),
@@ -2176,11 +2197,11 @@ class _LiveIntervalState extends State<LiveInterval> {
           const SizedBox(height: S.x5),
           Row(
             children: List.generate(
-                rounds,
+                pips,
                 (i) => Expanded(
                       child: Container(
                         margin:
-                            EdgeInsets.only(right: i == rounds - 1 ? 0 : 4),
+                            EdgeInsets.only(right: i == pips - 1 ? 0 : 4),
                         height: 6,
                         decoration: BoxDecoration(
                             color: i < round ? p.on(C.red) : p.track,

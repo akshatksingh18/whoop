@@ -502,8 +502,10 @@ class _MetricDetailState extends State<MetricDetail> {
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
         // the whole series.
-        Section('Your normal range',
-            _range3(c, spec, win == 1 ? valuesOf(all) : vals, d.percentile)),
+        Section(
+            'Your normal range',
+            _range3(c, spec, win == 1 ? valuesOf(all) : vals, d.percentile,
+                all.isEmpty ? null : all.last.t)),
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
         const SizedBox(height: S.x5),
@@ -543,7 +545,11 @@ class _MetricDetailState extends State<MetricDetail> {
             children: [
               Text(_fmt(spec, mean), style: F.n48.copyWith(color: p.ink)),
               const SizedBox(width: S.x2),
-              Text(spec.unit, style: F.body.copyWith(color: p.ink3)),
+              // NOT `spec.unit`. `metricValue('min', 443)` is already "7h 23m",
+              // so every min-unit metric — Time asleep, Deep, REM, Wear time —
+              // rendered its headline as "7h 23m min".
+              Text(unitBeside(spec.unit),
+                  style: F.body.copyWith(color: p.ink3)),
             ]),
         const SizedBox(height: S.x1),
         Align(
@@ -562,8 +568,9 @@ class _MetricDetailState extends State<MetricDetail> {
           const SizedBox(height: S.x2),
           Align(
             alignment: Alignment.centerLeft,
-            child: Text('Latest ${_fmt(spec, latest)} ${spec.unit} · $asOf'
-                .trim(),
+            child: Text(
+                'Latest ${_fmt(spec, latest)} ${unitBeside(spec.unit)} · $asOf'
+                    .replaceAll('  ', ' '),
                 style: F.cap.copyWith(color: p.ink3)),
           ),
         ],
@@ -623,8 +630,12 @@ class _MetricDetailState extends State<MetricDetail> {
     );
   }
 
+  /// [latestTs] is the stamp on the newest STORED point — the day the rank was
+  /// computed for. `metric_series` gets a row only on a day that derives and
+  /// the rollup is served for a week, so "Today sits at the 12th percentile"
+  /// was printed unconditionally two rows under a hero saying "4 days ago".
   Widget _range3(BuildContext c, MetricSpec spec, List<double> win,
-      Map<String, dynamic>? pct) {
+      Map<String, dynamic>? pct, int? latestTs) {
     final p = P.of(c);
     final sorted = [...win]..sort();
     final lo = sorted.first, hi = sorted.last;
@@ -643,7 +654,8 @@ class _MetricDetailState extends State<MetricDetail> {
         Text(
           rank == null
               ? 'From ${win.length} of your own days.'
-              : 'Today sits at the ${_ordinal(rank.round())} percentile of your '
+              : '${(daysBehind(latestTs) ?? 0) <= 0 ? 'Today' : 'Your reading from ${axisDay(latestTs)}'}'
+                  ' sits at the ${_ordinal(rank.round())} percentile of your '
                   'own history${band == null ? '' : ' — $band'}.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),

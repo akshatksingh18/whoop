@@ -295,7 +295,11 @@ class FieldStepper extends StatelessWidget {
           ),
           _Step(
             icon: LucideIcons.minus,
-            enabled: v != null && v > 0,
+            // Enabled AT zero on purpose: zero is a logged "none today" and
+            // the step down from it is back to absence. Disabling it there
+            // made that path unreachable and locked a zero the user never
+            // asserted into the correlation inputs.
+            enabled: v != null,
             onTap: () {
               final next = (v ?? 0) - spec.step;
               onChanged(next <= 0 ? (v == 0 ? null : 0) : next);

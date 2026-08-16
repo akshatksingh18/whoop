@@ -310,10 +310,9 @@ ShellDomain domainForRoute(String route) => switch (route) {
       kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
       kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
       kRouteWorkoutSuggestion => ShellDomain.workout,
-      // Literals, not constants: these two are emitted by the battery
-      // forecast (`app_state.dart`) and the weekly recap
-      // (`notification_center.dart`) and are not in `tap_router`'s tables yet,
-      // so nothing declares them. The destinations exist here either way.
+      // Emitted by the battery forecast (`app_state.dart`) and the weekly
+      // recap (`notification_center.dart`), and declared in `tap_router`
+      // alongside every other deep link — see the note below.
       kRouteProfile => ShellDomain.home,
       // No recap screen exists. Health is where a week of sleep, strain and
       // recovery actually lives, so it is the nearest true destination — but

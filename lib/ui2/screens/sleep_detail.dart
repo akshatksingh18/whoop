@@ -146,7 +146,13 @@ class SleepData {
 
   static Future<SleepData> load(LocalRepository repo) async {
     final today = await repo.getToday();
-    var day = (today['status'] as Map?)?['today_day']?.toString();
+    // THE NIGHT `getToday` ACTUALLY SERVED. Home's Sleep card is that night, so
+    // tapping it has to open that night. Resolving on `today_day` alone opened
+    // a day that has a day_result but no night — wear the band all day with it
+    // off overnight and the card said "7h 04m" while this screen answered "No
+    // night to show" about the same tap.
+    var day = heldOverNightOf(today) ??
+        (today['status'] as Map?)?['today_day']?.toString();
     final days = await repo.availableDays();
     if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
     if (day == null) return const SleepData();
@@ -205,6 +211,9 @@ class _SleepDetailState extends State<SleepDetail> {
   bool _loading = true;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
+
+  /// Why the last correction did not take. Null when it did.
+  String? _overrideFailed;
 
   @override
   void initState() {
@@ -278,7 +287,15 @@ class _SleepDetailState extends State<SleepDetail> {
         Section('Against your usual', versus),
 
       // ── 5 · WHAT STOOD OUT ──
-      if (unusual != null) Section('Unusual last night', unusual),
+      // Named after the night the nav bar is already showing. "Unusual last
+      // night — Nothing stood out." is a present-tense all-clear, and it was
+      // printed over a night that could be days old.
+      if (unusual != null)
+        Section(
+            (daysBehind(_noonOf(d.day)) ?? 0) <= 0
+                ? 'Unusual last night'
+                : 'Unusual on ${prettyDay(d.day)}',
+            unusual),
 
       // ── 6 · THE SIGNALS UNDERNEATH ──
       Section('Overnight signals', _overnight(c, p, d)),
@@ -402,6 +419,14 @@ class _SleepDetailState extends State<SleepDetail> {
             Text('Re-analysing the night…',
                 style: F.cap.copyWith(color: p.ink3)),
           ],
+          if (!busy && _overrideFailed != null) ...[
+            const SizedBox(height: S.x3),
+            StatusCard(
+              'That correction has not been applied',
+              _overrideFailed!,
+              icon: LucideIcons.triangleAlert,
+            ),
+          ],
         ]),
       ),
     ];
@@ -453,14 +478,39 @@ class _SleepDetailState extends State<SleepDetail> {
   /// screen must not keep drawing the old night's numbers under a new window.
   Future<void> _runOverride(Future<void> Function() write) async {
     if (_saving) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _overrideFailed = null;
+    });
+    String? failed;
     try {
       await write();
+    } catch (e) {
+      failed = '$e';
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+    final before = _source;
     if (mounted) await _load();
+    if (!mounted) return;
+    // EVERY failure below this screen is silent: the forced re-derive catches
+    // and logs its own throw, and it returns at its first line when another
+    // re-analysis is already running. Both leave the write in the database and
+    // the night on screen unchanged — indistinguishable from a correction that
+    // worked, which is how a rejected one got dropped without a word. The
+    // window's source changes on all three actions, so an unchanged source
+    // means nothing was restaged.
+    if (failed != null || _source == before) {
+      setState(() => _overrideFailed = failed ??
+          'The night was not re-analysed — another re-analysis was already '
+              'running, or it failed. The times you set are saved; '
+              'Re-analyze everything on Your data applies them.');
+    }
   }
+
+  /// Where the drawn window came from: 'auto', 'auto_fallback', 'manual' or
+  /// 'confirmed'.
+  String? get _source => (_d?.night['sleep_source'] as String?) ?? 'auto';
 
   /// The hypnogram, as the centrepiece rather than as an illustration. The
   /// cycle count rides underneath it because it is a property of this shape,
@@ -685,7 +735,16 @@ class _SleepDetailState extends State<SleepDetail> {
         icon: LucideIcons.chartNoAxesColumn,
       );
     }
-    final total = tst ?? present.fold<num>(0, (a, r) => a + r.$2!);
+    // ONE denominator, and it is the whole in-bed span. Awake sits OUTSIDE
+    // total sleep time (`tst_sec` and `waso_sec` are mutually exclusive), so
+    // dividing all four by TST inflated the Awake share and made the four rows
+    // sum past 100% in a list a user can add up.
+    final awake = (n['awake_min'] as num?) ?? 0;
+    final asleep = tst ??
+        present
+            .where((r) => r.$1 != 'Awake')
+            .fold<num>(0, (a, r) => a + r.$2!);
+    final total = asleep + awake;
     return Column(children: [
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -703,7 +762,7 @@ class _SleepDetailState extends State<SleepDetail> {
       // The stager is a wrist ESTIMATE and Deep is the weakest of the four —
       // an HR-depth overlay, not an EEG read. Said once, here, rather than
       // decorating every number with a caveat.
-      Text('Deep is the least certain of the four.',
+      Text('Shares of your time in bed. Deep is the least certain of the four.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }
@@ -855,14 +914,18 @@ class _SleepDetailState extends State<SleepDetail> {
     ) {
       if (v == null || hist.length < _recordNights) return;
       final lo = hist.reduce(math.min), hi = hist.reduce(math.max);
-      if (v <= lo) {
+      // Strictly beyond, not equal to. Stage minutes are whole minutes so ties
+      // are ordinary, and a tie printed "less than any of your last 20 nights,
+      // the lowest of which was 41m" — the claim and its evidence disagreeing
+      // in one sentence.
+      if (v < lo) {
         items.add(InsightCard(
             lowLabel,
             '$noun ${fmt(v)} — less than any of your last ${hist.length} '
                 'nights, the lowest of which was ${fmt(lo)}.',
             icon: LucideIcons.trendingDown,
             color: C.orange));
-      } else if (v >= hi) {
+      } else if (v > hi) {
         items.add(InsightCard(
             highLabel,
             '$noun ${fmt(v)} — more than any of your last ${hist.length} '
@@ -993,15 +1056,31 @@ class _SleepDetailState extends State<SleepDetail> {
     // could have shown anyway. Lanes with almost nothing in them are excluded
     // from the vote (they really are sparse) and the floor keeps a stray short
     // lane from coarsening the whole night.
+    //
+    // The vote counts points INSIDE the window, not stored points. These lanes
+    // are ALL-DAY curves — `hr_curve` at one a minute, `resp_day`/
+    // `skin_temp_day` at one per five — so voting on their total length picked
+    // ~385 columns from the 24 h heart-rate lane and left the 5-min lanes with
+    // a hole in three buckets out of four, on every normal night.
+    int inWindow(List<(int, double)> l) {
+      var n = 0;
+      for (final (t, _) in l) {
+        if (t >= t0 && t <= t1) n++;
+      }
+      return n;
+    }
+
     final lens = [
       for (final l in [hr, hrv, resp, temp])
-        if (l.length >= 8) l.length,
+        if (inWindow(l) >= 8) inWindow(l),
     ];
+    // The floor is the admission threshold, not 60: a lane admitted with 48
+    // in-window samples was still stretched over 60 buckets and drawn broken.
     final cols = t1 <= t0
         ? 0
         : lens.isEmpty
             ? 2
-            : lens.reduce(math.min).clamp(60, 480);
+            : lens.reduce(math.min).clamp(8, 480);
 
     /// Bucket mean per column; null where the lane has nothing in that
     /// bucket. A null is a HOLE — the painter breaks the line rather than

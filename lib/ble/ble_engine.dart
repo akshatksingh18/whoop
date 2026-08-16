@@ -185,7 +185,11 @@ bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
 /// [receivedTrafficCount] is every frame we received this burst, ALL types
 /// ([BurstStats.totalTrafficPacketCount]) — the same all-types total
 /// [burstPacketShortfall] compares against, and the exact same measurement:
-/// this predicate is `shortfall == 0`. The doc here used to describe a
+/// this predicate is `shortfall <= 0`. Negative is NOT a mismatch: it just
+/// means we tallied MORE frames than the band said it sent (retried/duplicate
+/// frames), which [burstPacketShortfall]'s own doc calls "not loss" — it used
+/// to trip the advisory mismatch counter and write the burst to the sync ledger
+/// as `validated_with_mismatch` anyway. The doc here used to describe a
 /// historical-only, post-RecordGate count that this function is never handed,
 /// and that no longer exists as an input anywhere (the historical-only figure
 /// survives separately as `currentBurstHistoricalPacketCount`, logged but not
@@ -204,7 +208,7 @@ bool burstPacketCountMatches({
   required int receivedTrafficCount,
   required int droppedThisBurst,
 }) =>
-    expectedPacketCount == receivedTrafficCount + droppedThisBurst;
+    expectedPacketCount <= receivedTrafficCount + droppedThisBurst;
 
 /// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
 /// commit/ACK decision (see the log-only call site).
@@ -628,6 +632,8 @@ class BleEngine {
   }
 
   // ── OS-managed pending reconnect (background fallback) ───────────────────────
+  static const Duration _osAutoConnectPoll = Duration(seconds: 5);
+
   /// Arm a flutter_blue_plus `autoConnect` pending connection and wait for the
   /// OS to complete it. Unlike the direct `connect(autoConnect:false)` retry
   /// loop (which needs our Dart timer alive to fire the next attempt), an armed
@@ -662,7 +668,13 @@ class BleEngine {
       // Arm under the op lock so it can't overlap a connect/disconnect.
       await _locked(() => device.connect(autoConnect: true, mtu: null));
     } catch (e) {
+      // Cost the caller the poll interval before handing back a failure. The
+      // reconnect loop's OS-pending branch has no backoff of its own (only the
+      // direct-connect branch delays), so returning immediately — which is what
+      // an arm against a powered-off adapter does — spun that loop at
+      // event-loop rate, burning CPU/battery for as long as Bluetooth was off.
       _log('autoConnect arm failed: $e');
+      await Future.delayed(_osAutoConnectPoll);
       return false;
     }
     _log('OS autoConnect armed for $remoteId — waiting (max '
@@ -673,7 +685,7 @@ class BleEngine {
         done.complete(true);
       }
     });
-    final poll = Timer.periodic(const Duration(seconds: 5), (_) {
+    final poll = Timer.periodic(_osAutoConnectPoll, (_) {
       if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
         done.complete(false);
       }
@@ -2049,6 +2061,24 @@ class BleEngine {
             // it, silently, with no CRC failure to point at. Counted apart
             // from CRC corruption so a firmware revision bump is loud.
             _frameRevRejectsTotal++;
+            // ARCHIVE, don't drop. These are intact bytes from a firmware we
+            // don't speak yet — exactly what raw_archive is for. Dropping them
+            // while still ACKing the burst let the band trim records that
+            // existed nowhere. The counter is forensic only (its offset is a
+            // guess under an unknown revision); raw_archive keys on the hex.
+            //
+            // Only while an offload is running: that is the only window where
+            // an ACK can make the band delete these bytes, and we cannot tell a
+            // record from a 100 Hz live frame under an unknown revision —
+            // archiving those (raw_archive is never pruned) would bloat the DB
+            // exactly the way live frames are kept out of raw_records for.
+            if (_offloadActive) {
+              _archiveHistoricalFrame(
+                frame,
+                _counterFromInner(frame.inner),
+                reason: 'undecodable_frame_rev',
+              );
+            }
           } else {
             // Previously silent: a degrading radio corrupting frames looked
             // identical to a healthy one everywhere. Now counted (surfaced in
@@ -2106,8 +2136,8 @@ class BleEngine {
     // watchdog, historical retry) kept firing into a dead characteristic
     // forever and its four onValueReceived subscriptions stayed registered —
     // one more full set leaked on every drop. Deferred off this notification
-    // callback (we are inside one of the very subscriptions being cancelled)
-    // and non-intentional, so no redundant device.disconnect() is issued.
+    // callback (we are inside one of the very subscriptions being cancelled);
+    // the disconnect() teardown issues is a no-op on an already-dead link.
     unawaited(
       Future<void>(() async {
         if (_session != session) return; // a connect already replaced us
@@ -2791,8 +2821,10 @@ class BleEngine {
       // ARCHIVE, don't drop. A record we merely MISTRUST used to be written
       // nowhere at all, i.e. treated strictly worse than one we cannot parse —
       // and the batch-ACK then let the band trim those bytes away for good.
-      // The archive rides the same pre-ACK transaction, so the bytes survive
-      // and a later pass can re-time them once the clock correlation is known.
+      // The archive rides the same pre-ACK transaction, so the bytes survive.
+      // They are NOT re-timed later: the offset-and-snap salvage that used to
+      // promise it would collapse 300 one-second records onto one rec_ts (see
+      // sync_policy.dart), so it is gone. The day keeps an honest hole.
       _archiveHistoricalFrame(frame, counter, reason: kGateDroppedReason);
       return;
     }
@@ -3376,6 +3408,9 @@ class BleEngine {
       _session?.historicalRetry?.cancel();
       _burstDroppedAtStart = _recordGate.dropped;
       d?.rearm();
+      // The one place a new burst is really declared — the only safe point to
+      // clear the discarded-burst poison (see DrainController.beginBurst).
+      d?.beginBurst();
       _setOffloadActive(true);
       return;
     }
@@ -3734,8 +3769,10 @@ class BleEngine {
       if (!tailDurable) {
         // No ACK is written for a HISTORY_COMPLETE, so nothing was trimmed and
         // no data is at risk — but the tail is NOT durable yet. commit() left
-        // the records buffered, so the next commit (the next burst's
-        // HISTORY_END, or the flush on teardown) re-attempts them.
+        // the records buffered, so the next commit re-attempts them: the next
+        // burst's HISTORY_END, or awaitComplete's flush when the drain stops.
+        // NOT a teardown flush — teardown drops the buffer on purpose (see the
+        // blockedCommitFailed bounce), and the band still holds the chunk.
         _log(
           '[SYNC] HistoryComplete tail commit FAILED — ${d.bufferedRecords} '
           'records stay buffered for the next commit. Nothing was trimmed '
@@ -4498,11 +4535,24 @@ class BleEngine {
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
-    if (intentional) {
-      try {
-        await device.disconnect();
-      } catch (_) {}
-    }
+    // Live arming is per-connection. `_armTime` used to survive teardown, and
+    // enableHrOnlyLive sets `_liveEnabled` without touching it — so the
+    // marginal-radio detector measured the NEXT session's drop against the
+    // PREVIOUS session's arm and permanently downgraded live streams on the
+    // evidence of a session that never armed the raw flood.
+    _liveEnabled = false;
+    _liveHrOnly = false;
+    _armTime = null;
+    // ALWAYS drop the radio link, not just on an intentional disconnect. Every
+    // self-initiated bounce (liveness fuse, ACK-exhausted, commit-failed) tears
+    // the session down non-intentionally and expects a NEW GATT connection —
+    // but FBP treats connect() on a still-connected device as a no-op, so the
+    // reconnect re-ran setup over the same zombie link and the fuse just fired
+    // again 120 s later, forever. On an OS-driven drop this is a harmless
+    // no-op.
+    try {
+      await device.disconnect();
+    } catch (_) {}
   }
 
   void _setOffloadActive(bool active) {
@@ -4857,15 +4907,26 @@ class DrainController {
 
   /// Re-arm for a fresh offload over the same connection (clears the COMPLETE flag
   /// so a new awaitComplete() blocks until the next HISTORY_COMPLETE).
+  ///
+  /// Does NOT clear the poison latch — see [beginBurst]. Re-arming is US asking
+  /// for another offload; the burst boundary is the BAND's to declare.
   void rearm() {
     _complete = false;
     _linkDown = false;
     _lastProgressAt = DateTime.now();
     burstStats.reset();
-    // A fresh burst starts un-poisoned: whatever was discarded belonged to the
-    // burst that just ended, and the band will re-deliver it.
-    _trimGuard.beginBurst();
   }
+
+  /// The band declared a new burst (HISTORY_START) — clear the poison latch.
+  ///
+  /// This used to live in [rearm], which conflated "we are asking for another
+  /// offload" with "the band started a new burst". The abort→retry path re-arms
+  /// 3 s after the idle watchdog threw a chunk away, while the abandoned burst's
+  /// HISTORY_END is still in flight — so the terminal landed on a clean guard
+  /// and its token was echoed, trimming exactly the records we dropped. Frames
+  /// arrive in order, so a HISTORY_START proves the previous burst's terminal
+  /// has already been handled (or is never coming) and the latch may clear.
+  void beginBurst() => _trimGuard.beginBurst();
 
   void onLinkDown() => _linkDown = true;
 
@@ -4881,7 +4942,7 @@ class DrainController {
   /// went on to commit the (now empty) buffer and echo the token verbatim —
   /// trimming exactly the records that were just dropped. The poison is
   /// unconditional (even with an empty buffer, this burst was abandoned) and
-  /// is cleared only by [rearm] / a fresh HISTORY_START.
+  /// is cleared only by [beginBurst] — a fresh HISTORY_START from the band.
   void discardOpenChunk() {
     _trimGuard.discardOpenChunk();
     if (_raws.isEmpty && _archives.isEmpty) return;

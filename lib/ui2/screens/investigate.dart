@@ -163,6 +163,7 @@ class _InvestigateState extends State<Investigate> {
   List<Widget> _hrvPanels(BuildContext c, InvestigateData d) {
     final time = envValue(d.hrv['hrv_time']) ?? const {};
     final freq = envValue(d.hrv['hrv_freq']) ?? const {};
+    final freqNote = metricOf(d.hrv['hrv_freq']).note;
     // TWO DIFFERENT SHAPES, and this file read both as the same one. The
     // sleep-window screen is a PLAIN map (`sd1`, `sd2`, `flag`, `confidence`);
     // the 24-hour screen is an envelope whose `.value` carries the full set
@@ -216,13 +217,26 @@ class _InvestigateState extends State<Investigate> {
         ('LF / HF', plain(freq['lf_hf'])),
         ('LF, normalised', plain(freq['nu_lf'])),
         ('HF, normalised', plain(freq['nu_hf'])),
-        ('HF gated', freq['hf_gated'] == true ? 'yes' : 'no'),
+        // An ABSENT spectrum is not an ungated one. `envValue` returns null for
+        // an absent envelope, so `== true ? : 'no'` collapsed "never computed"
+        // into a confident negative — and it left a one-row table reading
+        // "HF gated no" directly above the card saying there is no spectrum.
+        ('HF gated', freq['hf_gated'] == null
+            ? '—'
+            : (freq['hf_gated'] == true ? 'yes' : 'no')),
       ]),
       const SizedBox(height: S.x3),
       if (freq['total'] == null)
-        const StatusCard(
+        StatusCard(
           'No frequency-domain spectrum for this night',
-          'The recording was too short to resolve the bands.',
+          // THE ESTIMATOR'S OWN REASON. `total` goes null for three different
+          // reasons and the envelope note distinguishes them; "too short" was
+          // printed for all three, so a full 8 h night that failed the artifact
+          // gate sent the user to look at their sleep duration instead of
+          // their strap fit — contradicting the "HF gated yes" row above it.
+          freqNote?.isNotEmpty == true
+              ? freqNote!
+              : 'The recording was too short to resolve the bands.',
         ),
       const SizedBox(height: S.x3),
       MonoTable('Non-linear', [
@@ -234,8 +248,15 @@ class _InvestigateState extends State<Investigate> {
         // The screen's own threshold, stated rather than baked into a label
         // the stored key cannot confirm.
         ('Successive intervals over 70 ms', pct(irr24['pnn_pct'])),
-        ('Irregular-rhythm flag, sleep', irr['flag'] == true ? 'raised' : 'clear'),
-        ('Irregular-rhythm flag, 24 h', irr24['flag'] == true ? 'raised' : 'clear'),
+        // A screen that never RAN is not a screen that ran and found nothing.
+        // `irregularBeatScreen` abstains below 500 clean beats or over 30%
+        // artifact — the common case for a barely-worn day — and both rows
+        // printed "clear" for it, i.e. a negative arrhythmia screen for a day
+        // the screen was explicitly suppressed. MonoTable drops the em-dash.
+        ('Irregular-rhythm flag, sleep',
+            irr['flag'] == null ? '—' : (irr['flag'] == true ? 'raised' : 'clear')),
+        ('Irregular-rhythm flag, 24 h',
+            irr24['flag'] == null ? '—' : (irr24['flag'] == true ? 'raised' : 'clear')),
         ('Deceleration capacity', ms(dc['capacity_ms'])),
         ('Acceleration capacity', ms(ac['capacity_ms'])),
         ('DC anchors', dc['anchors'] == null ? '—' : thousands(dc['anchors'] as num)),
@@ -283,7 +304,10 @@ class _InvestigateState extends State<Investigate> {
 
     return [
       MonoTable('Series', [
-        ('Days stored', '${s.length}'),
+        // DERIVED days, not calendar days. `metric_series` gets a row only on a
+        // day that derives, so "Days stored 40" under "one value per calendar
+        // day" read as 40 days of continuous coverage.
+        ('Days derived', '${s.length}'),
         ('Latest', n(s.last)),
         ('Mean', n(mean)),
         ('Median', n(sorted[sorted.length ~/ 2])),
@@ -291,7 +315,7 @@ class _InvestigateState extends State<Investigate> {
         ('Min', n(sorted.first)),
         ('Max', n(sorted.last)),
         ('Unit', spec.unit.isEmpty ? 'unitless' : spec.unit),
-        ('Storage', 'one value per calendar day'),
+        ('Storage', 'one value per derived day'),
       ]),
     ];
   }

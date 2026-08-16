@@ -756,8 +756,9 @@ class TrimAckPolicy {
 /// committing an empty buffer and echoing the token verbatim, which trims
 /// exactly the records that were just thrown away. The token is unknown at
 /// discard time (it only arrives with the terminal), so the poison is keyed to
-/// the BURST, not the token: a discard poisons the open burst, and only a
-/// fresh HISTORY_START / re-arm clears it.
+/// the BURST, not the token: a discard poisons the open burst, and only a fresh
+/// HISTORY_START clears it. NOT a local re-arm — the abort→retry path re-arms
+/// on a 3 s timer while the abandoned burst's terminal is still on the wire.
 class BurstTrimGuard {
   bool _discarded = false;
 
@@ -768,7 +769,7 @@ class BurstTrimGuard {
   /// True while the open burst may NOT be trimmed.
   bool get discarded => _discarded;
 
-  /// A fresh burst begins (HISTORY_START / re-arm) — nothing lost yet.
+  /// A fresh burst begins (HISTORY_START) — nothing lost yet.
   void beginBurst() => _discarded = false;
 
   /// The open chunk was abandoned without a durable commit.

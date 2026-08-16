@@ -70,7 +70,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
 
   @override
   void dispose() {
-    for (final t in [_label, _kcal, _protein, _carbs, _fat]) {
+    for (final t in [_label, _kcal, _protein, _carbs, _fat, _fibre]) {
       t.dispose();
     }
     super.dispose();
@@ -100,11 +100,22 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     source: source,
   );
 
-  double? _num(TextEditingController t) {
-    final s = t.text.trim();
-    if (s.isEmpty) return null; // blank is unknown, never zero.
-    return double.tryParse(s);
-  }
+  /// Blank is unknown, never zero — and a typo is NEITHER. "1,200" or
+  /// "850 kcal" used to arrive here as the same null as an empty field and the
+  /// meal was written with the energy silently dropped.
+  double? _num(TextEditingController t) => Typed.of(t.text).value;
+
+  /// The number fields that were typed into and cannot be read.
+  List<String> get _unreadable => [
+        for (final (name, ctl) in [
+          ('Energy', _kcal),
+          ('Protein', _protein),
+          ('Carbs', _carbs),
+          ('Fat', _fat),
+          ('Fibre', _fibre),
+        ])
+          if (Typed.of(ctl.text).bad) name,
+      ];
 
   @override
   Widget build(BuildContext c) {
@@ -248,7 +259,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               _NumberRow(fields: [('Fibre', 'g', _fibre)]),
               const SizedBox(height: S.x3),
               Text(
-                'Blank stays blank.',
+                'A blank number stays blank. Only "What" is needed.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.45),
               ),
               const SizedBox(height: S.x4),
@@ -258,7 +269,20 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 soft: true,
                 onTap: () {
                   final label = _label.text.trim();
-                  if (label.isEmpty) return;
+                  // Both used to be a bare return under an enabled-looking
+                  // button: nothing happened, nothing was said, and the typed
+                  // numbers were thrown away by the only control that reacted.
+                  if (label.isEmpty) {
+                    ScaffoldMessenger.of(c).showSnackBar(const SnackBar(
+                      content: Text('Say what it was first.'),
+                    ));
+                    return;
+                  }
+                  final bad = _unreadable;
+                  if (bad.isNotEmpty) {
+                    sayUnreadable(c, bad);
+                    return;
+                  }
                   final b = _base(label: label);
                   _write(
                     FoodEntry(

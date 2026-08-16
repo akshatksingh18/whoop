@@ -241,19 +241,41 @@ class AxisSpec {
     // [step] overrides the rounding for axes whose "nice" numbers are not
     // powers of ten: minutes want 60/120/240, not 250. The rest of the maths
     // is identical, so an override cannot produce uneven ticks.
-    final s = step != null && step > 0 && step.isFinite
+    var s = step != null && step > 0 && step.isFinite
         ? step
         : _niceStep((hi - lo) / (n - 1));
+    // A gridline has to sit on a number its own label can say. `axisInt`
+    // cannot print 55.5, so a .5 step over 55…56 drew two gridlines both
+    // labelled 56 with the upper one half a step off the value it claimed.
+    // Climb the ladder until the step is a whole number of what the format
+    // resolves; an unknown format asks for nothing and gets the raw step.
+    final q = _labelStep(format);
+    for (var i = 0; i < 8 && q > 0 && !_multiple(s, q); i++) {
+      s = _niceStep(s * 1.0001);
+    }
     final base = (lo / s).floorToDouble() * s;
     // Grow to cover the data in whole steps. Solved, not looped: with an
     // infinity upstream the loop this replaces never returned.
-    final grow = ((hi - base) / s - 1e-9).ceil();
+    var grow = ((hi - base) / s - 1e-9).ceil();
+    // …and in whole TICKS, not just whole steps: 3 steps across 3 gridlines
+    // puts the middle one at 1.5 steps, which is the same off-grid label
+    // again (52…57 stepped by 2.5 labelled its middle line 54 at 53.75).
+    final gap = n - 1;
+    if (grow < gap) grow = gap;
+    grow = ((grow + gap - 1) ~/ gap) * gap;
     return AxisSpec(
-        min: base,
-        max: base + (grow < n - 1 ? n - 1 : grow) * s,
-        ticks: n,
-        format: format);
+        min: base, max: base + grow * s, ticks: n, format: format);
   }
+
+  static bool _multiple(double a, double b) =>
+      ((a / b) - (a / b).roundToDouble()).abs() < 1e-9;
+
+  /// The finest gap a label format can state, or 0 if we do not know. Anything
+  /// finer prints a gridline the label does not name.
+  static double _labelStep(String Function(double) f) =>
+      f == axisInt || f == axisHm
+          ? 1
+          : (f == axisFixed || f == axisFixedOrInt ? .1 : 0);
 
   /// 1 · 2 · 2.5 · 5 · 10 × a power of ten — the steps that produce labels
   /// people read without thinking.
@@ -454,7 +476,7 @@ class LineChart extends CustomPainter {
 /// bar is drawn for it, which is a hole in the row rather than a zero.
 class Bars extends CustomPainter {
   final List<double?> d;
-  final Color color, track;
+  final Color color;
   final int highlight;
   final double t;
 
@@ -463,8 +485,10 @@ class Bars extends CustomPainter {
   /// and a 400-minute week draw the identical picture.
   final AxisSpec? axis;
 
-  Bars(this.d, this.color, this.track,
-      {this.highlight = -1, this.t = 1, this.axis});
+  // No track colour: nothing is drawn behind a bar. A missing bucket is a gap
+  // in the row and a real zero gets the 2 pt floor below, which is the whole
+  // absence channel.
+  Bars(this.d, this.color, {this.highlight = -1, this.t = 1, this.axis});
 
   /// [maxColumns] over a series with holes: a column of nothing stays nothing.
   static List<double?> _columns(List<double?> d, int cols) {

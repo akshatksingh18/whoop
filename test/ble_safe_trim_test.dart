@@ -417,12 +417,36 @@ void main() {
       expect(d.burstDiscarded, isTrue);
     });
 
-    test('a fresh burst (rearm / HISTORY_START) clears the poison', () {
+    test('a local rearm (abort→retry) does NOT clear the poison', () {
+      // THE BUG: the idle watchdog discards the open chunk, _abortAndRetry arms
+      // a 3 s timer, and _startHistoricalRefresh's first act was d.rearm() —
+      // which cleared the latch. The abandoned burst's HISTORY_END was still in
+      // flight, landed on a clean guard, and got ACKed verbatim: the band
+      // trimmed exactly the records the watchdog threw away.
+      final d = _drainWith((raws, samples, token, {archives}) async {});
+      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.discardOpenChunk();
+
+      d.rearm();
+
+      expect(d.burstDiscarded, isTrue);
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: d.burstDiscarded,
+          commitDurable: true,
+        ),
+        TrimAckVerdict.blockedDiscardedBurst,
+      );
+    });
+
+    test('only a HISTORY_START (beginBurst) clears the poison', () {
       final d = _drainWith((raws, samples, token, {archives}) async {});
       d.discardOpenChunk();
       expect(d.burstDiscarded, isTrue);
 
       d.rearm();
+      d.beginBurst();
 
       expect(d.burstDiscarded, isFalse);
       expect(
@@ -440,7 +464,7 @@ void main() {
       d.discardOpenChunk();
       d.discardOpenChunk();
       expect(d.poisonedBursts, 1);
-      d.rearm();
+      d.beginBurst();
       d.discardOpenChunk();
       expect(d.poisonedBursts, 2);
     });

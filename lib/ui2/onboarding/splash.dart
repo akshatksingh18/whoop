@@ -61,8 +61,15 @@ class _BootSplashState extends State<BootSplash> {
   Widget build(BuildContext c) {
     if (_gone) return widget.child;
     // Reduced motion has no fade to hide behind, so the cover simply stops
-    // existing the moment the app is ready.
-    if (widget.ready && !Motion.enabled(c)) return widget.child;
+    // existing the moment the app is ready — and latches here, because the
+    // AnimatedOpacity's onEnd is not on this path. Without the latch a retry
+    // after a failed init (route back to `loading`) re-covered the screen and
+    // hid the spinner it had just started. No setState: the widget returned
+    // is the same one either way.
+    if (widget.ready && !Motion.enabled(c)) {
+      _gone = true;
+      return widget.child;
+    }
     return Stack(children: [
       widget.child,
       Positioned.fill(

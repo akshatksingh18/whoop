@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ai/ai_prefs.dart';
+import '../data/day_label.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
@@ -137,12 +138,21 @@ class NotificationCenter {
   /// day blocked by the guard it never earned: "Your recovery is ready" simply
   /// never fired. Claiming the guard only on a real present makes the retry
   /// (the next derive pass, after 07:00) work.
+  ///
+  /// That fix left the other half open: [dayId] is the day the DATA is from,
+  /// and a suppressed event deliberately leaves the guard unspent, so the
+  /// caller re-reads the SAME last row on every later foreground open. Deny
+  /// notifications, walk 12k steps, leave the band in a drawer for a week, then
+  /// turn notifications back on: "step goal reached" fired about a day the user
+  /// wore nothing. Yesterday's news is not news — a past day never fires, and
+  /// that gate belongs here, not in each caller.
   Future<bool> emitOncePerDay({
     required String prefsKey,
     required String dayId,
     required NotificationEvent e,
     bool allowPermissionPrompt = true,
   }) async {
+    if (dayId.compareTo(todayLabel()) < 0) return false;
     SharedPreferences? prefs;
     try {
       prefs = await SharedPreferences.getInstance();
@@ -191,6 +201,10 @@ class NotificationCenter {
       await svc.cancel(NotificationService.idWaterBase + i);
     }
     if (!prefs.remindersEnabled || weeklyFinding == null) return;
+    // Re-resolve the zone first: this runs on every foreground resume, and the
+    // instant below is wall-clock. A phone that flew somewhere would otherwise
+    // keep arming Sunday 18:00 in the zone the app first launched in.
+    await svc.ensureTimezone();
     await _armWeeklyLookback(svc, weeklyFinding);
   }
 

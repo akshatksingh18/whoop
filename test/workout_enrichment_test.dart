@@ -181,6 +181,27 @@ void main() {
     expect(w['zone_bands'], isNull);
   });
 
+  test('no age in the profile means NO zones — not a 220-30 ceiling', () async {
+    // Age is optional in onboarding. _profileMaxHr used to substitute age 30,
+    // so a user who skipped it got zone bars and a persisted zone_min computed
+    // against a stranger's 190 bpm ceiling, with nothing saying so.
+    final ageless = LocalRepositoryImpl(getProfileMap: () => const {});
+    final w = await ageless.getWorkout('w-enrich');
+    expect(w['zone_bands'], anyOf(isNull, isEmpty));
+
+    // A window of its own — the log rejects an overlap with w-enrich.
+    await _insertHr(900000, 900299, (_) => 140, counterBase: 90000);
+    final logged = await ageless.logManualWorkout(
+      startTs: 900000,
+      endTs: 900300,
+      type: 'run',
+    );
+    final saved = await ageless.getWorkout(logged['workout_id'] as String);
+    expect(saved['zone_min'], isEmpty);
+    // The rest of the scoring still lands — only the ceiling is missing.
+    expect(saved['avg_hr'], isNotNull);
+  });
+
   test('getWorkouts fills avg_hr per session from the 1 Hz join', () async {
     final res = await repo.getWorkouts(range: 'all');
     final workouts = (res['workouts'] as List).cast<Map>();

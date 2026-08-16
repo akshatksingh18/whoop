@@ -463,7 +463,12 @@ class _Bar extends StatelessWidget {
 /// Something changing. Value → context → direction.
 class TrendCard extends StatelessWidget {
   final String label, value, unit, delta, window;
-  final bool up, good;
+  final bool up;
+
+  /// Whether the move is good news — or NULL when there is nothing to compare
+  /// against. Null draws no arrow and passes no judgement: the card states
+  /// [delta] as the caller wrote it ("no baseline") and stops there.
+  final bool? good;
 
   /// DENSE — see [MetricRow.spark].
   final List<double?> series;
@@ -487,21 +492,28 @@ class TrendCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final dir = p.on(good ? C.green : C.orange);
+    final j = good;
     // The arrow says which WAY, the colour says whether that is good news, and
     // those are independent: "HRV down" and "resting heart rate down" draw the
     // same arrow in different hues. Hue alone is not a channel, so the reading
     // goes in the label too.
-    final judgement = good ? 'an improvement' : 'worse than usual';
+    //
+    // With no baseline there is no way and no news — an arrow and a hue would
+    // both be inventions, so neither is drawn and the label says nothing about
+    // better or worse.
+    final dir = j == null ? p.ink3 : p.on(j ? C.green : C.orange);
+    final judgement = j == null ? '' : (j ? 'an improvement' : 'worse than usual');
     final change = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-          size: 14,
-          color: dir,
-        ),
-        const SizedBox(width: S.x1),
+        if (j != null) ...[
+          Icon(
+            up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+            size: 14,
+            color: dir,
+          ),
+          const SizedBox(width: S.x1),
+        ],
         Text(
           delta,
           style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600),
@@ -510,7 +522,9 @@ class TrendCard extends StatelessWidget {
     );
     return Surface(
       onTap: onTap,
-      semanticLabel: '$label, $value $unit, $delta $window, $judgement'.trim(),
+      semanticLabel:
+          '$label, $value $unit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
+              .trim(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -548,12 +562,14 @@ class TrendCard extends StatelessWidget {
                 Expanded(
                   child: Text(unit, style: F.cap.copyWith(color: p.ink3)),
                 ),
-                Icon(
-                  up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-                  size: 14,
-                  color: dir,
-                ),
-                const SizedBox(width: S.x1),
+                if (j != null) ...[
+                  Icon(
+                    up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+                    size: 14,
+                    color: dir,
+                  ),
+                  const SizedBox(width: S.x1),
+                ],
                 Text(
                   delta,
                   style: F.cap.copyWith(
@@ -570,7 +586,9 @@ class TrendCard extends StatelessWidget {
             height: 64,
             child: CustomPaint(
               size: Size.infinite,
-              painter: LineChart(series, p.on(color), dotInk: p.card),
+              // No `dotInk`: `dots` is off here, and the knockout colour is
+              // only ever read inside the head-dot branch.
+              painter: LineChart(series, p.on(color)),
             ),
           ),
         ],
@@ -1304,14 +1322,20 @@ class Consistency extends StatelessWidget {
   final String label;
   final Color color;
 
-  const Consistency(this.have, this.of, this.label, this.color, {super.key});
+  /// What the segments COUNT. Days for a habit, doses for a medication — the
+  /// adherence card fed this a dose count while the widget printed "of N days"
+  /// and drew one segment per day, so 10 of 14 doses read as 10 of 14 days.
+  final String unit;
+
+  const Consistency(this.have, this.of, this.label, this.color,
+      {super.key, this.unit = 'days'});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final n = of <= 0 ? 0 : of;
     return Semantics(
-      label: '$have of $n days. $label',
+      label: '$have of $n $unit. $label',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1320,7 +1344,7 @@ class Consistency extends StatelessWidget {
             spacing: S.x1,
             children: [
               Text('$have', style: F.n24.copyWith(color: p.ink)),
-              Text('of $n days', style: F.cap.copyWith(color: p.ink3)),
+              Text('of $n $unit', style: F.cap.copyWith(color: p.ink3)),
             ],
           ),
           const SizedBox(height: S.x2),
@@ -1345,6 +1369,93 @@ class Consistency extends StatelessWidget {
       ),
     );
   }
+}
+
+// ══════════════════ FORM INPUT ══════════════════
+
+/// What a typed number actually was. THREE answers, not two.
+///
+/// Every form in the app folded "nothing typed" and "cannot read that" into
+/// the same null and then saved: a weight typed as "78 kg" cleared the stored
+/// weight, an energy typed as "1,200" turned a costed meal into an uncosted
+/// occasion, and a lab value with its unit on it dropped the whole result —
+/// each of them under a screen that closed as if it had saved.
+///
+/// Nothing here guesses. "1,5" is 1.5 to half of Europe and 15 to the other
+/// half, so it is [bad] and the user is asked, never averaged into a number
+/// they did not type.
+class Typed {
+  const Typed._(this.value, this.bad);
+
+  /// The parsed number, or null when the field was left blank.
+  final double? value;
+
+  /// Something was typed and it is not a number. Never save one of these.
+  final bool bad;
+
+  bool get blank => value == null && !bad;
+
+  static Typed of(String text) {
+    final s = text.trim();
+    if (s.isEmpty) return const Typed._(null, false);
+    final v = double.tryParse(s);
+    return v == null ? const Typed._(null, true) : Typed._(v, false);
+  }
+}
+
+/// Say what could not be read, naming the fields. One line, no ceremony —
+/// the point is that the form stops instead of saving a hole.
+void sayUnreadable(BuildContext c, List<String> fields) {
+  if (fields.isEmpty) return;
+  ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+    content: Text(fields.length == 1
+        ? '${fields.first} is not a number. Nothing was saved.'
+        : '${fields.join(', ')} are not numbers. Nothing was saved.'),
+  ));
+}
+
+/// The one destructive confirm. Names what goes and what stays, and there is
+/// no undo behind any caller of it.
+///
+/// On-system rather than an `AlertDialog`: this package bans `fontSize:` and
+/// `Colors.white` in its own tests and a Material dialog smuggles both in.
+Future<bool> confirmRemove(
+  BuildContext c, {
+  required String title,
+  required String body,
+  String remove = 'Remove',
+  String keep = 'Keep it',
+}) async {
+  final ok = await showModalBottomSheet<bool>(
+    context: c,
+    sheetAnimationStyle: sheetMotion(c),
+    backgroundColor: P.of(c).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+            const SizedBox(height: S.x2),
+            Text(body, style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5)),
+            const SizedBox(height: S.x5),
+            BigButton(remove,
+                icon: LucideIcons.trash2,
+                color: C.red,
+                onTap: () => Navigator.of(s).pop(true)),
+            const SizedBox(height: S.x3),
+            BigButton(keep, soft: true, onTap: () => Navigator.of(s).pop(false)),
+          ],
+        ),
+      ),
+    ),
+  );
+  return ok == true;
 }
 
 // ══════════════════ CHROME ══════════════════
@@ -1622,7 +1733,10 @@ class ChartFrame extends StatelessWidget {
   /// skim. The shape and the extremes are what a sighted glance takes from it,
   /// so they are what this says.
   String? _spoken() {
-    if (empty != null) return 'No data';
+    // No plot, nothing to summarise. The [empty] child says why in the
+    // caller's own words and is left in the tree to say it — a 'No data' here
+    // would be a second, blunter announcement of the same absence.
+    if (empty != null) return null;
     final v = [
       for (final x in series)
         if (x != null && x.isFinite) x,
@@ -1635,7 +1749,10 @@ class ChartFrame extends StatelessWidget {
       if (x > hi) hi = x;
     }
     final last = v.last;
-    final parts = ['Latest ${fmt(last)} $unit'];
+    // No unit here: the sentence has already said "measured in $unit", and a
+    // formatter like [axisHm] writes its own — which is how this read out
+    // "Latest 7h 42m min".
+    final parts = ['Latest ${fmt(last)}'];
     if (v.length > 1) {
       if (hi > lo) parts.add('ranging ${fmt(lo)} to ${fmt(hi)}');
       final delta = last - v.first;

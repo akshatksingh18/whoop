@@ -10,6 +10,7 @@ import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
@@ -142,7 +143,7 @@ void main() {
       final canvas = Canvas(recorder);
       for (final p in <CustomPainter>[
         LineChart(const [], Colors.red),
-        Bars(const [], Colors.red, Colors.grey),
+        Bars(const [], Colors.red),
         Hypnogram(const [], const P(false)),
         ZoneBar(const [], const P(false)),
         Actogram(const [], Colors.red),
@@ -234,6 +235,29 @@ void main() {
         expect(s.min, lessThanOrEqualTo(60));
         expect(s.max, greaterThanOrEqualTo(60));
         expect(AxisSpec.of([double.nan, double.infinity]), isNull);
+      });
+
+      test('every gridline lands on a value its own label can say', () {
+        // 55..56 used to step by .5 and label two gridlines '56'; 52..57 used
+        // to put the middle line at 53.75 and call it '54'.
+        for (final d in [
+          [55.0, 55, 56, 56, 55, 56, 55],
+          [52.0, 57],
+          [0.0, 0, 0, 0, 0, 0, 0],
+          [37.2, 61.8, 54.0],
+        ]) {
+          final s = AxisSpec.of([for (final v in d) v.toDouble()])!;
+          final v = s.tickValues;
+          expect(v.map(s.format).toSet().length, v.length,
+              reason: 'duplicate label in ${v.map(s.format)}');
+          for (final t in v) {
+            expect(t, closeTo(t.roundToDouble(), 1e-9),
+                reason: 'gridline $t cannot be printed by axisInt');
+          }
+        }
+        // A format we cannot resolve is left alone rather than guessed at.
+        expect(AxisSpec.of([0.2, 0.9], format: axisFixed)!.tickValues.last,
+            closeTo(0.2, .2));
       });
 
       test('an all-zero series never puts a negative number on a gridline', () {
@@ -330,14 +354,14 @@ void main() {
     test('bars measure against the axis, not against their own tallest bar',
         () {
       final rec = _Rec();
-      Bars([50.0], Colors.red, Colors.grey, axis: axis).paint(rec, size);
+      Bars([50.0], Colors.red, axis: axis).paint(rec, size);
       final half = rec.rrects.first.outerRect.height;
       final rec2 = _Rec();
-      Bars([100.0], Colors.red, Colors.grey, axis: axis).paint(rec2, size);
+      Bars([100.0], Colors.red, axis: axis).paint(rec2, size);
       expect(half, closeTo(rec2.rrects.first.outerRect.height / 2, 1));
       // Auto-scaled, both would be full height.
       final auto = _Rec();
-      Bars([50.0], Colors.red, Colors.grey).paint(auto, size);
+      Bars([50.0], Colors.red).paint(auto, size);
       expect(auto.rrects.first.outerRect.height, closeTo(100, 1));
     });
   });
@@ -429,7 +453,7 @@ void main() {
 
     test('a bar keeps its 2pt floor inside the canvas', () {
       final rec = _Rec();
-      Bars(const [0.001, 100.0], Colors.red, Colors.grey)
+      Bars(const [0.001, 100.0], Colors.red)
           .paint(rec, const Size(300, 100));
       final tiny = rec.rrects.first.outerRect;
       expect(tiny.bottom, closeTo(100, .001));
@@ -438,7 +462,7 @@ void main() {
 
     test('a bucket that was never measured draws no bar', () {
       final rec = _Rec();
-      Bars(const [null, 40.0, null], Colors.red, Colors.grey)
+      Bars(const [null, 40.0, null], Colors.red)
           .paint(rec, const Size(300, 100));
       expect(rec.rrects, hasLength(1));
     });
@@ -455,7 +479,7 @@ void main() {
       const size = Size(300, 100);
       for (final p in <CustomPainter>[
         LineChart(const [double.nan, 60.0], Colors.red),
-        Bars(const [double.nan, 60.0], Colors.red, Colors.grey),
+        Bars(const [double.nan, 60.0], Colors.red),
         ZoneBar(const [double.nan, .5], const P(false)),
         Actogram([List.filled(24, double.nan)], Colors.red),
         NightStack(const [
@@ -634,7 +658,7 @@ void main() {
         unit: 'per night',
         height: 140,
         yAxis: AxisSpec(min: 0, max: 480, ticks: 3, format: axisHm),
-        child: CustomPaint(painter: Bars(const [420.0], C.blue, C.n200)),
+        child: CustomPaint(painter: Bars(const [420.0], C.blue)),
       )));
       expect(find.text('8h'), findsOneWidget);
       expect(find.text('4h'), findsOneWidget);
@@ -682,7 +706,7 @@ void main() {
             unit: 'counts',
             height: 100,
             yAxis: spec,
-            child: CustomPaint(painter: Bars(const [120.0], C.purple, C.n200)),
+            child: CustomPaint(painter: Bars(const [120.0], C.purple)),
           );
 
       await tester.pumpWidget(_host(frame()));
@@ -718,7 +742,10 @@ void main() {
       expect(node.label, contains('measured in bpm'));
       // The data, summarised: where it ended, how far it ranged, which way it
       // went — never thirty numbers, which a screen reader cannot skim.
-      expect(node.label, contains('Latest 61 bpm'));
+      // No unit on the value: the sentence has already said "measured in
+      // bpm", and a formatter like axisHm writes its own ("7h 42m min").
+      expect(node.label, contains('Latest 61,'));
+      expect(node.label, isNot(contains('Latest 61 bpm')));
       expect(node.label, contains('ranging 48 to 61'));
       expect(node.label, contains('up 9'));
       expect(node.label, contains('from 30 Jul to Today'));
@@ -727,18 +754,24 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('an empty frame says so rather than reading an axis',
-        (tester) async {
+    testWidgets('an empty frame lets the caller say why, once', (tester) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(_host(const ChartFrame(
         title: 'Respiratory rate',
         unit: 'breaths/min',
         yAxis: AxisSpec(min: 10, max: 20, format: axisInt),
-        empty: NoData(),
+        empty: NoData(message: 'One night is not a trend yet'),
         child: SizedBox.shrink(),
       )));
-      expect(tester.getSemantics(find.byType(ChartFrame)).label,
-          contains('No data'));
+      final label = tester.getSemantics(find.byType(ChartFrame)).label;
+      // The frame used to add its own 'No data' on top of the caller's
+      // message, so one absence was announced twice and the generic half
+      // contradicted the specific one.
+      expect(label, isNot(contains('No data')));
+      expect(label, contains('Respiratory rate'));
+      // …and still no bare gridline numbers.
+      expect(label, isNot(contains('20')));
+      expect(find.text('One night is not a trend yet'), findsOneWidget);
       handle.dispose();
     });
 
@@ -759,6 +792,37 @@ void main() {
         ));
         expect(tester.takeException(), isNull, reason: '$b overflowed at 2x');
       }
+    });
+  });
+
+  group('TrendCard', () {
+    testWidgets('with no baseline it passes no judgement', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(_host(const TrendCard('Resting heart rate', '58',
+          'bpm', 'no baseline', 'first readings', [58.0], C.red,
+          up: true, good: null)));
+      final label = tester.getSemantics(find.byType(TrendCard)).label;
+      // It used to read "…, worse than usual" off a delta of zero against a
+      // baseline it had just said it did not have.
+      expect(label, contains('no baseline first readings'));
+      expect(label, isNot(contains('worse than usual')));
+      expect(label, isNot(contains('an improvement')));
+      // …and no arrow either, since there is no direction to point.
+      expect(find.byIcon(LucideIcons.arrowUpRight), findsNothing);
+      expect(find.byIcon(LucideIcons.arrowDownRight), findsNothing);
+      handle.dispose();
+    });
+
+    testWidgets('with a baseline it still says which way and whether that is '
+        'good', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(_host(const TrendCard('HRV', '61', 'ms', '+4',
+          'vs your 28-day average', [57.0, 61.0], C.green,
+          up: true, good: true)));
+      expect(tester.getSemantics(find.byType(TrendCard)).label,
+          contains('an improvement'));
+      expect(find.byIcon(LucideIcons.arrowUpRight), findsOneWidget);
+      handle.dispose();
     });
   });
 

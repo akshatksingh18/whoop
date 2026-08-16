@@ -407,10 +407,13 @@ IconData statIcon(String name) => switch (name) {
 /// the three-across strip this replaced could hold exactly three, so a lift's
 /// calories and a run's strain were measured, banked, and then binned by a
 /// layout. A column has room for the ones the session actually has.
+///
+/// The one the hero is already showing is dropped too — see [_heroStatName].
 List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   final out = <(String, String)>[];
+  final hero = _heroStatName(r);
   void add(String name, String? v) {
-    if (v != null) out.add((name, v));
+    if (v != null && name != hero) out.add((name, v));
   }
 
   final distanceUnit = u?.distanceUnit ?? 'km';
@@ -425,8 +428,11 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
     case Arch.route:
       add('Pace', pace == null ? null : '$pace /$distanceUnit');
     case Arch.strength:
-      add('Sets', '${r.strength.setCount}');
-      add('Reps', '${r.strength.repCount}');
+      // Guarded like Arch.match below. 'SETS 0' and 'REPS 0' used to sit
+      // directly under the card saying nothing was logged, and the share card
+      // for the same session — which does gate on this — printed neither.
+      add('Sets', r.strength.isEmpty ? null : '${r.strength.setCount}');
+      add('Reps', r.strength.isEmpty ? null : '${r.strength.repCount}');
     case Arch.laps:
       add('Laps', r.lapCount?.toString());
     case Arch.journey:
@@ -450,10 +456,28 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   // 'Avg HR', not 'Heart rate': the trace above is the heart rate, this is its
   // mean, and the two sat on one screen under one word.
   add('Avg HR', r.avgHr == null ? null : '${r.avgHr} bpm');
+  // The peak. Measured, spike-suppressed, banked in `sessions.max_hr` and read
+  // back on the history path — and until now printed on the history ROW and
+  // nowhere on the screen that row opens.
+  add('Max HR', r.maxHr == null ? null : '${r.maxHr} bpm');
   add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
   add('Strain', r.strain?.toStringAsFixed(1));
   return out;
 }
+
+/// The stat the hero is already showing large, or null when the hero is a
+/// number this list does not carry anyway (a distance, a volume, a swim).
+///
+/// The poster subtracts its hero from its grid for exactly this reason; the
+/// screen the poster is generated from printed '45:12' at 48 pt and then
+/// 'TIME 45:12' as the next card's first row.
+String? _heroStatName(ActivityResult r) => switch (r.arch) {
+      Arch.route || Arch.journey => r.distanceKm == null ? 'Time' : null,
+      // Without a volume the hero falls back to the set COUNT, not the clock.
+      Arch.strength => r.strength.volumeKg == null ? 'Sets' : null,
+      Arch.laps => r.swimMetres == null ? 'Time' : null,
+      Arch.interval || Arch.flow || Arch.match || Arch.basic => 'Time',
+    };
 
 /// A finished session's supporting stats, one to a row.
 ///
@@ -669,15 +693,27 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         color: p.card2,
         child: Row(children: [
           Expanded(
-            child: Text(
-                widget.weightKg == null
-                    ? 'Calories need your weight.'
-                    : 'Estimated from ${a.met.toStringAsFixed(1)} MET, your '
-                        'weight and heart rate.',
+            child: Text(_calorieBasis(),
                 style: F.cap.copyWith(color: p.ink3, height: 1.5)),
           ),
         ]),
       );
+
+  /// What the calorie figure was actually made of.
+  ///
+  /// It claimed heart rate on every session, including the ones scored from
+  /// MET and weight alone because no beat ever arrived — printed three cards
+  /// under 'The band reported nothing while this was running'. Without a curve
+  /// there is no heart rate in the number: `_kcal` falls through to
+  /// `Activity.kcal`, which is MET × weight × minutes and nothing else.
+  String _calorieBasis() {
+    if (widget.weightKg == null) return 'Calories need your weight.';
+    final met = a.met.toStringAsFixed(1);
+    return r.avgHr == null
+        ? 'Estimated from $met MET and your weight. No heart rate reached '
+            'this session, so none of it is in the figure.'
+        : 'Estimated from $met MET, your weight and heart rate.';
+  }
 
   /// (value, unit, caption). The hero is the archetype's own headline — and
   /// falls back to elapsed time, which is the one number every session has.
@@ -931,21 +967,34 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       // exactly like a measurement.
       case Arch.match || Arch.basic:
         if (r.hr.length < 2) {
-          return [
-            StatusCard(
-              'No heart rate for this session',
-              'The band reported nothing while this was running.',
-              fix: 'Check band connection',
-              // The band, its battery and its link all live behind the
-              // profile's sources list. The CTA used to be paint.
-              onFix: () => openProfile(c),
-              icon: LucideIcons.heartPulse,
-            ),
-          ];
+          return [_noHrCard(c)];
         }
         return [Surface(child: _hrFrame(p))];
     }
   }
+
+  /// Why there is no trace — and the two reasons are not the same reason.
+  ///
+  /// The curve is per-MINUTE, so a session stopped after forty-five seconds
+  /// holds exactly one point with a band that streamed perfectly. Both cases
+  /// used to get 'The band reported nothing while this was running' and a
+  /// Check-band button, which is a false reason and a fix for a problem the
+  /// user does not have.
+  Widget _noHrCard(BuildContext c) => r.hr.any((v) => v != null)
+      ? const StatusCard(
+          'Too short to chart',
+          'One minute of heart rate is a point, not a line.',
+          icon: LucideIcons.heartPulse,
+        )
+      : StatusCard(
+          'No heart rate for this session',
+          'The band reported nothing while this was running.',
+          fix: 'Check band connection',
+          // The band, its battery and its link all live behind the profile's
+          // sources list. The CTA used to be paint.
+          onFix: () => openProfile(c),
+          icon: LucideIcons.heartPulse,
+        );
 
   /// The heart-rate trace, framed — the one chart both `basic` and `match`
   /// are built on, so they cannot end up with two different axes for one
@@ -1117,8 +1166,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             ),
           ];
         }
-        final fastest =
-            r.splits.map((s) => s.sec).reduce((x, y) => x < y ? x : y);
+        // PACE, not duration. The route tracker emits a trailing PARTIAL split
+        // for whatever is left over — 0.4 km in 144 s — and this table printed
+        // the 144 as if it were a kilometre's pace, so the last row of every
+        // run read 2:24 and became the fastest-split reference every real
+        // kilometre was drawn against. `KmSplit.km` was on the record the
+        // whole time and read by nothing.
+        final paces = <double?>[
+          for (final s in r.splits) s.km <= 0 ? null : s.sec / s.km,
+        ];
+        final measured = [for (final v in paces) ?v];
+        final fastest = measured.isEmpty
+            ? null
+            : measured.reduce((x, y) => x < y ? x : y);
         // SPLITS STAY PER-KILOMETRE in either unit system, and the header says
         // so. The route tracker cuts them at each kilometre (`route.splitsKm`);
         // showing them as miles would mean re-cutting the route, which is a
@@ -1149,18 +1209,25 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   child: Row(children: [
                     SizedBox(
                         width: 26,
-                        child: Text('${i + 1}',
+                        // A partial split is not kilometre N — it is the
+                        // 0.4 km that was left, and it says so.
+                        child: Text(
+                            r.splits[i].km >= .95
+                                ? '${i + 1}'
+                                : r.splits[i].km.toStringAsFixed(1),
                             style: F.cap.copyWith(color: p.ink3))),
                     SizedBox(
                         width: 46,
                         child: Text(
-                            UnitsController.formatPace(
-                                    r.splits[i].sec.toDouble()) ??
-                                '',
+                            paces[i] == null
+                                ? ''
+                                : UnitsController.formatPace(paces[i]!) ?? '',
                             style: F.cap.copyWith(
                                 color: p.ink, fontWeight: FontWeight.w600))),
                     Expanded(
-                        child: PaceBar(fastest / r.splits[i].sec, C.green)),
+                        child: fastest == null || paces[i] == null
+                            ? const SizedBox()
+                            : PaceBar(fastest / paces[i]!, C.green)),
                     SizedBox(
                         width: 34,
                         child: Text(r.splits[i].avgHr?.toString() ?? '',
@@ -1365,14 +1432,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ('Elevation', 'm', C.teal, r.elevationM),
     ];
     if (series.isEmpty) {
+      // Same distinction the overview draws: a session with one minute in it
+      // is too short to plot, which is not the band's fault and not fixable
+      // from the sources list.
       return [
-        StatusCard(
-          'No series to plot',
-          'This session recorded no per-minute streams.',
-          fix: 'Check band connection',
-          onFix: () => openProfile(c),
-          icon: LucideIcons.chartLine,
-        ),
+        if (r.hr.any((v) => v != null))
+          const StatusCard(
+            'Too short to chart',
+            'One minute of heart rate is a point, not a line.',
+            icon: LucideIcons.chartLine,
+          )
+        else
+          StatusCard(
+            'No series to plot',
+            'This session recorded no per-minute streams.',
+            fix: 'Check band connection',
+            onFix: () => openProfile(c),
+            icon: LucideIcons.chartLine,
+          ),
       ];
     }
     return [

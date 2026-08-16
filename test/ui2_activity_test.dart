@@ -22,6 +22,7 @@ import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
+import 'package:openstrap_edge/ui2/activity/poster.dart';
 import 'package:openstrap_edge/ui2/activity/setup.dart';
 import 'package:openstrap_edge/ui2/activity/share.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
@@ -328,6 +329,46 @@ void main() {
     });
   });
 
+  // ── the supporting stats ─────────────────────────────────────────────────
+  group('sessionStats prints what the hero does not', () {
+    List<String> namesOf(ActivityResult r) =>
+        [for (final s in sessionStats(r, null)) s.$1];
+
+    test('the hero\'s own number is not printed again underneath it', () {
+      // A yoga/HIIT/indoor session's hero IS the clock, at 48 pt, and the
+      // first ringed row under it read 'TIME 45:12'. The poster already
+      // subtracts its hero from its grid; the screen it is generated from did
+      // not.
+      expect(namesOf(_result(Arch.basic)), isNot(contains('Time')));
+      expect(namesOf(_result(Arch.flow)), isNot(contains('Time')));
+      // A run's hero is its distance, so the clock is the run's alone.
+      expect(namesOf(_result(Arch.route)), contains('Time'));
+      // …and a run with no distance falls back to the clock, which then goes.
+      final noGps = ActivityResult(_first(Arch.route),
+          start: _start, duration: const Duration(minutes: 30), avgHr: 130);
+      expect(namesOf(noGps), isNot(contains('Time')));
+    });
+
+    test('an empty lift prints no sets and no reps', () {
+      final empty = ActivityResult(_first(Arch.strength),
+          start: _start, duration: const Duration(minutes: 20), avgHr: 96);
+      // 'SETS 0' and 'REPS 0' used to sit directly under 'No sets logged',
+      // while the share card for the same session printed neither.
+      expect(namesOf(empty), isNot(contains('Sets')));
+      expect(namesOf(empty), isNot(contains('Reps')));
+      expect(namesOf(_result(Arch.strength)), contains('Reps'));
+    });
+
+    test('the measured peak is on the screen, not only on the history row',
+        () {
+      expect(namesOf(_result(Arch.basic)), contains('Max HR'));
+      final noPeak = ActivityResult(_first(Arch.basic),
+          start: _start, duration: const Duration(minutes: 20));
+      expect(namesOf(noPeak), isNot(contains('Max HR')),
+          reason: 'absent is dropped, never dashed');
+    });
+  });
+
   // ── formatting ───────────────────────────────────────────────────────────
   // ── the daily-load axis ──────────────────────────────────────────────────
   group('daily load is bucketed by date, not by position', () {
@@ -564,6 +605,100 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('stepping back in a flow does not delete the poses already '
+        'done', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('yoga')!,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      // pump, not pumpAndSettle: the breath ring is a pacer and never stops.
+      await tester.pump();
+
+      // Four poses in, then back two to hold one again. The record used to be
+      // `sublist(0, pose + 1)` off the LIVE index, so this reported two.
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.text('Next pose'));
+        await tester.pump();
+      }
+      for (var i = 0; i < 2; i++) {
+        await tester.tap(find.text('Previous'));
+        await tester.pump();
+      }
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(handed!.poses.length, 4,
+          reason: 'four poses were done, whatever the pointer sits on');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the share card keeps its ratio on a narrow screen',
+        (tester) async {
+      // A 320 pt viewport (SE, an iPad Slide Over pane, a split-screen pane)
+      // left 288 pt inside the sheet's padding, which squeezed the card's
+      // WIDTH while its height stayed fixed — so 'Post' exported 864×900, the
+      // 0.96:1 near-square Instagram crops. `toImage` reads the boundary, so
+      // the boundary is what has to keep the authored size.
+      tester.view.physicalSize = const Size(320 * 3, 900 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ShareSheet(_result(Arch.route)), Brightness.dark, 1.0));
+      await tester.pumpAndSettle();
+
+      final card = tester.renderObject<RenderBox>(find.byType(PosterCard));
+      expect(card.size.width, kPosterW);
+      expect(card.size.height, kPosterW, reason: 'Post is 1:1');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a trailing partial split is not priced as a whole kilometre',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      // 5.4 km at a steady 6:00/km. `route_math` emits the last 0.4 km as its
+      // own split, 144 s long — which this table printed as a 2:24 pace and
+      // then used as the reference every real kilometre was drawn against.
+      final r = ActivityResult(_first(Arch.route),
+          start: _start,
+          duration: const Duration(minutes: 32, seconds: 24),
+          distanceKm: 5.4,
+          splits: const [
+            KmSplit(1, 360),
+            KmSplit(1, 360),
+            KmSplit(1, 360),
+            KmSplit(1, 360),
+            KmSplit(1, 360),
+            KmSplit(.4, 144),
+          ]);
+      await tester.pumpWidget(
+          _frame(ActivitySummary(r, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Splits'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2:24'), findsNothing,
+          reason: '144 s over 0.4 km is 6:00/km, not 2:24');
+      expect(find.text('6:00'), findsNWidgets(6));
+      // …and the row says what it actually is rather than calling itself km 6.
+      expect(find.text('0.4'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a minimised session keeps the sets that were typed into it',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
@@ -739,28 +874,26 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('setup hides goals nothing can measure', (tester) async {
+    testWidgets('setup offers no goal it cannot honour', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
-      // A lift: no GPS, and no weight on file → no distance and no calorie
-      // goal, because neither could be honoured.
-      await tester.pumpWidget(_frame(
-          ActivitySetup(activityByName('weight_training')!),
-          Brightness.light,
-          1.0));
-      await tester.pumpAndSettle();
-      expect(find.text('Distance'), findsNothing);
-      expect(find.text('Calories'), findsNothing);
-
+      // The GOAL picker is gone. Nothing carried a goal or a target into the
+      // session — no LiveDraft field, no live screen, no alert — so the only
+      // thing it did was make the calorie line quote '45 min', a duration the
+      // user had not chosen and could not see anywhere else on the screen.
       await tester.pumpWidget(_frame(
           ActivitySetup(activityByName('running')!, weightKg: 72.4),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
-      expect(find.text('Distance'), findsOneWidget);
-      expect(find.text('Calories'), findsOneWidget);
+      expect(find.text('GOAL'), findsNothing);
+      expect(find.text('Distance'), findsNothing);
+      expect(find.text('Calories'), findsNothing);
+      // The estimate is a RATE, on the picker's own thirty-minute basis.
+      expect(find.textContaining('per 30 min'), findsOneWidget);
+      expect(find.textContaining('for 45 min'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 

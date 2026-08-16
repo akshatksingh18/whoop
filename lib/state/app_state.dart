@@ -373,6 +373,12 @@ class AppState extends ChangeNotifier {
   /// hide that.
   NoopImportResult? lastNoopImport;
 
+  /// The most recent vendor-CSV import, for the same reason [lastNoopImport]
+  /// exists: the workouts it wrote and the days it refused to overwrite are
+  /// not in the day count, and "0 days imported" alone reported an import that
+  /// landed sixty sessions as a no-op.
+  WhoopImportResult? lastWhoopImport;
+
   /// WHOOP export CSV(s) → derived-snapshot days (+ workouts). BETA.
   Future<int> importWhoopCsvs(
     List<String> paths, {
@@ -384,6 +390,7 @@ class AppState extends ChangeNotifier {
       profile: _profile,
       onProgress: onProgress,
     );
+    lastWhoopImport = res;
     notifyListeners();
     return res.days;
   }
@@ -1633,13 +1640,16 @@ class AppState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final lastFired = prefs.getInt(_kLastInactivityMs) ?? 0;
       if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
-      await prefs.setInt(_kLastInactivityMs, nowMs);
 
       // CodeRabbit caught this as un-padded (e.g. "2026-7-5" instead of
       // "2026-07-05") — breaks the YYYY-MM-DD convention every other
       // dedupeKey/date field in this file already follows.
       final today = todayLabel();
-      await NotificationCenter.instance.emit(
+      // GUARD AFTER PRESENT — same shape as the two above. Stamping the
+      // rate-limit before the emit meant a nudge dropped by quiet hours or a
+      // muted category silenced the check for the next two hours, so unmuting
+      // it at 09:20 bought you nothing until 11:05.
+      final fired = await NotificationCenter.instance.emit(
         NotificationEvent(
           dedupeKey: '$today:posture:${nowMs ~/ (2 * 60 * 60 * 1000)}',
           category: NotifCategory.reminders,
@@ -1651,6 +1661,7 @@ class AppState extends ChangeNotifier {
           route: '/today',
         ),
       );
+      if (fired) await prefs.setInt(_kLastInactivityMs, nowMs);
     } catch (_) {
       /* best-effort */
     }
@@ -4333,9 +4344,12 @@ class AppState extends ChangeNotifier {
   /// If the Live Activity's Finish button was tapped (App Intent set the flag),
   /// stop the workout here too. Call on app resume.
   Future<void> maybeFinishFromLiveActivity() async {
-    if (activeWorkout != null && await WidgetService.consumeEndSessionFlag()) {
-      await stopWorkout();
-    }
+    // Consume FIRST. `&&` short-circuited the consume away whenever no session
+    // was live, so a Finish tapped on a Live Activity that outlived the app
+    // stayed latched on disk — and then ended the NEXT workout, days later, on
+    // the first resume that happened to have one running.
+    final asked = await WidgetService.consumeEndSessionFlag();
+    if (asked && activeWorkout != null) await stopWorkout();
   }
 
   /// Same idea as [maybeFinishFromLiveActivity] but for the breathing
@@ -4343,9 +4357,9 @@ class AppState extends ChangeNotifier {
   /// `end_breathing_session` — a separate flag so the two Live Activities'
   /// stop buttons never collide). Call on app resume.
   Future<void> maybeStopBreathingFromLiveActivity() async {
-    if (breathingActive && await WidgetService.consumeEndBreathingFlag()) {
-      await stopBreathingSession();
-    }
+    // Same latch, same fix as above.
+    final asked = await WidgetService.consumeEndBreathingFlag();
+    if (asked && breathingActive) await stopBreathingSession();
   }
 
   /// Reconcile any session row still `status='live'` left over from a

@@ -11,14 +11,47 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/poster.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/tiles.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // The consent gate, which every other test in this file has to get past.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(const {});
+    await Prefs.ensureLoaded();
+    setMapTilesAllowed(true);
+  });
+
+  group('the tile fetch is consented, not assumed', () {
+    // The app's whole positioning is that nothing leaves the device, and a
+    // tile request is addressed BY WHERE THE ROUTE IS — so opening the share
+    // sheet used to tell openstreetmap.org roughly where the session was,
+    // before the user had touched anything.
+    test('no consent, no request — and the card still draws', () async {
+      setMapTilesAllowed(false);
+      expect(
+          await buildRouteMosaic(const [(51.500, -0.120), (51.505, -0.118)],
+              width: 128, height: 64, bg: C.n900, ink: C.white),
+          isNull);
+    });
+
+    // The default is the `false` fallback in [mapTilesAllowed] — a key that
+    // was never written reads off, which is what a fresh install is. It cannot
+    // be asserted here because `Prefs` caches its store for the process.
+    test('the switch is persisted, and off means off', () {
+      setMapTilesAllowed(false);
+      expect(mapTilesAllowed, isFalse);
+      setMapTilesAllowed(true);
+      expect(mapTilesAllowed, isTrue);
+    });
+  });
 
   group('the projection', () {
     // Pinned against independently-computed slippy-map coordinates. This is

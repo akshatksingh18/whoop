@@ -45,8 +45,16 @@ class _WellnessScreenState extends State<WellnessScreen> {
   /// does not read as collapse, short enough to still be about now.
   static const _habitDays = 14;
 
-  final String _date = todayLabel();
+  /// Read on every use, never captured once: the shell keeps this tab alive in
+  /// its IndexedStack, so a field initialiser would still be yesterday after
+  /// midnight and habit ticks would land on yesterday's date.
+  String get _date => todayLabel();
   bool _loading = true;
+
+  /// One journal write at a time. `putJournalMetrics` deletes the day and
+  /// re-inserts it, so two quick taps both read the same day and the second
+  /// erased the first.
+  bool _writingField = false;
 
   Map<String, dynamic> _stress = const {};
   Map<String, dynamic> _insights = const {};
@@ -206,23 +214,28 @@ class _WellnessScreenState extends State<WellnessScreen> {
 
   Future<void> _setField(String key, double? v) async {
     final repo = context.read<AppState>().repo;
-    if (repo == null) return;
-    // RE-READ THE DAY, do not write from the snapshot this tab loaded with.
-    //
-    // `postJournalMetrics` -> `putJournalMetrics` DELETES the whole day and
-    // re-inserts what it is handed, so writing a merge of `_todayFields` — a
-    // copy taken when the tab last loaded — silently deleted every journal
-    // field written since. Open Wellness, go and write your journal from the
-    // compose screen, come back without the tab reloading, tick one habit, and
-    // the journal entry was gone.
-    final next = {...await repo.getJournalMetrics(_date)};
-    if (v == null) {
-      next.remove(key);
-    } else {
-      next[key] = JournalMetricValue(v);
+    if (repo == null || _writingField) return;
+    setState(() => _writingField = true);
+    try {
+      // RE-READ THE DAY, do not write from the snapshot this tab loaded with.
+      //
+      // `postJournalMetrics` -> `putJournalMetrics` DELETES the whole day and
+      // re-inserts what it is handed, so writing a merge of `_todayFields` — a
+      // copy taken when the tab last loaded — silently deleted every journal
+      // field written since. Open Wellness, go and write your journal from the
+      // compose screen, come back without the tab reloading, tick one habit,
+      // and the journal entry was gone.
+      final next = {...await repo.getJournalMetrics(_date)};
+      if (v == null) {
+        next.remove(key);
+      } else {
+        next[key] = JournalMetricValue(v);
+      }
+      await repo.postJournalMetrics(_date, next);
+      await _load();
+    } finally {
+      if (mounted) setState(() => _writingField = false);
     }
-    await repo.postJournalMetrics(_date, next);
-    await _load();
   }
 
   // ── RECOVERY ─────────────────────────────────────────────────────────────
@@ -393,10 +406,17 @@ class _WellnessScreenState extends State<WellnessScreen> {
                       ),
                       _Check(
                         on: (_todayFields[h.key]?.value ?? 0) >= 1,
-                        onTap: () => _setField(
-                          h.key,
-                          (_todayFields[h.key]?.value ?? 0) >= 1 ? null : 1,
-                        ),
+                        // Null while a write is in flight: the tick is a
+                        // read-modify-write of the whole day, and a second tap
+                        // during the first one used to erase it.
+                        onTap: _writingField
+                            ? null
+                            : () => _setField(
+                                  h.key,
+                                  (_todayFields[h.key]?.value ?? 0) >= 1
+                                      ? null
+                                      : 1,
+                                ),
                       ),
                     ],
                   ),
@@ -438,41 +458,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
   /// that quietly keeps data is as much of a surprise as one that quietly loses
   /// it, so the confirm says which this is.
   Future<void> _confirmRemoveHabit(JournalFieldSpec h) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: P.of(context).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
-      builder: (s) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Remove ${h.label}?',
-                  style: F.head.copyWith(color: P.of(s).ink)),
-              const SizedBox(height: S.x2),
-              Text(
-                'It stops being asked. The days you already recorded stay.',
-                style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
-              ),
-              const SizedBox(height: S.x5),
-              BigButton('Remove',
-                  icon: LucideIcons.trash2,
-                  color: C.red,
-                  onTap: () => Navigator.of(s).pop(true)),
-              const SizedBox(height: S.x3),
-              BigButton('Keep it',
-                  soft: true, onTap: () => Navigator.of(s).pop(false)),
-            ],
-          ),
-        ),
-      ),
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${h.label}?',
+      body: 'It stops being asked. The days you already recorded stay.',
     );
-    if (ok != true || !mounted) return;
+    if (!ok || !mounted) return;
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     await repo.deleteCustomJournalField(h.key);
@@ -521,6 +512,11 @@ class _WellnessScreenState extends State<WellnessScreen> {
                   MedRow(
                     slot: s,
                     onTap: () => _markDose(s),
+                    // Same exit the habits list got. A course you finished, or
+                    // a name you mistyped, used to keep coming due every day
+                    // and dragging adherence down with nothing but "Delete
+                    // everything" to stop it.
+                    onRemove: () => _confirmRemoveMed(s.def),
                   ),
               ],
             ),
@@ -543,6 +539,9 @@ class _WellnessScreenState extends State<WellnessScreen> {
                       _adherence.of,
                       'Taken, of those scheduled in the last seven days.',
                       C.blue,
+                      // Doses, not days — three a day over a week is 21 of
+                      // them inside a seven-day window.
+                      unit: 'doses',
                     ),
                   ),
           ),
@@ -568,6 +567,24 @@ class _WellnessScreenState extends State<WellnessScreen> {
       slotMin: s.slotMin,
       taken: s.state != DoseState.taken,
     );
+    await _load();
+  }
+
+  /// Remove the medication, keep the doses.
+  ///
+  /// `MedDb.deleteDef` keeps `med_dose` on purpose (see its note): those doses
+  /// were taken, and the CSV export still carries them. What stops is the
+  /// schedule — and with it the empty denominator that was dragging adherence
+  /// down every day after the course ended.
+  Future<void> _confirmRemoveMed(MedDef d) async {
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${d.label}?',
+      body: 'It stops being scheduled and stops counting towards adherence. '
+          'The doses you already marked stay.',
+    );
+    if (!ok || !mounted) return;
+    await MedDb.deleteDef(await LocalDb.instance, d.key);
     await _load();
   }
 
@@ -681,10 +698,13 @@ class DriverRow extends StatelessWidget {
 /// One scheduled dose. A slot still ahead of you reads as upcoming, never as a
 /// miss — that distinction is the whole reason `taken_ts` is nullable.
 class MedRow extends StatelessWidget {
-  const MedRow({super.key, required this.slot, this.onTap});
+  const MedRow({super.key, required this.slot, this.onTap, this.onRemove});
 
   final MedSlot slot;
   final VoidCallback? onTap;
+
+  /// Removes the whole medication, not this one dose. Null hides the control.
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext c) {
@@ -723,6 +743,15 @@ class MedRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (onRemove != null)
+              Pressable(
+                semanticLabel: 'Remove ${slot.def.label}',
+                onTap: onRemove,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: S.x3),
+                  child: Icon(LucideIcons.trash2, size: 18, color: p.ink3),
+                ),
+              ),
             _Check(on: taken, onTap: null),
           ],
         ),

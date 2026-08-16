@@ -105,8 +105,10 @@ Widget settingsGroup(BuildContext c, String title, List<Widget> rows) {
   );
 }
 
-/// Push a screen, keeping the enclosing domain accent.
-void goto(BuildContext c, Widget w) =>
+/// Push a screen, keeping the enclosing domain accent. Returns when it pops,
+/// so a caller whose own numbers the pushed screen can change is able to
+/// re-read them.
+Future<void> goto(BuildContext c, Widget w) =>
     Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
 
 /// The one way into the profile stack. Home's avatar calls this — profile is
@@ -151,7 +153,12 @@ class ProfileHome extends StatefulWidget {
 }
 
 class _ProfileHomeState extends State<ProfileHome> {
-  late final Future<ProfileStats> _stats = _load();
+  /// Re-read after every screen this one pushes. It used to be a single
+  /// `late final` Future, so pairing a band from My sources (which auto-pops
+  /// straight back here) left the row reading "0 sources", and an import or a
+  /// reset left Storage on the old size until the screen was left and
+  /// re-entered.
+  late Future<ProfileStats> _stats = _load();
 
   Future<ProfileStats> _load() async {
     final app = context.read<AppState>();
@@ -169,14 +176,19 @@ class _ProfileHomeState extends State<ProfileHome> {
     );
   }
 
+  Future<void> _open(BuildContext c, Widget w) async {
+    await goto(c, w);
+    if (mounted) setState(() => _stats = _load());
+  }
+
   @override
   Widget build(BuildContext c) => FutureBuilder<ProfileStats>(
         future: _stats,
         builder: (c, snap) => ProfileHomeView(
           stats: snap.data,
-          onDevices: () => goto(c, const MyDevices()),
-          onSettings: () => goto(c, const MoreSettings()),
-          onEdit: () => goto(c, const EditProfile()),
+          onDevices: () => _open(c, const MyDevices()),
+          onSettings: () => _open(c, const MoreSettings()),
+          onEdit: () => _open(c, const EditProfile()),
         ),
       );
 }
@@ -252,8 +264,6 @@ class ProfileHomeView extends StatelessWidget {
                           ? ''
                           : formatBytes(s!.storageBytes!),
                       chevron: false),
-                  // What is behind the row, not what we once meant to put
-                  // there: `MoreSettingsView` has no export and no import.
                   SetRow(LucideIcons.settings, C.n500, 'More settings',
                       sub: 'Export, backup, units, privacy, reset',
                       onTap: onSettings),

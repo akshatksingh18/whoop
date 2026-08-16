@@ -207,10 +207,22 @@ class WidgetService {
         'readiness_band',
         'coach_line',
         'batt_name',
+        // A route a Siri intent asked for before the wipe is not a route we
+        // still owe anybody.
+        'pending_route',
       ]) {
         await HomeWidget.saveWidgetData<String>(k, '');
       }
-      await HomeWidget.saveWidgetData<bool>('batt_charging', false);
+      // The two App Intent latches. They are set by the widget process and
+      // consumed by Dart on the next resume, so "Delete everything" used to
+      // leave an armed end_session on disk that killed the NEXT workout.
+      for (final k in const [
+        'batt_charging',
+        'end_session',
+        'end_breathing_session',
+      ]) {
+        await HomeWidget.saveWidgetData<bool>(k, false);
+      }
       await HomeWidget.updateWidget(
         iOSName: _iOSName,
         androidName: _androidName,

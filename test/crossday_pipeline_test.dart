@@ -346,6 +346,10 @@ void main() {
       expect((recent.last as Map)['date'], lastDate);
       // The resting-HR trend-shift CUSUM reads `rhr` back off these rows.
       expect((recent.last as Map)['rhr'], isNotNull);
+      // ...and the flag rides along with it, so that ALERT consumer can stand
+      // down on a half-drained night while the trend keeps the raw value.
+      expect((recent.last as Map)['unsettled'], isTrue);
+      expect((recent.first as Map)['unsettled'], isFalse);
     });
 
     test('does not drive the illness/anomaly alert', () {

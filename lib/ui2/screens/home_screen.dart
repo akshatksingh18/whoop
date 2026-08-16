@@ -110,6 +110,23 @@ Map<String, dynamic>? envValue(Object? raw) {
   return v is Map ? v.cast<String, dynamic>() : null;
 }
 
+/// The night the overnight block in a `getToday()` result actually came from,
+/// when that is NOT today's — otherwise null.
+///
+/// `getToday` holds the last scored night over until today's settles, which is
+/// every morning before the first sync and the whole of any gap after one.
+/// Readiness, sleep, resting HR, HRV and skin temperature then all describe
+/// that night while steps and active energy describe today. Every screen that
+/// shows one of those five resolves the night HERE, so Home, Readiness, Sleep
+/// and Health cannot each answer "which night is this?" differently.
+String? heldOverNightOf(Map<String, dynamic> today) {
+  final st = today['status'];
+  if (st is! Map) return null;
+  return st['showing_prior_overnight'] == true
+      ? st['overnight_day']?.toString()
+      : null;
+}
+
 /// A scalar lifted out of an object-valued envelope, wearing that envelope's
 /// honesty (tier, confidence, note) so `StatusCard.forMetric` still works on
 /// it.
@@ -327,6 +344,11 @@ String metricValue(String unit, num? value) {
   if (v.abs() >= 10) return v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
   return v.toStringAsFixed(1);
 }
+
+/// The unit to print BESIDE [metricValue]'s output, which is empty when the
+/// format already carries it: `metricValue('min', 443)` is "7h 23m", and a
+/// `min` label next to that reads "7h 23m min".
+String unitBeside(String unit) => unit == 'min' ? '' : unit;
 
 /// Minute-of-day → "10:40 PM".
 ///
@@ -568,14 +590,7 @@ class HomeData {
 
     final strain = today['coach'];
 
-    // The night the overnight block actually came from, when it is NOT today's.
-    // `getToday` stamps `overnight_day` with the night it served.
-    final st = today['status'] is Map
-        ? (today['status'] as Map)
-        : const <String, dynamic>{};
-    final heldOver = st['showing_prior_overnight'] == true
-        ? st['overnight_day']?.toString()
-        : null;
+    final heldOver = heldOverNightOf(today);
 
     return HomeData(
       name: profile['name']?.toString(),
@@ -627,6 +642,20 @@ class _HomeScreenState extends State<HomeScreen> {
   HomeData? _d;
   bool _loading = true;
 
+  /// The load THREW. Distinct from "there is nothing yet": a decode or a locked
+  /// database is a read problem, and telling a user with three months of
+  /// history that their band has never produced data is the wrong answer to it.
+  bool _failed = false;
+
+  /// The revision this screen's data was loaded at, and the notifier it came
+  /// from — the same pattern `WorkoutScreen` already uses. Home used to load
+  /// once post-frame and never listen, so the "Sync the band" button it renders
+  /// could not change what the screen showed: the offload landed, the derive
+  /// ran, and Home kept saying "Nothing derived yet" until the app was
+  /// relaunched.
+  int _loadedAt = -1;
+  ValueNotifier<int>? _rev;
+
   @override
   void initState() {
     super.initState();
@@ -638,6 +667,37 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.data != null) return;
+    // No AppState above us in a golden — the screen just renders what it has.
+    final AppState app;
+    try {
+      app = context.read<AppState>();
+    } catch (_) {
+      return;
+    }
+    if (!identical(_rev, app.insightsRevision)) {
+      _rev?.removeListener(_onRevision);
+      _rev = app.insightsRevision..addListener(_onRevision);
+      _loadedAt = app.insightsRevision.value;
+    }
+  }
+
+  void _onRevision() {
+    final r = _rev;
+    if (!mounted || r == null || r.value == _loadedAt) return;
+    _loadedAt = r.value;
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _rev?.removeListener(_onRevision);
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
@@ -646,32 +706,67 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     try {
       final d = await HomeData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (mounted) setState(() => (_d = d, _loading = false, _failed = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => (_loading = false, _failed = true));
     }
+  }
+
+  /// Morning / afternoon / evening / night. One split at 18:00 greeted 00:30
+  /// and 15:40 alike with "Good morning" beside a sun.
+  ({String word, IconData icon, Color color}) _greeting(int h) {
+    if (h < 5) return (word: 'Still up', icon: LucideIcons.moon, color: C.indigo);
+    if (h < 12) {
+      return (word: 'Good morning', icon: LucideIcons.sun, color: C.yellow);
+    }
+    if (h < 18) {
+      return (word: 'Good afternoon', icon: LucideIcons.sun, color: C.orange);
+    }
+    return (word: 'Good evening', icon: LucideIcons.moon, color: C.indigo);
   }
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final d = _d;
-    final evening = (widget.hour ?? DateTime.now().hour) >= 18;
+    final g = _greeting(widget.hour ?? DateTime.now().hour);
 
     if (d == null) {
-      return ListView(padding: pad, children: [
+      return _refreshable(ListView(padding: pad, children: [
         const SizedBox(height: S.x8),
-        _loading
-            ? const Center(child: CircularProgressIndicator())
-            : StatusCard(
-                'Nothing derived yet',
-                'No band recordings processed yet.',
-                fix: syncOf(c) == null ? '' : 'Sync the band',
-                icon: LucideIcons.watch,
-                onFix: syncOf(c),
-              ),
-      ]);
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_failed)
+          StatusCard(
+            'Today could not be read',
+            'The stored day failed to load. Nothing was deleted — this is a '
+                'read that went wrong, not missing data.',
+            fix: 'Try again',
+            icon: LucideIcons.databaseZap,
+            onFix: () {
+              setState(() => (_loading = true, _failed = false));
+              _load();
+            },
+          )
+        else
+          StatusCard(
+            'Nothing derived yet',
+            'No band recordings processed yet.',
+            fix: syncOf(c) == null ? '' : 'Sync the band',
+            icon: LucideIcons.watch,
+            onFix: syncOf(c),
+          ),
+      ]));
     }
+
+    // Nothing measured at all. This is the genuine first run, and it used to be
+    // reachable ONLY by a load throwing — a real first-run user got four
+    // stacked absence cards instead of the one card written for this state.
+    final bare = d.readiness.isEmpty &&
+        d.sleepMin.isEmpty &&
+        d.rhr.isEmpty &&
+        d.steps.value == null &&
+        d.calories.isEmpty;
 
     final rv = d.readiness.value;
     final stale = staleInsightsCard(d.insightsStale, syncOf(c));
@@ -679,7 +774,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // to start, that outranks anything else this screen has to say today.
     final rebuilt = dbRebuiltCard(dbRebuildOf(c));
 
-    return ListView(padding: pad, children: [
+    return _refreshable(ListView(padding: pad, children: [
       if (rebuilt != null) ...[const SizedBox(height: S.x3), rebuilt],
       // ── greeting ──
       Padding(
@@ -692,14 +787,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 Flexible(
                   child: Text(
                     d.name == null || d.name!.isEmpty
-                        ? (evening ? 'Good evening' : 'Good morning')
-                        : '${evening ? 'Good evening' : 'Good morning'}, ${d.name}',
+                        ? g.word
+                        : '${g.word}, ${d.name}',
                     style: F.t2.copyWith(color: p.ink),
                   ),
                 ),
                 const SizedBox(width: S.x2),
-                Icon(evening ? LucideIcons.moon : LucideIcons.sun,
-                    size: 17, color: p.on(evening ? C.indigo : C.yellow)),
+                Icon(g.icon, size: 17, color: p.on(g.color)),
               ]),
               const SizedBox(height: 2),
               Text(prettyDay(d.dayId), style: F.cap.copyWith(color: p.ink3)),
@@ -720,30 +814,46 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
       ),
 
-      // ── the one number ──
-      if (rv == null)
-        StatusCard.forMetric('Readiness is not scored today', d.readiness,
-                why: 'Needs a night of beat-to-beat data, plus your own history'
-                     ' to compare it to.') ??
-            const SizedBox.shrink()
-      else
-        ReadinessHero(
-          readiness: d.readiness,
-          drivers: d.drivers,
-          heldOverNight: d.heldOverNight,
-          onTap: () => go(c, const ReadinessDetail()),
-        ),
+      if (bare)
+        StatusCard(
+          'Nothing derived yet',
+          'No band recordings processed yet.',
+          fix: syncOf(c) == null ? '' : 'Sync the band',
+          icon: LucideIcons.watch,
+          onFix: syncOf(c),
+        )
+      else ...[
+        // ── the one number ──
+        if (rv == null)
+          StatusCard.forMetric('Readiness is not scored today', d.readiness,
+                  why: 'Needs a night of beat-to-beat data, plus your own '
+                      'history to compare it to.') ??
+              const SizedBox.shrink()
+        else
+          ReadinessHero(
+            readiness: d.readiness,
+            drivers: d.drivers,
+            heldOverNight: d.heldOverNight,
+            onTap: () => go(c, const ReadinessDetail()),
+          ),
 
-      // ── the rollup was withheld, not absent ──
-      if (stale != null) ...[const SizedBox(height: S.x3), stale],
+        // ── the rollup was withheld, not absent ──
+        if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
-      // ── at a glance ──
-      Section('At a glance', _glance(c, d)),
+        // ── at a glance ──
+        Section('At a glance', _glance(c, d)),
 
-      // ── today's plan: only what the app can actually stand behind ──
-      Section("Today's plan", _plan(c, p, d)),
-    ]);
+        // ── today's plan: only what the app can actually stand behind ──
+        Section("Today's plan", _plan(c, p, d)),
+      ],
+    ]));
   }
+
+  /// Pull to reload. The screen also reloads itself on `insightsRevision`, but
+  /// a derive that fails silently, an import, or anything that lands without
+  /// bumping it still leaves the user a way to ask.
+  Widget _refreshable(Widget list) =>
+      RefreshIndicator(onRefresh: _load, child: list);
 
   Widget _glance(BuildContext c, HomeData d) {
     final cards = <Widget>[];
@@ -758,11 +868,19 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // Sleep and resting heart rate come off the SAME overnight block readiness
+    // does, so when that block is held over they describe the same older night
+    // — and they sat beside steps and active energy, which are today's, with no
+    // date at all. Naming the night is what the hero already does.
+    final night = d.heldOverNight;
+    String ofNight(String s) =>
+        night == null ? s : '$s · ${prettyDay(night)}';
+
     add(
       d.sleepMin,
       () => SignalCard(LucideIcons.moon, C.blue, 'Sleep',
           hm(d.sleepMin.value),
-          sub: _sleepWord(d.sleepEff.value),
+          sub: ofNight(_sleepWord(d.sleepEff.value)),
           onTap: () => go(c, const SleepDetail())),
       () => StatusCard.forMetric('No sleep last night', d.sleepMin,
           why: 'No night long enough to score was recorded.'),
@@ -772,11 +890,19 @@ class _HomeScreenState extends State<HomeScreen> {
       () => SignalCard(LucideIcons.heart, C.red, 'Heart rate',
           '${d.rhr.value!.round()}',
           unit: 'bpm',
-          sub: 'Resting',
+          sub: ofNight('Resting'),
           onTap: () => go(c, const MetricDetail('resting_hr'))),
+      // "no sleep was recorded" was stated as fact, unconditionally — and it
+      // was rendered directly beside a Sleep card showing that night's
+      // duration. Sleep duration and nocturnal RHR are gated separately: a
+      // night staged from the accelerometer with no clean resting window
+      // produces exactly that pair.
       () => StatusCard.forMetric('No resting heart rate', d.rhr,
-          why: 'Resting heart rate is read from sleep, and no sleep was '
-              'recorded.'),
+          why: d.sleepMin.isEmpty
+              ? 'Resting heart rate is read from sleep, and no sleep was '
+                  'recorded.'
+              : 'Read from sleep, and last night had no stretch of beats '
+                  'clean enough to take one from.'),
     );
     // Steps keeps its tile whether or not a counter reported. Zero steps is a
     // real reading — an unmoved counter — and it renders as 0, not as absence.

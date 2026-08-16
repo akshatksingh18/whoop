@@ -17,6 +17,8 @@
 // mid-copy orphaned `<table>_legacy` forever and silently lost the resumable-sync
 // cursor (strap_trim / counter_hw / rec_ts_hw).
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -97,6 +99,30 @@ const _v5DerivedDdl = [
 ''',
 ];
 
+/// One REAL 89-byte gen4 v24 historical record, hex-encoded — the shape
+/// `_backfillDecodedStore` replays out of `raw_records` at ladder step 19.
+///
+/// The old seed here was `deadbeef`, which decodes to nothing, so the backfill
+/// queued zero writes and the step-19 brick never fired in the test.
+String _v24RecordHex({
+  required int counter,
+  required int tsEpoch,
+  required int hr,
+  int rrMs = 850,
+}) {
+  final b = Uint8List(89);
+  final v = ByteData.view(b.buffer);
+  b[0] = 0x2f; // historical data
+  b[1] = 24; // v24 field map (trusted — no plausibility gate)
+  v.setUint32(3, counter, Endian.little);
+  v.setUint32(7, tsEpoch, Endian.little);
+  b[17] = hr;
+  b[18] = 1; // rr_count
+  v.setInt16(19, rrMs, Endian.little);
+  // accel float32s at 36/40/44 stay 0.0 — finite, which is all v24 requires.
+  return [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
+}
+
 Future<String> _dbPath(String name) async =>
     p.join(await databaseFactory.getDatabasesPath(), name);
 
@@ -128,8 +154,17 @@ Future<void> _seedOldDb(
 /// resulting user_version.
 Future<int> _openThroughLocalDb(String name) async {
   await LocalDb.close();
+  LocalDb.lastRebuild = null;
   LocalDb.dbName = name;
   final db = await LocalDb.instance;
+  // THE LADDER, not the safety net. A step that throws rolls the whole
+  // exclusive transaction back and `_openOrRebuild` quarantines the file and
+  // starts a fresh one — which still ends up at the current schema version, so
+  // every `expect(version, schemaVersion)` below passes either way. Without
+  // this, a test in here can go green on the recovery path for a bricked rung.
+  expect(LocalDb.lastRebuild, isNull,
+      reason: 'the upgrade bricked and fell back to quarantine-and-rebuild: '
+          '${LocalDb.lastRebuild?.cause}');
   final rows = await db.rawQuery('PRAGMA user_version');
   return (rows.first.values.first as num?)?.toInt() ?? -1;
 }
@@ -199,6 +234,24 @@ void main() {
             'captured_at': 1780000000 * 1000,
             'rec_ts': 0,
           });
+          // …and a record that ACTUALLY DECODES, so step 19's backfill really
+          // writes through _queueDecodedOneHz. With only the undecodable row
+          // above, the backfill queued nothing and the step-19 brick (the
+          // re-key dropping step_count/… out from under the insert that names
+          // them) never fired.
+          for (var i = 0; i < 2; i++) {
+            await db.insert('raw_records', {
+              'hex': _v24RecordHex(
+                counter: 4200 + i,
+                tsEpoch: 1785000000 + i,
+                hr: 61 + i,
+              ),
+              'counter': 4200 + i,
+              'packet_type': 47,
+              'captured_at': (1785000000 + i) * 1000,
+              'rec_ts': 1785000000 + i,
+            });
+          }
           await db.insert('derived_day', {
             'date': '2026-05-05',
             'payload_json': '{"legacy": true}',
@@ -227,6 +280,20 @@ void main() {
       final cols = await db.rawQuery('PRAGMA table_info(sessions)');
       expect(cols.where((c) => c['name'] == 'steps').length, 1);
       expect(cols.where((c) => c['name'] == 'hrr_bpm').length, 1);
+
+      // Step 19's backfill landed. Before the fix this threw `no such column:
+      // step_count` — the rung's own re-key had just rebuilt decoded_onehz
+      // without the band columns the backfill's insert names.
+      final oh = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in oh) r['rec_ts']], [1785000000, 1785000001]);
+      expect([for (final r in oh) r['hr']], [61, 62]);
+      // The band columns are present and NULL — a gen4 record reports none.
+      expect(oh.first.containsKey('step_count'), isTrue);
+      expect(oh.first['step_count'], isNull);
+      // The RR beat rode along with it.
+      final rr = await db.query('decoded_rr');
+      expect(rr.length, 2);
+      expect(rr.first['rr_ms'], 850);
     },
   );
 

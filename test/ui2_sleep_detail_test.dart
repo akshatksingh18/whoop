@@ -103,13 +103,55 @@ void main() {
         effHistory: _flat(20, 91),
       ),
     );
-    expect(find.text('Unusual last night'), findsOneWidget);
+    expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
     expect(find.text('Most deep sleep lately'), findsOneWidget);
     expect(find.text('Sleeping heart rate ran high'), findsOneWidget);
     // Detection against the user's own baseline is never a diagnosis, and the
     // card has to say so on the card.
     expect(find.textContaining('not a diagnosis'), findsOneWidget);
     expect(find.textContaining('Nothing stood out'), findsNothing);
+  });
+
+  testWidgets('a tie with the record is not an extreme', (t) async {
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        // Stage minutes are whole minutes, so tying the lowest of the last 20
+        // is ordinary. It used to print "less than any of your last 20 nights,
+        // the lowest of which was 41m".
+        night: _night(deep: 41),
+        tstHistory: _flat(20, 443),
+        deepHistory: [41, for (var i = 0; i < 19; i++) 60 + i.toDouble()],
+        effHistory: _flat(20, 91),
+      ),
+    );
+    expect(find.text('Least deep sleep lately'), findsNothing);
+    expect(find.textContaining('Nothing stood out'), findsOneWidget);
+  });
+
+  testWidgets('the four stage shares are of time in bed and sum to 100',
+      (t) async {
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        // tst 420 = light 250 + deep 80 + rem 90, awake 60 OUTSIDE it. Divided
+        // by tst these read 60/19/21/14 = 114%.
+        night: {
+          ..._night(tst: 420, deep: 80),
+          'light_min': 250,
+          'rem_min': 90,
+          'awake_min': 60,
+        },
+        tstHistory: _flat(20, 420),
+      ),
+    );
+    // Shares of the 480-minute in-bed span.
+    expect(find.text('52%'), findsOneWidget); // light
+    expect(find.text('17%'), findsOneWidget); // deep
+    expect(find.text('19%'), findsOneWidget); // rem
+    expect(find.text('13%'), findsOneWidget); // awake
   });
 
   testWidgets('an ordinary night says so rather than manufacturing a finding',
@@ -174,7 +216,7 @@ void main() {
         ),
         scale: scale,
       );
-      expect(find.text('Unusual last night'), findsOneWidget);
+      expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
     });
   }
 

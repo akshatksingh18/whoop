@@ -110,8 +110,20 @@ const kCsvExportSets = <CsvExportSet>[
     name: 'journal',
     title: 'Journal',
     columns: ['date', 'tags', 'note'],
-    sql: "SELECT date, replace(tags_json, char(10), ' ') AS tags, note "
-        'FROM journal ORDER BY date ASC',
+    // Tags as a readable list, not the storage document: this used to hand the
+    // cell `["stressed","alcohol"]`, brackets and quotes and all, in a file
+    // whose whole job is being openable in a spreadsheet. json_each falls over
+    // on a malformed doc, so an unparseable one is passed through verbatim
+    // rather than costing the row.
+    sql: """
+      SELECT date,
+             CASE WHEN json_valid(tags_json)
+                  THEN COALESCE((SELECT group_concat(value, '; ')
+                                 FROM json_each(journal.tags_json)), '')
+                  ELSE replace(tags_json, char(10), ' ') END AS tags,
+             note
+      FROM journal ORDER BY date ASC
+    """,
   ),
   CsvExportSet(
     name: 'labs',
@@ -229,11 +241,20 @@ const kCsvExportSets = <CsvExportSet>[
     name: 'cycle',
     title: 'Cycle log',
     columns: ['date', 'kind', 'note', 'symptoms'],
+    // DRIVEN OFF BOTH TABLES. cycle_log's `date` PK is a period-START marker
+    // and cycle_symptom is wholly independent, so a LEFT JOIN off cycle_log
+    // dropped every symptom-only day from the file entirely — and deleting a
+    // mistakenly-logged start took that date's symptoms out of the export with
+    // it. Union of dates, then join each side on.
     sql: '''
-      SELECT c.date, c.kind, c.note,
+      SELECT d.date,
+             COALESCE(c.kind, '') AS kind,
+             COALESCE(NULLIF(c.note, ''), s.note, '') AS note,
              COALESCE(s.symptoms_json, '') AS symptoms
-      FROM cycle_log c LEFT JOIN cycle_symptom s ON s.date = c.date
-      ORDER BY c.date ASC
+      FROM (SELECT date FROM cycle_log UNION SELECT date FROM cycle_symptom) d
+      LEFT JOIN cycle_log c ON c.date = d.date
+      LEFT JOIN cycle_symptom s ON s.date = d.date
+      ORDER BY d.date ASC
     ''',
   ),
 ];

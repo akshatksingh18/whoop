@@ -6,13 +6,14 @@
 // The answer is a quality ladder, and the ordering rule is the inverse of the
 // platform health stores: Apple Health and Health Connect rank by whatever
 // wrote last (with a manual priority list bolted on top), so a phone's step
-// estimate can quietly outrank a chest strap. Here the better sensor wins,
-// recency only breaks a tie within a tier, and a user preference is the last
-// word rather than the first.
+// estimate can quietly outrank a chest strap. Here the better sensor wins and
+// recency only breaks a tie within a tier. There is no user preference and the
+// screen no longer claims one — no control ever set an order.
 //
-// The ladder is shown in full even when a tier is empty — an unfilled Tier 1
-// row is the honest statement that beat-to-beat data is available to this app
-// and simply not present on this wrist yet.
+// A tier is drawn when something in it exists or could be paired today. Tier 1
+// is neither: there is no BLE Heart Rate Service client anywhere in the tree,
+// so drawing an empty "beat-to-beat" rung sent people hunting for a chest
+// strap pairing path that does not exist.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -21,6 +22,7 @@ import 'package:provider/provider.dart';
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
+import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
@@ -125,10 +127,12 @@ List<HealthSource> liveSources(AppState app) => [
         ),
     ];
 
-/// Quality first, then recency, then the user's own order. The inverse of
-/// last-writer-wins.
-List<HealthSource> rankSources(List<HealthSource> sources,
-    {List<String> preferred = const []}) {
+/// Quality first, then recency, then the name. The inverse of last-writer-wins.
+///
+/// There was a `preferred` list here that no caller ever passed and no screen
+/// could set — the card above it told the user their own preference was "the
+/// last word", which was a mechanism that did not exist.
+List<HealthSource> rankSources(List<HealthSource> sources) {
   final out = [...sources];
   out.sort((a, b) {
     final byTier = a.tier.rank.compareTo(b.tier.rank);
@@ -137,11 +141,6 @@ List<HealthSource> rankSources(List<HealthSource> sources,
     if (at != null && bt != null && at != bt) return bt.compareTo(at);
     if (at != null) return -1;
     if (bt != null) return 1;
-    final ai = preferred.indexOf(a.name), bi = preferred.indexOf(b.name);
-    if (ai != bi) {
-      return (ai < 0 ? preferred.length : ai)
-          .compareTo(bi < 0 ? preferred.length : bi);
-    }
     return a.name.compareTo(b.name);
   });
   return out;
@@ -242,11 +241,15 @@ class MyDevicesView extends StatelessWidget {
                 Text('THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x3),
-                for (final t in SourceTier.values) ...[
-                  TierRow(t,
-                      filled: sources.any((s) => s.tier == t)),
-                  const SizedBox(height: S.x3),
-                ],
+                for (final t in SourceTier.values)
+                  // An empty rung is information only while the rung is
+                  // reachable. Nothing in this build can produce a tier-1
+                  // source, so it is drawn only if one somehow exists.
+                  if (t != SourceTier.beatToBeat ||
+                      sources.any((s) => s.tier == t)) ...[
+                    TierRow(t, filled: sources.any((s) => s.tier == t)),
+                    const SizedBox(height: S.x3),
+                  ],
               ],
             ),
           ),
@@ -366,6 +369,13 @@ class TierRow extends StatelessWidget {
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: S.x1),
             Text(tier.detail, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            if (!filled) ...[
+              const SizedBox(height: S.x1),
+              // A dashed circle and a paler wash are not a statement. Without
+              // a word here an empty rung reads exactly like the tier you do
+              // have — including to a screen reader, which sees neither.
+              Text('Nothing here yet', style: F.over.copyWith(color: p.ink3)),
+            ],
           ]),
         ),
       ]),
@@ -479,28 +489,34 @@ class DeviceDetailView extends StatelessWidget {
                 ],
                 TierRow(s.tier, filled: true),
                 const SizedBox(height: S.x5),
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(children: [
-                    SetRow(LucideIcons.batteryMedium, C.green, 'Battery',
-                        value: battery == null ? '' : '${battery.round()}%',
-                        sub: battery == null
-                            ? 'Not reported since the last connection'
-                            : (s.charging ? 'Charging' : ''),
-                        chevron: false),
-                    Divider(color: p.line, height: 1),
-                    SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
-                        value: last == null ? '' : formatDayTime(last),
-                        sub: last == null ? 'Nothing banked yet' : '',
-                        chevron: false),
-                    if (onFind != null) ...[
+                // Band rows only. The phone has no radio link and no battery
+                // this app can read, so "Not reported since the last
+                // connection" named a connection it does not have — on the
+                // exact screen someone lands on when phone steps are silently
+                // failing, where the answer is the permission, not a battery.
+                if (s.isBand)
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: Column(children: [
+                      SetRow(LucideIcons.batteryMedium, C.green, 'Battery',
+                          value: battery == null ? '' : '${battery.round()}%',
+                          sub: battery == null
+                              ? 'Not reported since the last connection'
+                              : (s.charging ? 'Charging' : ''),
+                          chevron: false),
                       Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.bellRing, C.orange, 'Buzz the band',
-                          sub: 'Find it by feel', chevron: false,
-                          onTap: onFind),
-                    ],
-                  ]),
-                ),
+                      SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
+                          value: last == null ? '' : formatDayTime(last),
+                          sub: last == null ? 'Nothing banked yet' : '',
+                          chevron: false),
+                      if (onFind != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.bellRing, C.orange, 'Buzz the band',
+                            sub: 'Find it by feel', chevron: false,
+                            onTap: onFind),
+                      ],
+                    ]),
+                  ),
                 const SizedBox(height: S.x5),
                 if (onForget != null)
                   Surface(
@@ -518,8 +534,11 @@ class DeviceDetailView extends StatelessWidget {
 }
 
 /// "Thu 4 Sep, 07:12" — local, which is what every day label in this app is.
+///
+/// It used to render `4/9, 07:12`, which a US reader reads as 9 April. The
+/// month name is the whole point; `formatDay` already writes one.
 String formatDayTime(DateTime d) {
   final t = '${d.hour.toString().padLeft(2, '0')}:'
       '${d.minute.toString().padLeft(2, '0')}';
-  return '${d.day}/${d.month}, $t';
+  return '${formatDay(d)}, $t';
 }

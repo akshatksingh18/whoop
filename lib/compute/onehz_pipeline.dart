@@ -569,37 +569,40 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Both over the sleep NN. CV is a normalized variability stability index;
   // SD1/SD2 are the Poincaré descriptors; a high SD1/SD2 ratio flags erratic
   // beat-to-beat timing (a SCREEN, not a diagnosis).
-  double? hrvCv, sd1, sd2;
-  var irregularFlag = false;
-  var irregularConf = 0.0;
+  double? hrvCv;
   if (nn.length >= 20) {
     final meanNn = nn.reduce((a, b) => a + b) / nn.length;
     final sdnn = hrvT.present ? hrvT.value!.sdnn : null;
     if (sdnn != null && meanNn > 0) hrvCv = sdnn / meanNn * 100;
-    final diffs = [for (var i = 1; i < nn.length; i++) nn[i] - nn[i - 1]];
-    final sdsd = _stddev(diffs);
-    if (sdsd != null && sdnn != null) {
-      sd1 = sdsd / math.sqrt2;
-      final v = 2 * sdnn * sdnn - sd1 * sd1;
-      sd2 = v > 0 ? math.sqrt(v) : 0.0;
-      irregularConf = 0.5;
-      // CONSERVATIVE: a healthy Poincaré SD1/SD2 sits ~0.2–0.5 (RSA pushes it
-      // toward 0.5); erratic/AF-like rhythms scatter the plot toward a blob
-      // (ratio → ~1). Flag only clearly-abnormal ≥0.7 to avoid false alarms —
-      // this is a SCREEN, not a diagnosis.
-      irregularFlag = sd2 > 0 && (sd1 / sd2) >= 0.70;
-    }
   }
+  // SLEEP Poincaré screen — the SHARED analytics one, called exactly the way
+  // `irregular24h` above is. Edge used to hand-roll a second copy here, which
+  // meant it never got the three fixes analytics made to the shared screen: it
+  // differenced straight down the compacted NN (so every artifact run the
+  // corrector dropped manufactured one huge spurious difference, inflating
+  // sdsd → sd1), it published `sd2: 0.0` with `flag: false` on a degenerate
+  // series — "perfectly regular" as a measurement of nothing — and its
+  // confidence was a hard-coded 0.5 however noisy the night was.
+  final irregularSleep = irregularBeatScreen(
+    nn,
+    artifactFraction: artifactFraction,
+  );
+  final irrSleep = irregularSleep.present ? irregularSleep.value : null;
 
   final clinical = <String, dynamic>{
     'hrv_time': hrvT.toJson((v) => v.toJson()),
     // HRV stability (CV %) + Poincaré irregular-beat screen.
     'cv': hrvCv == null ? null : _round(hrvCv, 1),
+    // Keys kept as-is (Investigate reads sd1/sd2/flag); absent is null, not a
+    // zero and not a "clear".
     'irregular': <String, dynamic>{
-      'sd1': sd1 == null ? null : _round(sd1, 1),
-      'sd2': sd2 == null ? null : _round(sd2, 1),
-      'flag': irregularFlag,
-      'confidence': irregularConf,
+      'sd1': irrSleep == null ? null : _round(irrSleep.sd1, 1),
+      'sd2': irrSleep == null ? null : _round(irrSleep.sd2, 1),
+      'flag': irrSleep?.flag,
+      'confidence': irregularSleep.present
+          ? _round(irregularSleep.confidence, 4)
+          : 0.0,
+      'note': irregularSleep.note,
     },
     // 24/7 irregular-rhythm SCREEN over the whole-day RR (the headline screen
     // that drives the opt-in notification). Sleep-only `irregular` kept above.
@@ -699,9 +702,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'value': skinTempZ == null ? '—' : _round(skinTempZ, 4),
       'confidence': skinTempZ == null ? 0 : 0.5,
       'tier': Tier.relative,
-      'inputs_used': const ['skin_temp_raw'],
+      // Both columns: gen4 stores a raw ADC count, gen5 centi-°C. Either way
+      // this is only ever a deviation from the user's OWN baseline.
+      'inputs_used': const ['skin_temp_raw', 'skin_temp_c'],
       'note':
-          'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
+          'relative deviation (z) vs your baseline; raw sensor units, '
+          'never an absolute °C',
     },
   };
 

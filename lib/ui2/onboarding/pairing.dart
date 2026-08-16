@@ -46,13 +46,10 @@ class OnboardingBypass {
     revision.value++;
   }
 
-  /// Undo a skip, so the gate walks the user back to that step. This is what
-  /// "Pair a band" means for someone who skipped pairing and is now holding
-  /// the hardware.
-  static void clear(String key) {
-    Prefs.setBool(key, false);
-    revision.value++;
-  }
+  // No `clear`. Un-skipping cannot walk the gate back to pairing: the shell
+  // latches `onboarded` on its first frame and the gate sends pairing/profile
+  // straight to the shell from then on. "Pair a band" pushes `RePair` instead
+  // — see `profile/devices.dart`.
 }
 
 enum PairPhase {

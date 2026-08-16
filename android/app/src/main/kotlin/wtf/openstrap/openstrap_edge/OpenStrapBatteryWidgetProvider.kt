@@ -43,12 +43,17 @@ class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
         val rawName = (prefs.getString("batt_name", "") ?: "").trim()
         val name = rawName.ifEmpty { "Band" }
         val stale = at > 0L && (System.currentTimeMillis() / 1000 - at) > 86_400L
+        // "charging" is a fact about the moment the app last wrote, so it goes
+        // stale with the level it came with — the ⚡ used to sit there for days
+        // after the band came off the puck. Mirrors BatteryEntry.chargingNow in
+        // OpenStrapBatteryWidget.swift; keep the two in step.
+        val chargingNow = charging && !stale
 
         // Colour rules mirror BatteryEntry.color: blue while charging, coral when
         // low, deep-coral when critical, green otherwise — muted with no/old data.
         val color = when {
             pct < 0 || stale -> pal.inkMuted
-            charging -> w.BLUE
+            chargingNow -> w.BLUE
             pct <= 10 -> w.RED
             pct <= 25 -> w.ORANGE
             else -> w.GREEN
@@ -63,8 +68,8 @@ class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
         // vouch for names itself, exactly as it does on iOS.
         val caption = when {
             pct < 0 -> "Not connected yet"
-            charging -> "⚡ $name"
             stale -> "$name · last known"
+            charging -> "⚡ $name"
             else -> name
         }
 

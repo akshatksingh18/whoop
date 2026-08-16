@@ -42,24 +42,18 @@ abstract class LocalRepository {
   // ── profile ────────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getProfile() =>
       throw UnimplementedError('re-layer: getProfile');
-  Future<Map<String, dynamic>> patchProfile(Map<String, dynamic> fields) =>
-      throw UnimplementedError('re-layer: patchProfile');
   Future<Map<String, dynamic>> setStepGoal(int goal) =>
       throw UnimplementedError('re-layer: setStepGoal');
 
   // ── today / summaries ────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getToday() =>
       throw UnimplementedError('re-layer: getToday');
-  Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) =>
-      throw UnimplementedError('re-layer: getSleep');
-
   /// Sleep ONSET/OFFSET for the most recent [days] days, newest first.
   ///
   /// One projected query over `day_result.window_json` — no bundle decode and
   /// no per-day round trip, which is what an actogram (and the circadian
-  /// family) needs and what `getSleep` cannot give: `getSleep` carries duration
-  /// and efficiency but no clock times, so the only way to draw N nights was N
-  /// separate `getDaySleepV2` calls, each decoding a full day bundle.
+  /// family) needs. The alternative is N separate `getDaySleepV2` calls, each
+  /// decoding a full day bundle.
   ///
   /// Rows: `{date: 'YYYY-MM-DD', onset_ts: int?, wake_ts: int?, confidence:
   /// double?, tier: String?}` — epoch SECONDS. A night with no detected sleep
@@ -67,8 +61,6 @@ abstract class LocalRepository {
   /// looks like rather than being handed a silently shorter list.
   Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) =>
       throw UnimplementedError('re-layer: sleepWindows');
-  Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) =>
-      throw UnimplementedError('re-layer: getStrain');
   /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.
   ///
   /// Pass `includeDetected: false` when only saved sessions are wanted: the
@@ -79,9 +71,6 @@ abstract class LocalRepository {
     int? to,
     bool includeDetected = true,
   }) => throw UnimplementedError('re-layer: getSessions');
-  Future<Map<String, dynamic>> getHistory({String range = '30d'}) =>
-      throw UnimplementedError('re-layer: getHistory');
-
   /// Cross-day analytics rollup (illness/anomaly/load/SRI/jetlag/chronotype/
   /// sleep-debt/percentile/glass-box/BRV) — the seam the cross-day screens and
   /// notifications read. Empty map when no rollup has been computed yet.
@@ -117,9 +106,6 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: availableDays');
 
   // ── trends + records + charts ────────────────────────────────────────────────
-  Future<Map<String, dynamic>> getTrend(String metric,
-          {String scale = 'week', String? anchor}) =>
-      throw UnimplementedError('re-layer: getTrend');
   Future<Map<String, dynamic>> getRecords() =>
       throw UnimplementedError('re-layer: getRecords');
   Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) =>
@@ -132,6 +118,11 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getWorkout');
   Future<void> deleteWorkout(String id) =>
       throw UnimplementedError('re-layer: deleteWorkout');
+
+  /// Mark a session private, or un-mark it. `getWorkout`/`getWorkouts` return
+  /// the flag as `private` (bool).
+  Future<void> setWorkoutPrivate(String id, bool private) =>
+      throw UnimplementedError('re-layer: setWorkoutPrivate');
 
   /// Re-score recent finished sessions against the 1 Hz substrate now in the
   /// DB, correcting a live session whose in-RAM tallies missed the part of the
@@ -149,9 +140,6 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>
       throw UnimplementedError('re-layer: endWorkout');
-  Future<Map<String, dynamic>> setWorkoutType(String id, String type) =>
-      throw UnimplementedError('re-layer: setWorkoutType');
-
   /// Log a COMPLETED workout the athlete times themselves — one the band never
   /// detected, or detected too narrowly. Scored from the 1 Hz substrate over
   /// [startTs, endTs] (epoch SECONDS); a window with no substrate is still
@@ -162,18 +150,6 @@ abstract class LocalRepository {
     required String type,
   }) =>
       throw UnimplementedError('re-layer: logManualWorkout');
-
-  /// Log a confirmed auto-detected bout. Same scoring path as
-  /// [logManualWorkout], but keeps the `auto:` id and `auto` attribution.
-  /// Before this existed the confirm flow wrote no `strain` or `calories` at
-  /// all, so every accepted suggestion showed blanks where the numbers go.
-  /// Returns `{workout_id, unscored, hr_samples}`.
-  Future<Map<String, dynamic>> logDetectedWorkout({
-    required int startTs,
-    required int endTs,
-    required String type,
-  }) =>
-      throw UnimplementedError('re-layer: logDetectedWorkout');
 
   /// Retime an existing session and re-score it over the new window. Used to
   /// widen an auto-detected fragment to the real session. Returns

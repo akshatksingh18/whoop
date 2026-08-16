@@ -204,7 +204,21 @@ void main() {
       );
     });
 
-    test('shortfall==0 is exactly burstPacketCountMatches', () {
+    test('extra frames (negative shortfall) are NOT a count mismatch', () {
+      // Retried/duplicate frames put us ahead of the band's own count. That is
+      // not loss, so it must not trip the advisory mismatch counter or land in
+      // the sync ledger as `validated_with_mismatch`.
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 26,
+          receivedTrafficCount: 28,
+          droppedThisBurst: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test('shortfall<=0 is exactly burstPacketCountMatches', () {
       const expected = 50, received = 26, dropped = 24;
       final matches = burstPacketCountMatches(
         expectedPacketCount: expected,
@@ -216,7 +230,7 @@ void main() {
         receivedTrafficCount: received,
         droppedThisBurst: dropped,
       );
-      expect(matches, (shortfall == 0));
+      expect(matches, (shortfall <= 0));
     });
   });
 

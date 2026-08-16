@@ -193,7 +193,12 @@ const activityLibrary = <ActGroup>[
         'Physiotherapy', LucideIcons.stethoscope, C.blue, Track.duration, 3.0),
     Activity('Sauna', LucideIcons.thermometer, C.orange, Track.stillness, 1.5),
     Activity('Cold plunge', LucideIcons.snowflake, C.blue, Track.stillness, 2.0),
-    Activity('Custom activity', LucideIcons.plus, C.n500, Track.duration, 4.0),
+    // There is no 'Custom activity' row. It carried a MET of 4.0, which is not
+    // in the compendium and could not be — the whole point of a custom entry
+    // is that the app does not know what it is — and every session made with
+    // it banked a specific-looking calorie figure derived from nothing about
+    // what the user did, under one shared type key, with no name field
+    // anywhere to say what it had been.
   ]),
 ];
 

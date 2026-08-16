@@ -78,6 +78,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _inited = false;
+  bool _tzdbLoaded = false;
   bool? _granted;
 
   /// Deep-link routes from tapped notifications. AppState listens & navigates.
@@ -158,15 +159,32 @@ class NotificationService {
   Priority _priorityFor(NotifCategory c) =>
       c == NotifCategory.health ? Priority.max : Priority.defaultPriority;
 
+  /// Point `tz.local` at the phone's CURRENT zone.
+  ///
+  /// Deliberately not behind [_inited]: this used to run once at cold start, so
+  /// a 22:00 reminder armed in London stayed armed for 22:00 London after the
+  /// user landed in Tokyo — every reschedule read the same frozen `tz.local`
+  /// and could never correct it. And a single plugin failure at launch left
+  /// `tz.local` as UTC for the life of the install. Re-resolving before each
+  /// arm fixes both. Cheap: one channel call, and only on the schedule path.
+  Future<void> ensureTimezone() async {
+    try {
+      // The database load is the expensive half and never changes; only the
+      // zone the phone is standing in does.
+      if (!_tzdbLoaded) {
+        tzdata.initializeTimeZones();
+        _tzdbLoaded = true;
+      }
+      final name = await FlutterTimezone.getLocalTimezone();
+      if (name != tz.local.name) tz.setLocalLocation(tz.getLocation(name));
+    } catch (_) {/* tz stays as-is (UTC on a cold failure); we retry next arm */}
+  }
+
   /// Set up the plugin, channels, timezone db and the tap handler. Idempotent.
   /// Does NOT prompt for permission.
   Future<void> init() async {
     if (_inited) return;
-    try {
-      tzdata.initializeTimeZones();
-      final name = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(name));
-    } catch (_) {/* tz stays UTC; scheduling still works, just in UTC wall-clock */}
+    await ensureTimezone();
 
     const AndroidInitializationSettings android =
         AndroidInitializationSettings('@mipmap/launcher_icon');
@@ -397,6 +415,7 @@ class NotificationService {
     try {
       if (!_maySchedule(id)) return;
       if (!await ensurePermission(allowPrompt: false)) return;
+      await ensureTimezone();
       var when = _nextInstanceOf(hour, minute);
       // skipToday: tonight's instance is already handled (e.g. the journal was
       // logged before the prompt time) — start the daily repeat tomorrow.
@@ -437,6 +456,7 @@ class NotificationService {
     try {
       if (!_maySchedule(id)) return;
       if (!await ensurePermission(allowPrompt: false)) return;
+      await ensureTimezone();
       await _plugin.zonedSchedule(
         id,
         title,

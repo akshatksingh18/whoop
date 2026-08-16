@@ -34,6 +34,8 @@ import 'package:openstrap_edge/notify/notification_service.dart';
 const String kGuardKey = 'last_recovery_notif_day';
 final String kDay = todayLabel();
 final String kTomorrow = dayLabelOf(DateTime.now().add(const Duration(days: 1)));
+final String kYesterday =
+    dayLabelOf(DateTime.now().subtract(const Duration(days: 1)));
 
 NotificationEvent _dayException({String? day}) {
   final d = day ?? kDay;
@@ -209,6 +211,26 @@ void main() {
       );
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(kGuardKey), kTomorrow);
+    });
+
+    test('a day that has already passed never fires, however unspent its guard',
+        () async {
+      // Notifications denied on the 10th → the guard is deliberately NOT
+      // burned. Band goes in a drawer. Notifications re-enabled on the 16th:
+      // the callers still read the same last row, so without a recency gate
+      // "step goal reached" fires about a day the user wore nothing.
+      SharedPreferences.setMockInitialValues(_quietNever());
+      final sink = _Sink();
+      NotificationCenter.instance.presentSink = sink.call;
+
+      expect(
+        await NotificationCenter.instance.emitOncePerDay(
+            prefsKey: kGuardKey, dayId: kYesterday, e: _dayException(day: kYesterday)),
+        isFalse,
+      );
+      expect(sink.shown, isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kGuardKey), isNull);
     });
   });
 

@@ -12,10 +12,10 @@
 // simply withholds the metrics that need it.
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../ui2.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -35,6 +35,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final app = context.read<AppState>();
     return ProfileSetupView(
       initial: app.user ?? const {},
+      units: context.watch<UnitsController>(),
       onSave: (fields) async {
         await app.updateProfile(fields);
         widget.onDone?.call();
@@ -43,9 +44,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 }
 
-/// The three sexes the analytics coefficient tables define. 'other' maps to
-/// the non-binary block — the published mean of the two sex constants — which
-/// is a stated choice, not a guess at one of them.
+/// The three answers the analytics coefficient tables can take.
+///
+/// 'other' maps to the non-binary block FOR CALORIES, which is the published
+/// mean of the two sex constants. It does NOT for training load: Banister
+/// publishes two constants and no third, so `nonbinary` collapses onto the
+/// male pair everywhere TRIMP and the 0–21 strain score are computed
+/// (`derivation_engine.dart` says so at its collapse). The screen says which,
+/// because a woman who picks it is otherwise scored as a man with nothing on
+/// screen admitting it.
 const _sexes = <(String, String)>[
   ('m', 'Male'),
   ('f', 'Female'),
@@ -56,20 +63,26 @@ class ProfileSetupView extends StatefulWidget {
   final Map<String, dynamic> initial;
   final Future<void> Function(Map<String, dynamic> fields) onSave;
 
+  /// Display units for height and weight. Null is metric, which is also what
+  /// the storage is.
+  final UnitsController? units;
+
   const ProfileSetupView(
-      {super.key, required this.onSave, this.initial = const {}});
+      {super.key, required this.onSave, this.initial = const {}, this.units});
 
   @override
   State<ProfileSetupView> createState() => _ProfileSetupViewState();
 }
 
 class _ProfileSetupViewState extends State<ProfileSetupView> {
+  late final UnitsController _u =
+      widget.units ?? UnitsController.seed(UnitSystem.metric);
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
   late final _age = TextEditingController(text: _str(widget.initial['age']));
-  late final _height =
-      TextEditingController(text: _str(widget.initial['height_cm']));
-  late final _weight =
-      TextEditingController(text: _str(widget.initial['weight_kg']));
+  late final _height = TextEditingController(
+      text: _u.heightField(widget.initial['height_cm'] as num?));
+  late final _weight = TextEditingController(
+      text: _u.weightField(widget.initial['weight_kg'] as num?));
 
   static String _str(Object? v) => v == null ? '' : '$v';
 
@@ -82,16 +95,29 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
   }
 
   /// Only what was actually entered. A blank field writes nothing, so the
-  /// dependent metric abstains rather than scoring somebody else's body.
+  /// dependent metric abstains rather than scoring somebody else's body. The
+  /// fields are typed in the units on their labels and stored in metric.
   Map<String, dynamic> _fields() => {
         if (_sex != null) 'sex': _sex,
-        if (num.tryParse(_age.text.trim()) != null)
-          'age': num.parse(_age.text.trim()).round(),
-        if (num.tryParse(_height.text.trim()) != null)
-          'height_cm': num.parse(_height.text.trim()).toDouble(),
-        if (num.tryParse(_weight.text.trim()) != null)
-          'weight_kg': num.parse(_weight.text.trim()).toDouble(),
+        if (Typed.of(_age.text).value case final v?) 'age': v.round(),
+        'height_cm': ?_u.heightToCm(_height.text),
+        'weight_kg': ?_u.weightToKg(_weight.text),
       };
+
+  /// Continue, unless something typed cannot be read — a typo is not a blank,
+  /// and dropping it silently is how a body ends up half-described.
+  Future<void> _continue() async {
+    final bad = [
+      if (Typed.of(_age.text).bad) 'Age',
+      if (Typed.of(_height.text).bad) _u.heightLabel,
+      if (Typed.of(_weight.text).bad) _u.weightLabel,
+    ];
+    if (bad.isNotEmpty) {
+      sayUnreadable(context, bad);
+      return;
+    }
+    await widget.onSave(_fields());
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -124,21 +150,28 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                 if (key != _sexes.last.$1) const SizedBox(width: S.x2),
               ],
             ]),
+            // Which constants that choice actually gets. Calories average the
+            // two published sets; training load has no third set to average,
+            // so it uses the male one — said here rather than nowhere.
+            if (_sex == 'other') ...[
+              const SizedBox(height: S.x2),
+              Text(
+                'Calories use the mean of the two published sets. Training '
+                'load and strain have only two published constants and no '
+                'third, so they use the male pair.',
+                style: F.cap.copyWith(color: p.ink3, height: 1.45),
+              ),
+            ],
             const SizedBox(height: S.x5),
             _Field(_age, 'AGE', 'years',
                 'Without it: heart-rate zones, calories, fitness age.'),
-            _Field(_height, 'HEIGHT', 'cm',
+            _Field(_height, 'HEIGHT', _u.isImperial ? 'in' : 'cm',
                 'Without it: stride length, and distance from steps.'),
-            _Field(_weight, 'WEIGHT', 'kg',
+            _Field(_weight, 'WEIGHT', _u.isImperial ? 'lb' : 'kg',
                 'Without it: calories and training load.'),
             const SizedBox(height: S.x5),
             BigButton('Continue',
-                color: C.green,
-                onTap: _sex == null
-                    ? null
-                    : () async {
-                        await widget.onSave(_fields());
-                      }),
+                color: C.green, onTap: _sex == null ? null : _continue),
             if (_sex == null) ...[
               const SizedBox(height: S.x2),
               Text('Pick one option above to continue.',
@@ -220,96 +253,10 @@ class _Field extends StatelessWidget {
   }
 }
 
-// ══════════════════ THE DAY-0 CONTRACT ══════════════════
-
-/// What day zero is allowed to show.
-///
-/// A recovery score on the first morning is a fabrication — there is no
-/// baseline to be recovered relative to. So the headline metric is shown
-/// LOCKED, with the exact date it opens and the exact count of nights banked,
-/// next to the one number that is honest and instant: live heart rate off the
-/// band right now.
-///
-/// [have] and [need] come from the analytics `need_baseline:have=H,need=N`
-/// note that already rides on the abstaining metric — nothing new is computed
-/// to draw this.
-class UnlockContract extends StatelessWidget {
-  final String metric;
-  final int have;
-  final int need;
-
-  /// Live heart rate from the band, or null when nothing is streaming.
-  final int? liveHr;
-
-  /// Injectable so the golden is not a function of the calendar.
-  final DateTime? now;
-
-  const UnlockContract({
-    super.key,
-    required this.metric,
-    required this.have,
-    required this.need,
-    this.liveHr,
-    this.now,
-  });
-
-  /// The date the metric opens: one night per remaining night, from today.
-  static DateTime unlockDate(DateTime from, int have, int need) =>
-      DateTime(from.year, from.month, from.day + (need - have).clamp(0, 3650));
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final today = now ?? DateTime.now();
-    final open = unlockDate(today, have, need);
-    final hr = liveHr;
-    return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(LucideIcons.lock, size: 16, color: p.ink3),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Text(metric,
-                style: F.body
-                    .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
-          ),
-        ]),
-        const SizedBox(height: S.x2),
-        Text('Opens ${formatDay(open)}', style: F.n24.copyWith(color: p.ink)),
-        const SizedBox(height: S.x1),
-        Text('$have of $need nights banked',
-            style: F.cap.copyWith(color: p.ink3)),
-        const SizedBox(height: S.x3),
-        ClipRRect(
-          borderRadius: R.rPill,
-          child: LinearProgressIndicator(
-            value: need == 0 ? 0 : (have / need).clamp(0.0, 1.0),
-            minHeight: 6,
-            backgroundColor: p.track,
-            valueColor: AlwaysStoppedAnimation<Color>(p.on(C.green)),
-          ),
-        ),
-        const SizedBox(height: S.x4),
-        Divider(color: p.line, height: 1),
-        const SizedBox(height: S.x4),
-        Row(children: [
-          Icon(LucideIcons.heartPulse, size: 18, color: p.on(C.red)),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Text('Heart rate, right now',
-                style: F.cap.copyWith(color: p.ink2)),
-          ),
-          if (hr != null && hr > 0) ...[
-            Text('$hr', style: F.n24.copyWith(color: p.ink)),
-            const SizedBox(width: S.x1),
-            Text('bpm', style: F.cap.copyWith(color: p.ink3)),
-          ] else
-            Text('Band not streaming', style: F.cap.copyWith(color: p.ink3)),
-        ]),
-      ]),
-    );
-  }
-}
+// No day-0 "unlock contract" card. There was one — locked headline, unlock
+// date, nights banked, live HR beside it — and nothing ever built it. Day zero
+// is carried by `StatusCard.forMetric`, which already says how many more
+// nights the metric needs.
 
 const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _months = [

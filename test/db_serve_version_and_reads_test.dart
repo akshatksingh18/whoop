@@ -12,12 +12,15 @@
 // Plus: the counter index is gone, `sessions.start_ts` is indexed, and
 // `decodedRecTsMaxByDay` no longer groups by a function of the column.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:yaml/yaml.dart';
 
 import 'package:openstrap_edge/compute/derivation_engine.dart'
-    show kAlgoVersion;
+    show kAlgoVersion, kAnalyticsPin, kProtocolPin;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 
@@ -32,6 +35,27 @@ Future<void> _put(String dayId, int version, {double? readiness}) =>
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // The other half of the serve seam: a day_result records the algo version and
+  // NOTHING about which analytics/protocol produced it, so two builds pinning
+  // different siblings at the same version serve each other's days as
+  // equivalent, and the substrate is pruned behind them. That is not detectable
+  // at runtime — the only place it can be caught is here, where the pin and the
+  // version constant have to agree. Repin, and this goes red on the line above
+  // kAlgoVersion.
+  test('the sibling pins match the SHAs kAlgoVersion was derived against', () {
+    final deps =
+        (loadYaml(File('pubspec.yaml').readAsStringSync())
+            as Map)['dependencies'] as Map;
+    String ref(String pkg) => ((deps[pkg] as Map)['git'] as Map)['ref'] as String;
+
+    const why =
+        'sibling repinned without visiting kAlgoVersion. bump it and say what '
+        'moved, or every day already derived at this version is served as if '
+        'it came from the new analytics';
+    expect(ref('openstrap_analytics'), kAnalyticsPin, reason: why);
+    expect(ref('openstrap_protocol'), kProtocolPin, reason: why);
+  });
 
   const name = 'db_serve_version_test.db';
 

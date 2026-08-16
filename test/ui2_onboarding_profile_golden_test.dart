@@ -82,27 +82,6 @@ Map<String, Widget> _cases() => {
       'profile_setup_filled': ProfileSetupView(
           initial: const {'sex': 'f', 'age': 34, 'weight_kg': 61.5},
           onSave: (_) async {}),
-      'unlock_contract': Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(S.x4),
-          child: UnlockContract(
-              metric: 'Readiness',
-              have: 3,
-              need: 14,
-              liveHr: 61,
-              now: DateTime(2026, 8, 22)),
-        ),
-      ),
-      'unlock_contract_no_band': Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(S.x4),
-          child: UnlockContract(
-              metric: 'Readiness',
-              have: 0,
-              need: 14,
-              now: DateTime(2026, 8, 22)),
-        ),
-      ),
       'profile_home': const ProfileHomeView(
         stats: ProfileStats(
             name: 'Sahil', sources: 2, storageBytes: 1503238553),

@@ -254,7 +254,10 @@ struct OpenStrapWidgetLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           HStack(spacing: 10) {
             ZoneBar(zone: s.zone)
-            Text("\(kcalText(s.calories)) kcal").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            // Absent stays absent: a bare " kcal" with nothing in front of it
+            // is the unit claiming a measurement we don't have. The lock
+            // screen dims the empty slot; here the whole label goes.
+            Text(s.calories.map { "\($0) kcal" } ?? "").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             if #available(iOSApplicationExtension 17.0, *) {
               Button(intent: EndSessionIntent()) {
                 Image(systemName: "stop.fill").font(.system(size: 12, weight: .bold))

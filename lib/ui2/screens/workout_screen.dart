@@ -280,7 +280,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               child: CustomPaint(
                   size: Size.infinite,
                   // Today is the last slot, always — not "the newest value".
-                  painter: Bars(d.trimp7, p.on(C.purple), p.track,
+                  painter: Bars(d.trimp7, p.on(C.purple),
                       highlight: d.trimp7.last == null ? -1 : 6,
                       axis: axis,
                       t: animate(context, 1))),
@@ -507,9 +507,21 @@ class _HistoryRow extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(a.name,
-                      style: F.body.copyWith(
-                          color: p.ink, fontWeight: FontWeight.w600)),
+                  Row(children: [
+                    Flexible(
+                      child: Text(a.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: F.body.copyWith(
+                              color: p.ink, fontWeight: FontWeight.w600)),
+                    ),
+                    // The flag the setup screen promised, visible on the one
+                    // list this session shows up in.
+                    if (w.private) ...[
+                      const SizedBox(width: S.x2),
+                      Icon(LucideIcons.lock, size: 13, color: p.ink3),
+                    ],
+                  ]),
                   Text(w.when, style: F.over.copyWith(color: p.ink3)),
                 ]),
           ),
@@ -595,7 +607,13 @@ List<double?> lastSevenDays(Object? points, DateTime end) {
     // `t` is noon local on the day the value belongs to.
     final at =
         DateTime.fromMillisecondsSinceEpoch((e['t'] as num).toInt() * 1000);
-    final slot = 6 - end.difference(DateTime(at.year, at.month, at.day)).inDays;
+    // CALENDAR days, not elapsed hours: the day after a spring-forward is 23 h
+    // long, `inDays` floored that to 0, and Sunday landed in Monday's slot
+    // where Monday overwrote it. UTC midnights have no DST to floor.
+    final slot = 6 -
+        DateTime.utc(end.year, end.month, end.day)
+            .difference(DateTime.utc(at.year, at.month, at.day))
+            .inDays;
     if (slot < 0 || slot > 6) continue;
     out[slot] = (e['v'] as num).toDouble();
   }
@@ -613,15 +631,26 @@ List<double?> lastSevenDays(Object? points, DateTime end) {
 /// live screen says "First time on this lift" — so the resume path passes what
 /// it has rather than blocking on a query.
 ActivityHost activityHost(AppState app,
-        {Map<String, SetHistory> history = const {}}) =>
-    ActivityHost(
-      feed: () => _feedOf(app),
-      onStart: (a) => _startSession(app, a),
-      onFinish: (draft) => _finishSession(app, draft),
-      onSets: (sets) => _bankSets(app, sets),
-      history: history,
-      bandConnected: app.isConnected,
-    );
+    {Map<String, SetHistory> history = const {}}) {
+  // The id of the session this host opened, remembered across calls.
+  //
+  // `stopWorkout` clears `activeWorkout`, so a RETRY after a failed write —
+  // the strength log throwing, say, which leaves the sessions row saved and
+  // the sets lost — used to read a null id, return the draft untouched, throw
+  // nothing, and be reported to the user as saved.
+  String? sessionId;
+  return ActivityHost(
+    feed: () => _feedOf(app),
+    onStart: (a) => _startSession(app, a),
+    onFinish: (draft) {
+      sessionId ??= app.activeWorkout?.workoutId;
+      return _finishSession(app, draft, sessionId);
+    },
+    onSets: (sets) => _bankSets(app, sets),
+    history: history,
+    bandConnected: app.isConnected,
+  );
+}
 
 /// The band, as the live screens see it. Read on every tick rather than
 /// subscribed to: there is no stream on `AppState` — `AppState.liveHr` is a
@@ -645,7 +674,7 @@ LiveFeed _feedOf(AppState app) {
     zoneMinutes: w?.zoneMinutes() ?? const [],
     // DENSE, not the hole-free variant: this feeds the summary's chart, whose
     // x axis is the session clock. `perMinuteHr()` is for statistics.
-    hrCurve: w?.perMinuteHrDense() ?? const [],
+    hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
     gpsActive: app.routeTracking,
     bandConnected: app.isConnected,
@@ -664,6 +693,26 @@ LiveFeed _feedOf(AppState app) {
       }
     },
   );
+}
+
+/// The per-minute curve, padded out to the session's OWN length.
+///
+/// `perMinuteHrDense` can only pad up to a minute that has a sample in it, and
+/// the 1 Hz tick skips `accrueHr` entirely while the band is silent — so a
+/// band that dropped at minute 30 of a 45-minute run hands back 30 slots. The
+/// summary labels that chart's x axis `Start … 45:00` and spreads whatever it
+/// is given across the whole width, so the reading taken at minute 15 was
+/// painted under 22:30 and the fifteen-minute dropout was invisible. The tail
+/// has to be there as nulls, which is what the painter breaks its line on.
+List<double?> _curveOverSession(LiveWorkoutState? w) {
+  if (w == null) return const [];
+  final out = w.perMinuteHrDense();
+  if (out.isEmpty) return out;
+  final minutes = w.elapsed.inMinutes + 1;
+  // Same sanity bound `_denseMinutes` uses: a clock that is not what we think
+  // it is must not allocate a nonsense array.
+  if (minutes <= out.length || minutes > 24 * 60) return out;
+  return [...out, ...List<double?>.filled(minutes - out.length, null)];
 }
 
 /// Open a real session. Until this existed the live screens ran their own
@@ -708,13 +757,24 @@ Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
   }
 }
 
-/// Close it: finalize the session, persist the sets the user typed against
-/// its id, then hand back the result with the recorded route folded in.
-Future<ActivityResult> _finishSession(AppState app, ActivityResult draft) async {
-  // Read the id BEFORE stopping — stopWorkout clears the live state.
-  final id = app.activeWorkout?.workoutId;
+/// Close it: finalize the session, persist the sets the user typed and the
+/// privacy flag against its id, then hand back the result with the recorded
+/// route folded in.
+///
+/// [id] is passed rather than read here so a retry still has one — see
+/// [activityHost].
+Future<ActivityResult> _finishSession(
+    AppState app, ActivityResult draft, String? id) async {
+  // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
   if (id == null) return draft;
+
+  // The privacy toggle, finally landing somewhere. `putSession` is
+  // INSERT-OR-REPLACE over the whole row and does not carry the flag, so this
+  // is its own narrow UPDATE and it has to run AFTER stopWorkout, not before.
+  if (draft.private) {
+    await app.repo?.setWorkoutPrivate(id, true);
+  }
 
   // Written on every set already; written again here because the last one
   // may have landed while the app was being torn down.
@@ -837,7 +897,12 @@ List<double> _spread(List<double> v) {
 /// for ten minutes drew a trace that ran straight across them, under an axis
 /// labelled `Start … 47:20`. The x position of a sample is its index, so the
 /// index has to be the minute.
-List<double?> _denseMinutes(Object? hr) {
+/// [session] pads the TAIL out to the session's own length, for the same
+/// reason [_curveOverSession] does on the live path: the store's last point is
+/// the last minute that had samples, so a band that dropped at minute 30 of a
+/// 45-minute session ends the line there and the chart stretches it across an
+/// axis that says 45:00.
+List<double?> _denseMinutes(Object? hr, [Duration? session]) {
   final pts = <(int, double)>[
     for (final e in (hr as List? ?? const []))
       if (e is Map && e['t'] is num && e['v'] is num)
@@ -849,7 +914,9 @@ List<double?> _denseMinutes(Object? hr) {
   // A session longer than a day, or timestamps that are not what we think they
   // are: fall back to the values rather than allocating a nonsense array.
   if (n < 1 || n > 24 * 60) return [for (final p in pts) p.$2];
-  final out = List<double?>.filled(n, null);
+  final want = session == null ? n : session.inMinutes + 1;
+  final out = List<double?>.filled(
+      want > n && want <= 24 * 60 ? want : n, null);
   for (final p in pts) {
     final i = (p.$1 - t0) ~/ 60;
     if (i >= 0 && i < n) out[i] = p.$2;
@@ -866,7 +933,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   try {
     final b = await repo.getWorkout(w.id);
     out = out.copyWith(
-      hr: _denseMinutes(b['hr']),
+      hr: _denseMinutes(b['hr'], w.duration),
       // The session's own mean, computed over its heart-rate stream.
       avgHr: (b['avg_hr'] as num?)?.round(),
       maxHr: (b['max_hr'] as num?)?.round(),
@@ -924,12 +991,17 @@ class _PastWorkout {
   final int? calories, avgHr, maxHr;
   final List<double> zoneMinutes;
 
+  /// The user's "keep this one off the shared surfaces" flag, read back from
+  /// `sessions.private`.
+  final bool private;
+
   const _PastWorkout(this.id, this.activity, this.start, this.duration,
       {this.strain,
       this.calories,
       this.avgHr,
       this.maxHr,
-      this.zoneMinutes = const []});
+      this.zoneMinutes = const [],
+      this.private = false});
 
   List<double> get zoneFractions {
     final total = zoneMinutes.fold<double>(0, (a, b) => a + b);
@@ -955,6 +1027,7 @@ class _PastWorkout {
         activity,
         start: start,
         duration: duration,
+        private: private,
         strain: strain,
         calories: calories,
         avgHr: avgHr,
@@ -1082,6 +1155,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
               for (final z in (r['zone_min'] as List? ?? const []))
                 if (z is num) z.toDouble(),
             ],
+            private: r['private'] == true,
           ));
         }
       }

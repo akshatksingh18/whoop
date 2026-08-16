@@ -40,7 +40,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
   int _tab = 0;
   static const _tabs = ['Today', 'Week', 'Goals'];
 
-  final String _date = todayLabel();
+  /// Read on every use, never captured once: the shell keeps this tab alive in
+  /// its IndexedStack, so a field initialiser would still be yesterday after
+  /// midnight and an occasion logged at 00:05 would land on the wrong day.
+  String get _date => todayLabel();
   NutritionWindow? _week;
   Metric? _burned;
   double? _waterMl;
@@ -111,46 +114,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
   }
 
   /// Removing a log is destructive and there is no undo, so the entry is named
-  /// back before it goes. On-system rather than an `AlertDialog`: this package
-  /// bans `fontSize:` and `Colors.white` in its own tests and a Material dialog
-  /// smuggles both in.
+  /// back before it goes.
   Future<void> _confirmDelete(FoodEntry e) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: P.of(context).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
-      builder: (s) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Remove ${e.label}?',
-                  style: F.head.copyWith(color: P.of(s).ink)),
-              const SizedBox(height: S.x2),
-              Text(
-                'It leaves the day and every average that counted it. There is '
-                'no undo.',
-                style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
-              ),
-              const SizedBox(height: S.x5),
-              BigButton('Remove',
-                  icon: LucideIcons.trash2,
-                  color: C.red,
-                  onTap: () => Navigator.of(s).pop(true)),
-              const SizedBox(height: S.x3),
-              BigButton('Keep it',
-                  soft: true, onTap: () => Navigator.of(s).pop(false)),
-            ],
-          ),
-        ),
-      ),
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${e.label}?',
+      body: 'It leaves the day and every average that counted it. There is no '
+          'undo.',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await NutritionDb.delete(await LocalDb.instance, e.id);
     await _load();
   }
@@ -273,6 +245,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
     final w = _week;
     if (w == null) return const SizedBox.shrink();
     final counted = w.counted.length;
+    // PARTIAL, not "excluded": today is excluded from the averages too, and it
+    // is not partial — a day cannot be judged incomplete while it is still
+    // happening (see `DayLogState.inProgress`).
+    final partial = _partialDays(w);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -280,9 +256,9 @@ class _NutritionScreenState extends State<NutritionScreen> {
           child: Consistency(
             w.daysLogged,
             w.span,
-            w.daysExcluded == 0
+            partial == 0
                 ? 'Days with something logged'
-                : '${w.daysExcluded} logged but partial, so excluded from '
+                : '$partial logged but partial, so excluded from '
                       'every average below',
             C.domFood,
           ),
@@ -338,6 +314,11 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  /// Logged days that are genuinely partial. Today is deliberately not one of
+  /// them — it is unfinished, not incomplete.
+  static int _partialDays(NutritionWindow w) =>
+      w.days.where((d) => d.state == DayLogState.partial).length;
+
   /// Seven bars of logged energy, today highlighted. A day with nothing logged
   /// draws no bar rather than a zero — zero kcal is a claim, and an unlogged
   /// day is an absence. A PARTIAL day still draws, because its total is a real
@@ -350,7 +331,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
     final real = vals.whereType<double>().where((v) => v > 0).toList();
     final drawn = real.length;
     final axis = drawn == 0 ? null : AxisSpec.of(real, floor: 0);
-    final p = P.of(c);
     return Surface(
       child: ChartFrame(
         title: 'Energy logged',
@@ -362,16 +342,24 @@ class _NutritionScreenState extends State<NutritionScreen> {
         xLabels: drawn == 0
             ? const []
             : [_dayShort(w.days.first.date), 'Today'],
-        footnote: w.daysExcluded == 0
+        footnote: _partialDays(w) == 0
             ? null
-            : '${w.daysExcluded} partial, left out of the averages below.',
-        empty: axis == null ? const NoData(message: 'Nothing logged yet') : null,
+            : '${_partialDays(w)} partial, left out of the averages below.',
+        // The bars are ENERGY. A week of one-tap occasions is a fully logged
+        // week with no energy in it, and "Nothing logged yet" called the user
+        // a liar directly under a card counting those same days.
+        empty: axis == null
+            ? NoData(
+                message: w.daysLogged == 0
+                    ? 'Nothing logged yet'
+                    : 'No energy figures yet')
+            : null,
         series: vals,
         child: axis == null
             ? const SizedBox.shrink()
             : CustomPaint(
                 size: Size.infinite,
-                painter: Bars(vals, C.domFood, p.track,
+                painter: Bars(vals, C.domFood,
                     highlight: vals.length - 1, t: animate(c, 1), axis: axis),
               ),
       ),
@@ -436,14 +424,23 @@ class _NutritionScreenState extends State<NutritionScreen> {
         ),
       ),
     );
+    // Blank clears the target; a typo does NOT. "2,000" used to clear it and
+    // the sheet closed as if it had saved.
+    final typed = {
+      for (final g in _goalSpecs) g.$1: Typed.of(ctrls[g.$1]!.text),
+    };
     final fields = {
-      for (final g in _goalSpecs)
-        g.$1: double.tryParse(ctrls[g.$1]!.text.trim()),
+      for (final g in _goalSpecs) g.$1: typed[g.$1]!.value,
     };
     for (final ctrl in ctrls.values) {
       ctrl.dispose();
     }
     if (saved != true || !mounted) return;
+    final bad = [for (final g in _goalSpecs) if (typed[g.$1]!.bad) g.$2];
+    if (bad.isNotEmpty) {
+      sayUnreadable(context, bad);
+      return;
+    }
     await context.read<AppState>().updateProfile(fields);
     await _load();
   }
@@ -527,14 +524,23 @@ class _NutritionScreenState extends State<NutritionScreen> {
         // Two different absences, and the difference matters: the day never
         // qualified, or it qualified on energy while this nutrient was only a
         // floor. Progress against a floor would read low every single day.
+        // Three, actually — the third is a day that DID qualify while this
+        // nutrient was never typed at all, and blaming that on day
+        // completeness is a sentence the user can see is false.
         (m?.floorDays ?? 0) > 0
             ? 'Every complete day had an occasion logged without a '
                   '${g.$2.split(' ').last.toLowerCase()} figure, so the average '
                   'would only be a lower bound.'
-            : 'A day counts once every occasion carries a figure and the log '
-                  'reaches the evening. None of the last ${_week?.span ?? 7} '
-                  'days has.',
-        fix: 'Log an eating occasion',
+            : (_week?.counted.length ?? 0) > 0
+                ? '${_week!.counted.length} of the last ${_week!.span} days '
+                      'counted, but none of them carried a '
+                      '${g.$2.split(' ').last.toLowerCase()} figure.'
+                : 'A day counts once every occasion carries a figure and the '
+                      'log reaches the evening. None of the last '
+                      '${_week?.span ?? 7} days has.',
+        fix: (m?.floorDays ?? 0) > 0 || (_week?.counted.length ?? 0) > 0
+            ? 'Add the numbers to an occasion'
+            : 'Log an eating occasion',
         icon: LucideIcons.target,
         onFix: _logFood,
       );

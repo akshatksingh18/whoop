@@ -172,7 +172,6 @@ final _vitals = VitalsData(
   },
   wear: const {'worn_min': 1300, 'coverage_pct': 94},
   hrv: const {'rmssd': 68.2},
-  night: const {'duration_min': 465},
 );
 
 const _labs = LabsData(markers: kLabMarkers, results: [
@@ -210,8 +209,6 @@ final _metricDetail = MetricData(
 
 final _readiness = ReadinessData(
   readiness: const Metric(value: 82, confidence: .8, tier: MetricTier.high),
-  narrative: 'HRV is above your usual and resting heart rate settled early. '
-      'Skin temperature is the one input pulling the other way.',
   breakdown: const [
     {'label': 'hrv', 'weight': .4, 'weighted_contribution': 6.2, 'past_mdc': true, 'used': true},
     {'label': 'rhr', 'weight': .3, 'weighted_contribution': 3.1, 'past_mdc': true, 'used': true},
@@ -630,6 +627,52 @@ void main() {
       });
     }
   }
+
+  testWidgets('a min-unit metric does not print its unit twice', (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    // `metricValue('min', v)` is already "7h 23m"; the hero used to print
+    // `spec.unit` beside it, so Time asleep read "7h 23m min".
+    await tester.pumpWidget(_frame(
+        MetricDetail('sleep',
+            data: MetricData(series: _points(30, 443, 0), daysAvailable: 30)),
+        Brightness.light,
+        1));
+    await tester.pumpAndSettle();
+    final mins = tester
+        .widgetList<Text>(find.byType(Text))
+        .where((t) => (t.data ?? '').contains('m min'));
+    expect(mins, isEmpty, reason: 'the unit is baked into the formatted value');
+    expect(find.text('7h 23m'), findsWidgets);
+  });
+
+  testWidgets('the percentile sentence dates itself when the newest stored '
+      'reading is not today\'s', (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    // Four days of stored points ending FOUR DAYS AGO. The rank the rollup
+    // carries is that day's; "Today sits at the 22nd percentile" was printed
+    // unconditionally, two rows under a hero saying "4 days ago".
+    final stale = [
+      for (final p in _points(8, 54, 6)) (t: p.t - 4 * 86400, v: p.v),
+    ];
+    await tester.pumpWidget(_frame(
+        MetricDetail('resting_hr',
+            data: MetricData(
+              series: stale,
+              daysAvailable: 30,
+              percentile: const {'percentile_of_you': 22.0},
+            )),
+        Brightness.light,
+        1));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Your reading from 4 days ago sits at the 22nd'),
+        findsOneWidget);
+  });
 
   testWidgets('an absent metric never renders a bare em-dash', (tester) async {
     tester.view.physicalSize = const Size(390 * 3, 1400 * 3);

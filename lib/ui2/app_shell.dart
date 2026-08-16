@@ -34,26 +34,11 @@ enum ShellDomain {
   final Color accent;
 }
 
-/// Publishes the current domain to everything drawn inside it, so a screen
-/// (and anything it pushes) can pick up its own accent without threading it
-/// through every constructor.
-class Domain extends InheritedWidget {
-  final ShellDomain domain;
-
-  const Domain({super.key, required this.domain, required super.child});
-
-  /// The enclosing domain, or [ShellDomain.home] outside the shell (a pushed
-  /// route, a test harness). Never null — an accent is always answerable.
-  static ShellDomain of(BuildContext c) =>
-      c.dependOnInheritedWidgetOfExactType<Domain>()?.domain ??
-      ShellDomain.home;
-
-  /// The AA-safe ink for the enclosing domain's accent.
-  static Color ink(BuildContext c) => P.of(c).on(of(c).accent);
-
-  @override
-  bool updateShouldNotify(Domain old) => old.domain != domain;
-}
+// There is no `Domain` InheritedWidget. There was one, promising that a screen
+// "and anything it pushes" could pick up its accent without threading it — but
+// nothing ever read it, and a pushed route could not have: `MaterialApp.home`
+// is the gate, so `Navigator.of` pushes above the shell entirely. Screens take
+// their accent as a parameter, which is honest about where it comes from.
 
 class AppShell extends StatefulWidget {
   /// Builds the body of one domain. Called lazily — a tab is not built until
@@ -108,16 +93,13 @@ class _AppShellState extends State<AppShell> {
             child: IndexedStack(
               index: _current.index,
               children: [
+                // An unvisited tab is an empty box, not a built screen — the
+                // old shell built all forty screens' worth of state on launch.
                 for (final d in ShellDomain.values)
-                  Domain(
-                    domain: d,
-                    // An unvisited tab is an empty box, not a built screen —
-                    // the old shell built all forty screens' worth of state
-                    // on launch.
-                    child: _built.contains(d)
-                        ? widget.builder(c, d)
-                        : const SizedBox.shrink(),
-                  ),
+                  if (_built.contains(d))
+                    widget.builder(c, d)
+                  else
+                    const SizedBox.shrink(),
               ],
             ),
           ),

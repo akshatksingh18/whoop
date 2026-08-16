@@ -115,7 +115,11 @@ class CycleTab extends StatefulWidget {
 
 class _CycleTabState extends State<CycleTab> {
   CycleData? _d;
-  final String _date = todayLabel();
+
+  /// Read on every use. The tab lives in the shell's IndexedStack, so a field
+  /// initialiser would still be yesterday after midnight and a period start
+  /// would be logged against the wrong day.
+  String get _date => todayLabel();
 
   @override
   void initState() {
@@ -148,7 +152,17 @@ class _CycleTabState extends State<CycleTab> {
     await _load();
   }
 
+  /// Confirmed, because it cannot be undone OR redone: the only writer on this
+  /// screen logs TODAY, so a start deleted off an older date has no way back.
   Future<void> _deleteLog(String date) async {
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${_short(date)}?',
+      body: 'Cycle day, phase and the predicted next date are all counted from '
+          'the days you log. Only today can be logged, so this one cannot be '
+          'put back.',
+    );
+    if (!ok || !mounted) return;
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     await repo.deleteCycleLog(date);

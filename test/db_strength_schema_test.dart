@@ -139,4 +139,59 @@ void main() {
     expect(recent.first['reps'], 9);
     expect(await LocalDb.recentSetsFor('nothing_here'), isEmpty);
   });
+
+  test('deleting a session takes its sets with it', () async {
+    created.add('strength_cascade.db');
+    await databaseFactory.deleteDatabase(await _dbPath('strength_cascade.db'));
+    await _openThroughLocalDb('strength_cascade.db');
+
+    await LocalDb.putSession({
+      'id': 'sess-del',
+      'start_ts': 1770100000,
+      'end_ts': 1770103600,
+      'type': 'strength',
+      'status': 'done',
+      'created_at': 1770100000,
+    });
+    await LocalDb.saveStrengthSets('sess-del', [
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 1,
+        'load_kg': 200.0,
+        'at_ts': 1770100100,
+      },
+    ]);
+
+    await LocalDb.deleteSession('sess-del');
+
+    expect(await LocalDb.strengthSets('sess-del'), isEmpty);
+    // The real symptom: a mistyped set on a deleted workout kept coming back
+    // as "previous"/"best" on the live strength screen and kept exporting
+    // under a session_id that no longer exists.
+    expect(await LocalDb.recentSetsFor('bench_press'), isEmpty);
+  });
+
+  test('sessions carries the private flag, defaulting to not-private',
+      () async {
+    final db = await upgradeFrom(39, 'sessions_private_from_39.db');
+    final cols = await db.rawQuery('PRAGMA table_info(sessions)');
+    final private = cols.firstWhere((c) => c['name'] == 'private');
+    expect(private['notnull'], 1);
+    expect(private['dflt_value'], '0');
+
+    await LocalDb.putSession({
+      'id': 'sess-priv',
+      'start_ts': 1770200000,
+      'end_ts': 1770203600,
+      'type': 'run',
+      'status': 'done',
+      'created_at': 1770200000,
+    });
+    expect((await LocalDb.session('sess-priv'))!['private'], 0);
+    await LocalDb.setSessionPrivate('sess-priv', true);
+    expect((await LocalDb.session('sess-priv'))!['private'], 1);
+    await LocalDb.setSessionPrivate('sess-priv', false);
+    expect((await LocalDb.session('sess-priv'))!['private'], 0);
+  });
 }

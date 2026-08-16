@@ -38,7 +38,9 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getDownloadsPath() async => root;
 }
 
-/// The sleep-window Metric envelope exactly as the derivation engine stores it.
+/// A Metric envelope around the window. NOTE: this is NOT what anything
+/// actually writes — see [_bareWindowJson]. Kept because the reader has to
+/// accept both shapes.
 String _windowJson({int? onsetMs, int? offsetMs, double confidence = 0.8}) =>
     jsonEncode({
       'value': onsetMs == null || offsetMs == null
@@ -47,6 +49,20 @@ String _windowJson({int? onsetMs, int? offsetMs, double confidence = 0.8}) =>
       'confidence': confidence,
       'tier': 'HIGH',
       'inputs_used': const ['accel', 'hr'],
+    });
+
+/// What the derivation engine and BOTH importers actually store: the BARE
+/// `SleepWindow.toJson()` map, no envelope. This file used to assert the
+/// envelope shape only, which is why the reader could unwrap `env['value']`
+/// with no fallback and still look green while onset_ts/wake_ts came back null
+/// for every night that has ever been stored.
+String _bareWindowJson({required int onsetMs, required int offsetMs}) =>
+    jsonEncode({
+      'onset_idx': 0,
+      'offset_idx': 1,
+      'onset_ms': onsetMs,
+      'offset_ms': offsetMs,
+      'spt_sec': (offsetMs - onsetMs) ~/ 1000,
     });
 
 void main() {
@@ -114,6 +130,27 @@ void main() {
       // Dropping the row instead would hand the caller a silently shorter list
       // and shift every night in the actogram by one.
       expect(rows.map((r) => r['date']), contains('2024-05-04'));
+    });
+
+    test('reads the BARE window map the engine and both importers write',
+        () async {
+      const onset = 1_714_000_000;
+      await LocalDb.putDayResult(
+        dayId: '2024-04-28',
+        algoVersion: 66,
+        payloadJson: '{}',
+        windowJson: _bareWindowJson(
+          onsetMs: onset * 1000,
+          offsetMs: (onset + 26400) * 1000,
+        ),
+      );
+      final row = (await repo.sleepWindows(days: 30))
+          .firstWhere((r) => r['date'] == '2024-04-28');
+      expect(row['onset_ts'], onset);
+      expect(row['wake_ts'], onset + 26400);
+      // No envelope means no confidence/tier — absent, not invented.
+      expect(row['confidence'], isNull);
+      expect(row['tier'], isNull);
     });
 
     test('honours the day limit and survives malformed window_json', () async {

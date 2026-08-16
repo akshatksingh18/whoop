@@ -22,6 +22,7 @@ import 'package:sqflite/sqflite.dart';
 // The ONE thing this layer takes from compute/: the running build's algo
 // version, which every day_result read applies as a CEILING (see [dayResult]).
 // `show` keeps the rest of the engine out of this namespace.
+import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
@@ -168,11 +169,16 @@ class LocalDb {
       _db = fresh;
       var salvaged = const <String, int>{};
       try {
-        salvaged = await _mergeFromDbFile(
+        // `_days` is the importer's bookkeeping key, not a table. The rebuild
+        // card prints this map verbatim, so it read "Recovered: … _days 312 …"
+        // as though a table by that name had survived — or "Empty: _days" as
+        // though one had been lost. Drop it here; the card is the one surface
+        // whose whole job is telling the truth about a data-loss event.
+        salvaged = Map.of(await _mergeFromDbFile(
           quarantine,
           only: _salvageTables,
           tolerant: true,
-        );
+        ))..remove('_days');
       } catch (_) {
         // The quarantined file gave us nothing. The app still opens, and the
         // file is still there — that is the whole point of not deleting it.
@@ -240,7 +246,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 39;
+  static const int schemaVersion = 40;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -649,6 +655,22 @@ class LocalDb {
           // columns lose their NOT NULL so a record that carried no accel /
           // no optical / no thermal reading stops being written as a real zero.
           await _relaxDecodedSensorNulls(db);
+        }
+        if (oldV < 40) {
+          // `sessions.private` — the per-workout "keep this off the shared
+          // surfaces" flag. Existing rows read 0, which is what they have
+          // always meant. ADD COLUMN only, deliberately NOT the whole
+          // `_ensureSessionSchema`: that also creates an index, which throws on
+          // a DB whose `sessions` table this ladder has not created yet — and a
+          // throw in here rolls the ENTIRE ladder back and quarantines the
+          // user's database. `_addColumnIfMissing` is a no-op on a missing
+          // table, and `_repairOpenSchema` does the rest at onOpen.
+          await _addColumnIfMissing(
+            db,
+            'sessions',
+            'private',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
         }
       },
       onOpen: (db) async {
@@ -1936,6 +1958,7 @@ class LocalDb {
         steps INTEGER,
         hrr_bpm REAL,
         source TEXT NOT NULL DEFAULT 'manual',
+        private INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -2068,6 +2091,15 @@ class LocalDb {
     // read NULL — the truth for them — and the read path still recomputes from
     // the substrate while it is there.
     await _addColumnIfMissing(db, 'sessions', 'avg_hr', 'INTEGER');
+    // Private session (v40): the user's "don't surface this one" flag. NOT NULL
+    // DEFAULT 0 because every session that already exists was not marked
+    // private — absence here is a real answer, not a missing measurement.
+    await _addColumnIfMissing(
+      db,
+      'sessions',
+      'private',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,
     // [sessionsInRange], [liveSessions] — was a full table scan plus a full
@@ -2753,14 +2785,19 @@ class LocalDb {
         rec_ts INTEGER PRIMARY KEY,
         counter INTEGER NOT NULL,
         hr INTEGER NOT NULL,
-        ax REAL NOT NULL,
-        ay REAL NOT NULL,
-        az REAL NOT NULL,
-        spo2_red_raw INTEGER NOT NULL,
-        spo2_ir_raw INTEGER NOT NULL,
-        skin_temp_raw INTEGER NOT NULL
+        ax REAL,
+        ay REAL,
+        az REAL,
+        spo2_red_raw INTEGER,
+        spo2_ir_raw INTEGER,
+        skin_temp_raw INTEGER
       )
     ''');
+    // Sensor columns nullable from the start (the v39 shape). They used to be
+    // NOT NULL here, which bricked step 19: the rung backfills straight into
+    // this rebuilt table via _queueDecodedOneHz, which writes a real NULL for
+    // an absent reading. Same reason as _relaxDecodedSensorNulls — absence is
+    // not a zero g vector and not an ADC count of 0.
     await db.execute('''
       CREATE TABLE _decoded_rr_v33 (
         rec_ts INTEGER NOT NULL,
@@ -2789,6 +2826,14 @@ class LocalDb {
     await db.execute('DROP TABLE IF EXISTS decoded_onehz');
     await db.execute('ALTER TABLE _decoded_onehz_v33 RENAME TO decoded_onehz');
     await db.execute('ALTER TABLE _decoded_rr_v33 RENAME TO decoded_rr');
+    // The rebuild drops the band-computed columns, so put them straight back.
+    // Step 33 got away with it because step 34 re-adds them on the next rung;
+    // step 19 does NOT — it backfills through _queueDecodedOneHz on the very
+    // next line, which names step_count/…/hr_alt, so SQLite threw `no such
+    // column: step_count`, the whole exclusive ladder rolled back, and every
+    // upgrade from schema <= 18 went down the quarantine-and-rebuild path.
+    // Idempotent (ADD COLUMN only when missing), so step 34 stays a no-op.
+    await _ensureDecodedOneHzBandFields(db);
     // The rec_ts PK auto-indexes and nothing reads by `counter`, so the rebuilt
     // tables carry no secondary index at all.
   }
@@ -2979,17 +3024,20 @@ class LocalDb {
   /// (see [commitSyncBatch]).
   static int _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
-    if (decoded == null) return 0;
-    // `??` substitutes on NULL only, and `rec_ts` is the primary key now. The
-    // legacy `raw_records.rec_ts` column is `NOT NULL DEFAULT 0`, so every
-    // undated row [_backfillDecodedStore] replays arrives here as an explicit
-    // 0 — which under the old counter PK coexisted harmlessly and under this
-    // one REPLACE-evicts all the others down to a single row. Same `> 0`
-    // fallback [_recTsFor] uses (inlined: `decoded` already carries the
-    // timestamp, so going through it would re-decode the hex for nothing).
-    final rawRecTs = raw.recTs;
-    final recTs =
-        (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
+    if (decoded == null) {
+      // Gen4 R10-lite has no accel/optical, so it stays out of decoded_onehz —
+      // but it DOES carry an R-R block (protocol 539a97b), and dropping it here
+      // is permanent, not degraded: the record commits as decoded, so it is
+      // never archived, and the band is then acked to trim it. Persist the
+      // beats on their own. `samples` cannot hold them — it is (counter, ts, hr).
+      if (sample != null &&
+          sample.rrIntervalsMs.isNotEmpty &&
+          _isGen4R10LiteHistorical(raw.hex)) {
+        return _queueRrBeats(batch, _recTsFrom(raw, sample), sample);
+      }
+      return 0;
+    }
+    final recTs = _recTsFrom(raw, decoded);
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
     // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
@@ -2997,10 +3045,6 @@ class LocalDb {
     // stale one. Because rec_ts is the key, the strap's per-reboot counter reset
     // can no longer make one second's record evict another's (the pre-fix
     // counter-PK eviction that silently, unrecoverably deleted 1 Hz rows).
-    //
-    // Clear this second's RR beats before reinserting so a SHRINKING beat count
-    // can't strand stale high-index beats — the parent+child share the rec_ts
-    // key, so this single DELETE replaces the old counter-based orphan guard.
     batch.insert('decoded_onehz', {
       'rec_ts': recTs,
       'counter': raw.counter,
@@ -3023,9 +3067,32 @@ class LocalDb {
       'hr_valid': decoded.hrValid == null ? null : (decoded.hrValid! ? 1 : 0),
       'hr_alt': decoded.hrAlt,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    var ops = 1; // the decoded_onehz insert
+    return 1 /* the decoded_onehz insert */ +
+        _queueRrBeats(batch, recTs, decoded);
+  }
+
+  /// `rec_ts` for one raw+decoded pair.
+  ///
+  /// `??` substitutes on NULL only, and `rec_ts` is the primary key now. The
+  /// legacy `raw_records.rec_ts` column is `NOT NULL DEFAULT 0`, so every
+  /// undated row [_backfillDecodedStore] replays arrives here as an explicit
+  /// 0 — which under the old counter PK coexisted harmlessly and under this
+  /// one REPLACE-evicts all the others down to a single row. Same `> 0`
+  /// fallback [_recTsFor] uses (the decoded sample already carries the
+  /// timestamp, so going through it would re-decode the hex for nothing).
+  static int _recTsFrom(RawRecord raw, Sample decoded) {
+    final rawRecTs = raw.recTs;
+    return (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
+  }
+
+  /// Replaces this second's RR beats. Returns the ops queued.
+  ///
+  /// Clear the second before reinserting so a SHRINKING beat count can't strand
+  /// stale high-index beats — parent and child share the rec_ts key, so this
+  /// single DELETE replaces the old counter-based orphan guard.
+  static int _queueRrBeats(Batch batch, int recTs, Sample decoded) {
     batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
-    ops++;
+    var ops = 1;
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
       if (rr <= 0) continue;
@@ -4403,16 +4470,18 @@ class LocalDb {
           where: 'ts >= ? AND ts < ?',
           whereArgs: [startSec, endSec],
         );
-        // CASCADE the GPS route BEFORE its session row disappears — otherwise
-        // the join key is gone and every lat/lng point of a deleted run stays
-        // on disk forever (deleteSession cascades explicitly; this path did
-        // not). Must run first: once `sessions` is deleted the subquery is
-        // empty and the route is unreachable.
-        deleted += await txn.rawDelete(
-          'DELETE FROM workout_route WHERE session_id IN '
-          '(SELECT id FROM sessions WHERE start_ts >= ? AND start_ts < ?)',
-          [startSec, endSec],
-        );
+        // CASCADE the GPS route and the typed sets BEFORE their session row
+        // disappears — otherwise the join key is gone and every lat/lng point
+        // of a deleted run (and every logged set) stays on disk forever. Must
+        // run first: once `sessions` is deleted the subquery is empty and the
+        // children are unreachable.
+        for (final child in const ['workout_route', 'strength_set']) {
+          deleted += await txn.rawDelete(
+            'DELETE FROM $child WHERE session_id IN '
+            '(SELECT id FROM sessions WHERE start_ts >= ? AND start_ts < ?)',
+            [startSec, endSec],
+          );
+        }
         deleted += await txn.delete(
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',
@@ -4643,22 +4712,19 @@ class LocalDb {
     }
 
     final counts = <String, int>{};
+    // DISTINCT DAYS ACTUALLY WRITTEN — the number the caller reports as
+    // "N days imported".
+    //
+    // `day_result`'s primary key is (day_id, algo_version), so a row count is
+    // not a day count: a history that has lived through two algo bumps has two
+    // rows for the same day. This used to be a COUNT(DISTINCT day_id) asked of
+    // the SOURCE before anything was copied, which over-reported the other way
+    // — a re-import where every local row is finalized (all skipped by the
+    // protectedKeys guard below) still claimed the full source day count. Stays
+    // null when day_result could not be read at all, so the caller can tell
+    // "nothing imported" from "we don't know".
+    Set<String>? importedDays;
     try {
-      // DISTINCT DAYS, asked of the source before anything is copied.
-      //
-      // The caller reports "N days imported", and `day_result`'s primary key is
-      // (day_id, algo_version), so a row count is not a day count — a history
-      // that has lived through two algo bumps has two rows for the same day.
-      // Counting rows and then collapsing that to a literal 1, which is what
-      // the import screen did, made a full restore say "1 day imported".
-      try {
-        final r = await src.rawQuery(
-            'SELECT COUNT(DISTINCT day_id) AS n FROM day_result');
-        counts['_days'] = (r.first['n'] as num?)?.toInt() ?? 0;
-      } catch (_) {
-        // An export from a build without day_result, or an unreadable table:
-        // no day count rather than a wrong one.
-      }
       for (final t in (only ?? tables)) {
         try {
           // PAGED SOURCE READ — never `SELECT *` a whole table.
@@ -4704,6 +4770,7 @@ class LocalDb {
             if (e.isNoSuchTableError()) continue;
             rethrow;
           }
+          if (t == 'day_result') importedDays = <String>{};
           if (firstPage.isEmpty) {
             counts[t] = 0;
             continue;
@@ -4758,11 +4825,13 @@ class LocalDb {
                     if (cols.contains(e.key)) e.key: e.value,
                 };
                 if (row.isEmpty) continue;
-                if (t == 'day_result' &&
-                    protectedKeys.contains(
-                      '${row['day_id']}|${row['algo_version']}',
-                    )) {
-                  continue; // locally finalized — never overwritten by an import
+                if (t == 'day_result') {
+                  if (protectedKeys.contains(
+                    '${row['day_id']}|${row['algo_version']}',
+                  )) {
+                    continue; // locally finalized — never overwritten by import
+                  }
+                  importedDays?.add('${row['day_id']}');
                 }
                 // A LEGACY export's decoded_rr carries no rec_ts column; derive
                 // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
@@ -4857,6 +4926,9 @@ class LocalDb {
     if ((counts['day_result'] ?? 0) > 0) {
       await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
     }
+    // Last, so it can never be mistaken for a table row count by anything that
+    // walks this map in order.
+    if (importedDays != null) counts['_days'] = importedDays.length;
     return counts;
   }
 
@@ -6290,6 +6362,18 @@ class LocalDb {
   }
 
   /// Sessions whose `start_ts` (epoch SECONDS) is in [fromTs, toTs], newest first.
+  /// How many FINISHED sessions exist, ever. Counted in SQL: the Workouts tab
+  /// awaits this while it opens, and it used to pull every session row an
+  /// install had ever written (full payload, sorted) back across the platform
+  /// channel to add up one integer.
+  static Future<int> finishedSessionCount() async {
+    final db = await instance;
+    final r = await db.rawQuery(
+      "SELECT COUNT(*) c FROM sessions WHERE status IS NOT 'live'",
+    );
+    return (r.first['c'] as num?)?.toInt() ?? 0;
+  }
+
   static Future<List<Map<String, dynamic>>> sessionsInRange(
     int fromTs,
     int toTs,
@@ -6308,6 +6392,11 @@ class LocalDb {
     await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
     // Cascade: a route belongs to its session (on-device only, no FK enforced).
     await db.delete('workout_route', where: 'session_id = ?', whereArgs: [id]);
+    // …and so do its typed sets. These used to survive the delete, so a
+    // mistyped 200 kg set on a deleted workout kept coming back as "previous"
+    // and "best" on the strength screen (recentSetsFor reads strength_set with
+    // no session-existence filter) and kept exporting under a dead session_id.
+    await db.delete('strength_set', where: 'session_id = ?', whereArgs: [id]);
   }
 
   // ── workout GPS routes (run/ride/walk) I/O ─────────────────────────────────
@@ -6486,6 +6575,19 @@ class LocalDb {
     );
   }
 
+  /// Mark a session private (or not). Its own narrow UPDATE for the same reason
+  /// [setSessionType] is one: `putSession` is INSERT-OR-REPLACE over the whole
+  /// row, so a re-score would revert a flag it never read.
+  static Future<void> setSessionPrivate(String id, bool private) async {
+    final db = await instance;
+    await db.update(
+      'sessions',
+      {'private': private ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   // NOTE: the in-app notifications feed (putNotification/notifications/
   // markNotificationsRead/unreadCount, + the `notifications` table) was
   // removed — OS-level notifications (NotificationCenter.emit's
@@ -6523,8 +6625,15 @@ class LocalDb {
           await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
       deleted += await txn.delete('band_events',
           where: 'ts < ?', whereArgs: [cutoffSec]);
-      deleted += await txn.delete('band_battery',
-          where: 'ts < ?', whereArgs: [cutoffSec]);
+      // band_battery is NOT pruned here. It was, at the 3-day substrate cutoff,
+      // which structurally capped the battery-health series at 3 days — while
+      // batteryHealth() reports `charge_cycles` (rising 0→1 charging edges) and
+      // `full_charge_mv` (rolling max mV while charging), both of which only
+      // mean anything across the life of the pack. A year-old band would have
+      // reported 1 cycle. Six narrow columns a few minutes apart is not a
+      // storage problem; the 1 Hz substrate is.
+      // ponytail: unbounded, so give it its own multi-year cutoff if a real
+      // install's table ever shows up big.
     });
     return deleted;
   }
@@ -6570,6 +6679,13 @@ class LocalDb {
     if (free < minFreeBytes) return 0;
     final db = await instance;
     await db.execute('VACUUM');
+    // VACUUM rewrites the file and renumbers every btree root page. CoachDb
+    // caches the root pages of its allow-listed views to decide what a coach
+    // query is allowed to touch, and nothing else calls CoachDb.close() — so
+    // after this ran, every valid coach query started failing its own guard
+    // ("Query reaches storage outside the coach views") for the rest of the
+    // process. The invariant belongs to whoever moves the pages.
+    await CoachDb.close();
     return free;
   }
 

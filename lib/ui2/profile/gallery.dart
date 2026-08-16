@@ -44,7 +44,6 @@ import '../activity/setup.dart' show ActivitySetup;
 import '../activity/tiles.dart';
 import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
-import '../onboarding/profile_setup.dart' show UnlockContract;
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 // Screens are deliberately not re-exported from the ui2 barrel (see the
 // barrel test), so their components are imported by path.
@@ -223,7 +222,7 @@ Map<String, Widget> _chartCases() {
           series: minutes,
           child: CustomPaint(
             size: Size.infinite,
-            painter: Bars(minutes, p.on(C.domHealth), p.track,
+            painter: Bars(minutes, p.on(C.domHealth),
                 axis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120)),
           ),
         ),
@@ -1093,15 +1092,6 @@ Map<String, Widget> _listCases() => {
 /// Onboarding and import — the two flows a user sees exactly once, which is
 /// why they are the two nobody re-checks after a change.
 Map<String, Widget> _onboardingCases() => {
-      // `now` is pinned: an unlock date computed from the wall clock is a
-      // component whose picture changes every midnight.
-      'unlock_contract': UnlockContract(
-        metric: 'Heart-rate variability',
-        have: 3,
-        need: 7,
-        liveHr: 62,
-        now: DateTime(2026, 8, 16),
-      ),
       'import_report': const ImportReport(ImportOutcome(
           source: 'WHOOP export', days: 412, lateRows: 38, strandedDays: 2)),
       'import_report_failed': const ImportReport(ImportOutcome(

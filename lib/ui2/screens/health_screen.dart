@@ -338,14 +338,17 @@ class _HealthScreenState extends State<HealthScreen> {
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
         d.spark('resp_rate', 24), 'resp_rate',
-        // The old line described the METHOD and never said why the number was
-        // missing. It has exactly two ways to be missing: `resp_rate` is only
-        // ever computed over a sleep window, so no scored night means no
-        // reading at all; and a scored night can still fail to yield one when
-        // the beat timing it is recovered from is too noisy.
-        whyAbsent: sleepMin.isEmpty
-            ? 'Read only from sleep, and no night was scored.'
-            : 'Beat timing last night was too noisy to recover one.');
+        // THE ESTIMATOR'S OWN REASON when it left one, not a guess written
+        // here. `respiration.rsa` records which gate it failed — too few beats,
+        // artifact fraction over the gate, no stable HF peak, or a peak that
+        // moved across spectral resolutions — and the repository now carries
+        // that note through. This screen guessed "too noisy" for all four,
+        // which was right about a quarter of the time.
+        whyAbsent: respMetric.note?.isNotEmpty == true
+            ? respMetric.note!
+            : (sleepMin.isEmpty
+                ? 'Read only from sleep, and no night was scored.'
+                : 'No reading from last night.'));
 
     final illness = d.today['illness'];
     final state = illness is Map ? illness['state']?.toString() : null;

@@ -538,10 +538,27 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  /// The respiratory-rate envelope, INCLUDING the analytics note when the
+  /// estimator abstained.
+  ///
+  /// `respiration.rsa` is a full envelope and it already says exactly why there
+  /// is no number — "too few beats for an RSA spectral estimate (need ≥20)",
+  /// "artifact fraction 0.31 > gate 0.15", "no stable HF respiratory peak
+  /// resolved", "HF peak unstable across spectral resolutions". This used to
+  /// read that envelope for its confidence and throw the note away, returning
+  /// a bare null, so the screen fell back to a written-in-the-UI guess about
+  /// noisy beat timing — which is one of four possible reasons and was picked
+  /// by a human writing copy, not by the estimator.
+  ///
+  /// Carrying the note through costs nothing and is the difference between
+  /// telling someone why their night produced no number and guessing at it.
   Map<String, dynamic>? _respObj(Map<String, dynamic> b) {
     final rr = _scalar(b, 'resp_rate');
-    if (rr == null) return null;
     final env = _sub(b, 'respiration.rsa');
+    if (rr == null) {
+      final note = env?['note']?.toString();
+      return note == null || note.isEmpty ? null : {'value': null, 'note': note};
+    }
     // Round to 1 dp — the raw double (16.0121312…) was overflowing the card.
     return {
       'value': double.parse(rr.toStringAsFixed(1)),

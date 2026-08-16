@@ -106,12 +106,15 @@ class _ShareSheetState extends State<ShareSheet> {
     if (_hasArt(r))
       switch (arch) {
         Arch.route => ('Route', LucideIcons.map),
-        Arch.strength => ('Muscle map', LucideIcons.personStanding),
         Arch.journey => ('Elevation', LucideIcons.mountain),
-        Arch.flow => ('Calm', LucideIcons.leaf),
         Arch.laps => ('Lanes', LucideIcons.waves),
         Arch.interval => ('Rounds', LucideIcons.timer),
         Arch.match || Arch.basic => ('Heart rate', LucideIcons.activity),
+        // `_hasArt` is false for both — a lift and a flow session have
+        // nothing measured to draw. Unreachable, and a duplicate 'Minimal'
+        // if it ever is: a share sheet that throws is worse than one that
+        // offers the same style twice.
+        Arch.strength || Arch.flow => ('Minimal', LucideIcons.type),
       },
   ];
 
@@ -305,8 +308,8 @@ bool _hasArt(ActivityResult r) => switch (r.arch) {
   Arch.journey => r.elevationM.length >= 2,
   Arch.laps => r.lapSpeeds.isNotEmpty,
   Arch.interval => r.rounds.isNotEmpty,
-  // The breath ring is drawn, not measured, so a flow session always has one.
-  Arch.flow => true,
+  // The breath ring was drawn, not measured — see `_art`.
+  Arch.flow => false,
   Arch.match || Arch.basic => r.hr.length >= 2,
 };
 
@@ -552,13 +555,13 @@ class ShareCard extends StatelessWidget {
             ),
           ),
         );
+      // No breath ring, for the reason the summary screen already gives in
+      // words: the live ring is a PACER the user breathes along with, and a
+      // finished session has no phase to draw. A static ring at .8 is a
+      // measurement-shaped decoration, and this is the card that leaves the
+      // phone. A flow session shares as the minimal card.
       case Arch.flow:
-        return Center(
-          child: CustomPaint(
-            size: const Size(200, 200),
-            painter: BreathRing(.8, _ink(.35)),
-          ),
-        );
+        return const SizedBox.shrink();
       // A match and an untracked session share one honest texture: the heart
       // rate they actually recorded. (The court map this used to draw needed
       // indoor positioning, which nothing here has.)

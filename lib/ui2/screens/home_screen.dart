@@ -401,6 +401,102 @@ String driverLabel(Object? key) {
       : '${words[0].toUpperCase()}${words.substring(1)}';
 }
 
+/// The one number, and why.
+///
+/// Lifted out of the Home list so the gallery can photograph it. It was the
+/// card the whole app is judged by and the only one the component gallery
+/// could not show, because it lived inline in a `ListView` behind a database.
+/// Only rendered for a scored day — the absent case is a [StatusCard], not a
+/// ring with nothing in it.
+class ReadinessHero extends StatelessWidget {
+  final Metric readiness;
+  final List<Map<String, dynamic>> drivers;
+
+  /// The night this score describes, when that is not last night.
+  final String? heldOverNight;
+  final VoidCallback? onTap;
+
+  const ReadinessHero({
+    super.key,
+    required this.readiness,
+    this.drivers = const [],
+    this.heldOverNight,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final rv = readiness.value!;
+    final band = readinessBand(rv);
+    return Surface(
+      elevation: 2,
+      onTap: onTap,
+      semanticLabel: 'Readiness ${rv.round()} of 100. ${band.label}.',
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Names the night it came from when that is not last
+                  // night. The overnight block is held over until today's
+                  // settles, so before the first sync of the morning — and
+                  // for the whole of any gap after one — this number
+                  // describes an older night while the steps and energy
+                  // beside it describe today.
+                  Text(
+                      heldOverNight == null
+                          ? "Today's readiness"
+                          : 'Readiness · ${prettyDay(heldOverNight)}',
+                      style: F.cap.copyWith(color: p.ink2)),
+                  const SizedBox(height: S.x3),
+                  // A Wrap: the ring beside this column is a fixed 96 pt that
+                  // does not scale with text, so at an accessibility size
+                  // "72 /100" had nowhere to go and overflowed Home's first
+                  // card by 41 px. The "/100" drops to its own line instead.
+                  Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.end,
+                      children: [
+                        Text('${rv.round()}',
+                            style: F.n48.copyWith(color: p.ink)),
+                        Text(' /100', style: F.cap.copyWith(color: p.ink3)),
+                      ]),
+                  const SizedBox(height: S.x3),
+                  Pill(band.label, band.color),
+                ]),
+          ),
+          SizedBox(
+            width: 96,
+            height: 96,
+            child: CustomPaint(
+              painter: Ring(readiness.normalized(100), p.on(band.color),
+                  p.track,
+                  stroke: 11, t: animate(c, 1)),
+            ),
+          ),
+        ]),
+        if (drivers.isNotEmpty) ...[
+          const SizedBox(height: S.x4),
+          Divider(color: p.line, height: 1),
+          const SizedBox(height: S.x3),
+          Row(children: [
+            Text('Why?', style: F.cap.copyWith(color: p.ink3)),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text(
+                drivers.take(3).map((e) => driverLabel(e['label'])).join(' · '),
+                style: F.cap.copyWith(color: p.ink2),
+              ),
+            ),
+            Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
 // ═══════════════════ the screen ═══════════════════
 
 class HomeData {
@@ -578,7 +674,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final rv = d.readiness.value;
-    final band = readinessBand(rv);
     final stale = staleInsightsCard(d.insightsStale, syncOf(c));
     // Above the greeting, not below it: if the app had to rebuild the database
     // to start, that outranks anything else this screen has to say today.
@@ -632,70 +727,11 @@ class _HomeScreenState extends State<HomeScreen> {
                      ' to compare it to.') ??
             const SizedBox.shrink()
       else
-        Surface(
-          elevation: 2,
+        ReadinessHero(
+          readiness: d.readiness,
+          drivers: d.drivers,
+          heldOverNight: d.heldOverNight,
           onTap: () => go(c, const ReadinessDetail()),
-          semanticLabel: 'Readiness ${rv.round()} of 100. ${band.label}.',
-          child: Column(children: [
-            Row(children: [
-              Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Names the night it came from when that is not last
-                      // night. The overnight block is held over until today's
-                      // settles, so before the first sync of the morning — and
-                      // for the whole of any gap after one — this number
-                      // describes an older night while the steps and energy
-                      // beside it describe today.
-                      Text(
-                          d.heldOverNight == null
-                              ? "Today's readiness"
-                              : 'Readiness · ${prettyDay(d.heldOverNight)}',
-                          style: F.cap.copyWith(color: p.ink2)),
-                      const SizedBox(height: S.x3),
-                      Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text('${rv.round()}',
-                                style: F.n48.copyWith(color: p.ink)),
-                            Text(' /100', style: F.cap.copyWith(color: p.ink3)),
-                          ]),
-                      const SizedBox(height: S.x3),
-                      Pill(band.label, band.color),
-                    ]),
-              ),
-              SizedBox(
-                width: 96,
-                height: 96,
-                child: CustomPaint(
-                  painter: Ring(d.readiness.normalized(100), p.on(band.color),
-                      p.track,
-                      stroke: 11, t: animate(c, 1)),
-                ),
-              ),
-            ]),
-            if (d.drivers.isNotEmpty) ...[
-              const SizedBox(height: S.x4),
-              Divider(color: p.line, height: 1),
-              const SizedBox(height: S.x3),
-              Row(children: [
-                Text('Why?', style: F.cap.copyWith(color: p.ink3)),
-                const SizedBox(width: S.x2),
-                Expanded(
-                  child: Text(
-                    d.drivers
-                        .take(3)
-                        .map((e) => driverLabel(e['label']))
-                        .join(' · '),
-                    style: F.cap.copyWith(color: p.ink2),
-                  ),
-                ),
-                Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
-              ]),
-            ],
-          ]),
         ),
 
       // ── the rollup was withheld, not absent ──

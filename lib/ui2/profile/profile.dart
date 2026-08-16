@@ -60,11 +60,21 @@ class SetRow extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(title,
                   style: F.body.copyWith(color: danger ? p.on(C.red) : p.ink)),
+              if (value.isNotEmpty && bigText(c))
+                Text(value,
+                    style: F.cap.copyWith(
+                        color: p.ink3, fontWeight: FontWeight.w600)),
               if (sub.isNotEmpty)
                 Text(sub, style: F.over.copyWith(color: p.ink3)),
             ]),
           ),
-          if (value.isNotEmpty) ...[
+          // THE ROW RULE (see MetricRow): the title is the only flexible part,
+          // so every value in a settings list ends on one right edge. Two flex
+          // children would split the width by ratio and break that column.
+          // The value moves UNDER the title at accessibility sizes instead —
+          // "2026-08-16 04:12" is arbitrary-length, and at 3.1× it pushed
+          // itself and the chevron off the right of every settings screen.
+          if (value.isNotEmpty && !bigText(c)) ...[
             const SizedBox(width: S.x2),
             Text(value, style: F.cap.copyWith(color: p.ink3)),
           ],

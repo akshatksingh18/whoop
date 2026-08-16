@@ -743,19 +743,29 @@ class LiveHeart extends StatelessWidget {
     }
     final z = feed.zone;
     return Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(LucideIcons.heart, size: 18, color: p.on(C.red)),
-        const SizedBox(width: S.x2),
-        Text('${feed.hr}', style: F.n24.copyWith(color: p.ink)),
-        const SizedBox(width: S.x1),
-        Text('bpm', style: F.cap.copyWith(color: p.ink3)),
-        if (z != null) ...[
-          const SizedBox(width: S.x4),
-          // The zone's OWN colour, the one the bar underneath paints it in. A
-          // fixed green said "zone 5" and "zone 1" in the same breath.
-          Pill('Zone $z', ZoneBar.pigment[(z - 1).clamp(0, 4)]),
+      // A Wrap, not a Row: the beat, its unit and the zone pill fit one line
+      // at a normal text size and overflowed the live screen by 64 px at an
+      // accessibility one. Two lines is the honest answer; a clipped heart
+      // rate on a screen the user is exercising in front of is not.
+      Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: S.x2,
+        runSpacing: S.x1,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(LucideIcons.heart, size: 18, color: p.on(C.red)),
+            const SizedBox(width: S.x2),
+            Text('${feed.hr}', style: F.n24.copyWith(color: p.ink)),
+            const SizedBox(width: S.x1),
+            Text('bpm', style: F.cap.copyWith(color: p.ink3)),
+          ]),
+          if (z != null)
+            // The zone's OWN colour, the one the bar underneath paints it in. A
+            // fixed green said "zone 5" and "zone 1" in the same breath.
+            Pill('Zone $z', ZoneBar.pigment[(z - 1).clamp(0, 4)]),
         ],
-      ]),
+      ),
       if (feed.zoneMinutes.length == 5) ...[
         const SizedBox(height: S.x4),
         ChartFrame(

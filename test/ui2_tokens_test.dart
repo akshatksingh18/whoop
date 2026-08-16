@@ -143,4 +143,59 @@ void main() {
               'nobody can import is a component nobody will use.');
     }
   });
+
+  test('every component is in the gallery', () {
+    final gallery = File('lib/ui2/profile/gallery.dart').readAsStringSync();
+    final missing = <String>[];
+    for (final f in root
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      for (final line in codeLines(f.readAsStringSync())) {
+        // Public only. A private class is one file's own scaffolding, not a
+        // piece of the vocabulary anybody else can spend.
+        final m = RegExp(r'^class ([A-Z]\w*) extends St(ateless|ateful)Widget')
+            .firstMatch(line);
+        final name = m?.group(1);
+        if (name == null || _notComponents.contains(name)) continue;
+        if (!gallery.contains(name)) missing.add(name);
+      }
+    }
+    expect(missing, isEmpty,
+        reason: 'The gallery claims to hold every component in lib/ui2, and '
+            'these are not in it:\n  ${missing.join('\n  ')}\n\n'
+            'Add a case to gallery.dart, or add the name to _notComponents in '
+            'this file with the reason it is a screen and not a component. '
+            'A gallery that is only MOSTLY complete is one nobody trusts, and '
+            'the sweeps it feeds (overflow at 3.1x, the 44 pt tap floor) only '
+            'cover what is in it.');
+  });
 }
+
+/// Whole screens and routes — the things a gallery cannot put in a scroll
+/// because they are `Scaffold`s, own a lifecycle, or read the database. Every
+/// name here is deliberate: a new widget that is neither in the gallery nor on
+/// this list fails the test above, so the choice has to be made rather than
+/// drifted into.
+const _notComponents = {
+  // shell and routing
+  'AppShell', 'Domain', 'GalleryScreen',
+  // onboarding routes
+  'BootSplash', 'WelcomeScreen', 'WelcomeView', 'PairingScreen', 'PairingView',
+  'ProfileSetupScreen', 'ProfileSetupView',
+  // profile routes
+  'ProfileHome', 'ProfileHomeView', 'MoreSettings', 'MoreSettingsView',
+  'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
+  'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
+  'MyDevices', 'MyDevicesView', 'DeviceDetail', 'DeviceDetailView', 'RePair',
+  // tabs and drill-downs
+  'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
+  'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
+  'SleepDetail', 'CircadianDetail', 'Investigate', 'JournalCompose',
+  'LogFoodSheet', 'CalmBreathing',
+  // a live session — a stateful screen with a clock, per archetype
+  'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
+  'LiveFlow', 'LiveMatch', 'LiveInterval',
+  // the activity flow: pick → set up → do → summarise → share
+  'ActivityPicker', 'ActivitySetup', 'ActivitySummary', 'ShareSheet',
+};

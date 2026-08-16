@@ -270,11 +270,19 @@ class ActivityRow extends StatelessWidget {
               ],
             ]),
           ),
-          const SizedBox(width: S.x2),
-          Text(kcal == null
-              ? '${a.met.toStringAsFixed(1)} MET'
-              : '$kcal kcal / 30 min',
-              style: F.over.copyWith(color: p.ink3)),
+          // THE ROW RULE: the name is the only flexible part, so the calorie
+          // estimates line up down the list. At an accessibility size the
+          // estimate drops off the row rather than overflowing it — the name
+          // and the tap are what the row is for, and the same number is on
+          // the setup screen the tap opens.
+          if (!bigText(c)) ...[
+            const SizedBox(width: S.x2),
+            Text(
+                kcal == null
+                    ? '${a.met.toStringAsFixed(1)} MET'
+                    : '$kcal kcal / 30 min',
+                style: F.over.copyWith(color: p.ink3)),
+          ],
           const SizedBox(width: S.x2),
           Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
         ]),

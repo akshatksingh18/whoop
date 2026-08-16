@@ -28,10 +28,19 @@ import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../models/metric.dart';
+import '../activity/catalogue.dart';
+import '../activity/live.dart';
+import '../activity/picker.dart' show ActivityRow;
+import '../activity/share.dart' show ShareCard;
+import '../activity/summary.dart';
+import '../onboarding/profile_setup.dart' show UnlockContract;
+import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 // Screens are deliberately not re-exported from the ui2 barrel (see the
 // barrel test), so their components are imported by path.
 import '../screens/screens.dart';
 import '../ui2.dart';
+import 'devices.dart';
+import 'profile.dart';
 
 /// A deterministic series — a gallery cannot depend on random data, and
 /// neither can a golden.
@@ -52,6 +61,26 @@ Map<String, Widget> galleryCases() => {...goldenCases(), ...extraCases()};
 /// because a PNG per case per theme per scale is a file somebody has to
 /// review — see the note at the bottom of the golden test.
 Map<String, Widget> goldenCases() => {
+      // The one number the whole app is judged by, and the picture the app
+      // leaves someone else's phone. Both are photographed rather than merely
+      // swept: they are the two components a regression would be noticed in
+      // last and cost the most.
+      'readiness_hero': const ReadinessHero(
+        readiness:
+            Metric(value: 72, confidence: .8, tier: MetricTier.high),
+        drivers: [
+          {'label': 'hrv'},
+          {'label': 'sleep_debt'},
+          {'label': 'rhr'},
+        ],
+      ),
+      'readiness_hero_held_over': const ReadinessHero(
+        readiness:
+            Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
+        heldOverNight: '2026-08-14',
+      ),
+      'share_card': _shareCard(0),
+      'share_card_art': _shareCard(1),
       'signal': const SignalCard(
           LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
           unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),
@@ -293,6 +322,54 @@ Map<String, Widget> _nutritionAndWellnessCases() {
   };
 }
 
+// ══════════════════ a finished session ══════════════════
+
+/// One completed activity, carrying enough of everything that every share
+/// style has something to draw: a route, splits, a heart-rate curve WITH a
+/// dropout in it, and elevation.
+final _finished = ActivityResult(
+  const Activity('Trail running', LucideIcons.mountain, C.green,
+      Track.distance, 10.5,
+      gps: true),
+  // Fixed, never `DateTime.now()` — a gallery case that moves is a golden
+  // that fails on a Tuesday.
+  start: DateTime(2026, 8, 13, 18, 20),
+  // `Motion.tick * seconds` rather than a literal: theme.dart is the only
+  // file allowed to spell a Duration, and this is one second times N.
+  duration: Motion.tick * 3734,
+  avgHr: 148,
+  maxHr: 176,
+  calories: 812,
+  strain: 14.6,
+  hr: [
+    for (var i = 0; i < 62; i++)
+      i > 28 && i < 34 ? null : 132 + (i * 19 % 31) * 1.0,
+  ],
+  zoneMinutes: const [6, 14, 22, 16, 4],
+  route: _route,
+  routePace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
+  distanceKm: 12.42,
+  elevationM: _metres,
+  gainM: 318,
+  lossM: 302,
+  splits: const [
+    KmSplit(1, 302, avgHr: 141),
+    KmSplit(2, 288, avgHr: 149),
+    KmSplit(3, 331, avgHr: 152),
+  ],
+);
+
+/// The share card at one style. Every stat the session can offer is ticked —
+/// the longest realistic card, not the tidiest.
+Widget _shareCard(int style) => ShareCard(_finished, style, const {
+      'Time',
+      'Distance',
+      'Pace',
+      'Heart rate',
+      'Calories',
+      'Elevation',
+    });
+
 const _medDef = MedDef(
     key: 'custom_d',
     label: 'Vitamin D',
@@ -331,7 +408,11 @@ final _route = [
         .5 + .30 * sin(i / 90 * 2 * pi) * (1 - i / 260)),
 ];
 
-final _metres = List<double>.generate(120, (i) => 210 + (i * 31 % 140) * 1.0);
+// A climb and a descent with a rough surface on it, not noise: an elevation
+// profile shaped like white noise is a reference picture nobody can tell a
+// broken painter from.
+final _metres = List<double>.generate(
+    120, (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0);
 final _watts = List<double>.generate(60, (i) => 340 - i * 3.4 + (i % 7) * 6.0);
 final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
     .clamp(1, 60)
@@ -638,6 +719,157 @@ Map<String, Widget> extraCases() => {
           ]),
         ),
       ),
+      ..._liveCases(),
+      ..._listCases(),
+      ..._onboardingCases(),
+    };
+
+/// The live-session vocabulary. These are the pieces every `Live*` screen is
+/// assembled from; the screens themselves are `Scaffold`s and belong on a
+/// device, not in a scroll.
+Map<String, Widget> _liveCases() => {
+      'live_heart': const LiveHeart(LiveFeed(
+          hr: 148,
+          zone: 4,
+          zoneMinutes: [6, 14, 22, 16, 4],
+          bandConnected: true)),
+      // The two absences say different things, and one card used to cover
+      // both — it told a user whose band had dropped to adjust the fit of a
+      // band that was not on their wrist.
+      'live_heart_waiting':
+          const LiveHeart(LiveFeed(bandConnected: true)),
+      'live_heart_dropped': const LiveHeart(LiveFeed()),
+      'live_big_num': Builder(
+        builder: (c) => Surface(
+          child: Column(children: [
+            bigNum(P.of(c), '1:02:14', ''),
+            const SizedBox(height: S.x4),
+            bigNum(P.of(c), '12.42', 'km'),
+          ]),
+        ),
+      ),
+      'live_stat_row': Builder(
+        builder: (c) => Surface(
+          child: statRow(P.of(c), const [
+            ('148', 'AVG HEART RATE'),
+            ('812', 'CALORIES'),
+            ('14.6', 'STRAIN'),
+          ]),
+        ),
+      ),
+      'live_counter_buttons': Builder(
+        builder: (c) {
+          final p = P.of(c);
+          return Surface(
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              counterButton(p, LucideIcons.minus, p.on(C.red), 'One less rep',
+                  () {}),
+              const SizedBox(width: S.x5),
+              counterButton(p, LucideIcons.plus, p.on(C.green), 'One more rep',
+                  () {}),
+            ]),
+          );
+        },
+      ),
+    };
+
+/// Rows. Everything that lives in a list — settings, sources, activities,
+/// workbench tables. Each is captured with the LONGEST value its slot can
+/// hold: `SourceRow` shipped an overflow because every fixture said
+/// "Connected", and nothing said "Syncing · 4 minutes ago".
+Map<String, Widget> _listCases() => {
+      'set_row': Builder(
+        builder: (c) => settingsGroup(c, 'Settings row', [
+          SetRow(LucideIcons.bell, C.purple, 'Manage notifications',
+              sub: 'Bedtime, recovery, and the ones the band raises itself',
+              onTap: () {}),
+          SetRow(LucideIcons.ruler, C.blue, 'Units',
+              value: 'Metric', onTap: () {}),
+          const SetRow(LucideIcons.clock, C.n500, 'Last backup',
+              value: '2026-08-16 04:12', chevron: false),
+          SetRow(LucideIcons.trash2, C.red, 'Delete everything on this device',
+              danger: true, onTap: () {}),
+        ]),
+      ),
+      'source_row': Column(children: [
+        SourceRow(
+          HealthSource(
+            name: 'Abdul’s WHOOP band',
+            kind: 'WHOOP 4 · wrist optical',
+            tier: SourceTier.wristOptical,
+            icon: LucideIcons.watch,
+            connected: true,
+            syncing: true,
+            batteryPct: 18,
+            lastData: DateTime(2026, 8, 16, 4, 12),
+            isBand: true,
+          ),
+          onTap: () {},
+        ),
+        const SizedBox(height: S.x3),
+        const SourceRow(HealthSource(
+          name: 'iPhone',
+          kind: 'Motion coprocessor',
+          tier: SourceTier.phone,
+          icon: LucideIcons.smartphone,
+        )),
+      ]),
+      'tier_row': const Column(children: [
+        TierRow(SourceTier.wristOptical, filled: true),
+        SizedBox(height: S.x3),
+        TierRow(SourceTier.beatToBeat),
+      ]),
+      'activity_row': Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(children: [
+          const ActivityRow(
+              Activity('Trail running', LucideIcons.mountain, C.green,
+                  Track.distance, 10.5,
+                  gps: true),
+              weightKg: 78.4),
+          // No weight on file: the row falls back to the MET value rather
+          // than inventing a body to burn calories from.
+          const ActivityRow(Activity('Weight training', LucideIcons.dumbbell,
+              C.purple, Track.sets, 6.0)),
+        ]),
+      ),
+      'legend': const Surface(
+        child: Legend([
+          ('Deep', C.indigo),
+          ('REM', C.purple),
+          ('Light', C.blue),
+          ('Awake', C.orange),
+        ]),
+      ),
+      'mono_table': const MonoTable('What went into this number', [
+        ('rmssd_ms', '61.4'),
+        ('baseline_mean_ms', '67.2'),
+        ('nights_in_baseline', '14'),
+        ('artifact_share', '2.1%'),
+      ]),
+      'investigate_row': Builder(builder: (c) => investigateRow(c, () {})),
+      'no_data': const Surface(
+          child: NoData(message: 'No nights recorded this week')),
+    };
+
+/// Onboarding and import — the two flows a user sees exactly once, which is
+/// why they are the two nobody re-checks after a change.
+Map<String, Widget> _onboardingCases() => {
+      // `now` is pinned: an unlock date computed from the wall clock is a
+      // component whose picture changes every midnight.
+      'unlock_contract': UnlockContract(
+        metric: 'Heart-rate variability',
+        have: 3,
+        need: 7,
+        liveHr: 62,
+        now: DateTime(2026, 8, 16),
+      ),
+      'import_report': const ImportReport(ImportOutcome(
+          source: 'WHOOP export', days: 412, lateRows: 38, strandedDays: 2)),
+      'import_report_failed': const ImportReport(ImportOutcome(
+          source: 'physiological_cycles.csv',
+          error: 'The first row named columns this importer does not know, so '
+              'nothing in the file could be placed.')),
     };
 
 // ══════════════════ THE SCREEN ══════════════════

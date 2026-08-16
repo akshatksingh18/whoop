@@ -21,6 +21,9 @@
 
 import 'dart:math';
 
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -31,7 +34,8 @@ import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityRow;
-import '../activity/poster.dart' show PosterCard;
+import '../activity/poster.dart' show PosterCard, kPosterMapH, kPosterMapW;
+import '../activity/tiles.dart';
 import '../activity/share.dart' show ShareCard;
 import '../activity/summary.dart';
 import '../onboarding/profile_setup.dart' show UnlockContract;
@@ -1046,6 +1050,197 @@ Map<String, Widget> _onboardingCases() => {
               'nothing in the file could be placed.')),
     };
 
+/// A REAL run, on a real park loop, so the poster can be seen doing the one
+/// thing the offline case cannot show: sitting on actual streets.
+///
+/// Deliberately not in [galleryCases]. Every case in that map is shot by the
+/// goldens and swept for overflow at five text scales, and a case that reaches
+/// the network would make both of those a function of the wifi. This is
+/// screen-only, opt-in, and fetches nothing until it is on screen.
+final _demoRun = ActivityResult(
+  activityByName('Running')!,
+  start: DateTime(2026, 8, 16, 6, 40),
+  duration: Motion.tick * 920,
+  avgHr: 152,
+  maxHr: 171,
+  calories: 214,
+  strain: 8.4,
+  distanceKm: 3.07,
+  hr: [for (var i = 0; i < 15; i++) 138 + (i * 23 % 29) * 1.0],
+  zoneMinutes: const [1, 3, 6, 4, 1],
+  geo: _demoLoop,
+  route: _normalisedDemoLoop,
+  routePace: [for (var i = 0; i < _demoLoop.length; i++) (i * 7 % 20) / 20],
+);
+
+/// A lap of Cubbon Park, Bengaluru — about 3.07 km. Real coordinates, because
+/// the whole point is that the tiles underneath are a real place.
+const _demoLoop = <(double, double)>[
+  (12.9763, 77.597333),
+  (12.977093, 77.597514),
+  (12.977862, 77.597305),
+  (12.978521, 77.596848),
+  (12.979079, 77.596298),
+  (12.979556, 77.595704),
+  (12.979903, 77.595035),
+  (12.980017, 77.594288),
+  (12.979867, 77.593545),
+  (12.97958, 77.5929),
+  (12.979384, 77.592342),
+  (12.979424, 77.591733),
+  (12.979626, 77.59093),
+  (12.979724, 77.589952),
+  (12.979465, 77.589029),
+  (12.978799, 77.588459),
+  (12.9779, 77.588388),
+  (12.977021, 77.588702),
+  (12.9763, 77.589124),
+  (12.975704, 77.589429),
+  (12.975126, 77.58959),
+  (12.974521, 77.589739),
+  (12.973936, 77.590009),
+  (12.973428, 77.590427),
+  (12.972974, 77.59093),
+  (12.972499, 77.59148),
+  (12.971988, 77.59212),
+  (12.97158, 77.5929),
+  (12.971505, 77.593768),
+  (12.971907, 77.594541),
+  (12.972697, 77.595035),
+  (12.973595, 77.595229),
+  (12.974323, 77.595318),
+  (12.974799, 77.595569),
+  (12.975164, 77.596102),
+  (12.975632, 77.596787),
+  (12.9763, 77.597333),
+];
+
+/// The same loop in the 0…1 box, so the no-map fallback draws the same shape.
+final _normalisedDemoLoop = () {
+  var loLat = _demoLoop.first.$1, hiLat = loLat;
+  var loLng = _demoLoop.first.$2, hiLng = loLng;
+  for (final (lat, lng) in _demoLoop) {
+    loLat = min(loLat, lat);
+    hiLat = max(hiLat, lat);
+    loLng = min(loLng, lng);
+    hiLng = max(hiLng, lng);
+  }
+  final k = cos((loLat + hiLat) / 2 * pi / 180).abs();
+  final w = (hiLng - loLng) * k, h = hiLat - loLat;
+  final span = max(w, h);
+  final dx = (1 - w / span) / 2, dy = (1 - h / span) / 2;
+  return [
+    for (final (lat, lng) in _demoLoop)
+      Offset(dx + (lng - loLng) * k / span, dy + (hiLat - lat) / span),
+  ];
+}();
+
+/// The poster with a live basemap, and a photo slot.
+///
+/// Everything else in the gallery is a pure function of its fixtures. This one
+/// is not — it fetches tiles and it reads a file the user picks — which is
+/// exactly why it lives at the bottom of the screen, behind its own button,
+/// and not in the map the goldens shoot.
+class _PosterPreview extends StatefulWidget {
+  const _PosterPreview();
+
+  @override
+  State<_PosterPreview> createState() => _PosterPreviewState();
+}
+
+class _PosterPreviewState extends State<_PosterPreview> {
+  RouteMosaic? _mosaic;
+  File? _photo;
+  bool _loading = false;
+  bool _tried = false;
+
+  @override
+  void dispose() {
+    _mosaic?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _tried = true;
+    });
+    final p = P.of(context);
+    final m = await buildRouteMosaic(
+      _demoLoop,
+      width: kPosterMapW.round() * 3,
+      height: kPosterMapH.round() * 3,
+      bg: Color.lerp(C.n900, C.white, .06)!,
+      ink: p.inkOnFill,
+    );
+    if (!mounted) {
+      m?.dispose();
+      return;
+    }
+    setState(() {
+      _mosaic?.dispose();
+      _mosaic = m;
+      _loading = false;
+    });
+  }
+
+  Future<void> _pick() async {
+    try {
+      final picked = await FilePicker.platform
+          .pickFiles(type: FileType.image, allowMultiple: false);
+      final path = picked?.files.single.path;
+      if (path != null && mounted) setState(() => _photo = File(path));
+    } catch (_) {/* cancelled, or no picker — neither is an error */}
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('poster · live', style: F.over.copyWith(color: p.ink3)),
+      const SizedBox(height: S.x2),
+      Center(
+        child: PosterCard(
+          _demoRun,
+          const {'Time', 'Pace', 'Heart rate'},
+          photo: _photo == null ? null : FileImage(_photo!),
+          mosaic: _mosaic,
+        ),
+      ),
+      const SizedBox(height: S.x3),
+      Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(children: [
+          SetRow(LucideIcons.map, C.green,
+              _mosaic == null ? 'Load the map' : 'Reload the map',
+              sub: 'A real lap of Cubbon Park — fetches OpenStreetMap tiles',
+              value: _loading ? 'Loading' : '',
+              onTap: _loading ? null : _load),
+          Divider(color: p.line, height: 1),
+          SetRow(LucideIcons.imagePlus, C.purple,
+              _photo == null ? 'Add a photo' : 'Change photo',
+              sub: 'From this phone. Nothing is uploaded', onTap: _pick),
+          if (_photo != null) ...[
+            Divider(color: p.line, height: 1),
+            SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
+                chevron: false, onTap: () => setState(() => _photo = null)),
+          ],
+        ]),
+      ),
+      if (_tried && !_loading && _mosaic == null) ...[
+        const SizedBox(height: S.x3),
+        const StatusCard(
+          'No map came back',
+          'The tiles could not be fetched, so the route is drawn on its own — '
+              'which is exactly what the card does on a phone with no signal.',
+          icon: LucideIcons.mapPinOff,
+        ),
+      ],
+    ]);
+  }
+}
+
 // ══════════════════ THE SCREEN ══════════════════
 
 /// The whole design system on one scroll, at a scale and a theme you choose.
@@ -1111,6 +1306,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       padding:
                           const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
                       children: [
+                        // FIRST, not last. It is the only case that touches
+                        // the network or the filesystem, and it is also the
+                        // one worth opening the gallery for — burying it
+                        // under ninety other cases at 3.1x text would make it
+                        // unreachable in practice.
+                        const _PosterPreview(),
+                        const SizedBox(height: S.x6),
                         for (final e in cases.entries) ...[
                           Text(e.key, style: F.over.copyWith(color: gp.ink3)),
                           const SizedBox(height: S.x2),

@@ -253,17 +253,6 @@ class _SleepDetailState extends State<SleepDetail> {
 
       Section('Stages', _stages(c, p, n, tst)),
 
-      const SizedBox(height: S.x4),
-      StatusCard(
-        'Stages are a low-confidence estimate',
-        'Total sleep and timing are reliable. The light, deep and REM split is '
-        'an overlay, and deep is the weakest of the three.',
-        fix: 'How this is computed',
-        icon: LucideIcons.moon,
-        // A staging caveat used to open the HRV workbench.
-        onFix: () => go(c, const Investigate('sleep')),
-      ),
-
       Section('How the night went', _quality(c, p, d, n)),
 
       if ((n['cycle_count'] as num?) != null && (n['cycle_count'] as num) > 0)

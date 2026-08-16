@@ -118,21 +118,19 @@ String formatBytes(int b) {
 
 // ══════════════════ 1 · PROFILE HOME ══════════════════
 
-/// Everything the profile header can honestly count.
+/// What the profile screen still shows: who you are, how many sources are
+/// live, and how much room the data takes.
+///
+/// The workouts / records / days / sessions counters are gone with the tile
+/// that displayed them. They cost a `getRecords()` and a whole year-of-workouts
+/// query on every open, so leaving the fields behind would have kept paying for
+/// numbers nobody reads.
 class ProfileStats {
   final String? name;
-  final int workouts, records, days, sources, sessions;
+  final int sources;
   final int? storageBytes;
 
-  const ProfileStats({
-    this.name,
-    this.workouts = 0,
-    this.records = 0,
-    this.days = 0,
-    this.sources = 0,
-    this.sessions = 0,
-    this.storageBytes,
-  });
+  const ProfileStats({this.name, this.sources = 0, this.storageBytes});
 }
 
 class ProfileHome extends StatefulWidget {
@@ -153,18 +151,9 @@ class _ProfileHomeState extends State<ProfileHome> {
       return ProfileStats(
           name: app.user?['name'] as String?, sources: sources);
     }
-    final records = await repo.getRecords();
-    final year = await repo.getWorkouts(range: 'year');
     final bytes = await app.dataFileBytes();
     return ProfileStats(
       name: app.user?['name'] as String?,
-      workouts: (records['workouts_tracked'] as num?)?.toInt() ?? 0,
-      // A MAP of recordKey → record, not a list (`local_repository_impl`
-      // :1786). `as List?` on a Map is null, so this tile read 0 forever, for
-      // every user, since the day it was written.
-      records: (records['records'] as Map?)?.length ?? 0,
-      days: (records['days_tracked'] as num?)?.toInt() ?? 0,
-      sessions: ((year['summary'] as Map?)?['count'] as num?)?.toInt() ?? 0,
       sources: sources,
       storageBytes: bytes,
     );
@@ -238,25 +227,6 @@ class ProfileHomeView extends StatelessWidget {
                     child: Pill('Local · no cloud', C.green,
                         icon: LucideIcons.shieldCheck)),
                 const SizedBox(height: S.x6),
-                if (s == null)
-                  const StatusCard(
-                    'Counting your history',
-                    'Reading the day store. These are counts of measured '
-                        'days and sessions, not an account summary.',
-                    icon: LucideIcons.loader,
-                  )
-                else
-                  Surface(
-                    child: Row(children: [
-                      _stat(p, '${s.workouts}', 'Workouts'),
-                      _div(p),
-                      _stat(p, '${s.records}', 'Records'),
-                      _div(p),
-                      _stat(p, '${s.days}', 'Days'),
-                      _div(p),
-                      _stat(p, '${s.sources}', 'Sources'),
-                    ]),
-                  ),
                 settingsGroup(c, 'Quick access', [
                   SetRow(LucideIcons.watch, C.blue, 'My devices',
                       sub: s == null
@@ -265,15 +235,6 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onDevices),
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEdit),
-                  // A COUNT, not a destination. It used to open MoreSettings,
-                  // because there is no activity-history screen to open — a
-                  // chevron that lands somewhere unrelated is worse than no
-                  // chevron. History lives on the Workouts tab.
-                  SetRow(LucideIcons.history, C.teal, 'Activity history',
-                      sub: s == null
-                          ? ''
-                          : '${s.sessions} sessions this year · on the Workouts tab',
-                      chevron: false),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.database, C.green, 'Storage',
@@ -287,22 +248,6 @@ class ProfileHomeView extends StatelessWidget {
                       sub: 'Export, backup, units, privacy, reset',
                       onTap: onSettings),
                 ]),
-                const SizedBox(height: S.x6),
-                // Was "there is no analytics ... your data leaves this phone
-                // only when you export it yourself", which was false in two
-                // directions: crash reporting and the whole-database
-                // contribution both send things, and the release build checks
-                // for updates. All three are switchable and all three are
-                // named here, because a privacy claim the code contradicts is
-                // worse than no claim.
-                const StatusCard(
-                  'Everything stays on this device',
-                  'There is no account and no sync. The only things that ever '
-                      'leave are ones you switch on in Settings — crash '
-                      'reports, health-data contribution, update checks — and '
-                      'whatever you export yourself.',
-                  icon: LucideIcons.shieldCheck,
-                ),
               ],
             ),
           ),
@@ -311,16 +256,4 @@ class ProfileHomeView extends StatelessWidget {
     );
   }
 
-  Widget _stat(P p, String v, String l) => Expanded(
-        child: Column(children: [
-          Text(v, style: F.n24.copyWith(color: p.ink)),
-          const SizedBox(height: 3),
-          Text(l,
-              style: F.over.copyWith(color: p.ink3),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ]),
-      );
-
-  Widget _div(P p) => Container(width: 1, height: 30, color: p.line);
 }

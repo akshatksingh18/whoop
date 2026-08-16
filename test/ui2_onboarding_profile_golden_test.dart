@@ -105,13 +105,7 @@ Map<String, Widget> _cases() => {
       ),
       'profile_home': const ProfileHomeView(
         stats: ProfileStats(
-            name: 'Sahil',
-            workouts: 143,
-            records: 78,
-            days: 412,
-            sources: 2,
-            sessions: 143,
-            storageBytes: 1503238553),
+            name: 'Sahil', sources: 2, storageBytes: 1503238553),
       ),
       'profile_home_loading': const ProfileHomeView(),
       'my_devices': MyDevicesView(sources: [_band, _phone]),

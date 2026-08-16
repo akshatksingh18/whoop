@@ -164,14 +164,6 @@ class _DataScreenState extends State<DataScreen> {
                           'restores onto another phone',
                       onTap: _busy ? null : () => _run(_exportDb)),
                 ]),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, 0),
-                  child: Text(
-                    'Not in the spreadsheets (all of it is in the database '
-                    'file): ${kCsvExportExclusions.join('; ')}.',
-                    style: F.over.copyWith(color: p.ink3),
-                  ),
-                ),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, 'Automatic backup', [
                   SetRow(LucideIcons.calendarClock, C.purple, 'How often',

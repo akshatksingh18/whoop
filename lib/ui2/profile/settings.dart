@@ -242,10 +242,9 @@ class MoreSettingsView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
-                settingsGroup(c, 'You', [
-                  SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
-                      sub: 'Sex, age, height, weight', onTap: onEditProfile),
-                ]),
+                // No "Edit profile" here. It lives in one place — Quick access
+                // on the Profile screen — because two doors to one form is how
+                // a user ends up unsure which one is the real setting.
                 settingsGroup(c, 'The band', [
                   SetRow(LucideIcons.alarmClock, C.orange, 'Alarm',
                       sub: 'Buzzes on your wrist, on the band’s own clock',

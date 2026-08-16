@@ -587,8 +587,8 @@ Map<String, Widget> extraCases() => {
               size: Size.infinite,
               painter: RouteMap(_route,
                   pace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
-                  slow: p.on(C.green),
-                  fast: p.on(C.orange),
+                  slow: p.on(C.red),
+                  fast: p.on(C.green),
                   pinStart: p.on(C.green),
                   pinEnd: p.on(C.red),
                   pinInk: p.inkOnFill),
@@ -705,6 +705,43 @@ Map<String, Widget> extraCases() => {
             PaceBar(.78, P.of(c).on(C.domMove)),
             const SizedBox(height: S.x2),
             PaceBar(.21, P.of(c).on(C.domMove)),
+          ]),
+        ),
+      ),
+      // The finished-session stat block, in the three shapes it takes: a run
+      // (pace and the common three), a lift (the longest list any archetype
+      // prints, six rows deep), and a session that measured nothing but its
+      // own length — which is what a first workout without a band looks like,
+      // and is one row, not five rows of dashes.
+      'session_stats': SessionStats(_sessions['route']!),
+      'session_stats_strength': SessionStats(_sessions['strength']!),
+      'session_stats_bare': SessionStats(ActivityResult(
+        activityByName('Walking')!,
+        start: DateTime(2026, 8, 16, 8, 0),
+        duration: Motion.tick * 1500,
+      )),
+      // The same rows as a past session lists them, where absence is a word
+      // rather than a missing line — see `_HistoryRow._stats`.
+      'session_stats_history': Builder(
+        builder: (c) => Surface(
+          child: Column(children: [
+            PosterStatRow(
+                icon: statIcon('Time'),
+                label: 'Time',
+                value: '1:02:14',
+                accent: P.of(c).on(C.domMove)),
+            Divider(color: P.of(c).line, height: S.x5),
+            PosterStatRow(
+                icon: statIcon('Calories'),
+                label: 'Calories',
+                value: 'Not costed',
+                accent: P.of(c).on(C.domMove)),
+            Divider(color: P.of(c).line, height: S.x5),
+            PosterStatRow(
+                icon: statIcon('Max HR'),
+                label: 'Max HR',
+                value: 'No reading',
+                accent: P.of(c).on(C.domMove)),
           ]),
         ),
       ),

@@ -29,6 +29,11 @@ import '../profile/profile.dart';
 import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
 import 'catalogue.dart';
+// The share card and this screen describe the same session, so they draw its
+// stats with the same widget and split its values with the same function.
+// poster.dart imports this file back for [ActivityResult]; that is the seam,
+// not a layering mistake.
+import 'poster.dart' show PosterStatRow, posterStatIcon, splitStatUnit;
 import 'share.dart';
 
 /// The defining visual object of an activity. Everything else supports it.
@@ -375,6 +380,116 @@ String _shortDate(DateTime t) {
       '${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
 }
 
+// ── THE SUPPORTING STATS ───────────────────────────────────────────────────
+
+/// The glyph for a stat name.
+///
+/// [posterStatIcon] already owns every name a share card can offer; these are
+/// the ones only a session screen prints, and everything else falls through to
+/// it. One mapping, so `Pace` cannot end up with two marks.
+IconData statIcon(String name) => switch (name) {
+      'Reps' => LucideIcons.repeat2,
+      'Rounds' => LucideIcons.repeat,
+      'Poses' => LucideIcons.personStanding,
+      'Breathing' => LucideIcons.wind,
+      'Hard minutes' => LucideIcons.zap,
+      'Strain' => LucideIcons.trendingUp,
+      'Avg HR' => LucideIcons.heart,
+      'Max HR' => LucideIcons.heartPulse,
+      _ => posterStatIcon(name),
+    };
+
+/// The supporting numbers a finished session can honestly print, as
+/// `(name, formatted value)` — the shape [shareStats] hands the share card, so
+/// one session cannot describe itself two ways.
+///
+/// A stat with nothing behind it is DROPPED, never dashed. There is no cap:
+/// the three-across strip this replaced could hold exactly three, so a lift's
+/// calories and a run's strain were measured, banked, and then binned by a
+/// layout. A column has room for the ones the session actually has.
+List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
+  final out = <(String, String)>[];
+  void add(String name, String? v) {
+    if (v != null) out.add((name, v));
+  }
+
+  final distanceUnit = u?.distanceUnit ?? 'km';
+  final secPerKm = r.paceSecPerKm;
+  final perUnit = u == null ? 1.0 : u.distanceUnitMeters / 1000;
+  final pace = secPerKm == null
+      ? null
+      : UnitsController.formatPace(secPerKm * perUnit);
+
+  add('Time', hms(r.duration));
+  switch (r.arch) {
+    case Arch.route:
+      add('Pace', pace == null ? null : '$pace /$distanceUnit');
+    case Arch.strength:
+      add('Sets', '${r.strength.setCount}');
+      add('Reps', '${r.strength.repCount}');
+    case Arch.laps:
+      add('Laps', r.lapCount?.toString());
+    case Arch.journey:
+      add('Elevation', r.gainM == null ? null : '+${r.gainM!.round()} m');
+    case Arch.interval:
+      add('Rounds', r.rounds.isEmpty ? null : '${r.rounds.length}');
+    case Arch.flow:
+      add('Poses', r.poses.isEmpty ? null : '${r.poses.length}');
+      add(
+          'Breathing',
+          r.breathsPerMin == null
+              ? null
+              : '${r.breathsPerMin!.toStringAsFixed(1)} br/min');
+    case Arch.match:
+      add('Sets', r.gameScore.isEmpty ? null : '${r.gameScore.length}');
+      add('Hard minutes',
+          r.hardMinutes == null ? null : '${r.hardMinutes!.round()} min');
+    case Arch.basic:
+      break; // time, heart rate and calories are the whole story
+  }
+  // 'Avg HR', not 'Heart rate': the trace above is the heart rate, this is its
+  // mean, and the two sat on one screen under one word.
+  add('Avg HR', r.avgHr == null ? null : '${r.avgHr} bpm');
+  add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
+  add('Strain', r.strain?.toStringAsFixed(1));
+  return out;
+}
+
+/// A finished session's supporting stats, one to a row.
+///
+/// The three-across strip this replaces set three bare numbers side by side
+/// with a caption under each. The value column was a third of a card, so
+/// '5:08 /mi' had to hide its unit inside the label, and the fourth stat was
+/// dropped without saying so. One row per stat gives every one of them the
+/// same ringed mark, the same caps name, and the same value/unit pair the
+/// share card sets — [PosterStatRow], not a second row that agrees with it
+/// until somebody edits one of them.
+class SessionStats extends StatelessWidget {
+  final ActivityResult r;
+  const SessionStats(this.r, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // Solved against the page, not raw pigment: the poster paints its rings on
+    // one dark card it controls, and this one lands on both themes.
+    final accent = p.on(r.activity.color);
+    final rows = <Widget>[];
+    for (final s in sessionStats(r, unitsOf(c))) {
+      if (rows.isNotEmpty) rows.add(Divider(color: p.line, height: S.x5));
+      final (value, unit) = splitStatUnit(s.$2);
+      rows.add(PosterStatRow(
+        icon: statIcon(s.$1),
+        label: s.$1,
+        value: value,
+        unit: unit,
+        accent: accent,
+      ));
+    }
+    return Surface(child: Column(children: rows));
+  }
+}
+
 // ── THE SCREEN ─────────────────────────────────────────────────────────────
 
 class ActivitySummary extends StatefulWidget {
@@ -430,15 +545,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   }
 
   String get _distanceUnit => _u?.distanceUnit ?? 'km';
-
-  /// The session's average pace, formatted per the user's unit. Null when
-  /// there is no pace to show — the caller drops the stat.
-  String? get _pace {
-    final secPerKm = r.paceSecPerKm;
-    if (secPerKm == null) return null;
-    final perUnit = _u == null ? 1.0 : _u!.distanceUnitMeters / 1000;
-    return UnitsController.formatPace(secPerKm * perUnit);
-  }
 
   Future<void> _retrySave() async {
     if (_saving) return;
@@ -514,34 +620,41 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ),
         const SizedBox(height: S.x5),
       ],
-      Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Flexible(
-                child: Text(hero.$1,
-                    style: F.n48.copyWith(color: p.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis)),
-            if (hero.$2.isNotEmpty) ...[
-              const SizedBox(width: S.x2),
-              Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
-            ],
-            const Spacer(),
-            if (r.private)
-              const Pill('Private', C.n500, icon: LucideIcons.lock),
-          ]),
+      // ONE flexible child. A `Flexible` hero next to a `Spacer` split the row
+      // by flex, so the headline got half the width whatever it said, and a
+      // 1,500 m swim printed '1,…' at 2x text. The privacy pill keeps its
+      // natural width; the hero takes the rest and, like the share card's,
+      // scales down rather than truncating — a cut-off measurement is not a
+      // measurement.
+      Row(children: [
+        Expanded(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(hero.$1,
+                      style: F.n48.copyWith(color: p.ink), maxLines: 1),
+                  if (hero.$2.isNotEmpty) ...[
+                    const SizedBox(width: S.x2),
+                    Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
+                  ],
+                ]),
+          ),
+        ),
+        if (r.private) ...[
+          const SizedBox(width: S.x3),
+          const Pill('Private', C.n500, icon: LucideIcons.lock),
+        ],
+      ]),
       const SizedBox(height: S.x1),
       Text(hero.$3, style: F.cap.copyWith(color: p.ink2)),
       const SizedBox(height: S.x5),
       ..._definingObject(c, p),
       const SizedBox(height: S.x5),
-      Surface(
-        child: Row(
-            children: _stats()
-                .map((s) => Expanded(child: _st(p, s.$1, s.$2)))
-                .toList()),
-      ),
+      SessionStats(r),
       ..._body(c, p),
       // Zones belong to any session that banked a split — a lift and a yoga
       // class have heart-rate zones too.
@@ -604,53 +717,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     };
   }
 
-  /// Three supporting numbers. `—` never appears: a stat with nothing behind
-  /// it is dropped, and the row shrinks.
-  List<(String, String)> _stats() {
-    final out = <(String, String)>[];
-    void add(String? v, String label) {
-      if (v != null) out.add((v, label));
-    }
-
-    add(hms(r.duration), 'Time');
-    switch (arch) {
-      case Arch.route:
-        // The unit rides in the LABEL, as it does for 'm gain' — the value
-        // column is one of three and a '5:08 /mi' overflows it.
-        add(_pace, 'Pace /$_distanceUnit');
-      case Arch.strength:
-        add('${r.strength.setCount}', 'Sets');
-        add('${r.strength.repCount}', 'Reps');
-      case Arch.laps:
-        add(r.lapCount?.toString(), 'Laps');
-      case Arch.journey:
-        add(r.gainM == null ? null : '+${r.gainM!.round()}', 'm gain');
-      case Arch.interval:
-        add(r.rounds.isEmpty ? null : '${r.rounds.length}', 'Rounds');
-      case Arch.flow:
-        add(r.poses.isEmpty ? null : '${r.poses.length}', 'Poses');
-        add(r.breathsPerMin?.toStringAsFixed(1), 'Breaths/min');
-      case Arch.match:
-        add(r.gameScore.isEmpty ? null : '${r.gameScore.length}', 'Sets');
-        add(r.hardMinutes == null ? null : '${r.hardMinutes!.round()}',
-            'Hard min');
-      case Arch.basic:
-        break; // time, heart rate and calories are the whole story
-    }
-    add(r.avgHr?.toString(), 'Avg HR');
-    add(r.calories == null ? null : grouped(r.calories!), 'kcal');
-    add(r.strain?.toStringAsFixed(1), 'Strain');
-    return out.take(3).toList();
-  }
-
-  Widget _st(P p, String v, String l) => Column(children: [
-        Text(v, style: F.n24.copyWith(color: p.ink), maxLines: 1),
-        const SizedBox(height: S.x1),
-        Text(l,
-            style: F.over.copyWith(color: p.ink3),
-            textAlign: TextAlign.center),
-      ]);
-
   // ─────────── THE DEFINING VISUAL OBJECT ───────────
   List<Widget> _definingObject(BuildContext c, P p) {
     switch (arch) {
@@ -675,7 +741,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               height: 200,
               legend: r.routePace == null
                   ? const []
-                  : [('Slower', ZoneBar.cols(p)[2]), ('Faster', ZoneBar.cols(p)[3])],
+                  // Fast is GREEN, matching `paceColor` on the share card.
+                  // These were opposite: the same run read green at its
+                  // slowest here and green at its fastest on the poster, so a
+                  // card and the screen it came from disagreed about the run.
+                  : [('Slower', p.on(C.red)), ('Faster', p.on(C.green))],
               footnote: _distance == null
                   ? 'Start and finish are pinned.'
                   : '${_distance!.$1.toStringAsFixed(2)} ${_distance!.$2}, '
@@ -688,8 +758,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     size: Size.infinite,
                     painter: RouteMap(r.route,
                         pace: r.routePace,
-                        slow: p.on(C.green),
-                        fast: p.on(C.orange),
+                        slow: p.on(C.red),
+                        fast: p.on(C.green),
                         pinStart: p.on(C.green),
                         pinEnd: p.on(C.red),
                         pinInk: p.card),

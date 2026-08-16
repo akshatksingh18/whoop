@@ -25,6 +25,7 @@ import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart';
+import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
@@ -489,6 +490,7 @@ class _HistoryRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final a = w.activity;
+    final stats = _stats;
     return Surface(
       onTap: () => _open(c),
       child: Column(children: [
@@ -539,35 +541,37 @@ class _HistoryRow extends StatelessWidget {
           ),
         ],
         const SizedBox(height: S.x4),
-        Row(children: [
-          Expanded(child: _st(p, hms(w.duration), 'Duration')),
-          Expanded(
-              child: _st(
-                  p,
-                  w.calories == null ? 'Not costed' : grouped(w.calories!),
-                  'Calories · kcal')),
-          Expanded(
-              child: _st(p, w.maxHr == null ? 'No HR' : '${w.maxHr}',
-                  'Max HR · bpm')),
-        ]),
+        for (var i = 0; i < stats.length; i++) ...[
+          if (i > 0) Divider(color: p.line, height: S.x5),
+          PosterStatRow(
+            icon: statIcon(stats[i].$1),
+            label: stats[i].$1,
+            value: stats[i].$2,
+            unit: stats[i].$3,
+            accent: p.on(a.color),
+          ),
+        ],
       ]),
     );
   }
 
-  Widget _st(P p, String v, String l) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l,
-              style: F.over.copyWith(color: p.ink3),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: S.x1),
-          Text(v,
-              style: F.n17.copyWith(color: p.ink),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ],
-      );
+  /// `(name, value, unit)`. Absence is a WORD here rather than a dropped row,
+  /// which is the one place this differs from the summary's own stat block:
+  /// this is a LIST of sessions read against each other, and a card that
+  /// quietly loses its calorie line reads as a lighter session rather than an
+  /// uncosted one. The unit is null in that case — 'Not costed kcal' is not a
+  /// sentence.
+  List<(String, String, String?)> get _stats => [
+        ('Time', hms(w.duration), null),
+        if (w.calories == null)
+          ('Calories', 'Not costed', null)
+        else
+          ('Calories', grouped(w.calories!), 'kcal'),
+        if (w.maxHr == null)
+          ('Max HR', 'No reading', null)
+        else
+          ('Max HR', '${w.maxHr}', 'bpm'),
+      ];
 }
 
 /// One day's initial. Taken from the date the point carries — deriving it from

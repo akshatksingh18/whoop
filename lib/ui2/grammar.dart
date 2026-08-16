@@ -1081,11 +1081,21 @@ class InlineMetrics extends StatelessWidget {
               children: [
                 Text(e.$1, style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x1),
-                Text(
-                  e.$2,
-                  style: F.n17.copyWith(color: p.on(e.$3)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                // scaleDown, NOT ellipsis. These are measurements sharing
+                // one row, so the slot is a third of a card and a two-digit
+                // fixture fits where a real one does not: at 2x text the
+                // journey summary printed '+642…' and '−618…' where the
+                // numbers are +642 m and −618 m. A shrunk measurement is
+                // still the measurement; a truncated one is a different
+                // number.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    e.$2,
+                    style: F.n17.copyWith(color: p.on(e.$3)),
+                    maxLines: 1,
+                  ),
                 ),
               ],
             ),

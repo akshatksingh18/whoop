@@ -30,6 +30,7 @@
 // else's phone, and a 2× card would export clipped for every recipient.
 
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -53,11 +54,14 @@ const kPosterColW = kPosterW * _colFrac;
 const _padL = S.x5;
 const _padR = S.x3;
 
-/// The map box, in card units. Fixed rather than derived from the leftover
-/// space so the tile fetch can ask for the right aspect ratio up front — and
-/// [PosterRoute] covers rather than stretches if layout disagrees anyway.
-const kPosterMapW = kPosterColW - _padL - _padR;
-const kPosterMapH = 52.0;
+/// The basemap's frame, in card units — the WHOLE card.
+///
+/// The map is not a component on this card. It is the ground the card stands
+/// on: full bleed, dissolved into whatever is behind it, and visible only in a
+/// soft corridor along the route (see [PosterMap]). So the tile fetch asks for
+/// the card's own aspect, and the painter never has to letterbox anything.
+const kPosterMapW = kPosterW;
+const kPosterMapH = kPosterH;
 
 /// The hero's slot. Fixed so the column's arithmetic is fixed: the number
 /// inside scales down to fit rather than pushing the map off the card.
@@ -128,6 +132,27 @@ class PosterCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              // THE MAP, full bleed, directly on the picture and UNDER the scrim.
+              //
+              // Not a component with a border and a corner radius — the
+              // ground the card stands on. It is masked to a soft corridor
+              // along the route, so what survives is the streets you actually
+              // ran through and the block either side of them, dissolving to
+              // nothing after that. Over a photo it additionally fades
+              // upward, so it reads as part of the picture rather than as a
+              // panel someone dropped on top of it.
+              CustomPaint(
+                painter: PosterMap(
+                  mosaic: mosaic,
+                  fallback: r.route,
+                  pace: r.routePace,
+                  line: accent,
+                  casing: C.n900,
+                  start: C.green,
+                  end: C.red,
+                  overPhoto: photo != null,
+                ),
+              ),
               // The scrim is what makes white type legible over an unknown
               // picture. Without it the card is a coin toss: a bright sky and
               // the distance disappears. It runs sideways rather than down
@@ -142,10 +167,16 @@ class PosterCard extends StatelessWidget {
                     // straight ramp to zero at 65% leaves only .21 alpha under
                     // the last third of the type, and a bright photo eats the
                     // labels there.
-                    stops: const [0, .40, .74, 1],
+                    // Held across the FULL column, then dropped. A straight
+                    // ramp to zero at 65% leaves only .21 alpha under the last
+                    // third of the type; and once a basemap is behind, a route
+                    // line runs diagonally across the whole card and crossed
+                    // 'HEART RATE' at .62. The column is the left half, so the
+                    // hold has to reach the whole half.
+                    stops: const [0, .50, .82, 1],
                     colors: [
-                      C.n900.withValues(alpha: photo == null ? .82 : .94),
-                      C.n900.withValues(alpha: photo == null ? .62 : .80),
+                      C.n900.withValues(alpha: photo == null ? .84 : .94),
+                      C.n900.withValues(alpha: photo == null ? .78 : .88),
                       C.n900.withValues(alpha: 0),
                       C.n900.withValues(alpha: 0),
                     ],
@@ -175,6 +206,18 @@ class PosterCard extends StatelessWidget {
                 width: kPosterColW,
                 child: _column(accent, stats, posterHero(r, u)),
               ),
+              // The credit. On the card because the map is on the card, and
+              // absent when there are no tiles — crediting OpenStreetMap for
+              // a map that is not there would be its own small lie.
+              if (mosaic != null)
+                Positioned(
+                  right: S.x2,
+                  bottom: S.x1,
+                  child: Text(kOsmAttribution,
+                      style: F.over.copyWith(
+                          color: C.white.withValues(alpha: .55),
+                          letterSpacing: 0)),
+                ),
             ],
           ),
         ),
@@ -209,11 +252,10 @@ class PosterCard extends StatelessWidget {
                 ink: C.white,
               ),
             ],
-            // The slack lives here, so the map and the stamp stay pinned to
-            // the bottom whether the session printed three rows or none.
+            // The slack lives here, so the stamp stays pinned to the bottom
+            // whether the session printed four rows or none. The map is no
+            // longer in this column at all — it is behind everything.
             const Spacer(),
-            _map(accent),
-            const SizedBox(height: S.x2),
             _stamp(accent),
           ],
         ),
@@ -294,50 +336,6 @@ class PosterCard extends StatelessWidget {
         ),
       );
 
-  Widget _map(Color accent) => SizedBox(
-        width: kPosterMapW,
-        height: kPosterMapH,
-        child: ClipRRect(
-          borderRadius: R.rMd,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ColoredBox(color: Color.lerp(C.n900, C.white, .10)!),
-              CustomPaint(
-                painter: PosterRoute(
-                  mosaic: mosaic,
-                  fallback: r.route,
-                  pace: r.routePace,
-                  line: accent,
-                  casing: C.n900,
-                  start: C.green,
-                  end: C.red,
-                ),
-              ),
-              // The credit rides ON the map, because the map is what it
-              // credits and the two must never be separable by a crop — and it
-              // is absent when there are no tiles, because crediting
-              // OpenStreetMap for a map that is not on the card would be its
-              // own small lie.
-              if (mosaic != null)
-                Positioned(
-                  left: S.x1,
-                  right: S.x1,
-                  bottom: 1,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(kOsmAttribution,
-                        style: F.over.copyWith(
-                            color: C.white.withValues(alpha: .80),
-                            letterSpacing: 0)),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-
   Widget _stamp(Color accent) => Row(children: [
         Icon(LucideIcons.calendar, size: 11, color: accent),
         const SizedBox(width: S.x2),
@@ -395,16 +393,22 @@ class PosterStatRow extends StatelessWidget {
     final p = P.of(c);
     final on = ink ?? p.ink;
     final muted = ink == null ? p.ink3 : ink!.withValues(alpha: .62);
+    // The mark grows with the type, up to a point. On the poster this is
+    // always 1.0 — that card pins `TextScaler.noScaling` — but the workout
+    // screens use this row for real and inherit the reader's size, where a
+    // fixed 24 pt ring beside 34 pt type reads as a bullet. Clamped at 2×
+    // because past that the mark starts costing the value its width.
+    final k = MediaQuery.textScalerOf(c).scale(1).clamp(1.0, 2.0);
     return Row(children: [
       Container(
-        width: S.x6,
-        height: S.x6,
+        width: S.x6 * k,
+        height: S.x6 * k,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(color: accent.withValues(alpha: .55)),
         ),
-        child: Icon(icon, size: 12, color: accent),
+        child: Icon(icon, size: 12 * k, color: accent),
       ),
       const SizedBox(width: S.x3),
       Expanded(
@@ -484,18 +488,33 @@ Color paceColor(double t) {
 /// Two passes for the line — a dark casing under a coloured core — because a
 /// single stroke over an arbitrary photo or an arbitrary map tile is legible
 /// against some of them and invisible against the rest.
-class PosterRoute extends CustomPainter {
+/// The basemap and the route, as one dissolved layer.
+///
+/// The tiles are NOT drawn as a rectangle. They are drawn through a mask built
+/// from the route itself — a very wide, heavily blurred stroke along the path —
+/// so the map survives only where the route went and for a block or so either
+/// side, and fades to nothing everywhere else. That is what makes it read as
+/// part of the picture rather than as a map component sitting on one.
+///
+/// Over a photo a second mask is multiplied in: the map is at full strength
+/// along the bottom of the card and gone by the upper third, so it dissolves
+/// into the picture instead of competing with it. With no photo it keeps the
+/// whole card, because then it IS the background.
+class PosterMap extends CustomPainter {
   final RouteMosaic? mosaic;
 
   /// The 0…1 normalised route, used only when [mosaic] is null.
   final List<Offset> fallback;
 
-  /// Per-point 0…1 speed, for the ramp. Null when the fixes carried no speed.
+  /// Per-point 0…1 speed for the ramp. Null when the fixes carried no speed.
   final List<double>? pace;
 
   final Color line, casing, start, end;
 
-  PosterRoute({
+  /// Whether a photo is behind. Adds the upward fade — see the class note.
+  final bool overPhoto;
+
+  PosterMap({
     required this.mosaic,
     required this.fallback,
     required this.pace,
@@ -503,58 +522,84 @@ class PosterRoute extends CustomPainter {
     required this.casing,
     required this.start,
     required this.end,
+    required this.overPhoto,
   });
+
+  /// How far either side of the route the map survives, and how softly it
+  /// stops. Both are fractions of the card's short side, so the dissolve is
+  /// the same at any export size.
+  static const _corridor = .30;
+  static const _feather = .085;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-
-    List<Offset> pts;
-    final m = mosaic;
-    if (m != null) {
-      // COVER, not stretch. The mosaic is fetched at one size and the box it
-      // lands in is decided by layout, so the two will not always agree — and
-      // a basemap scaled unevenly is a map of somewhere that does not exist.
-      // One uniform scale, centred, cropping the overhang; the route is
-      // transformed identically so it stays on its own streets.
-      final k = math.max(size.width / m.width, size.height / m.height);
-      final ox = (size.width - m.width * k) / 2;
-      final oy = (size.height - m.height * k) / 2;
-      canvas.save();
-      canvas.translate(ox, oy);
-      canvas.scale(k, k);
-      canvas.drawImage(m.image, Offset.zero, Paint()..isAntiAlias = true);
-      canvas.restore();
-      pts = [for (final o in m.path) Offset(ox + o.dx * k, oy + o.dy * k)];
-    } else {
-      // No basemap: fit the normalised shape into the box with a margin, the
-      // same way the plain card does. Room at the top for the pins, which
-      // stand ABOVE the point they mark.
-      const pad = .12;
-      final s = size.shortestSide * (1 - pad * 2);
-      final ox = (size.width - s) / 2, oy = (size.height - s) / 2;
-      pts = [for (final o in fallback) Offset(ox + o.dx * s, oy + o.dy * s)];
-    }
+    final pts = projectRoute(mosaic, fallback, size);
     if (pts.length < 2) return;
-    for (final o in pts) {
-      if (o.dx.isNaN || o.dy.isNaN) return;
-    }
 
     final path = Path()..moveTo(pts.first.dx, pts.first.dy);
     for (final o in pts.skip(1)) {
       path.lineTo(o.dx, o.dy);
     }
+    final rect = Offset.zero & size;
+    final m = mosaic;
+
+    if (m != null) {
+      canvas.saveLayer(rect, Paint());
+      // The tiles, cover-fitted — see `projectRoute`, which fits the route
+      // through the identical transform so the line stays on its own streets.
+      final k = math.max(size.width / m.width, size.height / m.height);
+      canvas.save();
+      canvas.translate(
+          (size.width - m.width * k) / 2, (size.height - m.height * k) / 2);
+      canvas.scale(k, k);
+      canvas.drawImage(m.image, Offset.zero, Paint()..isAntiAlias = true);
+      canvas.restore();
+
+      // The mask, composed in its own layer so the corridor and the upward
+      // fade multiply rather than each overwriting the other, then applied to
+      // the tiles in one `dstIn`.
+      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.dstIn);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = size.shortestSide * _corridor
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..color = C.white
+          ..maskFilter = MaskFilter.blur(
+              BlurStyle.normal, size.shortestSide * _feather)
+          ..isAntiAlias = true,
+      );
+      if (overPhoto) {
+        canvas.drawRect(
+          rect,
+          Paint()
+            ..blendMode = BlendMode.dstIn
+            ..shader = ui.Gradient.linear(
+              Offset(0, size.height),
+              Offset(0, size.height * .30),
+              [C.white, C.white.withValues(alpha: 0)],
+            ),
+        );
+      }
+      canvas.restore();
+      canvas.restore();
+    }
+
+    // The line itself, at full strength on top of the dissolve — the one part
+    // of this layer that is a measurement rather than a texture.
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 5
+        ..strokeWidth = 5.5
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
-        ..color = casing.withValues(alpha: .55)
+        ..color = casing.withValues(alpha: .45)
         ..isAntiAlias = true,
     );
-
     final core = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
@@ -563,7 +608,6 @@ class PosterRoute extends CustomPainter {
       ..isAntiAlias = true;
     final ramp = pace;
     if (ramp != null && ramp.length == pts.length) {
-      // Segment by segment, so the colour is the speed you were doing there.
       for (var i = 1; i < pts.length; i++) {
         core.color = paceColor((ramp[i] + ramp[i - 1]) / 2);
         canvas.drawLine(pts[i - 1], pts[i], core);
@@ -571,38 +615,73 @@ class PosterRoute extends CustomPainter {
     } else {
       canvas.drawPath(path, core..color = line);
     }
-
-    _pin(canvas, pts.first, start);
-    _pin(canvas, pts.last, end);
-  }
-
-  /// A map pin, not a dot: the head sits above the fix and the tip is on it,
-  /// so the mark points at the place rather than covering it.
-  void _pin(Canvas canvas, Offset o, Color col) {
-    const rad = 3.6, tall = 11.0;
-    final head = Offset(o.dx, o.dy - tall + rad);
-    final path = Path()
-      ..addOval(Rect.fromCircle(center: head, radius: rad))
-      ..moveTo(o.dx - rad * .72, head.dy + rad * .70)
-      ..lineTo(o.dx, o.dy)
-      ..lineTo(o.dx + rad * .72, head.dy + rad * .70)
-      ..close();
-    canvas.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeJoin = StrokeJoin.round
-        ..color = C.white
-        ..isAntiAlias = true,
-    );
-    canvas.drawPath(path, Paint()..color = col..isAntiAlias = true);
-    canvas.drawCircle(head, 1.4, Paint()..color = C.white);
+    drawPin(canvas, pts.first, start);
+    drawPin(canvas, pts.last, end);
   }
 
   @override
-  bool shouldRepaint(covariant PosterRoute o) =>
-      o.mosaic != mosaic || o.fallback != fallback || o.line != line;
+  bool shouldRepaint(covariant PosterMap o) =>
+      o.mosaic != mosaic ||
+      o.fallback != fallback ||
+      o.line != line ||
+      o.overPhoto != overPhoto;
+}
+
+/// The route in paint space, through the same transform the tiles get.
+///
+/// With a mosaic that is a cover-fit of the fetched frame — one uniform scale,
+/// centred, cropping the overhang, because a basemap scaled unevenly is a map
+/// of somewhere that does not exist. Without one it is the normalised shape
+/// fitted into the box, which is all the card can honestly draw.
+///
+/// Returns an empty list rather than a NaN: a NaN reaches a `Path` and takes
+/// the whole card down with it.
+List<Offset> projectRoute(
+    RouteMosaic? mosaic, List<Offset> fallback, Size size) {
+  List<Offset> pts;
+  final m = mosaic;
+  if (m != null) {
+    final k = math.max(size.width / m.width, size.height / m.height);
+    final ox = (size.width - m.width * k) / 2;
+    final oy = (size.height - m.height * k) / 2;
+    pts = [for (final o in m.path) Offset(ox + o.dx * k, oy + o.dy * k)];
+  } else {
+    // No basemap: the shape, inset, with room at the top for the pins — they
+    // stand ABOVE the point they mark.
+    const pad = .14;
+    final s = size.shortestSide * (1 - pad * 2);
+    final ox = (size.width - s) / 2, oy = (size.height - s) / 2;
+    pts = [for (final o in fallback) Offset(ox + o.dx * s, oy + o.dy * s)];
+  }
+  if (pts.length < 2) return const [];
+  for (final o in pts) {
+    if (o.dx.isNaN || o.dy.isNaN) return const [];
+  }
+  return pts;
+}
+
+/// A map pin, not a dot: the head sits above the fix and the tip is on it, so
+/// the mark points at the place rather than covering it.
+void drawPin(Canvas canvas, Offset o, Color col) {
+  const rad = 3.6, tall = 11.0;
+  final head = Offset(o.dx, o.dy - tall + rad);
+  final path = Path()
+    ..addOval(Rect.fromCircle(center: head, radius: rad))
+    ..moveTo(o.dx - rad * .72, head.dy + rad * .70)
+    ..lineTo(o.dx, o.dy)
+    ..lineTo(o.dx + rad * .72, head.dy + rad * .70)
+    ..close();
+  canvas.drawPath(
+    path,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeJoin = StrokeJoin.round
+      ..color = C.white
+      ..isAntiAlias = true,
+  );
+  canvas.drawPath(path, Paint()..color = col..isAntiAlias = true);
+  canvas.drawCircle(head, 1.4, Paint()..color = C.white);
 }
 
 /// `20 May 2026 • 7:15 AM`, in the reader's own clock terms.

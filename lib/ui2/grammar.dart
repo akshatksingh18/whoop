@@ -80,10 +80,11 @@ class _PressableState extends State<Pressable> {
       // into a greedy box that ate the whole scroll view — caught by the
       // first golden, and invisible in any layout with a bounded parent.
       child: Align(
-          alignment: Alignment.center,
-          widthFactor: 1,
-          heightFactor: 1,
-          child: widget.child),
+        alignment: Alignment.center,
+        widthFactor: 1,
+        heightFactor: 1,
+        child: widget.child,
+      ),
     );
     if (widget.onTap == null) {
       return widget.semanticLabel == null
@@ -169,20 +170,22 @@ class Scrubber extends StatelessWidget {
       decreasedValue: describe(down),
       onIncrease: () => onChanged(up),
       onDecrease: () => onChanged(down),
-      child: LayoutBuilder(builder: (_, box) {
-        final w = box.maxWidth;
-        void set(Offset o) =>
-            onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, 1.0));
-        return Listener(
-          // Opaque, like Pressable. A `Listener` defers to its child by
-          // default, so the strip was only touchable where the painter
-          // happened to claim a hit — which is a coincidence, not a target.
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (e) => set(e.localPosition),
-          onPointerMove: (e) => set(e.localPosition),
-          child: child,
-        );
-      }),
+      child: LayoutBuilder(
+        builder: (_, box) {
+          final w = box.maxWidth;
+          void set(Offset o) =>
+              onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, 1.0));
+          return Listener(
+            // Opaque, like Pressable. A `Listener` defers to its child by
+            // default, so the strip was only touchable where the painter
+            // happened to claim a hit — which is a coincidence, not a target.
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (e) => set(e.localPosition),
+            onPointerMove: (e) => set(e.localPosition),
+            child: child,
+          );
+        },
+      ),
     );
   }
 }
@@ -233,36 +236,51 @@ class Section extends StatelessWidget {
   final Widget child;
   final VoidCallback? onAction;
 
-  const Section(this.title, this.child,
-      {super.key, this.action, this.onAction});
+  const Section(
+    this.title,
+    this.child, {
+    super.key,
+    this.action,
+    this.onAction,
+  });
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(S.x1, S.x5, S.x1, S.x2),
-        child: Row(children: [
-          Expanded(child: Text(title, style: F.head.copyWith(color: p.ink))),
-          if (action != null)
-            Flexible(
-                child: Pressable(
-              onTap: onAction,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: S.x2),
-                child: Text(
-                  action!,
-                  style: F.cap.copyWith(
-                      color: p.on(C.blue), fontWeight: FontWeight.w600),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(S.x1, S.x5, S.x1, S.x2),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(title, style: F.head.copyWith(color: p.ink)),
               ),
-            )),
-        ]),
-      ),
-      child,
-    ]);
+              if (action != null)
+                Flexible(
+                  child: Pressable(
+                    onTap: onAction,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: S.x2),
+                      child: Text(
+                        action!,
+                        style: F.cap.copyWith(
+                          color: p.on(C.blue),
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        child,
+      ],
+    );
   }
 }
 
@@ -275,8 +293,16 @@ class SignalCard extends StatelessWidget {
 
   final VoidCallback? onTap;
 
-  const SignalCard(this.icon, this.color, this.label, this.value,
-      {super.key, this.unit = '', this.sub = '', this.onTap});
+  const SignalCard(
+    this.icon,
+    this.color,
+    this.label,
+    this.value, {
+    super.key,
+    this.unit = '',
+    this.sub = '',
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -284,41 +310,53 @@ class SignalCard extends StatelessWidget {
     return Surface(
       onTap: onTap,
       semanticLabel: '$label, $value $unit'.trim(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(icon, size: 16, color: p.on(color)),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Text(label,
-                style: F.cap.copyWith(color: p.ink2),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: p.on(color)),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  label,
+                  style: F.cap.copyWith(color: p.ink2),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
-        ]),
-        const SizedBox(height: S.x3),
-        Row(
+          const SizedBox(height: S.x3),
+          Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
               Flexible(
-                child: Text(value,
-                    style: F.n24.copyWith(color: p.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
+                child: Text(
+                  value,
+                  style: F.n24.copyWith(color: p.ink),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               if (unit.isNotEmpty) ...[
                 const SizedBox(width: S.x1),
                 Text(unit, style: F.cap.copyWith(color: p.ink3)),
               ],
-            ]),
-        if (sub.isNotEmpty) ...[
-          const SizedBox(height: S.x1),
-          Text(sub,
+            ],
+          ),
+          if (sub.isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            Text(
+              sub,
               style: F.over.copyWith(color: p.ink3),
               maxLines: 2,
-              overflow: TextOverflow.ellipsis),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -332,46 +370,71 @@ class ProgressCard extends StatelessWidget {
   final IconData? icon;
 
   const ProgressCard(
-      this.label, this.value, this.target, this.frac, this.color,
-      {super.key, this.icon});
+    this.label,
+    this.value,
+    this.target,
+    this.frac,
+    this.color, {
+    super.key,
+    this.icon,
+  });
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final amount = Wrap(spacing: S.x2, children: [
-      Text(value,
-          style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-      Text(target, style: F.cap.copyWith(color: p.ink3)),
-    ]);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Label and amount share a line until the text scale makes that a choice
-      // between truncating a measurement and growing the card. `1h 38m / of
-      // 2h 00m` overflowed by 262 px at 3× — and by 105 px with the golden's
-      // own two-character fixture, which is how it shipped.
-      if (bigText(c))
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            if (icon != null) ...[
-              Icon(icon, size: 15, color: p.on(color)),
-              const SizedBox(width: S.x2),
+    final amount = Wrap(
+      spacing: S.x2,
+      children: [
+        Text(
+          value,
+          style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+        ),
+        Text(target, style: F.cap.copyWith(color: p.ink3)),
+      ],
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label and amount share a line until the text scale makes that a choice
+        // between truncating a measurement and growing the card. `1h 38m / of
+        // 2h 00m` overflowed by 262 px at 3× — and by 105 px with the golden's
+        // own two-character fixture, which is how it shipped.
+        if (bigText(c))
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 15, color: p.on(color)),
+                    const SizedBox(width: S.x2),
+                  ],
+                  Expanded(
+                    child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: S.x1),
+              amount,
             ],
-            Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
-          ]),
-          const SizedBox(height: S.x1),
-          amount,
-        ])
-      else
-        Row(children: [
-          if (icon != null) ...[
-            Icon(icon, size: 15, color: p.on(color)),
-            const SizedBox(width: S.x2),
-          ],
-          Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
-          amount,
-        ]),
-      const SizedBox(height: S.x2),
-      _Bar(frac: frac, color: color),
-    ]);
+          )
+        else
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: p.on(color)),
+                const SizedBox(width: S.x2),
+              ],
+              Expanded(
+                child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+              ),
+              amount,
+            ],
+          ),
+        const SizedBox(height: S.x2),
+        _Bar(frac: frac, color: color),
+      ],
+    );
   }
 }
 
@@ -407,9 +470,19 @@ class TrendCard extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const TrendCard(this.label, this.value, this.unit, this.delta, this.window,
-      this.series, this.color,
-      {super.key, this.up = false, this.good = true, this.onTap});
+  const TrendCard(
+    this.label,
+    this.value,
+    this.unit,
+    this.delta,
+    this.window,
+    this.series,
+    this.color, {
+    super.key,
+    this.up = false,
+    this.good = true,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -420,26 +493,35 @@ class TrendCard extends StatelessWidget {
     // same arrow in different hues. Hue alone is not a channel, so the reading
     // goes in the label too.
     final judgement = good ? 'an improvement' : 'worse than usual';
-    final change = Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-          size: 14, color: dir),
-      const SizedBox(width: S.x1),
-      Text(delta,
-          style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600)),
-    ]);
+    final change = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+          size: 14,
+          color: dir,
+        ),
+        const SizedBox(width: S.x1),
+        Text(
+          delta,
+          style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
     return Surface(
       onTap: onTap,
-      semanticLabel:
-          '$label, $value $unit, $delta $window, $judgement'.trim(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: F.cap.copyWith(color: p.ink2)),
-        const SizedBox(height: S.x2),
-        // A realistic value — `7h 42m`, not the two characters the golden used
-        // to pass on — pushed the delta and its arrow clean off the card: 202 px
-        // at 2×, 458 at 3×. Above the restack point the change moves to its own
-        // run rather than off the edge.
-        if (bigText(c))
-          Wrap(
+      semanticLabel: '$label, $value $unit, $delta $window, $judgement'.trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.cap.copyWith(color: p.ink2)),
+          const SizedBox(height: S.x2),
+          // A realistic value — `7h 42m`, not the two characters the golden used
+          // to pass on — pushed the delta and its arrow clean off the card: 202 px
+          // at 2×, 458 at 3×. Above the restack point the change moves to its own
+          // run rather than off the edge.
+          if (bigText(c))
+            Wrap(
               crossAxisAlignment: WrapCrossAlignment.end,
               spacing: S.x2,
               runSpacing: S.x1,
@@ -447,39 +529,52 @@ class TrendCard extends StatelessWidget {
                 Text(value, style: F.n34.copyWith(color: p.ink)),
                 Text(unit, style: F.cap.copyWith(color: p.ink3)),
                 change,
-              ])
-        else
-          Row(
+              ],
+            )
+          else
+            Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Flexible(
-                  child: Text(value,
-                      style: F.n34.copyWith(color: p.ink),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    value,
+                    style: F.n34.copyWith(color: p.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(width: S.x1),
                 Expanded(
-                    child: Text(unit, style: F.cap.copyWith(color: p.ink3))),
-                Icon(up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-                    size: 14, color: dir),
+                  child: Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                ),
+                Icon(
+                  up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+                  size: 14,
+                  color: dir,
+                ),
                 const SizedBox(width: S.x1),
-                Text(delta,
-                    style:
-                        F.cap.copyWith(color: dir, fontWeight: FontWeight.w600)),
-              ]),
-        const SizedBox(height: S.x1),
-        Text(window, style: F.over.copyWith(color: p.ink3)),
-        const SizedBox(height: S.x4),
-        SizedBox(
-          height: 64,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: LineChart(series, p.on(color), dotInk: p.card),
+                Text(
+                  delta,
+                  style: F.cap.copyWith(
+                    color: dir,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: S.x1),
+          Text(window, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x4),
+          SizedBox(
+            height: 64,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(series, p.on(color), dotInk: p.card),
+            ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -492,12 +587,15 @@ class InsightCard extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const InsightCard(this.headline, this.reason,
-      {super.key,
-      this.action = '',
-      this.icon = LucideIcons.sparkles,
-      this.color = C.blue,
-      this.onTap});
+  const InsightCard(
+    this.headline,
+    this.reason, {
+    super.key,
+    this.action = '',
+    this.icon = LucideIcons.sparkles,
+    this.color = C.blue,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -508,36 +606,53 @@ class InsightCard extends StatelessWidget {
       color: p.wash(color, strength: .65),
       elevation: 0,
       semanticLabel: '$headline. $reason',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 32,
-            height: 32,
-            alignment: Alignment.center,
-            decoration:
-                BoxDecoration(color: p.wash(color), borderRadius: R.rSm),
-            child: Icon(icon, size: 16, color: ink),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(icon, size: 16, color: ink),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: S.x1),
+                    Text(
+                      reason,
+                      style: F.cap.copyWith(color: p.ink2, height: 1.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(headline,
-                  style:
-                      F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-              const SizedBox(height: S.x1),
-              Text(reason, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
-            ]),
-          ),
-        ]),
-        if (action.isNotEmpty) ...[
-          const SizedBox(height: S.x2),
-          Padding(
-            padding: const EdgeInsets.only(left: S.x10 + S.x1),
-            child: _Cta(action, ink),
-          ),
+          if (action.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            Padding(
+              padding: const EdgeInsets.only(left: S.x10 + S.x1),
+              child: _Cta(action, ink),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -555,19 +670,23 @@ class _Cta extends StatelessWidget {
   const _Cta(this.label, this.color, {this.arrow = true});
 
   @override
-  Widget build(BuildContext c) =>
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        Flexible(
-          child: Text(label,
-              style: F.cap.copyWith(color: color, fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
+  Widget build(BuildContext c) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(
+        child: Text(
+          label,
+          style: F.cap.copyWith(color: color, fontWeight: FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        if (arrow) ...[
-          const SizedBox(width: S.x1),
-          Icon(LucideIcons.arrowRight, size: 13, color: color),
-        ],
-      ]);
+      ),
+      if (arrow) ...[
+        const SizedBox(width: S.x1),
+        Icon(LucideIcons.arrowRight, size: 13, color: color),
+      ],
+    ],
+  );
 }
 
 // ══════════════════ E · ACTION ══════════════════
@@ -578,8 +697,15 @@ class ActionCard extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const ActionCard(this.title, this.meta, this.cta, this.icon, this.color,
-      {super.key, this.onTap});
+  const ActionCard(
+    this.title,
+    this.meta,
+    this.cta,
+    this.icon,
+    this.color, {
+    super.key,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -591,38 +717,52 @@ class ActionCard extends StatelessWidget {
     final badge = Container(
       padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
       decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rSm),
-      child: Text(cta,
-          style:
-              F.cap.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600)),
+      child: Text(
+        cta,
+        style: F.cap.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600),
+      ),
     );
-    final head = Row(children: [
-      Container(
-        width: S.tap,
-        height: S.tap,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
-        child: Icon(icon, size: 20, color: p.on(color)),
-      ),
-      const SizedBox(width: S.x3),
-      Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title,
-              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-          Text(meta, style: F.cap.copyWith(color: p.ink3)),
-        ]),
-      ),
-      if (!wide) ...[const SizedBox(width: S.x3), badge],
-    ]);
+    final head = Row(
+      children: [
+        Container(
+          width: S.tap,
+          height: S.tap,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
+          child: Icon(icon, size: 20, color: p.on(color)),
+        ),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(meta, style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+        if (!wide) ...[const SizedBox(width: S.x3), badge],
+      ],
+    );
     return Surface(
       onTap: onTap,
       semanticLabel: '$title. $meta. $cta',
       child: !wide
           ? head
-          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              head,
-              const SizedBox(height: S.x3),
-              Align(alignment: Alignment.centerLeft, child: badge),
-            ]),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                head,
+                const SizedBox(height: S.x3),
+                Align(alignment: Alignment.centerLeft, child: badge),
+              ],
+            ),
     );
   }
 }
@@ -637,17 +777,25 @@ class StatusCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onFix;
 
-  const StatusCard(this.what, this.why,
-      {super.key,
-      this.fix = '',
-      this.icon = LucideIcons.circleHelp,
-      this.onFix});
+  const StatusCard(
+    this.what,
+    this.why, {
+    super.key,
+    this.fix = '',
+    this.icon = LucideIcons.circleHelp,
+    this.onFix,
+  });
 
   /// Build straight from a baseline-gated abstention — turns the analytics
   /// `need_baseline:have=H,need=N` note into the honest three-part copy
   /// instead of a dash. Returns null when [m] actually has a value.
-  static StatusCard? forMetric(String what, Metric? m,
-      {String unit = 'nights', String why = '', VoidCallback? onFix}) {
+  static StatusCard? forMetric(
+    String what,
+    Metric? m, {
+    String unit = 'nights',
+    String why = '',
+    VoidCallback? onFix,
+  }) {
     if (m != null && !m.isEmpty) return null;
     final need = needMessageFromNote(m?.note, unit: unit);
     return StatusCard(
@@ -655,8 +803,8 @@ class StatusCard extends StatelessWidget {
       why.isNotEmpty
           ? why
           : (need != null
-              ? 'Not enough history yet to know what normal looks like for you.'
-              : 'No measurement covering this period.'),
+                ? 'Not enough history yet to know what normal looks like for you.'
+                : 'No measurement covering this period.'),
       fix: need ?? '',
       onFix: onFix,
     );
@@ -670,23 +818,32 @@ class StatusCard extends StatelessWidget {
       color: p.card2,
       onTap: onFix,
       semanticLabel: '$what. $why. $fix'.trim(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(icon, size: 16, color: p.ink3),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Text(what,
-                style:
-                    F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: p.ink3),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  what,
+                  style: F.body.copyWith(
+                    color: p.ink2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ]),
-        const SizedBox(height: S.x2),
-        Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
-        if (fix.isNotEmpty) ...[
-          const SizedBox(height: S.x3),
-          _Cta(fix, p.on(C.blue), arrow: onFix != null),
+          const SizedBox(height: S.x2),
+          Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+          if (fix.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            _Cta(fix, p.on(C.blue), arrow: onFix != null),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -699,8 +856,16 @@ class DeepDiveCard extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const DeepDiveCard(this.label, this.value, this.unit, this.cta, this.color,
-      {super.key, this.preview, this.onTap});
+  const DeepDiveCard(
+    this.label,
+    this.value,
+    this.unit,
+    this.cta,
+    this.color, {
+    super.key,
+    this.preview,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -708,44 +873,52 @@ class DeepDiveCard extends StatelessWidget {
     return Surface(
       onTap: onTap,
       semanticLabel: '$label, $value $unit. $cta',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Same restack as TrendCard, for the same reason: `7h 42m` beside a
-        // full-width label overflowed by 184 px at 3×.
-        if (bigText(c))
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: F.cap.copyWith(color: p.ink2)),
-            const SizedBox(height: S.x1),
-            Wrap(
-                crossAxisAlignment: WrapCrossAlignment.end,
-                spacing: S.x1,
-                children: [
-                  Text(value, style: F.n24.copyWith(color: p.ink)),
-                  Text(unit, style: F.cap.copyWith(color: p.ink3)),
-                ]),
-          ])
-        else
-          Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Same restack as TrendCard, for the same reason: `7h 42m` beside a
+          // full-width label overflowed by 184 px at 3×.
+          if (bigText(c))
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: F.cap.copyWith(color: p.ink2)),
+                const SizedBox(height: S.x1),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  spacing: S.x1,
+                  children: [
+                    Text(value, style: F.n24.copyWith(color: p.ink)),
+                    Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                  ],
+                ),
+              ],
+            )
+          else
+            Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Expanded(
-                    child: Text(label, style: F.cap.copyWith(color: p.ink2))),
+                  child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+                ),
                 Flexible(
-                  child: Text(value,
-                      style: F.n24.copyWith(color: p.ink),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    value,
+                    style: F.n24.copyWith(color: p.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(width: S.x1),
                 Text(unit, style: F.cap.copyWith(color: p.ink3)),
-              ]),
-        if (preview != null) ...[
+              ],
+            ),
+          if (preview != null) ...[const SizedBox(height: S.x3), preview!],
           const SizedBox(height: S.x3),
-          preview!,
+          _Cta(cta, p.on(color)),
         ],
-        const SizedBox(height: S.x3),
-        _Cta(cta, p.on(color)),
-      ]),
+      ),
     );
   }
 }
@@ -764,59 +937,74 @@ class MetricRow extends StatelessWidget {
   final String? status;
   final VoidCallback? onTap;
 
-  const MetricRow(this.icon, this.color, this.name, this.value,
-      {super.key,
-      this.sub = '',
-      this.unit = '',
-      this.spark = const [],
-      this.status,
-      this.onTap});
+  const MetricRow(
+    this.icon,
+    this.color,
+    this.name,
+    this.value, {
+    super.key,
+    this.sub = '',
+    this.unit = '',
+    this.spark = const [],
+    this.status,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final title =
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(name,
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
           style: F.body.copyWith(color: p.ink),
           maxLines: 1,
-          overflow: TextOverflow.ellipsis),
-      if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
-    ]);
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
+      ],
+    );
     final amount = Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          // NOT Flexible. Sharing the row's flex with the name gave the value
-          // a quarter of the width and no more, so 'Respiratory rate' shipped
-          // reading `1… br/min` — a truncated measurement, which this row is
-          // supposed to never do. It is the name that gives way now.
-          Text(value,
-              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-          if (unit.isNotEmpty) ...[
-            const SizedBox(width: 2),
-            Text(unit, style: F.over.copyWith(color: p.ink3)),
-          ],
-        ]);
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        // NOT Flexible. Sharing the row's flex with the name gave the value
+        // a quarter of the width and no more, so 'Respiratory rate' shipped
+        // reading `1… br/min` — a truncated measurement, which this row is
+        // supposed to never do. It is the name that gives way now.
+        Text(
+          value,
+          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (unit.isNotEmpty) ...[
+          const SizedBox(width: 2),
+          Text(unit, style: F.over.copyWith(color: p.ink3)),
+        ],
+      ],
+    );
     // The trailing slot is fixed only for the spark, which genuinely has a
     // fixed size. `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was
     // being silently clipped inside a 52 pt box before any scaling at all — so
     // it gets measured space instead.
     final trailing = status != null
-        ? Text(status!,
+        ? Text(
+            status!,
             style: F.over.copyWith(color: p.on(C.green)),
-            textAlign: TextAlign.end)
+            textAlign: TextAlign.end,
+          )
         : spark.isEmpty
-            ? const SizedBox.shrink()
-            : SizedBox(
-                width: 52,
-                height: 22,
-                child: CustomPaint(
-                    painter: LineChart(spark, p.on(color), fill: false)),
-              );
+        ? const SizedBox.shrink()
+        : SizedBox(
+            width: 52,
+            height: 22,
+            child: CustomPaint(
+              painter: LineChart(spark, p.on(color), fill: false),
+            ),
+          );
     return Pressable(
       onTap: onTap,
       semanticLabel: '$name, $value $unit'.trim(),
@@ -826,38 +1014,45 @@ class MetricRow extends StatelessWidget {
             // A dense row cannot stay one line at accessibility sizes without
             // truncating the measurement, and a truncated measurement is worse
             // than a taller row.
-            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(icon, size: 18, color: p.on(color)),
-                const SizedBox(width: S.x3),
-                Expanded(
-                  child: Column(
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, size: 18, color: p.on(color)),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         title,
                         const SizedBox(height: S.x1),
                         Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: S.x3,
-                            runSpacing: S.x1,
-                            children: [amount, trailing]),
-                      ]),
-                ),
-              ])
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: S.x3,
+                          runSpacing: S.x1,
+                          children: [amount, trailing],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
             // THE ROW RULE, and it holds for every label→value row in the app:
             // the name is the only flexible part, so the measurement keeps its
             // natural width and every row in a list ends on one right edge.
             // Two flex children split the width by ratio instead, which left
             // each value block starting and ending at its own x — a column of
             // readings that did not read as a column.
-            : Row(children: [
-                Icon(icon, size: 18, color: p.on(color)),
-                const SizedBox(width: S.x3),
-                Expanded(child: title),
-                const SizedBox(width: S.x2),
-                amount,
-                const SizedBox(width: S.x3),
-                trailing,
-              ]),
+            : Row(
+                children: [
+                  Icon(icon, size: 18, color: p.on(color)),
+                  const SizedBox(width: S.x3),
+                  Expanded(child: title),
+                  const SizedBox(width: S.x2),
+                  amount,
+                  const SizedBox(width: S.x3),
+                  trailing,
+                ],
+              ),
       ),
     );
   }
@@ -875,15 +1070,19 @@ class InlineMetrics extends StatelessWidget {
       children: [
         for (final e in items)
           Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(e.$1, style: F.over.copyWith(color: p.ink3)),
-              const SizedBox(height: S.x1),
-              Text(e.$2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.$1, style: F.over.copyWith(color: p.ink3)),
+                const SizedBox(height: S.x1),
+                Text(
+                  e.$2,
                   style: F.n17.copyWith(color: p.on(e.$3)),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ]),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
       ],
     );
@@ -899,8 +1098,14 @@ class Recommendation extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const Recommendation(this.rec, this.reason, this.action,
-      {super.key, this.color = C.green, this.onTap});
+  const Recommendation(
+    this.rec,
+    this.reason,
+    this.action, {
+    super.key,
+    this.color = C.green,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -908,22 +1113,31 @@ class Recommendation extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel: '$rec. $reason. $action',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(rec, style: F.t2.copyWith(color: p.ink)),
-        const SizedBox(height: S.x2),
-        Text(reason, style: F.body.copyWith(color: p.ink2, height: 1.5)),
-        const SizedBox(height: S.x3),
-        Row(children: [
-          Flexible(
-            child: Text(action,
-                style: F.body
-                    .copyWith(color: p.on(color), fontWeight: FontWeight.w600),
-                maxLines: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(rec, style: F.t2.copyWith(color: p.ink)),
+          const SizedBox(height: S.x2),
+          Text(reason, style: F.body.copyWith(color: p.ink2, height: 1.5)),
+          const SizedBox(height: S.x3),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  action,
+                  style: F.body.copyWith(
+                    color: p.on(color),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                ),
+              ),
+              const SizedBox(width: S.x1),
+              Icon(LucideIcons.arrowRight, size: 15, color: p.on(color)),
+            ],
           ),
-          const SizedBox(width: S.x1),
-          Icon(LucideIcons.arrowRight, size: 15, color: p.on(color)),
-        ]),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -939,8 +1153,15 @@ class GoalTrajectory extends StatelessWidget {
   final bool rateDown;
 
   const GoalTrajectory(
-      this.label, this.current, this.target, this.rate, this.frac, this.color,
-      {super.key, this.rateDown = true});
+    this.label,
+    this.current,
+    this.target,
+    this.rate,
+    this.frac,
+    this.color, {
+    super.key,
+    this.rateDown = true,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -948,31 +1169,41 @@ class GoalTrajectory extends StatelessWidget {
     final ink = p.on(color);
     return Surface(
       semanticLabel: '$label, $current toward $target. $rate',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: F.cap.copyWith(color: p.ink2)),
-        const SizedBox(height: S.x3),
-        // Wrap, not Row: at large text scales the goal label drops to its own
-        // line rather than pushing the number off the card. A truncated
-        // measurement is worse than a taller card.
-        Wrap(
-          crossAxisAlignment: WrapCrossAlignment.end,
-          spacing: S.x3,
-          runSpacing: S.x1,
-          children: [
-            Text(current, style: F.n34.copyWith(color: p.ink)),
-            Text('Goal $target', style: F.cap.copyWith(color: p.ink3)),
-          ],
-        ),
-        const SizedBox(height: S.x3),
-        _Bar(frac: frac, color: color),
-        const SizedBox(height: S.x2),
-        Row(children: [
-          Icon(rateDown ? LucideIcons.trendingDown : LucideIcons.trendingUp,
-              size: 14, color: ink),
-          const SizedBox(width: S.x1),
-          Flexible(child: Text(rate, style: F.cap.copyWith(color: ink))),
-        ]),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.cap.copyWith(color: p.ink2)),
+          const SizedBox(height: S.x3),
+          // Wrap, not Row: at large text scales the goal label drops to its own
+          // line rather than pushing the number off the card. A truncated
+          // measurement is worse than a taller card.
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x3,
+            runSpacing: S.x1,
+            children: [
+              Text(current, style: F.n34.copyWith(color: p.ink)),
+              Text('Goal $target', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          _Bar(frac: frac, color: color),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              Icon(
+                rateDown ? LucideIcons.trendingDown : LucideIcons.trendingUp,
+                size: 14,
+                color: ink,
+              ),
+              const SizedBox(width: S.x1),
+              Flexible(
+                child: Text(rate, style: F.cap.copyWith(color: ink)),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -983,8 +1214,13 @@ class Observation extends StatelessWidget {
   final String headline, detail, advice;
   final VoidCallback? onTap;
 
-  const Observation(this.headline, this.detail, this.advice,
-      {super.key, this.onTap});
+  const Observation(
+    this.headline,
+    this.detail,
+    this.advice, {
+    super.key,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -1002,30 +1238,42 @@ class Observation extends StatelessWidget {
           border: Border(left: BorderSide(color: ink, width: 3)),
           boxShadow: p.el(1),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(LucideIcons.stethoscope, size: 15, color: ink),
-            const SizedBox(width: S.x2),
-            Flexible(
-              child: Text('HEALTH OBSERVATION',
-                  style: F.over.copyWith(color: ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(LucideIcons.stethoscope, size: 15, color: ink),
+                const SizedBox(width: S.x2),
+                Flexible(
+                  child: Text(
+                    'HEALTH OBSERVATION',
+                    style: F.over.copyWith(color: ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-          ]),
-          const SizedBox(height: S.x3),
-          Text(headline,
-              style: F.body.copyWith(
-                  color: p.ink, fontWeight: FontWeight.w600, height: 1.45)),
-          const SizedBox(height: S.x2),
-          Text(detail, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
-          const SizedBox(height: S.x2),
-          Text(advice, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
-          if (onTap != null) ...[
             const SizedBox(height: S.x3),
-            _Cta('View data', ink),
+            Text(
+              headline,
+              style: F.body.copyWith(
+                color: p.ink,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: S.x2),
+            Text(detail, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+            const SizedBox(height: S.x2),
+            Text(advice, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            if (onTap != null) ...[
+              const SizedBox(height: S.x3),
+              _Cta('View data', ink),
+            ],
           ],
-        ]),
+        ),
       ),
     );
   }
@@ -1046,32 +1294,37 @@ class Consistency extends StatelessWidget {
     final n = of <= 0 ? 0 : of;
     return Semantics(
       label: '$have of $n days. $label',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Wrap(
-          crossAxisAlignment: WrapCrossAlignment.end,
-          spacing: S.x1,
-          children: [
-            Text('$have', style: F.n24.copyWith(color: p.ink)),
-            Text('of $n days', style: F.cap.copyWith(color: p.ink3)),
-          ],
-        ),
-        const SizedBox(height: S.x2),
-        Row(children: [
-          for (var i = 0; i < n; i++)
-            Expanded(
-              child: Container(
-                margin: EdgeInsets.only(right: i == n - 1 ? 0 : 2),
-                height: 6,
-                decoration: BoxDecoration(
-                  color: i < have ? p.on(color) : p.track,
-                  borderRadius: const BorderRadius.all(Radius.circular(2)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x1,
+            children: [
+              Text('$have', style: F.n24.copyWith(color: p.ink)),
+              Text('of $n days', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              for (var i = 0; i < n; i++)
+                Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(right: i == n - 1 ? 0 : 2),
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i < have ? p.on(color) : p.track,
+                      borderRadius: const BorderRadius.all(Radius.circular(2)),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-        ]),
-        const SizedBox(height: S.x2),
-        Text(label, style: F.cap.copyWith(color: p.ink3)),
-      ]),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Text(label, style: F.cap.copyWith(color: p.ink3)),
+        ],
+      ),
     );
   }
 }
@@ -1086,8 +1339,13 @@ class SubTabs extends StatelessWidget {
   final ValueChanged<int> onTap;
   final Color color;
 
-  const SubTabs(this.items, this.index, this.onTap,
-      {super.key, this.color = C.green});
+  const SubTabs(
+    this.items,
+    this.index,
+    this.onTap, {
+    super.key,
+    this.color = C.green,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -1136,15 +1394,19 @@ class ScreenTitle extends StatelessWidget {
     final p = P.of(c);
     return Padding(
       padding: const EdgeInsets.fromLTRB(S.x1, S.x2, S.x1, S.x3),
-      child: Row(children: [
-        Expanded(
-          child: Text(title,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
               style: F.t1.copyWith(color: p.ink),
               maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ),
-        ?trailing,
-      ]),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
     );
   }
 }
@@ -1163,18 +1425,23 @@ class Pill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: 5),
       decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rPill),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 12, color: ink),
-          const SizedBox(width: S.x1),
-        ],
-        Flexible(
-          child: Text(text,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: ink),
+            const SizedBox(width: S.x1),
+          ],
+          Flexible(
+            child: Text(
+              text,
               style: F.cap.copyWith(color: ink, fontWeight: FontWeight.w600),
               maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ),
-      ]),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1187,12 +1454,14 @@ class BigButton extends StatelessWidget {
   final bool soft;
   final VoidCallback? onTap;
 
-  const BigButton(this.label,
-      {super.key,
-      this.icon,
-      this.color = C.green,
-      this.soft = false,
-      this.onTap});
+  const BigButton(
+    this.label, {
+    super.key,
+    this.icon,
+    this.color = C.green,
+    this.soft = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -1206,26 +1475,30 @@ class BigButton extends StatelessWidget {
         // label is taller than 52 and a fixed box would clip it.
         constraints: const BoxConstraints(minHeight: 52),
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-            horizontal: S.x4, vertical: S.x3),
+        padding: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: soft ? p.wash(color) : p.fill(color),
           borderRadius: R.rMd,
           boxShadow: soft ? null : p.el(2),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[
-            Icon(icon, size: 18, color: ink),
-            const SizedBox(width: S.x2),
-          ],
-          Flexible(
-            child: Text(label,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: ink),
+              const SizedBox(width: S.x2),
+            ],
+            Flexible(
+              child: Text(
+                label,
                 style: F.head.copyWith(color: ink),
                 textAlign: TextAlign.center,
-                maxLines: 2),
-          ),
-        ]),
+                maxLines: 2,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1332,7 +1605,10 @@ class ChartFrame extends StatelessWidget {
   /// so they are what this says.
   String? _spoken() {
     if (empty != null) return 'No data';
-    final v = [for (final x in series) if (x != null && x.isFinite) x];
+    final v = [
+      for (final x in series)
+        if (x != null && x.isFinite) x,
+    ];
     if (v.isEmpty) return null;
     final fmt = yAxis?.format ?? axisFixedOrInt;
     var lo = v.first, hi = v.first;
@@ -1347,30 +1623,38 @@ class ChartFrame extends StatelessWidget {
       final delta = last - v.first;
       // A move smaller than a twentieth of the range is not a direction.
       final noise = (hi - lo) / 20;
-      parts.add(delta.abs() <= noise
-          ? 'roughly level across ${v.length} readings'
-          : '${delta > 0 ? 'up' : 'down'} ${fmt(delta.abs())} '
-              'across ${v.length} readings');
+      parts.add(
+        delta.abs() <= noise
+            ? 'roughly level across ${v.length} readings'
+            : '${delta > 0 ? 'up' : 'down'} ${fmt(delta.abs())} '
+                  'across ${v.length} readings',
+      );
     }
     return parts.join(', ');
   }
 
   Widget _header(P p, bool stacked) {
-    final name = Text(title,
-        style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis);
+    final name = Text(
+      title,
+      style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
     final measure = Text(unit, style: F.over.copyWith(color: p.ink3));
     if (!stacked) {
-      return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        Expanded(child: name),
-        const SizedBox(width: S.x2),
-        measure,
-      ]);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: name),
+          const SizedBox(width: S.x2),
+          measure,
+        ],
+      );
     }
     return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [name, measure]);
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [name, measure],
+    );
   }
 
   @override
@@ -1396,9 +1680,12 @@ class ChartFrame extends StatelessWidget {
       final n = a.ticks.clamp(2, fits < 2 ? 2 : fits);
       labels = [
         for (final v in AxisSpec(
-                min: a.min, max: a.max, ticks: n, format: a.format)
-            .tickValues)
-          a.format(v)
+          min: a.min,
+          max: a.max,
+          ticks: n,
+          format: a.format,
+        ).tickValues)
+          a.format(v),
       ];
       for (final s in labels) {
         final w = _measure(s, tick, scaler, dir).width;
@@ -1409,10 +1696,18 @@ class ChartFrame extends StatelessWidget {
 
     return Semantics(
       container: true,
-      // Without this the frame's own sentence is followed by every Text inside
-      // it — which for a chart means the bare axis tick numbers, read out with
-      // nothing to attach them to, and every header value spoken twice.
-      excludeSemantics: true,
+      // Keeps `child` as its own node. Without it a container merges every
+      // descendant into itself, so an interactive child's label is swallowed
+      // by the frame's sentence and the control is unreachable — the same
+      // outcome `excludeSemantics` had, by a different route.
+      explicitChildNodes: true,
+      // NOT `excludeSemantics: true`. That suppressed the bare axis ticks and
+      // the doubled header — which was the point — but it deletes EVERY
+      // descendant semantics node, and `child` is a descendant. On the sleep
+      // screen the child is the `Scrubber`, so the one interactive control in
+      // the chart vanished from the accessibility tree entirely. The
+      // decoration is excluded piece by piece below instead, and `child` is
+      // left reachable.
       label: [
         title,
         'measured in $unit',
@@ -1422,114 +1717,151 @@ class ChartFrame extends StatelessWidget {
           'Key: ${[for (final (l, _) in legend) l].join(', ')}',
         ?footnote,
       ].join('. '),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        // ── header: what it is, and what it is measured in ──
-        // Title and unit share a line until the text scale makes that a
-        // choice between truncating the title and dropping the unit — at
-        // which point the unit moves under it. Neither is ever dropped.
-        _header(p, scaler.scale(1) > 1.3),
-        const SizedBox(height: S.x3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── header: what it is, and what it is measured in ──
+          // Title and unit share a line until the text scale makes that a
+          // choice between truncating the title and dropping the unit — at
+          // which point the unit moves under it. Neither is ever dropped.
+          ExcludeSemantics(child: _header(p, scaler.scale(1) > 1.3)),
+          const SizedBox(height: S.x3),
 
-        // ── plot, or the honest absence of one ──
-        if (empty != null)
-          ConstrainedBox(
-            constraints: BoxConstraints(minHeight: height),
-            child: Center(child: empty),
-          )
-        else
-          SizedBox(
-            height: height,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              if (a != null) ...[
-                SizedBox(
-                  width: gutter,
-                  child: Stack(children: [
-                    for (var i = 0; i < labels.length; i++)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        // Centred on its gridline, then clamped inside the
-                        // plot so the top and bottom labels are not half cut.
-                        top: (i / (labels.length - 1) * height - lineH / 2)
-                            .clamp(0.0, (height - lineH).clamp(0.0, height)),
-                        child: Text(labels[i],
-                            style: tick,
-                            textAlign: TextAlign.right,
-                            maxLines: 1,
-                            softWrap: false),
+          // ── plot, or the honest absence of one ──
+          if (empty != null)
+            ConstrainedBox(
+              constraints: BoxConstraints(minHeight: height),
+              child: Center(child: empty),
+            )
+          else
+            SizedBox(
+              height: height,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (a != null) ...[
+                    // Tick numbers, spoken already as part of the frame's sentence.
+                    ExcludeSemantics(
+                      child: SizedBox(
+                        width: gutter,
+                        child: Stack(
+                          children: [
+                            for (var i = 0; i < labels.length; i++)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                // Centred on its gridline, then clamped inside the
+                                // plot so the top and bottom labels are not half cut.
+                                top:
+                                    (i / (labels.length - 1) * height -
+                                            lineH / 2)
+                                        .clamp(
+                                          0.0,
+                                          (height - lineH).clamp(0.0, height),
+                                        ),
+                                child: Text(
+                                  labels[i],
+                                  style: tick,
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                  ]),
-                ),
-                const SizedBox(width: S.x2),
-              ],
-              Expanded(
-                child: Stack(children: [
-                  if (a != null)
-                    Positioned.fill(
-                        child: CustomPaint(
-                            painter: _Gridlines(labels.length, p.line))),
-                  Positioned.fill(child: child),
-                ]),
-              ),
-            ]),
-          ),
-
-        // ── x axis ──
-        if (empty == null && xLabels.isNotEmpty)
-          Padding(
-            padding: EdgeInsets.only(top: S.x1, left: inset),
-            child: Row(children: [
-              for (var i = 0; i < xLabels.length; i++)
-                Expanded(
-                  child: Text(
-                    xLabels[i],
-                    style: tick,
-                    textAlign: i == 0
-                        ? TextAlign.start
-                        : i == xLabels.length - 1
-                            ? TextAlign.end
-                            : TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ]),
-          ),
-
-        // ── legend ──
-        if (legend.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: S.x3),
-            child: Wrap(spacing: S.x3, runSpacing: S.x1, children: [
-              for (final (label, colour) in legend)
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 9,
-                    height: 9,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: colour,
-                      // The swatch is the mark's real colour so the two match,
-                      // and a pale mark still needs an edge to be findable.
-                      border: Border.all(color: p.line, width: .5),
+                    ),
+                    const SizedBox(width: S.x2),
+                  ],
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        if (a != null)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _Gridlines(labels.length, p.line),
+                            ),
+                          ),
+                        Positioned.fill(child: child),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: S.x1),
-                  // Flexible, because `Wrap` hands each item the frame's full
-                  // width and no more: a key like "Breathing (br/min)" is wider
-                  // than a 390 pt card at 2× text and overflowed the item
-                  // rather than wrapping inside it.
-                  Flexible(child: Text(label, style: tick)),
-                ]),
-            ]),
-          ),
+                ],
+              ),
+            ),
 
-        if (footnote != null)
-          Padding(
-            padding: const EdgeInsets.only(top: S.x2),
-            child: Text(footnote!, style: F.cap.copyWith(color: p.ink3)),
-          ),
-      ]),
+          // ── x axis ──
+          if (empty == null && xLabels.isNotEmpty)
+            ExcludeSemantics(
+              child: Padding(
+                padding: EdgeInsets.only(top: S.x1, left: inset),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < xLabels.length; i++)
+                      Expanded(
+                        child: Text(
+                          xLabels[i],
+                          style: tick,
+                          textAlign: i == 0
+                              ? TextAlign.start
+                              : i == xLabels.length - 1
+                              ? TextAlign.end
+                              : TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── legend ──
+          if (legend.isNotEmpty)
+            ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(top: S.x3),
+                child: Wrap(
+                  spacing: S.x3,
+                  runSpacing: S.x1,
+                  children: [
+                    for (final (label, colour) in legend)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colour,
+                              // The swatch is the mark's real colour so the two match,
+                              // and a pale mark still needs an edge to be findable.
+                              border: Border.all(color: p.line, width: .5),
+                            ),
+                          ),
+                          const SizedBox(width: S.x1),
+                          // Flexible, because `Wrap` hands each item the frame's full
+                          // width and no more: a key like "Breathing (br/min)" is wider
+                          // than a 390 pt card at 2× text and overflowed the item
+                          // rather than wrapping inside it.
+                          Flexible(child: Text(label, style: tick)),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+          if (footnote != null)
+            ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(top: S.x2),
+                child: Text(footnote!, style: F.cap.copyWith(color: p.ink3)),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -1570,14 +1902,20 @@ class NoData extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(LucideIcons.chartLine, size: 15, color: p.ink3),
-      const SizedBox(width: S.x2),
-      Flexible(
-        child: Text(message,
-            style: F.cap.copyWith(color: p.ink3), textAlign: TextAlign.center),
-      ),
-    ]);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(LucideIcons.chartLine, size: 15, color: p.ink3),
+        const SizedBox(width: S.x2),
+        Flexible(
+          child: Text(
+            message,
+            style: F.cap.copyWith(color: p.ink3),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1588,37 +1926,52 @@ class NavBar extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onBack;
 
-  const NavBar(this.title, {super.key, this.sub = '', this.trailing, this.onBack});
+  const NavBar(
+    this.title, {
+    super.key,
+    this.sub = '',
+    this.trailing,
+    this.onBack,
+  });
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 52),
-      child: Row(children: [
-        Pressable(
-          onTap: onBack ?? () => Navigator.maybePop(c),
-          semanticLabel: 'Back',
-          child: Icon(LucideIcons.chevronLeft, size: 24, color: p.ink),
-        ),
-        Expanded(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(title,
-                style: F.head.copyWith(color: p.ink),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-            if (sub.isNotEmpty)
-              Text(sub,
-                  style: F.over.copyWith(color: p.ink3),
+      child: Row(
+        children: [
+          Pressable(
+            onTap: onBack ?? () => Navigator.maybePop(c),
+            semanticLabel: 'Back',
+            child: Icon(LucideIcons.chevronLeft, size: 24, color: p.ink),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  title,
+                  style: F.head.copyWith(color: p.ink),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-          ]),
-        ),
-        SizedBox(
-          width: S.tap,
-          child: Align(alignment: Alignment.centerRight, child: trailing),
-        ),
-      ]),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (sub.isNotEmpty)
+                  Text(
+                    sub,
+                    style: F.over.copyWith(color: p.ink3),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: S.tap,
+            child: Align(alignment: Alignment.centerRight, child: trailing),
+          ),
+        ],
+      ),
     );
   }
 }

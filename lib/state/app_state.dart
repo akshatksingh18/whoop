@@ -407,7 +407,9 @@ class AppState extends ChangeNotifier {
       importRollupError = '$e';
     }
     notifyListeners();
-    return counts.values.fold<int>(0, (a, b) => a + b);
+    // DAYS, not rows. `_days` is a distinct day_id count taken from the source
+    // file; the caller reports "N days imported" and a row total is not that.
+    return counts['_days'] ?? 0;
   }
 
   // ── platform health export (Apple Health / Health Connect) ──────────────────
@@ -5033,17 +5035,36 @@ class LiveWorkoutState {
   /// Per-minute mean HR, the unit Banister TRIMP weights. Live HR arrives at
   /// 1 Hz, so it is folded into the current minute here rather than kept as
   /// thousands of raw samples.
-  final List<double> _perMinuteHr = [];
+  /// DENSE — index IS the session minute, `null` where no sample arrived.
+  ///
+  /// This used to be a plain `List<double>` that only grew when a minute had
+  /// samples, so a band dropout from minute 10 to 20 produced a 30-entry list
+  /// for a 40-minute session. The summary drawn the moment you press stop maps
+  /// index to x, so it joined minute 9 straight to minute 21 and drew every
+  /// later reading ten minutes early — while the SAME session reopened from
+  /// History was dense (`_denseMinutes`) and showed the gap correctly.
+  final List<double?> _perMinute = [];
   int _minuteBucket = -1;
   double _minuteSum = 0;
   int _minuteCount = 0;
 
   /// Per-minute means INCLUDING the minute still in progress, so the live
   /// gauge moves within the first minute instead of sitting at zero for 60 s.
-  List<double> perMinuteHr() => [
-        ..._perMinuteHr,
-        if (_minuteCount > 0) _minuteSum / _minuteCount,
-      ];
+  /// Dense: one slot per session minute, `null` for a minute nothing reached.
+  List<double?> perMinuteHrDense() {
+    final out = <double?>[..._perMinute];
+    if (_minuteCount > 0 && _minuteBucket >= 0) {
+      while (out.length <= _minuteBucket) {
+        out.add(null);
+      }
+      out[_minuteBucket] = _minuteSum / _minuteCount;
+    }
+    return out;
+  }
+
+  /// The same series with the holes removed — for statistics (strain, mean),
+  /// which want the readings and not the time axis.
+  List<double> perMinuteHr() => [for (final v in perMinuteHrDense()) ?v];
 
   /// Seconds the bout has spent at each whole-bpm value — the calorie series.
   ///
@@ -5117,7 +5138,14 @@ class LiveWorkoutState {
     // buckets are the session's own minutes rather than wall-clock ones.
     final minute = elapsed.inMinutes;
     if (minute != _minuteBucket) {
-      if (_minuteCount > 0) _perMinuteHr.add(_minuteSum / _minuteCount);
+      // Close the finished bucket AT ITS OWN INDEX, padding the minutes that
+      // produced nothing with null rather than skipping them.
+      if (_minuteCount > 0 && _minuteBucket >= 0) {
+        while (_perMinute.length <= _minuteBucket) {
+          _perMinute.add(null);
+        }
+        _perMinute[_minuteBucket] = _minuteSum / _minuteCount;
+      }
       _minuteBucket = minute;
       _minuteSum = 0;
       _minuteCount = 0;

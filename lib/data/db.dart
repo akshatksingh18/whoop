@@ -4644,6 +4644,21 @@ class LocalDb {
 
     final counts = <String, int>{};
     try {
+      // DISTINCT DAYS, asked of the source before anything is copied.
+      //
+      // The caller reports "N days imported", and `day_result`'s primary key is
+      // (day_id, algo_version), so a row count is not a day count — a history
+      // that has lived through two algo bumps has two rows for the same day.
+      // Counting rows and then collapsing that to a literal 1, which is what
+      // the import screen did, made a full restore say "1 day imported".
+      try {
+        final r = await src.rawQuery(
+            'SELECT COUNT(DISTINCT day_id) AS n FROM day_result');
+        counts['_days'] = (r.first['n'] as num?)?.toInt() ?? 0;
+      } catch (_) {
+        // An export from a build without day_result, or an unreadable table:
+        // no day count rather than a wrong one.
+      }
       for (final t in (only ?? tables)) {
         try {
           // PAGED SOURCE READ — never `SELECT *` a whole table.

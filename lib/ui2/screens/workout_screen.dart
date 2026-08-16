@@ -634,7 +634,9 @@ LiveFeed _feedOf(AppState app) {
     strain: w?.strain,
     steps: app.workoutStepsMeasured,
     zoneMinutes: w?.zoneMinutes() ?? const [],
-    hrCurve: w?.perMinuteHr() ?? const [],
+    // DENSE, not the hole-free variant: this feeds the summary's chart, whose
+    // x axis is the session clock. `perMinuteHr()` is for statistics.
+    hrCurve: w?.perMinuteHrDense() ?? const [],
     distanceKm: app.liveDistanceKm,
     gpsActive: app.routeTracking,
     bandConnected: app.isConnected,

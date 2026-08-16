@@ -107,11 +107,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 Future<ImportOutcome> runImport(AppState app, List<String> paths) async {
   final db = paths.where((p) => p.toLowerCase().endsWith('.db')).toList();
   if (db.isNotEmpty) {
-    var rows = 0;
+    var days = 0;
     for (final p in db) {
-      rows += await app.importEdgeBackup(p);
+      days += await app.importEdgeBackup(p);
     }
-    return ImportOutcome(source: 'OpenStrap backup', days: rows > 0 ? 1 : 0);
+    return ImportOutcome(source: 'OpenStrap backup', days: days);
   }
   final raw = paths
       .where((p) =>

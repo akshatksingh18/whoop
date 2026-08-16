@@ -54,9 +54,16 @@ class LiveFeed {
   final int? steps;
   final List<double> zoneMinutes; // five, Z1..Z5
 
-  /// Per-minute mean heart rate for the session so far. The average of this
-  /// IS the session average — a single instantaneous sample is not.
-  final List<double> hrCurve;
+  /// Per-minute mean heart rate for the session so far, DENSE — one slot per
+  /// session minute, `null` where the band recorded nothing.
+  ///
+  /// It has to carry the holes: `ActivityResult.hr` is `List<double?>` and the
+  /// painter breaks its line at a null, so a compacted list here drew a band
+  /// dropout as continuous and shifted every later reading earlier.
+  ///
+  /// The average of this IS the session average — a single instantaneous
+  /// sample is not.
+  final List<double?> hrCurve;
   final List<Offset> route;
 
   /// Whether a route recorder is actually running and taking fixes. The
@@ -100,9 +107,13 @@ class LiveFeed {
 
   /// Mean of the per-minute curve — the session's real average heart rate,
   /// null until a full minute has been folded in.
-  int? get avgHr => hrCurve.isEmpty
-      ? null
-      : (hrCurve.reduce((a, b) => a + b) / hrCurve.length).round();
+  /// Over the minutes that HAVE a reading. A dropout must not be averaged in
+  /// as a zero, and it must not divide by minutes that measured nothing.
+  int? get avgHr {
+    final v = [for (final x in hrCurve) ?x];
+    if (v.isEmpty) return null;
+    return (v.reduce((a, b) => a + b) / v.length).round();
+  }
 }
 
 typedef LiveFeedSource = LiveFeed Function();

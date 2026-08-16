@@ -165,11 +165,6 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               color: C.domFood,
               onTap: () => _write(_base(label: _mealLabel(_meal))),
             ),
-            const SizedBox(height: S.x2),
-            Text(
-              'One tap is a complete log.',
-              style: F.cap.copyWith(color: p.ink3, height: 1.45),
-            ),
             if (_recent.isNotEmpty)
               Section(
                 'Again',
@@ -253,7 +248,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               _NumberRow(fields: [('Fibre', 'g', _fibre)]),
               const SizedBox(height: S.x3),
               Text(
-                'Blank stays blank. It never becomes a zero.',
+                'Blank stays blank.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.45),
               ),
               const SizedBox(height: S.x4),

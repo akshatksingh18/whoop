@@ -642,7 +642,7 @@ class _MetricDetailState extends State<MetricDetail> {
         const SizedBox(height: S.x4),
         Text(
           rank == null
-              ? 'From ${win.length} of your own days. Never a population average.'
+              ? 'From ${win.length} of your own days.'
               : 'Today sits at the ${_ordinal(rank.round())} percentile of your '
                   'own history${band == null ? '' : ' — $band'}.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),

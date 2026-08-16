@@ -106,8 +106,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             const SizedBox(height: S.x3),
             Text(
               'Four numbers change how your data is scored. Leave any of them '
-              'blank and only the metrics that need it stay unavailable — '
-              'nothing is filled in on your behalf.',
+              'blank and only the metrics that need it stay unavailable.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
@@ -125,13 +124,6 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                 if (key != _sexes.last.$1) const SizedBox(width: S.x2),
               ],
             ]),
-            const SizedBox(height: S.x2),
-            Text(
-              'The only field with no honest default: the calorie, TRIMP and '
-              'fitness-age constants are published per sex, and averaging '
-              'them describes nobody.',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
             const SizedBox(height: S.x5),
             _Field(_age, 'AGE', 'years',
                 'Without it: heart-rate zones, calories, fitness age.'),
@@ -152,13 +144,6 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               Text('Pick one option above to continue.',
                   style: F.cap.copyWith(color: p.ink3)),
             ],
-            const SizedBox(height: S.x6),
-            const StatusCard(
-              'You can change all of this later',
-              'Profile fields are stored on this phone only, and editing one '
-                  'rescores the days that depended on it.',
-              icon: LucideIcons.info,
-            ),
           ],
         ),
       ),

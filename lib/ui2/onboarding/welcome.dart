@@ -168,8 +168,7 @@ class WelcomeView extends StatelessWidget {
                 style: F.display.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
             Text(
-              'Every number is computed on this phone from the raw signal. '
-              'There is no account and no server to sign in to.',
+              'Every number is computed on this phone from the raw signal.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),

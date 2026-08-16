@@ -121,8 +121,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
                     const StatusCard(
                       'No activity matches that',
                       'The catalogue covers about seventy activities with a '
-                          'published energy cost. Anything else can still be '
-                          'logged as a custom activity.',
+                          'published energy cost.',
                       fix: 'Use Custom activity',
                       icon: LucideIcons.plus,
                     )
@@ -217,20 +216,14 @@ class _ActivityPickerState extends State<ActivityPicker> {
                     ),
                     Divider(color: p.line, height: 1),
                   ],
-                  const SizedBox(height: S.x5),
-                  if (widget.weightKg == null)
-                    const StatusCard(
-                      'Calorie estimates need your weight',
-                      kCalorieNeedsWeight,
-                      fix: 'Add weight in profile',
-                      icon: LucideIcons.flame,
-                    )
-                  else
+                  if (widget.weightKg != null) ...[
+                    const SizedBox(height: S.x5),
                     const StatusCard(
                       'Calorie figures are estimates',
                       kCalorieWhy,
                       icon: LucideIcons.flame,
                     ),
+                  ],
                 ],
               ],
             ),

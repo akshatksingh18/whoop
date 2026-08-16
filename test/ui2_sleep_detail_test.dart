@@ -137,7 +137,9 @@ void main() {
         tstHistory: const [430, 465, 410],
       ),
     );
-    expect(find.text('Not enough nights to compare'), findsOneWidget);
+    // Too little history to compare against. The section stays, carrying the
+    // COUNT — absent-but-expected says when it arrives — but it must not claim
+    // a comparison it cannot make.
     expect(find.textContaining('3 of 7 nights so far'), findsOneWidget);
     expect(find.textContaining('Typical for you'), findsNothing);
     // The extremes need history; the nocturnal detection carries its own

@@ -90,7 +90,7 @@ class _DataScreenState extends State<DataScreen> {
     final path = await LocalDb.exportCopy();
     await Share.shareXFiles([XFile(path)],
         subject: 'OpenStrap database', sharePositionOrigin: origin);
-    return 'Database shared. It is the complete copy — keep it somewhere safe.';
+    return 'Database shared. It is the complete copy.';
   }
 
   Future<String> _reanalyze(AppState app) async {

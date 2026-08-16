@@ -290,7 +290,6 @@ class DeviceAlerts {
             // FiredKeyStore's retention sweep can reach it.
             kind: 'band_charging:${chargingTs ?? nowSec}',
             title: 'Charging',
-            body: 'Your band is on the charger.',
           )));
       await _io(() => _store.writeInt(_kLastChargeWall, nowSec));
       if (persistEventTs != null) {
@@ -334,7 +333,7 @@ class DeviceAlerts {
     required int osId,
     required String kind,
     required String title,
-    required String body,
+    String body = '',
   }) {
     final day = todayLabel();
     return NotificationEvent(

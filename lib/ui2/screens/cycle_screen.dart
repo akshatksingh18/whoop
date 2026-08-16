@@ -174,8 +174,7 @@ class _CycleTabState extends State<CycleTab> {
     if (!d.enabled) {
       return StatusCard(
         'Cycle tracking is off',
-        'Nothing is recorded or predicted until you turn it on. It stays on '
-            'this phone.',
+        'It stays on this phone.',
         fix: 'Turn on cycle tracking',
         icon: LucideIcons.circleDot,
         onFix: () => _setEnabled(true),
@@ -188,7 +187,7 @@ class _CycleTabState extends State<CycleTab> {
         if (d.cycleDay == null)
           StatusCard(
             'No period logged yet',
-            'Counted from the days you log. Nothing is inferred from your body.',
+            'Counted from the days you log.',
             fix: 'Log a period start today',
             icon: LucideIcons.calendarPlus,
             onFix: _logStart,
@@ -205,7 +204,7 @@ class _CycleTabState extends State<CycleTab> {
 
         Section('What you noticed today', _symptoms(c, p, d)),
 
-        Section('Logged days', _logs(c, p, d)),
+        if (d.logs.isNotEmpty) Section('Logged days', _logs(c, p, d)),
 
         const SizedBox(height: S.x5),
         BigButton('Log a period start today',
@@ -254,7 +253,7 @@ class _CycleTabState extends State<CycleTab> {
             ]),
             const SizedBox(height: S.x2),
             Text(
-              'Counted back from your mean cycle. Not contraception.',
+              'Not contraception.',
               style: F.over.copyWith(color: p.ink3, height: 1.5),
             ),
           ],
@@ -319,8 +318,7 @@ class _CycleTabState extends State<CycleTab> {
         height: 120,
         yAxis: axis,
         xLabels: axis == null ? const [] : ['Day 1', 'Day $last'],
-        footnote: 'Your own nightly resting rate across this cycle. '
-            'Descriptive only.',
+        footnote: 'Descriptive only.',
         empty: axis == null
             ? const NoData(message: 'Not enough derived nights this cycle yet')
             : null,
@@ -373,13 +371,6 @@ class _CycleTabState extends State<CycleTab> {
   // ── logs ─────────────────────────────────────────────────────────────────
 
   Widget _logs(BuildContext c, P p, CycleData d) {
-    if (d.logs.isEmpty) {
-      return const StatusCard(
-        'Nothing logged yet',
-        'A logged start is the only input.',
-        icon: LucideIcons.calendarDays,
-      );
-    }
     final recent = d.logs.reversed.take(6).toList();
     return Surface(
       pad: const EdgeInsets.symmetric(horizontal: S.x4),

@@ -311,8 +311,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
       return StatusCard.forMetric('Rhythm strength is not measured yet',
               d.rhythm,
               unit: 'days',
-              why: 'Needs consecutive days with all 24 hours recorded. A '
-                   'missing hour is never filled in.') ??
+              why: 'Needs consecutive days with all 24 hours recorded.') ??
           const SizedBox.shrink();
     }
 

@@ -274,7 +274,8 @@ class _SleepDetailState extends State<SleepDetail> {
       Section('Stages', _stages(c, p, n, n['duration_min'] as num?)),
 
       // ── 4 · AGAINST THE USER'S OWN NIGHTS ──
-      Section('Against your usual', _versusUsual(c, p, d, n)),
+      if (_versusUsual(c, p, d, n) case final versus?)
+        Section('Against your usual', versus),
 
       // ── 5 · WHAT STOOD OUT ──
       if (unusual != null) Section('Unusual last night', unusual),
@@ -371,18 +372,14 @@ class _SleepDetailState extends State<SleepDetail> {
               ),
             ),
           ]),
-          const SizedBox(height: S.x2),
-          Text(
-            mine
-                ? 'The night was re-analysed from your window.'
-                : fallback
-                    ? 'Staging could not find the edges, so the times are a '
-                        'best guess. Everything measured from them moves if '
-                        'they are wrong.'
-                    : 'Change it if the times are wrong and the night will be '
-                        're-analysed from yours.',
-            style: F.cap.copyWith(color: p.ink3),
-          ),
+          if (fallback) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              'Staging could not find the edges, so the times are a best '
+              'guess.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ],
           const SizedBox(height: S.x2),
           Wrap(spacing: S.x2, children: [
             if (fallback)
@@ -706,9 +703,7 @@ class _SleepDetailState extends State<SleepDetail> {
       // The stager is a wrist ESTIMATE and Deep is the weakest of the four —
       // an HR-depth overlay, not an EEG read. Said once, here, rather than
       // decorating every number with a caveat.
-      Text(
-          'Staged from movement and beat timing. Deep is the least certain of '
-          'the four.',
+      Text('Deep is the least certain of the four.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }
@@ -724,7 +719,7 @@ class _SleepDetailState extends State<SleepDetail> {
   /// This section absorbs the separate "what was different" block a delta table
   /// would have been. Deltas and verdicts are the same comparison rendered
   /// twice; the strip IS the delta, the sentence beside it IS the verdict.
-  Widget _versusUsual(
+  Widget? _versusUsual(
       BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final rows = <Widget>[];
 
@@ -801,11 +796,14 @@ class _SleepDetailState extends State<SleepDetail> {
       d.onsetHistory.length,
     ].reduce(math.max);
 
+    // Title and the COUNT, no prose. The sentence about population averages
+    // was slop; "3 of 7 nights so far" is the one thing on this card a user can
+    // act on — it says the comparison is coming and when. Dropping the whole
+    // card took the count with it.
     if (rows.isEmpty || have < _minNights) {
       return StatusCard(
         'Not enough nights to compare',
-        'A personal normal is built from your own history, not from a '
-            'population average.',
+        '',
         fix: '$have of $_minNights nights so far',
         icon: LucideIcons.chartNoAxesColumn,
       );
@@ -821,9 +819,7 @@ class _SleepDetailState extends State<SleepDetail> {
         ]),
       ),
       const SizedBox(height: S.x2),
-      Text(
-          'The bar is the middle half of your own nights — a quarter of them '
-          'fall below it and a quarter above.',
+      Text('The bar is the middle half of your own nights.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }
@@ -909,8 +905,7 @@ class _SleepDetailState extends State<SleepDetail> {
           Icon(LucideIcons.check, size: 16, color: p.on(C.green)),
           const SizedBox(width: S.x3),
           Expanded(
-            child: Text('Nothing stood out. Every measure landed inside your '
-                'own recent range.',
+            child: Text('Nothing stood out.',
                 style: F.cap.copyWith(color: p.ink2, height: 1.5)),
           ),
         ]),
@@ -1099,9 +1094,7 @@ class _SleepDetailState extends State<SleepDetail> {
     final debt = d.debt.value;
 
     if (need == null && bed == null) {
-      return StatusCard.forMetric('Sleep need not established', d.need,
-              why: 'Learned from your own nights. Eight hours is a slogan, not '
-                   'your need.') ??
+      return StatusCard.forMetric('Sleep need not established', d.need) ??
           const SizedBox.shrink();
     }
 

@@ -769,7 +769,7 @@ class _HomeScreenState extends State<HomeScreen> {
               : '${thousands(d.caloriesTotal.value)} total',
           onTap: () => go(c, const MetricDetail('calories'))),
       () => StatusCard.forMetric('No energy estimate', d.calories,
-          why: 'Estimated from heart rate. Needs your weight and age.'),
+          why: 'Needs your weight and age.'),
     );
 
     return Column(children: [
@@ -847,8 +847,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // a wrong answer when the baselines exist and are being withheld.
               why: d.insightsStale != null
                   ? 'The cross-day rollup they come from is being rebuilt.'
-                  : 'A plan comes from your own baselines. None are established'
-                    ' yet.') ??
+                  : 'None are established yet.') ??
           const SizedBox.shrink();
     }
 

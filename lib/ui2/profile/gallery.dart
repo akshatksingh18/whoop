@@ -111,7 +111,7 @@ Map<String, Widget> goldenCases() => {
       'observation': const Observation(
         'Your resting heart rate has risen on six of the last seven nights',
         'From 51 to 58 bpm, alongside a 0.4° skin-temperature rise.',
-        'Worth mentioning if it continues past a week.',
+        advice: 'Worth mentioning if it continues past a week.',
       ),
       'consistency': const Consistency(
           18, 24, 'Nights with a full sleep record', C.domHealth),

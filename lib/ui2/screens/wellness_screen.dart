@@ -281,20 +281,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
                   ),
                 ),
         ),
-        if (drivers.isNotEmpty) ...[
-          const SizedBox(height: S.x3),
-          Text(
-            'What moved readiness. Direction only, no point totals.',
-            style: F.cap.copyWith(color: P.of(c).ink3, height: 1.45),
-          ),
-        ],
         Section(
           'Sleep need tonight',
           needSec == null
               ? const StatusCard(
                   'No sleep need yet',
-                  'Learned from nights you woke up on your own. Not enough of '
-                  'them yet.',
+                  'Not enough of them yet.',
                   icon: LucideIcons.bedDouble,
                 )
               : Surface(
@@ -363,20 +355,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
 
   Widget _habitsTab(BuildContext c) {
     final p = P.of(c);
-    if (_habits.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          StatusCard(
-            'No habits yet',
-            'A habit is a yes-or-no you answer once a day.',
-            fix: 'Add a habit',
-            icon: LucideIcons.circleCheck,
-            onFix: () => _addHabit(c),
-          ),
-        ],
-      );
-    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -478,9 +456,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                   style: F.head.copyWith(color: P.of(s).ink)),
               const SizedBox(height: S.x2),
               Text(
-                'It stops being asked. The days you already recorded stay — '
-                'those were real answers, and they keep counting anywhere they '
-                'already do.',
+                'It stops being asked. The days you already recorded stay.',
                 style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
               ),
               const SizedBox(height: S.x5),
@@ -531,7 +507,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
         if (_meds.isEmpty)
           StatusCard(
             'Nothing scheduled',
-            'Add what you take and when. Nothing leaves the phone.',
+            'Add what you take and when.',
             fix: 'Add a medication',
             icon: LucideIcons.pill,
             onFix: () => _addMed(c),
@@ -558,16 +534,14 @@ class _WellnessScreenState extends State<WellnessScreen> {
             _adherence.of == 0
                 ? const StatusCard(
                     'Nothing to score yet',
-                    'No scheduled doses have come due yet. A dose still ahead '
-                        'of you is in no denominator.',
+                    'No scheduled doses have come due yet.',
                     icon: LucideIcons.pill,
                   )
                 : Surface(
                     child: Consistency(
                       _adherence.taken,
                       _adherence.of,
-                      'Taken, of those scheduled in the last seven days. A dose'
-                      ' still ahead of you does not count against you.',
+                      'Taken, of those scheduled in the last seven days.',
                       C.blue,
                     ),
                   ),

@@ -217,8 +217,7 @@ class MoodPicker extends StatelessWidget {
           const SizedBox(height: S.x1),
           Text(
             value == null
-                ? 'Not answered yet — blank is a real answer, so nothing is '
-                      'assumed.'
+                ? 'Not answered yet'
                 : 'Mood $value of 5',
             style: F.cap.copyWith(color: p.ink3),
           ),

@@ -334,7 +334,6 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.sun, C.yellow, 'Appearance',
                       value: appearance, onTap: onCycleAppearance),
                   SetRow(LucideIcons.footprints, C.teal, 'Phone steps',
-                      sub: 'The band cannot count steps at 1 Hz',
                       value: phoneSteps ? 'On' : 'Off',
                       onTap: onTogglePhoneSteps),
                 ]),
@@ -345,7 +344,7 @@ class MoreSettingsView extends StatelessWidget {
                 ]),
                 settingsGroup(c, 'Privacy', [
                   SetRow(LucideIcons.bug, C.orange, 'Crash reports',
-                      sub: 'Off by default. Nothing is sent until you say so',
+                      sub: 'Nothing is sent until you say so',
                       value: telemetry ? 'On' : 'Off',
                       onTap: onToggleTelemetry),
                   if (showHealthShare)
@@ -387,11 +386,6 @@ class MoreSettingsView extends StatelessWidget {
                   pad: const EdgeInsets.symmetric(horizontal: S.x4),
                   child: SetRow(LucideIcons.trash2, C.red, 'Reset all data',
                       danger: true, chevron: false, onTap: onReset),
-                ),
-                const SizedBox(height: S.x3),
-                Center(
-                  child: Text('No account to sign out of.',
-                      style: F.over.copyWith(color: p.ink3)),
                 ),
               ],
             ),
@@ -497,7 +491,7 @@ class NotificationSettingsView extends StatelessWidget {
         child: Column(children: [
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Notifications', sub: 'Three kinds, all optional'),
+            child: NavBar('Notifications', sub: 'Three kinds'),
           ),
           Expanded(
             child: ListView(
@@ -506,19 +500,12 @@ class NotificationSettingsView extends StatelessWidget {
                 if (!granted)
                   StatusCard(
                     'Notifications are off at the system level',
-                    'Nothing below can reach you until the OS lets it. Your '
-                        'choices here are still saved.',
+                    'Nothing below can reach you until the OS lets it.',
                     fix: 'Turn them on',
                     icon: LucideIcons.bellOff,
                     onFix: onRequestPermission,
                   ),
-                if (!loaded)
-                  const StatusCard(
-                    'Reading your settings',
-                    'One moment.',
-                    icon: LucideIcons.loader,
-                  )
-                else ...[
+                if (loaded) ...[
                   settingsGroup(c, 'Manage notifications', [
                     SetRow(LucideIcons.heartPulse, C.red, 'Health exceptions',
                         sub: 'One a day at most, and only when something in '
@@ -565,8 +552,6 @@ class NotificationSettingsView extends StatelessWidget {
                         }),
                     SetRow(LucideIcons.triangleAlert, C.red,
                         'Health exceptions break through',
-                        sub: 'A signal worth waking you for is worth waking '
-                            'you for',
                         value: prefs.criticalOverridesQuiet ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -577,9 +562,7 @@ class NotificationSettingsView extends StatelessWidget {
                 const SizedBox(height: S.x3),
                 const StatusCard(
                   'The alarm is not on this list',
-                  'It is armed for a time you chose, usually inside your own '
-                      'quiet hours, so nothing here can silence it. Cancel it '
-                      'on the Alarm screen instead.',
+                  'Cancel it on the Alarm screen instead.',
                   icon: LucideIcons.alarmClock,
                 ),
               ],
@@ -731,7 +714,7 @@ class _EditProfileViewState extends State<EditProfileView> {
                   'These four change your numbers',
                   'They feed heart-rate zones, calorie estimates and training '
                       'load. Clear one and only the metrics that need it stay '
-                      'unavailable — nothing is guessed in its place.',
+                      'unavailable.',
                   icon: LucideIcons.info,
                 ),
               ],

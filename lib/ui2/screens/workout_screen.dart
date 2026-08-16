@@ -28,8 +28,8 @@ import '../activity/picker.dart';
 import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
+import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
-import '../profile/profile.dart';
 import '../theme.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -368,23 +368,25 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             ]),
           ),
         ),
-      const SizedBox(height: S.x5),
+      // Title and action, no body. Losing the prose is right; losing the door
+      // to the profile is not — without a weight there is no calorie estimate
+      // at all, and this is the only place that says so and offers the fix.
       if (d.weightKg == null)
         StatusCard(
           'Calorie estimates need your weight',
-          kCalorieNeedsWeight,
+          '',
           fix: 'Add weight in profile',
-          // A CTA that cannot be tapped is worse than no CTA. Health's copy of
-          // this card has always gone here.
           onFix: () => openProfile(c),
           icon: LucideIcons.flame,
-        )
-      else
+        ),
+      if (d.weightKg != null) ...[
+        const SizedBox(height: S.x5),
         const StatusCard(
           'Calorie figures are estimates',
           kCalorieWhy,
           icon: LucideIcons.flame,
         ),
+      ],
     ];
   }
 

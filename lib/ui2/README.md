@@ -195,8 +195,8 @@ Recommendation(String rec, String reason, String action,
                {Color color = C.green, VoidCallback? onTap})
 GoalTrajectory(String label, String current, String target, String rate,
                double frac, Color color, {bool rateDown = true})
-Observation(String headline, String detail, String advice,
-            {VoidCallback? onTap})
+Observation(String headline, String detail,
+            {String advice = '', VoidCallback? onTap})
 Consistency(int have, int of, String label, Color color)
 ```
 

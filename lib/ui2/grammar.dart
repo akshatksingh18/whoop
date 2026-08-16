@@ -836,8 +836,14 @@ class StatusCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: S.x2),
-          Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+          // A card may be a title and an action with no body. That is the
+          // minimal-text ideal, not a broken card — what it must never be is a
+          // title alone, which is why `fix` and `why` cannot both be empty at
+          // the call sites that matter.
+          if (why.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+          ],
           if (fix.isNotEmpty) ...[
             const SizedBox(height: S.x3),
             _Cta(fix, p.on(C.blue), arrow: onFix != null),
@@ -1216,9 +1222,9 @@ class Observation extends StatelessWidget {
 
   const Observation(
     this.headline,
-    this.detail,
-    this.advice, {
+    this.detail, {
     super.key,
+    this.advice = '',
     this.onTap,
   });
 
@@ -1228,7 +1234,7 @@ class Observation extends StatelessWidget {
     final ink = p.on(C.orange);
     return Pressable(
       onTap: onTap,
-      semanticLabel: 'Health observation. $headline. $detail. $advice',
+      semanticLabel: 'Health observation. $headline. $detail. $advice'.trim(),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(S.x4),
@@ -1266,8 +1272,10 @@ class Observation extends StatelessWidget {
             ),
             const SizedBox(height: S.x2),
             Text(detail, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
-            const SizedBox(height: S.x2),
-            Text(advice, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            if (advice.isNotEmpty) ...[
+              const SizedBox(height: S.x2),
+              Text(advice, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            ],
             if (onTap != null) ...[
               const SizedBox(height: S.x3),
               _Cta('View data', ink),

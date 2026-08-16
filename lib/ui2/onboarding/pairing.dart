@@ -229,7 +229,7 @@ class PairingView extends StatelessWidget {
               const SizedBox(height: S.x2),
               Text(
                 'The app opens without a band. Nothing is measured until one '
-                'is paired, and every metric will say so rather than guess.',
+                'is paired.',
                 style: F.cap.copyWith(color: p.ink3),
               ),
             ],
@@ -270,8 +270,7 @@ class PairingView extends StatelessWidget {
               'key. That is almost always a stale pairing record on this '
               'phone rather than a fault in the band.',
         PairPhase.cancelled =>
-          'The system picker was dismissed before a band was chosen. Nothing '
-              'was changed.',
+          'The system picker was dismissed before a band was chosen.',
         PairPhase.failed =>
           'The band was reachable but the session did not finish.',
         PairPhase.paired => 'Setting up the first sync.',
@@ -317,8 +316,7 @@ class PairingView extends StatelessWidget {
             const SizedBox(height: S.x6),
             const StatusCard(
               'The band was found but the session did not finish',
-              'This is usually a radio that lost the link mid-handshake. '
-                  'Scanning again from a metre away normally works.',
+              'Scanning again from a metre away normally works.',
               icon: LucideIcons.triangleAlert,
             ),
             if (detail.isNotEmpty) ...[

@@ -784,19 +784,24 @@ class LiveHeart extends StatelessWidget {
 /// Why this session is being recorded without a route, and the one thing that
 /// would fix it. The session keeps running either way — a missing map is not a
 /// reason to stop a run — but it is named rather than left blank.
-Widget _routeIssueCard(GpsPermissionStatus issue, VoidCallback? onFix) =>
+Widget? _routeIssueCard(GpsPermissionStatus? issue, VoidCallback? onFix) =>
     switch (issue) {
+      null => null,
+      // Title and action, no body. The body was cut as slop; the AFFORDANCE is
+      // not slop — denied is the one branch a user can actually resolve from
+      // here, and dropping the whole card left them with a missing map and no
+      // way to fix it.
+      GpsPermissionStatus.denied => StatusCard(
+          'No route: location not allowed',
+          '',
+          fix: 'Allow location',
+          onFix: onFix,
+          icon: LucideIcons.mapPin,
+        ),
       GpsPermissionStatus.serviceOff => StatusCard(
           'No route: location is off',
           'Location services are off on this phone, so no fixes are arriving.',
           fix: 'Turn on location',
-          onFix: onFix,
-          icon: LucideIcons.mapPin,
-        ),
-      GpsPermissionStatus.denied => StatusCard(
-          'No route: location not allowed',
-          'This session is recording everything except the map.',
-          fix: 'Allow location',
           onFix: onFix,
           icon: LucideIcons.mapPin,
         ),
@@ -959,11 +964,10 @@ class LiveMeasured extends StatelessWidget {
           if (f.gpsActive) ...[
             const SizedBox(height: S.x3),
             const Pill('Recording route', C.green, icon: LucideIcons.mapPin),
-          ] else if (f.routeIssue != null) ...[
-            // A denied permission used to produce no pill, no map and no
-            // sentence: the run finished and the route was simply missing.
+          ] else if (_routeIssueCard(f.routeIssue, f.onFixRoute)
+              case final card?) ...[
             const SizedBox(height: S.x4),
-            _routeIssueCard(f.routeIssue!, f.onFixRoute),
+            card,
           ],
           const SizedBox(height: S.x8),
           // The user's own unit system, not km hardcoded. `unitsOf` is null in
@@ -1383,20 +1387,14 @@ class _LiveStrengthState extends State<LiveStrength> {
       ],
 
       // references
-      if (hist?.previous == null && hist?.best == null)
-        const StatusCard(
-          'First time on this lift',
-          'Previous and best come from your own history, once you have logged '
-          'this lift.',
-          icon: LucideIcons.history,
-        )
-      else
+      if (hist?.previous != null || hist?.best != null) ...[
         Row(children: [
           Expanded(child: _ref(p, 'Previous', hist?.previous)),
           const SizedBox(width: S.x3),
           Expanded(child: _ref(p, 'Best', hist?.best, gold: true)),
         ]),
-      const SizedBox(height: S.x5),
+        const SizedBox(height: S.x5),
+      ],
       LiveTick((_, _) => LiveHeart(widget.feed?.call() ?? LiveFeed.none)),
     ]);
   }
@@ -1686,12 +1684,7 @@ class _LiveSwimState extends State<LiveSwim> {
           const SizedBox(height: S.x5),
           Builder(builder: (_) {
             final secs = lapSecs;
-            if (secs.isEmpty) {
-              return Text(
-                  'No sensor knows pool length or stroke.',
-                  textAlign: TextAlign.center,
-                  style: F.over.copyWith(color: p.ink3));
-            }
+            if (secs.isEmpty) return const SizedBox.shrink();
             final fastest = secs.reduce((x, y) => x < y ? x : y);
             return ChartFrame(
               title: 'LAPS',

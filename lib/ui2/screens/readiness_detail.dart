@@ -152,8 +152,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             child: Row(children: [
               Expanded(
                 child: Text(
-                  '${d.inputsUsed}/${d.breakdown.length} inputs · missing ones '
-                  're-weighted, never zeroed',
+                  '${d.inputsUsed}/${d.breakdown.length} inputs',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),

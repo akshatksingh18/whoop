@@ -193,7 +193,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
         if (day == null || !day.logged)
           StatusCard(
             'Nothing logged today',
-            'One tap is a complete log. Numbers are optional.',
+            'One tap is a complete log.',
             fix: 'Log an eating occasion',
             icon: LucideIcons.utensils,
             onFix: _logFood,
@@ -260,9 +260,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
           const SizedBox(height: S.x4),
           Observation(
             '${w.daysExcluded} of the last ${w.span} days could not be counted',
-            'A day counts once every occasion carries an energy figure. Partial'
-            ' days are left out, not averaged down.',
-            'Nothing to fix if that is genuinely how you ate.',
+            'A day counts once every occasion carries an energy figure.',
           ),
         ],
       ],
@@ -295,7 +293,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
           counted == 0
               ? const StatusCard(
                   'No complete day to average yet',
-                  'Averages need complete days. You have none.',
+                  'You have none.',
                   icon: LucideIcons.chartNoAxesColumn,
                 )
               : Surface(
@@ -460,7 +458,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
         if (set.isEmpty)
           StatusCard(
             'No targets set',
-            'A target here is one you type. Nothing adapts it for you.',
+            'A target here is one you type.',
             fix: 'Set a target',
             icon: LucideIcons.target,
             onFix: _editTargets,
@@ -499,11 +497,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: S.x3),
-              Text(
-                'BMR from your profile, plus heart-rate expenditure on top.',
-                style: F.cap.copyWith(color: p.ink2, height: 1.55),
               ),
               const SizedBox(height: S.x4),
               MetricRow(

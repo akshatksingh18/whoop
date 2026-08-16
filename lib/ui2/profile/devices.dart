@@ -31,8 +31,7 @@ enum SourceTier {
   beatToBeat(
     1,
     'Beat-to-beat intervals',
-    'Electrical R-peak detection. The only source whose HRV is HRV rather '
-        'than a pulse-timing proxy.',
+    'Electrical R-peak detection.',
     C.green,
   ),
 
@@ -49,8 +48,7 @@ enum SourceTier {
   phone(
     3,
     'Steps only',
-    'The phone’s own motion coprocessor. Steps and nothing else — it is not '
-        'on your body often enough to measure anything continuous.',
+    'The phone’s own motion coprocessor. Steps and nothing else.',
     C.orange,
   );
 
@@ -249,15 +247,6 @@ class MyDevicesView extends StatelessWidget {
                       filled: sources.any((s) => s.tier == t)),
                   const SizedBox(height: S.x3),
                 ],
-                const SizedBox(height: S.x3),
-                const StatusCard(
-                  'Sources are ranked by measurement quality',
-                  'When two sources report the same thing, the better sensor '
-                      'wins — not the one that wrote last. Recency only '
-                      'breaks a tie inside a tier, and your own preference '
-                      'is the last word rather than the first.',
-                  icon: LucideIcons.arrowUpDown,
-                ),
               ],
             ),
           ),
@@ -377,11 +366,6 @@ class TierRow extends StatelessWidget {
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: S.x1),
             Text(tier.detail, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
-            if (!filled) ...[
-              const SizedBox(height: S.x2),
-              Text('Nothing at this tier yet.',
-                  style: F.over.copyWith(color: p.ink3)),
-            ],
           ]),
         ),
       ]),
@@ -524,12 +508,6 @@ class DeviceDetailView extends StatelessWidget {
                     child: SetRow(LucideIcons.trash2, C.red, 'Forget this band',
                         danger: true, chevron: false, onTap: onForget),
                   ),
-                const SizedBox(height: S.x5),
-                StatusCard(
-                  'What this source can and cannot measure',
-                  s.tier.detail,
-                  icon: LucideIcons.activity,
-                ),
               ],
             ),
           ),

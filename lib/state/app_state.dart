@@ -1470,7 +1470,7 @@ class AppState extends ChangeNotifier {
           category: NotifCategory.recovery,
           priority: NotifPriority.normal,
           title: 'Your recovery is ready',
-          body: 'Recovery $score$slept. Tap to see today.',
+          body: 'Recovery $score$slept.',
           date: dayId,
           route: '/today',
         ),
@@ -1601,8 +1601,7 @@ class AppState extends ChangeNotifier {
           category: NotifCategory.reminders,
           priority: NotifPriority.low,
           title: 'Step goal reached',
-          body:
-              'You hit about $steps steps — at or above your $goal goal. Nice work.',
+          body: 'You hit about $steps steps — at or above your $goal goal.',
           date: date,
           route: '/today',
         ),
@@ -1647,7 +1646,7 @@ class AppState extends ChangeNotifier {
           priority: NotifPriority.low,
           title: 'Posture Check & Stretch',
           body:
-              'You’ve been in a typing posture for over 90 minutes without walking. Time to stretch your legs and reset your posture!',
+              'You’ve been in a typing posture for over 90 minutes without walking.',
           date: today,
           route: '/today',
         ),
@@ -1685,8 +1684,7 @@ class AppState extends ChangeNotifier {
         id: NotificationService.idStillness,
         category: NotifCategory.reminders,
         title: 'Time to move',
-        body:
-            "You've been still for a couple of hours — a short walk keeps your energy and circulation up.",
+        body: "You've been still for a couple of hours.",
         at: at,
         route: '/today',
       );

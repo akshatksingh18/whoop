@@ -178,8 +178,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         'Heart rate',
                         widget.host.bandConnected
                             ? 'Band connected'
-                            : 'No band connected. The session still runs, '
-                                'without heart rate',
+                            : 'No band connected',
                         widget.host.bandConnected),
                     Divider(color: p.line, height: 1),
                     _toggle(
@@ -199,11 +198,10 @@ class _ActivitySetupState extends State<ActivitySetup> {
                     Expanded(
                       child: Text(
                           est == null
-                              ? 'Calories need your weight. '
-                                  '$kCalorieNeedsWeight'
+                              ? 'Calories need your weight.'
                               : 'About $est kcal for $targetMin min, from '
                                   '${a.met.toStringAsFixed(1)} MET and your '
-                                  'weight. Heart rate refines it.',
+                                  'weight.',
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),
@@ -212,8 +210,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   const SizedBox(height: S.x4),
                   StatusCard(
                     'A session is already running',
-                    'Only one can be live at a time — the band, the zone '
-                        'tally and the route recorder all belong to it.',
+                    'Only one can be live at a time.',
                     fix: LiveDraft.current == null
                         ? ''
                         : 'Open the running session',

@@ -199,8 +199,7 @@ class _ShareSheetState extends State<ShareSheet> {
                   if (stats.isEmpty)
                     const StatusCard(
                       'Nothing measured to include',
-                      'No heart rate, distance or calories. The card carries '
-                      'its time.',
+                      'No heart rate, distance or calories.',
                       icon: LucideIcons.circleHelp,
                     )
                   else
@@ -273,8 +272,7 @@ class _ShareSheetState extends State<ShareSheet> {
                     const SizedBox(height: S.x4),
                     const StatusCard(
                       'This session is private',
-                      'Hidden from summaries and exports. Sharing one card does'
-                      ' not change that.',
+                      'Hidden from summaries and exports.',
                       icon: LucideIcons.lock,
                     ),
                   ],

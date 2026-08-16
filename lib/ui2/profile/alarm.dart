@@ -108,15 +108,7 @@ class AlarmScreenView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
-                if (at == null)
-                  const StatusCard(
-                    'No alarm is set',
-                    'The band buzzes on your wrist using its own clock, so it '
-                        'still wakes you with the phone off, out of range or '
-                        'flat.',
-                    icon: LucideIcons.alarmClock,
-                  )
-                else ...[
+                if (at != null) ...[
                   Surface(
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,9 +125,11 @@ class AlarmScreenView extends StatelessWidget {
                               icon: _stateIcon(state)),
                         ]),
                   ),
-                  const SizedBox(height: S.x3),
-                  StatusCard(_stateHeadline(state), _stateDetail(state),
-                      icon: _stateIcon(state)),
+                  if (_stateDetail(state) case final detail?) ...[
+                    const SizedBox(height: S.x3),
+                    StatusCard(_stateHeadline(state), detail,
+                        icon: _stateIcon(state)),
+                  ],
                 ],
                 const SizedBox(height: S.x4),
                 if (!connected)
@@ -254,18 +248,17 @@ class AlarmScreenView extends StatelessWidget {
         AlarmArmState.none => 'No alarm is set',
       };
 
-  static String _stateDetail(AlarmArmState s) => switch (s) {
+  static String? _stateDetail(AlarmArmState s) => switch (s) {
         AlarmArmState.confirmed =>
-          'The band reported that it latched the alarm. It will buzz at this '
-              'time whether or not the phone is nearby, on, or running this app.',
+          'The band reported that it latched the alarm.',
         AlarmArmState.pending =>
           'The write reached the band. Its confirmation usually arrives within '
               'a few seconds.',
         AlarmArmState.unknown =>
           'The time above is what this app last sent. The band never confirmed '
               'it — or it was set in an earlier run of the app, and there is no '
-              'way to ask the band what it is holding. It may well fire. Set it '
-              'again while connected if you need to be sure.',
-        AlarmArmState.none => 'Nothing is armed on the band.',
+              'way to ask the band what it is holding. Set it again while '
+              'connected if you need to be sure.',
+        AlarmArmState.none => null,
       };
 }

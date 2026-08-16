@@ -354,7 +354,7 @@ class NotificationService {
       await _plugin.show(
         e.osId ?? await NotificationIds.instance.idFor(e),
         e.title,
-        e.body,
+        e.body.isEmpty ? null : e.body,
         _details(e.category),
         payload: e.route,
       );

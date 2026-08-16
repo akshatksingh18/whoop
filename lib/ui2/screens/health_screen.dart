@@ -385,7 +385,7 @@ class _HealthScreenState extends State<HealthScreen> {
                   '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watch reads '
               'that one signal; it names a pattern, and it does not name a '
               'cause.',
-          'Worth noting if it continues past a couple of days.',
+          advice: 'Worth noting if it continues past a couple of days.',
         ),
       ],
 
@@ -524,12 +524,8 @@ class _HealthScreenState extends State<HealthScreen> {
                 ),
                 Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
               ]),
-              const SizedBox(height: S.x4),
-              if (chrono.isEmpty && sjlH == null && sri == null)
-                Text(
-                    'Compares your free nights against your working nights.',
-                    style: F.cap.copyWith(color: p.ink3, height: 1.5))
-              else
+              if (chrono.isNotEmpty || sjlH != null || sri != null) ...[
+                const SizedBox(height: S.x4),
                 InlineMetrics([
                   if (chrono['type_label'] != null)
                     ('CHRONOTYPE', chrono['type_label'].toString(), C.indigo),
@@ -538,6 +534,7 @@ class _HealthScreenState extends State<HealthScreen> {
                   if (sri != null)
                     ('REGULARITY', '${sri.round()} / 100', C.green),
                 ]),
+              ],
             ]),
           ),
           action: 'Explore',
@@ -621,9 +618,6 @@ class _HealthScreenState extends State<HealthScreen> {
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Measured continuously while the band is on your wrist.',
-          style: F.cap.copyWith(color: p.ink3)),
-      const SizedBox(height: S.x4),
       if (rows.isEmpty)
         StatusCard(
           'Nothing measured for this day',

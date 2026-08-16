@@ -547,7 +547,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Expanded(
             child: Text(
                 widget.weightKg == null
-                    ? 'Calories need your weight. $kCalorieNeedsWeight'
+                    ? 'Calories need your weight.'
                     : 'Estimated from ${a.met.toStringAsFixed(1)} MET, your '
                         'weight and heart rate.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.5)),
@@ -801,7 +801,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return [
             const StatusCard(
               'No laps counted',
-              '0 laps tapped. No sensor can see a pool wall.',
+              '0 laps tapped.',
               icon: LucideIcons.waves,
             ),
           ];
@@ -848,8 +848,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 height: 130,
                 yAxis: axis,
                 xLabels: const ['Start', 'Finish'],
-                footnote: 'Altitude comes from the GPS fixes, which are less '
-                    'certain vertically than horizontally.',
                 series: r.elevationM,
                 child: CustomPaint(
                     size: Size.infinite,
@@ -1215,8 +1213,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.laps:
         if (r.lapSecs.isEmpty) {
           return [
-            const StatusCard('No laps counted',
-                '0 laps tapped. No sensor can see a pool wall.',
+            const StatusCard('No laps counted', '0 laps tapped.',
                 icon: LucideIcons.waves),
           ];
         }

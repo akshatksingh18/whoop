@@ -19,7 +19,6 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
-import 'catalogue.dart';
 import 'summary.dart';
 
 /// The rect an iPad or Mac share popover points at.
@@ -302,7 +301,7 @@ String? _paceOf(ActivityResult r, UnitsController? u) {
 
 bool _hasArt(ActivityResult r) => switch (r.arch) {
   Arch.route => r.route.length >= 2,
-  Arch.strength => muscleLoad(r.strength.volumeByExercise).isNotEmpty,
+  Arch.strength => false,
   Arch.journey => r.elevationM.length >= 2,
   Arch.laps => r.lapSpeeds.isNotEmpty,
   Arch.interval => r.rounds.isNotEmpty,
@@ -512,13 +511,14 @@ class ShareCard extends StatelessWidget {
             pins: false,
           ),
         );
+      // No art for a lift. The muscle map that used to be here was an
+      // exercise→group lookup table times the volume the user typed, painted
+      // on a body — and this card is the one that leaves the phone, so it is
+      // the worst place of all to draw something that looks measured and is
+      // not. A lift shares as the minimal card: the volume, the sets, the top
+      // set. All three are what the user actually did.
       case Arch.strength:
-        final load = muscleLoad(r.strength.volumeByExercise);
-        if (load.isEmpty) return const SizedBox.shrink();
-        return Opacity(
-          opacity: .30,
-          child: CustomPaint(painter: MuscleMap(load, C.white, _ink(.10))),
-        );
+        return const SizedBox.shrink();
       case Arch.journey:
         if (r.elevationM.length < 2) return const SizedBox.shrink();
         return Opacity(

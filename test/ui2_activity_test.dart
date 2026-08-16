@@ -280,15 +280,6 @@ void main() {
       expect(oneRepMax(null), isNull);
     });
 
-    test('muscle load is a normalised share, absent groups stay absent', () {
-      final load = muscleLoad(StrengthLog(_sets).volumeByExercise);
-      expect(load.values.reduce((a, b) => a > b ? a : b), closeTo(1, .0001));
-      expect(load['chest'], greaterThan(load['triceps']!));
-      expect(load.containsKey('legs'), isFalse,
-          reason: 'nothing in this session trained legs');
-      expect(muscleLoad(const {}), isEmpty);
-      expect(muscleLoad(const {'not_an_exercise': 100}), isEmpty);
-    });
   });
 
   // ── the live feed ────────────────────────────────────────────────────────
@@ -467,7 +458,10 @@ void main() {
         (Arch.journey, 'm'),
         (Arch.laps, 'seconds per lap'),
         (Arch.interval, 'seconds'),
-        (Arch.strength, '% of this session'),
+        // No `strength` row. A lift has no chart in its overview: the muscle
+        // map that used to be there was a lookup table painted on a body, not
+        // a measurement, and it is the one archetype whose defining object is
+        // the log itself.
         (Arch.basic, 'bpm'),
       ]) {
         await tester.pumpWidget(_frame(
@@ -802,7 +796,11 @@ void main() {
           _frame(ShareSheet(_result(Arch.strength)), Brightness.light, 1.0));
       await tester.pumpAndSettle();
       expect(find.text('Volume'), findsWidgets);
-      expect(find.text('Muscle map'), findsOneWidget);
+      // A lift has no art. The muscle map that used to be offered here was a
+      // lookup table painted on a body, and this is the card that leaves the
+      // phone — so a lift shares as the minimal card and nothing else.
+      expect(find.text('Muscle map'), findsNothing);
+      expect(find.text('Minimal'), findsOneWidget);
       // A lift has no distance, so it cannot be shared as one.
       expect(find.text('Distance'), findsNothing);
 

@@ -1,11 +1,15 @@
 // The activity summary — eight archetypes, eight centres of gravity.
 //
 // The rule the whole file exists to enforce: a strength session is NOT a run
-// with the map removed. A run is a route coloured by pace; a lift is a muscle
-// map and a volume total; a hike is an elevation profile; a swim is a lap
-// ladder; HIIT is an interval ladder; a match is heart rate and hard minutes.
-// Same grammar — same cards, same type, same spacing — different defining
-// object.
+// with the map removed. A run is a route coloured by pace; a hike is an
+// elevation profile; a swim is a lap ladder; HIIT is an interval ladder; a
+// match is heart rate and hard minutes. Same grammar — same cards, same type,
+// same spacing — different defining object.
+//
+// A lift is the exception that proves it: it has NO defining visual object,
+// because nothing here measures one. The muscle map that used to hold the
+// slot was a static exercise→group table times the volume the user typed,
+// painted onto a body — a picture that looks measured and is not.
 //
 // [ActivityResult] is the seam. Everything on screen comes out of it, every
 // field is nullable or empty by default, and an absent field renders a
@@ -689,47 +693,27 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           ),
         ];
 
+      // A lift has no defining visual object. The muscle map that used to sit
+      // here was not a measurement — it was a static exercise→group table
+      // multiplied by the volume the user typed, drawn as a body with shaded
+      // regions, which is the picture a scan produces. What the session
+      // actually knows is on the screen already: the stats, the top set, and
+      // every set as logged.
+      //
+      // Absence is still explained. A lift with no sets in it has nothing on
+      // the screen at all, and a blank overview reads as a bug rather than as
+      // an empty log.
       case Arch.strength:
-        final load = muscleLoad(r.strength.volumeByExercise);
-        if (load.isEmpty) {
-          return [
-            const StatusCard(
-              'No muscle map for this session',
-              '0 exercises logged with a load.',
-              icon: LucideIcons.personStanding,
-            ),
-          ];
-        }
-        final ranked = load.entries.toList()
-          ..sort((x, y) => y.value.compareTo(x.value));
-        return [
-          Surface(
-            child: ChartFrame(
-              title: 'MUSCLE GROUPS',
-              unit: '% of this session',
-              height: 190,
-              footnote: 'Share of your logged volume, relative to the hardest-'
-                        'worked group.',
-              child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 130,
-                      child: CustomPaint(
-                          size: Size.infinite,
-                          painter: MuscleMap(load, p.on(C.purple), p.track)),
-                    ),
-                    const SizedBox(width: S.x4),
-                    Expanded(
-                      child: Column(children: [
-                        for (final e in ranked.take(5))
-                          _MuscleRow(e.key, e.value),
-                      ]),
-                    ),
-                  ]),
-            ),
-          ),
-        ];
+        return r.strength.isEmpty
+            ? const [
+                StatusCard(
+                  'No sets logged',
+                  'Nothing was entered for this session, so there is no load '
+                      'and no volume to total.',
+                  icon: LucideIcons.dumbbell,
+                ),
+              ]
+            : const [];
 
       case Arch.interval:
         if (r.rounds.isEmpty) {
@@ -1340,38 +1324,3 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   }
 }
 
-class _MuscleRow extends StatelessWidget {
-  final String group;
-  final double v;
-  const _MuscleRow(this.group, this.v);
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final label = group[0].toUpperCase() + group.substring(1);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: S.x3),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          // Flexible, not Spacer-only: a long muscle-group name at 2x text
-          // scale leaves the percentage no room, and tabular digits are wider
-          // than proportional ones.
-          Flexible(
-            child: Text(label,
-                style: F.cap.copyWith(color: p.ink),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          const Spacer(),
-          Text('${(v * 100).round()}%',
-              style: F.cap.copyWith(
-                  color: p.ink2,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: const [FontFeature.tabularFigures()])),
-        ]),
-        const SizedBox(height: S.x1),
-        PaceBar(v, C.purple),
-      ]),
-    );
-  }
-}

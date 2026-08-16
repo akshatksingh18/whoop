@@ -238,7 +238,8 @@ class ExerciseDef {
   final String key;
   final String label;
 
-  /// group → 0…1 share of the work. Keys are `MuscleMap.groups`.
+  /// group → 0…1 share of the work. Only the primary mover is shown, as the
+  /// category label in the exercise picker — nothing paints these any more.
   final Map<String, double> muscles;
 
   /// The plate/dumbbell increment this lift is normally loaded in, kg. A
@@ -285,20 +286,3 @@ final Map<String, ExerciseDef> _exercisesByKey = {
 
 ExerciseDef? exerciseByKey(String key) => _exercisesByKey[key];
 
-/// Per-muscle share of a session's volume, normalised to its own maximum so
-/// the map reads as *relative* load within the session. Absolute per-muscle
-/// tonnage across people is not a thing this can honestly claim.
-Map<String, double> muscleLoad(Map<String, double> volumeByExercise) {
-  final out = <String, double>{};
-  volumeByExercise.forEach((key, volume) {
-    final def = exerciseByKey(key);
-    if (def == null || volume <= 0) return;
-    def.muscles.forEach((group, share) {
-      out[group] = (out[group] ?? 0) + volume * share;
-    });
-  });
-  if (out.isEmpty) return const {};
-  final peak = out.values.reduce((a, b) => a > b ? a : b);
-  if (peak <= 0) return const {};
-  return {for (final e in out.entries) e.key: e.value / peak};
-}

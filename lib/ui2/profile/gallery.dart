@@ -587,26 +587,6 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
-      'activity_muscle_map': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'What yesterday’s session loaded',
-            unit: 'relative volume',
-            height: 180,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: MuscleMap(const {
-                'shoulders': .3,
-                'chest': .9,
-                'back': .55,
-                'core': .2,
-                'triceps': .7,
-              }, p.on(C.domMove), p.track),
-            ),
-          ),
-        );
-      }),
       'activity_elevation': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
@@ -722,7 +702,195 @@ Map<String, Widget> extraCases() => {
       ..._liveCases(),
       ..._listCases(),
       ..._onboardingCases(),
+      ..._stateCases(),
+      ..._shareCases(),
     };
+
+/// The SECOND state of every card.
+///
+/// Each card above is shown once, holding a number. Every one of them also has
+/// a state where the number is missing, negative, over target, or long — and
+/// that is the state a screenshot never catches, because a demo device always
+/// has data. A card is not in this design system until both of its faces are
+/// in here.
+Map<String, Widget> _stateCases() => {
+      'signal_absent': const SignalCard(
+          LucideIcons.wind, C.teal, 'Respiratory rate', '—',
+          sub: 'BEAT TIMING WAS TOO NOISY LAST NIGHT'),
+      'progress_over': const ProgressCard(
+          'Protein', '164 g', 'of 140 g', 1.17, C.orange,
+          icon: LucideIcons.beef),
+      // Down AND bad, which is the pairing the colour logic gets wrong: a
+      // falling number is not automatically a win.
+      'trend_down_bad': TrendCard('Heart-rate variability', '48', 'ms', '−13',
+          'vs 14-day baseline', _series, C.orange,
+          good: false),
+      // A gap in the middle of the series — the strap was off the wrist for
+      // three days, and the line must BREAK rather than interpolate across it.
+      'trend_with_gap': TrendCard(
+          'Resting heart rate',
+          '58',
+          'bpm',
+          '+4',
+          'vs 14-day baseline',
+          [for (var i = 0; i < 24; i++) i > 9 && i < 13 ? null : _series[i]],
+          C.red,
+          up: true,
+          good: false),
+      'insight_no_action': const InsightCard(
+        'You went to bed at the same time four nights running',
+        'That is the longest stretch since May, and your resting heart rate '
+            'fell on three of them.',
+      ),
+      'status_title_only': const StatusCard('Location is off',
+          '', fix: 'Allow location'),
+      'deep_dive_no_preview': const DeepDiveCard(
+          'Sleep debt', '2h 14m', 'owed', 'See the fortnight', C.indigo),
+      'goal_trajectory_gaining': const GoalTrajectory(
+          'Weight', '71.2 kg', '76 kg', '0.25 kg per week', .34, C.teal,
+          rateDown: false),
+      'observation_no_advice': const Observation(
+        'Your skin temperature has been above baseline for three nights',
+        '+0.6° against your own 28-night mean.',
+      ),
+      'consistency_none': const Consistency(
+          0, 7, 'Nights with a full sleep record', C.domHealth),
+      'consistency_full': const Consistency(
+          7, 7, 'Nights with a full sleep record', C.domHealth),
+      // Every accent, so a palette change is one picture rather than a hunt.
+      'pill_every_colour': const Wrap(spacing: S.x2, runSpacing: S.x2, children: [
+        Pill('Measured', C.green),
+        Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
+        Pill('Relative', C.purple),
+        Pill('Private', C.n500, icon: LucideIcons.lock),
+        Pill('Beta', C.blue),
+        Pill('Needs attention', C.orange),
+        Pill('Not scored', C.red),
+      ]),
+      'big_button_no_icon': const BigButton('Save the night', color: C.domHealth),
+      'sub_tabs_five': SubTabs(
+          const ['Today', '7 days', '30 days', '6 months', 'Year'], 0, (_) {},
+          color: C.domHealth),
+      'nav_bar_no_sub': const NavBar('Component gallery'),
+      'section_no_action': const Section(
+          'Recovery', StatusCard('Nothing yet today', '')),
+      'inline_metrics_two': const InlineMetrics([
+        ('VOLUME', '1,578 kg', C.purple),
+        ('SETS', '4', C.n500),
+      ]),
+      'metric_row_absent': const MetricRow(
+          LucideIcons.wind, C.teal, 'Respiratory rate', '—',
+          sub: 'NEED 4 MORE NIGHTS'),
+    };
+
+/// The share card in every archetype it can be.
+///
+/// Eight activity archetypes, and the card's whole point is that the picture
+/// changes with the sport while the type and the spacing do not. Shown at the
+/// art style, since the minimal style is identical across all eight.
+Map<String, Widget> _shareCases() => {
+      for (final s in _sessions.entries)
+        'share_${s.key}': ShareCard(s.value, 1, const {
+          'Time',
+          'Distance',
+          'Pace',
+          'Heart rate',
+          'Calories',
+          'Volume',
+          'Sets',
+          'Laps',
+        }),
+    };
+
+/// One finished session per archetype, so the eight share cards and the eight
+/// summaries have something real to draw. Deterministic throughout.
+final _sessions = <String, ActivityResult>{
+  'journey': _finished,
+  'route': ActivityResult(
+    activityByName('Running')!,
+    start: DateTime(2026, 8, 12, 7, 5),
+    duration: Motion.tick * 2712,
+    avgHr: 156,
+    maxHr: 181,
+    calories: 604,
+    hr: [for (var i = 0; i < 45; i++) 140 + (i * 23 % 37) * 1.0],
+    zoneMinutes: const [2, 8, 19, 13, 3],
+    route: _route,
+    routePace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
+    distanceKm: 8.02,
+  ),
+  'strength': ActivityResult(
+    activityByName('Weight training')!,
+    start: DateTime(2026, 8, 11, 18, 40),
+    duration: Motion.tick * 3320,
+    avgHr: 112,
+    calories: 388,
+    strength: StrengthLog([
+      for (var i = 0; i < 4; i++)
+        LoggedSet('bench_press', 8 - i,
+            loadKg: 70 + i * 5, at: DateTime(2026, 8, 11, 18, 45 + i * 4)),
+      for (var i = 0; i < 3; i++)
+        LoggedSet('barbell_row', 10,
+            loadKg: 60, at: DateTime(2026, 8, 11, 19, 5 + i * 4)),
+    ]),
+  ),
+  'laps': ActivityResult(
+    activityByName('Swimming')!,
+    start: DateTime(2026, 8, 10, 12, 15),
+    duration: Motion.tick * 1980,
+    avgHr: 134,
+    calories: 421,
+    distanceKm: 1.5,
+    poolLengthM: 25,
+    stroke: 'Freestyle',
+    lapSecs: const [52, 54, 55, 53, 58, 61, 59, 57],
+  ),
+  'interval': ActivityResult(
+    activityByName('Jump rope')!,
+    start: DateTime(2026, 8, 9, 6, 30),
+    duration: Motion.tick * 1140,
+    avgHr: 158,
+    maxHr: 186,
+    calories: 302,
+    rounds: const [
+      IntervalRound(40, 20, avgHr: 148),
+      IntervalRound(40, 20, avgHr: 159),
+      IntervalRound(40, 25, avgHr: 166),
+      IntervalRound(40, 30, avgHr: 171),
+      IntervalRound(40, 35, avgHr: 174),
+    ],
+  ),
+  'flow': ActivityResult(
+    activityByName('Yoga') ?? activityByName('Stretching')!,
+    start: DateTime(2026, 8, 8, 21, 10),
+    duration: Motion.tick * 2400,
+    avgHr: 72,
+    calories: 118,
+    breathsPerMin: 6.2,
+    poses: const ['Down dog', 'Warrior II', 'Pigeon', 'Savasana'],
+  ),
+  'match': ActivityResult(
+    activityByName('Tennis')!,
+    start: DateTime(2026, 8, 7, 17, 0),
+    duration: Motion.tick * 4560,
+    avgHr: 141,
+    maxHr: 179,
+    calories: 712,
+    hr: [for (var i = 0; i < 76; i++) 120 + (i * 31 % 51) * 1.0],
+    zoneMinutes: const [8, 17, 24, 22, 5],
+    gameScore: const [(6, 4), (3, 6), (7, 5)],
+  ),
+  'basic': ActivityResult(
+    activityByName('Treadmill')!,
+    start: DateTime(2026, 8, 6, 19, 30),
+    duration: Motion.tick * 1800,
+    avgHr: 147,
+    maxHr: 168,
+    calories: 356,
+    hr: [for (var i = 0; i < 30; i++) 130 + (i * 17 % 33) * 1.0],
+    zoneMinutes: const [1, 6, 14, 8, 1],
+  ),
+};
 
 /// The live-session vocabulary. These are the pieces every `Live*` screen is
 /// assembled from; the screens themselves are `Scaffold`s and belong on a

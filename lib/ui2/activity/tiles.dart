@@ -36,10 +36,26 @@ const kOsmAttribution = '© OpenStreetMap contributors';
 
 const _tileSize = 256;
 
-/// Per card. A 1080-wide card at zoom-to-fit needs 6-12; the cap exists so a
-/// pathological bounding box (a flight, a GPS glitch across a hemisphere)
-/// cannot turn one share into a scrape.
-const _maxTiles = 24;
+/// Per card, as a runaway guard only.
+///
+/// It is NOT the knob that frames the map, and it used to be treated as one:
+/// a loop stepped the zoom down while the count was over this cap. The count
+/// cannot respond to that. The frame is a fixed number of PIXELS — the card's
+/// own size — so its width in tiles is `width / 256` at every zoom level, and
+/// lowering the zoom shows more ground through the same number of tiles.
+///
+/// The old cap was 24. A poster's export frame is 900×1200, which is a 5×5
+/// grid, which is 25. So the loop ran to `_minZoom` on EVERY share, and every
+/// card that ever drew a basemap drew the whole world behind a route the size
+/// of a full stop. The corridor mask hid it: at zoom 2 a blurred band along
+/// the route is an unreadable smear either way, and it took removing the mask
+/// for anyone to see what was under it.
+///
+/// A pathological bounding box was never the risk this protected against —
+/// zoom-to-fit already answers a hemisphere-wide route with a low zoom, and
+/// the tile count stays frame-bound regardless. What is left is a ceiling that
+/// a legitimate frame fits inside with room to spare.
+const _maxTiles = 64;
 
 const _minZoom = 2;
 const _maxZoom = 17;
@@ -90,24 +106,51 @@ class RouteMosaic {
   );
 }
 
-/// Desaturate the raster and pull it toward the card's own surface.
+/// The input luma window that gets stretched across [bg] → [ink].
 ///
-/// Two transforms, in order: drop to luminance, then map that grey onto the
-/// line between [bg] and [ink]. The result reads as a map — roads, water and
-/// parks keep their relative brightness — without fighting the card it sits
-/// on, and it works for a light card and a dark one from the same source
-/// tiles.
+/// This is the whole reason a dark map was either a grey slab or invisible,
+/// and no amount of moving [ink] fixed it. OSM's standard raster has almost
+/// no dark pixels: land is `#F2EFE9`, water `#AAD3DF`, parks `#C8FACC`,
+/// road fill white. Every feature on the map lives between about 0.78 and
+/// 1.0 luma — the top fifth of the range.
+///
+/// Mapping 0…1 onto the two ends therefore crushed the entire map into the
+/// few percent nearest [ink]: water, land and roads came out within a couple
+/// of values of each other, so a light [ink] made one flat grey field and a
+/// dark [ink] made one flat black field. Neither is a map.
+///
+/// Stretching the window the source actually uses is what gives water, land
+/// and roads room to be told apart while the card stays dark.
+const _lumaLo = 0.72, _lumaHi = 1.0;
+
+/// Desaturate the raster and pull it onto the line between [bg] and [ink].
+///
+/// Two transforms, in order: drop to Rec. 709 luminance, then stretch
+/// [_lumaLo]…[_lumaHi] of that grey across `bg`…`ink`. The result reads as a
+/// map — roads, water and parks keep their relative brightness, and gain the
+/// separation the source's own compressed range denied them — without
+/// fighting the card it sits on.
 ColorFilter _themeFilter(Color bg, Color ink) {
   // Rec. 709 luma.
   const lr = 0.2126, lg = 0.7152, lb = 0.0722;
-  // out = from + luma × (to − from), per channel. `ColorFilter.matrix` rows
-  // are [r, g, b, a, offset] against 0…255 inputs with a 0…255 offset, while
-  // `Color.r/g/b` are 0…1 — hence the ×255 on the offset only.
+  const span = _lumaHi - _lumaLo;
+  // out = from + (luma − lo) / (hi − lo) × (to − from), per channel, which is
+  // linear in luma: out = luma × k + (from − lo × k), with k the gain.
   //
-  // Sanity, both ends: a white source pixel has luma 1 (the three weights sum
-  // to 1) and lands exactly on `to`; a black one lands exactly on `from`.
-  List<double> row(double from, double to) =>
-      [lr * (to - from), lg * (to - from), lb * (to - from), 0, from * 255];
+  // `ColorFilter.matrix` rows are [r, g, b, a, offset] against 0…255 inputs
+  // with a 0…255 offset, while `Color.r/g/b` are 0…1 — hence the ×255 on the
+  // offset only. The offset goes NEGATIVE here, which is both legal and the
+  // point: it is what pushes everything below `lo` to black rather than
+  // leaving the map floating off the bottom of its own range.
+  //
+  // Sanity, both ends: a source pixel at `hi` luma lands exactly on `to`; one
+  // at `lo` lands exactly on `from`; anything below clamps to black in the
+  // raster pipeline, which is what should happen to ink the map does not use.
+  List<double> row(double from, double to) {
+    final k = (to - from) / span;
+    return [lr * k, lg * k, lb * k, 0, (from - _lumaLo * k) * 255];
+  }
+
   return ColorFilter.matrix(<double>[
     ...row(bg.r, ink.r),
     ...row(bg.g, ink.g),
@@ -162,14 +205,91 @@ Future<ui.Image?> _tile(int z, int x, int y, http.Client client) async {
 /// somebody else receives.
 ///
 /// [pad] is the fraction of the frame left around the route, so the line never
-/// runs into the card's edge.
+/// runs into the card's edge. It is also the only zoom control there is, and
+/// it is a COARSE one: zoom levels are integers, so shrinking the margin moves
+/// a route to the next level only if it was already near the boundary. A 3 km
+/// loop steps 16 -> 17 here; a 40 km ride stays at 11 whatever this is set to.
+/// Which tiles a route's basemap needs, and at what zoom.
+///
+/// Pulled out of [buildRouteMosaic] and made pure so it can be tested. The
+/// zoom is the one number on this card that fails PLAUSIBLY — a wrong one
+/// still draws a tidy map, just of the wrong amount of world — and while it
+/// lived inside a function that needs the network, nothing could look at it.
+class RouteFrame {
+  final int zoom;
+  final ({double x, double y}) centre;
+
+  /// Half the frame, in tile units. Deliberately independent of [zoom]: the
+  /// frame is a fixed pixel size, and that is the fact the old tile-budget
+  /// loop was written as though it were not.
+  final double halfW, halfH;
+
+  /// The tile range to fetch, x0/y0 inclusive and x1/y1 exclusive.
+  final int x0, x1, y0, y1;
+
+  const RouteFrame({
+    required this.zoom,
+    required this.centre,
+    required this.halfW,
+    required this.halfH,
+    required this.x0,
+    required this.x1,
+    required this.y0,
+    required this.y1,
+  });
+
+  int get tiles => (x1 - x0) * (y1 - y0);
+}
+
+/// The largest zoom at which the route still fits inside the padded frame.
+///
+/// Null when the frame is unusable, or when even the coarsest zoom would ask
+/// for more tiles than [_maxTiles] — which a real card cannot do, and which is
+/// therefore a refusal rather than a silent zoom-out.
+RouteFrame? routeFrame({
+  required double loLat,
+  required double hiLat,
+  required double loLng,
+  required double hiLng,
+  required int width,
+  required int height,
+  double pad = .02,
+}) {
+  if (width <= 0 || height <= 0) return null;
+  final usableW = width * (1 - pad * 2), usableH = height * (1 - pad * 2);
+
+  // Largest zoom whose projected bounds still fit the frame. This is the ONLY
+  // thing that decides how much world is on the card, so a 3 km loop gets a
+  // street map and a 300 km ride gets a region.
+  var z = _maxZoom;
+  for (; z > _minZoom; z--) {
+    final a = tileXY(hiLat, loLng, z), b = tileXY(loLat, hiLng, z);
+    final w = (b.x - a.x).abs() * _tileSize, h = (b.y - a.y).abs() * _tileSize;
+    if (w <= usableW && h <= usableH) break;
+  }
+
+  final centre = tileXY((loLat + hiLat) / 2, (loLng + hiLng) / 2, z);
+  final halfW = width / 2 / _tileSize, halfH = height / 2 / _tileSize;
+  final frame = RouteFrame(
+    zoom: z,
+    centre: centre,
+    halfW: halfW,
+    halfH: halfH,
+    x0: (centre.x - halfW).floor(),
+    x1: (centre.x + halfW).ceil(),
+    y0: (centre.y - halfH).floor(),
+    y1: (centre.y + halfH).ceil(),
+  );
+  return frame.tiles > _maxTiles ? null : frame;
+}
+
 Future<RouteMosaic?> buildRouteMosaic(
   List<(double lat, double lng)> geo, {
   required int width,
   required int height,
   required Color bg,
   required Color ink,
-  double pad = .12,
+  double pad = .02,
 }) async {
   if (geo.length < 2 || width <= 0 || height <= 0) return null;
 
@@ -183,31 +303,20 @@ Future<RouteMosaic?> buildRouteMosaic(
     hiLng = math.max(hiLng, lng);
   }
 
-  final usableW = width * (1 - pad * 2), usableH = height * (1 - pad * 2);
-
-  // Largest zoom whose projected bounds still fit the frame, then stepped back
-  // until the tile count is under the ceiling. Zoom-to-fit and a tile budget
-  // are the same knob.
-  var z = _maxZoom;
-  for (; z > _minZoom; z--) {
-    final a = tileXY(hiLat, loLng, z), b = tileXY(loLat, hiLng, z);
-    final w = (b.x - a.x).abs() * _tileSize, h = (b.y - a.y).abs() * _tileSize;
-    if (w <= usableW && h <= usableH) break;
-  }
-
-  // The frame, in tile units, centred on the route.
-  var centre = tileXY((loLat + hiLat) / 2, (loLng + hiLng) / 2, z);
-  var halfW = width / 2 / _tileSize, halfH = height / 2 / _tileSize;
-  var x0 = (centre.x - halfW).floor(), x1 = (centre.x + halfW).ceil();
-  var y0 = (centre.y - halfH).floor(), y1 = (centre.y + halfH).ceil();
-  while ((x1 - x0) * (y1 - y0) > _maxTiles && z > _minZoom) {
-    z--;
-    centre = tileXY((loLat + hiLat) / 2, (loLng + hiLng) / 2, z);
-    x0 = (centre.x - halfW).floor();
-    x1 = (centre.x + halfW).ceil();
-    y0 = (centre.y - halfH).floor();
-    y1 = (centre.y + halfH).ceil();
-  }
+  final frame = routeFrame(
+    loLat: loLat,
+    hiLat: hiLat,
+    loLng: loLng,
+    hiLng: hiLng,
+    width: width,
+    height: height,
+    pad: pad,
+  );
+  if (frame == null) return null;
+  final z = frame.zoom;
+  final centre = frame.centre;
+  final halfW = frame.halfW, halfH = frame.halfH;
+  final x0 = frame.x0, x1 = frame.x1, y0 = frame.y0, y1 = frame.y1;
 
   final n = math.pow(2, z).toInt();
   final client = http.Client();

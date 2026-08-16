@@ -1,8 +1,16 @@
 // The defining object for each activity family.
 //
-// A run is a route. A lift is a muscle map. A hike is an elevation profile. A
-// swim is a lap ladder. Showing all of them the same generic "workout card" is
-// the difference between a log and a training tool.
+// A run is a route. A hike is an elevation profile. A swim is a lap ladder.
+// Showing all of them the same generic "workout card" is the difference
+// between a log and a training tool.
+//
+// Two families deliberately have NO object here, and their painters were
+// deleted rather than left unused: a lift's muscle map was a lookup table
+// times the weight the user typed, painted on a body, and a match's court map
+// needed indoor positioning nothing in this stack has. Both drew something
+// that looked measured and was not. `PowerCurve` went with them — the `power`
+// archetype was removed because no power meter is paired and a wrist cannot
+// infer watts.
 //
 // Same two rules as charts.dart: nothing here invents data (the prototype
 // seeded a `Random` inside six of these painters so they could be seen with no
@@ -10,8 +18,8 @@
 // that can receive a long series goes through [minMaxColumns] first.
 //
 // Positional inputs are normalised 0…1 in both axes, origin top-left. Mapping
-// GPS or court coordinates into that box is the caller's job — it is the only
-// place that knows the projection, the bounding box and the aspect correction.
+// GPS coordinates into that box is the caller's job — it is the only place
+// that knows the projection, the bounding box and the aspect correction.
 
 import 'dart:math';
 
@@ -175,72 +183,6 @@ class Elevation extends CustomPainter {
       o.metres != metres || o.axis != axis;
 }
 
-/// ════════ POWER CURVE ── the defining object for indoor cycling
-///
-/// [watts] is the power series. [max] is the axis ceiling (FTP-relative or a
-/// hard cap); the target band is drawn as a fraction of that same axis, so the
-/// band and the curve are measured against one scale.
-class PowerCurve extends CustomPainter {
-  final List<double> watts;
-  final double max;
-  final double targetLo, targetHi;
-  final Color color;
-
-  /// Supersedes [max] when given, so the ceiling the frame labels is the
-  /// ceiling the curve was drawn against.
-  ///
-  /// [targetLo]/[targetHi] are fractions of the SPAN in force — of [max] from
-  /// zero, or of `axis.max - axis.min` from `axis.min`. That is the same 0…1
-  /// the curve is mapped through, so band and curve share one scale; they are
-  /// not watts, and on an axis with a non-zero min they are not a fraction of
-  /// the ceiling either.
-  final AxisSpec? axis;
-
-  PowerCurve(this.watts, this.max, this.color,
-      {this.targetLo = 0, this.targetHi = 0, this.axis});
-
-  @override
-  void paint(Canvas cv, Size s) {
-    final a = axis;
-    if ((a == null && max <= 0) || s.width <= 0) return;
-
-    if (targetHi > targetLo) {
-      cv.drawRect(
-        Rect.fromLTWH(0, s.height * (1 - targetHi.clamp(0, 1)), s.width,
-            s.height * (targetHi - targetLo).clamp(0, 1)),
-        Paint()..color = color.withValues(alpha: .10),
-      );
-    }
-    if (watts.length < 2) return;
-
-    double y(double v) => a != null
-        ? s.height - a.t(v) * s.height
-        : s.height - (v / max).clamp(0, 1) * s.height;
-    final pts = minMaxColumns(watts, s.width, y);
-
-    final path = Path()..moveTo(pts.first.dx, s.height);
-    for (final o in pts) {
-      path.lineTo(o.dx, o.dy);
-    }
-    path
-      ..lineTo(pts.last.dx, s.height)
-      ..close();
-    cv.drawPath(
-      path,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [color.withValues(alpha: .70), color.withValues(alpha: .05)],
-        ).createShader(Offset.zero & s),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant PowerCurve o) =>
-      o.watts != watts || o.axis != axis || o.max != max;
-}
-
 /// ════════ LAP LADDER ── the defining object for swimming
 ///
 /// [laps] is one 0…1 relative speed per lap. [done] is how many are complete;
@@ -321,53 +263,6 @@ class BreathRing extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant BreathRing o) => o.t != t;
-}
-
-/// ════════ COURT MOVEMENT ── the defining object for racket / team sports
-///
-/// [pts] are normalised 0…1 positions sampled over the session; each becomes
-/// one soft blob, so the density on screen is the density of time spent.
-class MovementMap extends CustomPainter {
-  final List<Offset> pts;
-  final Color color, line;
-
-  /// Court markings: fractions of the canvas, and a single dividing line.
-  final Rect court;
-
-  MovementMap(this.pts, this.color, this.line,
-      {this.court = const Rect.fromLTWH(.10, .08, .80, .84)});
-
-  @override
-  void paint(Canvas cv, Size s) {
-    final r = Rect.fromLTWH(court.left * s.width, court.top * s.height,
-        court.width * s.width, court.height * s.height);
-    cv.drawRect(
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = line,
-    );
-    cv.drawLine(
-      Offset(r.left, r.center.dy),
-      Offset(r.right, r.center.dy),
-      Paint()
-        ..strokeWidth = 1.4
-        ..color = line,
-    );
-    // The blobs are additive, so a fixed radius plus a low alpha is already a
-    // density map; more samples in one place simply reads darker.
-    final blobs = _stride(pts, s.width);
-    if (blobs.isEmpty) return;
-    final radius = min(s.width, s.height) * .06;
-    final paint = Paint()..color = color.withValues(alpha: .035);
-    for (final o in blobs) {
-      cv.drawCircle(Offset(o.dx * s.width, o.dy * s.height), radius, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant MovementMap o) => o.pts != pts;
 }
 
 /// ════════ INTERVAL LADDER ── the defining object for HIIT

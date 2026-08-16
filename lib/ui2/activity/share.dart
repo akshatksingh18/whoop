@@ -1,10 +1,20 @@
-// Share — activity-aware, because a share card with the map taken out is not
-// a strength card, it is a broken run card.
+// Share — one card, one photo slot, one button.
 //
-// Every template draws the archetype's OWN defining object as its texture and
-// its own headline as the hero, and the stat chips offer only the stats this
-// session actually has. Nothing on the card is invented: if a session has no
-// distance, "Distance" is not offered, so it cannot be shared.
+// This screen used to ask three questions: which of three styles, which four
+// of nine stats, and whether to add a photo. Two of them were the screen
+// asking the user to do its job. The style list offered a textured card whose
+// texture a lift and a flow session could not have; the chip row asked which
+// of your own measurements to leave off a card with room for all of them.
+//
+// What is left is the one question only the user can answer — is there a
+// picture of this — and the card rearranges itself around the answer:
+//
+//   · no photo  → the basemap IS the card, whole, start to stop
+//   · a photo   → the photograph is the card, and the route dissolves into
+//                 its bottom-right corner with no frame of its own
+//
+// Nothing on the card is invented. If a session has no distance, "Distance"
+// is not printed, so it cannot be shared.
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -16,11 +26,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../state/units_controller.dart';
-import '../charts.dart';
 import '../grammar.dart';
-import '../paint_activity.dart';
 import '../profile/profile.dart' show SetRow;
-import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
 import 'poster.dart';
 import 'summary.dart';
@@ -49,16 +56,6 @@ class ShareSheet extends StatefulWidget {
 }
 
 class _ShareSheetState extends State<ShareSheet> {
-  /// The poster when the session has coordinates, the textured card when it
-  /// has a texture, the plain card otherwise — never an index into an option
-  /// that is not offered.
-  late int style = _canPoster
-      ? _styles.indexWhere((s) => s.$1 == 'Poster')
-      : _styles.length - 1;
-  late final Set<String> chosen = {
-    for (final s in _available(widget.result).take(4)) s.$1,
-  };
-
   /// The card, as pixels. Sharing a picture of it means capturing the thing on
   /// screen rather than re-drawing a second, slightly different one.
   final _card = GlobalKey();
@@ -68,14 +65,24 @@ class _ShareSheetState extends State<ShareSheet> {
   /// or generates one.
   File? _photo;
 
-  /// The basemap. Fetched once per session, off the build, and held so that
-  /// flipping between styles does not re-hit the tile server — see the usage
-  /// policy note in tiles.dart.
-  RouteMosaic? _mosaic;
-  bool _mapTried = false;
+  /// Where the card is going. The one thing besides the photo that changes it.
+  PosterFormat _format = PosterFormat.post;
+
+  /// The basemap. Fetched per FORMAT, because the mosaic is built at the
+  /// card's aspect — see the note on [kPosterMapH]. Held so that flipping
+  /// back to a format already fetched does not re-hit the tile server, which
+  /// the usage policy in tiles.dart is explicit about.
+  final _mosaics = <PosterFormat, RouteMosaic>{};
+  final _mapTried = <PosterFormat>{};
+
+  RouteMosaic? get _mosaic => _mosaics[_format];
+  bool get _mapTried_ => _mapTried.contains(_format);
 
   ActivityResult get r => widget.result;
-  Arch get arch => r.arch;
+
+  /// Whether this session went anywhere. Decides whether there is a map at
+  /// all — not which of several cards to draw, because there is one card.
+  bool get _hasRoute => r.geo.length >= 2;
 
   Future<void> _share() async {
     if (_sharing) return;
@@ -124,80 +131,60 @@ class _ShareSheetState extends State<ShareSheet> {
     }
   }
 
-  /// Fetch the basemap once, the first time a poster is actually going to be
-  /// drawn. Not in `initState`: a session whose owner never opens the poster
-  /// style should never hit the tile server at all.
+  /// Fetch the basemap once, for a session that went somewhere.
+  ///
+  /// It used to be deferred until the Poster style was selected, so a session
+  /// whose owner never opened it never hit the tile server. There is no style
+  /// to select now — a card with no photo IS the map — so a session with
+  /// coordinates always needs one, and it is fetched once, on open, and held.
   Future<void> _ensureMap() async {
-    if (_mapTried || !_canPoster) return;
-    _mapTried = true;
-    // Read the palette before the await — the widget may be gone after it.
-    final p = P.of(context);
-    final bg = Color.lerp(C.n900, C.white, .06)!;
+    final f = _format;
+    if (_mapTried.contains(f) || !_hasRoute) return;
+    _mapTried.add(f);
+    // Midnight, both ends, and NOT the reader's palette.
+    //
+    // This card is exported and sent to someone else — it is dark whichever
+    // theme drew it, so tinting the basemap to the viewer's surface produced
+    // a bright map on a dark card for half the users. `mapFloor`/`mapCeil`
+    // are the card's own map styling: near-black land and water, and a dim
+    // slate ceiling so roads, buildings and the labels baked into the raster
+    // sit down as texture rather than standing up as type.
     final m = await buildRouteMosaic(
       r.geo,
       // The card's own map box, at export resolution (`toImage` runs at 3x).
       width: kPosterMapW.round() * 3,
-      height: kPosterMapH.round() * 3,
-      bg: bg,
-      ink: p.inkOnFill,
+      height: kPosterMapH(f).round() * 3,
+      bg: C.mapFloor,
+      ink: C.mapCeil,
     );
     if (!mounted) {
       m?.dispose();
       return;
     }
-    setState(() => _mosaic = m);
+    setState(() {
+      if (m != null) _mosaics[f] = m;
+    });
   }
-
-  /// The card has exactly two looks — with the archetype's own texture behind
-  /// the numbers, and without — and index 1 is the one with it. The other two
-  /// names on each of these lists were labels for a card identical to
-  /// 'Minimal': a 'Photo' style on a screen that cannot attach a photo, a
-  /// 'Splits' style that drew the same lap bars as 'Lanes'. A choice that
-  /// changes nothing is not a choice.
-  /// A poster needs real coordinates, not the normalised shape the painters
-  /// draw. A session recorded before `geo` existed, or one with no GPS at
-  /// all, simply is not offered the style.
-  bool get _canPoster => r.geo.length >= 2;
-
-  List<(String, IconData)> get _styles => [
-    ('Minimal', LucideIcons.type),
-    if (_canPoster) ('Poster', LucideIcons.image),
-    // Only when there is something to draw. `_art` falls back to nothing when
-    // the session has no route, no sets, no rounds — which made the option an
-    // invisible no-op rather than an absence.
-    if (_hasArt(r))
-      switch (arch) {
-        Arch.route => ('Route', LucideIcons.map),
-        Arch.journey => ('Elevation', LucideIcons.mountain),
-        Arch.laps => ('Lanes', LucideIcons.waves),
-        Arch.interval => ('Rounds', LucideIcons.timer),
-        Arch.match || Arch.basic => ('Heart rate', LucideIcons.activity),
-        // `_hasArt` is false for both — a lift and a flow session have
-        // nothing measured to draw. Unreachable, and a duplicate 'Minimal'
-        // if it ever is: a share sheet that throws is worse than one that
-        // offers the same style twice.
-        Arch.strength || Arch.flow => ('Minimal', LucideIcons.type),
-      },
-  ];
 
   @override
   void initState() {
     super.initState();
-    // The poster is the default for a session that went somewhere, so the map
-    // has to start loading with the screen rather than on a tap nobody makes.
-    if (_canPoster) WidgetsBinding.instance.addPostFrameCallback((_) => _ensureMap());
+    if (_hasRoute) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureMap());
+    }
   }
 
   @override
   void dispose() {
-    _mosaic?.dispose();
+    for (final m in _mosaics.values) {
+      m.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final stats = _available(r, unitsOf(c));
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -211,176 +198,69 @@ class _ShareSheetState extends State<ShareSheet> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x8),
                 children: [
+                  // One card. There is no style list any more, and no chip row
+                  // deciding which of the session's own measurements to leave
+                  // off it — the card prints everything the session has, and
+                  // the only thing the reader chooses is whether their photo
+                  // is behind it.
                   Center(
                     child: RepaintBoundary(
                       key: _card,
-                      // BY NAME. The list is a different length per
-                      // archetype, so index 1 is not always the same style —
-                      // the same bug the summary screen's tabs already carry
-                      // a comment about.
-                      child: _styles[style].$1 == 'Poster'
-                          ? PosterCard(r, chosen,
-                              photo: _photo == null
-                                  ? null
-                                  : FileImage(_photo!),
-                              mosaic: _mosaic)
-                          : ShareCard(r, _styles[style].$1 == 'Minimal' ? 0 : 1,
-                              chosen),
+                      child: PosterCard(
+                        r,
+                        photo: _photo == null ? null : FileImage(_photo!),
+                        mosaic: _mosaic,
+                        format: _format,
+                      ),
                     ),
                   ),
                   const SizedBox(height: S.x6),
-                  Text('CHOOSE A STYLE', style: F.over.copyWith(color: p.ink3)),
+                  // Not a style picker coming back. A format is where the
+                  // card is GOING — Instagram crops anything that is not its
+                  // own ratio, so this is the difference between posting the
+                  // card and posting a crop of it.
+                  SubTabs(
+                    [for (final f in PosterFormat.values) f.label],
+                    PosterFormat.values.indexOf(_format),
+                    (i) {
+                      setState(() => _format = PosterFormat.values[i]);
+                      _ensureMap();
+                    },
+                    color: r.activity.color,
+                  ),
+                  const SizedBox(height: S.x6),
+                  Text('YOUR PHOTO', style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < _styles.length; i++) ...[
-                          Pressable(
-                            onTap: () {
-                              setState(() => style = i);
-                              if (_styles[i].$1 == 'Poster') _ensureMap();
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: S.x3,
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _styles[i].$2,
-                                    size: 17,
-                                    color: style == i
-                                        ? p.on(r.activity.color)
-                                        : p.ink3,
-                                  ),
-                                  const SizedBox(width: S.x3),
-                                  Expanded(
-                                    child: Text(
-                                      _styles[i].$1,
-                                      style: F.body.copyWith(
-                                        color: p.ink,
-                                        fontWeight: style == i
-                                            ? FontWeight.w600
-                                            : FontWeight.w400,
-                                      ),
-                                    ),
-                                  ),
-                                  Icon(
-                                    style == i
-                                        ? LucideIcons.circleCheck
-                                        : LucideIcons.circle,
-                                    size: 19,
-                                    color: style == i
-                                        ? p.on(r.activity.color)
-                                        : p.line,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (i < _styles.length - 1)
-                            Divider(color: p.line, height: 1),
-                        ],
+                    child: Column(children: [
+                      SetRow(LucideIcons.imagePlus, r.activity.color,
+                          _photo == null ? 'Add a photo' : 'Change photo',
+                          sub: _photo == null
+                              ? 'From this phone. Nothing is uploaded'
+                              : _photo!.path.split('/').last,
+                          onTap: _pickPhoto),
+                      if (_photo != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
+                            chevron: false,
+                            onTap: () => setState(() => _photo = null)),
                       ],
-                    ),
+                    ]),
                   ),
-                  if (_styles[style].$1 == 'Poster') ...[
-                    const SizedBox(height: S.x5),
-                    Text('YOUR PHOTO', style: F.over.copyWith(color: p.ink3)),
+                  // Only when a map was expected AND is missing. A lift never
+                  // had one to lose, and telling its owner the tiles failed
+                  // would be explaining an absence that is not one.
+                  if (_hasRoute && _mapTried_ && _mosaic == null) ...[
                     const SizedBox(height: S.x3),
-                    Surface(
-                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                      child: Column(children: [
-                        SetRow(LucideIcons.imagePlus, r.activity.color,
-                            _photo == null ? 'Add a photo' : 'Change photo',
-                            sub: _photo == null
-                                ? 'From this phone. Nothing is uploaded'
-                                : _photo!.path.split('/').last,
-                            onTap: _pickPhoto),
-                        if (_photo != null) ...[
-                          Divider(color: p.line, height: 1),
-                          SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
-                              chevron: false,
-                              onTap: () => setState(() => _photo = null)),
-                        ],
-                      ]),
-                    ),
-                    if (_mapTried && _mosaic == null) ...[
-                      const SizedBox(height: S.x3),
-                      const StatusCard(
-                        'No map for this card',
-                        'The map tiles could not be fetched, so the route is '
-                            'drawn on its own. Everything else on the card is '
-                            'unchanged.',
-                        icon: LucideIcons.mapPinOff,
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: S.x5),
-                  Text('INCLUDE', style: F.over.copyWith(color: p.ink3)),
-                  const SizedBox(height: S.x3),
-                  if (stats.isEmpty)
                     const StatusCard(
-                      'Nothing measured to include',
-                      'No heart rate, distance or calories.',
-                      icon: LucideIcons.circleHelp,
-                    )
-                  else
-                    Wrap(
-                      spacing: S.x2,
-                      runSpacing: S.x2,
-                      children: [
-                        for (final s in stats)
-                          Pressable(
-                            semanticLabel: '${s.$1} ${s.$2}',
-                            onTap: () => setState(
-                              () => chosen.contains(s.$1)
-                                  ? chosen.remove(s.$1)
-                                  : chosen.add(s.$1),
-                            ),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: S.x3,
-                                vertical: S.x2,
-                              ),
-                              constraints: const BoxConstraints(
-                                minHeight: S.tap,
-                              ),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: chosen.contains(s.$1)
-                                    ? p.wash(r.activity.color)
-                                    : p.card2,
-                                borderRadius: R.rPill,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    chosen.contains(s.$1)
-                                        ? LucideIcons.check
-                                        : LucideIcons.plus,
-                                    size: 13,
-                                    color: chosen.contains(s.$1)
-                                        ? p.on(r.activity.color)
-                                        : p.ink3,
-                                  ),
-                                  const SizedBox(width: S.x1),
-                                  Text(
-                                    s.$1,
-                                    style: F.cap.copyWith(
-                                      color: chosen.contains(s.$1)
-                                          ? p.on(r.activity.color)
-                                          : p.ink2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
+                      'No map for this card',
+                      'The map tiles could not be fetched, so the route is '
+                          'drawn on its own. Everything else on the card is '
+                          'unchanged.',
+                      icon: LucideIcons.mapPinOff,
                     ),
+                  ],
                   const SizedBox(height: S.x6),
                   // One button, and it is the system share sheet — which is
                   // where "story", "message" and "save" actually live. The
@@ -408,11 +288,7 @@ class _ShareSheetState extends State<ShareSheet> {
       ),
     );
   }
-
 }
-
-/// Whether [ShareCard._art] has anything to draw for this session. Kept beside
-/// `_available` because it answers the same question about the texture that
 /// that list answers about the numbers, and it must stay in step with `_art`.
 /// The session's average pace in the reader's unit, or null when there is no
 /// pace worth printing — the stat is then not offered at all rather than
@@ -423,17 +299,6 @@ String? _paceOf(ActivityResult r, UnitsController? u) {
   final perUnit = u == null ? 1.0 : u.distanceUnitMeters / 1000;
   return UnitsController.formatPace(secPerKm * perUnit);
 }
-
-bool _hasArt(ActivityResult r) => switch (r.arch) {
-  Arch.route => r.route.length >= 2,
-  Arch.strength => false,
-  Arch.journey => r.elevationM.length >= 2,
-  Arch.laps => r.lapSpeeds.isNotEmpty,
-  Arch.interval => r.rounds.isNotEmpty,
-  // The breath ring was drawn, not measured — see `_art`.
-  Arch.flow => false,
-  Arch.match || Arch.basic => r.hr.length >= 2,
-};
 
 /// The stats a card may print, in offer order — the public name for
 /// [_available], so the poster and the small card cannot drift apart about
@@ -472,216 +337,6 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
   if (r.lapCount != null) ('Laps', '${r.lapCount}'),
 ];
 
-/// The card. The visual metaphor changes; type and spacing do not.
-class ShareCard extends StatelessWidget {
-  final ActivityResult r;
-  final int style;
-  final Set<String> chosen;
-  const ShareCard(this.r, this.style, this.chosen, {super.key});
-
-  Arch get arch => r.arch;
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final accent = _accent();
-    // Derived from the accent rather than hand-picked hex, so a palette change
-    // moves the cards with it and every card is dark enough for white ink.
-    final bg = [
-      Color.lerp(C.n900, accent, .10)!,
-      Color.lerp(C.n900, accent, .38)!,
-    ];
-    final hero = _hero(unitsOf(c));
-    // The card is a PICTURE — a fixed-aspect graphic that gets exported at one
-    // size, not a piece of UI. So it does not inherit the reader's text scale:
-    // at 2× the same 240×320 box would overflow, and the exported image would
-    // be clipped for everyone who received it. Everything AROUND the card in
-    // this sheet still scales.
-    return MediaQuery(
-      data: MediaQuery.of(c).copyWith(textScaler: TextScaler.noScaling),
-      child: Container(
-        width: 240,
-        height: 320,
-        decoration: BoxDecoration(
-          borderRadius: R.rXl,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: bg,
-          ),
-          boxShadow: p.el(3),
-        ),
-        child: ClipRRect(
-          borderRadius: R.rXl,
-          child: Stack(
-            children: [
-              if (style == 1) Positioned.fill(child: _art(accent)),
-              Padding(
-                padding: const EdgeInsets.all(S.x5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _label().toUpperCase(),
-                      style: F.over.copyWith(color: _ink(.72)),
-                    ),
-                    const Spacer(),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            hero.$1,
-                            style: F.n34.copyWith(color: C.white),
-                            maxLines: 1,
-                          ),
-                        ),
-                        if (hero.$2.isNotEmpty) ...[
-                          const SizedBox(width: S.x1),
-                          Text(hero.$2, style: F.cap.copyWith(color: _ink(.8))),
-                        ],
-                      ],
-                    ),
-                    Text(
-                      hero.$3,
-                      style: F.cap.copyWith(color: _ink(.72)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: S.x4),
-                    Wrap(
-                      spacing: S.x4,
-                      runSpacing: S.x2,
-                      children: [
-                        for (final s in _available(r, unitsOf(c))
-                            .where((s) => chosen.contains(s.$1))
-                            .take(4))
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                s.$2,
-                                style: F.head.copyWith(color: C.white),
-                              ),
-                              Text(
-                                s.$1.toUpperCase(),
-                                style: F.over.copyWith(color: _ink(.6)),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color _ink(double a) => C.white.withValues(alpha: a);
-
-  Color _accent() => switch (arch) {
-    Arch.route => C.green,
-    Arch.strength => C.purple,
-    Arch.interval => C.red,
-    Arch.flow => C.teal,
-    Arch.laps => C.blue,
-    Arch.journey => C.green,
-    Arch.match => C.indigo,
-    Arch.basic => r.activity.color,
-  };
-
-  String _label() => switch (arch) {
-    Arch.route => r.activity.name,
-    Arch.strength => 'Strength',
-    Arch.interval => 'Intervals',
-    Arch.flow => r.activity.name,
-    Arch.laps => 'Swim',
-    Arch.journey => r.activity.name,
-    Arch.match || Arch.basic => r.activity.name,
-  };
-
-  (String, String, String) _hero(UnitsController? u) => _heroOf(r, u);
-
-  /// The texture is the archetype's real defining object drawn from the real
-  /// data. Nothing to draw → nothing drawn.
-  Widget _art(Color accent) {
-    switch (arch) {
-      case Arch.route:
-        if (r.route.length < 2) return const SizedBox.shrink();
-        return CustomPaint(
-          painter: RouteMap(
-            r.route,
-            pace: r.routePace,
-            slow: _ink(.55),
-            fast: C.white,
-            pins: false,
-          ),
-        );
-      // No art for a lift. The muscle map that used to be here was an
-      // exercise→group lookup table times the volume the user typed, painted
-      // on a body — and this card is the one that leaves the phone, so it is
-      // the worst place of all to draw something that looks measured and is
-      // not. A lift shares as the minimal card: the volume, the sets, the top
-      // set. All three are what the user actually did.
-      case Arch.strength:
-        return const SizedBox.shrink();
-      case Arch.journey:
-        if (r.elevationM.length < 2) return const SizedBox.shrink();
-        return Opacity(
-          opacity: .55,
-          child: CustomPaint(
-            painter: Elevation(r.elevationM, C.white, markerInk: accent),
-          ),
-        );
-      case Arch.laps:
-        if (r.lapSpeeds.isEmpty) return const SizedBox.shrink();
-        return Opacity(
-          opacity: .40,
-          child: CustomPaint(painter: LapBars(r.lapSpeeds, C.white, _ink(.12))),
-        );
-      case Arch.interval:
-        if (r.rounds.isEmpty) return const SizedBox.shrink();
-        final peak = r.rounds
-            .map((x) => x.workSec > x.restSec ? x.workSec : x.restSec)
-            .reduce((x, y) => x > y ? x : y)
-            .toDouble();
-        return Opacity(
-          opacity: .45,
-          child: CustomPaint(
-            painter: IntervalLadder(
-              [
-                for (final x in r.rounds)
-                  (work: x.workSec / peak, rest: x.restSec / peak),
-              ],
-              C.white,
-              _ink(.45),
-            ),
-          ),
-        );
-      // No breath ring, for the reason the summary screen already gives in
-      // words: the live ring is a PACER the user breathes along with, and a
-      // finished session has no phase to draw. A static ring at .8 is a
-      // measurement-shaped decoration, and this is the card that leaves the
-      // phone. A flow session shares as the minimal card.
-      case Arch.flow:
-        return const SizedBox.shrink();
-      // A match and an untracked session share one honest texture: the heart
-      // rate they actually recorded. (The court map this used to draw needed
-      // indoor positioning, which nothing here has.)
-      case Arch.match || Arch.basic:
-        if (r.hr.length < 2) return const SizedBox.shrink();
-        return Opacity(
-          opacity: .5,
-          child: CustomPaint(painter: LineChart(r.hr, C.white)),
-        );
-    }
-  }
-}
 
 (String, String, String) _heroOf(ActivityResult r, UnitsController? u) {
   final fallback = (hms(r.duration), '', r.activity.name);

@@ -786,8 +786,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('share offers only stats the session actually has',
-        (tester) async {
+    testWidgets('share asks one question and prints the rest', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1600 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -795,20 +794,25 @@ void main() {
       await tester.pumpWidget(
           _frame(ShareSheet(_result(Arch.strength)), Brightness.light, 1.0));
       await tester.pumpAndSettle();
-      expect(find.text('Volume'), findsWidgets);
-      // A lift has no art. The muscle map that used to be offered here was a
-      // lookup table painted on a body, and this is the card that leaves the
-      // phone — so a lift shares as the minimal card and nothing else.
+      // One card and one question. The style list and the stat picker are
+      // gone: a lift never had a texture to choose, and asking which of your
+      // own measurements to leave off a card with room for all of them was
+      // the screen asking the user to do its job.
+      expect(find.text('CHOOSE A STYLE'), findsNothing);
+      expect(find.text('INCLUDE'), findsNothing);
+      expect(find.text('Minimal'), findsNothing);
       expect(find.text('Muscle map'), findsNothing);
-      expect(find.text('Minimal'), findsOneWidget);
-      // A lift has no distance, so it cannot be shared as one.
-      expect(find.text('Distance'), findsNothing);
+      expect(find.text('YOUR PHOTO'), findsOneWidget);
+      // A lift has no distance, so no card of it can carry one.
+      expect(find.text('DISTANCE'), findsNothing);
 
       await tester.pumpWidget(
           _frame(ShareSheet(_result(Arch.route)), Brightness.light, 1.0));
       await tester.pumpAndSettle();
-      expect(find.text('Route'), findsOneWidget);
-      expect(find.text('Distance'), findsWidgets);
+      // A run's hero IS its distance, so the grid does not repeat it — the
+      // pace it also measured is what proves the stats are being printed.
+      expect(find.text('PACE'), findsOneWidget);
+      expect(find.text('DISTANCE'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });

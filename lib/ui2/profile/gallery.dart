@@ -19,6 +19,7 @@
 // Nothing here reads the database, the band or the repository: a gallery that
 // needs data is a gallery nobody opens on a fresh install.
 
+import 'dart:convert';
 import 'dart:math';
 
 import 'dart:io';
@@ -36,11 +37,12 @@ import '../../data/nutrition_store.dart';
 import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
-import '../activity/picker.dart' show ActivityRow;
+import '../activity/picker.dart' show ActivityPicker, ActivityRow;
 import '../activity/poster.dart'
-    show PosterCard, PosterStatRow, kPosterMapH, kPosterMapW;
+    show PosterCard, PosterFormat, PosterStatRow, kPosterMapH, kPosterMapW;
+import '../activity/setup.dart' show ActivitySetup;
 import '../activity/tiles.dart';
-import '../activity/share.dart' show ShareCard, shareOrigin;
+import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
 import '../onboarding/profile_setup.dart' show UnlockContract;
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
@@ -88,8 +90,14 @@ Map<String, Widget> goldenCases() => {
             Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
         heldOverNight: '2026-08-14',
       ),
-      'share_card': _shareCard(0),
-      'share_card_art': _shareCard(1),
+      // The ONE card, both faces: the map as the background, and a photograph
+      // as the background with the route dissolved into its corner.
+      'share_card': _shareCard(photo: false),
+      'share_card_photo': _shareCard(photo: true),
+      // The other destination. Same hero, same stats, a different shape —
+      // shot because a 9:16 card is where the column's arithmetic has the
+      // most room to go wrong, not because it is a different design.
+      'share_card_story': _shareCard(photo: false, format: PosterFormat.story),
       'signal': const SignalCard(
           LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
           unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),
@@ -368,16 +376,35 @@ final _finished = ActivityResult(
   ],
 );
 
-/// The share card at one style. Every stat the session can offer is ticked —
-/// the longest realistic card, not the tidiest.
-Widget _shareCard(int style) => ShareCard(_finished, style, const {
-      'Time',
-      'Distance',
-      'Pace',
-      'Heart rate',
-      'Calories',
-      'Elevation',
-    });
+/// The card with a photo behind it, and the card without.
+///
+/// These are the two faces of the ONE card — there are no styles any more.
+/// Without a photo the basemap is the background; with one the photograph is,
+/// and the route dissolves into the corner. Neither case here has a mosaic
+/// (see the note on 'poster'), so what these shoot is the no-basemap face of
+/// both, which is also what a user with no signal gets.
+Widget _shareCard({required bool photo, PosterFormat format = PosterFormat.post}) =>
+    PosterCard(_finished, photo: photo ? _flatPhoto : null, format: format);
+
+/// A four-pixel slab of colour, standing in for the user's photograph.
+///
+/// Embedded rather than an asset because a golden must not depend on a file
+/// somebody can move, and generated rather than fetched because a gallery
+/// that needs the network is a gallery that fails on a plane. What the photo
+/// case has to show is the LAYOUT — the scrim over a real background and the
+/// route dissolving into the corner — and a flat slab shows both.
+final _flatPhoto = MemoryImage(base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGNIyGuAIwbiOAAd'
+    'EhTheEnmewAAAABJRU5ErkJggg=='));
+
+/// A session that measured nothing but its own length — the grid prints the
+/// one stat it has rather than a row of blanks, and the hero falls back to
+/// the clock.
+final _bare = ActivityResult(
+  activityByName('Meditation')!,
+  start: DateTime(2026, 8, 13, 22, 5),
+  duration: Motion.tick * 900,
+);
 
 const _medDef = MedDef(
     key: 'custom_d',
@@ -422,7 +449,6 @@ final _route = [
 // broken painter from.
 final _metres = List<double>.generate(
     120, (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0);
-final _watts = List<double>.generate(60, (i) => 340 - i * 3.4 + (i % 7) * 6.0);
 final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
     .clamp(1, 60)
     .toDouble());
@@ -614,26 +640,6 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
-      'activity_power_curve': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Best power over time',
-            unit: 'W',
-            height: 110,
-            yAxis: AxisSpec.of(_watts, floor: 0),
-            xLabels: const ['5 s', '5 min', '60 min'],
-            series: _watts,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: PowerCurve(_watts, 400, p.on(C.domMove),
-                  targetLo: .45,
-                  targetHi: .68,
-                  axis: AxisSpec.of(_watts, floor: 0)),
-            ),
-          ),
-        );
-      }),
       'activity_lap_bars': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
@@ -660,23 +666,6 @@ Map<String, Widget> extraCases() => {
             child: CustomPaint(
                 size: Size.infinite,
                 painter: BreathRing(.55, p.on(C.domMind))),
-          ),
-        );
-      }),
-      'activity_movement_map': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Where you covered the court',
-            unit: 'singles, 62 minutes',
-            height: 160,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: MovementMap([
-                for (var i = 0; i < 140; i++)
-                  Offset(.18 + (i * 7 % 60) / 100, .14 + (i * 11 % 70) / 100),
-              ], p.on(C.domMove), p.line),
-            ),
           ),
         );
       }),
@@ -753,8 +742,10 @@ Map<String, Widget> extraCases() => {
       // No `mosaic`: a gallery that needs the network is a gallery that fails
       // on a plane. This is the card's honest no-basemap face, which is also
       // what a user with no signal gets.
-      'poster': PosterCard(_finished, const {'Time', 'Pace', 'Heart rate'}),
-      'poster_no_stats': PosterCard(_finished, const {}),
+      'poster': PosterCard(_finished),
+      // A session that measured nothing but its own length: the grid prints
+      // the one stat it has rather than a row of blanks.
+      'poster_bare': PosterCard(_bare),
       // The poster's stat row on its own, on a normal card — it takes its ink
       // from the page when none is given, which is the whole reason it is not
       // a private widget inside poster.dart.
@@ -863,22 +854,23 @@ Map<String, Widget> _stateCases() => {
 
 /// The share card in every archetype it can be.
 ///
-/// Eight activity archetypes, and the card's whole point is that the picture
-/// changes with the sport while the type and the spacing do not. Shown at the
-/// art style, since the minimal style is identical across all eight.
+/// Eight archetypes on the one card. The picture no longer changes with the
+/// sport — that was the textured card, and it is gone — but the STATS do, and
+/// the grid has to hold all of them: a hike prints six, a lift prints five,
+/// and the old four-row ceiling silently dropped whatever came after.
 Map<String, Widget> _shareCases() => {
-      for (final s in _sessions.entries)
-        'share_${s.key}': ShareCard(s.value, 1, const {
-          'Time',
-          'Distance',
-          'Pace',
-          'Heart rate',
-          'Calories',
-          'Volume',
-          'Sets',
-          'Laps',
-        }),
+      for (final s in _sessions.entries) 'share_${s.key}': PosterCard(s.value),
     };
+
+/// The fixture sessions, for a test that has to build one screen per
+/// archetype. Public for the same reason [galleryCases] is: a test asserting
+/// over its own copy of these would assert about a session the gallery does
+/// not show.
+List<ActivityResult> get gallerySessions => _sessions.values.toList();
+
+/// Every activity the flow tab offers, flattened out of the catalogue groups.
+List<Activity> get flowActivities =>
+    [for (final g in activityLibrary) ...g.items];
 
 /// One finished session per archetype, so the eight share cards and the eight
 /// summaries have something real to draw. Deterministic throughout.
@@ -1240,13 +1232,15 @@ class _PosterPreviewState extends State<_PosterPreview> {
       _loading = true;
       _tried = true;
     });
-    final p = P.of(context);
+    // The card's own map styling, not the reader's palette — the same two
+    // tokens the real share sheet passes, so this preview cannot show a map
+    // the shipped card would never draw.
     final m = await buildRouteMosaic(
       _demoLoop,
       width: kPosterMapW.round() * 3,
-      height: kPosterMapH.round() * 3,
-      bg: Color.lerp(C.n900, C.white, .06)!,
-      ink: p.inkOnFill,
+      height: kPosterMapH(PosterFormat.post).round() * 3,
+      bg: C.mapFloor,
+      ink: C.mapCeil,
     );
     if (!mounted) {
       m?.dispose();
@@ -1311,7 +1305,6 @@ class _PosterPreviewState extends State<_PosterPreview> {
           key: _card,
           child: PosterCard(
             _demoRun,
-            const {'Time', 'Pace', 'Heart rate'},
             photo: _photo == null ? null : FileImage(_photo!),
             mosaic: _mosaic,
           ),
@@ -1356,6 +1349,320 @@ class _PosterPreviewState extends State<_PosterPreview> {
 
 // ══════════════════ THE SCREEN ══════════════════
 
+// ══════════════════ the activity flows ══════════════════
+//
+// Every activity in the catalogue, walkable end to end. A component scroll
+// shows the pieces; it cannot show the ORDER — which screen follows which,
+// what the hero says at each step, which tabs an archetype gets — and the
+// order is what a person opening this is checking.
+//
+// The eight hand-written sessions above are richer than anything synthesised
+// (a real loop, a heart-rate dropout, a named top set), so an activity that
+// has one uses it. The other sixty-three are built from the catalogue entry
+// itself — see [_placeholder].
+
+/// A deterministic 0…1 from a name and a salt.
+///
+/// FNV-1a rather than `name.hashCode`: Dart's string hash is stable within a
+/// run and NOT across them, which is the one property a fixture must not have
+/// — a gallery that reshuffles between launches is a gallery you cannot
+/// compare two screenshots of, and a golden that fails on a Tuesday.
+double _n(String name, int salt) {
+  var h = 2166136261 ^ salt;
+  for (final u in name.codeUnits) {
+    h = ((h ^ u) * 16777619) & 0xFFFFFFFF;
+  }
+  return (h % 1000) / 1000;
+}
+
+/// The body weight the placeholder calories are costed at.
+///
+/// A real screen has no default weight — [Activity.kcal] returns null without
+/// one, and that is the whole point of it. This is a FIXTURE constant, named
+/// so that it cannot be mistaken for one: it exists so the calorie row has
+/// something to draw, and it never leaves this file.
+const _fixtureWeightKg = 72.0;
+
+/// A finished session for [a], invented from its own catalogue entry.
+///
+/// Every number is derived from the activity's MET, track and name, so a
+/// 1.3-MET meditation and a 23-MET sprint cannot end up sharing a heart-rate
+/// curve — which is what a single shared fixture would have done, and is
+/// exactly the class of bug the gallery exists to catch.
+///
+/// This is a PREVIEW, not a measurement, and nothing outside the gallery may
+/// read it. What it is faithful about is SHAPE: which fields an archetype
+/// fills and which it leaves null, so the screen has to handle the same
+/// absences here that it handles on a device.
+ActivityResult _placeholder(Activity a) {
+  final arch = archOf(a);
+  final mins = 18 + (_n(a.name, 1) * 57).round();
+  final avg = (58 + a.met * 7).clamp(50, 172).round();
+  final peak = (avg + 9 + _n(a.name, 3) * 24).clamp(avg + 4, 198).round();
+
+  // One slot per minute, and a dropout in roughly a quarter of them, because
+  // a preview where the band never misses a beat is a preview that never
+  // shows the hole the chart is supposed to draw.
+  final drop = _n(a.name, 9) < .25;
+  final hr = [
+    for (var i = 0; i < mins; i++)
+      drop && i > mins ~/ 3 && i < mins ~/ 3 + 4
+          ? null
+          : avg - 8 + (i * 13 % 21) * 1.0,
+  ];
+
+  // Mass moves up the zones with the MET. Meditation sits in Z1; a sprint
+  // session spends its minutes at the top.
+  final hard = (a.met / 23).clamp(0.0, 1.0);
+  final w = [1.6 - hard, 1.4 - hard * .5, .9 + hard, .4 + hard * 1.4, .1 + hard];
+  final sum = w.reduce((x, y) => x + y);
+  final zones = [for (final x in w) (mins * x / sum)];
+
+  // Fixed, never `DateTime.now()`. Spread over the preceding fortnight so a
+  // list of them does not read as one impossible afternoon.
+  final start = DateTime(2026, 8, 14, 6, 0)
+      .subtract(Motion.tick * ((_n(a.name, 4) * 1209600).round()));
+
+  // Speed from the MET, which is the only thing the catalogue knows about how
+  // fast this activity moves. Good enough for a picture, and wrong enough
+  // that nobody could mistake it for a recording.
+  final km = double.parse((a.met * 1.02 * mins / 60).toStringAsFixed(2));
+  final paceSec = (mins * 60 / km).round();
+  final onRoute = arch == Arch.route || arch == Arch.journey;
+  // Laps are TAPPED, never measured — so the lap times are the invention here
+  // and the swim distance falls out of them, not the other way round.
+  final laps = arch == Arch.laps ? 8 + (_n(a.name, 7) * 22).round() : 0;
+
+  // One constructor, not a chain of `copyWith`: the record's own `copyWith`
+  // deliberately carries the archetype fields through rather than taking
+  // them, because on a device nothing may swap a session's laps for its
+  // rounds. A fixture is not the reason to widen it.
+  return ActivityResult(
+    a,
+    start: start,
+    duration: Motion.tick * (mins * 60),
+    private: a.private,
+    avgHr: avg,
+    maxHr: peak,
+    calories: a.kcal(_fixtureWeightKg, mins),
+    strain:
+        double.parse((a.met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1)),
+    hr: hr,
+    zoneMinutes: zones,
+    // Only a GPS activity gets a line. An indoor row or a treadmill leaves
+    // this empty and the screen says so — which is the state worth previewing.
+    route: onRoute && a.gps ? _route : const [],
+    routePace: onRoute && a.gps
+        ? [for (var i = 0; i < _route.length; i++) (i % 20) / 20]
+        : null,
+    distanceKm: switch (arch) {
+      Arch.route || Arch.journey => a.gps ? km : null,
+      Arch.laps => laps * 25 / 1000,
+      _ => null,
+    },
+    splits: onRoute && a.gps
+        ? [
+            for (var i = 1; i <= km.floor(); i++)
+              KmSplit(i.toDouble(), paceSec + (i * 7 % 19) - 9,
+                  avgHr: avg + (i * 5 % 11) - 5),
+          ]
+        : const [],
+    elevationM: arch == Arch.journey ? _metres : const [],
+    gainM: arch == Arch.journey
+        ? 120 + (_n(a.name, 5) * 620).roundToDouble()
+        : null,
+    lossM: arch == Arch.journey
+        ? 110 + (_n(a.name, 6) * 600).roundToDouble()
+        : null,
+    // Two lifts, one loaded and one not: the unloaded-set caveat is a real
+    // state of this screen, and a preview that never enters it is a preview
+    // of half the screen.
+    strength: arch == Arch.strength
+        ? StrengthLog([
+            for (var i = 0; i < 4; i++)
+              LoggedSet(exerciseLibrary[0].key, 10 - i,
+                  loadKg: 55 + i * 5 + (_n(a.name, 8) * 20).roundToDouble(),
+                  at: start.add(Motion.tick * (240 * i))),
+            for (var i = 0; i < 3; i++)
+              LoggedSet(exerciseLibrary[8].key, 8,
+                  at: start.add(Motion.tick * (1400 + 200 * i))),
+          ])
+        : StrengthLog.empty,
+    lapSecs: [for (var i = 0; i < laps; i++) 48 + (i * 9 % 17)],
+    poolLengthM: arch == Arch.laps ? 25 : null,
+    stroke: arch == Arch.laps ? 'Freestyle' : null,
+    rounds: arch == Arch.interval
+        ? [
+            for (var i = 0; i < 5 + (_n(a.name, 2) * 7).round(); i++)
+              IntervalRound(30 + (i * 7 % 25), 15 + (i * 5 % 20),
+                  avgHr: avg + i * 3),
+          ]
+        : const [],
+    poses: arch == Arch.flow
+        ? _poses.take(3 + (_n(a.name, 3) * 4).round()).toList()
+        : const [],
+    breathsPerMin: arch == Arch.flow
+        ? double.parse((5 + _n(a.name, 4) * 6).toStringAsFixed(1))
+        : null,
+    gameScore: arch == Arch.match
+        ? [
+            for (var i = 0; i < 2 + (_n(a.name, 5) * 2).round(); i++)
+              (6, 2 + (i * 3 % 5)),
+          ]
+        : const [],
+  );
+}
+
+const _poses = [
+  'Down dog', 'Warrior II', 'Pigeon', 'Child\'s pose', 'Bridge',
+  'Triangle', 'Savasana',
+];
+
+/// The fixture behind an activity's flow: the hand-written session if it has
+/// one, the synthesised one otherwise.
+///
+/// A GPS activity is then given REAL coordinates. This is not decoration: the
+/// share sheet offers the Poster style only when `geo.length >= 2`, and the
+/// Poster is what carries the OpenStreetMap basemap and the photo picker. A
+/// flow built on the normalised 0…1 path alone silently hid both — the map,
+/// the tile fetch, the attribution, the offline `StatusCard` and the whole
+/// photo slot were unreachable from every one of these screens.
+ActivityResult flowFixture(Activity a) {
+  final base = _sessions.values
+          .where((s) => s.activity.name == a.name)
+          .firstOrNull ??
+      _placeholder(a);
+  if (!a.gps || base.geo.isNotEmpty) return base;
+  return base.copyWith(
+    geo: _demoLoop,
+    // The SAME loop in both spaces, or the painters and the basemap draw two
+    // different runs — the normalised path is what the no-map fallback uses.
+    route: _normalisedDemoLoop,
+    routePace: [
+      for (var i = 0; i < _normalisedDemoLoop.length; i++) (i % 20) / 20,
+    ],
+  );
+}
+
+/// Every activity in the catalogue, grouped as the picker groups them. Tapping
+/// one opens its flow.
+class _Flows extends StatelessWidget {
+  const _Flows();
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
+      children: [
+        for (final g in activityLibrary) ...[
+          Text('${g.name.toUpperCase()} · ${g.items.length}',
+              style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(children: [
+              for (final (i, a) in g.items.indexed) ...[
+                SetRow(a.icon, a.color, a.name,
+                    sub: archLabel(archOf(a)),
+                    onTap: () => Navigator.of(c).push(MaterialPageRoute<void>(
+                        builder: (_) => _FlowScreen(a)))),
+                if (i < g.items.length - 1)
+                  Divider(color: p.line, height: 1),
+              ],
+            ]),
+          ),
+          const SizedBox(height: S.x6),
+        ],
+      ],
+    );
+  }
+}
+
+/// One activity's flow, in the order the app walks it.
+///
+/// Every row pushes the REAL screen — the same `ActivityPicker`,
+/// `ActivitySetup`, `liveFor`, `ActivitySummary` and `ShareSheet` the app
+/// routes to — over [ActivityHost.none]. Nothing is persisted and nothing
+/// reads the database, which is the only reason a gallery can push them.
+class _FlowScreen extends StatelessWidget {
+  final Activity a;
+  const _FlowScreen(this.a);
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final r = flowFixture(a);
+    final synthetic = !_sessions.values.any((s) => s.activity.name == a.name);
+    // Live really runs: it starts its 1 Hz tick with no feed behind it, so the
+    // clock moves and the heart rate does not. Finishing it pops to the app
+    // root the same way the real one does — the Summary row below is the way
+    // to see the end of a session without leaving.
+    final stages = <(String, IconData, String, Widget)>[
+      ('Pick', LucideIcons.listChecks, 'The catalogue, as the app opens it',
+          const ActivityPicker()),
+      ('Set up', LucideIcons.sliders, 'Goal, target and privacy',
+          ActivitySetup(a)),
+      ('Live', LucideIcons.circleDot, 'Runs for real, with no band behind it',
+          liveFor(a)),
+      ('Summary', LucideIcons.flag, 'What this session becomes',
+          ActivitySummary(r, weightKg: _fixtureWeightKg)),
+      ('Share', LucideIcons.share2, 'Styles, stat chips and the card',
+          ShareSheet(r)),
+    ];
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(a.name,
+                sub: '${archLabel(r.arch).toUpperCase()} · '
+                    '${a.met.toStringAsFixed(1)} MET'),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+              children: [
+                Surface(
+                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                  child: Column(children: [
+                    for (final (i, s) in stages.indexed) ...[
+                      SetRow(s.$2, a.color, s.$1,
+                          sub: s.$3,
+                          onTap: () => Navigator.of(c).push(
+                              MaterialPageRoute<void>(builder: (_) => s.$4))),
+                      if (i < stages.length - 1)
+                        Divider(color: p.line, height: 1),
+                    ],
+                  ]),
+                ),
+                const SizedBox(height: S.x4),
+                if (synthetic)
+                  const StatusCard(
+                    'These numbers are invented',
+                    'Derived from this activity\'s MET and name so the '
+                        'screens have something to draw. The SHAPE is real: '
+                        'the fields this archetype fills, and the ones it '
+                        'leaves empty.',
+                    icon: LucideIcons.flaskConical,
+                  )
+                else
+                  const StatusCard(
+                    'A hand-written fixture',
+                    'This one carries a real loop, a heart-rate dropout and a '
+                        'named top set — the awkward cases the goldens shoot.',
+                    icon: LucideIcons.pin,
+                  ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 /// The whole design system on one scroll, at a scale and a theme you choose.
 ///
 /// The two controls are the point. 2.0× and 3.1× are what iOS hands an app
@@ -1375,24 +1682,47 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _scale = 0;
   int _theme = 0;
 
+  /// Flows first. The component scroll is what the goldens shoot; the flow is
+  /// what a person opens the gallery to walk.
+  int _mode = 0;
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final cases = galleryCases();
-    final brightness =
-        _theme == 0 ? Theme.of(c).brightness : Brightness.values[_theme - 1];
+    final flows = _mode == 0;
+    // Named, NOT `Brightness.values[_theme - 1]`. Flutter declares the enum
+    // as `{ dark, light }` — dark first — so indexing it against a
+    // ['System', 'Light', 'Dark'] tab list handed 'Light' the dark theme and
+    // 'Dark' the light one. Both tabs worked, both showed the wrong palette,
+    // and the whole point of this screen is that dark is solved separately
+    // from light: every review done through it was reviewing the other one.
+    final brightness = switch (_theme) {
+      1 => Brightness.light,
+      2 => Brightness.dark,
+      _ => Theme.of(c).brightness,
+    };
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            // The title is the label on the Settings row that opens it. A
+            // screen whose name changes with its tab is a screen nobody can
+            // be told to go to.
             child: NavBar('Component gallery',
-                sub: '${cases.length} COMPONENTS'),
+                sub: flows
+                    ? '${flowActivities.length} ACTIVITY FLOWS'
+                    : '${cases.length} COMPONENTS'),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x3),
             child: Column(children: [
+              SubTabs(const ['Flows', 'Components'], _mode,
+                  (i) => setState(() => _mode = i),
+                  color: C.domMove),
+              const SizedBox(height: S.x2),
               SubTabs(const ['1.0×', '1.4×', '2.0×', '3.1×'], _scale,
                   (i) => setState(() => _scale = i),
                   color: C.domHealth),
@@ -1415,25 +1745,28 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       .copyWith(textScaler: TextScaler.linear(_scales[_scale])),
                   child: ColoredBox(
                     color: gp.bg,
-                    child: ListView(
-                      padding:
-                          const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
-                      children: [
-                        // FIRST, not last. It is the only case that touches
-                        // the network or the filesystem, and it is also the
-                        // one worth opening the gallery for — burying it
-                        // under ninety other cases at 3.1x text would make it
-                        // unreachable in practice.
-                        const _PosterPreview(),
-                        const SizedBox(height: S.x6),
-                        for (final e in cases.entries) ...[
-                          Text(e.key, style: F.over.copyWith(color: gp.ink3)),
-                          const SizedBox(height: S.x2),
-                          e.value,
-                          const SizedBox(height: S.x6),
-                        ],
-                      ],
-                    ),
+                    child: flows
+                        ? const _Flows()
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(
+                                S.x4, S.x4, S.x4, S.x10),
+                            children: [
+                              // FIRST, not last. It is the only case that
+                              // touches the network or the filesystem, and it
+                              // is also the one worth opening the gallery for
+                              // — burying it under ninety other cases at 3.1x
+                              // text would make it unreachable in practice.
+                              const _PosterPreview(),
+                              const SizedBox(height: S.x6),
+                              for (final e in cases.entries) ...[
+                                Text(e.key,
+                                    style: F.over.copyWith(color: gp.ink3)),
+                                const SizedBox(height: S.x2),
+                                e.value,
+                                const SizedBox(height: S.x6),
+                              ],
+                            ],
+                          ),
                   ),
                 );
               }),

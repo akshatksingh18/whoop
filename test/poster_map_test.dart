@@ -53,6 +53,67 @@ void main() {
     });
   });
 
+  // The zoom is the number on this card that fails PLAUSIBLY: a wrong one
+  // still draws a tidy map, just of the wrong amount of world. It shipped
+  // wrong — a tile-budget loop stepped the zoom down while the tile count was
+  // over its cap, but the frame is a fixed number of PIXELS, so its width in
+  // tiles never changes with zoom and the loop could not converge. A poster's
+  // 900x1200 export frame is 25 tiles against a cap of 24, so EVERY card that
+  // drew a basemap ran the loop to the floor and drew the whole world.
+  group('the frame zooms to the route', () {
+    // A ~3 km park loop, a ~40 km ride and a ~900 km flight-shaped glitch.
+    // Each must get its OWN zoom, and none may land on the floor.
+    RouteFrame frameFor(double latSpan, double lngSpan) => routeFrame(
+          loLat: 12.970,
+          hiLat: 12.970 + latSpan,
+          loLng: 77.590,
+          hiLng: 77.590 + lngSpan,
+          width: 900,
+          height: 1200,
+        )!;
+
+    test('a city loop gets a street-level zoom, not the world', () {
+      final f = frameFor(.008, .012);
+      expect(f.zoom, greaterThanOrEqualTo(13),
+          reason: 'a 3 km loop framed at z${f.zoom} is a map of a country.');
+      expect(f.zoom, lessThanOrEqualTo(17));
+    });
+
+    test('a longer route zooms out, and a shorter one in', () {
+      final loop = frameFor(.008, .012);
+      final ride = frameFor(.35, .40);
+      final glitch = frameFor(8.0, 9.0);
+      expect(ride.zoom, lessThan(loop.zoom));
+      expect(glitch.zoom, lessThan(ride.zoom));
+      // …and even the absurd one is a real frame rather than the floor.
+      expect(glitch.zoom, greaterThan(2));
+    });
+
+    test('the export frame fits inside the tile budget', () {
+      // The regression itself: 900x1200 asks for 25 tiles. If the ceiling is
+      // ever set under what a real card needs, this fails instead of silently
+      // zooming every poster out to the whole planet.
+      for (final f in [frameFor(.008, .012), frameFor(.35, .40)]) {
+        expect(f.tiles, lessThanOrEqualTo(64));
+        expect(f.tiles, greaterThan(1));
+      }
+    });
+
+    test('tile count is frame-bound, not zoom-bound', () {
+      // The false assumption the old loop rested on, pinned so nobody writes
+      // it again. A 3 km loop and a 900 km one are three zoom levels apart and
+      // still ask for the same handful of tiles — the count follows the card's
+      // pixel size, and only wobbles by a row when the centre lands mid-tile.
+      // So there is no zoom you can step down to in order to fetch fewer.
+      final tight = frameFor(.008, .012);
+      final wide = frameFor(8.0, 9.0);
+      expect(wide.zoom, lessThan(tight.zoom));
+      expect((tight.tiles - wide.tiles).abs(), lessThanOrEqualTo(11),
+          reason: 'tight=${tight.tiles} wide=${wide.tiles} — if these ever '
+              'diverge, the count has started tracking the route.');
+    });
+  });
+
   group('buildRouteMosaic refuses rather than throws', () {
     Future<RouteMosaic?> run(List<(double, double)> geo) => buildRouteMosaic(
           geo,
@@ -121,35 +182,46 @@ void main() {
   });
 
   test('the pace ramp runs fast-green to slow-red, and clamps', () {
-    expect(paceColor(1), C.green);
-    expect(paceColor(0), C.red);
+    // The route's OWN ramp, not the UI accents. A line drawn over a
+    // photograph and a darkened basemap is not a label on a card, and the
+    // accent green went muddy there.
+    expect(paceColor(1), C.routeFast);
+    expect(paceColor(0), C.routeSlow);
     // Nothing off the ends: a speed of 1.4 is a GPS artefact, not a colour
     // outside the palette.
-    expect(paceColor(9), C.green);
-    expect(paceColor(-3), C.red);
+    expect(paceColor(9), C.routeFast);
+    expect(paceColor(-3), C.routeSlow);
+    // …and the ramp really passes through its middle rather than lerping
+    // straight from red to lime.
+    expect(paceColor(2 / 3), C.routeMid);
+    expect(paceColor(1 / 3), C.routeHard);
   });
 
-  testWidgets('the poster prints the stats it was given and no others',
-      (t) async {
+  testWidgets('the poster prints every stat the session has', (t) async {
     t.view.physicalSize = const Size(390 * 3, 900 * 3);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
 
     await t.pumpWidget(MaterialApp(
       theme: buildTheme(Brightness.dark),
-      home: Scaffold(
-        body: Center(child: PosterCard(_run, const {'Heart rate'})),
-      ),
+      home: Scaffold(body: Center(child: PosterCard(_run))),
     ));
     await t.pumpAndSettle();
 
     expect(t.takeException(), isNull);
-    expect(find.text('HEART RATE'), findsOneWidget);
-    // One row, and no filler where the other two would have been. Every
-    // running card in the world pads this slot with cadence; this session did
-    // not measure cadence.
-    expect(find.byType(PosterStatRow), findsOneWidget);
-    expect(find.text('TIME'), findsNothing);
+    // There is no picker and no ceiling. The old four-row cap dropped
+    // whatever came fifth, which for a hike was the climb it had recorded.
+    for (final label in ['TIME', 'PACE', 'HEART RATE']) {
+      expect(find.text(label), findsOneWidget, reason: '$label is missing.');
+    }
+    // …and nothing it did not measure. Every running card in the world pads
+    // this slot with cadence; this session did not measure cadence.
+    expect(find.text('CALORIES'), findsNothing);
+    expect(find.text('ELEVATION'), findsNothing);
+    // The distance is the hero. It is not ALSO a cell — one measurement, set
+    // large, is still one measurement.
+    expect(find.text('DISTANCE'), findsNothing);
+    expect(find.textContaining('12.42'), findsOneWidget);
   });
 
   testWidgets('the poster draws without a basemap', (t) async {
@@ -162,9 +234,7 @@ void main() {
     await t.pumpWidget(MaterialApp(
       theme: buildTheme(Brightness.dark),
       home: Scaffold(
-        body: Center(
-          child: PosterCard(_run, const {'Time', 'Pace'}),
-        ),
+        body: Center(child: PosterCard(_run)),
       ),
     ));
     await t.pumpAndSettle();

@@ -55,6 +55,41 @@ class C {
   static const sky = Color(0xFF7DD3FC);
   static const blueSoft = Color(0xFF93C5FD);
 
+  /// The route ramp, and only the route ramp.
+  ///
+  /// Brighter and more saturated than the UI accents on purpose: this is the
+  /// one mark in the app that is drawn over an arbitrary photograph and a
+  /// darkened basemap rather than over a known surface, and the UI greens and
+  /// reds — tuned to clear 4.5:1 as TEXT on a card — go muddy there.
+  ///
+  /// Deliberately NOT in [all]. `all` is the set the contrast sweep measures
+  /// as ink and as fill, and these are neither: they are a line on a picture.
+  /// Putting them in would be asking the wrong question of them.
+  static const routeFast = Color(0xFF7CFF6B);
+  static const routeMid = Color(0xFFFFC83D);
+  static const routeHard = Color(0xFFFF8A30);
+  static const routeSlow = Color(0xFFFF4D4D);
+
+  /// The basemap's two ends, which is the whole of the map's styling: every
+  /// tile pixel is mapped onto the line between them by `_themeFilter`.
+  ///
+  /// What makes the map READABLE is the distance between these two, not how
+  /// low either one is. Both ends have been wrong once:
+  ///
+  ///   · ceiling `#4A5568` — OSM's land polygon is near-white and lands on
+  ///     the ceiling, so the whole card became a mid-grey slab.
+  ///   · ceiling `#232B39` — dark enough that land, water and roads all
+  ///     collapsed into each other and the map vanished entirely. On a card
+  ///     with no photo the map IS the content, so that is worse.
+  ///
+  /// This pair keeps the card unmistakably dark while leaving enough range
+  /// between water, land and roads to read as a place. It is also the only
+  /// lever there is on the labels and street names, which are rendered into
+  /// the raster and cannot be asked for separately — they sit near the
+  /// ceiling, so a ceiling this far down leaves them as texture, not type.
+  static const mapFloor = Color(0xFF0A1018);
+  static const mapCeil = Color(0xFF44536D);
+
   // neutrals
   static const n900 = Color(0xFF0F172A);
   static const n800 = Color(0xFF1E293B);

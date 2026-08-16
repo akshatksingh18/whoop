@@ -301,16 +301,16 @@ class _NutritionScreenState extends State<NutritionScreen> {
               : Surface(
                   child: Column(
                     children: [
-                      _Mean('Energy', w.meanKcal, 'kcal', C.domFood, counted),
-                      _Mean('Protein', w.meanProtein, 'g', C.red, counted),
-                      _Mean('Carbs', w.meanCarbs, 'g', C.orange, counted),
-                      _Mean('Fat', w.meanFat, 'g', C.yellow, counted),
-                      _Mean('Fibre', w.meanFibre, 'g', C.green, counted),
+                      _Mean('Energy', w.meanKcal, 'kcal', C.domFood),
+                      _Mean('Protein', w.meanProtein, 'g', C.red),
+                      _Mean('Carbs', w.meanCarbs, 'g', C.orange),
+                      _Mean('Fat', w.meanFat, 'g', C.yellow),
+                      _Mean('Fibre', w.meanFibre, 'g', C.green),
                     ],
                   ),
                 ),
         ),
-        if (counted > 0 && w.meanKcal != null && _burned?.value != null)
+        if (counted > 0 && w.meanKcal.value != null && _burned?.value != null)
           Section(
             'Energy balance',
             Surface(
@@ -318,18 +318,18 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   InlineMetrics([
-                    ('EATEN', '${w.meanKcal!.round()} kcal', C.domFood),
+                    ('EATEN', '${w.meanKcal.value!.round()} kcal', C.domFood),
                     ('BURNED', '${_burned!.value!.round()} kcal', C.purple),
                     (
                       'BALANCE',
-                      '${(w.meanKcal! - _burned!.value!).round()} kcal',
+                      '${(w.meanKcal.value! - _burned!.value!).round()} kcal',
                       C.teal,
                     ),
                   ]),
                   const SizedBox(height: S.x3),
                   Text(
-                    'Eaten is the mean of $counted complete days. Burned is '
-                    'today only.',
+                    'Eaten is the mean of ${w.meanKcal.days} complete days. '
+                    'Burned is today only.',
                     style: F.cap.copyWith(color: P.of(c).ink3, height: 1.45),
                   ),
                 ],
@@ -392,7 +392,9 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
   double? _target(String key) => (_profile[key] as num?)?.toDouble();
 
-  double? _meanFor(String key) =>
+  /// The same gated mean the Week tab prints, so goal progress and the average
+  /// can never disagree — including about how many days went into it.
+  NutrientMean? _meanFor(String key) =>
       key == 'kcal_target' ? _week?.meanKcal : _week?.meanProtein;
 
   Future<void> _editTargets() async {
@@ -450,7 +452,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
   Widget _goalsTab(BuildContext c) {
     final p = P.of(c);
-    final counted = _week?.counted.length ?? 0;
     final set = [for (final g in _goalSpecs) if (_target(g.$1) != null) g];
 
     return Column(
@@ -471,7 +472,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final g in set) ...[
-                  _goalCard(g, counted),
+                  _goalCard(g),
                   const SizedBox(height: S.x3),
                 ],
               ],
@@ -523,27 +524,39 @@ class _NutritionScreenState extends State<NutritionScreen> {
   /// Current → target → the rate between them. The "current" is the mean of
   /// COMPLETE days only, the same denominator the Week tab uses, so the goal
   /// and the average can never disagree about what was counted.
-  Widget _goalCard((String, String, String, Color) g, int counted) {
+  Widget _goalCard((String, String, String, Color) g) {
     final target = _target(g.$1)!;
-    final mean = _meanFor(g.$1);
+    final m = _meanFor(g.$1);
+    final mean = m?.value;
     if (mean == null || target <= 0) {
       return StatusCard(
         'Nothing to measure ${g.$2.toLowerCase()} against yet',
-        'A day counts once every occasion carries a figure and the log reaches '
-            'the evening. None of the last ${_week?.span ?? 7} days has.',
+        // Two different absences, and the difference matters: the day never
+        // qualified, or it qualified on energy while this nutrient was only a
+        // floor. Progress against a floor would read low every single day.
+        (m?.floorDays ?? 0) > 0
+            ? 'Every complete day had an occasion logged without a '
+                  '${g.$2.split(' ').last.toLowerCase()} figure, so the average '
+                  'would only be a lower bound.'
+            : 'A day counts once every occasion carries a figure and the log '
+                  'reaches the evening. None of the last ${_week?.span ?? 7} '
+                  'days has.',
         fix: 'Log an eating occasion',
         icon: LucideIcons.target,
         onFix: _logFood,
       );
     }
+    // The nutrient's OWN denominator, not the window's count of complete days:
+    // protein can be measured on fewer days than energy was.
+    final days = m!.days;
     final diff = mean - target;
     return GoalTrajectory(
       g.$2,
       '${mean.round()} ${g.$3}',
       '${target.round()} ${g.$3}',
       '${diff.abs() < 1 ? 'On target' : '${diff.abs().round()} ${g.$3}/day '
-          '${diff > 0 ? 'above' : 'below'}'} · mean of $counted complete '
-          'day${counted == 1 ? '' : 's'}',
+          '${diff > 0 ? 'above' : 'below'}'} · mean of $days complete '
+          'day${days == 1 ? '' : 's'}',
       (mean / target).clamp(0, 1).toDouble(),
       g.$4,
       rateDown: diff > 0,
@@ -730,21 +743,41 @@ String _mealLabel(String m) => switch (m) {
   _ => 'Snacks',
 };
 
+/// One nutrient's seven-day mean, with its own denominator.
+///
+/// The denominator is the nutrient's, not the window's: a day counts toward the
+/// ENERGY average on complete kcal alone, so protein can be a floor on a day
+/// that qualified. Those days are excluded and NAMED here — a mean built on
+/// floors is understated, and printing it beside the energy mean as though both
+/// were measured the same way is the failure this row exists to prevent. There
+/// is deliberately no "at least" pill: the gated mean is not a floor, so a floor
+/// marker would be as wrong as the understatement it replaced.
 class _Mean extends StatelessWidget {
-  const _Mean(this.label, this.value, this.unit, this.color, this.days);
+  const _Mean(this.label, this.mean, this.unit, this.color);
   final String label;
-  final double? value;
+  final NutrientMean mean;
   final String unit;
   final Color color;
-  final int days;
 
   @override
-  Widget build(BuildContext c) => MetricRow(
-    LucideIcons.chartNoAxesColumn,
-    color,
-    label,
-    value == null ? 'Not recorded' : value!.round().toString(),
-    unit: value == null ? '' : unit,
-    sub: 'MEAN OF $days COMPLETE DAY${days == 1 ? '' : 'S'}',
-  );
+  Widget build(BuildContext c) {
+    final n = mean.days;
+    final floors = mean.floorDays;
+    return MetricRow(
+      LucideIcons.chartNoAxesColumn,
+      color,
+      label,
+      mean.value == null
+          ? (floors > 0 ? 'Not counted' : 'Not recorded')
+          : mean.value!.round().toString(),
+      unit: mean.value == null ? '' : unit,
+      sub: mean.value == null
+          ? (floors > 0
+                ? 'EVERY COMPLETE DAY HAD AN OCCASION WITH NO '
+                      '${label.toUpperCase()} FIGURE'
+                : 'NO COMPLETE DAY RECORDED ${label.toUpperCase()}')
+          : 'MEAN OF $n COMPLETE DAY${n == 1 ? '' : 'S'}'
+                '${floors == 0 ? '' : ' · $floors LEFT OUT AS A FLOOR'}',
+    );
+  }
 }

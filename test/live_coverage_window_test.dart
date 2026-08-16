@@ -222,8 +222,6 @@ void main() {
           atMs: startMs + i * 100,
         );
       }
-      expect(app.liveSteps, greaterThan(0), reason: 'walk must count steps');
-
       await app.debugFinalizeLivePedometer();
 
       final db = await LocalDb.instance;
@@ -233,6 +231,11 @@ void main() {
         whereArgs: [recTs, recTs + 3600],
       );
       expect(rows, hasLength(1));
+      // Was `app.liveSteps > 0` before the finalize; the display getter is gone
+      // (nothing rendered it) and the banked row is the same fact, from the
+      // path that survives.
+      expect((rows.first['steps'] as num).toInt(), greaterThan(0),
+          reason: 'walk must count steps');
       final start = (rows.first['start_ts'] as num).toInt();
       final end = (rows.first['end_ts'] as num).toInt();
       // Pre-fix this was start == end == recTs — a 0 s window.

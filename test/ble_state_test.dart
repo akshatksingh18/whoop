@@ -663,4 +663,27 @@ void main() {
       expect(s.fix, isNull);
     });
   });
+
+  group('isTimeoutDisconnect', () {
+    test('the platforms both say it in words', () {
+      // Android reports HCI/GATT names; iOS the CBError localizedDescription.
+      expect(isTimeoutDisconnect('LINK_SUPERVISION_TIMEOUT'), isTrue);
+      expect(isTimeoutDisconnect('GATT_CONNECTION_TIMEOUT'), isTrue);
+      expect(
+          isTimeoutDisconnect('The connection has timed out unexpectedly.'),
+          isTrue);
+    });
+
+    test('an ordinary termination is not a timeout', () {
+      expect(isTimeoutDisconnect('REMOTE_USER_TERMINATED_CONNECTION'), isFalse);
+      expect(isTimeoutDisconnect('connection canceled'), isFalse);
+    });
+
+    test('no reason reported is not a timeout — we never assume one', () {
+      // The old caller hardcoded `timedOut: true`, which is exactly this
+      // assumption: it made two ordinary drops inside 8 s of setup latch the
+      // re-pair guide on a band that was working.
+      expect(isTimeoutDisconnect(null), isFalse);
+    });
+  });
 }

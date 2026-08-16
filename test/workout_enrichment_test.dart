@@ -278,163 +278,17 @@ void main() {
     expect(points.first['t'], t1);
   });
 
-  // ── getRecords: local PRs + streaks ───────────────────────────────────────
+  // ── getRecords: the one integer the Workouts tab reads ────────────────────
 
-  test('getRecords computes PRs with dates, workout count, and streaks',
-      () async {
-    // A third day (2 days ago) to extend the series + streaks.
-    final d2 = DateTime.now().subtract(const Duration(days: 2));
-    await LocalDb.putDayResult(
-      dayId: _label(d2),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': _label(d2),
-        'scalars': {'rhr': 58.0},
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 25800}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 58.0,
-        'strain': 9.0,
-        'tst_min': 430.0,
-        'efficiency': 0.85,
-        'steps': 9000.0,
-        'readiness': 75.0,
-      },
-    );
-
-    // getRecords gates the resting-HR PR on the resting_hr baseline actually
-    // being "trusted" (never celebrate a personal best built on a baseline
-    // the app itself still calls calibrating) — upsert today's bundle with a
-    // trusted status so this test exercises the normal (celebrated) path.
-    // See the "provisional resting_hr baseline hides the PR" test below for
-    // the honesty-gate itself.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {
-          'resting_hr': {'status': 'trusted', 'baseline': 55.0, 'z': 0.0},
-        },
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
+  test('getRecords returns the workout count and nothing else', () async {
     final r = await repo.getRecords();
-    expect(r['days_tracked'], greaterThanOrEqualTo(3));
-    expect(r['nights_tracked'], greaterThanOrEqualTo(3));
+    // Finished sessions only — a live one is not a tracked workout yet.
     expect(r['workouts_tracked'], greaterThanOrEqualTo(2));
-
-    final yLabel = _label(DateTime.now().subtract(const Duration(days: 1)));
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    expect((records['lowest_rhr'] as Map)['value'], 52.0);
-    expect((records['lowest_rhr'] as Map)['date'], yLabel);
-    expect((records['top_strain'] as Map)['value'], 15.4);
-    expect((records['longest_sleep'] as Map)['value'], 465.0);
-    expect((records['best_efficiency'] as Map)['value'], 0.93);
-    expect((records['most_steps'] as Map)['value'], 12000.0);
-    expect((records['top_readiness'] as Map)['value'], 91.0);
-    // Top workout strain comes from the sessions table, typed + dated.
-    expect((records['top_workout'] as Map)['value'], 8.5);
-    expect((records['top_workout'] as Map)['type'], 'run');
-
-    // 3 consecutive derived days (incl. today) → streaks run.
-    final streaks = (r['streaks'] as Map).cast<String, dynamic>();
-    expect((streaks['wear'] as Map)['current'], greaterThanOrEqualTo(3));
-    expect((streaks['sleep'] as Map)['current'], greaterThanOrEqualTo(3));
-  });
-
-  test(
-      "getRecords hides the resting-HR PR while its baseline is only "
-      "'calibrating' — never celebrate an unreliable number", () async {
-    // Downgrade today's resting_hr baseline status (still the latest bundle
-    // from the previous test) to calibrating.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {
-          'resting_hr': {'status': 'calibrating', 'baseline': 55.0, 'z': 0.0},
-        },
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
-    final r = await repo.getRecords();
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    // The resting-HR PR is gone — a calibrating baseline is not a trust the
-    // app can vouch for, so nothing celebrates it.
-    expect(records.containsKey('lowest_rhr'), isFalse);
-    // Every other record type is untouched by the gate (no equivalent trust
-    // concept exists for them in this codebase — see local_repository_impl
-    // comment at the gate).
-    expect((records['top_strain'] as Map)['value'], 15.4);
-    expect((records['top_readiness'] as Map)['value'], 91.0);
-  });
-
-  test(
-      "getRecords doesn't throw when baselines.resting_hr is malformed — "
-      "falls into the honest 'not trusted' branch instead of "
-      'NoSuchMethodError (the dotted-_sub-path fix)', () async {
-    // resting_hr is a String here, not a Map — the old chained
-    // `?['resting_hr']?['status']` indexing would throw on this shape.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {'resting_hr': 'not-a-map'},
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
-    final r = await repo.getRecords();
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    expect(records.containsKey('lowest_rhr'), isFalse);
+    // Everything else this used to compute had zero consumers: the records and
+    // streaks screens are gone, and the tab awaited a full-history PR sweep,
+    // seven metric_series scans, a json_extract over every stored day bundle
+    // and a bundle decode to read one count.
+    expect(r.keys, ['workouts_tracked']);
   });
 
   // ── zone_min accumulation shape (#15) ─────────────────────────────────────

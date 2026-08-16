@@ -108,6 +108,8 @@ class _MoreSettingsState extends State<MoreSettings> {
       healthShare: app.healthShareConsent,
       showUpdateChecks: app.updateChecksAvailable,
       updateChecks: app.updateChecksEnabled,
+      updateAvailable: app.updateAvailable,
+      updateMandatory: app.updateMandatory,
       onEditProfile: () => goto(c, const EditProfile()),
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
@@ -240,6 +242,11 @@ class MoreSettingsView extends StatelessWidget {
   /// The update-check row appears only on a build that can check.
   final bool showUpdateChecks, updateChecks;
 
+  /// What the last check ANSWERED. The check itself was already running and
+  /// already storing its answer; this row is the only place in the app that
+  /// says what it found, so without these two the whole poll was a no-op.
+  final bool updateAvailable, updateMandatory;
+
   /// `0.9.26 (57)`, or empty until package_info answers — the About group is
   /// the whole reveal gesture, so it is not drawn against a blank.
   final String version;
@@ -272,6 +279,8 @@ class MoreSettingsView extends StatelessWidget {
     this.healthShare = false,
     this.showUpdateChecks = false,
     this.updateChecks = true,
+    this.updateAvailable = false,
+    this.updateMandatory = false,
     this.version = '',
     this.devMode = false,
     this.onVersionTap,
@@ -348,8 +357,13 @@ class MoreSettingsView extends StatelessWidget {
                         onTap: onToggleHealthShare),
                   if (showUpdateChecks)
                     SetRow(LucideIcons.refreshCw, C.blue, 'Check for updates',
-                        sub: 'Asks the release server on launch. It sees your '
-                            'IP address and when you open the app',
+                        sub: updateMandatory
+                            ? 'This build is below the minimum supported '
+                                'build. Install the newer release from GitHub'
+                            : updateAvailable
+                                ? 'A newer build is published on GitHub'
+                                : 'Asks the release server on launch. It sees '
+                                    'your IP address and when you open the app',
                         value: updateChecks ? 'On' : 'Off',
                         onTap: onToggleUpdateChecks),
                 ]),

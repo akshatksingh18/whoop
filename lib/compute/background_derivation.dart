@@ -5,9 +5,14 @@
 // AppState._afterDrain. THIS file is the SCHEDULED heavy pass (full sleep
 // staging + 24-h spectra over every stale day).
 //
-//   Android: a real OS-scheduled WorkManager periodic job (constrained to when
-//            charging + idle is preferred). WorkManager genuinely runs us in a
-//            background isolate even when the app is killed.
+//   Android: two real OS-scheduled WorkManager periodic jobs (sync + heavy
+//            derive), requested every 10 min and clamped by Android to 15, with
+//            NO constraints — see `init`: `requiresCharging: false`,
+//            `requiresBatteryNotLow: false`, no network, no device-idle. They
+//            run whatever the battery is doing. (This block used to claim
+//            "constrained to when charging + idle is preferred"; nothing in the
+//            registration ever asked for that.) WorkManager genuinely runs us in
+//            a background isolate even when the app is killed.
 //
 //   iOS:     HONEST CAVEAT — heavy compute on iOS is NOT guaranteed.
 //            BackgroundTasks.swift registers "wtf.openstrap.edge.bgsync" as a

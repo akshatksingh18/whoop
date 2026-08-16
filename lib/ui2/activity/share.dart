@@ -13,9 +13,11 @@ import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../state/units_controller.dart';
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
+import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
 import 'catalogue.dart';
 import 'summary.dart';
@@ -117,7 +119,7 @@ class _ShareSheetState extends State<ShareSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final stats = _available(r);
+    final stats = _available(r, unitsOf(c));
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -290,6 +292,16 @@ class _ShareSheetState extends State<ShareSheet> {
 /// Whether [ShareCard._art] has anything to draw for this session. Kept beside
 /// `_available` because it answers the same question about the texture that
 /// that list answers about the numbers, and it must stay in step with `_art`.
+/// The session's average pace in the reader's unit, or null when there is no
+/// pace worth printing — the stat is then not offered at all rather than
+/// offered with a placeholder in it.
+String? _paceOf(ActivityResult r, UnitsController? u) {
+  final secPerKm = r.paceSecPerKm;
+  if (secPerKm == null) return null;
+  final perUnit = u == null ? 1.0 : u.distanceUnitMeters / 1000;
+  return UnitsController.formatPace(secPerKm * perUnit);
+}
+
 bool _hasArt(ActivityResult r) => switch (r.arch) {
   Arch.route => r.route.length >= 2,
   Arch.strength => muscleLoad(r.strength.volumeByExercise).isNotEmpty,
@@ -302,11 +314,21 @@ bool _hasArt(ActivityResult r) => switch (r.arch) {
 };
 
 /// The stats this session can honestly put on a card, in offer order.
-List<(String, String)> _available(ActivityResult r) => [
+///
+/// [u] is the reader's unit system, null in a golden (and at the one call site
+/// that only reads the stat NAMES, which no unit system changes) — metric is
+/// what the store holds, so that is what a card without one shows.
+List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
   ('Time', hms(r.duration)),
   if (r.distanceKm != null)
-    ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
-  if (r.paceSecPerKm != null) ('Pace', '${pace(r.paceSecPerKm!)} /km'),
+    (
+      'Distance',
+      u == null
+          ? '${r.distanceKm!.toStringAsFixed(2)} km'
+          : u.distance(r.distanceKm! * 1000)!,
+    ),
+  if (_paceOf(r, u) != null)
+    ('Pace', '${_paceOf(r, u)} /${u?.distanceUnit ?? 'km'}'),
   if (r.avgHr != null) ('Heart rate', '${r.avgHr} bpm'),
   // With its unit. A bare "612" on a card is a number nobody can read back.
   if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
@@ -336,7 +358,7 @@ class ShareCard extends StatelessWidget {
       Color.lerp(C.n900, accent, .10)!,
       Color.lerp(C.n900, accent, .38)!,
     ];
-    final hero = _hero();
+    final hero = _hero(unitsOf(c));
     // The card is a PICTURE — a fixed-aspect graphic that gets exported at one
     // size, not a piece of UI. So it does not inherit the reader's text scale:
     // at 2× the same 240×320 box would overflow, and the exported image would
@@ -399,9 +421,9 @@ class ShareCard extends StatelessWidget {
                       spacing: S.x4,
                       runSpacing: S.x2,
                       children: [
-                        for (final s in _available(
-                          r,
-                        ).where((s) => chosen.contains(s.$1)).take(4))
+                        for (final s in _available(r, unitsOf(c))
+                            .where((s) => chosen.contains(s.$1))
+                            .take(4))
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -450,15 +472,17 @@ class ShareCard extends StatelessWidget {
     Arch.match || Arch.basic => r.activity.name,
   };
 
-  (String, String, String) _hero() {
+  (String, String, String) _hero(UnitsController? u) {
     final fallback = (hms(r.duration), '', r.activity.name);
+    final km = r.distanceKm;
     return switch (arch) {
       Arch.route || Arch.journey =>
-        r.distanceKm == null
+        km == null
             ? fallback
             : (
-                r.distanceKm!.toStringAsFixed(2),
-                'km',
+                (u == null ? km : u.distanceValue(km * 1000))
+                    .toStringAsFixed(2),
+                u?.distanceUnit ?? 'km',
                 r.gainM == null
                     ? r.activity.name
                     : '+${r.gainM!.round()} m elevation',

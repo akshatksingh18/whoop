@@ -11,7 +11,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/derive_scheduler.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/gps/screen_wake.dart';
-import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -318,28 +317,10 @@ void main() {
     });
   });
 
-  group('live milestones', () {
-    test(
-      'a milestone fires once per SESSION, surviving screen re-entry',
-      () {
-        // The live screen is disposed and rebuilt every time the athlete
-        // navigates away and back. The dedup set therefore lives on the
-        // workout, not the screen — a screen-local set re-fired "5 MINUTES"
-        // (banner + haptic + confetti) on every single return.
-        final w = LiveWorkoutState(
-          startTime: DateTime.now().subtract(const Duration(minutes: 6)),
-          targetKcal: 300,
-          workoutId: 'w1',
-          type: 'run',
-        );
-        expect(w.firedMilestones.add('t5'), isTrue, reason: 'first announce');
-        expect(w.firedMilestones.add('t5'), isFalse,
-            reason: 're-entering the screen must not re-fire it');
-        // A genuinely new milestone still gets through.
-        expect(w.firedMilestones.add('t10'), isTrue);
-      },
-    );
-  });
+  // The 'live milestones' group is gone with `LiveWorkoutState.firedMilestones`.
+  // The field had no reader in lib — there is no milestone feature: no banner,
+  // no haptic, no confetti, nothing that grepping 'milestone' finds outside the
+  // field's own doc. The test only proved that `Set.add` returns false twice.
 
   group('pace is MOVING pace', () {
     final units = UnitsController.seed(UnitSystem.metric);
@@ -363,8 +344,11 @@ void main() {
       },
     );
 
-    test('no moving time yet reports "—" rather than dividing by elapsed', () {
-      expect(units.pace(120.0, 0), '—');
+    test('no moving time yet reports nothing rather than dividing by elapsed',
+        () {
+      // Null, not '—': the formatter says "there is no pace" and the screen
+      // drops the stat. A bare dash rendered into a stat slot is a defect.
+      expect(units.pace(120.0, 0), isNull);
     });
   });
 }

@@ -31,6 +31,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 // key/value façade, not the app.
 import '../../gps/gps_source.dart' show GpsPermissionStatus;
 import '../../state/prefs.dart';
+import '../../state/units_controller.dart';
+import '../screens/home_screen.dart' show unitsOf;
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
@@ -821,6 +823,44 @@ Widget _routeIssueCard(GpsPermissionStatus issue, VoidCallback? onFix) =>
 int? _kcal(Activity a, LiveFeed feed, double? weightKg, int elapsed) =>
     feed.calories ?? a.kcal(weightKg, (elapsed / 60).round());
 
+/// The distance/pace pair plus the common three-up, in the user's units.
+///
+/// PACE IS OMITTED, never dashed, when there isn't one yet: at the start of a
+/// run a few metres of GPS jitter divided into real elapsed time reads as
+/// something like 1000 min/km, which [UnitsController.formatPace] refuses by
+/// returning null. A stat that has no value is not drawn.
+List<Widget> _distanceStats(BuildContext ctx, P p, LiveFeed f, Activity a,
+    double? weightKg, int elapsed) {
+  final u = unitsOf(ctx);
+  final km = f.distanceKm;
+  final meters = km == null ? null : km * 1000;
+  final value = meters == null
+      ? null
+      : (u == null ? meters / 1000 : u.distanceValue(meters));
+  final unit = u?.distanceUnit ?? 'km';
+  final pacePerUnit = (meters == null || meters <= 0)
+      ? null
+      : UnitsController.formatPace(
+          elapsed / (u == null ? meters / 1000 : u.distanceValue(meters)));
+  return [
+    statRow(p, [
+      if (value != null) (value.toStringAsFixed(2), unit),
+      if (pacePerUnit != null) (pacePerUnit, '/$unit'),
+      ..._commonStats(a, f, weightKg, elapsed),
+    ].take(3).toList()),
+  ];
+}
+
+/// "5.24 km" / "3.25 mi" for a distance already known to exist.
+String _distanceText(BuildContext c, double km) {
+  final u = unitsOf(c);
+  return u == null
+      ? '${km.toStringAsFixed(2)} km'
+      : u.distance(km * 1000)!; // non-null in, non-null out
+}
+
+String _distanceUnit(BuildContext c) => unitsOf(c)?.distanceUnit ?? 'km';
+
 /// The three-up row every live screen ends with.
 List<(String, String)> _commonStats(
     Activity a, LiveFeed feed, double? weightKg, int elapsed) {
@@ -926,24 +966,20 @@ class LiveMeasured extends StatelessWidget {
             _routeIssueCard(f.routeIssue!, f.onFixRoute),
           ],
           const SizedBox(height: S.x8),
-          statRow(p, [
-            if (f.distanceKm != null)
-              (f.distanceKm!.toStringAsFixed(2), 'km'),
-            if (f.distanceKm != null && f.distanceKm! > 0)
-              (pace((elapsed / f.distanceKm!).round()), '/km'),
-            ..._commonStats(a, f, weightKg, elapsed),
-          ].take(3).toList()),
+          // The user's own unit system, not km hardcoded. `unitsOf` is null in
+          // a golden, and the metric fallback there is what the store holds.
+          ..._distanceStats(ctx, p, f, a, weightKg, elapsed),
           const SizedBox(height: S.x8),
           LiveHeart(f),
           if (f.route.length > 1) ...[
             const SizedBox(height: S.x5),
             ChartFrame(
               title: 'ROUTE SO FAR',
-              unit: 'km',
+              unit: _distanceUnit(ctx),
               height: 150,
               footnote: f.distanceKm == null
                   ? 'Start pinned; distance appears once the fixes settle.'
-                  : '${f.distanceKm!.toStringAsFixed(2)} km from the fixes '
+                  : '${_distanceText(ctx, f.distanceKm!)} from the fixes '
                       'recorded so far.',
               child: ClipRRect(
                 borderRadius: R.rLg,

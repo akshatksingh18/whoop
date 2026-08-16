@@ -589,9 +589,13 @@ class PhysioDay {
   /// `present == false` when no qualifying sleep (fallback container day).
   final ana.SleepSegmentation sleep;
 
-  /// Index range [sleepLoIdx, sleepHiIdx) of the sleep window INTO the day-sliced
-  /// substrate arrays (so the coordinator can slice the substrate to the sleep
-  /// window for HRV/RHR/recovery). Both 0 when no sleep.
+  /// Index range [sleepLoIdx, sleepHiIdx) of the sleep window INTO THE FULL
+  /// substrate — the same one passed to [calendarDays], NOT the day slice.
+  /// (`calendarDays` builds them as `loS + onsetIdx`, where `loS` is a lower
+  /// bound into the full arrays, and both live callers slice the full substrate
+  /// with them; this doc used to say "day-sliced", contradicting `calendarDays`'
+  /// own doc and pointing a future caller at a window offset by up to the
+  /// nocturnal lookback.) Both 0 when no sleep.
   final int sleepLoIdx;
   final int sleepHiIdx;
 

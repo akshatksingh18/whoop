@@ -85,8 +85,6 @@ import '../sync/sync_policy.dart'
     show
         isLinkStale,
         ReconnectSupervisorAction,
-        StalenessTier,
-        stalenessTierFor,
         superviseReconnect;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
@@ -580,29 +578,20 @@ class AppState extends ChangeNotifier {
   int? phoneStepsLastTotal;
 
   /// Steps the PHONE has banked for today, mirroring `liveStepsForDay`'s own
-  /// source rule (phone wins only when it actually has data). Screens add the
-  /// band's live count on top of the day total, and must not do that once the
-  /// phone owns the day — both count the same walk. Gating on
-  /// [phoneStepsEnabled] alone was wrong: with the toggle on and no phone data
-  /// (iOS read denied, nothing writing to Health Connect) the band still owns
-  /// the day and its live steps were being thrown away.
+  /// source rule (phone wins only when it actually has data).
+  ///
+  /// No screen reads this today. It fed `todayStepsFromPhone`, the phone-vs-band
+  /// precedence gate — deleted with [liveSteps], because no screen ever added a
+  /// live band count on top of the day total, so there was never a double-count
+  /// for it to arbitrate. The precedence rule that DOES matter is
+  /// `LocalDb.liveStepsForDay`'s, which the derivation reads.
   int phoneStepsToday = 0;
 
   /// Which local day [phoneStepsToday] was read for. The cache is worthless
   /// past midnight, and a process here routinely lives for days (Android
   /// foreground service, iOS suspend/resume), so a day-less cache would hold
-  /// yesterday's answer through the whole of today — suppressing the band's
-  /// live count on a day the phone has not contributed a single step to.
+  /// yesterday's answer through the whole of today.
   String? _phoneStepsDay;
-
-  /// True when today's step total comes from the phone, so band live steps are
-  /// already accounted for and must not be added again. Unknown-or-stale reads
-  /// as false: showing the band's live count is the safe direction (a lost
-  /// count is invisible, a doubled one is a wrong number).
-  bool get todayStepsFromPhone =>
-      phoneStepsEnabled &&
-      _phoneStepsDay == todayLabel() &&
-      phoneStepsToday > 0;
 
   Future<void> _refreshPhoneStepsToday() async {
     if (!phoneStepsEnabled) return;
@@ -923,9 +912,19 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[reset] prefs clear failed: $e');
     }
-    _dismissedBanners.clear();
     appStatus = null;
     _savedAlarm = null;
+
+    // 4 · the in-memory mirrors of what we just deleted. These are plain
+    // fields, restored only by the profile load at launch, so leaving them
+    // alone kept both features RUNNING against the wiped database for the rest
+    // of the session — a re-pair without a relaunch would find phone steps
+    // still on and health export still syncing, which is not "a fresh install".
+    healthSyncEnabled = false;
+    healthState = HealthLinkState.unknown;
+    phoneStepsEnabled = false;
+    phoneStepsToday = 0;
+    _phoneStepsDay = null;
 
     await signOut();
   }
@@ -949,12 +948,16 @@ class AppState extends ChangeNotifier {
   /// True once the profile has the fields the analytics personalization needs.
   bool get profileComplete => _profile.isComplete;
 
-  // ── app status: OTA update pointer + admin-pushed alert banner ──────────────
-  // Now fetched directly by UpdateService from a public, unauthenticated pointer
+  // ── app status: the OTA update pointer ──────────────────────────────────────
+  // Fetched directly by UpdateService from a public, unauthenticated pointer
   // URL — independent of any backend / JWT (the authed client was deleted).
+  //
+  // The operator-pushed alert banner that used to live here is GONE: it was
+  // fetched, dismissible and persisted, but no screen ever drew one, so the
+  // dismissed-id set could only ever be empty. Deleted rather than wired —
+  // nothing in the product asks for an operator broadcast channel.
   AppStatus? appStatus;
   int _currentBuild = 0; // our build number (from package_info); 0 if unknown
-  final Set<String> _dismissedBanners = {};
 
   UpdateInfo? get _update => appStatus?.update;
 
@@ -977,16 +980,6 @@ class AppState extends ChangeNotifier {
       _currentBuild > 0 &&
       _currentBuild < _update!.minBuild;
 
-  UpdateInfo? get update => _update;
-
-  /// The admin banner to show right now (null if none, or dismissed + dismissible).
-  BannerInfo? get activeBanner {
-    final b = appStatus?.banner;
-    if (b == null) return null;
-    if (b.dismissible && _dismissedBanners.contains(b.id)) return null;
-    return b;
-  }
-
   Future<void> _loadAppStatus() async {
     try {
       final info = await PackageInfo.fromPlatform();
@@ -994,10 +987,6 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       /* keep 0 → update prompts simply won't fire */
     }
-    final prefs = await SharedPreferences.getInstance();
-    _dismissedBanners.addAll(
-      prefs.getStringList('dismissed_banners') ?? const [],
-    );
     await refreshAppStatus();
   }
 
@@ -1016,7 +1005,7 @@ class AppState extends ChangeNotifier {
   Future<void> setUpdateChecksEnabled(bool on) async {
     Prefs.setBool(_kUpdateChecks, on);
     if (!on) {
-      appStatus = null; // drop any banner the last check produced
+      appStatus = null; // drop whatever the last check answered
     }
     notifyListeners();
     if (on) await refreshAppStatus();
@@ -1031,12 +1020,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> dismissBanner(String id) async {
-    _dismissedBanners.add(id);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('dismissed_banners', _dismissedBanners.toList());
-    notifyListeners();
-  }
 
   /// A tapped notification asks the shell to switch to this tab index. The shell
   /// listens; it resets to -1 after consuming. Kept off the ChangeNotifier path so
@@ -1100,7 +1083,7 @@ class AppState extends ChangeNotifier {
       onDataStored: _onDataStored,
       onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
       // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
-      // live UI / spot-check, never persisted.
+      // live UI / breathing session, never persisted.
       onLiveFrame: _onLiveFrame,
       deriveDataStaleness: () {
         final ts = _lastRecTs;
@@ -1199,7 +1182,7 @@ class AppState extends ChangeNotifier {
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
-    // EVERY timer this object owns, not just three of them. _spotTimer,
+    // EVERY timer this object owns, not just three of them.
     // _breathingRecomputeTimer and _workoutTimer used to survive dispose, and
     // each of their callbacks ends in notifyListeners() on a disposed
     // ChangeNotifier (which throws in release).
@@ -1208,8 +1191,6 @@ class AppState extends ChangeNotifier {
     _stopReconnectSupervisor();
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = null;
-    _spotTimer?.cancel();
-    _spotTimer = null;
     _breathingRecomputeTimer?.cancel();
     _breathingRecomputeTimer = null;
     _workoutTimer?.cancel();
@@ -1236,7 +1217,6 @@ class AppState extends ChangeNotifier {
   void debugArmOwnedTimers() {
     _backfillTimer ??= Timer.periodic(_backfillInterval, (_) {});
     _alarmGraceTimer ??= Timer(const Duration(minutes: 5), () {});
-    _spotTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {});
     _breathingRecomputeTimer ??=
         Timer.periodic(_breathingRecomputeInterval, (_) {});
     _workoutTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {});
@@ -1271,10 +1251,15 @@ class AppState extends ChangeNotifier {
     _trackCoverage(recTs);
   }
 
-  /// End the live-pedometer session (persist the coverage window, fold the bout
-  /// into the cadence calibration) without a BLE disconnect. Tests only.
+  /// End the live-pedometer session (persist the coverage window) without a
+  /// BLE disconnect. Tests only.
   @visibleForTesting
   Future<void> debugFinalizeLivePedometer() => _finalizeLivePedometer();
+
+  /// Run one 1 Hz live-workout tick without the timer. Tests only — the tick is
+  /// where a stale heart rate would be billed into zone-seconds and strain.
+  @visibleForTesting
+  void debugTickWorkout() => _tickWorkout();
 
   /// Feed a strap alarm-lifecycle event (56 set / 57–58 fired / 59 cleared)
   /// without going through the BLE event path. Tests only.
@@ -2167,7 +2152,6 @@ class AppState extends ChangeNotifier {
   /// via the existing foreground cadence (runCadenceChecks) so it doesn't
   /// need its own timer infrastructure. Best-effort, never blocks boot.
   static const Duration _schemaHealthCheckInterval = Duration(hours: 24);
-  Map<String, dynamic>? schemaHealth;
   DateTime? _lastSchemaHealthCheckAt;
 
   Future<void> _checkSchemaHealth({bool force = false}) async {
@@ -2179,12 +2163,13 @@ class AppState extends ChangeNotifier {
     }
     _lastSchemaHealthCheckAt = DateTime.now();
     try {
+      // The result is LOGGED, not stored: the field that used to hold it had
+      // no reader, and a failing integrity check needs a human looking at the
+      // log, not a widget nobody built.
       final health = await LocalDb.schemaHealth();
-      schemaHealth = health;
       if (health['ok'] != true) {
         _log('[db] schemaHealth FAILED: $health');
       }
-      notifyListeners();
     } catch (e) {
       _log('[db] schemaHealth check skipped: $e');
     }
@@ -2217,7 +2202,7 @@ class AppState extends ChangeNotifier {
     // Capture keeps running; queued derive jobs drain on foreground return.
     _deriveScheduler.setBackground(true);
     // LIVE-FLOOD SUPPRESSION GUARD: with no foreground consumer of the live
-    // streams (no workout / spot check / step calibration), downgrade live to
+    // streams (no workout / breathing session), downgrade live to
     // HR-only so the high-rate raw flood can't starve the periodic R24 offloads
     // while backgrounded. Full live is restored on foreground reclaim.
     _maybeDowngradeLiveForBackground();
@@ -2244,9 +2229,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// True while some foreground feature is actively consuming the live streams
-  /// (workout coach, HRV spot check, breathing session).
-  bool get _hasLiveConsumer =>
-      activeWorkout != null || spotActive || breathingActive;
+  /// (workout coach, breathing session).
+  bool get _hasLiveConsumer => activeWorkout != null || breathingActive;
 
   /// Downgrade live to HR-only when backgrounded with no live consumer. The
   /// keep-alive re-arm respects the HR-only mode, so the downgrade sticks until
@@ -2280,9 +2264,9 @@ class AppState extends ChangeNotifier {
     await LocalDb.insertRecord(raw, sample);
   }
 
-  // Ephemeral live high-rate frame (0x28/0x2B/0x33) — NOT persisted. Spot-check
-  // taps the RR-bearing frames (0x28 compact HR, 0x2B R10) into the in-memory
-  // scan buffer. Cheap-bounded; cleared at each scan start.
+  // Ephemeral live high-rate frame (0x28/0x2B/0x33) — NOT persisted. The
+  // breathing session taps the RR-bearing frames (0x28 compact HR, 0x2B R10)
+  // into its in-memory buffer. Cheap-bounded; cleared at each session start.
   void _onLiveFrame(int pt, String hex, int? recTs) {
     // NOTE: deliberately do NOT advance _lastRecTs from live frames. Live frames
     // (0x28/0x2B/0x33) are ephemeral and NEVER persisted, and they carry the
@@ -2290,9 +2274,6 @@ class AppState extends ChangeNotifier {
     // label to "now" while the app was connected, hiding whether the overnight
     // HISTORICAL backlog had actually synced. "Last data" must reflect the newest
     // STORED record (the data edge), which only _onRecord advances.
-    if (spotActive && (pt == 0x28 || pt == 0x2B)) {
-      if (_spotFrames.length < 8000) _spotFrames.add(hex);
-    }
     if (breathingActive && (pt == 0x28 || pt == 0x2B)) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
@@ -2380,44 +2361,15 @@ class AppState extends ChangeNotifier {
   int get _liveRaw =>
       _committedRaw + (_magMin.isEmpty ? 0 : ana.pedometer(_magMin));
 
-  // A routine BLE disconnect zeroes the live counter for a fresh session
-  // (`_resetLivePedometer`) before the derived day_result has had a chance to
-  // fold the just-ended session's steps in — the Today tile would otherwise
-  // visibly drop then jump back once derivation catches up. Hold the ended
-  // session's total on display for a short grace window so the number never
-  // regresses; the derived total supersedes it well within that window.
-  int _sessionStepsCushion = 0;
-  int _sessionCushionSetAtMs = 0;
-  static const int _sessionCushionGraceMs = 20 * 1000;
-
-  /// The TRUE gain-applied step count for THIS connected session, with no
-  /// display cushion. Everything that PERSISTS or CALIBRATES must read this —
-  /// [liveSteps] is display-only and can deliberately report a just-ended
-  /// PRIOR session's larger total during its grace window, which would
-  /// double-count into `live_coverage` and poison the cadence model.
+  /// The gain-applied step count for THIS connected session. Everything that
+  /// PERSISTS reads this.
+  ///
+  /// There is no display counterpart any more. `liveSteps` — the day-windowed,
+  /// grace-cushioned variant, plus the [LiveStepDayWindow] that rebased it at
+  /// midnight — was maintained on the sample path and drawn by nothing: the
+  /// Today tile reads the DERIVED steps scalar. It went with the cushion it
+  /// existed for. `live_coverage` is still the honest record of the session.
   int get _rawSessionSteps => (_liveRaw * ana.StepParams.gain).round();
-
-  /// Rebases the connection-lifetime counter at local midnight — see
-  /// [LiveStepDayWindow] for why a permanently-connected band made the Today
-  /// tile carry yesterday's steps into today.
-  final LiveStepDayWindow _liveStepDay = LiveStepDayWindow();
-
-  int get liveSteps {
-    final today = todayLabel();
-    final dayChanged = _liveStepDay.day != null && _liveStepDay.day != today;
-    final raw = _liveStepDay.stepsToday(_rawSessionSteps, today);
-    // The cushion holds a PRE-midnight session total for a few seconds so the
-    // tile doesn't visibly dip on a reconnect. Carried across the boundary it
-    // would re-introduce exactly the number we just rebased away.
-    if (dayChanged) _sessionStepsCushion = 0;
-    if (_sessionStepsCushion <= 0) return raw;
-    if (DateTime.now().millisecondsSinceEpoch - _sessionCushionSetAtMs >=
-        _sessionCushionGraceMs) {
-      _sessionStepsCushion = 0;
-      return raw;
-    }
-    return math.max(raw, _sessionStepsCushion);
-  }
 
   // Snapshot of the RAW session total at the moment a manual workout started, so
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
@@ -2435,15 +2387,6 @@ class AppState extends ChangeNotifier {
   /// trap `_resetLivePedometer` already sidesteps for `_workoutRawBase` by
   /// rebasing it negative rather than dropping it.
   bool _workoutSawSamples = false;
-
-  /// Steps taken since the active workout started (real, live, gain-applied).
-  /// 0 when no workout is running.
-  ///
-  /// Prefer [workoutStepsMeasured] in anything user-facing: this coerces an
-  /// unmeasured workout to 0, which is only safe because the two remaining
-  /// callers treat 0 as "omit" (the finish card hides the stat, `stopWorkout`
-  /// leaves the column unset).
-  int get workoutSteps => workoutStepsMeasured ?? 0;
 
   /// Steps for the active workout, or NULL when nothing gait-capable was ever
   /// measured for it (issue #183).
@@ -2494,8 +2437,9 @@ class AppState extends ChangeNotifier {
     if (_liveLastIngestMs == null || nowMs > _liveLastIngestMs!) {
       _liveLastIngestMs = nowMs;
     }
-    // Stamp last real motion (for the inactivity nudge). 0.02 g over baseline is
-    // clearly dynamic movement, not resting jitter.
+    // Any real movement pushes the "Time to move" nudge back out. 0.02 g over
+    // baseline is clearly dynamic movement, not resting jitter. (The posture
+    // nudge is the sibling below, and keys off `_lastWalkMs` instead.)
     if (e > 0.02) {
       unawaited(_rescheduleStillnessNudge(nowMs));
     }
@@ -2526,12 +2470,6 @@ class AppState extends ChangeNotifier {
     // a killed process doesn't lose the whole session — only whatever hasn't
     // completed a minute yet. See _recoverOrphanedLiveSession.
     if (committedThisTick) unawaited(_checkpointLiveSession());
-    // Keep the day window current from the SAMPLE path. Reading it only when
-    // the Today tile is built would make the first read after midnight the
-    // window's first observation of any day — and a first observation counts
-    // in full, so a phone parked on another tab across midnight would carry
-    // the whole of yesterday's session into today.
-    if (committedThisTick) _liveStepDay.stepsToday(_rawSessionSteps, todayLabel());
     if (nowMs - _lastLiveUiNotifyMs >= 1000) {
       _lastLiveUiNotifyMs = nowMs;
       notifyListeners(); // live readout re-counts the partial minute on read
@@ -2542,7 +2480,7 @@ class AppState extends ChangeNotifier {
   ///
   /// This zeroes the connection-lifetime raw counter (`_liveRaw`). If a
   /// workout is active, `_workoutRawBase` was snapshotted from a *previous*
-  /// (now-stale) `_liveRaw` value — left untouched, `workoutSteps` would
+  /// (now-stale) `_liveRaw` value — left untouched, `workoutStepsMeasured` would
   /// compute a negative delta on the next BLE disconnect/reconnect blip,
   /// clamp to 0, and visibly reset the walk's step count instead of counting
   /// monotonically. Rebase it here so the already-accrued workout steps
@@ -2568,23 +2506,9 @@ class AppState extends ChangeNotifier {
   /// No cadence calibration any more — its only consumer was the deleted 1 Hz
   /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
-    // RAW, never the cushioned display value: a second short session ending
-    // inside the first one's grace window would otherwise persist the FIRST
-    // session's total again (double-counted coverage + a nonsense cadence).
     final steps = _rawSessionSteps; // gain-applied
     // Derive the coverage window BEFORE resetting (it reads session counters).
     final window = _liveCoverageWindow(steps);
-    if (steps > 0) {
-      // Never LOWER a still-active cushion — a small follow-up session ending
-      // inside the grace window must not reintroduce the visible regression
-      // the cushion exists to prevent.
-      final active = liveSteps; // expires the cushion if it is already stale
-      _sessionStepsCushion = math.max(
-        steps,
-        math.max(active, _sessionStepsCushion),
-      );
-      _sessionCushionSetAtMs = DateTime.now().millisecondsSinceEpoch;
-    }
     _resetLivePedometer();
     // Record the REAL 100 Hz step window (device time). This is BAND-sourced
     // coverage; the derivation reads it via `liveStepsForDay`, which prefers a
@@ -2766,6 +2690,11 @@ class AppState extends ChangeNotifier {
           date: day,
           route: '/profile',
         ),
+        // This runs off the BLE state pipeline, which is headless on both
+        // platforms — the same reason DeviceAlerts' sink passes false. An OS
+        // authorization prompt with no foreground scene to show it in is a
+        // prompt the user never sees and cannot answer.
+        allowPermissionPrompt: false,
       );
     } catch (e) {
       // A forecast is a nicety; it must never take down the state update that
@@ -2828,8 +2757,9 @@ class AppState extends ChangeNotifier {
       );
     }
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
-      // Live stream ended → fold this bout into the personal cadence calibration
-      // (best-effort; only credible walking updates it) and reset the counter.
+      // Live stream ended → bank this bout's step window into `live_coverage`
+      // and reset the counter. (No cadence calibration is involved: it was
+      // removed with the 1 Hz step estimator at v55/v56.)
       unawaited(_finalizeLivePedometer());
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
         _log('Connection dropped — reconnecting…');
@@ -3198,6 +3128,32 @@ class AppState extends ChangeNotifier {
 
   // ── alarm + strap name (require a live connection) ──────────────────────────
   bool get isConnected => device.connection == 'connected';
+
+  /// How old a live HR reading may be and still be a reading of NOW.
+  ///
+  /// CALIBRATION KNOB. The foreground stream delivers roughly 1 Hz, so this is
+  /// about ten missed frames: long enough to ride out a radio hiccup, short
+  /// enough that a band which stopped reporting is not still being billed as a
+  /// live measurement. Widen it if real straps turn out to gap more than this
+  /// under load.
+  static const Duration liveHrMaxAge = Duration(seconds: 10);
+
+  /// The band's heart rate RIGHT NOW, or null when there isn't one.
+  ///
+  /// `DeviceState.liveHr` on its own is only "the last value the engine saw":
+  /// nothing clears it on an unintentional drop (the teardown path never calls
+  /// `disableLiveStreams`), so it keeps reading like a measurement long after
+  /// the band is gone. Freshness rather than connection alone is the test,
+  /// because it also covers the connected-but-stalled stream, which no
+  /// disconnect hook can see. Every live consumer must read THIS.
+  int? get liveHr {
+    if (!isConnected) return null;
+    final at = device.liveHrAt;
+    if (at == null) return null;
+    final age = DateTime.now().millisecondsSinceEpoch - at;
+    if (age > liveHrMaxAge.inMilliseconds) return null;
+    return device.liveHr;
+  }
   // The locally-set value is authoritative: the band has no independent alarm
   // source (its alarm is always what the app last wrote, and SET_ALARM is
   // HW-verified), while the GET_ALARM readback format is unconfirmed and was
@@ -3231,14 +3187,6 @@ class AppState extends ChangeNotifier {
   /// the UI shows a neutral "Setting alarm…" state.
   bool get alarmPending =>
       _alarm.isPending(DateTime.now().millisecondsSinceEpoch);
-
-  /// Set but neither confirmed nor still pending — show a soft warning (the band
-  /// took the write but never confirmed it latched).
-  bool get alarmUnconfirmed =>
-      _alarm.isUnconfirmed(DateTime.now().millisecondsSinceEpoch);
-
-  int? get alarmLastEventId => _alarm.lastEventId;
-  int? get alarmFiredAt => _alarm.firedAt;
 
   Future<void> setAlarm(DateTime when) async {
     if (!isConnected) throw Exception('Connect to your strap first');
@@ -3339,11 +3287,6 @@ class AppState extends ChangeNotifier {
       // Best-effort by design: the next tick will try again.
     }
   }
-
-  /// Live signal strength of the band in dBm, or null when unmeasurable.
-  /// Deliberately raw — all smoothing and labelling belongs to
-  /// ProximityTracker, which is testable without a radio.
-  Future<int?> readBandRssi() => engine.readRssi();
 
   Future<void> disableAlarm() async {
     if (!isConnected) throw Exception('Connect to your strap first');
@@ -3877,14 +3820,6 @@ class AppState extends ChangeNotifier {
   /// the first frame this connection.
   DateTime? get lastDataAt => engine.lastRxAt;
 
-  Map<String, dynamic> get pipelineStatus => {
-    'capture': engine.offloadSnapshot,
-    'derive': {..._deriveScheduler.snapshot(), 'engine': _derive.snapshot()},
-    'db_counts': dbCounts,
-    'reanalyzing': reanalyzing,
-    'reanalyze_progress': reanalyzeProgress,
-  };
-
   final SyncActivityWindow _syncActivity = SyncActivityWindow();
 
   /// Fires once when the activity window closes. `syncingNow` decays on
@@ -3927,18 +3862,6 @@ class AppState extends ChangeNotifier {
       ? null
       : DateTime.fromMillisecondsSinceEpoch(_lastRecTs! * 1000);
 
-  /// The quiet in-app half of the staleness-escalation meta-layer (see
-  /// sync_policy.dart's stalenessTierFor doc + checkSyncStaleness, which
-  /// drives the louder OS-notification half). A never-synced band reads as
-  /// [StalenessTier.fresh] — that's a distinct, already-visible onboarding
-  /// state, not silent staleness. Always computed fresh against wall-clock
-  /// now, so any screen can read it without needing its own refresh timer.
-  StalenessTier get syncStalenessTier {
-    final last = lastRecordAt;
-    if (last == null) return StalenessTier.fresh;
-    return stalenessTierFor(DateTime.now().difference(last).inSeconds);
-  }
-
   void _setBusy(bool b) {
     busy = b;
     notifyListeners();
@@ -3958,111 +3881,21 @@ class AppState extends ChangeNotifier {
     return state == BluetoothAdapterState.on;
   }
 
-  // ── live HRV spot-check ──────────────────────────────────────────────────────
-  // User taps "spot check": we enable wrist-gated optical + realtime records,
-  // collect live frames for [spotDuration]s, then hand them to the repo seam which
-  // (in the re-layer) decodes RR + computes HRV on-device. Ephemeral — nothing stored.
-  static const int spotDuration = 60;
-  bool spotActive = false;
-  int spotRemaining = 0; // seconds left in the current scan
-  Map<String, dynamic>?
-  spotResult; // last result {rmssd, sdnn, mean_hr, n_beats, ok}
-  final List<String> _spotFrames = [];
-  Timer? _spotTimer;
-  bool _spotEnabledStreams =
-      false; // did WE turn streams on (so we turn them off)
-
-  /// Begin a 60s live HRV reading. Requires a connected band.
-  Future<void> startSpotCheck() async {
-    if (spotActive) return;
-    // There is no spot-check screen, so there is nowhere to say any of this.
-    // Four hand-written failure strings used to be stored here and read by
-    // nobody — a field that looks like it means something and reaches no one is
-    // worse than no field. Whoever builds the screen brings the copy with it.
-    if (!isConnected) return;
-    spotActive = true;
-    spotResult = null;
-    spotRemaining = spotDuration;
-    _spotFrames.clear();
-    notifyListeners();
-    try {
-      // OWNERSHIP: only claim "we enabled it" when live was actually OFF. The
-      // open session keeps live streams armed for its whole lifetime — claiming
-      // ownership then would make _stopSpotStreams turn OFF streams the session
-      // still expects on (iOS then suspends the app → ingestion stalls).
-      if (!engine.liveEnabled) {
-        await engine.enableLiveStreams();
-        _spotEnabledStreams = true;
-      } else if (engine.liveHrOnly) {
-        // Background downgrade active — the spot check needs the RR-bearing
-        // R10 frames, so upgrade to full live WITHOUT taking ownership (the
-        // session owns the streams; it restores/apportions them itself).
-        await engine.enableLiveStreams();
-      }
-    } catch (_) {
-      /* best-effort; we still collect whatever arrives */
-    }
-    _spotTimer?.cancel();
-    _spotTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      spotRemaining -= 1;
-      if (spotRemaining <= 0) {
-        unawaited(_finishSpotCheck());
-      } else {
-        notifyListeners();
-      }
-    });
-  }
-
-  /// Abort an in-progress scan without computing.
-  void cancelSpotCheck() {
-    if (!spotActive) return;
-    _spotTimer?.cancel();
-    _spotTimer = null;
-    spotActive = false;
-    spotRemaining = 0;
-    _stopSpotStreams();
-    notifyListeners();
-  }
-
-  Future<void> _finishSpotCheck() async {
-    _spotTimer?.cancel();
-    _spotTimer = null;
-    spotRemaining = 0;
-    _stopSpotStreams();
-    final frames = List<String>.from(_spotFrames);
-    notifyListeners();
-    try {
-      final res = repo == null || frames.isEmpty
-          ? null
-          : await repo!.spotCheck(frames);
-      spotResult = res;
-    } catch (e) {
-      _log('[spot] failed: ${e is RepositoryException ? e.body : e}');
-    } finally {
-      spotActive = false;
-      notifyListeners();
-    }
-  }
-
-  void _stopSpotStreams() {
-    if (_spotEnabledStreams && activeWorkout == null) {
-      unawaited(engine.disableLiveStreams());
-    }
-    _spotEnabledStreams = false;
-  }
+  // The live HRV spot-check that used to live here is GONE. It was fully
+  // implemented — 60 s of RR-bearing frames handed to the repository seam —
+  // and no screen ever started one, so `spotActive` was a permanently-false
+  // term in [_hasLiveConsumer] and a dead branch on every live frame. The
+  // LocalRepository seam (`spotCheck`) is still there for whoever builds the
+  // screen; the half-wired state machine is not.
 
   // ── guided-breathing cardiac coherence ──────────────────────────────────────
   // User taps "begin breathing session": enable live RR-bearing streams,
-  // collect frames continuously in _breathingFrames (tapped from _onLiveFrame,
-  // same seam spot-check uses), and periodically recompute McCraty & Zayas
+  // collect frames continuously in _breathingFrames (tapped from _onLiveFrame),
+  // and periodically recompute McCraty & Zayas
   // 2014 coherence over the FULL accumulated series so far — not a sliding
   // window, so the score stabilizes as more clean data comes in rather than
   // jittering on a short recent slice. Replaces the screen's old
   // Random()-fabricated score. Ephemeral — nothing persisted.
-  //
-  // 5.5 breaths/min == CalmBreathingScreen's 5450ms inhale/exhale half-cycle
-  // (10900ms per full breath).
-  static const double breathingPacedHz = 1000.0 / 10900.0;
   static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
   bool breathingActive = false;
 
@@ -4117,7 +3950,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
-      // OWNERSHIP: same rule as spot-check — only claim "we enabled it" when
+      // OWNERSHIP: only claim "we enabled it" when
       // live was actually OFF, so ending the session can never turn off
       // streams the open session still expects on.
       if (!engine.liveEnabled) {
@@ -4360,8 +4193,8 @@ class AppState extends ChangeNotifier {
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
     // The workout screen's live step count rides the 100 Hz IMU stream, which
     // the sticky standard-HR fallback silently suppresses (same starvation as
-    // the calibration walk) — and which may simply be off (spot-check cleanup
-    // restores streams to OFF when they were off before) or still in the
+    // the calibration walk) — and which may simply be off (a breathing
+    // session restores streams to OFF when they were off before) or still in the
     // background HR-only downgrade. A deliberate workout start is an explicit
     // user action — retry the full live set; detectors re-trip if it can't
     // hold. No ownership flag: the background downgrade / session close
@@ -4575,8 +4408,9 @@ class AppState extends ChangeNotifier {
             profile: Profile.fromMap(user),
             restingHr: _liveRestingHr,
           );
-          // Without this, `workoutSteps` (gated on _workoutRawBase != null)
-          // stays 0 for the rest of this resumed session, and stopWorkout()
+          // Without this, `workoutStepsMeasured` (gated on _workoutRawBase
+          // != null) stays null for the rest of this resumed session, and
+          // stopWorkout()
           // would persist 0 steps even once real pedometer data resumes
           // flowing — CodeRabbit caught this. Mirrors startWorkout()'s own
           // snapshot: steps count from zero going forward, same as
@@ -4830,13 +4664,21 @@ class AppState extends ChangeNotifier {
     if (w == null) return;
 
     w.elapsed = DateTime.now().difference(w.startTime);
-    w.currentHr = device.liveHr ?? 0;
-    // Smooth at accrual (issue #127): a raw `> maxHrSeen` would let a 1–2 s PPG
-    // spike define the session max. accrueHr feeds the rolling-median peak.
-    w.accrueHr(w.currentHr);
-    // Per-zone time: one tick ≈ one second in the current zone (persisted as
-    // zone_min at stop — this is what feeds the Time-in-Zones bar).
-    if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
+    // [liveHr], not `device.liveHr`: a reading that is stale or arriving from a
+    // band that has dropped is NOT a measurement of this second, and billing it
+    // into the peak, the per-zone seconds and (through accrueHr) strain and
+    // calories is how a session that ended at the trailhead came back reading
+    // like an hour of zone 3. Absent stays absent — the tick simply skips.
+    final hr = liveHr;
+    w.currentHr = hr;
+    if (hr != null) {
+      // Smooth at accrual (issue #127): a raw `> maxHrSeen` would let a 1–2 s
+      // PPG spike define the session max. accrueHr feeds the rolling-median peak.
+      w.accrueHr(hr);
+      // Per-zone time: one tick ≈ one second in the current zone (persisted as
+      // zone_min at stop — this is what feeds the Time-in-Zones bar).
+      if (hr > 0) w.zoneSeconds[_zoneFor(hr)] += 1;
+    }
 
     // Neither strain NOR calories is accrued here. `accrueHr` (called above)
     // recomputes both from the session's per-minute HR through the one shared
@@ -4850,11 +4692,15 @@ class AppState extends ChangeNotifier {
     // full active rate at any heart rate the band reported, so the number on
     // the gauge did not survive the re-score of its own stream.
     // Push to the Live Activity at most ~every 4s (ActivityKit throttles; saves battery).
-    if (DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
+    // Skipped entirely while HR is absent: the widget's channel takes a
+    // non-null int, so the only way to push "no reading" today would be to send
+    // 0 bpm, which is a fabricated measurement on the lock screen. Holding the
+    // last frame is the lesser wrong until `LiveActivity.update` takes `int?`.
+    if (hr != null && DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
       _lastLaPush = DateTime.now();
       LiveActivity.update(
-        hr: w.currentHr,
-        zone: _zoneFor(w.currentHr),
+        hr: hr,
+        zone: _zoneFor(hr),
         // Absent stays absent. These used to be coerced to 0, so a new user
         // with no profile anchors — the case where both correctly abstain and
         // the in-app gauge shows "—" — got a confident "0 kcal" pushed to the
@@ -4991,17 +4837,13 @@ class LiveWorkoutState {
   /// method reads 11.62 for the same hour, and passed the top of its own 0–21
   /// scale after ~50 minutes of hard work, which the gauge silently clamped.
   double? strain;
-  int currentHr = 0;
-  int maxHrSeen = 0; // spike-suppressed peak live HR this session (issue #127)
 
-  /// Milestone keys already announced this SESSION ("t5", "k200", "mhr178"…).
-  ///
-  /// Lives here, not on the live-session screen's State, because the screen is
-  /// disposed and rebuilt every time the athlete navigates away and back — so
-  /// a screen-local set forgot everything and re-fired the same milestone
-  /// (banner, haptic and confetti) on every return. The workout is the thing
-  /// a milestone belongs to, so the workout remembers it.
-  final Set<String> firedMilestones = {};
+  /// The live heart rate this session is currently being scored against, or
+  /// null when the band is not delivering one (dropped, or stalled — see
+  /// [AppState.liveHr]). Null, not 0: a session with no reading is unmeasured,
+  /// not resting, and `_zoneFor(0)` is a real answer to a question nobody asked.
+  int? currentHr;
+  int maxHrSeen = 0; // spike-suppressed peak live HR this session (issue #127)
 
   /// Rolling-median accumulator behind [maxHrSeen] — smooths the live 1 Hz HR
   /// at accrual so a transient PPG motion spike can't set the session max (or

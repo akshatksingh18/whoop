@@ -371,6 +371,26 @@ DayLogState dayLogState(
   return spanned ? DayLogState.complete : DayLogState.partial;
 }
 
+/// One nutrient averaged across a window, with what was left out of it.
+/// [value] null is an absence with a reason attached, never a zero: either no
+/// counted day reported the nutrient at all ([floorDays] 0), or every one that
+/// did reported only a floor.
+class NutrientMean {
+  const NutrientMean(this.value, this.days, this.floorDays);
+
+  /// The mean of [days] COMPLETE totals, or null when there were none.
+  final double? value;
+
+  /// How many counted days reported this nutrient on every occasion. This is
+  /// the denominator the screen must name — it can be smaller than the number
+  /// of counted days, which is the whole point.
+  final int days;
+
+  /// Counted days whose total was a floor, so excluded. Averaging a floor
+  /// understates the mean by exactly the occasions we failed to see.
+  final int floorDays;
+}
+
 /// A rolling window. Daily is the detail view; THIS is the hero — one day of
 /// intake is noise, seven is a habit.
 class NutritionWindow {
@@ -387,20 +407,41 @@ class NutritionWindow {
   int get daysExcluded =>
       days.where((d) => d.logged && !d.countsTowardAverages).length;
 
-  double? _mean(NutrientTotal Function(NutritionDay) pick) {
-    final vs = [
-      for (final d in counted)
-        if (pick(d).value != null) pick(d).value!,
-    ];
-    if (vs.isEmpty) return null;
-    return vs.reduce((a, b) => a + b) / vs.length;
+  /// One nutrient's mean over the counted days, gated PER NUTRIENT.
+  ///
+  /// [NutritionDay.countsTowardAverages] is an ENERGY rule: a day qualifies on
+  /// complete kcal and an evening occasion, and says nothing about protein. So
+  /// this used to admit any non-null total — including one that summed past
+  /// occasions carrying no macro figure, i.e. a FLOOR — and print it as a mean
+  /// with no marker. Only [NutrientTotal.complete] totals go in; the floors are
+  /// counted so the screen can say why the number is missing or built on fewer
+  /// days than the energy mean.
+  NutrientMean _mean(NutrientTotal Function(NutritionDay) pick) {
+    final vs = <double>[];
+    var floorDays = 0;
+    for (final d in counted) {
+      final t = pick(d);
+      if (t.complete) {
+        vs.add(t.value!);
+      } else if (t.isFloor) {
+        floorDays++;
+      }
+    }
+    return NutrientMean(
+      vs.isEmpty ? null : vs.reduce((a, b) => a + b) / vs.length,
+      vs.length,
+      floorDays,
+    );
   }
 
-  double? get meanKcal => _mean((d) => d.kcal);
-  double? get meanProtein => _mean((d) => d.protein);
-  double? get meanCarbs => _mean((d) => d.carbs);
-  double? get meanFat => _mean((d) => d.fat);
-  double? get meanFibre => _mean((d) => d.fibre);
+  /// Energy is unchanged by the per-nutrient gate — a counted day already has
+  /// `kcal.complete` by definition of [DayLogState.complete] — but it goes
+  /// through the same path so there is one mean, not two.
+  NutrientMean get meanKcal => _mean((d) => d.kcal);
+  NutrientMean get meanProtein => _mean((d) => d.protein);
+  NutrientMean get meanCarbs => _mean((d) => d.carbs);
+  NutrientMean get meanFat => _mean((d) => d.fat);
+  NutrientMean get meanFibre => _mean((d) => d.fibre);
 }
 
 // ══════════════════ STORE ══════════════════

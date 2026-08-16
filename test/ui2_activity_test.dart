@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
@@ -380,7 +381,9 @@ void main() {
       expect(clock(3725), '1:02:05');
       expect(grouped(6842), '6,842');
       expect(grouped(999), '999');
-      expect(pace(308), '5:08');
+      // `pace()` (the metric-only formatter that used to live in summary.dart)
+      // is gone — UnitsController.formatPace is the one pace formatter now.
+      expect(UnitsController.formatPace(308), '5:08');
     });
   });
 

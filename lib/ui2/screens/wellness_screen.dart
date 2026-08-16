@@ -398,6 +398,21 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           ),
                         ),
                       ),
+                      // A habit you typed had no way out short of "Delete
+                      // everything": the delete path existed end to end and
+                      // nothing reached it.
+                      Pressable(
+                        semanticLabel: 'Remove ${h.label}',
+                        onTap: () => _confirmRemoveHabit(h),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: S.x3),
+                          child: Icon(
+                            LucideIcons.trash2,
+                            size: 18,
+                            color: p.ink3,
+                          ),
+                        ),
+                      ),
                       _Check(
                         on: (_todayFields[h.key]?.value ?? 0) >= 1,
                         onTap: () => _setField(
@@ -436,6 +451,56 @@ class _WellnessScreenState extends State<WellnessScreen> {
       if ((day[key]?.value ?? 0) >= 1) n++;
     }
     return n;
+  }
+
+  /// Remove the habit, keep its history.
+  ///
+  /// `journal_field_def` deliberately keeps a deleted field's recorded values
+  /// (see db.dart's note on the table) — they were real answers. A "delete"
+  /// that quietly keeps data is as much of a surprise as one that quietly loses
+  /// it, so the confirm says which this is.
+  Future<void> _confirmRemoveHabit(JournalFieldSpec h) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      backgroundColor: P.of(context).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Remove ${h.label}?',
+                  style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(
+                'It stops being asked. The days you already recorded stay — '
+                'those were real answers, and they keep counting anywhere they '
+                'already do.',
+                style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
+              ),
+              const SizedBox(height: S.x5),
+              BigButton('Remove',
+                  icon: LucideIcons.trash2,
+                  color: C.red,
+                  onTap: () => Navigator.of(s).pop(true)),
+              const SizedBox(height: S.x3),
+              BigButton('Keep it',
+                  soft: true, onTap: () => Navigator.of(s).pop(false)),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final repo = context.read<AppState>().repo;
+    if (repo == null) return;
+    await repo.deleteCustomJournalField(h.key);
+    await _load();
   }
 
   Future<void> _addHabit(BuildContext c) async {
@@ -486,17 +551,26 @@ class _WellnessScreenState extends State<WellnessScreen> {
           ),
           Section(
             'Adherence',
-            Surface(
-              child: Consistency(
-                _adherence.taken,
-                _adherence.of,
-                _adherence.of == 0
-                    ? 'No dose has come due in the last seven days'
-                    : 'Taken, of those scheduled in the last seven days. A dose'
+            // An empty denominator is not an adherence of nothing. Consistency
+            // would print "0 of 0 days" with an empty bar under it, which reads
+            // as a failure; the reason is the honest answer until a dose has
+            // actually come due.
+            _adherence.of == 0
+                ? const StatusCard(
+                    'Nothing to score yet',
+                    'No scheduled doses have come due yet. A dose still ahead '
+                        'of you is in no denominator.',
+                    icon: LucideIcons.pill,
+                  )
+                : Surface(
+                    child: Consistency(
+                      _adherence.taken,
+                      _adherence.of,
+                      'Taken, of those scheduled in the last seven days. A dose'
                       ' still ahead of you does not count against you.',
-                C.blue,
-              ),
-            ),
+                      C.blue,
+                    ),
+                  ),
           ),
           const SizedBox(height: S.x4),
           BigButton(

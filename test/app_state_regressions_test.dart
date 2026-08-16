@@ -193,7 +193,9 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       expect(prefs.getInt('alarm_epoch'), isNull);
-      expect(app.alarmFiredAt, isNotNull, reason: 'firedAt must survive');
+      // `alarmFiredAt` had no reader in lib (alarm.dart derives its own arm
+      // state from alarmConfirmed/alarmPending), so the getter is gone and
+      // with it the only thing this line could assert on.
     });
 
     test('the app-side EXECUTED id (58) clears it too', () async {
@@ -271,6 +273,71 @@ void main() {
       // Timer.periodic and a StreamSubscription — its observer accumulated on
       // the binding across every hot restart.
       addTo(app.notificationRelay.addListener);
+    });
+  });
+
+  // ── live HR must be a reading of NOW, not the last one the engine saw ───────
+  group('AppState.liveHr freshness', () {
+    int now() => DateTime.now().millisecondsSinceEpoch;
+
+    AppState connected(int? hr, {int ageMs = 0}) {
+      final app = AppState.forTesting();
+      app.device.connection = 'connected';
+      app.device.liveHr = hr;
+      app.device.liveHrAt = hr == null ? null : now() - ageMs;
+      return app;
+    }
+
+    test('a fresh reading from a connected band is the reading', () {
+      final app = connected(142);
+      addTearDown(app.dispose);
+      expect(app.liveHr, 142);
+    });
+
+    test('a reading older than the window is absent, not stale', () {
+      // Nothing clears DeviceState.liveHr on an unintentional drop —
+      // _teardownSession never calls disableLiveStreams — so the raw field
+      // reads like a measurement forever. 30 s is well past liveHrMaxAge (10 s).
+      final app = connected(142, ageMs: 30 * 1000);
+      addTearDown(app.dispose);
+      expect(app.liveHr, isNull);
+    });
+
+    test('a disconnected band has no live HR however fresh the value looks',
+        () {
+      final app = connected(142);
+      addTearDown(app.dispose);
+      app.device.connection = 'disconnected';
+      expect(app.liveHr, isNull);
+    });
+
+    test('the tick bills a fresh reading and skips an absent one', () {
+      final app = connected(150);
+      addTearDown(app.dispose);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 5)),
+        targetKcal: 300,
+        workoutId: 'w1',
+        type: 'run',
+      );
+      app.activeWorkout = w;
+
+      app.debugTickWorkout();
+      expect(w.currentHr, 150);
+      final billed = w.zoneSeconds.reduce((x, y) => x + y);
+      final peak = w.maxHrSeen; // rolling-median, so not 150 off one sample
+      expect(billed, 1, reason: 'one tick, one second in a zone');
+
+      // The band drops mid-workout: the engine keeps its last value, the tick
+      // must not keep billing it. Pre-fix this read `device.liveHr ?? 0` and
+      // charged the stale 150 into zone-seconds, calories and strain for the
+      // rest of the session, then persisted it on stop.
+      app.device.liveHrAt = now() - 60 * 1000;
+      app.debugTickWorkout();
+      expect(w.currentHr, isNull, reason: 'absent is not zero');
+      expect(w.zoneSeconds.reduce((x, y) => x + y), billed,
+          reason: 'no zone-second for a second with no measurement');
+      expect(w.maxHrSeen, peak, reason: 'the peak is untouched by an absence');
     });
   });
 }

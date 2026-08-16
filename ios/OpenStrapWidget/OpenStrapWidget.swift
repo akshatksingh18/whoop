@@ -348,9 +348,15 @@ private struct ReadinessRow: View {
       .frame(width: ring, height: ring)
       VStack(alignment: .leading, spacing: 2) {
         Text("READINESS").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundColor(.inkMuted)
+        // "Readiness not scored" and nothing more, the same neutral line
+        // `accessoryInline` uses. This said "Still building your baseline",
+        // which is ONE of the reasons and not the common one: with the band
+        // worn by day and off at night there is no measured night at all, and
+        // no reason key crosses the App Group for this side to tell the two
+        // apart. Naming the wrong one is a false claim about the user's state.
         Text(e.readiness >= 0
              ? (e.band.isEmpty ? "HRV recovery + sleep" : e.band)
-             : "Still building your baseline")
+             : "Readiness not scored")
           .font(.system(size: 12)).foregroundColor(.ink)
       }
       Spacer(minLength: 0)

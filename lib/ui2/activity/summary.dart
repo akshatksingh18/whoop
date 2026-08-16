@@ -17,10 +17,12 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../state/units_controller.dart';
 import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
+import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
 import 'catalogue.dart';
 import 'share.dart';
@@ -352,9 +354,6 @@ String grouped(num v) {
   return b.toString();
 }
 
-String pace(int secPerKm) => '${secPerKm ~/ 60}:'
-    '${(secPerKm % 60).toString().padLeft(2, '0')}';
-
 String _shortDate(DateTime t) {
   const months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -406,6 +405,30 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Activity get a => r.activity;
   Arch get arch => r.arch;
 
+  /// The user's unit system, watched in [build] so a switch in Settings
+  /// repaints this screen. Null only in a golden, where metric is what the
+  /// store holds.
+  UnitsController? _u;
+
+  /// This session's distance in the user's unit, and that unit's name.
+  (double, String)? get _distance {
+    final km = r.distanceKm;
+    if (km == null) return null;
+    final u = _u;
+    return u == null ? (km, 'km') : (u.distanceValue(km * 1000), u.distanceUnit);
+  }
+
+  String get _distanceUnit => _u?.distanceUnit ?? 'km';
+
+  /// The session's average pace, formatted per the user's unit. Null when
+  /// there is no pace to show — the caller drops the stat.
+  String? get _pace {
+    final secPerKm = r.paceSecPerKm;
+    if (secPerKm == null) return null;
+    final perUnit = _u == null ? 1.0 : _u!.distanceUnitMeters / 1000;
+    return UnitsController.formatPace(secPerKm * perUnit);
+  }
+
   Future<void> _retrySave() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -426,6 +449,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    _u = unitsOf(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -536,11 +560,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   (String, String, String) _hero() {
     final fallback = (hms(r.duration), '', 'Elapsed time');
     return switch (arch) {
-      Arch.route || Arch.journey => r.distanceKm == null
+      Arch.route || Arch.journey => _distance == null
           ? fallback
           : (
-              r.distanceKm!.toStringAsFixed(2),
-              'km',
+              _distance!.$1.toStringAsFixed(2),
+              _distance!.$2,
               arch == Arch.journey && r.gainM != null
                   ? '+${r.gainM!.round()} m climbed'
                   : a.name
@@ -580,7 +604,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     add(hms(r.duration), 'Time');
     switch (arch) {
       case Arch.route:
-        add(r.paceSecPerKm == null ? null : pace(r.paceSecPerKm!), 'Pace');
+        // The unit rides in the LABEL, as it does for 'm gain' — the value
+        // column is one of three and a '5:08 /mi' overflows it.
+        add(_pace, 'Pace /$_distanceUnit');
       case Arch.strength:
         add('${r.strength.setCount}', 'Sets');
         add('${r.strength.repCount}', 'Reps');
@@ -634,14 +660,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Surface(
             child: ChartFrame(
               title: 'ROUTE',
-              unit: 'km',
+              unit: _distanceUnit,
               height: 200,
               legend: r.routePace == null
                   ? const []
                   : [('Slower', ZoneBar.cols(p)[2]), ('Faster', ZoneBar.cols(p)[3])],
-              footnote: r.distanceKm == null
+              footnote: _distance == null
                   ? 'Start and finish are pinned.'
-                  : '${r.distanceKm!.toStringAsFixed(2)} km, '
+                  : '${_distance!.$1.toStringAsFixed(2)} ${_distance!.$2}, '
                       'start and finish pinned.',
               child: ClipRRect(
                 borderRadius: R.rLg,
@@ -1034,6 +1060,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         }
         final fastest =
             r.splits.map((s) => s.sec).reduce((x, y) => x < y ? x : y);
+        // SPLITS STAY PER-KILOMETRE in either unit system, and the header says
+        // so. The route tracker cuts them at each kilometre (`route.splitsKm`);
+        // showing them as miles would mean re-cutting the route, which is a
+        // compute change, not a formatting one. Relabelling them 'MI' without
+        // re-cutting would simply be a wrong number.
         return [
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
@@ -1063,7 +1094,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                             style: F.cap.copyWith(color: p.ink3))),
                     SizedBox(
                         width: 46,
-                        child: Text(pace(r.splits[i].sec),
+                        child: Text(
+                            UnitsController.formatPace(
+                                    r.splits[i].sec.toDouble()) ??
+                                '',
                             style: F.cap.copyWith(
                                 color: p.ink, fontWeight: FontWeight.w600))),
                     Expanded(

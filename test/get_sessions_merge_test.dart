@@ -1,6 +1,13 @@
-// getSessions: merge of detected workouts (from the day bundle's
-// `detected_workouts`) with manual sessions (the sessions table), with manual
-// winning on overlap. Runs the REAL LocalDb against in-memory sqlite.
+// getSessions: the saved sessions table, newest first — and nothing else.
+//
+// This file used to test a MERGE with `detected_workouts` out of each recent
+// day bundle. That key was a permanently-empty stub, the derivation has stopped
+// writing it (analytics deleted `workout_detect.dart`), and the merge therefore
+// read every recent bundle's whole payload through jsonDecode to append
+// nothing. What is tested now is what survives: saved sessions only, and a
+// legacy bundle that still carries the key does not resurrect it.
+//
+// Runs the REAL LocalDb against in-memory sqlite.
 
 import 'dart:convert';
 
@@ -25,7 +32,8 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  test('getSessions merges detected + manual; manual wins on overlap', () async {
+  test('getSessions returns the saved sessions newest-first, and never revives '
+      "a legacy bundle's detected_workouts", () async {
     final repo = LocalRepositoryImpl(getProfileMap: () => const {});
 
     // Anchor near "now" so the default month window includes it.
@@ -33,7 +41,6 @@ void main() {
     final base = nowSec - 3600; // 1 h ago
     final date = _ymd(DateTime.fromMillisecondsSinceEpoch(base * 1000));
 
-    // One manual session [base, base+1200].
     await LocalDb.putSession({
       'id': 'manual1',
       'start_ts': base,
@@ -43,69 +50,42 @@ void main() {
       'source': 'manual',
       'created_at': base * 1000,
     });
+    await LocalDb.putSession({
+      'id': 'manual2',
+      'start_ts': base + 2000,
+      'end_ts': base + 2600,
+      'type': 'walk',
+      'status': 'done',
+      'source': 'manual',
+      'created_at': (base + 2000) * 1000,
+    });
 
-    // A derived day with TWO detected bouts: one OVERLAPS the manual session
-    // (must be dropped), one is separate (must survive).
-    final bundle = {
-      'date': date,
-      'detected_workouts': [
-        {
-          'start': base + 300, // overlaps manual [base, base+1200]
-          'end': base + 900,
-          'avg_hr': 150,
-          'peak_hr': 165,
-          'strain': 12.3,
-          'duration_s': 600,
-          'calories_kcal': 95,
-          'sport': 'detected',
-        },
-        {
-          'start': base + 2000, // separate, later
-          'end': base + 2600,
-          'avg_hr': 140,
-          'peak_hr': 158,
-          'strain': 9.1,
-          'duration_s': 600,
-          'calories_kcal': 80,
-          'sport': 'detected',
-        },
-      ],
-    };
+    // A day derived before the key was dropped, still carrying a bout.
     await LocalDb.putDayResult(
       dayId: date,
       algoVersion: 1,
-      payloadJson: jsonEncode(bundle),
+      payloadJson: jsonEncode({
+        'date': date,
+        'detected_workouts': [
+          {
+            'start': base + 4000,
+            'end': base + 4600,
+            'sport': 'detected',
+            'strain': 9.1,
+          },
+        ],
+      }),
       windowJson: '{}',
     );
 
     final sessions = await repo.getSessions();
-    // Manual + the one non-overlapping detected bout = 2.
-    expect(sessions, hasLength(2));
+    expect(sessions.map((s) => s['id']), ['manual2', 'manual1']);
+    expect(sessions.any((s) => s['source'] == 'auto'), isFalse);
 
-    final byId = {for (final s in sessions) s['id']: s};
-    expect(byId.containsKey('manual1'), isTrue);
-    // The overlapping detected bout (auto_..._${base+300}) is dropped.
-    expect(
-      sessions.any((s) => (s['id'] as String).contains('${base + 300}')),
-      isFalse,
-    );
-    // The separate detected bout survives, sourced 'auto', sport→type.
-    final auto = sessions.firstWhere((s) => s['source'] == 'auto');
-    expect(auto['start_ts'], base + 2000);
-    expect(auto['type'], 'detected');
-    expect(auto['calories'], 80);
-    expect(auto['duration_min'], 10);
-
-    // Sorted newest-first by start_ts: the later detected bout comes first.
-    expect(sessions.first['start_ts'], base + 2000);
-
-    // includeDetected: false skips the day-bundle scan entirely — saved
-    // sessions only, still newest-first. Callers with no use for the detected
-    // half must not pay to read every recent day's full payload.
+    // The flag is part of the repository interface and callers still pass it;
+    // there is no detected half left for it to exclude.
     final savedOnly = await repo.getSessions(includeDetected: false);
-    expect(savedOnly, hasLength(1));
-    expect(savedOnly.single['id'], 'manual1');
-    expect(savedOnly.any((s) => s['status'] == 'detected'), isFalse);
+    expect(savedOnly.map((s) => s['id']), ['manual2', 'manual1']);
   });
 }
 

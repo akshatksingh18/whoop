@@ -83,19 +83,26 @@ void main() {
     );
 
     test(
-      '8 h of absent accel scores as an almost entirely immobile night',
+      '8 h of absent accel now ABSTAINS instead of scoring a still night',
       () {
+        // This test used to assert the hazard: `vanHeesSleepWindow` returned a
+        // present window in which >95% of seconds were "immobile", because a
+        // missing sample arrives as exact (0,0,0) and `zAngle(0,0,0)` is 0.0,
+        // which never changes — so absence looked like the stillest possible
+        // sleep. The detector reads `AccelSample.valid` now and declines to
+        // score a night it has no gravity for.
+        //
+        // Kept rather than deleted: the coverage-floor gate below exists
+        // BECAUSE of this failure mode, and a future refactor that silently
+        // restored a fabricated window would pass every other test in this file.
         const n = 8 * 3600;
         final s = _sub(n: n, accelPresent: false);
         final m = ana.vanHeesSleepWindow(s.accelSamples());
-        final win = m.value!;
-        final immobile = win.immobile.where((b) => b).length;
-        expect(
-          immobile,
-          greaterThan((n * 0.95).round()),
-          reason: 'this is why the gate exists — missing data reads as sleep',
-        );
-        expect(m.present, isTrue);
+        expect(m.present, isFalse,
+            reason: 'no gravity for the whole night is not a still night');
+        expect(m.value, isNull);
+        expect(m.note, isNotNull,
+            reason: 'an abstention must say why, not just be empty');
       },
     );
 

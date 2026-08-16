@@ -145,10 +145,13 @@ Map<String, dynamic> buildCrossDayBundle(
   final sleepDebt = ana.sleepDebt(recentDurH, freeDurH);
 
   // ── percentile-of-you for today vs history (history = all-but-last) ────────
+  // rhr is LOWER-is-better — the same orientation `_glassInput` ten lines below
+  // has always passed for this exact list. Unoriented, a night with the user's
+  // lowest resting HR in a month came back labelled "among your worst".
   final percentiles = <String, dynamic>{
-    'rmssd': _pctOfYou(rmssdList),
-    'rhr': _pctOfYou(rhrList),
-    'readiness': _pctOfYou(readyList),
+    'rmssd': _pctOfYou(rmssdList, ana.Better.higher),
+    'rhr': _pctOfYou(rhrList, ana.Better.lower),
+    'readiness': _pctOfYou(readyList, ana.Better.higher),
   };
 
   // ── glass-box readiness from today's value + history per input ─────────────
@@ -297,8 +300,13 @@ Map<String, dynamic> buildCrossDayBundle(
   ];
   final effs = <double>[for (final d in days) ?_numOrNull(d['efficiency'])];
   final typicalWakeMin = _median(wakeMins);
-  final typicalEff = _median(effs) ?? 88.0;
-  final bedtime = (need.present && typicalWakeMin != null)
+  // NO INVENTED 88 %. Bedtime is "wake − need ÷ efficiency", so a substituted
+  // efficiency moves the recommendation by real minutes (at a need of 8 h, 88 %
+  // vs a true 95 % is 36 min of bedtime the user did not need to give up). A
+  // user with no measured efficiency yet gets no recommendation — the same rule
+  // that already makes `need` itself absent without a personal OSD.
+  final typicalEff = _median(effs);
+  final bedtime = (need.present && typicalWakeMin != null && typicalEff != null)
       ? ana.recommendedBedtime(
           needSec: need.value!.needSec,
           typicalWakeMinOfDay: typicalWakeMin,
@@ -306,21 +314,31 @@ Map<String, dynamic> buildCrossDayBundle(
         )
       : const ana.Metric<ana.BedtimeRec>.absent(
           tier: ana.Tier.estimate,
-          inputs_used: ['sleep_need', 'wake_time'],
+          inputs_used: ['sleep_need', 'wake_time', 'efficiency'],
         );
-  final wakeRec = (need.present && bedtime.present)
+  // Same efficiency as the bedtime above, by construction — the two ends of one
+  // night must be backed off the same time-in-bed. `bedtime.present` already
+  // implies `typicalEff != null`; the check is here so the compiler agrees.
+  final wakeRec = (need.present && bedtime.present && typicalEff != null)
       ? ana.recommendedWake(
           bedtimeMinOfDay: bedtime.value!.bedtimeMinOfDay,
           needSec: need.value!.needSec,
+          typicalEfficiencyPct: typicalEff,
         )
       : const ana.Metric<ana.WakeRec>.absent(
           tier: ana.Tier.estimate,
-          inputs_used: ['sleep_need', 'bedtime'],
+          inputs_used: ['sleep_need', 'bedtime', 'efficiency'],
         );
 
   // ── STRAIN COACH: recovery-gated target for today (uses today's recovery +
   //    the CTL/ATL/TSB load). Absent until we have a recovery value today.
-  final recToday = readyList.isEmpty ? null : readyList.last;
+  // `readyList.last` is POSITIONAL, and `days` only contains rows that exist —
+  // so on a day whose derive has not run yet the "today" it read was
+  // yesterday's readiness, and the target below was built from it. `_todayNum`
+  // is the stamped read this comment already promised; when today has no row,
+  // recovery is null and `strainTarget` returns absent, which is the honest
+  // outcome and the one the screens already render.
+  final recToday = _todayNum(days, 'readiness');
   final ls = load.present ? load.value : null;
   final strainTgt = ana.strainTarget(
     recovery0to100: recToday,
@@ -624,11 +642,16 @@ List<double?> _absList(List<double?> xs) => [for (final v in xs) v?.abs()];
 
 /// percentile-of-you JSON for the LAST value vs the all-but-last history.
 /// Returns the honest absent envelope when there is no last value / no history.
-Map<String, dynamic> _pctOfYou(List<double?> series) {
+///
+/// [better] is which end of the scale is the GOOD end — it decides the label
+/// ("among your best" vs "among your worst"), not the percentile. Getting it
+/// wrong inverts the sentence the user reads: a resting HR in the 95th
+/// percentile is the user's WORST night, not their best.
+Map<String, dynamic> _pctOfYou(List<double?> series, ana.Better better) {
   if (series.isEmpty || series.last == null) {
     // No value tonight -> absent envelope (the package's own shape).
     return ana
-        .percentileOfYou(double.nan, const <double>[])
+        .percentileOfYou(double.nan, const <double>[], better: better)
         .toJson((v) => v.toJson());
   }
   final value = series.last!;
@@ -636,7 +659,9 @@ Map<String, dynamic> _pctOfYou(List<double?> series) {
     for (var i = 0; i < series.length - 1; i++)
       if (series[i] != null) series[i]!,
   ];
-  return ana.percentileOfYou(value, history).toJson((v) => v.toJson());
+  return ana
+      .percentileOfYou(value, history, better: better)
+      .toJson((v) => v.toJson());
 }
 
 /// Build a GlassBoxInput for the LAST value vs the all-but-last history. Returns

@@ -342,7 +342,9 @@ class LocalRepositoryImpl extends LocalRepository {
 
     return {
       'daily': daily,
-      'sleep': sleepBundle == null ? const {} : _sleepSummary(sleepBundle),
+      'sleep': sleepBundle == null
+          ? const {}
+          : _sleepSummary(sleepBundle, needMin: _sleepNeedMin(cd)),
       if (sleepBundle != null && rhrEnv != null)
         'nocturnal': _nocturnal(
           sleepBundle,
@@ -488,7 +490,22 @@ class LocalRepositoryImpl extends LocalRepository {
     return total == null ? null : (total / 60).round();
   }
 
-  Map<String, dynamic> _sleepSummary(Map<String, dynamic> b) {
+  /// Tonight's LEARNED sleep need, in minutes, or null.
+  ///
+  /// `sleep_coach.need` is the only sleep need this app has: `crossday_pipeline`
+  /// estimates it from the user's own undisturbed nights and emits an ABSENT
+  /// metric until enough of them exist — there is no 8 h default anywhere on
+  /// the compute side, deliberately. The 480 that used to stand in for it here
+  /// reached the home widget, the Watch and the Sleep screen as a denominator.
+  int? _sleepNeedMin(Map<String, dynamic>? crossDay) {
+    final sec = _sub(crossDay, 'sleep_coach.need.value')?['need_sec'] as num?;
+    return sec == null ? null : (sec / 60).round();
+  }
+
+  Map<String, dynamic> _sleepSummary(
+    Map<String, dynamic> b, {
+    int? needMin,
+  }) {
     // sleep.accounting is a Metric envelope {value:{tst_sec,…}, confidence,…} —
     // read the inner `.value`, not the envelope (the fields live one level down).
     final acct = _sub(b, 'sleep.accounting.value');
@@ -501,10 +518,14 @@ class LocalRepositoryImpl extends LocalRepository {
         'ESTIMATE',
         unit: 'min',
       ),
-      // Sleep need: same default-8 h convention as getDaySleep, so the Today
-      // sleep tile gets its "of Xh need" caption + progress just like the
-      // Sleep screen (it was silently absent from the /today seam before).
-      'need_min': _scalarMetric(480, 'ESTIMATE', unit: 'min'),
+      // Sleep need, ONLY when it was learned (see [_sleepNeedMin]). Absent means
+      // the key is not written at all, so `TodayData.sleepNeed` is empty and
+      // `WidgetService.push` writes the -1 sentinel every native reader gates
+      // its sleep ring on (`needMin > 0` in OpenStrapWidget.swift,
+      // WatchMetrics.swift and OpenStrapWidgetProvider.kt). A hard 480 here put
+      // a fabricated 8 h denominator on the lock screen and the wrist, where
+      // the phone's own screens refuse to show one.
+      if (needMin != null) 'need_min': _scalarMetric(needMin, 'ESTIMATE', unit: 'min'),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
   }
@@ -717,6 +738,7 @@ class LocalRepositoryImpl extends LocalRepository {
       return v == null ? null : (v / 60).round();
     }
 
+    final needMin = _sleepNeedMin(await _crossDay());
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
     // Sleep periods (main + naps) for the periods screen. The main period is
     // enriched HERE with the hypnogram + stage minutes: derivation builds the
@@ -767,10 +789,16 @@ class LocalRepositoryImpl extends LocalRepository {
       // a general daytime heart metric. Pure re-exposure of the same bundle
       // field getDayHeart already read; no new computation.
       'spo2': b['spo2'],
-      // Sleep need: default 8 h (480 min) until a personal sleep-need baseline
-      // exists. Debt = need − actual TST (≥0). Never null so the gauge always reads.
-      'need_min': 480,
-      'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
+      // Sleep need, and the debt against it — both only when the need was
+      // actually learned (`sleep_coach.need`, see [_sleepNeedMin]; it is the
+      // current personal estimate, and the artifact behind it is refused once
+      // it is more than a week old). There is no 8 h default: it made the gauge
+      // "always read", which is the point, since what it read was a population
+      // figure presented as this user's own. Absent keys leave the gauge in its
+      // honest empty state.
+      'need_min': ?needMin,
+      if (needMin != null)
+        'debt_min': ((needMin - (tst / 60)).clamp(0, needMin)).round(),
       'regularity':
           null, // needs ≥several nights (honest null → "Need N nights")
       // Sleep periods (main + naps) for the periods screen. The main period is
@@ -1115,9 +1143,9 @@ class LocalRepositoryImpl extends LocalRepository {
     // showing yesterday's step count as "today's steps" is actively wrong, not
     // just stale. When today's own row hasn't been derived yet, use today's
     // interim wake_day_features estimate instead of whatever _bundleForDate
-    // fell back to (same source getToday() uses for the Today screen) — the
-    // caller (strain_detail_screen.dart) folds AppState.liveSteps on top of
-    // this, matching Today's base+live composition exactly.
+    // fell back to (same source getToday() uses for the Today screen). The
+    // caller is expected to fold AppState.liveSteps on top of this, matching
+    // Today's base+live composition exactly.
     num? stepsBase;
     if (_isTodayLabel(date) && await _bundle(date) == null) {
       final wf = await _wakeFeatures(date);
@@ -1238,29 +1266,21 @@ class LocalRepositoryImpl extends LocalRepository {
             },
     ];
 
-    // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, already epoch-
-    // stamped, 24/7). Fall back to the sleep-only `hrv_timeline` whose `t` is
-    // SECONDS-FROM-WINDOW-START (re-based nnTimes) — rebase that to epoch via the
-    // sleep onset, or it lands on a wildly different axis and won't render.
+    // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, 24/7); fall back to
+    // the sleep-only `hrv_timeline`. BOTH are epoch seconds now — the sleep one
+    // used to be seconds-from-window-start and was rebased here by adding the
+    // sleep onset, which since `_hrvTimeline` started stamping `originMs + t`
+    // would add the onset twice and throw the line hours off the axis.
     final series = _sub(b, 'series');
     final dayHrv = (series?['hrv_day'] as List?) ?? const [];
-    List<Map<String, dynamic>> hrvLine;
-    if (dayHrv.isNotEmpty) {
-      hrvLine = [
-        for (final e in dayHrv)
-          if (e is Map && e['t'] is num && e['v'] is num)
-            {'t': (e['t'] as num).toInt(), 'v': e['v']},
-      ];
-    } else {
-      final rawHrv = (series?['hrv_timeline'] as List?) ?? const [];
-      final hrvOnsetSec = onMs == null ? null : (onMs / 1000).round();
-      hrvLine = [
-        if (hrvOnsetSec != null)
-          for (final e in rawHrv)
-            if (e is Map && e['t'] is num && e['v'] is num)
-              {'t': hrvOnsetSec + (e['t'] as num).toInt(), 'v': e['v']},
-      ];
-    }
+    final rawHrv = dayHrv.isNotEmpty
+        ? dayHrv
+        : ((series?['hrv_timeline'] as List?) ?? const []);
+    var hrvLine = <Map<String, dynamic>>[
+      for (final e in rawHrv)
+        if (e is Map && e['t'] is num && e['v'] is num)
+          {'t': (e['t'] as num).toInt(), 'v': e['v']},
+    ];
     // Plausibility clip: RMSSD physiologically sits ~5–220 ms; values above are
     // ectopic/missed-beat artifacts (the 400+ ms spikes). Drop them so one bad
     // window can't flatten the whole line. Covers old data + the sleep fallback.
@@ -1396,11 +1416,7 @@ class LocalRepositoryImpl extends LocalRepository {
     int? to,
     bool includeDetected = true,
   }) async {
-    // Manual/live sessions (the sessions table) MERGED with auto-detected
-    // workouts from the per-day bundle. Manual/saved WINS on overlap: a detected
-    // bout overlapping a manual session is dropped here (and is already dropped
-    // upstream in the engine via savedSpans — this is a belt-and-suspenders pass
-    // for sessions saved after the day was derived).
+    // The manual/live sessions table, newest first.
     final now = DateTime.now();
     final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     final fromSec =
@@ -1411,75 +1427,23 @@ class LocalRepositoryImpl extends LocalRepository {
     final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
     final manual = [for (final r in manualRows) _workoutOf(r)];
 
-    // Finding the detected half means reading every recent day bundle, and
-    // recentDayResults does SELECT r.* — the whole hr_curve/hypnogram/HRV
-    // payload, tens of KB a day, across the isolate boundary and back through
-    // jsonDecode. A caller that only wants saved sessions must not pay that.
-    // Already newest-first — sessionsInRange orders by start_ts DESC, the same
-    // order the merged path sorts into below.
-    if (!includeDetected) return manual;
-
-    // Saved spans (manual) for overlap-dedup of detected bouts.
-    final savedSpans = <List<int>>[];
-    for (final w in manual) {
-      final st = (w['start_ts'] as num?)?.toInt();
-      final en = (w['end_ts'] as num?)?.toInt() ?? st;
-      if (st != null && en != null) savedSpans.add([st, en]);
-    }
-    bool overlapsSaved(int s, int e) =>
-        savedSpans.any((sp) => s <= sp[1] && sp[0] <= e);
-
-    // Detected workouts from each recent derived day's bundle.
-    final detected = <Map<String, dynamic>>[];
-    final dayRows = await LocalDb.recentDayResults(60);
-    for (final r in dayRows) {
-      final b = _decode(r['payload_json']);
-      final list = b?['detected_workouts'];
-      if (list is! List) continue;
-      for (final dw in list) {
-        if (dw is! Map) continue;
-        final st = (dw['start'] as num?)?.toInt();
-        final en = (dw['end'] as num?)?.toInt();
-        if (st == null || en == null) continue;
-        if (st < fromSec || st > toSec) continue;
-        if (overlapsSaved(st, en)) continue; // manual wins
-        detected.add(_detectedWorkoutOf(dw, r['date'] as String?));
-      }
-    }
-
-    final all = [...manual, ...detected];
-    all.sort(
+    // Manual/live sessions are ALL there is now. There used to be a second
+    // half here: `detected_workouts` from each of the last 60 day bundles,
+    // deduped against the saved spans. That key was a permanently-empty stub
+    // and the derivation has since stopped writing it altogether (analytics
+    // deleted `workout_detect.dart`), so the merge read every recent bundle —
+    // SELECT r.*, the whole hr_curve/hypnogram/HRV payload through jsonDecode —
+    // to append nothing. Auto-detected bouts reach the UI through
+    // `workout_suggestions`, not through this list.
+    //
+    // [includeDetected] is kept because it is part of the repository interface
+    // and callers pass it; there is simply no detected half left to exclude.
+    manual.sort(
       (a, b) => ((b['start_ts'] as num?) ?? 0).compareTo(
         (a['start_ts'] as num?) ?? 0,
       ),
     );
-    return all;
-  }
-
-  /// Shape a bundle `detected_workouts` entry (ExerciseSession.toJson) into the
-  /// workout map the screens parse. start/end are epoch SECONDS.
-  Map<String, dynamic> _detectedWorkoutOf(Map dw, String? date) {
-    final start = (dw['start'] as num?)?.toInt();
-    final end = (dw['end'] as num?)?.toInt();
-    final durS =
-        (dw['duration_s'] as num?)?.toDouble() ??
-        ((start != null && end != null) ? (end - start).toDouble() : null);
-    final sport = (dw['sport'] as String?) ?? 'detected';
-    return {
-      'id': 'auto_${date ?? ''}_$start',
-      'start_ts': start,
-      'end_ts': end,
-      'status': 'detected',
-      'source': 'auto',
-      'type': sport,
-      'title': sport,
-      'strain': (dw['strain'] as num?)?.toDouble(),
-      'calories': (dw['calories_kcal'] as num?)?.round(),
-      'duration_min': durS == null ? null : (durS / 60).round(),
-      'avg_hr': (dw['avg_hr'] as num?)?.round(),
-      'peak_hr': (dw['peak_hr'] as num?)?.toInt(),
-      'zone_min': const [],
-    };
+    return manual;
   }
 
   @override
@@ -1888,168 +1852,26 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getRecords() async {
-    // PAYLOAD-FREE. This used to be `recentDayResults(3650)` — `SELECT r.*`
-    // over TEN YEARS of day_result, dragging every bundle's hr_curve /
-    // hypnogram / HRV series across and `jsonDecode`ing each on the main
-    // isolate, for a screen that only ever needs scalar extremes. At ~2 years
-    // of history that is hundreds of MB decoded to compute two counts. Both
-    // are now answered in SQLite: day labels from an index-only GROUP BY, the
-    // sleep count via json_extract (only the scalar crosses the boundary).
-    final dayLabelList = await LocalDb.dayResultDayIdsDesc();
-    final days = dayLabelList.length;
-    final sleepDays = await LocalDb.daysWithSleepTst();
-    final nights = sleepDays.length;
-
-    // Personal records from the day scalars (metric_series) + the sessions
-    // table — computed locally with the record's own date attached.
-    final records = <String, Map<String, dynamic>>{};
-    Future<void> extreme(String recordKey, String seriesKey,
-        {bool max = true, double Function(double)? mapValue}) async {
-      final series = await LocalDb.metricSeries(seriesKey);
-      String? bestDate;
-      double? best;
-      for (final r in series) {
-        final v = (r['value'] as num?)?.toDouble();
-        if (v == null) continue;
-        if (best == null || (max ? v > best : v < best)) {
-          best = v;
-          bestDate = r['date'] as String?;
-        }
-      }
-      if (best == null || bestDate == null) return;
-      records[recordKey] = {
-        'value': mapValue == null ? best : mapValue(best),
-        'date': bestDate,
-      };
-    }
-
-    await extreme('lowest_rhr', 'rhr', max: false);
-    await extreme('top_strain', 'strain');
-    await extreme('longest_sleep', 'tst_min');
-    // The Records screen formats efficiency as a 0..1 fraction ((v*100)%).
-    await extreme('best_efficiency', 'efficiency',
-        mapValue: (v) => v > 1.5 ? v / 100.0 : v);
-    await extreme('most_steps', 'steps');
-    await extreme('top_readiness', 'readiness');
-
-    // Honest gamification: don't celebrate a "personal best" built on a
-    // baseline the app itself still calls "calibrating"/"provisional"
-    // elsewhere (the Heart tab's Personal-baselines card) — resting_hr is
-    // the one record key with a real Winsorized-EWMA trust status to check.
-    // (The other record keys — strain/sleep/efficiency/steps/readiness/
-    // workout — have no equivalent trust concept in this codebase to gate
-    // on; celebrating an all-time extreme from a short history is a smaller,
-    // pre-existing honesty gap for those, left as-is here rather than
-    // inventing a new trust proxy for six unrelated metrics.)
-    if (records.containsKey('lowest_rhr')) {
-      final latest = await _latestBundle();
-      // Dotted-path _sub instead of chained dynamic indexing — a bundle
-      // where baselines.resting_hr isn't a Map (or is missing/a List) would
-      // otherwise throw NoSuchMethodError out of getRecords() instead of
-      // falling into the honest "not trusted" branch. _sub already walks
-      // the whole path defensively, returning null on any mismatch.
-      final rhrStatus = _sub(latest, 'baselines.resting_hr')?['status'] as String?;
-      if (rhrStatus != 'trusted') records.remove('lowest_rhr');
-    }
-
-    // Sessions: top workout strain (with its type) + total tracked count.
+    // ONE INTEGER. The only caller is workout_screen's `_loadWorkoutData`,
+    // which reads `['workouts_tracked']` and nothing else — and it awaits this
+    // serially while the Workouts tab is opening.
+    //
+    // What used to be computed here and thrown away: `dayResultDayIdsDesc()`,
+    // `daysWithSleepTst()` (json_valid + json_extract over every stored day
+    // bundle), seven `metricSeries` scans for personal records, a
+    // `recentDayResults(14)` bundle decode to check the resting-HR baseline's
+    // trust status, two streak walks and the resting-HR drift. The screens that
+    // displayed records and streaks are gone (see profile.dart), so every one
+    // of those keys had zero consumers — and streaks are banned by this app's
+    // own grammar anyway.
     var workoutsTracked = 0;
     final sessions = await LocalDb.sessionsInRange(
         0, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-    Map<String, dynamic>? topWorkout;
     for (final s in sessions) {
-      if (s['status'] == 'live') continue;
+      if (s['status'] == 'live') continue; // not finished, not tracked
       workoutsTracked++;
-      final strain = (s['strain'] as num?)?.toDouble();
-      if (strain == null || strain <= 0) continue;
-      if (topWorkout == null ||
-          strain > (topWorkout['value'] as double)) {
-        final startTs = (s['start_ts'] as num?)?.toInt();
-        topWorkout = {
-          'value': strain,
-          'date': startTs == null
-              ? ''
-              : _dayLabelOf(
-                  DateTime.fromMillisecondsSinceEpoch(startTs * 1000)),
-          'type': s['type'],
-        };
-      }
     }
-    if (topWorkout != null && (topWorkout['date'] as String).isNotEmpty) {
-      records['top_workout'] = topWorkout;
-    }
-
-    // Streaks: consecutive most-recent days with derived data / with sleep.
-    final dayLabels = dayLabelList.toSet();
-    int streakOf(Set<String> have) {
-      var streak = 0;
-      var d = DateTime.now();
-      // Today may legitimately not be derived yet — start from today if
-      // present, else from yesterday.
-      if (!have.contains(_dayLabelOf(d))) {
-        d = d.subtract(const Duration(days: 1));
-      }
-      while (have.contains(_dayLabelOf(d))) {
-        streak++;
-        d = d.subtract(const Duration(days: 1));
-      }
-      return streak;
-    }
-
-    final wearStreak = streakOf(dayLabels);
-    final sleepStreak = streakOf(sleepDays);
-
-    return {
-      'days_tracked': days,
-      'nights_tracked': nights,
-      'workouts_tracked': workoutsTracked,
-      'records': records,
-      'streaks': {
-        if (wearStreak > 0)
-          'wear': {'current': wearStreak, 'label': 'Days tracked in a row'},
-        if (sleepStreak > 0)
-          'sleep': {'current': sleepStreak, 'label': 'Nights of sleep in a row'},
-      },
-      ..._rhrDriftOf(await LocalDb.metricSeries('rhr')),
-    };
-  }
-
-  /// 'YYYY-MM-DD' local label for a DateTime (records/streaks bookkeeping).
-  String _dayLabelOf(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
-
-  /// Resting-HR drift: mean of the newest 7 rhr points vs the mean of the 7
-  /// points ~30 days back. Needs ≥ 21 points spanning ≥ 21 days; otherwise the
-  /// screen shows its honest "not enough history" state.
-  Map<String, dynamic> _rhrDriftOf(List<Map<String, dynamic>> series) {
-    final pts = [
-      for (final r in series)
-        if (r['value'] is num && r['date'] is String)
-          (date: r['date'] as String, v: (r['value'] as num).toDouble()),
-    ];
-    if (pts.length < 21) return const {};
-    double mean(Iterable<double> xs) =>
-        xs.reduce((a, b) => a + b) / xs.length;
-    final now = mean(pts.sublist(pts.length - 7).map((p) => p.v));
-    final thenStart = math.max(0, pts.length - 37);
-    final then = mean(pts.sublist(thenStart, thenStart + 7).map((p) => p.v));
-    final delta = now - then;
-    final direction = delta <= -1
-        ? 'improving'
-        : delta >= 1
-            ? 'worsening'
-            : 'flat';
-    return {
-      'rhr_drift': {
-        'now': now,
-        'then': then,
-        'delta': delta,
-        'direction': direction,
-        'days': math.min(37, pts.length),
-      },
-    };
+    return {'workouts_tracked': workoutsTracked};
   }
 
   // ── workouts (manual / live / auto) — local sessions store ──────────────────

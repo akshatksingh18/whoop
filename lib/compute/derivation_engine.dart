@@ -93,10 +93,10 @@ import 'substrate.dart';
 /// curve, no derived change.)
 /// v15: efficiency + worn_min scalars → metric_series (sleep-efficiency & wear
 /// trends); + _trendKey fixes (resting_hr→rhr, skin_temp→skin_temp_z, sleep→tst_min).
-/// v16: ADDITIVE analytics surfaced into the bundle — (a) `clinical.strain_effort`
-/// + `scalars.strain_effort`: a 0–100 Edwards zone-sum "effort" strain (Karvonen
-/// %HRR over the per-second wake HR) beside the 0–21 headline; (b) top-level
-/// `baselines` block: Winsorized-EWMA personal baselines (rhr/hrv/resp) with
+/// v16: ADDITIVE analytics surfaced into the bundle — (a) an Edwards zone-sum
+/// "effort" strain beside the 0–21 headline: NEVER SHIPPED, and removed
+/// entirely at v68 — no producer was ever written, so `strain_effort` was a
+/// permanently-null key in `metric_series`; (b) top-level `baselines` block: Winsorized-EWMA personal baselines (rhr/hrv/resp) with
 /// z/delta/ratio + cold-start status; (c) `advanced_sleep` block: a 4-class
 /// Cole–Kripke/DoG stager's main-session AASM metrics + hypnogram (parallel
 /// ESTIMATE; the single-source `sleep` block stays the headline). Bumping
@@ -860,7 +860,49 @@ import 'substrate.dart';
 //   need, strain target and illness flags; and its encode is sanitised, because
 //   ONE non-finite double used to make `jsonEncode` throw and drop the ENTIRE
 //   bundle (see `sanitizeForJson`).
-const int kAlgoVersion = 67;
+//
+// v68 — ONE bump for the whole sweep (compute + analytics). Everything below is
+// recomputed by the same derive pass this constant gates, so it is deliberately
+// a single increment rather than one per fix:
+//
+//   1. STRAIN STOPS BEING BUILT ON A DAYTIME "RESTING" HR. The offloaded second
+//      half took its TRIMP reference from `scalars.rhr`, which the pure
+//      pipeline lets fall back to daytime HR for the general resting-HR card,
+//      and then overwrote `scalars.strain` with the result — so a day where the
+//      pure pipeline abstained (`clinical.strain` "—") still published a
+//      number, off an awake reference ~20 bpm high. It now reads the
+//      nocturnal-only `scalars.rhr_nocturnal` (the same value readiness uses),
+//      and when neither that nor a user-entered resting HR exists, strain is
+//      ABSENT: the scalar is written NULL (overwriting any stale value) and
+//      `clinical.strain` is stamped absent with it. Affected days lose or lower
+//      their strain — that is the fix, not a regression.
+//
+//   2. `hrv_timeline`'s `t` is EPOCH SECONDS. It was seconds-since-the-first-NN
+//      (`correctRr` re-bases its clock to 0) on a view whose contract — and the
+//      coach's prompt — say epoch, so coach SQL over it returned 1970 and no
+//      join to `hr_curve` could ever match. Its first point also now requires a
+//      full 5-min window instead of being an RMSSD over 10 beats (~8 s) drawn
+//      on the same line as the real windows.
+//
+//   3. `strain_effort`, `spo2` and `odi_per_hour` are gone from `metric_series`
+//      (and from the coach's advertised keys). Nothing has ever produced them:
+//      12 rows, 0 values, on every install. A metric this app does not produce
+//      has no entry and no key.
+//
+//   4. The one-shot strain rescale prices the quiet-waking baseline over the
+//      window the pipeline actually used (`series.strain_curve`, one point per
+//      wake minute) instead of `worn_min − tst_min`, which was off by −15..+22
+//      min on every real day measured. Days that cannot supply it now abstain.
+//
+//   5. Personal baselines withhold z/delta/ratio/in_normal_range until at least
+//      one real night has been folded (analytics no longer seeds a baseline at
+//      the midpoint of the metric's physiological bounds), and the resting-HR
+//      percentile-of-you is oriented lower-is-better.
+//
+//   6. FROM ANALYTICS on this bump: `correctRr` advances its clock by the REAL
+//      interval on a spline-corrected beat (it was dropping ~1 s of record per
+//      correction, inflating cvhr per-hour and shortening hrvFreq's span).
+const int kAlgoVersion = 68;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2802,7 +2844,12 @@ class DerivationEngine {
         profile: profile,
         onsetSec: day.sleepOnsetSec,
         offsetSec: day.sleepOffsetSec,
-        rhr: (scMap?['rhr'] as num?)?.toDouble(),
+        // NOCTURNAL-ONLY. `scalars.rhr` is allowed to fall back to daytime HR
+        // for the resting-HR card; feeding that into TRIMP charged a day
+        // against an awake reference and published a strain the pure pipeline
+        // had already refused to publish. `rhr_nocturnal` is null unless a
+        // sleep session was detected — exactly the gate readiness uses.
+        rhr: (scMap?['rhr_nocturnal'] as num?)?.toDouble(),
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
         liveStepsReal: liveStepsReal,
         dynFloorG: dynFloorG,
@@ -2838,6 +2885,22 @@ class DerivationEngine {
             blocks.seriesPatch,
           );
       scMap?.addAll(blocks.scalarPatch);
+
+      // ONE ANSWER FOR STRAIN. The second half just recomputed it from the same
+      // nocturnal-or-user resting HR the pure pipeline gated on, and its scalar
+      // is what every surface reads. When that recompute abstains, stamp
+      // `clinical.strain` absent alongside the null scalar: the two were
+      // written by different code paths off different resting HRs, and a stored
+      // bundle could hold "—" in one and a confident 5.99 in the other.
+      if (scMap != null && scMap['strain'] == null) {
+        final strainEnv = (bundle['clinical'] as Map?)?['strain'];
+        if (strainEnv is Map && strainEnv['value'] != '—') {
+          strainEnv['value'] = '—';
+          strainEnv['confidence'] = 0;
+          strainEnv['note'] =
+              'strain_absent:${blocks.wake['strain_absent'] ?? 'unknown'}';
+        }
+      }
 
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
@@ -2959,14 +3022,18 @@ class DerivationEngine {
         'skin_temp_adc': sc('skin_temp_adc'),
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
+        // Written even when NULL: an abstaining day must overwrite a value a
+        // previous version's daytime-RHR strain left behind, not keep it.
         'strain': sc('strain'),
         'trimp': sc('trimp'),
-        // Secondary 0–100 Edwards "effort" strain → its own trend series.
-        'strain_effort': sc('strain_effort'),
-        'odi_per_hour': sc('odi_per_hour'),
+        // `strain_effort`, `spo2` and `odi_per_hour` used to be listed here.
+        // Nothing in the tree ever produced them (12 rows, 0 values per key on
+        // a real install), so they were three permanently-null series with a
+        // card-less key in the coach's contract. A metric this app does not
+        // produce has no entry and no key — the same rule metric_detail.dart
+        // states and the UI already followed.
         // New metrics → trends (day/week/month/3M).
         'stress': sc('stress'),
-        'spo2': sc('spo2'),
         'calories': sc('calories'),
         // Steps = REAL pedometer counts only (band 100 Hz / phone / NOOP
         // import, all via `live_coverage`). Absent — written as a NULL row, so
@@ -3548,19 +3615,33 @@ class DerivationEngine {
       }
 
       // "Something changed" — online CUSUM on the recent resting-HR series.
-      // Only when the shift lands on the LATEST day (a fresh change, not old
-      // history we'd re-announce every pass).
+      // Only when the shift lands on the day this notification is STAMPED with
+      // (a fresh change, not old history we'd re-announce every pass).
+      //
+      // The dates travel with the values. `rhrSeries` is compacted — days with
+      // no nocturnal RHR are skipped, which is most days for some users — so
+      // `index == length - 1` meant "the most recent day that HAPPENED to have
+      // an rhr". With a few null days in between, a week-old shift satisfied it
+      // and went out at critical priority under today's date.
+      //
+      // (`recent[].rhr` is written without the `settled()` guard, deliberately:
+      // the guard's comment names `recent` and "RHR trend" as things an
+      // unsettled day still feeds. Worth knowing that the same comment's stated
+      // reason — an unsettled day must not drive an ALERT — is exactly what a
+      // critical-priority finding built on it does.)
       final rhrSeries = <double>[];
+      final rhrDates = <String?>[];
       if (recent is List) {
         for (final r in recent) {
           if (r is Map && r['rhr'] is num) {
             rhrSeries.add((r['rhr'] as num).toDouble());
+            rhrDates.add(r['date'] as String?);
           }
         }
       }
       if (rhrSeries.length >= 10) {
         final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
-        if (dets.isNotEmpty && dets.last.index == rhrSeries.length - 1) {
+        if (dets.isNotEmpty && rhrDates[dets.last.index] == date) {
           final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
           findings.add((
             title: 'Your resting heart-rate trend shifted',
@@ -4045,8 +4126,13 @@ class DerivationEngine {
   ) {
     final activeMin = (wake['active_min'] as num?)?.toDouble();
     if (activeMin != null) scMap?['active_min'] = activeMin;
+    // STRAIN IS WRITTEN EVEN WHEN NULL — same rule as `steps`. This is the
+    // recompute every surface reads (home tile, strain detail, metric_series,
+    // the coach), so an abstaining day must ERASE what a previous derive wrote,
+    // not leave it standing: days built before v68 carry a strain computed off
+    // a daytime "resting" HR, and `if (strain != null)` kept exactly those.
     final strain = (wake['strain'] as num?)?.toDouble();
-    if (strain != null) scMap?['strain'] = strain;
+    scMap?['strain'] = strain;
     final calories = (wake['calories'] as num?)?.toDouble();
     if (calories != null) scMap?['calories'] = calories;
     final steps = (wake['steps'] as num?)?.toDouble();
@@ -4346,7 +4432,17 @@ class DerivationEngine {
       final est = ana.dailyActiveMinutes(
         motion,
         personalDynFloorG: dynFloorG,
-        pooledMinutesAvailable: dynHistoryDays,
+        // DAYS, and the parameter now says so. This used to be
+        // `pooledMinutesAvailable`, a MINUTE count compared against a
+        // 2000-minute floor, while every caller passed a day count — the
+        // cold-start note read "have=3, need=2000" for a user three days in.
+        // Analytics renamed it and now counts it against the 5-day floor it
+        // was always describing.
+        historyDaysAvailable: dynHistoryDays,
+        // A CALENDAR DAY, as `enmoSeries` is given below. Without it the
+        // coverage denominator is the worn SPAN, which excludes the unworn
+        // ends: a day worn 4 h out of 24 published coverage 1.0.
+        expectedMinutes: 1440,
       );
       final v = est.present ? est.value : null;
 
@@ -4431,6 +4527,20 @@ class DerivationEngine {
     final hrMax = profile.hrMaxTanaka; // null when age is unknown
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
     double? strain;
+    // Why the headline is absent, in the order the gates below apply. Absence
+    // is never a bare nothing here: the day carries its own reason so a caller
+    // (and `clinical.strain`) can say what is missing instead of showing a dash.
+    String? strainAbsent = perMin.isEmpty
+        ? 'no_wake_minutes'
+        : hrMax == null
+            ? 'need_age'
+            : dayHrValid.isEmpty
+                ? 'no_hr_samples'
+                : rhrForTrimp == null
+                    ? 'need_resting_hr'
+                    : sex == null
+                        ? 'need_sex'
+                        : null;
     double? calories;
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
@@ -4438,8 +4548,13 @@ class DerivationEngine {
     double? caloriesBasal;
     Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
-      // TRIMP needs a real resting HR (nightly or user-supplied) and a real sex
-      // constant — both are in the Banister formula itself.
+      // TRIMP needs a resting HR that is actually RESTING — a NOCTURNAL reading
+      // (`scalars.rhr_nocturnal`, sleep-window only) or one the user entered —
+      // and a real sex constant. Both are in the Banister formula itself.
+      // `restingHr` used to arrive as `scalars.rhr`, which falls back to
+      // daytime HR when no sleep was detected: ~20 bpm high on the days it
+      // fired, which shrinks the HR reserve and manufactures strain out of
+      // sitting still. No resting HR of either kind now means NO STRAIN.
       if (dayHrValid.isNotEmpty && rhrForTrimp != null && sex != null) {
         final trimp = ana.banisterTrimp(
           perMin,
@@ -4464,6 +4579,7 @@ class DerivationEngine {
           );
           if (score.present) strain = score.value;
         }
+        strainAbsent ??= strain == null ? 'trimp_absent' : null;
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
@@ -4489,6 +4605,9 @@ class DerivationEngine {
       final movementMetric = ana.dailyActiveMinutes(
         motion,
         personalDynFloorG: dynFloorG,
+        // Same calendar-day denominator as the other call site; `motion` is
+        // built from the whole day substrate here too.
+        expectedMinutes: 1440,
       );
       if (movementMetric.present && movementMetric.value != null) {
         movementMin = movementMetric.value!.activeMinutes.toDouble();
@@ -4525,6 +4644,9 @@ class DerivationEngine {
       'active_min': activeMin,
       'movement_min': movementMin,
       'strain': strain,
+      // Machine-readable reason `strain` is null (see `strainAbsent`). Null
+      // when a strain WAS produced.
+      'strain_absent': strain == null ? strainAbsent : null,
       'calories': calories,
       'steps': steps,
       'calories_total': caloriesTotal,
@@ -4615,11 +4737,11 @@ class DerivationEngine {
   /// pure pipeline, the live tick and manually logged sessions.
   static String _workoutSex(String? sex) => workoutSex(sex);
 
-  // NOTE: `detected_workouts` (`const []`) and `advanced_sleep`
-  // (`{present:false}`) are currently constant stubs — they are now emitted
-  // directly inside [_computeDayBlocks] (the offloaded second half). When the
-  // real WorkoutDetector / AdvancedSleepStager passes are re-homed, put them
-  // back there so they stay OFF the calling isolate.
+  // NOTE: `advanced_sleep` (`{present:false}`) is a constant stub emitted
+  // inside [_computeDayBlocks] (the offloaded second half). If a real
+  // AdvancedSleepStager pass is ever re-homed, put it back there so it stays
+  // OFF the calling isolate. `detected_workouts` used to be listed here too and
+  // is gone — see the note at its old site in [_computeDayBlocks].
 
   /// Per-5-min movement-level curve over the whole day ([{t, v}], v = fraction
   /// of seconds in the bucket with a ≥5° wrist-orientation change, 0..1). The
@@ -5459,10 +5581,13 @@ class DerivationEngine {
     final offset = inp.offsetSec;
     final bundlePatch = <String, dynamic>{};
     final seriesPatch = <String, dynamic>{};
-    // Working scalars — seeded with the nightly RHR the pure helpers read
-    // (steps/energy + wake features gate on it). The seed is removed from the
-    // returned patch so we only write back the NEWLY computed scalars.
-    final scMap = <String, dynamic>{'rhr': inp.rhr};
+    // Working scalars — everything computed below is written here and merged
+    // back by the caller. It used to be seeded with `{'rhr': inp.rhr}` under a
+    // comment claiming the pure helpers read it; nothing does (they take
+    // `restingHr` as an argument), and the seed then had to be deleted again
+    // before returning. `inp.rhr` is the NOCTURNAL resting HR, never the
+    // daytime fallback — see `_DayBlocksInput.rhr`.
+    final scMap = <String, dynamic>{};
 
     final wake = applyDayActivity(
       bundle: bundlePatch,
@@ -5510,7 +5635,12 @@ class DerivationEngine {
     );
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);
-    bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
+    // `detected_workouts` is NOT written. It was a permanently-empty stub kept
+    // for a WorkoutDetector pass that was going to be re-homed here; analytics
+    // has since deleted `workout_detect.dart`, so there is no pass to re-home
+    // and no reason to write an empty list every day. The repository's reader
+    // already skips a missing key, and auto-detected bouts reach the UI through
+    // `workout_suggestions` below.
 
     final wc = _computeWorkouts(
       s: daySub,
@@ -5566,7 +5696,6 @@ class DerivationEngine {
     // gate could never fire. A diagnostic built on a non-measurement is worse
     // than no diagnostic.
 
-    scMap.remove('rhr'); // seed only; the real rhr scalar already lives in the bundle
     return _DayBlocksOutput(
       bundlePatch: bundlePatch,
       seriesPatch: seriesPatch,
@@ -5734,14 +5863,28 @@ class DerivationEngine {
       }
     }
     if (endIdx < 0) endIdx = n - 1;
-    const pre = 30, post = 75;
-    final lo = (endIdx - pre).clamp(0, n - 1);
-    final hi = (endIdx + post).clamp(0, n - 1);
+    // SLICE BY TIME, not by array position. The substrate is one row per
+    // DECODED RECORD, not a dense 1 Hz grid, so `endIdx ± 30/75` used to cut a
+    // window whose real duration depended on how gappy the tail was: on a sparse
+    // day it stopped well short of +60 s (no recovery sample — HRR silently
+    // absent), on a dense one it reached far past it. The comment below already
+    // said this about `hrRecovery`'s own +60 s; the slice feeding it never
+    // followed. ±30/+75 SECONDS around the bout end, so the 60-second sample is
+    // always inside the window when the data exists at all.
+    const preSec = 30, postSec = 75;
+    var lo = endIdx;
+    while (lo > 0 && s.tsSec[lo - 1] >= endSec - preSec) {
+      lo--;
+    }
+    var hi = endIdx;
+    while (hi + 1 < n && s.tsSec[hi + 1] <= endSec + postSec) {
+      hi++;
+    }
     final tail = <int>[for (var i = lo; i <= hi; i++) s.hr[i]];
-    // The substrate is one row per DECODED RECORD, not a dense 1 Hz grid, so
-    // without the timestamps "+60 s" means "+60 array positions": on a gappy
-    // tail the recovery sample can be many minutes post-exercise and the drop
-    // is overstated — read by the user as a fitness marker.
+    // `hrRecovery` reads "+60 s" off `tsSec`, not off the array index — on a
+    // gappy tail the recovery sample would otherwise be many minutes
+    // post-exercise and the drop is overstated, read by the user as a fitness
+    // marker.
     final m = ana.hrRecovery(
       tail,
       endIndex: endIdx - lo,
@@ -5943,6 +6086,10 @@ class _DayBlocksInput {
   final Profile profile;
   final int onsetSec;
   final int offsetSec;
+
+  /// NOCTURNAL resting HR for this day (`scalars.rhr_nocturnal`) — null unless a
+  /// sleep session was detected. NOT `scalars.rhr`, which is allowed to fall
+  /// back to daytime HR for the resting-HR card and is not a TRIMP reference.
   final double? rhr;
   final int? maxHrUsed;
   final int liveStepsReal;
@@ -5955,6 +6102,7 @@ class _DayBlocksInput {
 
   /// How many trailing days backed [dynFloorG] — only for the cold-start note.
   final int dynHistoryDays;
+
   final List<Map<String, dynamic>> savedSessions;
 
   /// The user's nap edits for this day, replayed over the detector's output.

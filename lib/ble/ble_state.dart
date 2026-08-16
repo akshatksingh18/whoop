@@ -132,6 +132,28 @@ BleBlocker? classifyBleBlocker({String? adapterState, Object? error}) {
   return null;
 }
 
+/// Whether an unintentional disconnect looks like the link TIMING OUT — the
+/// band stopped answering / went out of range — rather than an ordinary
+/// termination (peer closed the link, local close, adapter off).
+///
+/// [MarginalRadioDetector] and [PostBondTimeoutLoopDetector] both key on
+/// "armed/bonded, then a QUICK TIMEOUT", and both used to be handed a
+/// hardcoded `true`, which made every ordinary drop a timeout: two unremarkable
+/// disconnects inside 8 s of setup were enough to latch the re-pair guide, on
+/// iOS as well as Android.
+///
+/// The platform's own reason string is the only timeout evidence we have, and
+/// it says so in words on both: Android reports HCI/GATT names
+/// (`LINK_SUPERVISION_TIMEOUT`, `GATT_CONNECTION_TIMEOUT`, …), iOS the CBError
+/// `localizedDescription` ("The connection has timed out unexpectedly."). Same
+/// string-matching trade as [classifyBleBlocker], for the same reason. No
+/// reason reported ⇒ NOT a timeout: we never assume one we cannot see.
+bool isTimeoutDisconnect(String? reasonDescription) {
+  final s = reasonDescription?.toLowerCase();
+  if (s == null) return false;
+  return s.contains('timeout') || s.contains('timed out');
+}
+
 /// The one connection state a screen renders. Ordered by priority in
 /// [bandStatusFor], most-blocking first.
 enum BandCondition {

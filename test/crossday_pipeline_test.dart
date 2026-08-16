@@ -245,6 +245,28 @@ void main() {
       expect(rhrSeries.length, greaterThanOrEqualTo(10));
     });
 
+    test('every row carries its date, so the CUSUM can align index → day', () {
+      // `DerivationEngine._runNotifications` compacts the null-rhr days out of
+      // this feed and used to fire when the detected change sat at the LAST
+      // INDEX of the compacted series — which is "the most recent day that
+      // happened to have an rhr", not today. It now reads the date at that
+      // index and requires it to equal the day the notification is stamped
+      // with; that is only possible because every row here carries `date`.
+      final days = _synthDays(30);
+      for (var i = 25; i < 30; i++) {
+        days[i]['rhr'] = null; // five days with no nocturnal RHR
+      }
+      final recent = (buildCrossDayBundle(days, const {})['recent'] as List)
+          .cast<Map>();
+      final compactedDates = <String>[
+        for (final r in recent)
+          if (r['rhr'] is num) r['date'] as String,
+      ];
+      expect(compactedDates, isNotEmpty);
+      expect(compactedDates.last, isNot(recent.last['date']),
+          reason: 'the hazard: the last compacted index is five days stale');
+    });
+
     test('a day with no rhr keeps a null rhr (never a fabricated number)', () {
       final days = _synthDays(3);
       days[1]['rhr'] = null;
@@ -346,6 +368,69 @@ void main() {
       final bundle = buildCrossDayBundle(_synthDays(30), const {});
       expect((bundle['recent'] as List).length, 30);
       expect(bundle['n_days'], 30);
+    });
+  });
+
+  group("today's readiness is read from the stamp, not the last row", () {
+    // `days` only contains rows that EXIST. On a day whose derive has not run
+    // yet the most recent row is yesterday, so a positional `readyList.last`
+    // built today's strain target out of yesterday's recovery — the exact
+    // imputation `_todayNum`'s doc describes and the comment above the line
+    // already promised not to make.
+    test('no is_today stamp → the strain target is absent', () {
+      final bundle = buildCrossDayBundle(_synthDays(30), const {});
+      expect((bundle['strain_coach'] as Map)['value'], '—');
+    });
+
+    test('with the stamp → the target is built from TODAY', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      final bundle = buildCrossDayBundle(days, const {});
+      expect((bundle['strain_coach'] as Map)['value'], isA<Map>());
+    });
+  });
+
+  group('percentile-of-you is oriented', () {
+    test('a low resting HR reads as good, not as "among your worst"', () {
+      // rhr is LOWER-is-better. Unoriented, the user's lowest resting HR in a
+      // month came back labelled by its raw rank — the wrong end of the scale.
+      final days = _synthDays(30);
+      days.last['rhr'] = 40.0; // well below every other day in the series
+      final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
+          ['rhr'] as Map)['value'] as Map;
+      expect(pct['label'], anyOf('among your best', 'better than usual'));
+    });
+
+    test('a high RMSSD still reads as good (higher-is-better is unchanged)', () {
+      final days = _synthDays(30);
+      days.last['rmssd'] = 120.0;
+      final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
+          ['rmssd'] as Map)['value'] as Map;
+      expect(pct['label'], anyOf('among your best', 'better than usual'));
+    });
+  });
+
+  group('bedtime needs a measured efficiency', () {
+    test('no efficiency history → bedtime and wake are absent, not 88 %', () {
+      // The old `_median(effs) ?? 88.0` was an invented baseline: bedtime is
+      // "wake − need ÷ efficiency", so the substitution moved the recommended
+      // bedtime by real minutes for a user who had never had one measured.
+      final days = _synthDays(30);
+      final coach =
+          (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['bedtime'] as Map)['value'], '—');
+      expect((coach['wake'] as Map)['value'], '—');
+
+      // …and the SAME series with a measured efficiency does produce one, so
+      // the assertion above is about the efficiency and not about `need`.
+      final withEff = _synthDays(30);
+      for (final d in withEff) {
+        d['efficiency'] = 92.0;
+      }
+      final coach2 =
+          (buildCrossDayBundle(withEff, const {})['sleep_coach'] as Map);
+      expect((coach2['bedtime'] as Map)['value'], isA<Map>());
+      expect((coach2['wake'] as Map)['value'], isA<Map>());
     });
   });
 }

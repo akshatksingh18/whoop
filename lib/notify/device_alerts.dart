@@ -41,7 +41,11 @@ import 'tap_router.dart';
 /// [NotificationService] has a private constructor, so the alert logic would
 /// otherwise only be exercisable against the real platform plugin.
 abstract class DeviceAlertSink {
-  Future<void> show(NotificationEvent e);
+  /// True only if the alert was actually presented. False means the shared
+  /// gate dropped it (quiet hours, category off, no permission) — it is NOT
+  /// queued for later, so a caller holding a once-per-drain latch must not
+  /// spend that latch on a false.
+  Future<bool> show(NotificationEvent e);
   Future<void> cancel(int id);
 }
 
@@ -49,10 +53,10 @@ class _NotificationCenterSink implements DeviceAlertSink {
   const _NotificationCenterSink();
 
   @override
-  Future<void> show(NotificationEvent e) async {
+  Future<bool> show(NotificationEvent e) {
     // Band alerts fire from the BLE state pipeline, which runs headless on both
     // platforms — never prompt for permission from there.
-    await NotificationCenter.instance.emit(e, allowPermissionPrompt: false);
+    return NotificationCenter.instance.emit(e, allowPermissionPrompt: false);
   }
 
   @override
@@ -262,7 +266,7 @@ class DeviceAlerts {
         batteryPct < _lowPct &&
         lowArmed;
     if (fireLow) lowArmed = false;
-    final lowArmedChanged = lowArmed != _lowArmed;
+    final armedBefore = _lowArmed;
     _lowArmed = lowArmed;
 
     // ── ACT ───────────────────────────────────────────────────────────────────
@@ -296,7 +300,7 @@ class DeviceAlerts {
       await _io(() => _notes.cancel(NotificationService.idLowBattery));
     }
     if (fireLow) {
-      await _io(() => _notes.show(_event(
+      final dropped = await _showWasDropped(() => _notes.show(_event(
             osId: NotificationService.idLowBattery,
             // One drain per key: the hysteresis above already means a re-arm
             // needs the battery to climb past 25% or go on the charger, so the
@@ -305,8 +309,18 @@ class DeviceAlerts {
             title: 'Low battery',
             body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
           )));
+      if (dropped) {
+        // The shared gate refused it — quiet hours, the device category off, no
+        // OS permission. `emit` DROPS; it does not defer, so nothing will ever
+        // present this alert later. Spending the once-per-drain latch on it
+        // means the user is never told the band is flat for the rest of this
+        // drain (re-arming needs 25% or a charger), so put the latch back and
+        // let the next state update try again.
+        lowArmed = true;
+        _lowArmed = true;
+      }
     }
-    if (lowArmedChanged) {
+    if (lowArmed != armedBefore) {
       await _io(() => _store.writeInt(_kLowArmed, lowArmed ? 1 : 0));
     }
   }
@@ -326,7 +340,10 @@ class DeviceAlerts {
     return NotificationEvent(
       dedupeKey: '$day:$kind',
       category: NotifCategory.device,
-      priority: NotifPriority.normal, // respects quiet hours — it can wait
+      // Normal priority is subject to quiet hours, and quiet hours DROP —
+      // there is no queue and no deferral anywhere in NotificationCenter. The
+      // fireLow path re-arms its latch on a drop for exactly that reason.
+      priority: NotifPriority.normal,
       title: title,
       body: body,
       date: day,
@@ -341,5 +358,21 @@ class DeviceAlerts {
     try {
       await step();
     } catch (_) {}
+  }
+
+  /// Present one alert; true when the shared gate DROPPED it (never shown,
+  /// never queued) so a latch must not be spent on it.
+  ///
+  /// A THROWING sink deliberately reports false — "spend the latch". That is
+  /// the failure AGENTS.md §4.3 is about: we cannot know what the plugin did,
+  /// and re-firing on every BLE state update is worse than one lost alert. A
+  /// sink that returns false told us plainly that nothing was shown, which is
+  /// a different fact and gets the opposite answer.
+  Future<bool> _showWasDropped(Future<bool> Function() step) async {
+    try {
+      return !await step();
+    } catch (_) {
+      return false;
+    }
   }
 }

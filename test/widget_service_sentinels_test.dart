@@ -4,9 +4,18 @@
 // readers gate on it — so a nullable metric must never be written as a plausible
 // default instead.
 
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:openstrap_edge/compute/derivation_engine.dart'
+    show kAlgoVersion;
+import 'package:openstrap_edge/data/day_label.dart';
+import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_edge/ui2/screens/home_screen.dart' show readinessBand;
 import 'package:openstrap_edge/widget/widget_service.dart';
@@ -42,31 +51,92 @@ void main() {
         const MethodChannel('openstrap/ios_config'), null);
   });
 
-  test('an underived sleep need is written as the -1 sentinel, not a fabricated '
-      '8h00m', () async {
-    await WidgetService.push(TodayData.fromJson({
-      'daily': {
-        'readiness': {'value': 74},
-      },
-      // duration_min is known; need_min is NOT derived yet.
-      'sleep': {'duration_min': 437},
-    }));
+  // THROUGH THE REAL PAYLOAD, deliberately. These two used to hand
+  // `WidgetService.push` a `TodayData.fromJson({'sleep': {'duration_min': 437}})`
+  // that `getToday()` never produces — the seam wrote `need_min: 480`
+  // unconditionally — so the guard passed while every widget, the Watch and the
+  // lock screen drew their sleep ring against a fabricated 8 h denominator.
+  // Driving `LocalRepositoryImpl.getToday()` is the whole point: the sentinel is
+  // only reachable if the PAYLOAD omits the key.
+  group('sleep need, end to end from the repository', () {
+    late LocalRepositoryImpl repo;
 
-    expect(written['sleep_min'], 437);
-    // 480 here put a hard 8h00m need on the home widget AND the watch, and the
-    // sleep ring was drawn as a fraction of that invented denominator.
-    expect(written['sleep_need_min'], -1);
-    // The convention it now matches.
-    expect(written['rhr'], -1);
-    expect(written['hrv'], -1);
-  });
+    // 437 min asleep, and a stored crossday need of 462 min for the second test.
+    String todayBundle() => jsonEncode({
+          'date': todayLabel(),
+          'scalars': {'readiness': 74.0, 'rhr': 52.0},
+          'sleep': {
+            'accounting': {
+              'value': {'tst_sec': 437 * 60, 'efficiency_pct': 91.0},
+            },
+          },
+        });
 
-  test('a real sleep need is still written through', () async {
-    await WidgetService.push(TodayData.fromJson({
-      'daily': const {},
-      'sleep': {'duration_min': 437, 'need_min': 462},
-    }));
-    expect(written['sleep_need_min'], 462);
+    setUpAll(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      LocalDb.dbName = 'openstrap_widget_sentinels_test.db';
+      await databaseFactory.deleteDatabase(
+        p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
+      );
+      repo = LocalRepositoryImpl(getProfileMap: () => const {});
+    });
+
+    tearDownAll(() async {
+      await LocalDb.close();
+      await databaseFactory.deleteDatabase(
+        p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
+      );
+    });
+
+    setUp(() async {
+      final db = await LocalDb.instance;
+      await db.delete('day_result');
+      await db.delete('baselines');
+      await LocalDb.putDayResult(
+        dayId: todayLabel(),
+        algoVersion: kAlgoVersion,
+        payloadJson: todayBundle(),
+        windowJson: '{}',
+      );
+      await LocalDb.refreshComputeFreshness();
+    });
+
+    test('an unlearned sleep need reaches the App Group as the -1 sentinel, '
+        'never as a fabricated 8h00m', () async {
+      // No crossday artifact at all — the ordinary state until enough
+      // undisturbed nights exist for `sleepNeed` to estimate one.
+      final t = TodayData.fromJson(await repo.getToday());
+      expect(t.sleepNeed.isEmpty, isTrue);
+
+      await WidgetService.push(t);
+      expect(written['sleep_min'], 437);
+      // 480 here put a hard 8h00m need on the home widget AND the watch, and
+      // the sleep ring was drawn as a fraction of that invented denominator.
+      expect(written['sleep_need_min'], -1);
+    });
+
+    test('a LEARNED sleep need is published as itself', () async {
+      await LocalDb.putBaseline(
+        'crossday',
+        jsonEncode({
+          'algo_version': kAlgoVersion,
+          'built_for_day': todayLabel(),
+          'sleep_coach': {
+            'need': {
+              'value': {'need_sec': 462 * 60},
+              'confidence': 0.7,
+              'tier': 'ESTIMATE',
+            },
+          },
+        }),
+      );
+
+      await WidgetService.push(TodayData.fromJson(await repo.getToday()));
+      // 462, the value `crossday_pipeline` computed — the only sleep need this
+      // app has.
+      expect(written['sleep_need_min'], 462);
+    });
   });
 
   // `readinessBand` is the ONLY copy of the readiness cut-offs. The widget, the

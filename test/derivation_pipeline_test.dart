@@ -176,6 +176,29 @@ void main() {
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
 
+    // The NOCTURNAL-only resting HR is published beside the general one. This
+    // fixture has no detected sleep, so it is ABSENT while `rhr` (which may
+    // fall back to daytime HR for the resting-HR card) is present — exactly the
+    // pair the strain path needs to be able to tell apart.
+    expect(scalars.containsKey('rhr_nocturnal'), isTrue);
+    expect(scalars['rhr_nocturnal'], isNull,
+        reason: 'no sleep session → no nocturnal RHR, whatever `rhr` says');
+
+    // hrv_timeline.t is EPOCH SECONDS, on the same axis as hr_curve — the
+    // v_series contract and the coach prompt both promise that, and the stored
+    // `t` used to be seconds since the first NN beat (single digits).
+    final series = (bundle['series'] as Map).cast<String, dynamic>();
+    final tl = (series['hrv_timeline'] as List).cast<Map>();
+    expect(tl, isNotEmpty, reason: '~30 min of NN should yield 5-min windows');
+    final firstT = (tl.first['t'] as num).toInt();
+    expect(firstT, greaterThan(1600000000), reason: 'epoch seconds, not 1970');
+    expect(firstT, greaterThanOrEqualTo(dayTs.first),
+        reason: 'inside the day it belongs to');
+    expect(firstT, lessThanOrEqualTo(dayTs.last + 60));
+    // A FULL 5-minute window before the first point. It used to emit after 10
+    // beats (~8 s) onto a line documented as rolling 5-min windows.
+    expect(firstT - dayTs.first, greaterThanOrEqualTo(300));
+
     // (The secondary Edwards "effort" strain block was removed in the PR#25
     // pipeline refactor; the headline 0–21 strain remains via scalars['strain'].)
 

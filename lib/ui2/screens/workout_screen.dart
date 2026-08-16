@@ -618,8 +618,8 @@ ActivityHost activityHost(AppState app,
     );
 
 /// The band, as the live screens see it. Read on every tick rather than
-/// subscribed to: there is no stream on `AppState` — `device.liveHr` is a
-/// field the engine writes and the UI pulls.
+/// subscribed to: there is no stream on `AppState` — `AppState.liveHr` is a
+/// getter over the field the engine writes and the UI pulls.
 ///
 /// Six of these ten fields used to be left unset, which is why the zone
 /// pill, the zone bar, the live distance and the session average heart rate
@@ -627,7 +627,10 @@ ActivityHost activityHost(AppState app,
 LiveFeed _feedOf(AppState app) {
   final w = app.activeWorkout;
   return LiveFeed(
-    hr: app.device.liveHr,
+    // The freshness-checked getter, not `device.liveHr`: the raw field keeps
+    // its last value forever after an unintentional drop, which suppressed
+    // LiveHeart's "The band is not connected" card exactly when it was true.
+    hr: app.liveHr,
     maxHr: (w?.maxHrSeen ?? 0) > 0 ? w!.maxHrSeen : null,
     zone: app.liveZone,
     calories: w?.caloriesOrNull,

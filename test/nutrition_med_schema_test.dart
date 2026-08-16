@@ -120,6 +120,30 @@ void main() {
     final defs = await MedDb.defs(db);
     expect(defs.single.doseLabel, '2000 IU');
     expect(defs.single.schedule.single.minuteOfDay, 480);
+    // `created_at` is read back, not just written: it bounds every adherence
+    // denominator, so a def that cannot say when it started makes every day
+    // before it a run of misses.
+    final createdAt = defs.single.createdAt;
+    expect(createdAt, isNotNull);
+
+    // An EDIT arrives as a fresh MedDef with no stamp, and the row is written
+    // with REPLACE — restamping it to now would silently drop every dose the
+    // schedule had already come due for out of adherence.
+    await MedDb.putDef(
+      db,
+      const MedDef(
+        key: 'custom_d',
+        label: 'Vitamin D3',
+        doseValue: 4000,
+        doseUnit: 'IU',
+        schedule: [
+          MedSchedule(480, [1, 2, 3, 4, 5, 6, 7]),
+        ],
+      ),
+    );
+    final edited = await MedDb.defs(db);
+    expect(edited.single.label, 'Vitamin D3');
+    expect(edited.single.createdAt, createdAt);
 
     await MedDb.mark(
       db,

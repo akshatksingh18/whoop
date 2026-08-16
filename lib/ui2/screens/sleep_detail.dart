@@ -16,8 +16,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
+import '../../state/app_state.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
@@ -201,6 +203,7 @@ class SleepDetail extends StatefulWidget {
 class _SleepDetailState extends State<SleepDetail> {
   SleepData? _d;
   bool _loading = true;
+  bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
 
   @override
@@ -264,6 +267,9 @@ class _SleepDetailState extends State<SleepDetail> {
       _night(c, p, d, n),
       if (_scrub != null) _scrubCard(c, p, d),
 
+      // ── 2b · WHOSE WINDOW IS THIS ──
+      ...?_windowCard(c, p, d, n),
+
       // ── 3 · WHAT IT WAS MADE OF ──
       Section('Stages', _stages(c, p, n, n['duration_min'] as num?)),
 
@@ -319,6 +325,144 @@ class _SleepDetailState extends State<SleepDetail> {
         ],
       ]),
     );
+  }
+
+  /// Where this night's window came from, and the user's say over it.
+  ///
+  /// `sleep_source` has been on the day bundle all along — 'auto' (staged from
+  /// the signals), 'auto_fallback' (the HR-led guess staging falls back to when
+  /// it cannot find the edges), 'manual' / 'confirmed' (the user's own). The
+  /// repository comment already said it "drives the Sleep screen's confirm
+  /// prompt + edit affordance"; nothing did, and `sleep_override` had no writer
+  /// anywhere in the app, so the derive engine's user-window restage path could
+  /// never run and a mis-staged night was uncorrectable.
+  ///
+  /// NAP EDITS ARE DELIBERATELY NOT HERE. `applyNapEdits` reads a `nap_edits`
+  /// table that nothing in the app writes either; a control that appeared to
+  /// edit naps while the edits went nowhere would be worse than the absence.
+  /// It needs a writer first.
+  List<Widget>? _windowCard(
+      BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
+    final day = d.day;
+    final t0 = (n['onset_ts'] as num?)?.round();
+    final t1 = (n['wake_ts'] as num?)?.round();
+    if (day == null || t0 == null || t1 == null) return null;
+    final source = (n['sleep_source'] as String?) ?? 'auto';
+    final mine = source == 'manual' || source == 'confirmed';
+    final fallback = source == 'auto_fallback';
+
+    final busy = _saving;
+    return [
+      const SizedBox(height: S.x3),
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(mine ? LucideIcons.userCheck : LucideIcons.wandSparkles,
+                size: 16, color: p.ink3),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text(
+                mine
+                    ? 'You set this window'
+                    : fallback
+                        ? 'This window was inferred from heart rate'
+                        : 'This window was staged from the signals',
+                style: F.body.copyWith(color: p.ink),
+              ),
+            ),
+          ]),
+          const SizedBox(height: S.x2),
+          Text(
+            mine
+                ? 'The night was re-analysed from your window.'
+                : fallback
+                    ? 'Staging could not find the edges, so the times are a '
+                        'best guess. Everything measured from them moves if '
+                        'they are wrong.'
+                    : 'Change it if the times are wrong and the night will be '
+                        're-analysed from yours.',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x2),
+          Wrap(spacing: S.x2, children: [
+            if (fallback)
+              TextButton(
+                onPressed: busy ? null : () => _confirmWindow(day),
+                child: const Text('These times are right'),
+              ),
+            TextButton(
+              onPressed: busy ? null : () => _editWindow(day, t0, t1),
+              child: Text(mine ? 'Change the times' : 'Set the times myself'),
+            ),
+            if (mine)
+              TextButton(
+                onPressed: busy ? null : () => _clearWindow(day),
+                child: const Text('Back to automatic'),
+              ),
+          ]),
+          if (busy) ...[
+            const SizedBox(height: S.x2),
+            Text('Re-analysing the night…',
+                style: F.cap.copyWith(color: p.ink3)),
+          ],
+        ]),
+      ),
+    ];
+  }
+
+  Future<void> _confirmWindow(String day) =>
+      _runOverride(() => context.read<AppState>().confirmSleep(day));
+
+  Future<void> _clearWindow(String day) =>
+      _runOverride(() => context.read<AppState>().clearSleepOverride(day));
+
+  /// Two pickers, seeded from the window we already have — the user is
+  /// correcting times, not entering a date, so the DATES stay as measured and
+  /// only the clock moves. A wake that lands before the onset belongs to the
+  /// next morning.
+  Future<void> _editWindow(String day, int t0, int t1) async {
+    final onset = DateTime.fromMillisecondsSinceEpoch(t0 * 1000);
+    final wake = DateTime.fromMillisecondsSinceEpoch(t1 * 1000);
+    final bed = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(onset),
+      helpText: 'WHEN YOU GOT INTO BED',
+    );
+    if (bed == null || !mounted) return;
+    final up = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(wake),
+      helpText: 'WHEN YOU GOT UP',
+    );
+    if (up == null || !mounted) return;
+    final newOnset =
+        DateTime(onset.year, onset.month, onset.day, bed.hour, bed.minute);
+    // A wake at or before the onset is the next morning. `day + 1` rather than
+    // adding a Duration: DateTime normalises the overflow, and it is calendar
+    // arithmetic across a possible DST boundary, not a span of elapsed time.
+    var newWake =
+        DateTime(onset.year, onset.month, onset.day, up.hour, up.minute);
+    if (!newWake.isAfter(newOnset)) {
+      newWake = DateTime(
+          onset.year, onset.month, onset.day + 1, up.hour, up.minute);
+    }
+    await _runOverride(
+      () => context.read<AppState>().setSleepOverride(day, newOnset, newWake),
+    );
+  }
+
+  /// Every override path is the same shape: write it, wait for the forced
+  /// re-derive, then reload the screen from what the engine produced. The
+  /// screen must not keep drawing the old night's numbers under a new window.
+  Future<void> _runOverride(Future<void> Function() write) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await write();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+    if (mounted) await _load();
   }
 
   /// The hypnogram, as the centrepiece rather than as an illustration. The

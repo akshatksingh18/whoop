@@ -182,24 +182,29 @@ bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
 ///
-/// [actualBurstPacketCount] only counts packets that reached
-/// onHistoricalRecord/onUndecodableRecord — i.e. that PASSED the RecordGate
-/// plausibility check. A record the gate rejects (a stale/wandering-clock
-/// block — see RecordGate.admit) is, by design, "neither stored nor
-/// counted": it never reaches either callback. The band's own count has no
-/// such carve-out — it just counts every packet it physically transmitted.
+/// [receivedTrafficCount] is every frame we received this burst, ALL types
+/// ([BurstStats.totalTrafficPacketCount]) — the same all-types total
+/// [burstPacketShortfall] compares against, and the exact same measurement:
+/// this predicate is `shortfall == 0`. The doc here used to describe a
+/// historical-only, post-RecordGate count that this function is never handed,
+/// and that no longer exists as an input anywhere (the historical-only figure
+/// survives separately as `currentBurstHistoricalPacketCount`, logged but not
+/// compared).
+///
 /// [droppedThisBurst] (RecordGate.dropped delta across this burst) must be
-/// added back in before comparing, or a burst containing even one
-/// gate-rejected record can never validate — which discards its OTHER,
-/// perfectly good buffered records and re-requests the same stuck block
-/// forever (zero sync progress).
+/// added back in before comparing: a record the gate rejects is, by design,
+/// "neither stored nor counted" (see RecordGate.admit) while the band's own
+/// count has no such carve-out — it just counts every packet it physically
+/// transmitted. Without it, a burst containing even one gate-rejected record
+/// can never validate, which discards its OTHER, perfectly good buffered
+/// records and re-requests the same stuck block forever (zero sync progress).
 @visibleForTesting
 bool burstPacketCountMatches({
   required int expectedPacketCount,
-  required int actualBurstPacketCount,
+  required int receivedTrafficCount,
   required int droppedThisBurst,
 }) =>
-    expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
+    expectedPacketCount == receivedTrafficCount + droppedThisBurst;
 
 /// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
 /// commit/ACK decision (see the log-only call site).
@@ -1134,7 +1139,7 @@ class BleEngine {
 
   void _log(String s) => log?.call(s);
 
-  void _logHistoricalOptics(Uint8List inner, R24 r) {
+  void _logHistoricalOptics(R24 r) {
     final version = r.histVersion;
     final count = (_historicalVersionCounts[version] ?? 0) + 1;
     _historicalVersionCounts[version] = count;
@@ -1161,27 +1166,11 @@ class BleEngine {
       return;
     }
 
-    if (version == 25) {
-      final view = inner.buffer.asByteData(
-        inner.offsetInBytes,
-        inner.lengthInBytes,
-      );
-      final u16s = <int>[];
-      for (int off = 23; off + 2 <= inner.length && off < 73; off += 2) {
-        u16s.add(view.getUint16(off, Endian.little));
-      }
-      final first = u16s.take(8).toList();
-      final min = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a < b ? a : b);
-      final max = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a > b ? a : b);
-      _log(
-        '[SPO2] hist=v25 count=$count base=inner '
-        'known(unix@7 gravity@69/71/73) '
-        'unknown_optical_region=23..72 '
-        'ts=${r.tsEpoch} g=${r.accelG.map((v) => v.toStringAsFixed(4)).join(",")} '
-        'opt_u16_unique=${u16s.toSet().length} opt_u16_min=$min opt_u16_max=$max '
-        'opt_u16_first8=$first',
-      );
-    }
+    // No v25 arm: the only caller branches on `recType != Record.r25`, and
+    // `recType` is frame.inner[1] — the same byte `r.histVersion` reads — so a
+    // v25 record can never reach here. v25 is archived whole instead (it is a
+    // 24 Hz PPG waveform, not a 1 Hz record), and its byte survey lived here
+    // unreachable.
   }
 
   /// Note that records were just persisted; (re)arm the debounced derive trigger.
@@ -1716,6 +1705,17 @@ class BleEngine {
       // continuation detectors are correct on the first offload after a restart.
       _recordGate =
           RecordGate(frontierTs: (await cursorReader?.call('rec_ts_hw')) ?? 0);
+      // The gate's drop counter restarts at 0, so its burst baseline must too.
+      // Left behind, a HISTORY_END arriving on connection N>1 before that
+      // connection's first HISTORY_START computed a NEGATIVE droppedThisBurst
+      // against the previous connection's baseline — which fabricates a
+      // positive burstPacketShortfall (one needless re-delivery through
+      // _shortfallGate.refuse) and makes TrimAckVerdict.blockedNoDurableProgress
+      // unfireable (`!hadDurableRows && droppedThisBurst > 0`), i.e. a
+      // gate-drop-only burst could authorise the band to trim flash we never
+      // banked. The startless HISTORY_END is expected, not hypothetical: the
+      // historyEnd branch has its own `history_end_while_not_syncing` terminal.
+      _burstDroppedAtStart = 0;
       // Re-seed the counter-regression watch from the durable counter_hw
       // cursor so a reboot is caught even across the reconnect it usually
       // causes, instead of only within a single unbroken connection.
@@ -2087,8 +2087,10 @@ class BleEngine {
     }
     _drain?.onLinkDown();
     if (!wasIntentional) {
-      _feedReconnectDetectors();
       final reason = session.device.disconnectReason;
+      _feedReconnectDetectors(
+        timedOut: isTimeoutDisconnect(reason?.description),
+      );
       _log('Link down (reason=${reason?.description ?? "unknown"}).');
     }
     // The caller (AppState) listens for the 'disconnected' phase to drive its
@@ -2119,10 +2121,16 @@ class BleEngine {
     );
   }
 
-  /// Feed an UNINTENTIONAL disconnect to the cross-reconnect detectors. A timeout
-  /// is approximated by "not an intentional close". The detectors self-reset when
-  /// a disconnect does not match their quick-timeout pattern.
-  void _feedReconnectDetectors() {
+  /// Feed an UNINTENTIONAL disconnect to the cross-reconnect detectors. The
+  /// detectors self-reset when a disconnect does not match their quick-timeout
+  /// pattern.
+  ///
+  /// [timedOut] is the platform's own verdict (see [isTimeoutDisconnect]) and
+  /// used to be hardcoded `true` — which made every ordinary drop look like a
+  /// timeout to both detectors. `_bondTime` is set unconditionally in the
+  /// connect setup, not just on Android, so that hardcoding let two unremarkable
+  /// disconnects inside 8 s of setup latch the re-pair guide on any platform.
+  void _feedReconnectDetectors({required bool timedOut}) {
     final now = DateTime.now();
     final sinceArm = _armTime == null
         ? null
@@ -2133,7 +2141,7 @@ class BleEngine {
     if (_marginalRadio.connectionEnded(
       wasArmed: _liveEnabled,
       secondsSinceArm: sinceArm,
-      timedOut: true,
+      timedOut: timedOut,
     )) {
       state.standardHrFallback = true;
       onState(state);
@@ -2144,12 +2152,47 @@ class BleEngine {
     if (_postBondLoop.connectionEnded(
       wasBonded: _bondTime != null,
       secondsSinceBond: sinceBond,
-      timedOut: true,
+      timedOut: timedOut,
     )) {
       state.needsRepairGuide = true;
       onState(state);
       _log('[RECONNECT] post-bond loop tripped — surfacing re-pair guide.');
     }
+  }
+
+  /// Test seam: the disconnect path's detector feed, with the bond timestamp the
+  /// connect setup would have stamped. Both detectors live behind a real radio,
+  /// so without this the only coverage possible was of the pure detectors —
+  /// never of the engine wiring that decides what counts as a timeout.
+  @visibleForTesting
+  void debugFeedDisconnect({required bool timedOut, DateTime? bondedAt}) {
+    _bondTime = bondedAt ?? DateTime.now();
+    _feedReconnectDetectors(timedOut: timedOut);
+  }
+
+  /// A command reply is the direct contradiction of the re-pair guide: the band
+  /// decrypted one of our commands and answered it, so encryption is not
+  /// blocking traffic and there is nothing to re-pair.
+  ///
+  /// `needsRepairGuide` was set-only in practice. Its one clear sat inside
+  /// [refreshAutoReconnectPause], behind `if (!state.autoReconnectPaused)
+  /// return false` — and a single refused bond, or a post-bond loop trip, never
+  /// pauses auto-reconnect. `state` is one long-lived [DeviceState], so a
+  /// working, syncing band kept telling the user to forget the bond and re-pair
+  /// for the rest of the process.
+  ///
+  /// Keyed on the round-trip rather than on `createBond()` succeeding, because
+  /// the bond succeeding does not prove the band accepts commands while a reply
+  /// does — and the connect setup issues GET_CLOCK immediately after the bond,
+  /// so on Android the evidence lands in the same setup either way.
+  /// [PostBondTimeoutLoopDetector] trips once and latches, so it is reset here
+  /// too: otherwise the guide could be cleared but never legitimately re-raised.
+  void _clearRepairGuideOnCommandReply() {
+    if (!state.needsRepairGuide) return;
+    state.needsRepairGuide = false;
+    _postBondLoop.reset();
+    onState(state);
+    _log('[RECONNECT] band answered a command — clearing the re-pair guide.');
   }
 
   // ── write (serialised through a single chain) ───────────────────────────────────
@@ -2681,7 +2724,7 @@ class BleEngine {
       }
       final r = _firmwareDecoder.decode(decodeTarget);
       if (r != null) {
-        _logHistoricalOptics(frame.inner, r);
+        _logHistoricalOptics(r);
         sample = Sample(
           tsEpoch: r.tsEpoch,
           counter: r.counter,
@@ -2774,28 +2817,7 @@ class BleEngine {
 
   void _absorbState(Decoded d) {
     final f = d.fields;
-    if (d.kind == 'cmd_response' && f['opcode'] == Cmd.getDataRange) {
-      // `range_oldest`/`range_newest` come from the reply's real field map.
-      // These used to come from a local byte-scan that took the min/max of every
-      // 4-byte window that looked like a unix time — which is how a cross-field
-      // read once landed as "newest" in 2034 and left `backlogRemains` true
-      // forever, chasing a target the band could never reach. The scanner was
-      // then given a tighter ceiling instead of being replaced, and it kept
-      // running alongside the correct value, feeding a different decision.
-      final oldest = (f['range_oldest'] as num?)?.toInt();
-      final newest = (f['range_newest'] as num?)?.toInt();
-      if (oldest != null) _strapHistoryOldestTs = oldest;
-      if (newest != null) _strapHistoryNewestTs = newest;
-      unawaited(
-        LocalDb.upsertSyncLedgerEntry(
-          status: 'range_seen',
-          metaPatch: {
-            'strap_history_oldest_ts': _strapHistoryOldestTs,
-            'strap_history_newest_ts': _strapHistoryNewestTs,
-          },
-        ),
-      );
-    }
+    if (d.kind == 'cmd_response') _clearRepairGuideOnCommandReply();
     // GET_ALARM_TIME readback is PARKED: the response byte layout isn't confirmed
     // (the decode assumed a leading revision byte before the epoch that the band
     // doesn't send → it returned a plausible-but-wrong epoch, e.g. showing 21:49
@@ -2971,9 +2993,25 @@ class BleEngine {
         _clockCorrectTries = 0; // latched — reset for the next drift episode
       }
     }
+    // THE ONE GET_DATA_RANGE consumer. `range_oldest`/`range_newest` come from
+    // the reply's real field map (protocol emits them together or not at all).
+    // They used to come from a local byte-scan that took the min/max of every
+    // 4-byte window that looked like a unix time — which is how a cross-field
+    // read once landed as "newest" in 2034 and left `backlogRemains` true
+    // forever, chasing a target the band could never reach. The scanner was
+    // then given a tighter ceiling instead of being replaced, and it kept
+    // running alongside the correct value, feeding a different decision.
+    //
+    // The same field map was then absorbed TWICE — once here behind
+    // isCorruptFutureRtc, and once in a sibling block that assigned
+    // `range_newest` straight into `_strapHistoryNewestTs` with no check at
+    // all. Protocol only screens to `_maxPlausibleUnix` (year 2100), so every
+    // junk value between now+1 day and 2100 reached the ungated path, pinned
+    // `backlogRemains` true in AppState._runSyncBurst and burned all 20
+    // backfill sessions on every foreground catch-up. One field map, one gate.
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {
-      final oldest = f['range_oldest'] as int;
-      final newest = f['range_newest'] as int;
+      final oldest = (f['range_oldest'] as num).toInt();
+      final newest = (f['range_newest'] as num).toInt();
       // GET_DATA_RANGE responses are documented to occasionally carry junk at
       // unstable offsets. Nothing previously sanity-checked `range_newest`
       // before it tightened RecordGate's session window for the whole
@@ -2985,15 +3023,34 @@ class BleEngine {
         _log(
           '[SYNC] GET_DATA_RANGE newest=$newest is implausibly far in the '
           'future — treating as a corrupt strap RTC read; NOT tightening '
-          'this session\'s plausibility window '
+          'this session\'s plausibility window, and NOT adopting it as the '
+          'backlog target '
           '(corrupt_ranges_total=$_corruptDataRangeCount).',
         );
       } else {
         _sessionOldestUnix = oldest;
         _sessionNewestUnix = newest;
+        _strapHistoryOldestTs = oldest;
+        _strapHistoryNewestTs = newest;
         state.dataRangeOldest = oldest;
         state.dataRangeNewest = newest;
         onState(state);
+        // A rejected read is not a range seen: the ledger row is written only
+        // for the value we actually adopted. Through the same best-effort
+        // wrapper as every other ledger write in this file — un-awaited and
+        // un-caught, a failed write surfaced as an unhandled async error
+        // instead of a log line.
+        unawaited(
+          _bestEffortLedgerWrite(
+            () => LocalDb.upsertSyncLedgerEntry(
+              status: 'range_seen',
+              metaPatch: {
+                'strap_history_oldest_ts': _strapHistoryOldestTs,
+                'strap_history_newest_ts': _strapHistoryNewestTs,
+              },
+            ),
+          ),
+        );
       }
     }
     if (d.kind == 'cmd_response' && f['hello'] is HelloInfo) {
@@ -3085,6 +3142,12 @@ class BleEngine {
     if (session == null || !session.connected) return;
     session.idleWatchdog?.cancel();
     session.historicalRetry?.cancel();
+    // The drain ended on the clock, not on a HISTORY_COMPLETE. Record that as
+    // the terminal here — the only place it is knowable. It used to be attempted
+    // in `_onOffloadFinished` behind a `!complete` flag that no call site ever
+    // passed, so a timed-out drain reported whatever terminal the previous burst
+    // had left behind (usually `success`).
+    _setHpsTerminal(_HpsTerminalKind.timeout, reason: reason);
     _setOffloadActive(false);
     if (session.historicalRetries >= _maxHistoricalRetriesPerSession) {
       _log('[SYNC] abort($reason) — already retried '
@@ -3352,7 +3415,9 @@ class BleEngine {
       // Records the plausibility gate silently rejected THIS burst (stale/
       // wandering-clock block — by design, "neither stored nor counted",
       // see RecordGate.admit) never reach onHistoricalRecord/
-      // onUndecodableRecord, so they never entered currentBurstPacketCount.
+      // onUndecodableRecord, so they never entered currentBurstTrafficCount.
+      // The baseline is reset per connection alongside the gate itself, so a
+      // HISTORY_END with no HISTORY_START before it cannot go negative here.
       final droppedThisBurst = _recordGate.dropped - _burstDroppedAtStart;
       final validated = expected == null ||
           d.validateBurst(
@@ -3395,7 +3460,6 @@ class BleEngine {
           '[SYNC] Burst packet-count mismatch (advisory, NOT blocking commit) '
           '(attempt ${d.consecutiveValidationFailures}, '
           'streak=$_burstMismatchStreak): expected=$expected, '
-          'actual=${d.currentBurstPacketCount}, '
           'dropped_this_burst=$droppedThisBurst, '
           'historical=${d.currentBurstHistoricalPacketCount}, '
           'traffic=${d.currentBurstTrafficCount}, '
@@ -3406,7 +3470,6 @@ class BleEngine {
           lastError: 'burst_packet_mismatch',
           metaPatch: {
             'expected_burst_packets': expected,
-            'actual_burst_packets': d.currentBurstPacketCount,
             'dropped_this_burst': droppedThisBurst,
             'historical_burst_packets': d.currentBurstHistoricalPacketCount,
             'traffic_burst_packets': d.currentBurstTrafficCount,
@@ -3461,7 +3524,7 @@ class BleEngine {
           d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
-        'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
+        'expected=${m.expectedPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
         'dropped_this_burst=$droppedThisBurstForLog '
@@ -3706,12 +3769,19 @@ class BleEngine {
       );
       _setHpsTerminal(_HpsTerminalKind.success, drain: d);
       _noteStored();
-      await _onOffloadFinished(complete: true);
+      await _onOffloadFinished();
     }
   }
 
   // ── post-offload policy: empty-sync, stuck-strap, auto-continue ──────────────
-  Future<void> _onOffloadFinished({required bool complete}) async {
+  /// Reached from the HISTORY_COMPLETE branch only — a drain that ends any
+  /// other way (link down, idle watchdog) records its own terminal and never
+  /// gets here. This used to take a `complete` flag that its single call site
+  /// always passed as `true`, so both arms guarded by it were dead: the
+  /// empty-sync block below always ran, and a `_HpsTerminalKind.timeout` arm at
+  /// the bottom never did (the watchdog abort now records that terminal where
+  /// the timeout actually happens).
+  Future<void> _onOffloadFinished() async {
     final d = _drain;
     if (d == null) return;
     final banked = d.recordsThisOffload > 0;
@@ -3730,16 +3800,18 @@ class BleEngine {
       _log('[SYNC] records banked — clearing syncClockLost/strapNeedsReboot.');
     }
 
-    if (complete) {
-      // Empty-sync: ≥3 consecutive console-only completed offloads ⇒ RTC lost.
-      if (_emptySync.recordCompletedSync(
-        bankedSensorRecords: banked,
-        consoleOnly: !banked,
-      )) {
-        state.syncClockLost = true;
-        onState(state);
-        _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
-      }
+    // Empty-sync: ≥3 consecutive console-only completed offloads ⇒ RTC lost.
+    // Completed only, deliberately: an aborted drain proves nothing about the
+    // strap's RTC, which is why the tracker's method is `recordCompletedSync`.
+    // `_emptyStreak` above carries the same completed-only semantics for the
+    // same reason.
+    if (_emptySync.recordCompletedSync(
+      bankedSensorRecords: banked,
+      consoleOnly: !banked,
+    )) {
+      state.syncClockLost = true;
+      onState(state);
+      _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
     }
 
     // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
@@ -3780,13 +3852,10 @@ class BleEngine {
       // nothing left to continue - this offload cycle is genuinely done
       // either way (clean completion or not), so maintenance traffic
       // (heartbeat/keepalive/RTC re-verify/live re-arm/battery poll) can
-      // resume. this used to only clear on the !complete sub-case below,
-      // so an ordinary clean completion with no more backlog left
-      // maintenance traffic silently paused for the rest of the connection.
+      // resume. this used to only clear on a `!complete` sub-case that no call
+      // site could reach, so an ordinary clean completion with no more backlog
+      // left maintenance traffic silently paused for the rest of the connection.
       _setOffloadActive(false);
-      if (!complete && _lastHpsTerminal == null) {
-        _setHpsTerminal(_HpsTerminalKind.timeout, drain: d);
-      }
     }
   }
 
@@ -4256,30 +4325,6 @@ class BleEngine {
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
   }
 
-  /// Signal strength of the live link, in dBm (negative; closer to zero is
-  /// stronger). Null whenever there is nothing to measure.
-  ///
-  /// Used by the find-my-band hunt. Note what this does NOT do: it never
-  /// scans. A hunt needs to BUZZ the band as well as track it, and buzzing
-  /// requires the connection — so a band we cannot reach is one we could not
-  /// help find anyway. Read straight off the connected device instead, which
-  /// also means the hunt costs nothing beyond one small GATT read per poll:
-  /// no radio mode change, no interference with an in-flight offload.
-  ///
-  /// Returns null rather than throwing on a mid-hunt disconnect; the caller
-  /// polls on a timer and a dropped sample must not blow up the screen. The
-  /// timeout matters because `readRssi` can hang on a link that is technically
-  /// still "connected" but is not passing traffic.
-  Future<int?> readRssi() async {
-    final s = _session;
-    if (s == null || !s.connected) return null;
-    try {
-      return await s.device.readRssi().timeout(const Duration(seconds: 3));
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
   /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
   /// DOES NOT change the displayed state — we stay in the single `listening` phase;
@@ -4711,7 +4756,10 @@ class DrainController {
   /// Buffer only when the atomic commit path exists. Unbuffered mode
   /// (test-only) must not look like it banked durable rows for trim.
   bool get _buffering => onCommit != null;
-  int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
+  /// Every frame received this burst, ALL types. There used to be a second
+  /// getter, `currentBurstPacketCount`, with the identical body — one
+  /// measurement presented in the mismatch log and in the sync ledger under two
+  /// labels as if the two were independent.
   int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
   String get currentBurstBreakdown => burstStats.breakdownString;
@@ -4776,11 +4824,9 @@ class DrainController {
 
   void onBurstConsole() => burstStats.onConsole();
 
-  void onBurstUnknown() => burstStats.onUnknown();
-
   /// [droppedThisBurst] = records the plausibility gate rejected during this
   /// same burst (stale/wandering-clock block) — never tallied into
-  /// [currentBurstPacketCount] (they're never stored), but the band's own
+  /// [currentBurstTrafficCount] (they're never stored), but the band's own
   /// [expectedPacketCount] counts them anyway since it just counts what it
   /// physically transmitted. Add them back in before comparing, or a burst
   /// that legitimately contains even one gate-rejected record can never
@@ -4792,7 +4838,7 @@ class DrainController {
   }) {
     if (burstPacketCountMatches(
       expectedPacketCount: expectedPacketCount,
-      actualBurstPacketCount: currentBurstPacketCount,
+      receivedTrafficCount: currentBurstTrafficCount,
       droppedThisBurst: droppedThisBurst,
     )) {
       consecutiveValidationFailures = 0;

@@ -227,8 +227,13 @@ class DeviceState {
   /// MarginalRadioDetector tripped: the BT radio can't sustain the R10/R11 raw
   /// stream — next connect should stick to standard HR only.
   bool standardHrFallback = false;
-  /// PostBondTimeoutLoopDetector tripped (#617): bond-then-instant-timeout loop —
-  /// surface the re-pair guide to the user.
+  /// PostBondTimeoutLoopDetector tripped (#617), or a createBond() refusal:
+  /// surface the re-pair guide to the user. Cleared by the first command the
+  /// band actually answers — the direct contradiction of "encryption is
+  /// blocking traffic". It used to be clearable only inside
+  /// refreshAutoReconnectPause, i.e. only when the bond refusals had ALSO
+  /// paused auto-reconnect, so in every other case a working band kept telling
+  /// the user to forget the bond for the rest of the process.
   bool needsRepairGuide = false;
   /// Monotonic count of bond REFUSALS this process (the createBond call the band
   /// rejects — link reachable but encryption denied). AppState feeds the delta

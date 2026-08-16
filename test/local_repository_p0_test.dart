@@ -6,10 +6,11 @@
 //     mean.round())` THROWS ArgumentError when lowerLimit > upperLimit. Two
 //     logged `start` markers 8 days apart is enough (a correction the user
 //     made, or a genuinely short cycle).
-// 10. getRecords() no longer reads day_result payloads at all — its day/night
-//     counts come from SQL. It used to `recentDayResults(3650)` (SELECT r.*,
-//     hr_curve + hypnogram + HRV series for TEN YEARS) and jsonDecode every one
-//     on the main isolate for what is only a scalar-extremes screen.
+// 10. getRecords() computes only `workouts_tracked` — the one key its only
+//     caller reads. It used to `recentDayResults(3650)` (SELECT r.*, hr_curve
+//     + hypnogram + HRV series for TEN YEARS) and jsonDecode every one on the
+//     main isolate; then day/night counts from SQL plus a full personal-record
+//     sweep; all of it for a screen that wanted an integer.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -89,8 +90,8 @@ void main() {
 
   // ── fix 10 ───────────────────────────────────────────────────────────────
   test(
-    'getRecords counts days/nights from SQL, with no payload decode — and a '
-    'corrupt bundle degrades instead of breaking the screen',
+    'getRecords answers the ONE key its caller reads, touching no day_result '
+    'payload at all',
     () async {
       String bundle(int? tstSec) => tstSec == null
           ? '{"scalars":{}}'
@@ -106,29 +107,15 @@ void main() {
       await LocalDb.putDayResult(
         dayId: '2026-01-02',
         algoVersion: 41,
-        payloadJson: bundle(25200),
-        windowJson: '{}',
-      );
-      await LocalDb.putDayResult(
-        dayId: '2026-01-03',
-        algoVersion: 41,
-        payloadJson: bundle(null), // wore it, never slept in it
-        windowJson: '{}',
-      );
-      await LocalDb.putDayResult(
-        dayId: '2026-01-04',
-        algoVersion: 41,
         payloadJson: '<<truncated write>>', // not JSON at all
         windowJson: '{}',
       );
 
       final records = await repo.getRecords();
-      expect(records['days_tracked'], 4);
-      expect(
-        records['nights_tracked'],
-        2,
-        reason: 'only days whose bundle records a real tst_sec',
-      );
+      // workout_screen reads ['workouts_tracked'] and nothing else, so nothing
+      // else is computed — the day/night counts, the personal records, the
+      // streaks and the resting-HR drift all had zero consumers.
+      expect(records.keys, ['workouts_tracked']);
       expect(records['workouts_tracked'], 0);
     },
   );

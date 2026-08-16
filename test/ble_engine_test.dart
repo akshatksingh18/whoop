@@ -73,7 +73,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 26,
-          actualBurstPacketCount: 26,
+          receivedTrafficCount: 26,
           droppedThisBurst: 0,
         ),
         isTrue,
@@ -86,7 +86,7 @@ void main() {
         expect(
           burstPacketCountMatches(
             expectedPacketCount: 50,
-            actualBurstPacketCount: 26,
+            receivedTrafficCount: 26,
             droppedThisBurst: 0,
           ),
           isFalse,
@@ -102,7 +102,7 @@ void main() {
         expect(
           burstPacketCountMatches(
             expectedPacketCount: 50,
-            actualBurstPacketCount: 26,
+            receivedTrafficCount: 26,
             droppedThisBurst: 24,
           ),
           isTrue,
@@ -115,7 +115,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 50,
-          actualBurstPacketCount: 26,
+          receivedTrafficCount: 26,
           droppedThisBurst: 10, // leaves a real 14-packet gap unexplained
         ),
         isFalse,
@@ -208,7 +208,7 @@ void main() {
       const expected = 50, received = 26, dropped = 24;
       final matches = burstPacketCountMatches(
         expectedPacketCount: expected,
-        actualBurstPacketCount: received,
+        receivedTrafficCount: received,
         droppedThisBurst: dropped,
       );
       final shortfall = burstPacketShortfall(

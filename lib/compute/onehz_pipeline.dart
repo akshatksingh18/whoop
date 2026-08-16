@@ -545,7 +545,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── curve series for the UI ────────────────────────────────────────────────
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
   final hypnogram = _hypnogramSegments(d);
-  final hrvTimeline = _hrvTimeline(nn, nnTimes);
+  // `nnTimes` is re-based to ~0 by `correctRr` (it sums RR intervals from a
+  // zero clock), so the timeline needs the wall-clock instant that clock starts
+  // at: the START of the first RR interval = its END stamp minus its own
+  // length. Without it the stored `t` was seconds-since-first-beat on a view
+  // (`v_series`) whose contract — and the coach prompt — say epoch seconds.
+  final hrvOriginMs = (d.sleepRrTsMs.isEmpty || d.sleepRrMs.isEmpty)
+      ? null
+      : d.sleepRrTsMs.first - d.sleepRrMs.first;
+  final hrvTimeline = _hrvTimeline(nn, nnTimes, hrvOriginMs);
   final strainCurve = _strainCurve(
     wakeHr,
     restingHr: rhrForTrimp,
@@ -843,6 +851,27 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     final state = Baselines.foldHistory(<double?>[
       for (final v in history) v,
     ], cfg);
+    // NO STATE → NO DEVIATION. `foldHistory` returns null when not one usable
+    // night has been folded; it used to hand back a state seeded at the
+    // MIDPOINT of the metric's physiological bounds, and z/delta/ratio/
+    // in_normal_range were then computed against a number nobody measured
+    // (z ≈ −13 on a first night). Today's reading still publishes — it IS a
+    // measurement — but the comparison withholds, with its reason.
+    if (state == null) {
+      return <String, dynamic>{
+        'baseline': null,
+        'spread': null,
+        'n_valid': 0,
+        'nights_since_update': 0,
+        'status': BaselineStatus.calibrating.name,
+        'value': today,
+        'z': null,
+        'delta': null,
+        'ratio': null,
+        'in_normal_range': null,
+        'note': 'no_baseline:have=0,need=1',
+      };
+    }
     final dev = today == null ? null : Baselines.deviation(today, state);
     return <String, dynamic>{
       ...state.toJson(),
@@ -902,6 +931,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'readiness_absent_diag': ?readinessAbsentDiag,
     'scalars': {
       'rhr': rhrScalar,
+      // NOCTURNAL-ONLY resting HR — the same `rhrToday` readiness uses, i.e.
+      // null unless a sleep session was actually detected. `rhr` above may be
+      // the DAYTIME fallback (see `nocturnalRhr` at the top of this file); it
+      // is fine for the general resting-HR card and useless as a TRIMP
+      // reference, where an awake "resting" HR ~20 bpm high silently inflates
+      // strain. The engine's second half recomputes strain from THIS key.
+      'rhr_nocturnal': rhrToday,
       // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.
       'rmssd': rmssdScalar,
       'rmssd_whole': rmssdWholeScalar,
@@ -1177,9 +1213,19 @@ List<Map<String, num>> _downsampleHr(List<int> tsSec, List<int> hr) {
   ];
 }
 
-/// HRV timeline: RMSSD over rolling ~5-min windows of cleaned NN, {t, v}.
-List<Map<String, num>> _hrvTimeline(List<double> nn, List<double> nnTimes) {
-  if (nn.length < 10 || nnTimes.length != nn.length) return const [];
+/// HRV timeline: RMSSD over rolling 5-min windows of cleaned NN, {t, v}.
+///
+/// `t` is EPOCH SECONDS. [originMs] is the wall clock at `nnTimes == 0` (see
+/// the call site); with no origin there is no honest x-axis, so nothing is
+/// emitted rather than a curve stamped in 1970.
+List<Map<String, num>> _hrvTimeline(
+  List<double> nn,
+  List<double> nnTimes,
+  double? originMs,
+) {
+  if (nn.length < 10 || nnTimes.length != nn.length || originMs == null) {
+    return const [];
+  }
   const winMs = 300000.0; // 5 min
   final out = <Map<String, num>>[];
   var lo = 0;
@@ -1187,6 +1233,11 @@ List<Map<String, num>> _hrvTimeline(List<double> nn, List<double> nnTimes) {
     while (nnTimes[i] - nnTimes[lo] > winMs) {
       lo++;
     }
+    // A FULL window, or nothing. `lo` cannot move until 5 min have elapsed, so
+    // before that `[lo..i]` is a partial window — the first point used to be an
+    // RMSSD over 10 beats (~8 s) drawn on a line documented as rolling 5-min
+    // windows, with nothing marking it as the outlier-prone sample it is.
+    if (nnTimes[i] - nnTimes[0] < winMs) continue;
     if (i - lo >= 10) {
       var ssd = 0.0;
       for (var k = lo + 1; k <= i; k++) {
@@ -1194,8 +1245,9 @@ List<Map<String, num>> _hrvTimeline(List<double> nn, List<double> nnTimes) {
         ssd += diff * diff;
       }
       final rmssd = math.sqrt(ssd / (i - lo));
-      if (out.isEmpty || nnTimes[i] - out.last['t']! * 1000 > 60000) {
-        out.add({'t': (nnTimes[i] / 1000).round(), 'v': _round(rmssd, 1)});
+      final tSec = ((originMs + nnTimes[i]) / 1000).round();
+      if (out.isEmpty || tSec - out.last['t']! > 60) {
+        out.add({'t': tSec, 'v': _round(rmssd, 1)});
       }
     }
   }

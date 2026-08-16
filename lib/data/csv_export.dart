@@ -207,10 +207,14 @@ const kCsvExportSets = <CsvExportSet>[
       'rest_sec',
       'note',
     ],
+    // Exercises live as a Dart constant (lib/ui2/activity/catalogue.dart), not
+    // in `exercise_def` — nothing inserts into that table — so `exercise` is
+    // the storage key, the same deliberate fallback the habits set documents
+    // above. The LEFT JOIN that used to be here could only ever miss.
     sql: '''
-      SELECT s.at_ts, s.session_id, COALESCE(e.label, s.exercise_key) AS exercise,
+      SELECT s.at_ts, s.session_id, s.exercise_key AS exercise,
              s.set_index, s.reps, s.load_kg, s.rpe, s.hold_sec, s.rest_sec, s.note
-      FROM strength_set s LEFT JOIN exercise_def e ON e.key = s.exercise_key
+      FROM strength_set s
       ORDER BY s.at_ts ASC, s.session_id ASC, s.seq ASC
     ''',
   ),
@@ -329,11 +333,13 @@ const _csvRunsKept = 2;
 
 /// Write the chosen [sets] to CSV files and return what landed.
 ///
-/// The output directory is WIPED first. These files are plaintext readiness,
-/// sleep, journal notes and lab results, and they were previously left in the
-/// temp directory indefinitely under a unique per-run stamp, so every export
-/// added another copy that nothing ever removed. One export's worth exists at
-/// a time now.
+/// The new run gets its own directory and older runs are then pruned to
+/// [_csvRunsKept] — so THIS run's files and the previous run's survive, and
+/// nothing older does. These files are plaintext readiness, sleep, journal
+/// notes and lab results, and they were previously left in the temp directory
+/// indefinitely under a unique per-run stamp, so every export added another
+/// copy that nothing ever removed. Two runs is the bound, not one: see
+/// [_csvRunsKept] for why an in-flight share sheet needs the previous run.
 Future<CsvExportResult> exportCsvFiles(
   List<CsvExportSet> sets, {
   DateTime? now,

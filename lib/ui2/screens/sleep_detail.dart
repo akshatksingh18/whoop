@@ -913,9 +913,9 @@ class _SleepDetailState extends State<SleepDetail> {
             clockOfTs(n['wake_ts'] as num?),
           ],
           legend: legend,
-          footnote: 'One lane per signal on one shared clock, each on its own '
-              'scale — they are different quantities and a shared axis would be '
-              'a lie. A break is a stretch the signal did not cover.',
+          // No footnote. The legend already names each lane and its unit, and
+          // the lanes are visibly separate — a paragraph explaining that they
+          // are separate was describing the picture instead of letting it work.
           child: CustomPaint(
               size: Size.infinite,
               painter: NightStack(series, colors, axes: axes)),

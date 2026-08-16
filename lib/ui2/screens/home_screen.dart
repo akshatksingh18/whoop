@@ -678,16 +678,23 @@ class _HomeScreenState extends State<HomeScreen> {
           why: 'Resting heart rate is read from sleep, and no sleep was '
               'recorded.'),
     );
-    add(
-      d.steps,
-      () => SignalCard(LucideIcons.footprints, C.green, 'Steps',
-          thousands(d.steps.value),
-          sub:
-              '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
-          onTap: () => go(c, const MetricDetail('steps'))),
-      () => StatusCard.forMetric('No step count today', d.steps,
-          why: 'Steps come from wrist motion while the band is worn.'),
-    );
+    // Steps keeps its tile whether or not a counter reported. Zero steps is a
+    // real reading — an unmoved counter — and it renders as 0, not as absence.
+    // When nothing counted at all the tile stays and says so in two words,
+    // rather than the whole card being replaced by a paragraph about wrist
+    // motion: the answer to "how many steps" is short either way.
+    cards.add(SignalCard(
+      LucideIcons.footprints,
+      C.green,
+      'Steps',
+      d.steps.value == null ? 'None' : thousands(d.steps.value),
+      sub: d.steps.value == null
+          ? 'NOT RECORDED'
+          : d.stepGoal <= 0
+              ? ''
+              : '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
+      onTap: () => go(c, const MetricDetail('steps')),
+    ));
     add(
       d.calories,
       () => SignalCard(LucideIcons.flame, C.orange, 'Active energy',

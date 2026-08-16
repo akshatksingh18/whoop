@@ -467,11 +467,11 @@ class _HealthScreenState extends State<HealthScreen> {
       final asOf = behind <= 0 ? '' : ' · as of ${axisDay(pts.last.t)}';
       return TrendCard(
         label,
-        key == 'sleep' ? hm(s.last) : _short(s.last),
+        key == 'sleep' ? hm(s.last) : metricValue(unit, s.last),
         key == 'sleep' ? '' : unit,
         base == null
             ? 'no baseline'
-            : (key == 'sleep' ? hm(delta.abs()) : _short(delta.abs())),
+            : (key == 'sleep' ? hm(delta.abs()) : metricValue(unit, delta.abs())),
         '${base == null ? 'first readings' : window}$asOf',
         win,
         col,
@@ -550,9 +550,6 @@ class _HealthScreenState extends State<HealthScreen> {
       ),
     ]);
   }
-
-  String _short(double v) =>
-      v.abs() >= 100 ? v.round().toString() : v.toStringAsFixed(1);
 
   String _hoursHm(num h) {
     final m = (h * 60).round();

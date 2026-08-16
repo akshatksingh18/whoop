@@ -505,11 +505,14 @@ class _MetricDetailState extends State<MetricDetail> {
       List<double?> series, List<double> vals) {
     final p = P.of(c);
     final now = vals.last;
-    // How old the number under the headline actually is. `metric_series` only
-    // gets a row on a day that derives, so after a sync gap the newest stored
-    // point can be days old — and it was being printed as though it were this
-    // morning's.
-    final behind = all.isEmpty ? null : daysBehind(all.last.t);
+    // WHICH DAY the number under the headline is from — always, not only when
+    // it is stale. A large figure sitting directly under 7/30/6M/1Y tabs reads
+    // as a summary of the selected range, and it is not one: it is the newest
+    // reading, which is the same number in every range. Dating it is what makes
+    // that unambiguous, and it is also the answer to "is there a today?" —
+    // `metric_series` gets a row only on a day that derives, so after a sync
+    // gap the newest stored point is days old.
+    final asOf = all.isEmpty ? '' : axisDay(all.last.t);
     // Trailing 28 days EXCLUDING the newest — the same window the data layer's
     // own baseline uses. Comparing a reading against a mean that contains it is
     // how a baseline quietly chases the value it is supposed to anchor.
@@ -520,7 +523,15 @@ class _MetricDetailState extends State<MetricDetail> {
         : const <double>[];
     final base =
         prior.isEmpty ? null : prior.reduce((a, b) => a + b) / prior.length;
-    final delta = base == null ? null : now - base;
+    final rawDelta = base == null ? null : now - base;
+    // A move that renders as nothing at this unit's precision is not a move.
+    // Without this, whole-bpm formatting prints "0 bpm above your 28-day
+    // average" under an arrow — a direction claimed for a difference too small
+    // for the unit to hold.
+    final delta = rawDelta == null ||
+            _fmt(spec, rawDelta.abs()) == _fmt(spec, 0)
+        ? null
+        : rawDelta;
     final good = delta == null
         ? true
         : (delta >= 0) == spec.higherBetter || delta.abs() < 0.0001;
@@ -535,13 +546,21 @@ class _MetricDetailState extends State<MetricDetail> {
               const SizedBox(width: S.x2),
               Text(spec.unit, style: F.body.copyWith(color: p.ink3)),
             ]),
-        if (behind != null && behind > 0) ...[
+        if (asOf.isNotEmpty) ...[
           const SizedBox(height: S.x1),
-          Text(
-              behind == 1
-                  ? 'Measured yesterday, not today'
-                  : 'Measured $behind days ago, not today',
-              style: F.cap.copyWith(color: p.ink3)),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Latest reading · $asOf',
+                style: F.cap.copyWith(color: p.ink3)),
+          ),
+        ],
+        if (delta == null && base != null) ...[
+          const SizedBox(height: S.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('In line with your ${prior.length}-day average',
+                style: F.cap.copyWith(color: p.ink3)),
+          ),
         ],
         if (delta != null) ...[
           const SizedBox(height: S.x2),
@@ -586,8 +605,10 @@ class _MetricDetailState extends State<MetricDetail> {
             // rather than array positions. It used to read the length of a
             // compacted list, which meant a chart spanning two months labelled
             // its left edge "30 days ago".
+            // Slot 0 is `length - 1` days behind today, not `length` — the
+            // last slot IS today. A 30-slot window spans 29 days of distance.
             xLabels: [
-              '${series.length} day${series.length == 1 ? '' : 's'} ago',
+              '${series.length - 1} day${series.length == 2 ? '' : 's'} ago',
               'Today',
             ],
             // The dots are already beside the big number two rows up; twice on
@@ -701,13 +722,7 @@ class _MetricDetailState extends State<MetricDetail> {
     return '${v >= 0 ? '+' : '−'}$s${unit == null || unit.isEmpty ? '' : ' $unit'}';
   }
 
-  String _fmt(MetricSpec spec, double v) {
-    if (spec.unit == 'min') return hm(v);
-    if (spec.unit == 'steps' || spec.unit == 'kcal') return thousands(v);
-    if (v.abs() >= 100) return v.round().toString();
-    if (v.abs() >= 10) return v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
-    return v.toStringAsFixed(1);
-  }
+  String _fmt(MetricSpec spec, double v) => metricValue(spec.unit, v);
 }
 
 // ═══════════════════ shared detail chrome ═══════════════════

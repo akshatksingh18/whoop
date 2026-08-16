@@ -13,6 +13,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show metricValue;
 import 'package:openstrap_edge/ui2/theme.dart';
 
 /// Captures what a painter actually drew, so an axis claim can be checked
@@ -759,5 +760,30 @@ void main() {
         expect(tester.takeException(), isNull, reason: '$b overflowed at 2x');
       }
     });
+  });
+
+  // A tenth of a bpm on a nocturnal minimum is precision the measurement does
+  // not have. One rule, so a reading is not `71.6` on the detail screen and
+  // `72` on the card that links to it.
+  group('metricValue precision', () {
+    test('measured units print at the precision they carry', () {
+      expect(metricValue('bpm', 71.6), '72');
+      expect(metricValue('ms', 43.27), '43');
+      expect(metricValue('%', 91.4), '91');
+      expect(metricValue('br/min', 14.27), '14.3');
+      expect(metricValue('°', 0.34), '0.3');
+      expect(metricValue('min', 450), '7h 30m');
+      expect(metricValue('steps', 8421), '8,421');
+      expect(metricValue('kcal', 512.4), '512');
+    });
+
+    test('unitless scores keep a decimal only while it means something', () {
+      expect(metricValue('', 12.44), '12.4'); // strain
+      expect(metricValue('', 1.83), '1.8'); // LF/HF
+      expect(metricValue('', 78.0), '78'); // readiness
+      expect(metricValue('', 104.6), '105');
+    });
+
+    test('null is absent, never zero', () => expect(metricValue('bpm', null), ''));
   });
 }

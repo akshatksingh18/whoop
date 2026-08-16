@@ -298,6 +298,36 @@ String thousands(num? v) {
   return b.toString();
 }
 
+/// A metric value at the precision its unit actually carries.
+///
+/// ONE rule, so the same reading is not `71.6` on the detail screen and `72`
+/// on the card that links to it. A tenth of a bpm on a nocturnal minimum — or
+/// of a millisecond on beat timing recovered from 1 Hz records — is precision
+/// the measurement does not have, and a number printing more digits than it
+/// knows reads as a more careful measurement than it is. Unitless scores keep
+/// a decimal only while they are small enough for one to mean something.
+String metricValue(String unit, num? value) {
+  if (value == null) return '';
+  final v = value.toDouble();
+  switch (unit) {
+    case 'min':
+      return hm(v);
+    case 'steps':
+    case 'kcal':
+      return thousands(v);
+    case 'bpm':
+    case 'ms':
+    case '%':
+      return v.round().toString();
+    case 'br/min':
+    case '°':
+      return v.toStringAsFixed(1);
+  }
+  if (v.abs() >= 100) return v.round().toString();
+  if (v.abs() >= 10) return v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
+  return v.toStringAsFixed(1);
+}
+
 /// Minute-of-day → "10:40 PM".
 ///
 /// ONE clock format in the app. This used to render 24-hour while Wellness

@@ -61,9 +61,7 @@ class HealthData {
   }
 
   /// Every one of these is a real envelope from the pipeline. They are read in
-  /// one place so Overview and Trends cannot disagree about the same night's
-  /// confidence — which is exactly what happened while Trends passed none and
-  /// took `TrendCard`'s `Conf.high` default.
+  /// one place so Overview and Trends cannot disagree about the same night.
   Metric get hrv {
     final b = today['hrv'];
     final rmssd = b is Map ? b['rmssd'] as num? : null;
@@ -297,7 +295,6 @@ class _HealthScreenState extends State<HealthScreen> {
           sub: sub,
           unit: unit,
           spark: spark,
-          conf: ConfX.of(m),
           onTap: () => go(c, MetricDetail(metricKey))));
     }
 
@@ -405,13 +402,7 @@ class _HealthScreenState extends State<HealthScreen> {
                         : splitUnit(u.weight(weight));
                     return MetricRow(LucideIcons.scale, C.teal, 'Weight', v,
                         unit: unit,
-                        sub: 'From your profile',
-                        // NO dots. Confidence is a statement about a
-                        // measurement, and nothing measured this — the user
-                        // typed it. Three green dots on a self-report is a
-                        // claim we cannot make, and `Conf.none` beside a
-                        // number the user knows to be right reads as a fault.
-                        conf: null);
+                        sub: 'From your profile');
                   }),
                 ),
                 const SizedBox(height: S.x3),
@@ -486,9 +477,6 @@ class _HealthScreenState extends State<HealthScreen> {
         col,
         up: delta >= 0,
         good: (delta >= 0) == higherBetter,
-        // The tier of the latest reading, not `TrendCard`'s `Conf.high`
-        // default — every trend on this tab used to claim three dots.
-        conf: ConfX.of(m),
         onTap: () => go(c, MetricDetail(metricKey)),
       );
     }
@@ -598,17 +586,12 @@ class _HealthScreenState extends State<HealthScreen> {
     final night = v.night;
 
     final rows = <Widget>[
-      // HR extremes and wear minutes are the recording itself — the min and max
-      // of the stored series, and the count of stored minutes. No estimator
-      // stands behind them, so there is no envelope to read and no tier to
-      // borrow; they are measurements. Everything below them reads its own.
       if (lo != null && hi != null)
         _vital(p, LucideIcons.heart, C.red, 'Heart rate',
-            '${lo.round()} – ${hi.round()}', 'bpm today', Conf.high),
+            '${lo.round()} – ${hi.round()}', 'bpm today'),
       if (resp != null)
         _vital(p, LucideIcons.wind, C.teal, 'Respiratory rate',
-            resp.toStringAsFixed(1), 'breaths / min',
-            ConfX.of(metricOf(respBlock))),
+            resp.toStringAsFixed(1), 'breaths / min'),
       if (skinTemp.value != null)
         _vital(
             p,
@@ -622,13 +605,11 @@ class _HealthScreenState extends State<HealthScreen> {
             // beside a heart rate in bpm, so it read as °C; and the sleep
             // scrub's "temperature" is a THIRD quantity again (raw ADC minus
             // that day's median), which is why neither may go unlabelled.
-            'SD from your own nights',
-            ConfX.of(skinTemp)),
+            'SD from your own nights'),
       if (worn != null)
         _vital(p, LucideIcons.watch, C.green, 'Wear time', hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
-            coverage == null ? 'today' : '${coverage.round()}% of the day',
-            Conf.high),
+            coverage == null ? 'today' : '${coverage.round()}% of the day'),
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -706,7 +687,6 @@ class _HealthScreenState extends State<HealthScreen> {
       xLabels: have.length < 2
           ? const []
           : ['${days - 1} nights ago', 'Last night'],
-      conf: ConfX.of(d.hrv),
       empty: have.length < 2
           ? const NoData(message: 'One night is not a trend yet')
           : null,
@@ -719,7 +699,7 @@ class _HealthScreenState extends State<HealthScreen> {
   }
 
   Widget _vital(P p, IconData i, Color col, String name, String value,
-          String unit, Conf conf) =>
+          String unit) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(children: [
@@ -739,8 +719,6 @@ class _HealthScreenState extends State<HealthScreen> {
                   style: F.over.copyWith(color: p.ink3)),
             ]),
           ),
-          const SizedBox(width: S.x3),
-          ConfDots(conf),
         ]),
       );
 

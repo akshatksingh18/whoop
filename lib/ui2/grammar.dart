@@ -16,15 +16,12 @@
 // widgets that encode the behavioural rules — Recommendation, GoalTrajectory,
 // Observation, Consistency.
 //
-// Three rules the components enforce so screens cannot break them:
+// Two rules the components enforce so screens cannot break them:
 //
 //   • ABSENCE IS A STATUS, NOT A DASH. There is no "empty" variant of Signal
 //     or Trend. A metric with no value renders `StatusCard(what, why, fix:)`.
 //     The audit found 102 bare `—` with no reason attached; the fix is that
 //     the component that would draw one does not exist.
-//   • CONFIDENCE IS `ConfDots`. Three dots, never a percentage, never a
-//     banner. `Conf.of(metric)` is the one mapping from the analytics tier, so
-//     screens don't each invent their own.
 //   • EVERY TAP TARGET IS ≥ 44 pt. Not by convention — `Pressable` is the only
 //     gesture primitive in lib/ui2 and `Scrubber` the only drag (the tokens
 //     test enforces both, `Listener` included), and `Pressable` applies the
@@ -38,70 +35,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/metric.dart';
 import 'charts.dart';
 import 'theme.dart';
-
-/// ── CONFIDENCE ────────────────────────────────────────────────────────────
-///
-/// Three states, matching what the analytics package actually emits. `AUTH`
-/// exists but is reserved for user-stated facts (a manual sleep override), and
-/// a user-stated fact is high confidence — it does not need a fourth dot.
-enum Conf { high, estimated, none }
-
-extension ConfX on Conf {
-  int get dots => const [3, 2, 0][index];
-  String get label =>
-      const ['High confidence', 'Estimated', 'Not measured'][index];
-  Color get tint => const [C.green, C.yellow, C.n400][index];
-
-  /// The single mapping from the analytics tier. `RELATIVE` is `estimated`:
-  /// the number is real and the trend is meaningful, but the absolute value
-  /// is not — which is exactly what two dots mean.
-  static Conf of(Metric? m) {
-    if (m == null || m.isEmpty) return Conf.none;
-    switch (m.tier) {
-      case MetricTier.authoritative:
-      case MetricTier.high:
-        return Conf.high;
-      case MetricTier.estimate:
-      case MetricTier.relative:
-        return Conf.estimated;
-      case MetricTier.unknown:
-        return m.confidence >= .8 ? Conf.high : Conf.estimated;
-    }
-  }
-}
-
-/// Confidence as a texture. Three dots, filled to the confidence level.
-class ConfDots extends StatelessWidget {
-  final Conf c;
-  final double size;
-  const ConfDots(this.c, {super.key, this.size = 5});
-
-  @override
-  Widget build(BuildContext ctx) {
-    final p = P.of(ctx);
-    return Semantics(
-      label: c.label,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        for (var i = 0; i < 3; i++)
-          Container(
-            margin: EdgeInsets.only(left: i == 0 ? 0 : 3),
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: i < c.dots ? p.on(c.tint) : const Color(0x00000000),
-              // The unfilled ring is `ink3`, not `line`: `line` measures
-              // 1.23:1 on a card, so `Conf.none` — three unfilled rings and
-              // nothing else — was the "not measured" state rendered as three
-              // outlines nobody could see.
-              border:
-                  i < c.dots ? null : Border.all(color: p.ink3, width: 1.2),
-            ),
-          ),
-      ]),
-    );
-  }
-}
 
 /// ── PRESSABLE ── the only gesture primitive in lib/ui2 ────────────────────
 ///
@@ -340,21 +273,17 @@ class SignalCard extends StatelessWidget {
   final Color color;
   final String label, value, unit, sub;
 
-  /// Null means confidence does not apply to this card — a count, or a value
-  /// the user typed in. Same contract as [MetricRow.conf]: do not default it,
-  /// because a default is a claim made on the caller's behalf.
-  final Conf? conf;
   final VoidCallback? onTap;
 
   const SignalCard(this.icon, this.color, this.label, this.value,
-      {super.key, this.unit = '', this.sub = '', this.conf, this.onTap});
+      {super.key, this.unit = '', this.sub = '', this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Surface(
       onTap: onTap,
-      semanticLabel: '$label, $value $unit. ${conf?.label ?? ''}'.trim(),
+      semanticLabel: '$label, $value $unit'.trim(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(icon, size: 16, color: p.on(color)),
@@ -365,13 +294,6 @@ class SignalCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
-          // The tier the caller measured. This card used to declare `conf` and
-          // then render it in no branch, so every glance card on Home computed
-          // a tier that reached nothing but the widget tree's dead weight.
-          if (conf != null) ...[
-            const SizedBox(width: S.x2),
-            ConfDots(conf!),
-          ],
         ]),
         const SizedBox(height: S.x3),
         Row(
@@ -475,7 +397,7 @@ class _Bar extends StatelessWidget {
 }
 
 // ══════════════════ C · TREND ══════════════════
-/// Something changing. Value → context → direction → confidence.
+/// Something changing. Value → context → direction.
 class TrendCard extends StatelessWidget {
   final String label, value, unit, delta, window;
   final bool up, good;
@@ -483,16 +405,11 @@ class TrendCard extends StatelessWidget {
   /// DENSE — see [MetricRow.spark].
   final List<double?> series;
   final Color color;
-  final Conf conf;
   final VoidCallback? onTap;
 
   const TrendCard(this.label, this.value, this.unit, this.delta, this.window,
       this.series, this.color,
-      {super.key,
-      this.up = false,
-      this.good = true,
-      this.conf = Conf.high,
-      this.onTap});
+      {super.key, this.up = false, this.good = true, this.onTap});
 
   @override
   Widget build(BuildContext c) {
@@ -515,10 +432,7 @@ class TrendCard extends StatelessWidget {
       semanticLabel:
           '$label, $value $unit, $delta $window, $judgement'.trim(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
-          ConfDots(conf),
-        ]),
+        Text(label, style: F.cap.copyWith(color: p.ink2)),
         const SizedBox(height: S.x2),
         // A realistic value — `7h 42m`, not the two characters the golden used
         // to pass on — pushed the delta and its arrow clean off the card: 202 px
@@ -765,7 +679,6 @@ class StatusCard extends StatelessWidget {
                 style:
                     F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
           ),
-          const ConfDots(Conf.none),
         ]),
         const SizedBox(height: S.x2),
         Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
@@ -838,7 +751,7 @@ class DeepDiveCard extends StatelessWidget {
 }
 
 // ══════════════════ ROWS — for lists, not cards ══════════════════
-/// A metric in a list: name → value → trend → confidence.
+/// A metric in a list: name → value → trend.
 class MetricRow extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -848,10 +761,6 @@ class MetricRow extends StatelessWidget {
   /// compacted list draws a gap as continuity.
   final List<double?> spark;
 
-  /// Null means confidence does not apply to this row — a value the user typed
-  /// in is neither measured well nor measured badly. Do not default it to a
-  /// value; three green dots on a hand-logged meal is a claim we cannot make.
-  final Conf? conf;
   final String? status;
   final VoidCallback? onTap;
 
@@ -860,7 +769,6 @@ class MetricRow extends StatelessWidget {
       this.sub = '',
       this.unit = '',
       this.spark = const [],
-      this.conf,
       this.status,
       this.onTap});
 
@@ -895,7 +803,7 @@ class MetricRow extends StatelessWidget {
             Text(unit, style: F.over.copyWith(color: p.ink3)),
           ],
         ]);
-    // The trailing slot is fixed only for the two things that genuinely have a
+    // The trailing slot is fixed only for the spark, which genuinely has a
     // fixed size. `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was
     // being silently clipped inside a 52 pt box before any scaling at all — so
     // it gets measured space instead.
@@ -903,17 +811,17 @@ class MetricRow extends StatelessWidget {
         ? Text(status!,
             style: F.over.copyWith(color: p.on(C.green)),
             textAlign: TextAlign.end)
-        : SizedBox(
-            width: 52,
-            height: 22,
-            child: spark.isEmpty
-                ? (conf == null ? const SizedBox.shrink() : ConfDots(conf!))
-                : CustomPaint(
+        : spark.isEmpty
+            ? const SizedBox.shrink()
+            : SizedBox(
+                width: 52,
+                height: 22,
+                child: CustomPaint(
                     painter: LineChart(spark, p.on(color), fill: false)),
-          );
+              );
     return Pressable(
       onTap: onTap,
-      semanticLabel: '$name, $value $unit. ${conf?.label ?? ''}'.trim(),
+      semanticLabel: '$name, $value $unit'.trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
         child: bigText(c)
@@ -1378,10 +1286,6 @@ class ChartFrame extends StatelessWidget {
   /// a route), and the legend and x range carry it instead.
   final List<double?> series;
 
-  /// Confidence for the series, shown as [ConfDots] in the header. Null means
-  /// the question doesn't apply (a count, a user-entered value).
-  final Conf? conf;
-
   /// Non-null means THERE IS NO DATA: rendered in place of the plot, axis and
   /// x-labels. `const NoData()` is the house form.
   final Widget? empty;
@@ -1396,7 +1300,6 @@ class ChartFrame extends StatelessWidget {
     this.xLabels = const [],
     this.legend = const [],
     this.footnote,
-    this.conf,
     this.empty,
     this.series = const [],
   });
@@ -1454,21 +1357,15 @@ class ChartFrame extends StatelessWidget {
         overflow: TextOverflow.ellipsis);
     final measure = Text(unit, style: F.over.copyWith(color: p.ink3));
     if (!stacked) {
-      // Centred, not baseline-aligned: ConfDots has no baseline to align to.
       return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Expanded(child: name),
         const SizedBox(width: S.x2),
         measure,
-        if (conf != null) ...[const SizedBox(width: S.x2), ConfDots(conf!)],
       ]);
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Expanded(child: name),
-        if (conf != null) ...[const SizedBox(width: S.x2), ConfDots(conf!)],
-      ]),
-      measure,
-    ]);
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [name, measure]);
   }
 
   @override
@@ -1514,7 +1411,6 @@ class ChartFrame extends StatelessWidget {
       label: [
         title,
         'measured in $unit',
-        if (conf != null) conf!.label,
         ?_spoken(),
         if (xLabels.length > 1) 'from ${xLabels.first} to ${xLabels.last}',
         if (legend.isNotEmpty)

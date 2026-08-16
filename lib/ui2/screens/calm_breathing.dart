@@ -421,7 +421,6 @@ class _Result extends StatelessWidget {
             'Cardiac coherence',
             m!.value!.toStringAsFixed(0),
             sub: 'HOW STRONGLY YOUR HEART RATE FOLLOWED THE PACE',
-            conf: ConfX.of(m),
           ),
       ],
     );

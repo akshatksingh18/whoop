@@ -108,17 +108,6 @@ all of them to zero at this one gate. Never start a `repeat()`.
 
 ## Components — `grammar.dart`
 
-### Confidence
-
-```dart
-enum Conf { high, estimated, none }
-ConfX.of(Metric? m) -> Conf     // the ONE mapping from the analytics tier
-ConfDots(Conf c, {double size = 5})
-```
-
-`AUTH`/`HIGH` → `high`; `ESTIMATE`/`RELATIVE` → `estimated`; absent → `none`.
-Confidence is **always** these three dots. Never a percentage, never a banner.
-
 ### Pressable — the only gesture primitive
 
 ```dart
@@ -152,8 +141,7 @@ Section(String title, Widget child, {String? action, VoidCallback? onAction})
 ```dart
 // A · one number, glanceable, for grids
 SignalCard(IconData icon, Color color, String label, String value,
-           {String unit = '', String sub = '', Conf? conf,
-            VoidCallback? onTap})
+           {String unit = '', String sub = '', VoidCallback? onTap})
 
 // B · moving toward a goal
 ProgressCard(String label, String value, String target, double frac,
@@ -162,8 +150,7 @@ ProgressCard(String label, String value, String target, double frac,
 // C · changing over time
 TrendCard(String label, String value, String unit, String delta,
           String window, List<double> series, Color color,
-          {bool up = false, bool good = true, Conf conf = Conf.high,
-           VoidCallback? onTap})
+          {bool up = false, bool good = true, VoidCallback? onTap})
 
 // D · something the system noticed
 InsightCard(String headline, String reason,
@@ -196,7 +183,7 @@ fixes it.
 ```dart
 MetricRow(IconData icon, Color color, String name, String value,
           {String sub = '', String unit = '', List<double> spark = const [],
-           Conf? conf, String? status, VoidCallback? onTap})
+           String? status, VoidCallback? onTap})
 
 InlineMetrics(List<(String label, String value, Color color)> items)
 ```
@@ -321,7 +308,6 @@ ChartFrame({
   List<String> xLabels = const [],       // first flush left, last flush right
   List<(String, Color)> legend = const [],
   String? footnote,             // 'Your usual range 52–64 bpm'
-  Conf? conf,                   // ConfDots in the header
   Widget? empty,                // non-null MEANS NO DATA — `const NoData()`
   List<double?> series = const [],   // the SPOKEN version of the chart
 })

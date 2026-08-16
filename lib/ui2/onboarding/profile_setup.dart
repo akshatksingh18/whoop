@@ -288,7 +288,6 @@ class UnlockContract extends StatelessWidget {
                 style: F.body
                     .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
           ),
-          const ConfDots(Conf.none),
         ]),
         const SizedBox(height: S.x2),
         Text('Opens ${formatDay(open)}', style: F.n24.copyWith(color: p.ink)),

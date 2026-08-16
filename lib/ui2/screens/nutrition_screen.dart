@@ -242,7 +242,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
           // The step is the spec's, and `_addWater` already reads it from
           // there. Two copies of one constant is one copy too many.
           sub: 'TAP TO ADD ${_waterStep.round()} ML',
-          conf: _waterMl == null ? Conf.none : Conf.high,
           onTap: _addWater,
         ),
         if (day != null && day.logged && day.kcal.isFloor) ...[
@@ -513,7 +512,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 _burned?.value == null ? 'Not measured' : '${_burned!.value!.round()}',
                 unit: _burned?.value == null ? '' : 'kcal',
                 sub: 'TODAY, FROM HEART RATE AND YOUR PROFILE',
-                conf: ConfX.of(_burned),
               ),
             ],
           ),
@@ -748,6 +746,5 @@ class _Mean extends StatelessWidget {
     value == null ? 'Not recorded' : value!.round().toString(),
     unit: value == null ? '' : unit,
     sub: 'MEAN OF $days COMPLETE DAY${days == 1 ? '' : 'S'}',
-    conf: value == null ? Conf.none : Conf.high,
   );
 }

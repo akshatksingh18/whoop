@@ -510,8 +510,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         elevation: 0,
         color: p.card2,
         child: Row(children: [
-          const ConfDots(Conf.estimated, size: 6),
-          const SizedBox(width: S.x3),
           Expanded(
             child: Text(
                 widget.weightKg == null
@@ -814,7 +812,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 height: 130,
                 yAxis: axis,
                 xLabels: const ['Start', 'Finish'],
-                conf: Conf.estimated,
                 footnote: 'Altitude comes from the GPS fixes, which are less '
                     'certain vertically than horizontally.',
                 series: r.elevationM,
@@ -866,7 +863,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       unit: 'bpm',
       height: height,
       yAxis: axis,
-      conf: Conf.high,
       xLabels: ['Start', hms(r.duration)],
       footnote: hard == null
           ? null
@@ -929,8 +925,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: F.over.copyWith(color: p.ink3))),
-                            const SizedBox(width: S.x2),
-                            const ConfDots(Conf.estimated, size: 4),
                           ]),
                         ]),
                   ),
@@ -1268,10 +1262,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   // ─────────────────── GRAPHS ───────────────────
   List<Widget> _graphs(BuildContext c, P p) {
-    final series = <(String, String, Color, List<double?>, Conf)>[
-      if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr, Conf.high),
+    final series = <(String, String, Color, List<double?>)>[
+      if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr),
       if (r.elevationM.length > 1)
-        ('Elevation', 'm', C.teal, r.elevationM, Conf.estimated),
+        ('Elevation', 'm', C.teal, r.elevationM),
     ];
     if (series.isEmpty) {
       return [
@@ -1296,7 +1290,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 unit: g.$2,
                 height: 110,
                 yAxis: axis,
-                conf: g.$5,
                 xLabels: ['Start', hms(r.duration)],
                 series: g.$4,
                 child: CustomPaint(

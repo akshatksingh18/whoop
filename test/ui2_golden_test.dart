@@ -78,7 +78,7 @@ Map<String, Widget> _cases() => {
           )),
       'metric_row': const Column(children: [
         MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature', '+0.3',
-            sub: 'RELATIVE TO BASELINE', unit: '°', conf: Conf.estimated),
+            sub: 'RELATIVE TO BASELINE', unit: '°'),
         // A long name, a thousands-separated value and a word in the trailing
         // slot — 'ON TRACK' needs 92 pt at 1.0x and was clipped inside a fixed
         // 52 pt box before any scaling at all.
@@ -105,13 +105,6 @@ Map<String, Widget> _cases() => {
       ),
       'consistency': const Consistency(
           18, 24, 'Nights with a full sleep record', C.domHealth),
-      'conf_dots': const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ConfDots(Conf.high),
-            ConfDots(Conf.estimated),
-            ConfDots(Conf.none)
-          ]),
       'pill_row': const Wrap(spacing: S.x2, runSpacing: S.x2, children: [
         Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
         Pill('Relative', C.purple),
@@ -159,7 +152,6 @@ Map<String, Widget> _chartCases() {
           yAxis: AxisSpec.of(rhr, floor: 40),
           xLabels: const ['30 Jul', '14 Aug', 'Today'],
           footnote: 'Your usual range is 52–64 bpm.',
-          conf: Conf.high,
           series: rhr,
           child: CustomPaint(
             size: Size.infinite,
@@ -178,7 +170,6 @@ Map<String, Widget> _chartCases() {
           height: 110,
           yAxis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
           xLabels: const ['Mon', 'Thu', 'Sun'],
-          conf: Conf.high,
           series: minutes,
           child: CustomPaint(
             size: Size.infinite,
@@ -197,7 +188,6 @@ Map<String, Widget> _chartCases() {
           height: 96,
           xLabels: const ['23:10', '03:00', '06:40'],
           legend: Hypnogram.legend(p),
-          conf: Conf.estimated,
           footnote: 'Deep sleep is inferred from heart-rate flatness.',
           child: CustomPaint(size: Size.infinite, painter: Hypnogram(night, p)),
         ),

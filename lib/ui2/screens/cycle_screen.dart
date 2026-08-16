@@ -284,10 +284,6 @@ class _CycleTabState extends State<CycleTab> {
                 style: F.over.copyWith(color: p.ink3, height: 1.4)),
           ]),
         ),
-        const SizedBox(width: S.x3),
-        // A count-of-gaps prediction is an estimate at every sample size, and
-        // it says so with the same three dots every other number uses.
-        const ConfDots(Conf.estimated),
       ]),
     );
   }
@@ -323,9 +319,6 @@ class _CycleTabState extends State<CycleTab> {
         height: 120,
         yAxis: axis,
         xLabels: axis == null ? const [] : ['Day 1', 'Day $last'],
-        // No dots: the overlay carries bare scalars, not the envelopes their
-        // tiers live in, and a hardcoded `Conf.high` would be a confidence
-        // this screen invented.
         footnote: 'Your own nightly resting rate across this cycle. '
             'Descriptive only.',
         empty: axis == null

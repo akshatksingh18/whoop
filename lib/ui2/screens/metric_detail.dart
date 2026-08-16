@@ -13,7 +13,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/local_repository.dart';
-import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -334,16 +333,11 @@ class MetricData {
   /// what decides which range buttons exist.
   final int daysAvailable;
 
-  /// Today's own envelope for this metric, when today carries one. The chart
-  /// points are bare numbers; the tier has to come from somewhere real.
-  final Metric latest;
-
   const MetricData({
     this.series = const [],
     this.percentile,
     this.movers = const [],
     this.daysAvailable = 0,
-    this.latest = Metric.empty,
   });
 
   static Future<MetricData> load(LocalRepository repo, String key) async {
@@ -351,7 +345,6 @@ class MetricData {
     if (spec.suppress != null) return const MetricData();
     final chart = await repo.getChart(spec.chartKey);
     final days = await repo.availableDays();
-    final today = await repo.getToday();
     final outcome = _outcomeOf[key];
 
     Map<String, dynamic>? pct;
@@ -373,34 +366,8 @@ class MetricData {
       percentile: pct,
       movers: movers,
       daysAvailable: days.length,
-      latest: todayMetric(today, key),
     );
   }
-}
-
-/// Today's envelope for a metric key, or `Metric.empty` when today does not
-/// carry one. Most keys are scalars under `daily`; four live in their own
-/// blocks and one of those is keyed by its own name rather than `value`.
-Metric todayMetric(Map<String, dynamic> today, String key) {
-  switch (key) {
-    case 'hrv':
-      final b = today['hrv'];
-      final rmssd = b is Map ? b['rmssd'] as num? : null;
-      if (rmssd == null || b is! Map) return Metric.empty;
-      return Metric.parse(
-          {...b.cast<String, dynamic>(), 'value': rmssd, 'unit': 'ms'});
-    case 'sleep':
-      final b = today['sleep'];
-      return metricOf(b is Map ? b['duration_min'] : null);
-    case 'resp_rate':
-      return metricOf(today['resp']);
-    case 'stress':
-      return metricOf(today['stress']);
-    case 'skin_temp':
-      return metricOf(today['skin_temp']);
-  }
-  final daily = today['daily'];
-  return metricOf(daily is Map ? daily[key] : null);
 }
 
 class MetricDetail extends StatefulWidget {
@@ -523,7 +490,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals, d.latest),
+        _hero(c, spec, all, series, vals),
         Section('Your normal range', _range3(c, spec, vals, d.percentile)),
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
@@ -533,9 +500,9 @@ class _MetricDetailState extends State<MetricDetail> {
     ]);
   }
 
-  // ── value → context → trend → confidence ──
+  // ── value → context → trend ──
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
-      List<double?> series, List<double> vals, Metric latest) {
+      List<double?> series, List<double> vals) {
     final p = P.of(c);
     final now = vals.last;
     // How old the number under the headline actually is. `metric_series` only
@@ -567,11 +534,6 @@ class _MetricDetailState extends State<MetricDetail> {
               Text(_fmt(spec, now), style: F.n48.copyWith(color: p.ink)),
               const SizedBox(width: S.x2),
               Text(spec.unit, style: F.body.copyWith(color: p.ink3)),
-              const Spacer(),
-              // Every metric on this screen used to claim three filled dots.
-              // When today carries no envelope for this key there is no tier
-              // to show, so nothing is shown — Conf.none would be a claim too.
-              if (!latest.isEmpty) ConfDots(ConfX.of(latest), size: 6),
             ]),
         if (behind != null && behind > 0) ...[
           const SizedBox(height: S.x1),

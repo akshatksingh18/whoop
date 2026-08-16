@@ -282,12 +282,6 @@ class ActivityRow extends StatelessWidget {
               ? '${a.met.toStringAsFixed(1)} MET'
               : '$kcal kcal / 30 min',
               style: F.over.copyWith(color: p.ink3)),
-          // A MET figure is an estimate wherever it appears, including in a
-          // list row with no room for the sentence that says so.
-          if (kcal != null) ...[
-            const SizedBox(width: S.x1),
-            const ConfDots(Conf.estimated, size: 4),
-          ],
           const SizedBox(width: S.x2),
           Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
         ]),

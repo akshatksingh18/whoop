@@ -23,7 +23,6 @@ import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
-import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'calm_breathing.dart';
@@ -190,8 +189,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                   score.round().toString(),
                   unit: '/100',
                   sub: (level ?? '').toUpperCase(),
-                  // The block is a full envelope — value, confidence, tier.
-                  conf: ConfX.of(Metric.parse(_stress['stress'])),
                 ),
         ),
       ],
@@ -300,7 +297,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                         C.blue,
                         'Tonight\'s need',
                         _hm(needSec / 60),
-                        conf: _confOf(coachMap, 'need'),
                       ),
                       // Null here means "we do not know", which is why it is a
                       // missing row rather than "+0 min".
@@ -310,7 +306,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           C.orange,
                           'Sleep debt',
                           _hm(debtH * 60),
-                          conf: _confOf(_insights, 'sleep_debt'),
                         ),
                       if (strainMin != null)
                         MetricRow(
@@ -319,9 +314,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           'Added for strain',
                           '${strainMin.round()}',
                           unit: 'min',
-                          // A plain minute adjustment the coach emits beside
-                          // the need it adjusts — it carries that need's tier.
-                          conf: _confOf(coachMap, 'need'),
                         ),
                       if (napMin != null)
                         MetricRow(
@@ -330,7 +322,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           'Credited from naps',
                           '${napMin.round()}',
                           unit: 'min',
-                          conf: _confOf(coachMap, 'need'),
                         ),
                       if (bedMin != null)
                         MetricRow(
@@ -338,7 +329,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           C.indigo,
                           'Target bedtime',
                           formatMinuteOfDay(bedMin.round()),
-                          conf: _confOf(coachMap, 'bedtime'),
                         ),
                       if (wakeMin != null)
                         MetricRow(
@@ -346,7 +336,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           C.orange,
                           'Target wake',
                           formatMinuteOfDay(wakeMin.round()),
-                          conf: _confOf(coachMap, 'wake'),
                         ),
                     ],
                   ),
@@ -583,22 +572,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
 /// Pull a number out of a nested `Metric` envelope whose `value` is itself an
 /// object — `{value: {need_sec: …}}`. Returns null rather than parsing the
 /// envelope as a scalar, which would read a real value object as an absence.
-/// The stated confidence of the envelope a nested field came out of. Every
-/// Recovery row used to pass a literal `Conf.estimated` next to a number the
-/// pipeline had already rated.
-Conf _confOf(Map<String, dynamic>? blk, String key) {
-  final m = blk?[key];
-  if (m is! Map || m['value'] == null) return Conf.none;
-  final env = Metric.parse(m);
-  return ConfX.of(Metric(
-    // The value is real — it is one field down, where Metric.parse cannot see
-    // it. Only the tier and confidence are being read here.
-    value: 1,
-    confidence: env.confidence == 0 ? 1 : env.confidence,
-    tier: env.tier,
-  ));
-}
-
 double? _nested(Map<String, dynamic>? blk, String key, String field) {
   final m = blk?[key];
   if (m is! Map) return null;

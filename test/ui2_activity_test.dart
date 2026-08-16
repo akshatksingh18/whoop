@@ -492,11 +492,6 @@ void main() {
             Brightness.light,
             1.0));
         await tester.pumpAndSettle();
-        expect(
-            find.byWidgetPredicate(
-                (x) => x is ConfDots && x.c == Conf.estimated),
-            findsWidgets,
-            reason: 'a MET-derived calorie is never a bare number');
         // No error bar is quoted, because nothing computes one. The "±15%"
         // this screen used to print had no estimator behind it, and the
         // Workout tab says so in as many words two taps away.

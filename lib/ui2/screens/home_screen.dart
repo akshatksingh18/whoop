@@ -111,8 +111,8 @@ Map<String, dynamic>? envValue(Object? raw) {
 }
 
 /// A scalar lifted out of an object-valued envelope, wearing that envelope's
-/// honesty (tier, confidence, note) so `ConfDots` and `StatusCard.forMetric`
-/// still work on it.
+/// honesty (tier, confidence, note) so `StatusCard.forMetric` still works on
+/// it.
 Metric envMetric(Object? raw, num? scalar, {String? unit}) {
   final m = raw is Map ? raw.cast<String, dynamic>() : const <String, dynamic>{};
   final env = Metric.parse({...m, 'value': scalar});
@@ -126,23 +126,6 @@ Metric envMetric(Object? raw, num? scalar, {String? unit}) {
           inputsUsed: env.inputsUsed,
           note: env.note,
         );
-}
-
-/// The confidence of an envelope whose value is a LABEL or an object rather
-/// than a number — chronotype, a rhythm class. The tier and confidence beside
-/// it are real measurements of that classification; only the value is not a
-/// number. Returns `Conf.none` when the envelope has no value at all.
-///
-/// This exists so no screen has to put a fake `1` in the value slot to make
-/// the dots light up.
-Conf confOfEnv(Object? raw) {
-  if (raw is! Map || raw['value'] == null) return Conf.none;
-  final env = Metric.parse(raw);
-  return ConfX.of(Metric(
-    value: 1,
-    confidence: env.confidence == 0 ? 1 : env.confidence,
-    tier: env.tier,
-  ));
 }
 
 /// One stored chart point: `t` is the epoch SECONDS `getChart` stamps on it
@@ -678,8 +661,9 @@ class _HomeScreenState extends State<HomeScreen> {
     add(
       d.sleepMin,
       () => SignalCard(LucideIcons.moon, C.blue, 'Sleep',
-          hm(d.sleepMin.value), sub: _sleepWord(d.sleepEff.value),
-          conf: ConfX.of(d.sleepMin), onTap: () => go(c, const SleepDetail())),
+          hm(d.sleepMin.value),
+          sub: _sleepWord(d.sleepEff.value),
+          onTap: () => go(c, const SleepDetail())),
       () => StatusCard.forMetric('No sleep last night', d.sleepMin,
           why: 'No night long enough to score was recorded.'),
     );
@@ -689,7 +673,6 @@ class _HomeScreenState extends State<HomeScreen> {
           '${d.rhr.value!.round()}',
           unit: 'bpm',
           sub: 'Resting',
-          conf: ConfX.of(d.rhr),
           onTap: () => go(c, const MetricDetail('resting_hr'))),
       () => StatusCard.forMetric('No resting heart rate', d.rhr,
           why: 'Resting heart rate is read from sleep, and no sleep was '
@@ -701,7 +684,6 @@ class _HomeScreenState extends State<HomeScreen> {
           thousands(d.steps.value),
           sub:
               '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
-          conf: ConfX.of(d.steps),
           onTap: () => go(c, const MetricDetail('steps'))),
       () => StatusCard.forMetric('No step count today', d.steps,
           why: 'Steps come from wrist motion while the band is worn.'),
@@ -714,7 +696,6 @@ class _HomeScreenState extends State<HomeScreen> {
           sub: d.caloriesTotal.value == null
               ? 'Estimated'
               : '${thousands(d.caloriesTotal.value)} total',
-          conf: ConfX.of(d.calories),
           onTap: () => go(c, const MetricDetail('calories'))),
       () => StatusCard.forMetric('No energy estimate', d.calories,
           why: 'Estimated from heart rate. Needs your weight and age.'),

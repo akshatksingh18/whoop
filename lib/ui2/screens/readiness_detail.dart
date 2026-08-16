@@ -150,8 +150,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             elevation: 0,
             color: p.card2,
             child: Row(children: [
-              ConfDots(ConfX.of(d.readiness), size: 6),
-              const SizedBox(width: S.x3),
               Expanded(
                 child: Text(
                   '${d.inputsUsed}/${d.breakdown.length} inputs · missing ones '
@@ -216,7 +214,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       height: 120,
       yAxis: axis,
       xLabels: ['${win.length} day${win.length == 1 ? '' : 's'} ago', 'Today'],
-      conf: ConfX.of(d.readiness),
       series: win,
       child: CustomPaint(
         size: Size.infinite,
@@ -266,22 +263,17 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 style: F.over.copyWith(color: p.ink3)),
           ]),
         ),
-        const SizedBox(width: S.x3),
-        // No contribution number means no number — three grey dots, the same
-        // absence affordance an unused input gets. The branch that printed a
-        // bare em-dash here was unreachable from the producer
-        // (`readiness_glassbox.dart` types `weightedContribution` as a
-        // non-null double) but it was still the one place in the app that
-        // could render one, and the sub-line above says which case it is.
-        if (!used || contribution == null)
-          const ConfDots(Conf.none)
-        else
+        // No contribution number means no number — never a bare em-dash. The
+        // sub-line above says which case it is.
+        if (used && contribution != null) ...[
+          const SizedBox(width: S.x3),
           Text(
             '${contribution >= 0 ? '+' : '−'}'
             '${contribution.abs().toStringAsFixed(1)}',
             style: F.n17.copyWith(
                 color: p.on(contribution >= 0 ? C.green : C.orange)),
           ),
+        ],
       ]),
     );
   }

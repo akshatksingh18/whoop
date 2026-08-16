@@ -504,10 +504,7 @@ class _HistoryRow extends StatelessWidget {
               child: _st(
                   p,
                   w.calories == null ? 'Not costed' : grouped(w.calories!),
-                  'Calories · kcal',
-                  // Heart rate, body mass and a published rate — an estimate
-                  // wherever it is printed, including in a list row.
-                  conf: w.calories == null ? null : Conf.estimated)),
+                  'Calories · kcal')),
           Expanded(
               child: _st(p, w.maxHr == null ? 'No HR' : '${w.maxHr}',
                   'Max HR · bpm')),
@@ -516,7 +513,7 @@ class _HistoryRow extends StatelessWidget {
     );
   }
 
-  Widget _st(P p, String v, String l, {Conf? conf}) => Column(
+  Widget _st(P p, String v, String l) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(l,
@@ -524,15 +521,10 @@ class _HistoryRow extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis),
           const SizedBox(height: S.x1),
-          Row(children: [
-            Flexible(
-                child: Text(v,
-                    style: F.n17.copyWith(color: p.ink), maxLines: 1)),
-            if (conf != null) ...[
-              const SizedBox(width: S.x1),
-              ConfDots(conf, size: 4),
-            ],
-          ]),
+          Text(v,
+              style: F.n17.copyWith(color: p.ink),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
         ],
       );
 }

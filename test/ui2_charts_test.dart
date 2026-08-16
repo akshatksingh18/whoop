@@ -614,7 +614,6 @@ void main() {
         yAxis: const AxisSpec(min: 40, max: 80, format: axisInt),
         xLabels: const ['7 days ago', 'Today'],
         footnote: 'Your usual range 52–64 bpm',
-        conf: Conf.high,
         child: CustomPaint(painter: LineChart(const [52.0, 61.0], C.blue)),
       )));
 
@@ -707,7 +706,6 @@ void main() {
         unit: 'bpm',
         yAxis: AxisSpec.of(const [52.0, 48.0, 61.0], floor: 40),
         xLabels: const ['30 Jul', 'Today'],
-        conf: Conf.high,
         footnote: 'Your usual range is 52-64 bpm.',
         series: const [52.0, null, 48.0, 61.0],
         child: CustomPaint(
@@ -753,7 +751,6 @@ void main() {
             xLabels: const ['22:30', '02:00', '05:30', '07:10'],
             legend: ZoneBar.legend(P(b == Brightness.dark)),
             footnote: 'Relative to your own 14-night baseline.',
-            conf: Conf.estimated,
             child: CustomPaint(painter: LineChart(const [40.0, 90.0], C.teal)),
           ),
           scale: 2,

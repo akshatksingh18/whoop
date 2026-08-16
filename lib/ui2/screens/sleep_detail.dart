@@ -666,8 +666,6 @@ class _SleepDetailState extends State<SleepDetail> {
               Text(hm(need), style: F.n34.copyWith(color: p.ink)),
               const SizedBox(width: S.x2),
               Text('needed tonight', style: F.cap.copyWith(color: p.ink3)),
-              const Spacer(),
-              ConfDots(ConfX.of(d.need)),
             ]),
         const SizedBox(height: S.x4),
         InlineMetrics([

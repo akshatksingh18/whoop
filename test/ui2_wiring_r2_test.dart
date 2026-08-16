@@ -279,27 +279,6 @@ void main() {
     });
   });
 
-  // ── a card that takes a confidence has to draw it ──
-  group('SignalCard', () {
-    Widget frame(Widget w) => MaterialApp(
-        theme: buildTheme(Brightness.light), home: Scaffold(body: w));
-
-    testWidgets('renders the tier it was handed', (t) async {
-      await t.pumpWidget(frame(const SignalCard(
-          Icons.favorite, C.red, 'Heart rate', '52',
-          unit: 'bpm', conf: Conf.estimated)));
-      expect(find.byType(ConfDots), findsOneWidget);
-      expect(t.widget<ConfDots>(find.byType(ConfDots)).c, Conf.estimated);
-    });
-
-    testWidgets('no conf means NO dots — not three, and not "Not measured"',
-        (t) async {
-      await t.pumpWidget(frame(
-          const SignalCard(Icons.scale, C.teal, 'Weight', '72.4', unit: 'kg')));
-      expect(find.byType(ConfDots), findsNothing);
-    });
-  });
-
   // ── a rebuild the user never hears about is data quietly vanishing ──
   group('dbRebuiltCard', () {
     test('says nothing when nothing was rebuilt', () {

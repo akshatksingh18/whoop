@@ -185,7 +185,6 @@ const _labs = LabsData(markers: kLabMarkers, results: [
 final _metricDetail = MetricData(
   series: _points(60, 54, 6),
   daysAvailable: 60,
-  latest: const Metric(value: 52, unit: 'bpm', confidence: .8, tier: MetricTier.high),
   percentile: const {'percentile_of_you': 22.0, 'n': 59, 'label': 'lower than usual'},
   movers: const [
     {
@@ -325,7 +324,6 @@ CircadianData _circadian() {
   return CircadianData(
     actogram: cols,
     labels: labels,
-    chronotypeConf: Conf.estimated,
     chronotypeLabel: 'slight evening type',
     jetlag: const Metric(value: 1.7, confidence: .6, tier: MetricTier.estimate),
     regularity: const Metric(value: 78, confidence: .7, tier: MetricTier.estimate),
@@ -353,7 +351,6 @@ CircadianData _circadian() {
       'r2': 0.61,
       'r2_adj': 0.58,
     },
-    cosinorConf: Conf.high,
     coverage: const {
       'days_used': 6,
       'days_need_np': 7,

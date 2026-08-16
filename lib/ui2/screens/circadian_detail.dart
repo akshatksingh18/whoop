@@ -41,10 +41,7 @@ class CircadianData {
   final List<String> labels;
   final Metric jetlag, regularity;
 
-  /// Chronotype is a CLASS, not a number: its label plus the confidence the
-  /// classifier stated. It used to be carried as `Metric(value: 1)` — a
-  /// fabricated value whose only job was to make three dots appear.
-  final Conf chronotypeConf;
+  /// Chronotype is a CLASS, not a number — a label, never a value.
   final String chronotypeLabel;
   final num? midFreeH, midWorkH, nFree, nWork;
 
@@ -52,12 +49,10 @@ class CircadianData {
   /// family has one presence gate and one `need_baseline:` note to render.
   final Metric rhythm;
   final Map<String, dynamic> rhythmV, cosinorV, coverage;
-  final Conf cosinorConf;
 
   const CircadianData({
     this.actogram = const [],
     this.labels = const [],
-    this.chronotypeConf = Conf.none,
     this.jetlag = Metric.empty,
     this.regularity = Metric.empty,
     this.chronotypeLabel = '',
@@ -69,7 +64,6 @@ class CircadianData {
     this.rhythmV = const {},
     this.cosinorV = const {},
     this.coverage = const {},
-    this.cosinorConf = Conf.none,
   });
 
   static Future<CircadianData> load(LocalRepository repo) async {
@@ -111,7 +105,6 @@ class CircadianData {
     return CircadianData(
       actogram: cols,
       labels: labels,
-      chronotypeConf: confOfEnv(chrono),
       chronotypeLabel: (chronoV['type_label'] ?? '').toString(),
       jetlag: envMetric(sjl, sjlV['abs_hours'] as num?),
       regularity: envMetric(reg, regV['sri'] as num?),
@@ -122,7 +115,6 @@ class CircadianData {
       rhythm: envMetric(np, npV['IS'] as num?),
       rhythmV: npV,
       cosinorV: envValue(cos) ?? const {},
-      cosinorConf: confOfEnv(cos),
       coverage: (cd['circadian_coverage'] as Map?)?.cast<String, dynamic>() ??
           const {},
     );
@@ -264,22 +256,16 @@ class _CircadianDetailState extends State<CircadianDetail> {
   }
 
   Widget _rhythm(BuildContext c, P p, CircadianData d) {
-    // Mid-sleep free and mid-sleep work are FIELDS OF the social-jetlag
-    // envelope, so they carry its confidence — that is the same envelope, not
-    // a borrowed one.
-    final sjl = ConfX.of(d.jetlag);
-    final rows = <(String, String, Conf)>[
+    final rows = <(String, String)>[
       if (d.chronotypeLabel.isNotEmpty)
-        ('Chronotype', d.chronotypeLabel, d.chronotypeConf),
+        ('Chronotype', d.chronotypeLabel),
       if (d.midFreeH != null)
-        ('Mid-sleep, free days', _hourClock(d.midFreeH), sjl),
+        ('Mid-sleep, free days', _hourClock(d.midFreeH)),
       if (d.midWorkH != null)
-        ('Mid-sleep, working days', _hourClock(d.midWorkH), sjl),
-      if (d.jetlag.value != null)
-        ('Social jetlag', _hm(d.jetlag.value!), sjl),
+        ('Mid-sleep, working days', _hourClock(d.midWorkH)),
+      if (d.jetlag.value != null) ('Social jetlag', _hm(d.jetlag.value!)),
       if (d.regularity.value != null)
-        ('Regularity index', '${d.regularity.value!.round()} / 100',
-            ConfX.of(d.regularity)),
+        ('Regularity index', '${d.regularity.value!.round()} / 100'),
     ];
 
     if (rows.isEmpty) {
@@ -300,29 +286,25 @@ class _CircadianDetailState extends State<CircadianDetail> {
   /// decoration, it is the unit.
   Widget _strength(BuildContext c, P p, CircadianData d) {
     final np = d.rhythmV, cos = d.cosinorV;
-    final conf = ConfX.of(d.rhythm);
     num? n(Map<String, dynamic> m, String k) => m[k] as num?;
 
-    final rows = <(String, String, Conf)>[
+    final rows = <(String, String)>[
       if (n(np, 'IS') != null)
-        ('Day-to-day stability', n(np, 'IS')!.toStringAsFixed(2), conf),
+        ('Day-to-day stability', n(np, 'IS')!.toStringAsFixed(2)),
       if (n(np, 'IV') != null)
-        ('Hour-to-hour fragmentation', n(np, 'IV')!.toStringAsFixed(2), conf),
+        ('Hour-to-hour fragmentation', n(np, 'IV')!.toStringAsFixed(2)),
       if (n(np, 'RA') != null)
-        ('Relative amplitude', n(np, 'RA')!.toStringAsFixed(2), conf),
+        ('Relative amplitude', n(np, 'RA')!.toStringAsFixed(2)),
       if (n(np, 'm10_start_epoch') != null)
-        ('Highest-HR 10 hours start', _hourClock(n(np, 'm10_start_epoch')),
-            conf),
+        ('Highest-HR 10 hours start', _hourClock(n(np, 'm10_start_epoch'))),
       if (n(np, 'l5_start_epoch') != null)
-        ('Lowest-HR 5 hours start', _hourClock(n(np, 'l5_start_epoch')), conf),
+        ('Lowest-HR 5 hours start', _hourClock(n(np, 'l5_start_epoch'))),
       if (n(cos, 'acrophase_hours') != null)
-        ('Rhythm peak', _hourClock(n(cos, 'acrophase_hours')), d.cosinorConf),
+        ('Rhythm peak', _hourClock(n(cos, 'acrophase_hours'))),
       if (n(cos, 'amplitude') != null)
-        ('Peak-to-mean swing', '${n(cos, 'amplitude')!.toStringAsFixed(1)} bpm',
-            d.cosinorConf),
+        ('Peak-to-mean swing', '${n(cos, 'amplitude')!.toStringAsFixed(1)} bpm'),
       if (n(cos, 'r2_adj') != null)
-        ('Fit to a 24 h curve', n(cos, 'r2_adj')!.toStringAsFixed(2),
-            d.cosinorConf),
+        ('Fit to a 24 h curve', n(cos, 'r2_adj')!.toStringAsFixed(2)),
     ];
 
     if (rows.isEmpty) {
@@ -347,7 +329,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
     ]);
   }
 
-  Widget _table(P p, List<(String, String, Conf)> rows) => Surface(
+  Widget _table(P p, List<(String, String)> rows) => Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [
           for (var i = 0; i < rows.length; i++) ...[
@@ -361,8 +343,6 @@ class _CircadianDetailState extends State<CircadianDetail> {
                 Text(rows[i].$2,
                     style: F.body
                         .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
-                const SizedBox(width: S.x3),
-                ConfDots(rows[i].$3),
               ]),
             ),
           ],

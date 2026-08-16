@@ -196,8 +196,6 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   elevation: 0,
                   color: p.card2,
                   child: Row(children: [
-                    const ConfDots(Conf.estimated, size: 6),
-                    const SizedBox(width: S.x3),
                     Expanded(
                       child: Text(
                           est == null

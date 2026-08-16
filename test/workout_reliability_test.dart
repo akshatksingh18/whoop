@@ -103,9 +103,21 @@ void main() {
         s.setWorkoutActive(true);
         s.markStoredData(); // enqueues a durable derive_light job
 
-        // A fixed wait is correct HERE and only here: you cannot poll for
-        // "this never happens". Comfortably past the 10 ms settle.
-        await Future<void>.delayed(const Duration(milliseconds: 150));
+        // Wait for the PARKED STATE, not for a stopwatch.
+        //
+        // This was `await Future.delayed(150ms); expect(runs, 0)`, justified as
+        // "you cannot poll for something that never happens". You can here, and
+        // the sleep was both flaky and weaker than it looked: it failed about
+        // one run in four under the full parallel suite, and it passed even
+        // before the enqueue had landed, because zero is also what you see when
+        // nothing was ever queued.
+        //
+        // `pending_light` going true is the real precondition — the job is in
+        // the durable queue AND the scheduler has seen it. And `_arm()` returns
+        // early while a workout is live, so no timer is ever created: once the
+        // job is parked, `runs` cannot advance no matter how long anything
+        // takes. That makes this deterministic rather than merely patient.
+        await _until(() => s.snapshot()['pending_light'] == true);
         expect(runs, 0,
             reason: 'a queued job must not run while a workout is live');
 

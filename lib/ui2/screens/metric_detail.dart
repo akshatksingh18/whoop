@@ -490,7 +490,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals),
+        _hero(c, spec, all, series, vals, win),
         Section('Your normal range', _range3(c, spec, vals, d.percentile)),
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
@@ -501,40 +501,27 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   // ── value → context → trend ──
+  //
+  // THE HEADLINE IS THE WINDOW'S NUMBER, not the latest reading.
+  //
+  // It used to be `vals.last`, which is the same figure in every range — so
+  // switching 7 days to 30 days changed the chart and left the big number
+  // sitting there, and on an additive metric it was worse than confusing:
+  // today's 43 steps under a "30 days" tab reads as a month's total.
+  //
+  // The day count beside it is not decoration. It is what explains the case
+  // that looks broken: with one day of history, seven days and thirty days
+  // really do average to the same number, and "1 of 30 days" says so where
+  // a bare figure looked like a bug.
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
-      List<double?> series, List<double> vals) {
+      List<double?> series, List<double> vals, int win) {
     final p = P.of(c);
-    final now = vals.last;
-    // WHICH DAY the number under the headline is from — always, not only when
-    // it is stale. A large figure sitting directly under 7/30/6M/1Y tabs reads
-    // as a summary of the selected range, and it is not one: it is the newest
-    // reading, which is the same number in every range. Dating it is what makes
-    // that unambiguous, and it is also the answer to "is there a today?" —
-    // `metric_series` gets a row only on a day that derives, so after a sync
-    // gap the newest stored point is days old.
+    final mean = vals.reduce((a, b) => a + b) / vals.length;
+    final latest = vals.last;
+    // WHICH DAY the newest reading is from. `metric_series` gets a row only on
+    // a day that derives, so after a sync gap the newest stored point is days
+    // old — and this line is the answer to "is there a today?".
     final asOf = all.isEmpty ? '' : axisDay(all.last.t);
-    // Trailing 28 days EXCLUDING the newest — the same window the data layer's
-    // own baseline uses. Comparing a reading against a mean that contains it is
-    // how a baseline quietly chases the value it is supposed to anchor.
-    final vAll = valuesOf(all);
-    final prior = vAll.length > 1
-        ? vAll.sublist(vAll.length - 1 - (vAll.length - 1).clamp(0, 28),
-            vAll.length - 1)
-        : const <double>[];
-    final base =
-        prior.isEmpty ? null : prior.reduce((a, b) => a + b) / prior.length;
-    final rawDelta = base == null ? null : now - base;
-    // A move that renders as nothing at this unit's precision is not a move.
-    // Without this, whole-bpm formatting prints "0 bpm above your 28-day
-    // average" under an arrow — a direction claimed for a difference too small
-    // for the unit to hold.
-    final delta = rawDelta == null ||
-            _fmt(spec, rawDelta.abs()) == _fmt(spec, 0)
-        ? null
-        : rawDelta;
-    final good = delta == null
-        ? true
-        : (delta >= 0) == spec.higherBetter || delta.abs() < 0.0001;
 
     return Surface(
       child: Column(children: [
@@ -542,44 +529,26 @@ class _MetricDetailState extends State<MetricDetail> {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(_fmt(spec, now), style: F.n48.copyWith(color: p.ink)),
+              Text(_fmt(spec, mean), style: F.n48.copyWith(color: p.ink)),
               const SizedBox(width: S.x2),
               Text(spec.unit, style: F.body.copyWith(color: p.ink3)),
             ]),
+        const SizedBox(height: S.x1),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Daily average · ${vals.length} of $win day${win == 1 ? '' : 's'}',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ),
         if (asOf.isNotEmpty) ...[
-          const SizedBox(height: S.x1),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Latest reading · $asOf',
-                style: F.cap.copyWith(color: p.ink3)),
-          ),
-        ],
-        if (delta == null && base != null) ...[
           const SizedBox(height: S.x2),
           Align(
             alignment: Alignment.centerLeft,
-            child: Text('In line with your ${prior.length}-day average',
+            child: Text('Latest ${_fmt(spec, latest)} ${spec.unit} · $asOf'
+                .trim(),
                 style: F.cap.copyWith(color: p.ink3)),
           ),
-        ],
-        if (delta != null) ...[
-          const SizedBox(height: S.x2),
-          Row(children: [
-            Icon(
-                delta >= 0
-                    ? LucideIcons.arrowUpRight
-                    : LucideIcons.arrowDownRight,
-                size: 15,
-                color: p.on(good ? C.green : C.orange)),
-            const SizedBox(width: 3),
-            Expanded(
-              child: Text(
-                '${_fmt(spec, delta.abs())} ${delta >= 0 ? 'above' : 'below'} '
-                'your ${prior.length}-day average',
-                style: F.cap.copyWith(color: p.on(good ? C.green : C.orange)),
-              ),
-            ),
-          ]),
         ],
         const SizedBox(height: S.x5),
         Builder(builder: (c) {

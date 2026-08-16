@@ -387,7 +387,15 @@ class ActivitySummary extends StatefulWidget {
 
 class _ActivitySummaryState extends State<ActivitySummary> {
   int tab = 0;
-  static const _tabs = ['Overview', 'Splits', 'Graphs'];
+
+  /// A yoga session, a tennis match and an untracked session do not break into
+  /// pieces — not "have none today", never. So they do not get the tab. The
+  /// card that used to sit inside it explaining its own absence was the tab
+  /// justifying its existence to the person who opened it.
+  List<String> get _tabs => switch (arch) {
+        Arch.flow || Arch.match || Arch.basic => const ['Overview', 'Graphs'],
+        _ => const ['Overview', 'Splits', 'Graphs'],
+      };
 
   /// Whether the session is still only on screen. Starts true whenever a
   /// retry was handed down, because that is what being handed one means.
@@ -443,9 +451,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
-              children: switch (tab) {
-                0 => _overview(c, p),
-                1 => _splits(c, p),
+              // By NAME: the tab list is shorter for the archetypes that have
+              // no splits, so index 1 is not always the same tab.
+              children: switch (_tabs[tab]) {
+                'Overview' => _overview(c, p),
+                'Splits' => _splits(c, p),
                 _ => _graphs(c, p),
               },
             ),
@@ -929,12 +939,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         ]),
                   ),
                   const SizedBox(width: S.x2),
-                  Flexible(
-                    child: Text('${_kg(top.loadKg!)} × ${top.reps}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: F.n17.copyWith(color: p.ink)),
-                  ),
+                  // The row rule: the name gives way, the measurement keeps
+                  // its natural width and sits flush at the card edge.
+                  Text('${_kg(top.loadKg!)} × ${top.reps}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: F.n17.copyWith(color: p.ink)),
                 ]),
               ),
             ),
@@ -1219,14 +1229,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           ),
         ];
 
+      // Unreachable — `_tabs` gives these archetypes no Splits tab to open.
       case Arch.flow || Arch.match || Arch.basic:
-        return [
-          const StatusCard(
-            'No splits for this activity',
-            'This activity does not break into equal pieces.',
-            icon: LucideIcons.list,
-          ),
-        ];
+        return const [];
     }
   }
 

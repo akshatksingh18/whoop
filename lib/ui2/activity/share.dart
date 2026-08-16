@@ -43,7 +43,9 @@ class ShareSheet extends StatefulWidget {
 }
 
 class _ShareSheetState extends State<ShareSheet> {
-  int style = 1;
+  /// The textured card when this session has one, the plain card when it does
+  /// not — never an index into an option that is not offered.
+  late int style = _styles.length - 1;
   late final Set<String> chosen = {
     for (final s in _available(widget.result).take(4)) s.$1,
   };
@@ -89,46 +91,28 @@ class _ShareSheetState extends State<ShareSheet> {
     }
   }
 
-  /// Template list per archetype. Index 1 is always the one that draws the
-  /// defining object, so it is the default.
-  List<(String, IconData)> get _styles => switch (arch) {
-    Arch.route => const [
-      ('Minimal', LucideIcons.type),
-      ('Route', LucideIcons.map),
-      ('Photo', LucideIcons.image),
-      ('Performance', LucideIcons.trophy),
-    ],
-    Arch.strength => const [
-      ('Minimal', LucideIcons.type),
-      ('Muscle map', LucideIcons.personStanding),
-      ('Volume', LucideIcons.dumbbell),
-      ('Personal best', LucideIcons.trophy),
-    ],
-    Arch.journey => const [
-      ('Minimal', LucideIcons.type),
-      ('Elevation', LucideIcons.mountain),
-      ('Photo story', LucideIcons.images),
-      ('Route', LucideIcons.map),
-    ],
-    Arch.flow => const [
-      ('Minimal', LucideIcons.type),
-      ('Calm', LucideIcons.leaf),
-      ('Flow', LucideIcons.personStanding),
-      ('Mood', LucideIcons.smile),
-    ],
-    Arch.laps => const [
-      ('Minimal', LucideIcons.type),
-      ('Lanes', LucideIcons.waves),
-      ('Splits', LucideIcons.list),
-      ('Performance', LucideIcons.trophy),
-    ],
-    _ => const [
-      ('Minimal', LucideIcons.type),
-      ('Intensity', LucideIcons.flame),
-      ('Chart', LucideIcons.chartNoAxesColumn),
-      ('Performance', LucideIcons.trophy),
-    ],
-  };
+  /// The card has exactly two looks — with the archetype's own texture behind
+  /// the numbers, and without — and index 1 is the one with it. The other two
+  /// names on each of these lists were labels for a card identical to
+  /// 'Minimal': a 'Photo' style on a screen that cannot attach a photo, a
+  /// 'Splits' style that drew the same lap bars as 'Lanes'. A choice that
+  /// changes nothing is not a choice.
+  List<(String, IconData)> get _styles => [
+    ('Minimal', LucideIcons.type),
+    // Only when there is something to draw. `_art` falls back to nothing when
+    // the session has no route, no sets, no rounds — which made the option an
+    // invisible no-op rather than an absence.
+    if (_hasArt(r))
+      switch (arch) {
+        Arch.route => ('Route', LucideIcons.map),
+        Arch.strength => ('Muscle map', LucideIcons.personStanding),
+        Arch.journey => ('Elevation', LucideIcons.mountain),
+        Arch.flow => ('Calm', LucideIcons.leaf),
+        Arch.laps => ('Lanes', LucideIcons.waves),
+        Arch.interval => ('Rounds', LucideIcons.timer),
+        Arch.match || Arch.basic => ('Heart rate', LucideIcons.activity),
+      },
+  ];
 
   @override
   Widget build(BuildContext c) {
@@ -302,6 +286,20 @@ class _ShareSheetState extends State<ShareSheet> {
   }
 
 }
+
+/// Whether [ShareCard._art] has anything to draw for this session. Kept beside
+/// `_available` because it answers the same question about the texture that
+/// that list answers about the numbers, and it must stay in step with `_art`.
+bool _hasArt(ActivityResult r) => switch (r.arch) {
+  Arch.route => r.route.length >= 2,
+  Arch.strength => muscleLoad(r.strength.volumeByExercise).isNotEmpty,
+  Arch.journey => r.elevationM.length >= 2,
+  Arch.laps => r.lapSpeeds.isNotEmpty,
+  Arch.interval => r.rounds.isNotEmpty,
+  // The breath ring is drawn, not measured, so a flow session always has one.
+  Arch.flow => true,
+  Arch.match || Arch.basic => r.hr.length >= 2,
+};
 
 /// The stats this session can honestly put on a card, in offer order.
 List<(String, String)> _available(ActivityResult r) => [

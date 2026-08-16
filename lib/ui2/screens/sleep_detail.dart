@@ -480,6 +480,55 @@ class _SleepDetailState extends State<SleepDetail> {
         SleepStage.deep => 'Deep sleep',
       };
 
+  /// One stage of the night: a name, its minutes and its share. The two
+  /// numbers are non-flex, so the minutes column and the percent column each
+  /// have ONE right edge down the whole table — `Flexible` shrink-wrapped
+  /// every row to its own width and parked the leftover after the percentage,
+  /// so neither column lined up and neither reached the card edge the old
+  /// comment here claimed they did. The percent slot is fixed but SCALED, so
+  /// it never wraps "19%" onto two lines; above the big-text threshold the
+  /// row restacks rather than squeeze, exactly like [MetricRow].
+  Widget _stageRow(BuildContext c, P p, (String, num?, Color) s, num total) {
+    final dot = Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: s.$3, shape: BoxShape.circle));
+    final name = Text(s.$1, style: F.body.copyWith(color: p.ink));
+    final minutes = Text(hm(s.$2),
+        style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600));
+    final share = SizedBox(
+      width: MediaQuery.textScalerOf(c).scale(34),
+      child: Text(
+        total == 0 ? '' : '${((s.$2! / total) * 100).round()}%',
+        textAlign: TextAlign.right,
+        style: F.cap.copyWith(color: p.ink3),
+      ),
+    );
+    if (!bigText(c)) {
+      return Row(children: [
+        dot,
+        const SizedBox(width: S.x3),
+        Expanded(child: name),
+        minutes,
+        const SizedBox(width: S.x3),
+        share,
+      ]);
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      dot,
+      const SizedBox(width: S.x3),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          name,
+          const SizedBox(height: S.x1),
+          // Wrap, not Row: at 3.1× "1h 25m" alone is most of the card, so the
+          // share has to be allowed onto a second line.
+          Wrap(spacing: S.x3, runSpacing: S.x1, children: [minutes, share]),
+        ]),
+      ),
+    ]);
+  }
+
   Widget _stages(BuildContext c, P p, Map<String, dynamic> n, num? tst) {
     final rows = <(String, num?, Color)>[
       ('Deep', n['deep_min'] as num?, C.blue),
@@ -504,36 +553,7 @@ class _SleepDetailState extends State<SleepDetail> {
             if (i > 0) Divider(color: p.line, height: 1),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: S.x3),
-              child: Row(children: [
-                Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                        color: present[i].$3, shape: BoxShape.circle)),
-                const SizedBox(width: S.x3),
-                Expanded(
-                    child: Text(present[i].$1,
-                        style: F.body.copyWith(color: p.ink))),
-                Flexible(
-                  child: Text(hm(present[i].$2),
-                      style: F.cap
-                          .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                ),
-                const SizedBox(width: S.x3),
-                // No fixed width: it is the last child of the row, so the
-                // percentages already end flush at the card edge, and a 40 pt
-                // box wrapped "19%" onto two lines at 2× text. Flexible on both
-                // numbers so the row wraps rather than overflows at 3.1×.
-                Flexible(
-                  child: Text(
-                    total == 0
-                        ? ''
-                        : '${((present[i].$2! / total) * 100).round()}%',
-                    textAlign: TextAlign.right,
-                    style: F.cap.copyWith(color: p.ink3),
-                  ),
-                ),
-              ]),
+              child: _stageRow(c, p, present[i], total),
             ),
           ],
         ]),

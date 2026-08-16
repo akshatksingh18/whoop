@@ -12,18 +12,21 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../notify/notification_center.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
+import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../../telemetry/health_uploader.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import 'alarm.dart';
 import 'data.dart';
+import 'gallery.dart';
 import 'profile.dart';
 
 /// Unwind the profile stack back to the gate.
@@ -39,8 +42,48 @@ void backToRoot(BuildContext c) =>
 
 // ══════════════════ MORE SETTINGS ══════════════════
 
-class MoreSettings extends StatelessWidget {
+/// Taps on the version row that reveal the developer group. The conventional
+/// gesture, for the conventional reason: it is discoverable by anyone who
+/// already knows it and invisible to everyone else.
+const kDevTaps = 7;
+
+class MoreSettings extends StatefulWidget {
   const MoreSettings({super.key});
+
+  @override
+  State<MoreSettings> createState() => _MoreSettingsState();
+}
+
+class _MoreSettingsState extends State<MoreSettings> {
+  bool _dev = Prefs.getBool(Prefs.devMode, false);
+  String _version = '';
+  int _taps = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _readVersion();
+  }
+
+  Future<void> _readVersion() async {
+    try {
+      final i = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _version = '${i.version} (${i.buildNumber})');
+    } catch (_) {/* no version, no row — and no way in */}
+  }
+
+  void _tapVersion() {
+    if (_dev || ++_taps < kDevTaps) return;
+    _setDev(true);
+  }
+
+  void _setDev(bool on) {
+    Prefs.setBool(Prefs.devMode, on);
+    setState(() {
+      _dev = on;
+      _taps = 0;
+    });
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -48,6 +91,11 @@ class MoreSettings extends StatelessWidget {
     final units = c.watch<UnitsController>();
     final theme = c.watch<ThemeController>();
     return MoreSettingsView(
+      version: _version,
+      devMode: _dev,
+      onVersionTap: _tapVersion,
+      onToggleDev: () => _setDev(false),
+      onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
       appearance: theme.choice.label,
       phoneSteps: app.phoneStepsEnabled,
@@ -192,6 +240,16 @@ class MoreSettingsView extends StatelessWidget {
   /// The update-check row appears only on a build that can check.
   final bool showUpdateChecks, updateChecks;
 
+  /// `0.9.26 (57)`, or empty until package_info answers — the About group is
+  /// the whole reveal gesture, so it is not drawn against a blank.
+  final String version;
+
+  /// Off by default and off on every fresh install. The group it gates is not
+  /// a feature: nothing in it is for anyone who has not deliberately asked.
+  final bool devMode;
+
+  final VoidCallback? onVersionTap, onToggleDev, onGallery;
+
   final VoidCallback? onEditProfile,
       onAlarm,
       onNotifications,
@@ -214,6 +272,11 @@ class MoreSettingsView extends StatelessWidget {
     this.healthShare = false,
     this.showUpdateChecks = false,
     this.updateChecks = true,
+    this.version = '',
+    this.devMode = false,
+    this.onVersionTap,
+    this.onToggleDev,
+    this.onGallery,
     this.onEditProfile,
     this.onAlarm,
     this.onNotifications,
@@ -251,7 +314,7 @@ class MoreSettingsView extends StatelessWidget {
                       onTap: onAlarm),
                 ]),
                 settingsGroup(c, 'Notifications', [
-                  SetRow(LucideIcons.bell, C.blue, 'What interrupts you',
+                  SetRow(LucideIcons.bell, C.blue, 'Manage notifications',
                       sub: 'Three kinds, quiet hours, and off switches for all '
                           'of them',
                       onTap: onNotifications),
@@ -290,6 +353,21 @@ class MoreSettingsView extends StatelessWidget {
                         value: updateChecks ? 'On' : 'Off',
                         onTap: onToggleUpdateChecks),
                 ]),
+                if (version.isNotEmpty)
+                  settingsGroup(c, 'About', [
+                    SetRow(LucideIcons.info, C.n500, 'Version',
+                        value: version, chevron: false, onTap: onVersionTap),
+                  ]),
+                if (devMode)
+                  settingsGroup(c, 'Developer', [
+                    SetRow(LucideIcons.layoutGrid, C.purple,
+                        'Component gallery',
+                        sub: 'Every component, at any text scale, in either '
+                            'theme',
+                        onTap: onGallery),
+                    SetRow(LucideIcons.code, C.n500, 'Developer mode',
+                        value: 'On', chevron: false, onTap: onToggleDev),
+                  ]),
                 const SizedBox(height: S.x6),
                 Surface(
                   pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -427,7 +505,7 @@ class NotificationSettingsView extends StatelessWidget {
                     icon: LucideIcons.loader,
                   )
                 else ...[
-                  settingsGroup(c, 'What may interrupt you', [
+                  settingsGroup(c, 'Manage notifications', [
                     SetRow(LucideIcons.heartPulse, C.red, 'Health exceptions',
                         sub: 'One a day at most, and only when something in '
                             'your own baseline moved',

@@ -246,9 +246,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final clinical = sleepBundle == null
         ? const <String, dynamic>{}
         : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
-    final resp = sleepBundle == null
-        ? const <String, dynamic>{}
-        : (_sub(sleepBundle, 'respiration') ?? const <String, dynamic>{});
     final cd = await _crossDay();
 
     final hrvTime = clinical['hrv_time'] is Map
@@ -351,8 +348,13 @@ class LocalRepositoryImpl extends LocalRepository {
           sleepBundle,
           baselineRhr: await _seriesMean('rhr'),
         ),
-      if (sleepBundle != null && resp['rsa'] is Map)
-        'resp': _respObj(sleepBundle),
+      // No `resp['rsa'] is Map` gate. `getDayLungs` never had one, so Health →
+      // Overview could say "no respiratory rate" on a day whose Vitals tab
+      // printed 14.2 br/min from the same bundle through the same function.
+      // The rsa sub-block only supplies a confidence — `_respObj` already
+      // returns null when there is no `resp_rate` scalar, which is the real
+      // condition, and it falls back to 0.5 when rsa is missing.
+      if (sleepBundle != null) 'resp': ?_respObj(sleepBundle),
       'hrv': hrv,
       'skin_temp': sleepBundle != null
           ? await _skinTempBlock(sleepBundle)

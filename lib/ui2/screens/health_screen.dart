@@ -21,7 +21,6 @@ import 'circadian_detail.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
-import 'sleep_detail.dart';
 
 class HealthData {
   final Map<String, dynamic> today, insights, profile;
@@ -339,7 +338,14 @@ class _HealthScreenState extends State<HealthScreen> {
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
         d.spark('resp_rate', 24), 'resp_rate',
-        whyAbsent: 'Breathing rate is recovered from beat timing during sleep.');
+        // The old line described the METHOD and never said why the number was
+        // missing. It has exactly two ways to be missing: `resp_rate` is only
+        // ever computed over a sleep window, so no scored night means no
+        // reading at all; and a scored night can still fail to yield one when
+        // the beat timing it is recovered from is too noisy.
+        whyAbsent: sleepMin.isEmpty
+            ? 'Read only from sleep, and no night was scored.'
+            : 'Beat timing last night was too noisy to recover one.');
 
     final illness = d.today['illness'];
     final state = illness is Map ? illness['state']?.toString() : null;
@@ -580,33 +586,35 @@ class _HealthScreenState extends State<HealthScreen> {
     final coverage = v.wear['coverage_pct'] as num?;
     final skinTemp = metricOf(d.today['skin_temp']);
     final rmssd = v.hrv['rmssd'] as num?;
-    final night = v.night;
-
+    // MetricRow, not a private copy of it. The one this screen used to grow
+    // stacked the value over its qualifier in a shrink-wrapped column, so
+    // 'bpm today' and 'SD from your own nights' set each row's width and no
+    // two values landed on the same x. The qualifier is not a unit and does
+    // not belong beside the number: it goes under the name, where every other
+    // list in the app already puts it.
     final rows = <Widget>[
       if (lo != null && hi != null)
-        _vital(p, LucideIcons.heart, C.red, 'Heart rate',
-            '${lo.round()} – ${hi.round()}', 'bpm today'),
+        MetricRow(LucideIcons.heart, C.red, 'Heart rate',
+            '${lo.round()} – ${hi.round()}',
+            sub: 'Today', unit: 'bpm'),
       if (resp != null)
-        _vital(p, LucideIcons.wind, C.teal, 'Respiratory rate',
-            resp.toStringAsFixed(1), 'breaths / min'),
+        MetricRow(LucideIcons.wind, C.teal, 'Respiratory rate',
+            resp.toStringAsFixed(1),
+            sub: 'Asleep', unit: 'br/min'),
       if (skinTemp.value != null)
-        _vital(
-            p,
-            LucideIcons.thermometer,
-            C.orange,
-            'Skin temperature deviation',
+        // NAME THE QUANTITY. This is `skin_temp_z` — standard deviations from
+        // the user's own baseline. It printed signed and unitless beside a
+        // heart rate in bpm, so it read as °C; and the sleep scrub's
+        // "temperature" is a THIRD quantity again (raw ADC minus that day's
+        // median), which is why neither may go unlabelled.
+        MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature',
             '${skinTemp.value! >= 0 ? '+' : '−'}'
                 '${skinTemp.value!.abs().toStringAsFixed(2)}',
-            // NAME THE QUANTITY. This is `skin_temp_z` — standard deviations
-            // from the user's own baseline. It printed signed and unitless
-            // beside a heart rate in bpm, so it read as °C; and the sleep
-            // scrub's "temperature" is a THIRD quantity again (raw ADC minus
-            // that day's median), which is why neither may go unlabelled.
-            'SD from your own nights'),
+            sub: 'vs your own nights', unit: 'SD'),
       if (worn != null)
-        _vital(p, LucideIcons.watch, C.green, 'Wear time', hm(worn),
+        MetricRow(LucideIcons.watch, C.green, 'Wear time', hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
-            coverage == null ? 'today' : '${coverage.round()}% of the day'),
+            sub: coverage == null ? 'Today' : '${coverage.round()}% of the day'),
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -632,33 +640,22 @@ class _HealthScreenState extends State<HealthScreen> {
           ]),
         ),
 
-      if (skinTemp.value != null) ...[
-        const SizedBox(height: S.x4),
-        StatusCard(
-          'Skin temperature is relative, not a temperature',
-          'Not calibrated against a thermometer, so no °C. Shown as distance '
-          'from your own recent nights.',
-          fix: 'How this is computed',
-          icon: LucideIcons.thermometer,
-          onFix: () => go(c, const MetricDetail('skin_temp')),
-        ),
-      ],
+      // No skin-temperature caveat card here. The row's own unit already says
+      // the reading is relative, and `metric_detail` carries the method for
+      // anyone who taps through — a whole card restating it on the way past is
+      // the kind of explanation this screen was asked to stop giving.
 
-      Section(
-        'Deep dives',
-        Column(children: [
-          if (rmssd != null)
-            DeepDiveCard('Heart rate variability', '${rmssd.round()}', 'ms',
-                'Time, frequency and non-linear', C.green,
-                preview: _hrvPreview(c, d),
-                onTap: () => go(c, const Investigate('hrv'))),
-          if (rmssd != null) const SizedBox(height: S.x3),
-          if (night['duration_min'] is num)
-            DeepDiveCard('Sleep architecture', hm(night['duration_min'] as num),
-                '', 'Explore the night', C.blue,
-                onTap: () => go(c, const SleepDetail())),
-        ]),
-      ),
+      // No "Sleep architecture" deep dive either: Sleep is a tab of its own,
+      // and a second door into it from Vitals is a duplicate entry point, not
+      // a feature.
+      if (rmssd != null)
+        Section(
+          'Deep dives',
+          DeepDiveCard('Heart rate variability', '${rmssd.round()}', 'ms',
+              'Time, frequency and non-linear', C.green,
+              preview: _hrvPreview(c, d),
+              onTap: () => go(c, const Investigate('hrv'))),
+        ),
     ]);
   }
 
@@ -694,30 +691,6 @@ class _HealthScreenState extends State<HealthScreen> {
       ),
     );
   }
-
-  Widget _vital(P p, IconData i, Color col, String name, String value,
-          String unit) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
-          Icon(i, size: 18, color: p.on(col)),
-          const SizedBox(width: S.x3),
-          Expanded(child: Text(name, style: F.body.copyWith(color: p.ink))),
-          const SizedBox(width: S.x2),
-          // Flexible, and the qualifier wraps. This column sized to its natural
-          // width, so a qualifier that names its quantity properly — "SD from
-          // your own nights" rather than a bare, unitless "vs your own nights"
-          // — pushed the row 11 pt past the card at 2x text.
-          Flexible(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(value, style: F.n17.copyWith(color: p.ink)),
-              Text(unit,
-                  textAlign: TextAlign.end,
-                  style: F.over.copyWith(color: p.ink3)),
-            ]),
-          ),
-        ]),
-      );
 
   // ─────────────── LABS ───────────────
   Widget _labs(BuildContext c) {

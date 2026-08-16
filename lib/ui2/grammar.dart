@@ -788,16 +788,14 @@ class MetricRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          // Flexible so the row can never overflow when the name, the value
-          // and a status word all want the same line — the last resort below
-          // the restack point, where the value gets its own line anyway.
-          Flexible(
-            child: Text(value,
-                style:
-                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
+          // NOT Flexible. Sharing the row's flex with the name gave the value
+          // a quarter of the width and no more, so 'Respiratory rate' shipped
+          // reading `1… br/min` — a truncated measurement, which this row is
+          // supposed to never do. It is the name that gives way now.
+          Text(value,
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
           if (unit.isNotEmpty) ...[
             const SizedBox(width: 2),
             Text(unit, style: F.over.copyWith(color: p.ink3)),
@@ -845,11 +843,18 @@ class MetricRow extends StatelessWidget {
                       ]),
                 ),
               ])
+            // THE ROW RULE, and it holds for every label→value row in the app:
+            // the name is the only flexible part, so the measurement keeps its
+            // natural width and every row in a list ends on one right edge.
+            // Two flex children split the width by ratio instead, which left
+            // each value block starting and ending at its own x — a column of
+            // readings that did not read as a column.
             : Row(children: [
                 Icon(icon, size: 18, color: p.on(color)),
                 const SizedBox(width: S.x3),
-                Expanded(flex: 3, child: title),
-                Flexible(child: amount),
+                Expanded(child: title),
+                const SizedBox(width: S.x2),
+                amount,
                 const SizedBox(width: S.x3),
                 trailing,
               ]),

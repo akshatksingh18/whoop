@@ -296,6 +296,12 @@ class WhoopImporter {
       // when there is no raw substrate left to re-derive from; a day that still
       // has 1 Hz raw stays open so the real signal supersedes WHOOP's numbers.
       finalized: !rawDays.contains(date),
+      // export-provenance — WHOSE maths these scalars are. Every number in this
+      // bundle is WHOOP's own derived score read out of their CSV, not one this
+      // app computed from 1 Hz records, and unlabelled in an export the two are
+      // byte-identical. Same tag the payload already carries, so the side table
+      // and the bundle cannot drift apart.
+      source: 'whoop_export',
       rhr: d(rhr),
       rmssd: d(rmssd),
       readiness: d(recovery),

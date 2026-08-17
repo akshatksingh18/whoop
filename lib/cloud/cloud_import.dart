@@ -236,6 +236,9 @@ class CloudImporter {
       payloadJson: jsonEncode(bundle),
       windowJson: jsonEncode(win ?? const {}),
       finalized: true, // imported snapshot — never recomputed (no raw exists)
+      // export-provenance — see WhoopImporter. A vendor snapshot's scalars are
+      // that vendor's maths; the tag matches the one in the payload.
+      source: 'cloud_v2',
       rhr: f(rhr),
       rmssd: f(rmssd),
       readiness: f(readiness),

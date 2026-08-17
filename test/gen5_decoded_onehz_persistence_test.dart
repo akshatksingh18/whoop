@@ -108,6 +108,11 @@ void main() {
     expect(rows.length, 1);
     expect(rows.first['hr'], 102);
     expect(rows.first['counter'], sample.counter);
+    // MT-12: the aux temperature channels and the band's signal-quality figure
+    // reach SQLite. Channel index, not a body part — nothing reads them.
+    expect(rows.first['temp_ch2_c'], 24.7);
+    expect(rows.first['temp_ch3_c'], 26.5);
+    expect(rows.first['signal_quality_logvar'], isNotNull);
 
     final rr = await db.query(
       'decoded_rr',

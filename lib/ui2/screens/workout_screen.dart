@@ -231,6 +231,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         'Training load',
         Column(children: [
           _loadCard(c, p, d),
+          // TS-12 — two facts and no verb, directly under the card that holds
+          // one of them. Rendered only on the coincidence; there is no "all
+          // clear" variant, because the quiet state is the absence of a card
+          // and not a reassurance we can make.
+          if (d.overreach != null) ...[
+            const SizedBox(height: S.x3),
+            _overreachCard(d.overreach!),
+          ],
           // TS-08 — a SECOND axis, beside the cardiovascular one and never
           // inside it. Its own card because that is what "not fused" means:
           // one bar is heartbeats over time, the other is kilos off the floor,
@@ -285,6 +293,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ),
     );
   }
+
+  /// TS-12 — the conjunction, as the two measurements it is made of.
+  ///
+  /// EVERY WORD HERE IS LOAD-BEARING. It is a coincidence detector, not a
+  /// diagnosis: functional overreaching is defined by a performance decrement
+  /// measured over weeks under controlled load, which no wrist can see. So no
+  /// "you are overtraining", no score, no rest-day instruction, and no verb at
+  /// all — the second sentence names the other things that produce this exact
+  /// pair rather than pretending we ruled them out.
+  ///
+  /// In-app only, by construction: nothing here schedules a notification, and
+  /// the pipeline deliberately keeps `overreaching` out of the keys
+  /// `_runNotifications` reads.
+  Widget _overreachCard(Overreach o) => InsightCard(
+        'Your last 7 days of load are '
+        '${o.ratio.toStringAsFixed(1)}× your usual six weeks, and your resting '
+        'heart rate was above your usual on ${o.nightsElevated} of '
+        '${o.nightsConsidered} nights.',
+        'Two measurements that happen to point the same way. Illness, travel, '
+            'altitude, alcohol and a run of poor sleep all produce this same '
+            'pair, and nothing here can tell them apart.',
+        icon: LucideIcons.activity,
+        color: C.orange,
+      );
 
   Widget _loadCard(BuildContext c, P p, _WorkoutData d) {
     if (d.load == null) {
@@ -479,12 +511,65 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 d.weekLoad == null ? 'None' : d.weekLoad!.round().toString(),
                 'Weekly load')),
       ]),
+      ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
         _HistoryRow(w, weightKg: d.weightKg),
         const SizedBox(height: S.x3),
       ],
     ];
+  }
+
+  /// TS-11 — what each session type actually cost you the next morning.
+  ///
+  /// A description of this user's own history and nothing else. The sample size
+  /// sits under every row because a median over fourteen mornings and a median
+  /// over eleven are different claims, and because the confounding is total:
+  /// hard sessions cluster with late nights, alcohol, stress and travel, and no
+  /// row here separates the session from the evening around it.
+  ///
+  /// The refusals are upstream and absolute — a day with more than one session
+  /// is dropped rather than split, a morning after a half-observed night is
+  /// dropped, and a type under ten mornings is refused outright rather than
+  /// shown with a small n. So this section simply does not exist for months,
+  /// which is the honest state and not an empty card.
+  List<Widget> _morningAfter(P p, _WorkoutData d) {
+    if (d.morningAfter.isEmpty) return const [];
+    return [
+      Section(
+        'The morning after',
+        Surface(
+          child: Column(children: [
+            for (final e in d.morningAfter) _morningRow(e),
+            const SizedBox(height: S.x3),
+            Text(
+              'Your own history, not a rule about the activity — these '
+                  'mornings also had whatever evening came with them. Nothing '
+                  'here is a reason to skip a session.',
+              style: F.cap.copyWith(color: p.ink3, height: 1.5),
+            ),
+          ]),
+        ),
+      ),
+    ];
+  }
+
+  Widget _morningRow(MorningEffect e) {
+    final a = activityByName(e.type);
+    final rhr = e.metric == 'rhr';
+    // Inside the metric's own minimal detectable change is not a finding, and
+    // printing the number anyway would dress noise as an effect.
+    final sign = e.delta >= 0 ? '+' : '−';
+    return MetricRow(
+      a?.icon ?? LucideIcons.activity,
+      a?.color ?? C.purple,
+      'After ${a?.name ?? e.type}',
+      e.exceedsMdc ? '$sign${e.delta.abs().toStringAsFixed(1)}' : 'Unchanged',
+      unit: e.exceedsMdc ? (rhr ? 'bpm' : 'ms') : '',
+      sub: '${rhr ? 'Resting heart rate' : 'HRV'} · '
+          '${e.n} morning${e.n == 1 ? '' : 's'}'
+          '${e.exceedsMdc ? '' : ' · inside your night-to-night range'}',
+    );
   }
 
   Widget _sum(P p, String v, String l) => Surface(
@@ -1071,6 +1156,87 @@ class _Load {
   const _Load(this.ctl, this.atl, this.tsb);
 }
 
+/// TS-12 — the two facts, carried only when they point the same way.
+///
+/// There is deliberately no combined number and no severity: the analytics
+/// emits `both_point_same_way` and the screen either says both sentences or
+/// says nothing. A quiet week is the normal state.
+class Overreach {
+  /// Acute (7-day EWMA) over chronic (42-day EWMA) training load. The IDEAS
+  /// wording said "your last 28" — `ctlAtlTsb`'s chronic constant is 42 days,
+  /// so the copy says six weeks.
+  final double ratio;
+  final int nightsElevated, nightsConsidered;
+  const Overreach(this.ratio, this.nightsElevated, this.nightsConsidered);
+}
+
+/// TS-11 — one session type's typical next-morning move on one daily metric.
+///
+/// `n` is not optional decoration: it is the difference between a description
+/// of fourteen mornings and a claim about football. The analytics already
+/// refuses under ten mornings, drops multi-session days and drops thin nights,
+/// so every row that arrives here has survived those; the screen's job is to
+/// print the count beside the number and never turn it into a verb.
+class MorningEffect {
+  final String type, metric;
+  final int n;
+  final double delta;
+  final bool exceedsMdc;
+  const MorningEffect(
+      this.type, this.metric, this.n, this.delta, this.exceedsMdc);
+}
+
+/// TS-12 — read ONLY the conjunction the analytics already decided.
+///
+/// The thresholds (1.5× load, 4 of 5 elevated nights, and the MDC gate under
+/// "elevated") live beside the maths in `overreachingConjunction`. A screen
+/// that re-derived the verdict from `load_ratio` would be a second copy of them
+/// that drifts the first time either moves — so the only question asked here is
+/// `both_point_same_way`, and false means render nothing.
+@visibleForTesting
+Overreach? overreachFrom(Map<String, dynamic> insights) {
+  final ov = insights['overreaching'];
+  if (ov is! Map) return null;
+  final v = ov['value'];
+  if (v is! Map) return null; // absent metric — no load history, or quiet
+  if (v['both_point_same_way'] != true || v['load_ratio'] is! num) return null;
+  return Overreach(
+    (v['load_ratio'] as num).toDouble(),
+    (v['nights_elevated'] as num?)?.toInt() ?? 0,
+    (v['nights_considered'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// TS-11 — `session_cost.<metric>` is a Metric whose value is a list of
+/// per-type rows. Absent (the state for months, and after every refusal) leaves
+/// the list empty and the section unrendered.
+@visibleForTesting
+List<MorningEffect> morningEffectsFrom(Map<String, dynamic> insights) {
+  final out = <MorningEffect>[];
+  final cost = insights['session_cost'];
+  if (cost is! Map) return out;
+  for (final metric in const ['rhr', 'rmssd']) {
+    final m = cost[metric];
+    final rows = m is Map ? m['value'] : null;
+    if (rows is! List) continue;
+    for (final r in rows) {
+      if (r is! Map) continue;
+      final t = r['session_type']?.toString();
+      final n = (r['n'] as num?)?.toInt();
+      final d = (r['median_delta'] as num?)?.toDouble();
+      // No n, no row. A claim without its sample size is the one shape this
+      // item exists to prevent, so an unparseable count drops the row rather
+      // than printing the median on its own.
+      if (t == null || t.isEmpty || n == null || d == null) continue;
+      out.add(MorningEffect(t, metric, n, d, r['exceeds_mdc'] == true));
+    }
+  }
+  // Biggest sample first: the best-evidenced description of this user's own
+  // history leads. It is a sample size, not a ranking of severity.
+  out.sort((a, b) => b.n.compareTo(a.n));
+  return out;
+}
+
 class _PastWorkout {
   final String id;
   final Activity activity;
@@ -1163,6 +1329,14 @@ class _WorkoutData {
   /// Previous and best set per exercise, from this user's own log.
   final Map<String, SetHistory> setHistory;
 
+  /// TS-12. Null whenever the two facts do NOT coincide — including every day
+  /// the load history is too short to have an opinion. Silence is the output.
+  final Overreach? overreach;
+
+  /// TS-11. Empty until some session type has ten clean mornings behind it,
+  /// which takes months, and that is the honest state until then.
+  final List<MorningEffect> morningAfter;
+
   const _WorkoutData({
     this.weightKg,
     this.load,
@@ -1178,6 +1352,8 @@ class _WorkoutData {
     this.workoutsTracked,
     this.recent = const [],
     this.setHistory = const {},
+    this.overreach,
+    this.morningAfter = const [],
   });
 
   const _WorkoutData.empty() : this();
@@ -1197,24 +1373,34 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weight = null;
     }
 
+    // ONE crossday read for the three blocks that come out of it: `load`
+    // (CTL/ATL/TSB), `overreaching` (TS-12) and `session_cost` (TS-11). The
+    // repo already gates it for staleness and returns `{stale: …}` instead of
+    // the artifact, in which case every key below is simply absent.
+    Map<String, dynamic> insights = const {};
+    try {
+      insights = await repo.getInsights();
+    } catch (_) {
+      insights = const {};
+    }
+
     _Load? load;
     String? note;
-    try {
-      final raw = (await repo.getInsights())['load'];
-      if (raw is Map) {
-        note = needMessageFromNote(raw['note'] as String?, unit: 'days');
-        final v = raw['value'];
-        if (v is Map && v['ctl'] is num) {
-          load = _Load(
-            (v['ctl'] as num).toDouble(),
-            (v['atl'] as num?)?.toDouble(),
-            (v['tsb'] as num?)?.toDouble(),
-          );
-        }
+    final raw = insights['load'];
+    if (raw is Map) {
+      note = needMessageFromNote(raw['note'] as String?, unit: 'days');
+      final v = raw['value'];
+      if (v is Map && v['ctl'] is num) {
+        load = _Load(
+          (v['ctl'] as num).toDouble(),
+          (v['atl'] as num?)?.toDouble(),
+          (v['tsb'] as num?)?.toDouble(),
+        );
       }
-    } catch (_) {
-      load = null;
     }
+
+    final overreach = overreachFrom(insights);
+    final morningAfter = morningEffectsFrom(insights);
 
     // One slot per calendar day for the last seven, ending today. A day that
     // derived nothing is a hole, not a shifted neighbour: taking the last
@@ -1341,5 +1527,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       workoutsTracked: tracked,
       recent: recent,
       setHistory: history,
+      overreach: overreach,
+      morningAfter: morningAfter,
     );
 }

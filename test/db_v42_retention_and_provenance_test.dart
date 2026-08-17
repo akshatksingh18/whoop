@@ -24,6 +24,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_edge/import/whoop_import.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 Sample _sample(int ts, int counter, {int? ambient}) => Sample(
@@ -146,6 +147,44 @@ void main() {
       series: {'rhr': 99},
     );
     expect((await LocalDb.metricSeriesVersions()).last['algo_version'], 69);
+  });
+
+  // export-provenance — the other half of the same side table.
+  test('an imported day carries its vendor tag; an unattributed day stays NULL',
+      () async {
+    await _useFreshDb('provenance_source_test.db');
+    // A WHOOP export CSV, through the real importer. Every number in it is
+    // WHOOP's own derived score, and unlabelled it is byte-identical in our
+    // export to a day this app derived from 1 Hz records.
+    final dir = Directory.systemTemp.createTempSync('whoop_csv');
+    final csv = File(p.join(dir.path, 'physiological_cycles.csv'))
+      ..writeAsStringSync(
+        'Cycle start time,Wake onset,Recovery score %,'
+        'Resting heart rate (bpm),Day Strain\n'
+        '2026-03-01 07:00:00,2026-03-01 07:00:00,61,54,11.2\n',
+      );
+    try {
+      final r = await WhoopImporter.importFiles([csv.path]);
+      expect(r.days, 1);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+    final imported = (await LocalDb.metricSeriesVersions()).single;
+    expect(imported['source'], 'whoop_export');
+
+    // And the law that outranks it: a writer that does not know its own
+    // provenance writes NULL. Never retro-filled to 'band' — `csvField`
+    // already renders NULL as empty, which is the honest cell.
+    await LocalDb.putDayResult(
+      dayId: '2026-03-02',
+      algoVersion: 41,
+      payloadJson: '{}',
+      windowJson: '{}',
+      series: {'rhr': 50},
+    );
+    final rows = await LocalDb.metricSeriesVersions();
+    expect(rows.last['date'], '2026-03-02');
+    expect(rows.last['source'], isNull);
   });
 
   test('the 3-day prune keeps wear/charge transitions and drops the rest',

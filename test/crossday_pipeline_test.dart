@@ -481,4 +481,124 @@ void main() {
       expect(lutealOn(const ['2024-01-01']), isFalse);
     });
   });
+
+  _wiredFamilies();
+}
+
+// ── the three cross-day families wired in this pass ──────────────────────────
+
+void _wiredFamilies() {
+  group('SLP-08 — the SRI pairs name their two nights', () {
+    test('every emitted pair resolves to the day before and the day itself',
+        () {
+      final days = _synthDays(30);
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      final pairs = (reg['value'] as Map)['pairs'] as List;
+      expect(pairs, isNotEmpty);
+      for (final p in pairs.cast<Map>()) {
+        final i = p['day_index'] as int;
+        // `day_index` indexes the day list and nothing else — the whole reason
+        // it has to be resolved here rather than in the analytics.
+        expect(p['date'], days[i]['date']);
+        expect(p['prev_date'], days[i - 1]['date']);
+      }
+      // A pair's SRI is on the same 200p−100 scale as the headline.
+      expect((pairs.first as Map)['sri'], isA<num>());
+    });
+  });
+
+  group('TS-12 — overreaching as two facts', () {
+    test('the two facts coincide only when BOTH hold', () {
+      // Baseline RHR ~55 for 40 days, then five nights well above it, and a
+      // final week of load far above the 42-day chronic.
+      final days = _synthDays(45);
+      for (var i = 40; i < 45; i++) {
+        days[i]['rhr'] = 70.0;
+        days[i]['trimp'] = 600.0;
+      }
+      final v = ((buildCrossDayBundle(days, const {})['overreaching'] as Map)
+          ['value'] as Map);
+      expect(v['nights_elevated'], 5);
+      expect(v['load_ratio'], greaterThan(1.5));
+      expect(v['both_point_same_way'], isTrue);
+
+      // Same load, ordinary nights: silence, which is the normal state.
+      final quiet = _synthDays(45);
+      for (var i = 40; i < 45; i++) {
+        quiet[i]['trimp'] = 600.0;
+      }
+      final qv = ((buildCrossDayBundle(quiet, const {})['overreaching'] as Map)
+          ['value'] as Map);
+      expect(qv['both_point_same_way'], isFalse);
+    });
+
+    test('it is not a notification: no alert family reads it', () {
+      // _runNotifications collects illness/anomaly/temp_illness only. This is
+      // the structural half of the "no new notification class" rule.
+      final out = buildCrossDayBundle(_synthDays(30), const {});
+      expect(out.containsKey('overreaching'), isTrue);
+      expect((out['illness'] as Map?)?.containsKey('overreaching') ?? false,
+          isFalse);
+    });
+  });
+
+  group('TS-11 — what each session type cost the next morning', () {
+    List<Map<String, dynamic>> covered(int n) {
+      final days = _synthDays(n);
+      for (final d in days) {
+        d['sleep_coverage'] = 0.95;
+      }
+      return days;
+    }
+
+    test('no sessions logged → absent, never an empty-but-confident table', () {
+      final sc = (buildCrossDayBundle(covered(45), const {})['session_cost']
+          as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
+      expect(sc['confidence'], 0);
+    });
+
+    test('a type with ten clean mornings reports a signed median and its n',
+        () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      // Twelve football days, each followed by a morning 6 bpm above baseline.
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football'];
+        days[i + 1]['rhr'] = (days[i + 1]['rhr'] as double) + 6.0;
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      final rows = sc['value'] as List;
+      expect(rows.length, 1);
+      final row = rows.first as Map;
+      expect(row['session_type'], 'football');
+      expect(row['n'], greaterThanOrEqualTo(10));
+      expect(row['median_delta'], greaterThan(4.0));
+    });
+
+    test('a night we barely watched is dropped, not averaged in', () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football'];
+        days[i + 1]['sleep_coverage'] = 0.1;
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
+    });
+
+    test('a day with two sessions belongs to neither type', () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football', 'run'];
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
+    });
+  });
 }

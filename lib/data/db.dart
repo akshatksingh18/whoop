@@ -248,7 +248,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 43;
+  static const int schemaVersion = 44;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -734,6 +734,23 @@ class LocalDb {
           // its NOT NULL. Runs after every ADD COLUMN above so the rebuild
           // carries them across.
           await _relaxDecodedHrNull(db);
+        }
+        if (oldV < 44) {
+          // GATES 4b — NO SCHEMA CHANGE. The one rung on this ladder that is a
+          // data recovery rather than a DDL step: archived records that this
+          // build's decoders can now read are replayed into `decoded_onehz`.
+          //
+          // Here and not on the retention path (where `thinRawArchiveBefore`
+          // runs) for two reasons: the recovered seconds are OLDER than the
+          // retention edge, so a prune-time replay would insert them and delete
+          // them in the same pass; and derivation has to see them, which means
+          // landing before the next derive, not after it.
+          //
+          // Bounded by `redrivableArchiveReasons` precisely so it is not the
+          // heavy pass the v42 rung refuses to do here: it is 1,035 short
+          // frames on the largest real export, not the 492 MB of v20 hex
+          // sitting beside them.
+          await redriveArchivedRecords(db);
         }
       },
       onOpen: (db) async {
@@ -3526,6 +3543,51 @@ class LocalDb {
       bytes = proto.hexToBytes(raw.hex);
     } catch (_) {}
     if (bytes != null) {
+      // GEN5 FIRST — and only on a full gen5 decode. This whole fallback used
+      // to be gen4-only, so any gen5 frame arriving without a pre-decoded
+      // sample (a raw replay, an archive re-drive, a raw-hex import) was fed
+      // to the R24 map, which is precisely the misread the comment above
+      // describes: same HR byte, gravity one byte off, a believable-looking
+      // fabricated vector.
+      //
+      // Order is safe in this direction and not the other:
+      // `parseGen5Historical` dispatches off the record version and returns
+      // null for anything it does not recognise, so a gen4 R24/R12 frame
+      // (version 24/12) falls straight through to the chain below.
+      try {
+        final g = proto.parseGen5Historical(bytes);
+        // Only the per-second v18 record maps onto a 1 Hz Sample; the deep
+        // buffers (v20/v21/v26) are correctly identified and deliberately not
+        // storable here — same contract as the live drain's mapper in
+        // ble_engine.dart, which this duplicates because lib/data must not
+        // depend on lib/ble.
+        if (g is proto.Gen5HistorySample && g.unix > 0) {
+          return Sample(
+            tsEpoch: g.unix,
+            counter: g.recordIndex,
+            hr: g.heartRate,
+            rrIntervalsMs: List<int>.from(g.rrIntervalsMs),
+            ax: g.gravityG.isNotEmpty ? g.gravityG[0] : null,
+            ay: g.gravityG.length > 1 ? g.gravityG[1] : null,
+            az: g.gravityG.length > 2 ? g.gravityG[2] : null,
+            stepCount: g.stepMotionCounter,
+            stepCadence: g.stepCadence,
+            activityClass: g.activityClassKnown,
+            skinTempC: g.skinTempC,
+            onWrist: g.onWristRaw,
+            hrValid: g.hrRrValidThisSecond,
+            hrAlt: g.heartRateAlt,
+            // MT-12's three columns exist (v43) and the write below names
+            // them. Carried here because they are free and the point of
+            // storing them is to make it possible to find out later whether
+            // they mean anything — see Sample.tempCh2C for why they are not
+            // named after a body part.
+            tempCh2C: g.tempAux1C,
+            tempCh3C: g.tempAux2C,
+            signalQualityLogVar: g.signalQualityLogVariance,
+          );
+        }
+      } catch (_) {}
       try {
         // Legacy decoder first, firmware-fallback chain second — see
         // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
@@ -4013,6 +4075,142 @@ class LocalDb {
       'captured_at': a.capturedAt,
       'reason': a.reason,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// The `raw_archive.reason` values [redriveArchivedRecords] will retry.
+  ///
+  /// A reason names the RECORD VERSION a build could not decode, and only the
+  /// per-second records map onto 1 Hz rows at all: gen5's v20/v21/v26 and
+  /// gen4's v25 are deep buffers this build IDENTIFIES correctly and
+  /// deliberately does not store as seconds (see `_ingestHistoricalFrame`), so
+  /// retrying them re-reads half a gigabyte of hex to re-learn the same answer.
+  /// MEASURED on the real MG export: `undecodable_rec_v20` alone is 115,672
+  /// rows and 492 MB. A future format that becomes re-drivable gets a line
+  /// here, by name.
+  static const List<String> redrivableArchiveReasons = [
+    // gen5's per-second summary. 1,035 of these sit in the MG export, archived
+    // before this month's decoder fixes under a gravity window that was gen4's
+    // — 0.5-1.8 g on a NORMALISED vector, applied to gen5's raw per-axis means.
+    // All 1,035 decode today, gravity included.
+    'undecodable_rec_v18',
+    // The same records under a reason string an older build wrote and nothing
+    // writes any more. Both labels are stale, which is the whole point.
+    'partial_decode_v18_no_gravity',
+    // gen4's R24, for symmetry — a record the R24 chain rejected once may
+    // decode under a later firmware fallback. Zero rows carry it on any of the
+    // three real exports; it costs nothing to include and is the case this
+    // would otherwise have to be rewritten for.
+    'undecodable_rec_v24',
+  ];
+
+  /// GATES 4b — replay the archive through the CURRENT decoders, into
+  /// `decoded_onehz` / `decoded_rr`. Returns the seconds recovered.
+  ///
+  /// `raw_archive` holds frames a BUILD could not turn into a [Sample]. That is
+  /// a statement about the build, not about the bytes — and nothing ever went
+  /// back to re-read them, so the archive silently became a graveyard rather
+  /// than the recovery store it was created to be. On the real MG export that
+  /// is 1,035 seconds of gen5 history the app already owns, carrying HR, R-R,
+  /// steps, sleep state and a skin temperature populated on 1,035 of 1,035.
+  ///
+  /// Run ONCE, from the migration ladder: off the ACK-critical sync path, and
+  /// never on the launch path of a DB that has already had it.
+  ///
+  /// THREE THINGS IT DOES NOT DO:
+  ///
+  ///  * It does not touch a second `decoded_onehz` already holds.
+  ///    [_queueDecodedOneHz] writes REPLACE (newest-wins, for a re-offload of a
+  ///    live second) and a replay is the opposite case: a frame that FAILED to
+  ///    decode must never evict one that succeeded. Collisions are skipped.
+  ///  * It does not stamp `device_family`. A replay has no live link to ask,
+  ///    and the record version does not answer it either — v18 exists on BOTH
+  ///    generations (gen4 lists v7/v9/v18 as unconfirmed field maps). NULL is
+  ///    the documented value for exactly this case, and the metrics that need
+  ///    the family will correctly refuse rather than assume gen4.
+  ///  * It does not delete, thin or relabel the archived row. The bytes stay
+  ///    exactly where they are, under the reason they were captured with.
+  static Future<int> redriveArchivedRecords(Database db) async {
+    // Both are cheap and both are required: a DB whose ladder has not created
+    // the archive yet (or is mid-ladder) must no-op rather than throw — a throw
+    // in here rolls the WHOLE upgrade back and quarantines the database.
+    for (final t in const ['raw_archive', 'decoded_onehz']) {
+      final present = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        [t],
+      );
+      if (present.isEmpty) return 0;
+    }
+
+    final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
+    // Paged on `hex`, which is the table's PRIMARY KEY — a stable, total order
+    // that needs no extra index and no offset scan.
+    var afterHex = '';
+    var recovered = 0;
+    while (true) {
+      final rows = await db.rawQuery(
+        'SELECT hex, counter, packet_type, rec_ts, captured_at '
+        'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
+        'ORDER BY hex ASC LIMIT 500',
+        [...redrivableArchiveReasons, afterHex],
+      );
+      if (rows.isEmpty) return recovered;
+      afterHex = rows.last['hex'] as String;
+
+      // Decode first, keyed by the second each record claims. Two archived
+      // frames for the same second collapse here rather than fighting over the
+      // primary key inside the batch.
+      final byRecTs = <int, (RawRecord, Sample)>{};
+      for (final r in rows) {
+        final raw = RawRecord(
+          counter: (r['counter'] as num?)?.toInt() ?? 0,
+          packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
+          hex: r['hex'] as String,
+          capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
+          recTs: (r['rec_ts'] as num?)?.toInt(),
+        );
+        final s = _decodeOneHzSample(raw);
+        // Still undecodable under today's decoders. Left in the archive,
+        // untouched, for the build that can read it.
+        if (s == null) continue;
+        final recTs = _recTsFrom(raw, s);
+        // `rec_ts` is NULL on every archived row on all three real exports (we
+        // archive a frame precisely because we never learned its time), so this
+        // is the decoded timestamp — and a record with no plausible time has
+        // nowhere to land in a table keyed by one.
+        if (recTs <= 0) continue;
+        byRecTs[recTs] = (raw, s);
+      }
+      if (byRecTs.isEmpty) continue;
+
+      final keys = byRecTs.keys.toList();
+      final taken = <int>{};
+      for (var i = 0; i < keys.length; i += 400) {
+        final end = i + 400 < keys.length ? i + 400 : keys.length;
+        final slice = keys.sublist(i, end);
+        for (final e in await db.rawQuery(
+          'SELECT rec_ts FROM decoded_onehz WHERE rec_ts IN '
+          '(${List.filled(slice.length, '?').join(',')})',
+          slice,
+        )) {
+          taken.add((e['rec_ts'] as num).toInt());
+        }
+      }
+
+      final batch = db.batch();
+      var queued = 0;
+      for (final e in byRecTs.entries) {
+        if (taken.contains(e.key)) continue;
+        final (raw, sample) = e.value;
+        // `sample` is handed back as `preferred` so the hex is decoded once,
+        // not twice; `_queueDecodedOneHz` returns it straight back out.
+        // `deviceFamily` is deliberately omitted — see the doc comment.
+        if (_queueDecodedOneHz(batch, raw, sample) > 0) {
+          queued++;
+          recovered++;
+        }
+      }
+      if (queued > 0) await batch.commit(noResult: true);
+    }
   }
 
   /// One in this many `undecodable_rec_v20` frames is kept behind the retention

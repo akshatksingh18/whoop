@@ -65,6 +65,15 @@ class CircadianData {
   final List<int> hourlyN;
   final String? hourlyNote;
 
+  /// SLP-08 — the adjacent-night pairs the regularity index was averaged over,
+  /// WORST FIRST. Each entry is `{prev_date, date, sri, cases}`.
+  ///
+  /// The analytics never sees a date; `crossday_pipeline` resolves each pair's
+  /// day index into the two nights it compared, and drops any pair the validity
+  /// mask left too thin — so a half-unobserved weekend cannot top this list for
+  /// having no data. Empty until the rollup carries pairs at all.
+  final List<Map<String, dynamic>> sriPairs;
+
   /// MIND-11 — the shape of today, forecast from last night. Absent whenever
   /// the night is missing or was never judged; the analytics gate does that and
   /// this screen only draws what it published.
@@ -88,6 +97,7 @@ class CircadianData {
     this.hourlyDays = 0,
     this.hourlyN = const [],
     this.hourlyNote,
+    this.sriPairs = const [],
     this.alertness = const ana.Metric<ana.AlertnessForecast>.absent(
       tier: ana.Tier.estimate,
       inputs_used: [],
@@ -200,6 +210,15 @@ class CircadianData {
       chronotypeLabel: (chronoV['type_label'] ?? '').toString(),
       jetlag: envMetric(sjl, sjlV['abs_hours'] as num?),
       regularity: envMetric(reg, regV['sri'] as num?),
+      // SLP-08. Worst first — the one row this can support is "these two
+      // agreed least", so the list is sorted for that and nothing else reads
+      // past the head of it.
+      sriPairs: <Map<String, dynamic>>[
+        for (final e in (regV['pairs'] as List? ?? const []))
+          if (e is Map && e['sri'] is num && e['date'] != null &&
+              e['prev_date'] != null)
+            e.cast<String, dynamic>(),
+      ]..sort((a, b) => (a['sri'] as num).compareTo(b['sri'] as num)),
       midFreeH: sjlV['mid_sleep_free_h'] as num?,
       midWorkH: sjlV['mid_sleep_work_h'] as num?,
       nFree: sjlV['n_free'] as num?,
@@ -234,6 +253,16 @@ class CircadianData {
 /// Hours past midnight → a wall clock, in the app's one clock format.
 String _hourClock(num? h) => h == null ? '' : clock(((h % 24) * 60).round());
 
+/// `'YYYY-MM-DD'` → `'9 Aug'`. Built off [prettyDay] rather than a second month
+/// table: two dates spelled "Saturday, 9 August" do not fit one table row, and
+/// this screen's own actogram axis already prints bare dates.
+String _shortDay(Object? day) {
+  final parts = prettyDay(day?.toString()).split(', ');
+  if (parts.length < 2) return '';
+  final dm = parts.last.split(' ');
+  return dm.length < 2 ? parts.last : '${dm[0]} ${dm[1].substring(0, 3)}';
+}
+
 class CircadianDetail extends StatefulWidget {
   final CircadianData? data;
   const CircadianDetail({super.key, this.data});
@@ -248,6 +277,11 @@ class _CircadianDetailState extends State<CircadianDetail> {
 
   /// Whether the non-parametric battery is unfolded. Off by default.
   bool _showStrength = false;
+
+  /// SLP-08 — whether the two rows naming the least-alike pair of nights are
+  /// unfolded. Off by default: the regularity index is one row today, and the
+  /// decomposition of it is two more that nobody asked for until they did.
+  bool _showNights = false;
 
   @override
   void initState() {
@@ -320,7 +354,18 @@ class _CircadianDetailState extends State<CircadianDetail> {
             ),
           ),
 
-        Section('Your rhythm', _rhythm(c, p, d)),
+        // SLP-08 rides in this section's action, so the screen gains a tap
+        // rather than two permanent rows.
+        Section(
+          'Your rhythm',
+          _rhythm(c, p, d),
+          action: d.sriPairs.isEmpty || d.regularity.value == null
+              ? null
+              : (_showNights ? 'Hide' : 'Which nights'),
+          onAction: d.sriPairs.isEmpty || d.regularity.value == null
+              ? null
+              : () => setState(() => _showNights = !_showNights),
+        ),
 
         // MIND-11 sits directly under the measured rhythm because it is built
         // on it — and directly above the battery it borrows the acrophase from.
@@ -492,6 +537,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
   }
 
   Widget _rhythm(BuildContext c, P p, CircadianData d) {
+    final worst = d.sriPairs.isEmpty ? null : d.sriPairs.first;
+    final showNights = _showNights && worst != null;
     final rows = <(String, String)>[
       if (d.chronotypeLabel.isNotEmpty)
         ('Chronotype', d.chronotypeLabel),
@@ -513,6 +560,14 @@ class _CircadianDetailState extends State<CircadianDetail> {
             '${d.nFree!.round()} / ${d.nWork!.round()}'),
       if (d.regularity.value != null)
         ('Regularity index', '${d.regularity.value!.round()} / 100'),
+      // SLP-08 — the same arithmetic, one level down. The index above is the
+      // average agreement across every adjacent pair of nights; these two rows
+      // name the pair that agreed least and print it on the same scale.
+      if (showNights)
+        ('Nights least alike',
+            '${_shortDay(worst['prev_date'])} → ${_shortDay(worst['date'])}'),
+      if (showNights)
+        ('That pair, same scale', '${(worst['sri'] as num).round()} / 100'),
     ];
 
     if (rows.isEmpty) {
@@ -523,7 +578,23 @@ class _CircadianDetailState extends State<CircadianDetail> {
           const SizedBox.shrink();
     }
 
-    return _table(p, rows);
+    if (!showNights) return _table(p, rows);
+    // The caption is not decoration. SRI's evidence is a population-level
+    // mortality association; it does not license telling one person that their
+    // Saturday is harming them, and two dates in a table are exactly the shape
+    // that gets read as a verdict unless the card says otherwise.
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _table(p, rows),
+      const SizedBox(height: S.x3),
+      Text(
+        'Arithmetic, not a judgement: the index is the average agreement '
+        'between each night and the one before it, and this is the pair that '
+        'agreed least out of ${d.sriPairs.length}. A weekend that runs late is '
+        'a different schedule, not a worse night. Pairs where too little of '
+        'either day was recorded are left out entirely.',
+        style: F.over.copyWith(color: p.ink3, height: 1.5),
+      ),
+    ]);
   }
 
   /// The non-parametric battery and the cosinor fit, with what they were
@@ -586,9 +657,19 @@ class _CircadianDetailState extends State<CircadianDetail> {
                 Expanded(
                     child:
                         Text(rows[i].$1, style: F.body.copyWith(color: p.ink))),
-                Text(rows[i].$2,
-                    style: F.body
-                        .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                const SizedBox(width: S.x3),
+                // Flexible, like every other two-column row in the app: at 3.1x
+                // text the label wraps inside its Expanded and the value's
+                // natural width then runs 400 pt off the right edge. This
+                // overflowed on the rows that were already here — "Regularity
+                // index / 62 / 100" is enough on its own — so it is not the
+                // SLP-08 rows that need it, it is the table.
+                Flexible(
+                  child: Text(rows[i].$2,
+                      textAlign: TextAlign.right,
+                      style: F.body
+                          .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                ),
               ]),
             ),
           ],

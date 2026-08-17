@@ -602,6 +602,20 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       ? null
       : d.sleepRrTsMs.first - d.sleepRrMs.first;
   final hrvTimeline = _hrvTimeline(nn, nnTimes, hrvOriginMs);
+  // CV-06 — the SHAPE of the night: per-bin RMSSD over the same cleaned NN the
+  // headline uses, so the curve and the number can never disagree. Bins that
+  // fall under the beat floor stay in the series as HOLES on purpose — dropping
+  // them lets a reader draw a straight line across a charging gap and call it
+  // flat variability. Every bin ships lo/hi: render a BAND, not a line.
+  //
+  // A DESCRIPTION, never a cause. A suppressed first third is equally
+  // consistent with alcohol, a late meal, late training, a warm room, illness
+  // onset, or nothing, and nothing here can tell those apart.
+  //
+  // `startSec` is seconds from the FIRST BEAT, not an epoch — `origin_ms` is
+  // the wall-clock instant that clock starts at, the same `hrvOriginMs` the
+  // timeline above is placed on.
+  final nightShape = nightHrvShape(nn, nnTimes);
   final strainCurve = _strainCurve(
     wakeHr,
     restingHr: rhrForTrimp,
@@ -999,6 +1013,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'hr_stats': ?hrStats,
     'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
     'respiration': respiration,
+    // CV-06 (see `nightShape` above). Envelope + the epoch origin its bin
+    // offsets are counted from; null origin means there were no beats to place.
+    'hrv_night_shape': {
+      ...nightShape.toJson((v) => v.toJson()),
+      'origin_ms': hrvOriginMs,
+    },
     'wellness': wellness,
     'stress': stressBlock,
     'spo2': spo2Block,

@@ -127,6 +127,17 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     onWrist: g.onWristRaw,
     hrValid: g.hrRrValidThisSecond,
     hrAlt: g.heartRateAlt,
+    // MT-12 — the record's second and third temperature channels, and the
+    // band's own per-second signal-quality figure. Carried by CHANNEL INDEX,
+    // never by a body part: protocol calls their semantics loose, and naming
+    // one of them is exactly how gen4's `skinTempRaw` came to feed readiness
+    // as a skin temperature. Measured on real records (docs/internal/GATES.md):
+    // populated on 1,035/1,035, 27.0-33.2 °C, systematically 2-3 °C below
+    // `skinTempC`. That is a measurement; no claim is made about what they are.
+    // Nothing reads these — persisting claims nothing, which is the point.
+    tempCh2C: g.tempAux1C,
+    tempCh3C: g.tempAux2C,
+    signalQualityLogVar: g.signalQualityLogVariance,
   );
 }
 

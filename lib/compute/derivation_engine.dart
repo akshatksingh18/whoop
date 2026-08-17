@@ -3674,6 +3674,9 @@ class DerivationEngine {
         for (final r in await LocalDb.cycleLogs())
           if (r['kind'] == 'start' && r['date'] is String) r['date'] as String,
       ];
+      // TS-11's grouping key. Read here (sqflite is main-isolate only) and
+      // handed in as plain strings so the bundle stays pure.
+      final sessionTypes = await _sessionTypesByDate(days);
       // Encode INSIDE the isolate too — a real ~3.5-4.7s main-isolate hang was
       // caught in production (Crashlytics jank_watchdog, correlated with a
       // heavy derive pass) coming from jsonEncode-ing this bundle back on the
@@ -3697,6 +3700,7 @@ class DerivationEngine {
                   days,
                   profileMap,
                   cycleStartDates: cycleStarts,
+                  sessionTypesByDate: sessionTypes,
                 )
                 ..['algo_version'] = kAlgoVersion
                 ..['built_for_day'] = builtForDay
@@ -3728,6 +3732,43 @@ class DerivationEngine {
           'now stale and every cross-day metric will read absent: $e\n$st');
       _log('crossday FAILED/skipped: $e');
     }
+  }
+
+  /// Every FINISHED saved session, grouped by the local day it started on
+  /// (TS-11's `sessionTypesByDate`).
+  ///
+  /// A live session is excluded — it has no end and no next morning yet, and
+  /// including it would make today look like a single-session day that it may
+  /// not turn out to be.
+  ///
+  /// The key is the CALENDAR-local day label, the same alphabet the day rows
+  /// use. It is not the wake-to-wake physiological boundary, so a session
+  /// started between midnight and wake is filed under the calendar day it
+  /// began rather than the physiological day it ends inside. That costs at most
+  /// the attribution of a 1 a.m. workout; the analytics drops multi-session
+  /// days and refuses under ten mornings per type either way.
+  static Future<Map<String, List<String>>> _sessionTypesByDate(
+    List<Map<String, dynamic>> days,
+  ) async {
+    if (days.isEmpty) return const {};
+    final first = days.first['date'];
+    if (first is! String || first.isEmpty) return const {};
+    final fromSec = _localDayLabelToSec(first);
+    final toSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final out = <String, List<String>>{};
+    for (final r in await LocalDb.sessionsInRange(fromSec, toSec)) {
+      if (r['status'] == 'live') continue;
+      final start = (r['start_ts'] as num?)?.toInt();
+      final type = r['type']?.toString();
+      if (start == null || type == null || type.isEmpty) continue;
+      out
+          .putIfAbsent(
+            dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000)),
+            () => <String>[],
+          )
+          .add(type);
+    }
+    return out;
   }
 
   Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
@@ -4029,6 +4070,8 @@ class DerivationEngine {
     final onsetMs = (winVal?['onset_ms'] as num?)?.toDouble();
     final offsetMs = (winVal?['offset_ms'] as num?)?.toDouble();
     final tstSec = (acctVal?['tst_sec'] as num?)?.toDouble();
+    final inBedSec = (acctVal?['in_bed_sec'] as num?)?.toDouble();
+    final observedSec = (acctVal?['observed_in_bed_sec'] as num?)?.toDouble();
 
     return {
       'date': date,
@@ -4047,6 +4090,17 @@ class DerivationEngine {
       'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
+      // Fraction of the night we actually watched — wall-clock in-bed minus the
+      // seconds nobody observed, over in-bed. TS-11 drops a morning whose night
+      // is under half observed: a resting HR from two hours of contact is not a
+      // morning, and it would otherwise be attributed to whatever session the
+      // day before happened to hold.
+      // Unknown stays NULL, never 0: a night whose segmentation did not report
+      // what it watched is not a night we watched none of, and 0 would read as
+      // a confident "no coverage".
+      'sleep_coverage': (inBedSec == null || inBedSec <= 0 || observedSec == null)
+          ? null
+          : observedSec / inBedSec,
       'hypnogram': series?['hypnogram'],
       // 24 local-hour means of this day's HR curve — the ONLY intraday series
       // that survives long enough to support cross-day circadian analysis.
@@ -5236,10 +5290,15 @@ class DerivationEngine {
     return out;
   }
 
-  /// All-day respiratory-rate curve (epoch {t,v} br/min) via rolling RSA on the
-  /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
-  /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
-  /// confounded, so it's a context line.
+  /// The day's RESTING breathing-rate floor (epoch {t,v} br/min) via rolling
+  /// RSA on the 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too
+  /// few/too noisy beats) are skipped — never fabricated.
+  ///
+  /// RESP-05 — every window is MOTION-GATED before the estimator runs (see
+  /// [_respQuietFraction]). This is not "your breathing rate today" and it is
+  /// never a value during activity: RSA amplitude collapses under motion, so a
+  /// moving window cannot resolve a breathing rate at all. **Most days produce
+  /// nothing, and that is the correct output.**
   ///
   /// Test seam: replaces the RSA estimator, so the ABSENT branch — the one that
   /// used to strand the cadence cursor and re-run a triple Lomb-Scargle per beat
@@ -5256,8 +5315,45 @@ class DerivationEngine {
   @visibleForTesting
   static int debugRespAttempts = 0;
 
+  /// Fraction of a candidate resp window's seconds that must be PRESENT AND
+  /// STILL before the estimator is allowed to run (RESP-05).
+  ///
+  /// RSA amplitude collapses under motion and the tachogram's Nyquist falls
+  /// with heart rate, so a window with movement in it physically cannot resolve
+  /// a normal breathing rate — the estimator does not fail loudly there, it
+  /// returns a confident wrong number or abstains at random. 0.9 of 180 s is
+  /// 162 still seconds: it tolerates the odd re-orientation and rejects
+  /// anything that is a walk. It also subsumes coverage — a second with no
+  /// gravity vector cannot be counted still (absence is not stillness), so a
+  /// half-observed window fails the same test.
+  static const double _respQuietFraction = 0.9;
+
+  /// Test seam: counts windows REJECTED by the stillness gate above.
+  @visibleForTesting
+  static int debugRespGateRejects = 0;
+
   @visibleForTesting
   static List<Map<String, num>> dayRespCurve(Substrate s) {
+    // RESP-05 — the gate is per-FAMILY, and an unknown strap gets no cut rather
+    // than gen4's (device.dart contract). Refusing the whole curve is the
+    // correct output for every pre-schema-41 day and every import: we cannot
+    // say those seconds were still, and an ungated daytime RSA number is the
+    // thing this item exists to stop publishing.
+    final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);
+    if (cut == null) return const [];
+    // Running count of still seconds, over substrate index. Prefix-summed so a
+    // window's stillness is two array reads instead of a rescan.
+    final quietPrefix = List<int>.filled(s.length + 1, 0);
+    for (var i = 0; i < s.length; i++) {
+      var q = 0;
+      if (s.accelPresentAt(i)) {
+        final mag =
+            math.sqrt(s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
+        if ((mag - 1.0).abs() <= cut) q = 1;
+      }
+      quietPrefix[i + 1] = quietPrefix[i] + q;
+    }
+
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -5271,12 +5367,37 @@ class DerivationEngine {
     final out = <Map<String, num>>[];
     var lo = 0;
     var lastEmit = -1e18;
+    // Cursors into s.tsSec for the window bounds. Both `ts[lo]` and `ts[i]` are
+    // non-decreasing across the loop, so these only ever move forward.
+    var qLo = 0, qHi = 0;
     for (var i = 0; i < rr.length; i++) {
       while (ts[i] - ts[lo] > winMs) {
         lo++;
       }
       if (i - lo >= 30 && ts[i] - lastEmit > 300000) {
         // 5-min cadence
+        // STILLNESS GATE, BEFORE the estimator. Rejecting here is also where
+        // the perf win lives: the triple Lomb-Scargle never runs on a window
+        // that could not have produced a resting rate anyway.
+        final loSec = (ts[lo] / 1000).floor();
+        final hiSec = (ts[i] / 1000).ceil();
+        while (qLo < s.length && s.tsSec[qLo] < loSec) {
+          qLo++;
+        }
+        if (qHi < qLo) qHi = qLo;
+        while (qHi < s.length && s.tsSec[qHi] < hiSec) {
+          qHi++;
+        }
+        final spanSec = hiSec - loSec;
+        final stillSec = quietPrefix[qHi] - quietPrefix[qLo];
+        if (spanSec <= 0 || stillSec < _respQuietFraction * spanSec) {
+          // Advance the cadence cursor on a rejection too — otherwise a moving
+          // stretch re-tests (and re-scans) once per beat, which is the same
+          // shape as the v60 bug this loop already carries a fix for.
+          debugRespGateRejects++;
+          lastEmit = ts[i];
+          continue;
+        }
         final nn = rr.sublist(lo, i + 1);
         final t0 = ts[lo];
         final nnt = [for (var k = lo; k <= i; k++) ts[k] - t0];
@@ -6066,6 +6187,7 @@ class DerivationEngine {
     bundlePatch['workout_suggestions'] = wc.boutJson;
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
     if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
+    bundlePatch['hr_ceiling'] = _dayHrCeiling(daySub, inp.savedSessions);
 
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
@@ -6274,6 +6396,81 @@ class DerivationEngine {
       if (kDebugMode) debugPrint('[derive] auto-workout/HRR FAILED/skipped: $e');
       return const _WorkoutCompute.empty();
     }
+  }
+
+  /// TS-03 — the day's OBSERVED heart-rate ceiling: the highest bpm any of this
+  /// day's SAVED sessions held for ≥15 continuous seconds with corroborating
+  /// motion, tagged with the session it came from.
+  ///
+  /// NOT a physiological HRmax and not a substitute for one. Whoever renders it
+  /// says "highest we've seen: 184, on 3 Aug" with the date and the session,
+  /// never "your max HR is 184", and never invites a max-effort test. The
+  /// app-wide ceiling is the max over days of the PRESENT values — a one-line
+  /// reduce for the reader, deliberately not a second function here, so the
+  /// hold+motion guard cannot be bypassed by reducing over un-guarded numbers.
+  ///
+  /// Absent is the common case and it is correct: most sessions do not test
+  /// your ceiling. So is an unknown device family — the motion gate is a
+  /// property of the sensor package and gen4's floor is not a default (see
+  /// `observed_max_hr.dart`).
+  ///
+  /// Sessions are scored ONE AT A TIME, never as a concatenated day: a hold
+  /// must be continuous inside one session, and stitching two sessions would
+  /// invent a hold across the gap between them.
+  @visibleForTesting
+  static Map<String, dynamic> dayHrCeiling(
+    Substrate s,
+    List<Map<String, dynamic>> saved,
+  ) =>
+      _dayHrCeiling(s, saved);
+
+  static Map<String, dynamic> _dayHrCeiling(
+    Substrate s,
+    List<Map<String, dynamic>> saved,
+  ) {
+    ana.Metric<ana.HrCeiling>? best;
+    String? bestId;
+    String? bestType;
+    ana.Metric<ana.HrCeiling>? lastAbsent;
+    for (final row in saved) {
+      final start = (row['start_ts'] as num?)?.toInt();
+      final end = (row['end_ts'] as num?)?.toInt();
+      if (start == null || end == null || end <= start) continue;
+      final hr = <ana.HrSample>[];
+      final accel = <ana.AccelSample>[];
+      for (var i = 0; i < s.length; i++) {
+        final t = s.tsSec[i];
+        if (t < start) continue;
+        if (t > end) break;
+        final tsMs = t * 1000.0;
+        hr.add(ana.HrSample(tsMs, s.hr[i].toDouble()));
+        accel.add(ana.AccelSample(tsMs, s.ax[i], s.ay[i], s.az[i],
+            valid: s.accelPresentAt(i)));
+      }
+      if (hr.isEmpty) continue;
+      final m = ana.sessionHrCeiling(hr, accel, deviceFamily: s.deviceFamily);
+      if (!m.present) {
+        lastAbsent = m;
+        continue;
+      }
+      if (best == null || m.value!.bpm > best.value!.bpm) {
+        best = m;
+        bestId = row['id']?.toString();
+        bestType = row['type']?.toString();
+      }
+    }
+    final m = best ??
+        lastAbsent ??
+        const ana.Metric<ana.HrCeiling>.absent(
+          tier: ana.Tier.high,
+          inputs_used: ['hr_1hz', 'accel_1hz', 'device_family'],
+          note: 'no saved session on this day to observe a ceiling in',
+        );
+    return {
+      ...m.toJson((v) => v.toJson()),
+      'session_id': ?bestId,
+      'session_type': ?bestType,
+    };
   }
 
   /// HRR-60s + the recovery time constant for a bout ending at [endSec]: build

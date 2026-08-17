@@ -163,6 +163,44 @@ void main() {
     },
   );
 
+  // ── WH-02 ────────────────────────────────────────────────────────────────
+  test(
+    'the overlay numbers every day against the start that PRECEDED it, not '
+    'the last one logged',
+    () async {
+      await LocalDb.putCycleLog('2026-06-01', 'start');
+      await LocalDb.putCycleLog('2026-07-01', 'start');
+      for (final d in ['2026-05-30', '2026-06-05', '2026-07-05']) {
+        await LocalDb.putDayResult(
+          dayId: d,
+          algoVersion: 41,
+          payloadJson: '{"scalars":{"rhr":52.0}}',
+          windowJson: '{}',
+        );
+      }
+
+      final overlay = (await repo.getCycle())['overlay'] as List;
+      final byDate = {
+        for (final o in overlay) (o as Map)['date']: o,
+      };
+
+      // Day 5 of the FIRST cycle. Counted off the last start it would have
+      // been day −25; counted off the last start with the old code it came
+      // back as a day past the cycle's own length and the screen could only
+      // ever draw one series.
+      expect(byDate['2026-06-05']!['cycle_index'], 0);
+      expect(byDate['2026-06-05']!['cycle_day'], 5);
+      // Day 5 of the SECOND. Same day number, different cycle — which is the
+      // comparison the whole feature exists to make.
+      expect(byDate['2026-07-05']!['cycle_index'], 1);
+      expect(byDate['2026-07-05']!['cycle_day'], 5);
+      // Before she ever logged a start there is no cycle to be on day N of.
+      // Absent, not day 0 and not a negative day.
+      expect(byDate['2026-05-30']!.containsKey('cycle_day'), isFalse);
+      expect(byDate['2026-05-30']!.containsKey('cycle_index'), isFalse);
+    },
+  );
+
   // ── fix 10 ───────────────────────────────────────────────────────────────
   test(
     'getRecords answers the ONE key its caller reads, touching no day_result '

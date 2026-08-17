@@ -727,4 +727,336 @@ void main() {
           findsOneWidget);
     });
   });
+
+  // ── SLP-08: which two nights, and only over pairs the mask accepted ────────
+  group('the pair that broke your regularity', () {
+    /// The `regularity` envelope as `crossday_pipeline` emits it, with the two
+    /// dates it resolves each pair's day index into.
+    Map<String, dynamic> reg(List<(String, String, double)> pairs) => {
+          'value': {
+            'sri': 62.0,
+            'days': pairs.length + 1,
+            'cases': 1440 * pairs.length,
+            'pairs': [
+              for (final (a, b, s) in pairs)
+                {'prev_date': a, 'date': b, 'sri': s, 'cases': 1440},
+            ],
+          },
+          'tier': 'high',
+          'confidence': .8,
+        };
+
+    Future<void> pumpR(WidgetTester t, CircadianData d,
+        {double scale = 1}) async {
+      t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: CircadianDetail(data: d),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    test('the worst accepted pair leads, and a thin pair never gets here',
+        () async {
+      // The 12→13 pair is the worst of the three the analytics EMITTED. A pair
+      // the validity mask left too thin is dropped upstream (phillipsSri's
+      // `minPairCases`), so a half-unobserved weekend cannot top this list for
+      // having no data — the fixture models that by simply not carrying it.
+      final d = await CircadianData.load(_FakeRepo(insights: {
+        'regularity': reg(const [
+          ('2026-08-10', '2026-08-11', 71.0),
+          ('2026-08-12', '2026-08-13', 18.0),
+          ('2026-08-14', '2026-08-15', 55.0),
+        ]),
+      }));
+      expect(d.sriPairs.length, 3);
+      expect(d.sriPairs.first['date'], '2026-08-13');
+      expect(d.sriPairs.first['sri'], 18.0);
+    });
+
+    testWidgets('two rows, behind a tap, and never a verdict', (t) async {
+      final d = CircadianData(
+        regularity: const Metric(
+            value: 62, confidence: .8, tier: MetricTier.high),
+        sriPairs: const [
+          {'prev_date': '2026-08-12', 'date': '2026-08-13', 'sri': 18.0},
+          {'prev_date': '2026-08-14', 'date': '2026-08-15', 'sri': 55.0},
+        ],
+      );
+      await pumpR(t, d);
+      // Density 2 is unchanged until it is asked for.
+      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Nights least alike'), findsNothing);
+
+      await t.tap(find.text('Which nights'));
+      await t.pumpAndSettle();
+      expect(find.text('12 Aug → 13 Aug'), findsOneWidget);
+      expect(find.text('18 / 100'), findsOneWidget);
+      // The pair that agreed MOST is not on screen — one row's worth of fact,
+      // not a ranking of the user's weeks.
+      expect(find.textContaining('14 Aug'), findsNothing);
+      // The guard the item is mostly made of.
+      expect(find.textContaining('Arithmetic, not a judgement'), findsOneWidget);
+      expect(find.textContaining('not a worse night'), findsOneWidget);
+    });
+
+    testWidgets('no pairs, no tap', (t) async {
+      await pumpR(
+        t,
+        const CircadianData(
+            regularity:
+                Metric(value: 62, confidence: .8, tier: MetricTier.high)),
+      );
+      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Which nights'), findsNothing);
+    });
+
+    testWidgets('the rows survive 3.1x text', (t) async {
+      await pumpR(
+        t,
+        const CircadianData(
+          regularity:
+              Metric(value: 62, confidence: .8, tier: MetricTier.high),
+          sriPairs: [
+            {'prev_date': '2026-08-12', 'date': '2026-08-13', 'sri': 18.0},
+          ],
+        ),
+        scale: 3.1,
+      );
+      await t.tap(find.text('Which nights'));
+      await t.pumpAndSettle();
+      expect(find.text('12 Aug → 13 Aug'), findsOneWidget);
+    });
+  });
+
+  // ── CV-06: a band, holes that stay holes, and no cause anywhere ───────────
+  group('the shape of the night', () {
+    /// `hrv_night_shape` as the pipeline emits it: [n] bins [width] apart, with
+    /// the bins named in [gaps] under the beat floor and therefore null.
+    Map<String, dynamic> shape(
+            {int n = 9, int width = 1800, Set<int> gaps = const {}}) =>
+        {
+          'value': {
+            'bins': [
+              for (var i = 0; i < n; i++)
+                {
+                  't': i * width,
+                  'n_beats': gaps.contains(i) ? 40 : 900,
+                  'rmssd_ms': gaps.contains(i) ? null : 30.0 + i * 3,
+                  'lo_ms': gaps.contains(i) ? null : 26.0 + i * 3,
+                  'hi_ms': gaps.contains(i) ? null : 34.0 + i * 3,
+                },
+            ],
+            'first_third_ms': 33.0,
+            'last_third_ms': 51.0,
+            'last_over_first': 1.545454,
+          },
+          'tier': 'high',
+          'confidence': .7,
+          'origin_ms': DateTime(2026, 8, 15, 23, 30).millisecondsSinceEpoch,
+        };
+
+    Future<void> pumpH(WidgetTester t, Map<String, dynamic> hrv,
+        {double scale = 1}) async {
+      t.view.physicalSize = Size(390 * 3, 6000 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Investigate('hrv',
+              data: InvestigateData(day: _day(0), hrv: hrv)),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('three lines on one axis — the band, not a line', (t) async {
+      await pumpH(t, {'night_shape': shape()});
+      expect(find.text('Shape of the night'), findsOneWidget);
+      // The corridor is drawn as lo/hi/mid against ONE shared AxisSpec: an edge
+      // drawn off an axis fitted to the middle is a clipped edge.
+      final lines = t
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((w) => w.painter)
+          .whereType<LineChart>()
+          .where((l) => l.axis != null)
+          .toList();
+      expect(lines.length, greaterThanOrEqualTo(3));
+      expect(lines.map((l) => l.axis).toSet().length, 1);
+      // The band's edges set the scale, so the top edge is inside it.
+      expect(lines.first.axis!.max, greaterThanOrEqualTo(58.0));
+      // The legend names the outer pair as the estimator's spread, and the
+      // footnote refuses to explain the shape it just drew.
+      expect(find.text('Sampling range'), findsOneWidget);
+      expect(find.textContaining('describes the night and cannot explain it'),
+          findsOneWidget);
+      expect(find.textContaining('equally consistent with alcohol'),
+          findsOneWidget);
+      // The ratio is a ratio. No adjective, no direction, no colour.
+      expect(find.text('1.55'), findsOneWidget);
+      expect(find.text('9 of 9'), findsOneWidget);
+      // The cut the item made on purpose: "time to the first bin within 10% of
+      // the night's max" is not computed and must never be added — it jumps by
+      // hours between adjacent nights on identical physiology.
+      expect(find.textContaining('first bin'), findsNothing);
+    });
+
+    testWidgets('a bin under the beat floor stays a hole', (t) async {
+      await pumpH(t, {'night_shape': shape(gaps: {3, 4})});
+      expect(find.text('7 of 9'), findsOneWidget);
+      expect(find.textContaining('gaps, not zeroes'), findsOneWidget);
+      // The painter is handed the nulls, not a compacted series — that is what
+      // makes it break the line across a charging gap instead of drawing over
+      // it.
+      final mid = t
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((w) => w.painter)
+          .whereType<LineChart>()
+          .firstWhere((l) => l.axis != null && l.d.length == 9);
+      expect(mid.d[3], isNull);
+      expect(mid.d.whereType<double>().length, 7);
+    });
+
+    testWidgets('an abstaining night quotes the estimator, not a guess',
+        (t) async {
+      await pumpH(t, {
+        'night_shape': {
+          'value': '—',
+          'tier': 'high',
+          'note': 'night spans 1.2 h — under three 30-min bins there is no '
+              'shape to describe',
+        }
+      });
+      expect(find.text('No shape for this night'), findsOneWidget);
+      expect(find.textContaining('under three 30-min bins'), findsOneWidget);
+      expect(find.text('Shape of the night'), findsNothing);
+    });
+
+    testWidgets('a bundle without the key says nothing at all', (t) async {
+      await pumpH(t, const {});
+      expect(find.text('No shape for this night'), findsNothing);
+      expect(find.text('Shape of the night'), findsNothing);
+    });
+
+    testWidgets('the panel survives 3.1x text', (t) async {
+      await pumpH(t, {'night_shape': shape()}, scale: 3.1);
+      expect(find.text('Shape of the night'), findsOneWidget);
+    });
+  });
+
+  // ── RESP-05: a floor, outside sleep, and usually nothing at all ───────────
+  group('resting breathing rate while awake', () {
+    /// A `resp_day` line: [vs] as {t, v} at five-minute spacing from [from].
+    List<Map<String, num>> line(int from, List<double> vs) => [
+          for (var i = 0; i < vs.length; i++)
+            {'t': from + i * 300, 'v': vs[i]},
+        ];
+
+    Future<void> pumpB(WidgetTester t, InvestigateData d,
+        {double scale = 1}) async {
+      t.view.physicalSize = Size(390 * 3, 5000 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Investigate('resp_rate', data: d),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('the night is not the day — sleep windows are excluded',
+        (t) async {
+      const night = 1000000, morning = 1030000;
+      await pumpB(
+        t,
+        InvestigateData(
+          day: _day(0),
+          windowStart: night,
+          windowEnd: night + 25000,
+          // Four windows inside the sleep window at a low nocturnal rate, three
+          // outside it. Only the outside three may be read, so the "lowest" is
+          // 14.1 and never the 11.0 the user was asleep for.
+          timeline: {
+            'resp': [
+              ...line(night + 600, const [11.0, 11.4, 11.2, 12.0]),
+              ...line(morning, const [15.2, 14.1, 16.8]),
+            ],
+          },
+        ),
+      );
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('14.1 br/min'), findsOneWidget);
+      expect(find.text('16.8 br/min'), findsOneWidget);
+      expect(find.textContaining('11.0'), findsNothing);
+      // It is a floor and it says so, in both directions.
+      expect(find.textContaining('A floor, not a rate for the day'),
+          findsOneWidget);
+      expect(find.textContaining('breathing while you move cannot be '
+          'recovered'), findsOneWidget);
+    });
+
+    testWidgets('the common case is nothing, and it is written as such',
+        (t) async {
+      const night = 1000000;
+      await pumpB(
+        t,
+        InvestigateData(
+          day: _day(0),
+          windowStart: night,
+          windowEnd: night + 25000,
+          timeline: {
+            'resp': [...line(night + 600, const [11.0, 11.4, 11.2])],
+          },
+        ),
+      );
+      expect(find.text('No resting breathing rate away from sleep'),
+          findsOneWidget);
+      expect(find.textContaining('a day you were moving, not a day anything '
+          'went wrong'), findsOneWidget);
+      expect(find.text('Lowest'), findsNothing);
+    });
+
+    testWidgets('no sleep window means it abstains rather than counts the night',
+        (t) async {
+      await pumpB(
+        t,
+        InvestigateData(
+          day: _day(0),
+          timeline: {'resp': line(1030000, const [15.2, 14.1, 16.8, 15.9])},
+        ),
+      );
+      // Four windows, and still nothing: with no window there is nothing to
+      // subtract, and the stillest stretches of an unsegmented day are exactly
+      // the ones that were sleep.
+      expect(find.text('No resting breathing rate away from sleep'),
+          findsOneWidget);
+      expect(find.text('Lowest'), findsNothing);
+    });
+
+    testWidgets('the panel survives 3.1x text', (t) async {
+      const night = 1000000;
+      await pumpB(
+        t,
+        InvestigateData(
+          day: _day(0),
+          windowStart: night,
+          windowEnd: night + 25000,
+          timeline: {'resp': line(1030000, const [15.2, 14.1, 16.8])},
+        ),
+        scale: 3.1,
+      );
+      expect(find.text('Breathing at rest, awake'.toUpperCase()),
+          findsOneWidget);
+    });
+  });
 }

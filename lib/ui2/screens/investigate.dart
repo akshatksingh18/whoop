@@ -47,6 +47,11 @@ class InvestigateData {
   /// nowhere else. Empty on every key but `sleep`.
   final Map<String, dynamic> night;
 
+  /// RESP-05 — the day's all-day lines (`getDayTimeline`). Only `resp` is read
+  /// from it, and only outside the sleep window. Empty on every key but
+  /// `resp_rate`, because it is a second bundle decode.
+  final Map<String, dynamic> timeline;
+
   /// The stored `prsa_dc` series, dated. Deceleration capacity is the one
   /// HRV-family number with hard outcome evidence behind it and its only
   /// reader was a single row in the table below.
@@ -69,6 +74,7 @@ class InvestigateData {
     this.cvhr,
     this.cvhrDist,
     this.night = const {},
+    this.timeline = const {},
     this.dcPoints = const [],
     this.rhythmPoints = const [],
     this.coveragePct,
@@ -121,6 +127,7 @@ class InvestigateData {
       cvhr: lungs['cvhr'],
       cvhrDist: key == 'resp_rate' ? await _cvhrHistory(repo, days) : null,
       night: key == 'sleep' ? await repo.getDaySleepV2(day) : const {},
+      timeline: key == 'resp_rate' ? await repo.getDayTimeline(day) : const {},
       dcPoints: dc,
       rhythmPoints: rhythm,
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
@@ -217,6 +224,7 @@ class _InvestigateState extends State<Investigate> {
         const Center(child: CircularProgressIndicator()),
       ] else ...[
         if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
+        if (widget.metricKey == 'resp_rate') ..._restingBreathPanels(d),
         if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
         if (widget.metricKey == 'sleep') ..._stagePanels(d),
         const SizedBox(height: S.x3),
@@ -360,6 +368,143 @@ class _InvestigateState extends State<Investigate> {
         ('Beats analysed, 24 h',
             irr24['n_beats'] == null ? '—' : thousands(irr24['n_beats'] as num)),
       ]),
+      ..._shapePanels(c, d),
+    ];
+  }
+
+  /// CV-06 — the shape of the night. Per-bin RMSSD across the sleep window.
+  ///
+  /// A BAND, NOT A LINE, and that is structural rather than styling. RMSSD off
+  /// a few hundred successive differences has real sampling spread, so the
+  /// analytics ships every bin as lo/point/hi and the chart draws the corridor:
+  /// three polylines on ONE shared axis — the two edges in `p.ink3` and the
+  /// estimate between them. A single line through the points would claim a
+  /// precision the beats do not carry, which is the whole reason the estimator
+  /// bothered to publish an interval.
+  ///
+  /// A bin under the beat floor is a HOLE in the series, not a dropped point:
+  /// `LineChart` breaks on a null, so a charging gap reads as a gap instead of
+  /// a flat stretch of low variability.
+  ///
+  /// IT DESCRIBES, IT NEVER ATTRIBUTES. A suppressed first third is equally
+  /// consistent with alcohol, a late meal, late training, a warm room, illness
+  /// onset, or nothing at all, and nothing in this pipeline can tell those
+  /// apart — so the footnote names all of them and the screen names none.
+  ///
+  /// Deliberately NOT here: "time to the first bin within 10% of the night's
+  /// max". It anchors on the noisiest statistic in the series and jumps by
+  /// hours between adjacent nights on identical physiology. The analytics
+  /// refuses to compute it; this refuses to ask.
+  List<Widget> _shapePanels(BuildContext c, InvestigateData d) {
+    final raw = d.hrv['night_shape'];
+    // No key at all: a bundle derived before the pipeline emitted this. Silence
+    // is right — there is nothing to explain about a night nobody measured it
+    // for.
+    if (raw is! Map) return const [];
+    final p = P.of(c);
+    final v = envValue(raw);
+    if (v == null) {
+      return [
+        const SizedBox(height: S.x3),
+        StatusCard(
+          'No shape for this night',
+          // The estimator's own reason — too few beats, or a night too short
+          // for three bins are different nights and it distinguishes them.
+          _readable(metricOf(raw).note) ??
+              'The night carried too few clean beats to bin.',
+          icon: LucideIcons.activity,
+        ),
+      ];
+    }
+
+    final bins = [
+      for (final e in (v['bins'] as List? ?? const []))
+        if (e is Map) e,
+    ];
+    if (bins.length < 3) return const [];
+    List<double?> col(String k) =>
+        [for (final b in bins) (b[k] as num?)?.toDouble()];
+    final mid = col('rmssd_ms'), lo = col('lo_ms'), hi = col('hi_ms');
+    final drawn = mid.where((e) => e != null).length;
+    // Two bins is not a shape. The analytics already abstains per bin; this is
+    // the whole-night version of the same floor.
+    if (drawn < 3) return const [];
+    // ONE axis for all three polylines, spanning the band and not just the
+    // estimate — an edge drawn off an axis fitted to the middle is clipped.
+    final axis = AxisSpec.of([...lo, ...hi].whereType<double>(),
+        ticks: 3, floor: 0, format: axisInt);
+    if (axis == null) return const [];
+
+    // Bin width, MEASURED off the bins rather than assumed to be 30 min: the
+    // analytics takes it as a parameter and the IDEAS entry says to widen it if
+    // real nights look wobbly.
+    final t0 = (bins.first['t'] as num?)?.toDouble();
+    final t1 = (bins[1]['t'] as num?)?.toDouble();
+    final widthMin = (t0 == null || t1 == null) ? null : (t1 - t0) / 60;
+    // `t` is seconds from the FIRST BEAT; `origin_ms` is the wall clock that
+    // second zero sits at. Without it there is no clock to label, so the axis
+    // goes unlabelled rather than counting hours from an unstated start.
+    final origin = (raw['origin_ms'] as num?)?.toDouble();
+    String at(int i) {
+      final s = (bins[i]['t'] as num?)?.toDouble();
+      return (origin == null || s == null) ? '' : clockOfTs(origin / 1000 + s);
+    }
+
+    String ms(Object? x) => x is num ? '${x.toStringAsFixed(1)} ms' : '—';
+    final ratio = v['last_over_first'];
+
+    return [
+      const SizedBox(height: S.x3),
+      Surface(
+        child: ChartFrame(
+          title: 'Shape of the night',
+          unit: 'ms',
+          height: 130,
+          yAxis: axis,
+          xLabels: origin == null ? const [] : [at(0), at(bins.length - 1)],
+          legend: [
+            ('Bin RMSSD', p.on(C.green)),
+            ('Sampling range', p.ink3),
+          ],
+          series: mid,
+          footnote: '$drawn of ${bins.length} bins carried enough beats to '
+              'read; the rest are gaps, not zeroes. The outer pair is the '
+              "estimator's own sampling spread, not a range you were in. This "
+              'describes the night and cannot explain it — a low first third '
+              'is equally consistent with alcohol, a late meal, late training, '
+              'a warm room, an illness starting, or nothing at all.',
+          child: Stack(children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: LineChart(lo, p.ink3, fill: false, axis: axis),
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: LineChart(hi, p.ink3, fill: false, axis: axis),
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: LineChart(mid, p.on(C.green),
+                    fill: false, t: animate(c, 1), axis: axis),
+              ),
+            ),
+          ]),
+        ),
+      ),
+      const SizedBox(height: S.x3),
+      MonoTable('Night shape', [
+        ('Bin width',
+            widthMin == null ? '—' : '${widthMin.round()} min'),
+        ('Bins read', '$drawn of ${bins.length}'),
+        ('First third', ms(v['first_third_ms'])),
+        ('Last third', ms(v['last_third_ms'])),
+        // A ratio, printed as a ratio. No adjective, no direction word, no
+        // colour: "1.32" is the fact and "recovered well" is not one.
+        ('Last third ÷ first',
+            ratio is num ? ratio.toStringAsFixed(2) : '—'),
+      ]),
     ];
   }
 
@@ -446,6 +591,81 @@ class _InvestigateState extends State<Investigate> {
       ...List<double?>.filled(tail, null),
     ];
     return [for (var w = 0; w < weeks; w++) all.sublist(w * 7, w * 7 + 7)];
+  }
+
+  // ── RESP-05 · the resting floor of the day ─────────────────────────────────
+  //
+  // THE EMPTY STATE IS THE COMMON CASE and it is written first, because it is
+  // what most days produce. `resp_day` is swept as 3-minute windows at a
+  // 5-minute cadence, and the pipeline rejects any window that was not almost
+  // entirely still — RSA amplitude collapses under motion and the tachogram's
+  // Nyquist falls with heart rate, so a moving window physically cannot resolve
+  // a breathing rate, it just returns a confident wrong one. A day that
+  // produces nothing here is a day you moved, not a day with a problem.
+  //
+  // ONLY THE FLOOR. Never "your breathing rate today", never a value during
+  // activity, never an average over the day — the surviving windows are not a
+  // sample of the day, they are the stillest slices of it, and the only honest
+  // reduction of a set like that is its bottom.
+  //
+  // The sleep window is subtracted, and a day with NO sleep window abstains
+  // entirely rather than counting the night's own windows as daytime rest. The
+  // nocturnal breathing rate has its own row on Vitals and its own trend; this
+  // one exists to answer the same question without waiting for a night.
+  List<Widget> _restingBreathPanels(InvestigateData d) {
+    final line = d.timeline['resp'];
+    if (line is! List || line.isEmpty) return const [];
+    final t0 = d.windowStart, t1 = d.windowEnd;
+    const empty = <Widget>[
+      SizedBox(height: S.x3),
+      StatusCard(
+        'No resting breathing rate away from sleep',
+        'This reads breathing only from three-minute stretches where the band '
+            'saw you almost completely still, outside the sleep window. Most '
+            'days have none — a day with none is a day you were moving, not a '
+            'day anything went wrong.',
+        icon: LucideIcons.wind,
+      ),
+    ];
+    // No sleep window means nothing can be excluded, and the night's own
+    // windows are exactly the ones that would survive a stillness gate.
+    if (t0 == null || t1 == null || t1 <= t0) return empty;
+
+    final awake = <double>[
+      for (final e in line)
+        if (e is Map && e['t'] is num && e['v'] is num)
+          if ((e['t'] as num) < t0 || (e['t'] as num) > t1)
+            (e['v'] as num).toDouble(),
+    ]..sort();
+    // Three windows is the floor for calling anything a floor. Below it the
+    // minimum is one estimate wearing a superlative.
+    if (awake.length < 3) return empty;
+
+    return [
+      const SizedBox(height: S.x3),
+      MonoTable('Breathing at rest, awake', [
+        ('Still stretches outside sleep', '${awake.length}'),
+        ('Lowest', '${awake.first.toStringAsFixed(1)} br/min'),
+        // The next one up, so the lowest is readable as one of several rather
+        // than as a lone reading. Not a median of the day — these windows are
+        // the stillest slices of it, not a sample of it.
+        ('Next lowest', '${awake[1].toStringAsFixed(1)} br/min'),
+        ('Highest of them', '${awake.last.toStringAsFixed(1)} br/min'),
+      ]),
+      const SizedBox(height: S.x3),
+      Surface(
+        color: P.of(context).card2,
+        elevation: 0,
+        child: Text(
+          'A floor, not a rate for the day. Only stretches where you were '
+          'almost completely still can be read at all, so these are the '
+          'stillest few minutes the band saw outside your sleep — nothing '
+          'here describes the rest of your day, and breathing while you move '
+          'cannot be recovered from beat timing.',
+          style: F.cap.copyWith(color: P.of(context).ink2, height: 1.6),
+        ),
+      ),
+    ];
   }
 
   // ── breathing-disturbance texture ──

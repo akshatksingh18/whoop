@@ -34,10 +34,16 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 /// any order). They are a CALENDAR log, never a detection: everything derived
 /// from them says "the second half of your logged cycle", never "your luteal
 /// phase". Empty ⇒ every cycle-aware family behaves exactly as it did before.
+///
+/// [sessionTypesByDate] maps a day label to every SAVED session that started
+/// that day (TS-11). A day with more than one is dropped by the analytics, not
+/// split — it belongs to no single type. Empty ⇒ `session_cost` is absent,
+/// which is also its state for the first ten sessions of any type.
 Map<String, dynamic> buildCrossDayBundle(
   List<Map<String, dynamic>> daysOldestFirst,
   Map<String, dynamic> profile, {
   List<String> cycleStartDates = const [],
+  Map<String, List<String>> sessionTypesByDate = const {},
 }) {
   final days = daysOldestFirst;
   final n = days.length;
@@ -197,6 +203,66 @@ Map<String, dynamic> buildCrossDayBundle(
 
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
   final sri = _crossDaySri(days);
+  // SLP-08 — which two nights. `SriPair.dayIndex` indexes THIS day list and
+  // nothing else (the analytics never sees a date), so here is the only place
+  // it can be resolved into the two nights it compared. Pairs the mask left too
+  // thin were already dropped upstream, so a half-unobserved weekend cannot top
+  // the list for having no data.
+  //
+  // It is arithmetic, not a verdict: a decomposition of a number already on
+  // screen. It does not license telling anyone their weekend is harming them.
+  final sriJson = sri.toJson((v) => v.toJson());
+  final sriValue = sriJson['value'];
+  if (sriValue is Map) {
+    for (final p in ((sriValue['pairs'] as List?) ?? const []).whereType<Map>()) {
+      final d = (p['day_index'] as num?)?.toInt();
+      if (d == null || d <= 0 || d >= dates.length) continue;
+      p['prev_date'] = dates[d - 1];
+      p['date'] = dates[d];
+    }
+  }
+
+  // ── TS-12 — overreaching as TWO FACTS, not a score ────────────────────────
+  // A coincidence detector over two outputs that already run every day. The
+  // recent nights and the baseline they are judged against must not overlap, or
+  // the elevation is compared against itself — hence the split below.
+  //
+  // IN-APP FEED ONLY. No new notification class: `_runNotifications` reads
+  // `illness`/`anomaly`/`temp_illness` and this key is deliberately not one of
+  // them. Illness, travel, altitude, alcohol and a run of poor sleep all
+  // produce the identical pair, and the copy has to name them.
+  const recentNights = 5;
+  final recentFrom = math.max(0, n - recentNights);
+  final overreaching = ana.overreachingConjunction(
+    load: load,
+    rhrRecent: [
+      for (var i = recentFrom; i < n; i++) settled(i, rhrList[i]),
+    ],
+    rhrBaselineWindow: [
+      for (var i = math.max(0, recentFrom - 28); i < recentFrom; i++)
+        ?rhrList[i],
+    ],
+  );
+
+  // ── TS-11 — what each session type cost you the next morning ──────────────
+  // Reuses the daily series and the robust baseline; nothing new is measured.
+  // The refusals ARE the feature (multi-session days dropped, thin nights
+  // dropped, under 10 mornings refused outright), because the confounding is
+  // total: hard sessions cluster with late nights, alcohol, stress and travel.
+  // Association only, with n printed beside every row.
+  final sleepCoverage = <double?>[
+    for (final d in days) _numOrNull(d['sleep_coverage']),
+  ];
+  Map<String, dynamic> morningEffects(String metric, List<double?> series) =>
+      ana
+          .sessionMorningEffects(
+            dates: dates,
+            values: series,
+            metric: metric,
+            sessionTypesByDate: sessionTypesByDate,
+            coverage: sleepCoverage,
+          )
+          .toJson((v) => [for (final e in v) e.toJson()]);
 
   // ── circadian rhythm: nonparametric battery + 24 h cosinor ────────────────
   final circadian = _crossDayCircadian(days);
@@ -403,7 +469,14 @@ Map<String, dynamic> buildCrossDayBundle(
     'anomaly': latestAnomaly?.toJson(),
     'temp_illness': latestTemp?.toJson(),
     'load': load.toJson((v) => v.toJson()),
-    'regularity': sri.toJson((v) => v.toJson()),
+    // `value.pairs[]` carries the two night labels (SLP-08) alongside the
+    // headline SRI — same arithmetic, decomposed.
+    'regularity': sriJson,
+    'overreaching': overreaching.toJson((v) => v.toJson()),
+    'session_cost': {
+      'rhr': morningEffects('rhr', rhrList),
+      'rmssd': morningEffects('rmssd', rmssdList),
+    },
     'social_jetlag': socialJetlag.toJson((v) => v.toJson()),
     'chronotype': chronotype.toJson((v) => v.toJson()),
     // IS / IV / RA / L5 / M10 (van Someren 1999) and the single-component
@@ -924,5 +997,18 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
     valid.addAll(cov);
   }
 
-  return ana.phillipsSri(sleepWake, epochsPerDay, valid: valid);
+  // SLP-08's per-pair floor. The analytics default is half a clock day (720
+  // minutes), which is right for a grid built from continuous actigraphy and
+  // UNREACHABLE on this one: `cov` is only set inside a hypnogram segment, so
+  // an ordinary 8 h night marks 480 minutes and a pair — which needs the minute
+  // observed on BOTH days — tops out around that. Left at the default the pairs
+  // list is empty for every user forever, which reads as "no irregular nights"
+  // rather than as a floor nobody can clear.
+  //
+  // 240 is four hours of clock-aligned overlap on both nights. It still throws
+  // out the half-unobserved weekend the floor exists for, and it does NOT move
+  // the published SRI: every accepted epoch counts toward the total whether or
+  // not its pair is emitted.
+  return ana.phillipsSri(sleepWake, epochsPerDay,
+      valid: valid, minPairCases: 240);
 }

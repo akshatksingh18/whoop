@@ -458,6 +458,86 @@ void main() {
     });
   });
 
+  // TS-11 / TS-12 — the two crossday reads the Workout screen renders. Both
+  // are gates before they are cards: the conjunction is the analytics' verdict
+  // and never re-derived here, and a per-type row without its sample size is
+  // dropped rather than printed.
+  group('the crossday reads the workout screen renders', () {
+    Map<String, dynamic> withOverreach({
+      required bool both,
+      double ratio = 1.6,
+    }) =>
+        {
+          'overreaching': {
+            'value': {
+              'load_ratio': ratio,
+              'nights_elevated': 4,
+              'nights_considered': 5,
+              'both_point_same_way': both,
+            },
+          },
+        };
+
+    test('TS-12 renders only on the conjunction the analytics decided', () {
+      final on = overreachFrom(withOverreach(both: true));
+      expect(on, isNotNull);
+      expect(on!.ratio, 1.6);
+      expect(on.nightsElevated, 4);
+      expect(on.nightsConsidered, 5);
+
+      // A high ratio with `both_point_same_way: false` is the case that must
+      // stay silent — the screen may not re-derive the verdict from the ratio.
+      expect(overreachFrom(withOverreach(both: false, ratio: 2.4)), isNull);
+      // Absent metric (no load history), and a stale artifact.
+      expect(overreachFrom({'overreaching': {'note': 'need_baseline:'}}), isNull);
+      expect(overreachFrom({'stale': 'algo_version'}), isNull);
+      expect(overreachFrom(const {}), isNull);
+    });
+
+    test('TS-11 keeps n on every row and drops the ones without it', () {
+      final rows = morningEffectsFrom({
+        'session_cost': {
+          'rhr': {
+            'value': [
+              {
+                'session_type': 'Football',
+                'n': 14,
+                'median_delta': 5.2,
+                'exceeds_mdc': true,
+              },
+              // No n — a median without its sample size is the one shape this
+              // item exists to prevent.
+              {'session_type': 'Yoga', 'median_delta': 0.4},
+            ],
+          },
+          'rmssd': {
+            'value': [
+              {
+                'session_type': 'Running',
+                'n': 22,
+                'median_delta': -3.1,
+                'exceeds_mdc': false,
+              },
+            ],
+          },
+        },
+      });
+      expect(rows.length, 2);
+      // Biggest sample first.
+      expect(rows.first.type, 'Running');
+      expect(rows.first.metric, 'rmssd');
+      expect(rows.first.n, 22);
+      expect(rows.first.exceedsMdc, isFalse);
+      expect(rows.last.type, 'Football');
+      expect(rows.last.n, 14);
+      expect(rows.last.exceedsMdc, isTrue);
+
+      expect(morningEffectsFrom(const {}), isEmpty);
+      expect(morningEffectsFrom({'session_cost': {'rhr': {'note': 'x'}}}),
+          isEmpty);
+    });
+  });
+
   group('the day-strain trace is a picture of a day', () {
     final day = DateTime(2026, 5, 20);
     int at(int h, int m) =>

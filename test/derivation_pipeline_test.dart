@@ -360,6 +360,8 @@ void main() {
       expect(unstamped['calories'], isNull);
     });
   });
+
+  _nightShapeGroup();
 }
 
 /// Minimal mirror of LocalRepositoryImpl.getToday() shaping (no DB).
@@ -382,4 +384,79 @@ Map<String, dynamic> _shapeToday(Map<String, dynamic> b) {
     'hrv': {'rmssd': sc('rmssd'), 'sdnn': sc('sdnn')},
     'step_goal': 10000,
   };
+
+}
+
+// ── CV-06 — the shape of the night reaches the bundle ────────────────────────
+//
+// Per-bin RMSSD over the SAME cleaned NN the headline RMSSD uses, so the curve
+// and the number can never disagree. The check that matters is not the numbers
+// (analytics owns those and tests them) but the seam: the bins arrive, they are
+// placeable on a wall clock, and a night too short to have a shape says so.
+
+Map<String, dynamic> _nightBundle({required int hours}) {
+  const t0 = 1780000000;
+  final rrTs = <double>[], rrMs = <double>[];
+  final tsSec = <int>[], hr = <int>[];
+  var t = t0 * 1000.0;
+  var i = 0;
+  while (t < (t0 + hours * 3600) * 1000.0) {
+    // ~60 bpm with a small deterministic wobble — real enough for RMSSD.
+    final rr = 1000.0 + 20.0 * ((i % 7) - 3);
+    t += rr;
+    rrTs.add(t);
+    rrMs.add(rr);
+    i++;
+  }
+  for (var s = 0; s < hours * 3600; s++) {
+    tsSec.add(t0 + s);
+    hr.add(60);
+  }
+  return deriveDayBundle(DayBundleInput(
+    date: '2026-06-01',
+    dayTsSec: tsSec,
+    dayHr: hr,
+    sleepTsSec: tsSec,
+    sleepHr: hr,
+    sleepRrTsMs: rrTs,
+    sleepRrMs: rrMs,
+    sleepSpo2Red: List<int>.filled(tsSec.length, 0),
+    sleepSpo2Ir: List<int>.filled(tsSec.length, 0),
+    sleepSkinTemp: List<int>.filled(tsSec.length, 0),
+    sleepJson: const {},
+    hypnoStages: const [],
+    sleepOnsetSec: t0,
+    sleepOffsetSec: t0 + hours * 3600,
+    profile: const {'age': 30, 'sex': 'm', 'weight': 75, 'height': 178},
+  ).toJson());
+}
+
+void _nightShapeGroup() {
+  group('CV-06 — hrv_night_shape', () {
+    test('a real night ships bins with a band, and an origin to place them on',
+        () {
+      final shape = (_nightBundle(hours: 6)['hrv_night_shape'] as Map)
+          .cast<String, dynamic>();
+      final bins = ((shape['value'] as Map)['bins'] as List).cast<Map>();
+      expect(bins.length, greaterThanOrEqualTo(3));
+      // A BAND, not a line: every present bin carries its sampling spread.
+      final present = bins.where((b) => b['rmssd_ms'] != null);
+      expect(present, isNotEmpty);
+      for (final b in present) {
+        expect(b['lo_ms'] as num, lessThanOrEqualTo(b['rmssd_ms'] as num));
+        expect(b['hi_ms'] as num, greaterThanOrEqualTo(b['rmssd_ms'] as num));
+      }
+      // `t` is seconds from the first beat, so without the origin the bins
+      // cannot be put on the same axis as hr_curve.
+      expect(bins.first['t'], 0);
+      expect(shape['origin_ms'] as num, greaterThan(1600000000000));
+    });
+
+    test('a night with no shape to describe is absent, not flat', () {
+      final shape = (_nightBundle(hours: 1)['hrv_night_shape'] as Map)
+          .cast<String, dynamic>();
+      expect(shape['value'], '—');
+      expect(shape['note'], isNotNull);
+    });
+  });
 }

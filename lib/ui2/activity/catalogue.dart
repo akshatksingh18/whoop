@@ -207,6 +207,25 @@ const activityLibrary = <ActGroup>[
 /// estimator computes, long after the others dropped it.
 const kCalorieWhy = 'MET value × your weight, refined by heart rate.';
 
+/// TS-03 — what every zone chart in the app has to admit about its own edges.
+///
+/// The five bands are percentages of a ceiling nobody measured on this user:
+/// `estimatedMaxHr(age, family)`, Tanaka's age line for the strap that recorded
+/// it. At 30 that is 187 and a real ceiling can sit 20 bpm either side of it,
+/// so every boundary drawn off it moves with it. Saying that on the chart is a
+/// materially different claim from printing five confident bpm ranges, and it
+/// is the claim we can actually support.
+///
+/// One string because two screens draw a full zone chart (the session summary
+/// and the day-strain detail) and it has to say the same thing on both. The
+/// compact bar on a history row does not carry it — that row taps straight
+/// through to the summary, which does.
+///
+/// Never "fat burning zone", never "aerobic threshold": these are convention
+/// edges on a guessed ceiling, not measurements of anything metabolic.
+const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
+    'estimated from your age and your strap — not one measured on you.';
+
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[
   Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,

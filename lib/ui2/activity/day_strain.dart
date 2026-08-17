@@ -27,6 +27,7 @@ import '../../data/local_repository.dart';
 import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
+import 'catalogue.dart' show kZonesWhy;
 
 /// Below this the day is not comparable to a full one and the screen says so.
 /// Wear coverage is a percentage of the whole day, so a normal night off the
@@ -280,6 +281,12 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
               for (var i = 0; i < 5; i++)
                 ('Z${i + 1} · ${z[i]}m', ZoneBar.cols(p)[i]),
             ],
+            // TS-03/TS-05 — the edges, and where they came from. There is no
+            // 28-day intensity distribution above this bar and there must not
+            // be one while that sentence is true: naming a week pyramidal or
+            // polarised off bands built on 220−age is a manufactured read, and
+            // a caption cannot repair it. The gate is the absence.
+            footnote: kZonesWhy,
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar([for (final v in z) v / total], p),

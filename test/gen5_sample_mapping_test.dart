@@ -75,6 +75,16 @@ void main() {
         expect(sample!.spo2IrRaw, isNull);
       },
     );
+
+    test('MT-12: carries the aux temp channels and signal quality', () {
+      // These reach `decoded_onehz.temp_ch2_c` / `temp_ch3_c` /
+      // `signal_quality_logvar` and NOTHING reads them. The test exists so the
+      // mapper cannot silently drop them again — which is what it did until
+      // now, with the columns already in the schema.
+      expect(sample!.tempCh2C, 24.7);
+      expect(sample!.tempCh3C, 26.5);
+      expect(sample!.signalQualityLogVar, isNotNull);
+    });
   });
 
   group('sampleFromGen5Historical — non-Sample record kinds', () {

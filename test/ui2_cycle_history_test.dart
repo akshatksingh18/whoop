@@ -10,15 +10,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/screens/cycle_screen.dart';
 
-CycleData _data(List<String> starts, Map<String, double> rhrByDate) => CycleData(
-  enabled: true,
-  logs: [
-    for (final s in starts) {'date': s, 'kind': 'start'},
-  ],
-  overlay: [
-    for (final e in rhrByDate.entries) {'date': e.key, 'resting_hr': e.value},
-  ],
-);
+CycleData _data(List<String> starts, Map<String, double> rhrByDate) =>
+    CycleData(
+      enabled: true,
+      logs: [
+        for (final s in starts) {'date': s, 'kind': 'start'},
+      ],
+      overlay: [
+        for (final e in rhrByDate.entries)
+          {'date': e.key, 'resting_hr': e.value},
+      ],
+    );
 
 void main() {
   group('byCycleDay', () {
@@ -88,14 +90,71 @@ void main() {
     });
   });
 
+  _mdc();
+
   _screen();
+}
+
+// ── WH-02 · the MDC gate ────────────────────────────────────────────────────
+//
+// The chart's whole visual claim is "this cycle day differs from that one".
+// The only number that backs it is her own minimal detectable change, and the
+// common case is that the swing across the drawn days is smaller than it.
+
+void _mdc() {
+  CycleData withRhr(List<double> values) => CycleData(
+    enabled: true,
+    logs: const [
+      {'date': '2026-01-01', 'kind': 'start'},
+    ],
+    overlay: [
+      for (var i = 0; i < values.length; i++)
+        {
+          'date': DateTime(
+            2026,
+            1,
+            2,
+          ).add(Duration(days: i)).toIso8601String().substring(0, 10),
+          'resting_hr': values[i],
+        },
+    ],
+  );
+
+  group('cycleDayNoise', () {
+    test('a series with no spread at all yields no MDC — never a zero '
+        'threshold that would call every wobble a finding', () {
+      expect(
+        cycleDayNoise(withRhr(const [52, 52, 52, 52, 52]), 'resting_hr'),
+        isNull,
+      );
+    });
+
+    test('too few nights to estimate a spread yields no MDC', () {
+      expect(cycleDayNoise(withRhr(const [52, 55]), 'resting_hr'), isNull);
+    });
+
+    test('a real spread yields an MDC well above it — 1.96·root-2·MAD', () {
+      final n = cycleDayNoise(
+        withRhr(const [50, 52, 54, 56, 58, 52, 54]),
+        'resting_hr',
+      );
+      expect(n, isNotNull);
+      expect(n!, greaterThan(2));
+    });
+
+    test('a key the overlay does not carry is absent, not zero', () {
+      expect(cycleDayNoise(withRhr(const [50, 54, 58]), 'hrv_rmssd'), isNull);
+    });
+  });
 }
 
 // ── the screen the three items live on ──────────────────────────────────────
 
 CycleData _threeCycles() {
   final start = DateTime(2026, 1, 1);
-  final starts = [for (var i = 0; i < 4; i++) start.add(Duration(days: 28 * i))];
+  final starts = [
+    for (var i = 0; i < 4; i++) start.add(Duration(days: 28 * i)),
+  ];
   String ymd(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'

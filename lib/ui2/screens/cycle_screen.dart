@@ -45,6 +45,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' show mdc, robustBaseline;
 import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart';
@@ -364,9 +365,9 @@ class _CycleTabState extends State<CycleTab> {
           _completedCycles(d) == 1 ? 'complete cycle' : 'complete cycles',
           'Open',
           C.pink,
-          onTap: () => Navigator.of(c).push(
-            MaterialPageRoute<void>(builder: (_) => _CycleHistory(d)),
-          ),
+          onTap: () => Navigator.of(
+            c,
+          ).push(MaterialPageRoute<void>(builder: (_) => _CycleHistory(d))),
         ),
 
         Section('What you noticed today', _symptoms(c, p, d)),
@@ -822,6 +823,24 @@ Map<int, Map<int, double>> byCycleDay(CycleData d, String key) {
   return out;
 }
 
+/// WH-02 — her own night-to-night noise in this metric, as a minimal
+/// detectable change, or null when there is nothing to estimate it from.
+///
+/// Taken over EVERY overlay value, not over the per-cycle-day medians: the
+/// medians are the thing being tested, and testing a series against its own
+/// spread passes anything. `mdc` is 1.96·√2·MAD, so this is deliberately the
+/// conservative reading — it will call a real small shift undetectable long
+/// before it will call noise a finding.
+double? cycleDayNoise(CycleData d, String key) {
+  final all = <double>[
+    for (final o in d.overlay)
+      if (o[key] is num && (o[key] as num).toDouble().isFinite)
+        (o[key] as num).toDouble(),
+  ];
+  if (all.length < 3) return null;
+  return mdc(robustBaseline(all));
+}
+
 double _median(List<double> v) {
   final s = [...v]..sort();
   final n = s.length;
@@ -889,8 +908,22 @@ class _CycleHistoryState extends State<_CycleHistory> {
     // generic `skin_temp_z` under a name that implies a cycle temperature
     // index. It is not one, so it is not drawn.
     final charts = [
-      _cycleDayChart(c, 'Resting heart rate', 'bpm', C.pink, rhr),
-      _cycleDayChart(c, 'HRV (RMSSD)', 'ms', C.purple, rmssd),
+      _cycleDayChart(
+        c,
+        'Resting heart rate',
+        'bpm',
+        C.pink,
+        rhr,
+        cycleDayNoise(d, 'resting_hr'),
+      ),
+      _cycleDayChart(
+        c,
+        'HRV (RMSSD)',
+        'ms',
+        C.purple,
+        rmssd,
+        cycleDayNoise(d, 'hrv_rmssd'),
+      ),
     ];
     if (charts.every((w) => w == null)) {
       return const StatusCard(
@@ -921,12 +954,20 @@ class _CycleHistoryState extends State<_CycleHistory> {
 
   /// One chart, or null when fewer than three cycle days had two cycles behind
   /// them — which is not enough to plot and is the normal state for months.
+  ///
+  /// [noise] is her own minimal detectable change in this metric. THE WHOLE
+  /// CHART IS A NON-FINDING while the biggest gap between two of its days is
+  /// smaller than that, and the footnote says so in those words: a 1 bpm
+  /// "shift" drawn from two cycles is a line the eye reads as a cycle and the
+  /// sensor cannot resolve. Null noise (too few nights to estimate a spread)
+  /// prints nothing rather than an unqualified claim.
   Widget? _cycleDayChart(
     BuildContext c,
     String title,
     String unit,
     Color color,
     Map<int, Map<int, double>> byDay,
+    double? noise,
   ) {
     final med = <int, double>{
       for (final e in byDay.entries)
@@ -949,10 +990,11 @@ class _CycleHistoryState extends State<_CycleHistory> {
         xLabels: ['Day 1', 'Day $last'],
         // n, on every point — as the range it actually spans, because thirty
         // little numbers along a line is not a readable chart and a single
-        // headline n would be false for most of the points under it.
-        footnote: ns.first == ns.last
-            ? 'Middle of ${ns.first} cycles at each day.'
-            : 'Middle of between ${ns.first} and ${ns.last} cycles at each day.',
+        // headline n would be false for most of the points under it. Then the
+        // MDC line, which is what stops the shape being read as a finding.
+        footnote:
+            '${ns.first == ns.last ? 'Middle of ${ns.first} cycles at each day.' : 'Middle of between ${ns.first} and ${ns.last} cycles at each day.'}'
+            '${_mdcNote(med.values, unit, noise)}',
         series: vals,
         child: CustomPaint(
           size: Size.infinite,
@@ -1152,7 +1194,12 @@ class _CycleHistoryState extends State<_CycleHistory> {
               fit: StackFit.expand,
               children: [
                 CustomPaint(
-                  painter: Bars(vals, p.on(C.pink), t: animate(c, 1), axis: axis),
+                  painter: Bars(
+                    vals,
+                    p.on(C.pink),
+                    t: animate(c, 1),
+                    axis: axis,
+                  ),
                 ),
                 for (final v in [
                   kPublishedCycleDays.low,
@@ -1191,15 +1238,22 @@ class _CycleHistoryState extends State<_CycleHistory> {
   }
 }
 
-/// Resting HR against cycle day, for the CURRENT cycle only. `cycle_day` from
-/// the repo is counted off the last logged start, so anything outside 1…today
-/// is a row from a previous cycle wearing this cycle's numbering.
+/// Resting HR against cycle day, for the CURRENT cycle only.
+///
+/// WH-02 changed what `cycle_day` means: it is now counted off the start that
+/// actually preceded the row, and the row carries the `cycle_index` of that
+/// start. So an old cycle's day 4 is now a real day 4 and no longer excludes
+/// itself by being out of range — the current cycle is the LAST index, and
+/// that is what this filters on. `cycle_index` absent (older repo, fixtures)
+/// falls back to the range check, which is what the numbering used to mean.
 Widget _currentCycleChart(BuildContext c, CycleData d) {
   final today = d.cycleDay;
+  final current = startDates(d).length - 1;
   final byDay = <int, double>{};
   for (final o in d.overlay) {
-    final cd = o['cycle_day'], v = o['resting_hr'];
+    final cd = o['cycle_day'], v = o['resting_hr'], ci = o['cycle_index'];
     if (cd is! num || v is! num) continue;
+    if (ci is num && ci.round() != current) continue;
     if (cd < 1 || (today != null && cd > today)) continue;
     byDay[cd.round()] = v.toDouble();
   }
@@ -1241,6 +1295,27 @@ Widget _currentCycleChart(BuildContext c, CycleData d) {
             ),
     ),
   );
+}
+
+/// WH-02 — what the drawn cycle-day medians are worth against her own noise.
+///
+/// The chart's whole visual claim is "this day differs from that one", and the
+/// only number that can back it is the minimal detectable change. So the swing
+/// across the drawn days is stated next to the MDC, in the metric's own units,
+/// and when the swing is the smaller of the two the sentence says the shape is
+/// not a shift. Returns '' when there is no MDC to state — an unqualified
+/// claim is worse than a quiet one, but so is a fabricated threshold.
+String _mdcNote(Iterable<double> medians, String unit, double? noise) {
+  if (noise == null || noise <= 0 || medians.isEmpty) return '';
+  final swing = medians.reduce(math.max) - medians.reduce(math.min);
+  final s = '${swing.toStringAsFixed(1)} $unit';
+  final n = '${noise.toStringAsFixed(1)} $unit';
+  return swing < noise
+      ? ' Every day drawn here is inside your own night-to-night spread: the '
+            'biggest gap between two of them is $s, and $n is the smallest '
+            'change this can tell from noise. A shape, not a shift.'
+      : ' Your nights vary by $n on their own, so days closer together than '
+            'that are not separated. The biggest gap here is $s.';
 }
 
 /// A z with its sign always printed — "0.3" and "−0.3" are different findings

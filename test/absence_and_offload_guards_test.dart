@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/compute/crossday_pipeline.dart';
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
 
 /// A substrate of [n] seconds where the seconds in [absent] carry no gravity
@@ -194,6 +195,150 @@ void main() {
       final bundle = {'x': double.nan};
       expect(() => jsonEncode(bundle), throwsA(isA<JsonUnsupportedObjectError>()));
       expect(() => jsonEncode(sanitizeForJson(bundle, [])), returnsNormally);
+    });
+  });
+
+  _respGroups();
+}
+
+// ── RESP-05 / TS-03 — the two motion gates wired in this pass ────────────────
+//
+// Both are the same rule as the groups above, applied at a different seam: a
+// second with no gravity vector is ABSENT, and absence may neither corroborate
+// an effort nor certify stillness. And both are per-FAMILY, so an unstamped
+// strap gets no answer rather than gen4's.
+
+/// A substrate of [n] seconds carrying RR beats at a fixed 1 s interval, with
+/// the seconds in [moving] holding a large gravity swing.
+Substrate _rrSub({
+  required int n,
+  Set<int> moving = const {},
+  Set<int> absent = const {},
+  String? family = 'gen4',
+  int hrBpm = 60,
+}) {
+  final ts = <int>[], hr = <int>[];
+  final ax = <double>[], ay = <double>[], az = <double>[];
+  final rrTs = <double>[], rr = <double>[];
+  for (var i = 0; i < n; i++) {
+    final t = 1780000000 + i;
+    ts.add(t);
+    hr.add(hrBpm);
+    if (absent.contains(i)) {
+      ax.add(0);
+      ay.add(0);
+      az.add(0);
+    } else if (moving.contains(i)) {
+      ax.add(0.0);
+      ay.add(0.0);
+      az.add(1.30); // |‖a‖−1| = 0.30 g, far above the 0.02 g quiet cut
+    } else {
+      ax.add(0.0);
+      ay.add(0.0);
+      az.add(1.005); // 0.005 g — still
+    }
+    // One beat per second, gently modulated so the estimator has something to
+    // chew on. The gate runs BEFORE the estimator, so its result is irrelevant.
+    rrTs.add(t * 1000.0);
+    rr.add(1000.0 + 40.0 * (i % 5 - 2));
+  }
+  return Substrate(
+    tsSec: ts,
+    hr: hr,
+    rrTsMs: rrTs,
+    rrMs: rr,
+    ax: ax,
+    ay: ay,
+    az: az,
+    spo2Red: List<int>.filled(n, 0),
+    spo2Ir: List<int>.filled(n, 0),
+    skinTemp: List<int>.filled(n, 0),
+    skinContact: List<int>.filled(n, 0),
+    deviceFamily: family,
+  );
+}
+
+void _respGroups() {
+  group('RESP-05 — the resting-breathing curve is motion-gated', () {
+    test('a still hour is attempted; the same hour spent moving is not', () {
+      DerivationEngine.debugRespGateRejects = 0;
+      DerivationEngine.debugRespAttempts = 0;
+      DerivationEngine.dayRespCurve(_rrSub(n: 1800));
+      final stillAttempts = DerivationEngine.debugRespAttempts;
+      expect(stillAttempts, greaterThan(0));
+      expect(DerivationEngine.debugRespGateRejects, 0);
+
+      DerivationEngine.debugRespGateRejects = 0;
+      DerivationEngine.debugRespAttempts = 0;
+      DerivationEngine.dayRespCurve(
+        _rrSub(n: 1800, moving: {for (var i = 0; i < 1800; i += 4) i}),
+      );
+      // Nothing reached the triple Lomb-Scargle: that is the whole point, and
+      // it is where the perf win is banked.
+      expect(DerivationEngine.debugRespAttempts, 0);
+      expect(DerivationEngine.debugRespGateRejects, greaterThan(0));
+    });
+
+    test('absent accel is not stillness — it rejects like motion does', () {
+      DerivationEngine.debugRespAttempts = 0;
+      DerivationEngine.dayRespCurve(
+        _rrSub(n: 1800, absent: {for (var i = 0; i < 1800; i++) i}),
+      );
+      expect(DerivationEngine.debugRespAttempts, 0);
+    });
+
+    test('an unstamped strap gets no curve, not gen4\'s cut', () {
+      DerivationEngine.debugRespAttempts = 0;
+      expect(DerivationEngine.dayRespCurve(_rrSub(n: 1800, family: null)),
+          isEmpty);
+      expect(DerivationEngine.debugRespAttempts, 0);
+    });
+  });
+
+  group('TS-03 — the day\'s observed HR ceiling', () {
+    List<Map<String, dynamic>> session(int n) => [
+          {
+            'id': 's1',
+            'type': 'run',
+            'start_ts': 1780000000,
+            'end_ts': 1780000000 + n,
+          }
+        ];
+
+    test('a held, corroborated high HR sets it; a 2 s spike does not', () {
+      // 60 s of movement at 170 bpm — held and corroborated.
+      final held = _rrSub(
+        n: 60,
+        moving: {for (var i = 0; i < 60; i++) i},
+        hrBpm: 170,
+      );
+      final out = DerivationEngine.dayHrCeiling(held, session(60));
+      expect((out['value'] as Map)['bpm'], 170);
+      expect(out['session_id'], 's1');
+      expect(out['session_type'], 'run');
+
+      // The same session, still: a high HR with no movement is a stress
+      // response, a fever or an artifact — never a ceiling.
+      final stillHigh = _rrSub(n: 60, hrBpm: 170);
+      expect(DerivationEngine.dayHrCeiling(stillHigh, session(60))['value'],
+          '—');
+    });
+
+    test('an unstamped strap refuses rather than borrowing gen4\'s gate', () {
+      final s = _rrSub(
+        n: 60,
+        moving: {for (var i = 0; i < 60; i++) i},
+        hrBpm: 170,
+        family: null,
+      );
+      expect(DerivationEngine.dayHrCeiling(s, session(60))['value'], '—');
+    });
+
+    test('no saved session on the day is an honest absence, not a zero', () {
+      final out = DerivationEngine.dayHrCeiling(_rrSub(n: 60), const []);
+      expect(out['value'], '—');
+      expect(out['confidence'], 0);
+      expect(out.containsKey('session_id'), isFalse);
     });
   });
 }

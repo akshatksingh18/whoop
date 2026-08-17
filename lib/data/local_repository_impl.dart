@@ -701,6 +701,11 @@ class LocalRepositoryImpl extends LocalRepository {
       'hrv_freq': _sub(b, 'clinical.hrv_freq'),
       'prsa_dc': _sub(b, 'clinical.prsa_dc'),
       'prsa_ac': _sub(b, 'clinical.prsa_ac'),
+      // CV-06 — per-bin RMSSD across the night, plus `origin_ms`, the wall
+      // clock its bin offsets are counted from. The pipeline has emitted this
+      // envelope since v70 and nothing read it; pure re-exposure, no new
+      // computation and no extra decode (it is on the bundle already in hand).
+      'night_shape': b['hrv_night_shape'],
     };
   }
 
@@ -3162,6 +3167,20 @@ class LocalRepositoryImpl extends LocalRepository {
     // See docs/internal/UI_ROADMAP.md.
     // Biometric overlay across the cycle — how resting HR / HRV / skin-temp shift
     // (descriptive context; the prediction is from logged periods, not these).
+    //
+    // WH-02 — EVERY logged start, not just the last one. `cycle_day` used to be
+    // counted from `lastStart` for every row in the window, so a day that fell
+    // inside an older cycle came back numbered past that cycle's own length
+    // ("cycle day 97") and only the newest cycle could ever be drawn. Each day
+    // is now placed against the start that actually preceded it, and carries
+    // the INDEX of that start, so "the same day of a different cycle" is a
+    // thing the caller can express at all. Days before the first logged start
+    // carry neither key — there is no cycle to number them in, and a day 0 or a
+    // negative day is a fabricated position, not an absent one.
+    final cycleStarts = <DateTime>[
+      for (final s in startDates)
+        if (DateTime.tryParse(s) case final d?) DateTime(d.year, d.month, d.day),
+    ]..sort();
     final overlay = <Map<String, dynamic>>[];
     final derived = await LocalDb.recentDayResults(120);
     if (derived.isNotEmpty) {
@@ -3175,23 +3194,21 @@ class LocalRepositoryImpl extends LocalRepository {
         dates.add(dt);
         final z = _scalar(b, 'skin_temp_z')?.toDouble();
         temps.add(z);
-        // cycle day for this overlay row (relative to the last logged start).
-        int? cd;
-        if (lastStart != null) {
-          final d = DateTime.tryParse(dt);
-          if (d != null) {
-            cd =
-                DateTime(d.year, d.month, d.day)
-                    .difference(
-                      DateTime(lastStart.year, lastStart.month, lastStart.day),
-                    )
-                    .inDays +
-                1;
+        // (cycle index, cycle day) for this row — see WH-02 above.
+        int? cd, ci;
+        final d = DateTime.tryParse(dt);
+        if (d != null) {
+          final day = DateTime(d.year, d.month, d.day);
+          final i = cycleStarts.lastIndexWhere((s) => !s.isAfter(day));
+          if (i >= 0) {
+            ci = i;
+            cd = day.difference(cycleStarts[i]).inDays + 1;
           }
         }
         overlay.add({
           'date': dt,
           'cycle_day': ?cd,
+          'cycle_index': ?ci,
           'resting_hr': _scalar(b, 'rhr')?.toDouble(),
           'hrv_rmssd': _scalar(b, 'rmssd')?.toDouble(),
           'skin_temp_idx': z,

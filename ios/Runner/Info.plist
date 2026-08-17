@@ -72,7 +72,7 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
-	<string>OpenStrap reads your step count from Apple Health to show your daily steps, and reads back its own recent samples so it never writes duplicates.</string>
+	<string>OpenStrap reads your step count to show your daily steps; your height, weight, date of birth and sex to set up your profile; your resting heart rate so it has a starting baseline; and any blood pressure, blood glucose or body temperature readings, so a device that is cleared to measure those can sit beside your own data with that device's name on it — never blended into an OpenStrap number. It also reads back its own recent samples so it never writes duplicates.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

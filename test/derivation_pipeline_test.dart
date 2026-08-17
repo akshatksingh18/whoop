@@ -343,7 +343,13 @@ void main() {
 
     // One ceiling, dispatched on the strap — and no ceiling at all when we
     // cannot say which strap measured the heart rate.
-    test('an unstamped strap gets no HR ceiling, so nothing is banded on one',
+    // REVERSAL: the ceiling every one of these is banded on is Tanaka on AGE,
+    // which reads no sensor. An unstamped strap (device_family NULL on every
+    // pre-schema-41 row, never backfilled) gets the SAME estimate as a stamped
+    // one — gating it deleted strain, TRIMP, calories and zones from whole
+    // histories for a number the strap cannot move. What still refuses for an
+    // unknown family is the OBSERVED ceiling and the accel/temp constants.
+    test('the age ceiling does not depend on the strap that measured the day',
         () {
       final stamped =
           (bundleFor(stages: List<String>.filled(3600, 'light'))['scalars']
@@ -355,9 +361,9 @@ void main() {
         deviceFamily: null,
       )['scalars'] as Map)
           .cast<String, dynamic>();
-      expect(unstamped['max_hr_used'], isNull);
-      expect(unstamped['trimp'], isNull);
-      expect(unstamped['calories'], isNull);
+      expect(unstamped['max_hr_used'], stamped['max_hr_used']);
+      expect(unstamped['trimp'], stamped['trimp']);
+      expect(unstamped['calories'], stamped['calories']);
     });
   });
 

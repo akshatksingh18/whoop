@@ -350,11 +350,11 @@ class _HealthScreenState extends State<HealthScreen> {
         d.spark('resting_hr', 24), 'resting_hr',
         // Sleep duration and nocturnal RHR are gated separately, so "no night
         // was scored" is often the wrong reason and contradicts the Sleep row
-        // sitting two lines down.
+        // sitting two lines down. Only the branch this screen can SEE is
+        // stated — the other named a beat-quality gate it never read.
         whyAbsent: sleepMin.isEmpty
             ? 'Read from sleep, and no night was scored.'
-            : 'Read from sleep, and that night had no stretch of beats clean '
-                'enough to take one from.');
+            : '');
 
     final hrvMetric = d.hrv;
     row(hrvMetric, LucideIcons.activity, C.green, 'HRV',
@@ -365,7 +365,7 @@ class _HealthScreenState extends State<HealthScreen> {
         // sensor produced dirty data on a night that never happened.
         whyAbsent: sleepMin.isEmpty
             ? 'Read only from sleep, and no night was scored.'
-            : 'Beat-to-beat intervals were not clean enough that night.');
+            : '');
 
     row(sleepMin, LucideIcons.moon, C.blue, 'Sleep',
         night == null ? 'Last night' : prettyDay(night),
@@ -388,7 +388,11 @@ class _HealthScreenState extends State<HealthScreen> {
         '/100',
         d.spark('stress', 24),
         'stress',
-        whyAbsent: 'No resting stretch long enough last night.');
+        // Was 'No resting stretch long enough last night.' — one of several
+        // gates stress abstains on, asserted for all of them.
+        whyAbsent: sleepMin.isEmpty
+            ? 'Read from the night, and no night was scored.'
+            : '');
 
     final respMetric = d.resp;
     row(respMetric, LucideIcons.wind, C.teal, 'Respiratory rate',

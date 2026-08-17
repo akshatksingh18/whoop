@@ -45,6 +45,28 @@ const MetricCfg _skinTempAdcCfg = MetricCfg(
   halfLifeS: 21.0,
 );
 
+/// MACHINE-READABLE "a required input was missing" note — the same
+/// `key:field=value` grammar as `need_baseline:have=H,need=N` (models/metric.dart
+/// parses that one) and analytics' `unknown_device_family:id=…`. One grammar,
+/// one parser per key; never a second format.
+///
+/// [name] is the INPUT that was absent, never the metric that wanted it. A
+/// screen has to be able to say what to do about it, and "calories" is not an
+/// action. [have]/[need] are added when the input is countable and merely short
+/// (beats, minutes), so the copy can say how short.
+///
+/// Deliberately NOT `need_baseline:` — `needMessageFromNote` turns that one into
+/// "Need N more nights", which is a lie about a missing profile field or a thin
+/// beat series. A key it does not recognise renders as "we do not know", which
+/// is the honest floor.
+String needInputNote(String name, {num? have, num? need}) =>
+    'need_input:name=$name'
+    '${have == null || need == null ? '' : ',have=$have,need=$need'}';
+
+/// The note for an absence we cannot attribute. Honest; a plausible guess is
+/// not. Anything that renders a reason must be able to reach this.
+const String kUnknownAbsenceNote = 'unknown_cause';
+
 /// Physiological cap on the readiness composite z, above which the score is a
 /// degenerate-baseline artefact rather than a real reading — so it is abstained
 /// from the HEADLINE scalar rather than persisted.
@@ -342,9 +364,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       : null;
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
-      : const Metric<HrvFreq>.absent(
+      : Metric<HrvFreq>.absent(
           tier: Tier.high,
-          inputs_used: ['rr_cleaned'],
+          inputs_used: const ['rr_cleaned'],
+          note: needInputNote('nn_beats', have: nn.length, need: 20),
         );
   // Nocturnal RHR over the SLEEP HR (fallback to the DAY series only if there
   // is no sleep HR at all).
@@ -371,15 +394,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
       ? rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction)
-      : const Metric<RespEstimate>.absent(
+      : Metric<RespEstimate>.absent(
           tier: Tier.estimate,
-          inputs_used: ['rr_cleaned'],
+          inputs_used: const ['rr_cleaned'],
+          note: needInputNote('nn_beats', have: nn.length, need: 30),
         );
   final cvhr = nn.length >= 60
       ? cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction)
-      : const Metric<CvhrResult>.absent(
+      : Metric<CvhrResult>.absent(
           tier: Tier.estimate,
-          inputs_used: ['rr_cleaned'],
+          inputs_used: const ['rr_cleaned'],
+          note: needInputNote('nn_beats', have: nn.length, need: 60),
         );
   // ── 24/7 IRREGULAR-RHYTHM SCREEN (day-span RR; not a diagnosis) ────────────
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
@@ -398,9 +423,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final respWindows = _respPerWindow(nn, nnTimes);
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
-      : const Metric<BrvResult>.absent(
+      : Metric<BrvResult>.absent(
           tier: Tier.estimate,
-          inputs_used: ['resp_rate_series'],
+          inputs_used: const ['resp_rate_series'],
+          note: needInputNote(
+            'resp_windows',
+            have: respWindows.length,
+            need: 3,
+          ),
         );
 
   // SpO2 is refused PERMANENTLY, not parked. `spo2RedRaw` and `spo2IrRaw` are
@@ -527,9 +557,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final lnHist = [...d.lnRmssdHistory, ?lnToday];
   final lnReadiness = lnHist.length >= 4
       ? readinessLnRmssd(lnHist)
-      : const Metric<ReadinessLnRmssd>.absent(
+      : Metric<ReadinessLnRmssd>.absent(
           tier: Tier.high,
-          inputs_used: ['ln_rmssd_history'],
+          inputs_used: const ['ln_rmssd_history'],
+          // A BASELINE shortfall, so it gets the baseline grammar the UI
+          // already turns into "Need N more nights".
+          note: needBaselineNote(have: lnHist.length, need: 4),
         );
 
   // ── STRAIN: Banister TRIMP over the WAKE span (per-minute day HR) ──────────
@@ -559,9 +592,63 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // TRIMP, HR zones, and calories so all three see the same wake series).
   final wakeHr = _perMinuteWakeSeries(d);
   final perMin = [for (final p in wakeHr) p.hr];
-  Metric<double> trimp = const Metric<double>.absent(
+  // ── WHY the activity family is absent, named AT THE GATE THAT CAUSED IT ────
+  //
+  // These four figures — strain/TRIMP, the zone minutes, the ceiling they were
+  // banded on, and active calories — fail on OVERLAPPING but DIFFERENT inputs,
+  // and they used to go absent with no reason at all while the reason was
+  // written onto `daytime_hrv` and `hr_ceiling`, which no screen that renders
+  // them reads. The screens then guessed, and guessed wrong ("add your age" on
+  // a profile whose age is set). Each figure now carries its own root cause, in
+  // the order the gates below actually apply, so nothing has to infer a cause
+  // from a sibling.
+  //
+  // Same order and same vocabulary as `DerivationEngine._wakeDayFeatures` —
+  // that half recomputes all of this off the nocturnal resting HR and its
+  // answer is the one that lands on the day, so the two must not disagree about
+  // WHY.
+  final ceilingAbsentNote = hrMax != null
+      ? null
+      : age == null
+      ? needInputNote('age')
+      // The age is known; what measured this HR is not, so there is no ceiling
+      // to band it against (analytics' device.dart contract).
+      : unknownFamilyNote(d.deviceFamily);
+  final strainAbsentNote = perMin.isEmpty
+      ? needInputNote('wake_hr')
+      : hrMax == null
+      ? ceilingAbsentNote
+      : dayHrValid.isEmpty
+      ? needInputNote('hr_samples')
+      : rhrForTrimp == null
+      ? needInputNote('resting_hr')
+      : sex == null
+      ? needInputNote('sex')
+      : null;
+  final caloriesAbsentNote = perMin.isEmpty
+      ? needInputNote('wake_hr')
+      : hrMax == null
+      ? ceilingAbsentNote
+      : age == null
+      ? needInputNote('age')
+      : sex == null
+      ? needInputNote('sex')
+      : weightKg == null
+      ? needInputNote('weight_kg')
+      // Keytel does not read height; `dailyEnergy`'s ACTIVE term nets out a
+      // Mifflin basal minute, which does. See the long note below.
+      : heightCm == null
+      ? needInputNote('height_cm')
+      : null;
+  final zonesAbsentNote = perMin.isEmpty
+      ? needInputNote('wake_hr')
+      : (hrMax == null || zoneSet == null)
+      ? (ceilingAbsentNote ?? kUnknownAbsenceNote)
+      : null;
+  Metric<double> trimp = Metric<double>.absent(
     tier: Tier.estimate,
-    inputs_used: ['hr_1hz', 'profile'],
+    inputs_used: const ['hr_1hz', 'profile'],
+    note: strainAbsentNote ?? kUnknownAbsenceNote,
   );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
@@ -721,7 +808,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'readiness_lnrmssd': lnReadiness.toJson((v) => v.toJson()),
     'readiness_composite': composite.toJson((v) => v.toJson()),
     // Headline 0–21 strain envelope; raw Banister TRIMP kept as `trimp`.
-    'strain': strainMetric.toJson(),
+    // The ROOT cause replaces the shared scorer's "strain needs a TRIMP and the
+    // wake window it was measured over" — true, and useless to a reader, since
+    // it names a sibling metric rather than the input that is actually missing.
+    'strain': {
+      ...strainMetric.toJson(),
+      if (!strainMetric.present)
+        'note': strainAbsentNote ?? strainMetric.note ?? kUnknownAbsenceNote,
+    },
     'trimp': trimp.toJson(),
   };
 
@@ -1056,6 +1150,29 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         : [for (final z in zoneSet.zones) _round(z.lower, 0)],
     'hr_stats': ?hrStats,
     'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
+    // WHY each absent activity figure is absent, keyed BY THE FIGURE'S OWN
+    // NAME. `zones`, `max_hr_used`, `calories` and `calories_total` are stored
+    // as bare values, so there is no envelope on them to carry a tier and a
+    // note — this is where their reason lives, and the serve seam
+    // (`LocalRepositoryImpl.getDayStrain`) attaches it to the value it hands a
+    // screen. A key is present ONLY when that figure is absent.
+    //
+    // `calories_total` is the engine's (`_applyWakeDayFeatures`); it is listed
+    // here so the two calorie figures cannot end up explained differently when
+    // one gate killed both.
+    'absent_notes': <String, String>{
+      if (hrMax == null && ceilingAbsentNote != null)
+        'max_hr_used': ceilingAbsentNote,
+      if (hrZones.isEmpty && zonesAbsentNote != null) 'zones': zonesAbsentNote,
+      if (caloriesKcal == null && caloriesAbsentNote != null) ...{
+        'calories': caloriesAbsentNote,
+        'calories_total': caloriesAbsentNote,
+      },
+      if (strainScalar == null)
+        'strain': strainAbsentNote ?? strainMetric.note ?? kUnknownAbsenceNote,
+      if (!trimp.present)
+        'trimp': strainAbsentNote ?? trimp.note ?? kUnknownAbsenceNote,
+    },
     'respiration': respiration,
     // CV-06 (see `nightShape` above). Envelope + the epoch origin its bin
     // offsets are counted from; null origin means there were no beats to place.

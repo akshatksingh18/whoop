@@ -24,6 +24,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
+import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
@@ -66,6 +67,11 @@ class DayStrainData {
 
   final int? peakHr, wornMin, coveragePct;
 
+  /// WHY the day has no strain, as the bundle said it — never a sentence
+  /// written on this screen. Null means nothing came back with the absence, and
+  /// the screen then says exactly that.
+  final String? note;
+
   const DayStrainData({
     this.day,
     this.curve = const [],
@@ -77,12 +83,14 @@ class DayStrainData {
     this.peakHr,
     this.wornMin,
     this.coveragePct,
+    this.note,
   });
 
   bool get hasCurve => curve.any((v) => v != null);
 
   static Future<DayStrainData> load(LocalRepository repo) async {
-    final s = await repo.getDayStrain(todayLabel());
+    final asked = todayLabel();
+    final s = await repo.getDayStrain(asked);
     if (s.isEmpty) return const DayStrainData();
 
     final pts = <(int, double)>[
@@ -109,13 +117,16 @@ class DayStrainData {
     // Wear for THE DAY THE CURVE CAME FROM, not the day we asked for — both
     // reads fall back the same way, so asking for the resolved label is what
     // keeps the coverage figure and the trace describing one day.
+    //
+    // Read even when there is NO curve, which it did not used to be. Whether
+    // the band saw the day is what decides if "wear the band through the day"
+    // is an instruction or an insult, and a day with no strain is exactly the
+    // day that question gets asked on.
     Map<String, dynamic> wear = const {};
-    if (day != null) {
-      try {
-        wear = await repo.getDayWear(dayLabelOf(day));
-      } catch (_) {
-        wear = const {};
-      }
+    try {
+      wear = await repo.getDayWear(day == null ? asked : dayLabelOf(day));
+    } catch (_) {
+      wear = const {};
     }
 
     final z = s['zones'];
@@ -136,6 +147,9 @@ class DayStrainData {
       peakHr: hr is Map ? (hr['max'] as num?)?.toInt() : null,
       wornMin: (wear['worn_min'] as num?)?.toInt(),
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
+      // The headline absence's reason, at the top level of the payload — the
+      // same string as `absent.strain`.
+      note: s['note'] as String?,
     );
   }
 }
@@ -217,13 +231,34 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   // ── the curve, and only then the number ────────────────────────────────────
   List<Widget> _trace(P p, DayStrainData d) {
     if (!d.hasCurve) {
-      return const [
+      // THE BUNDLE'S REASON, or none. This card used to state one — "it needs a
+      // resting heart rate from a scored night and a day the band was on your
+      // wrist" — and it printed that on a day with a scored night (RHR 56.8)
+      // and 89 % wear, because the sentence was written here rather than
+      // handed over. A cause the screen did not receive is a guess.
+      final why = whyFromNote(d.note, unit: 'days');
+      // And "wear the band" is only an instruction on a day the band did not
+      // see. Offered on a day it was on the wrist all along it is worse than
+      // no button, because the user spends trust doing it.
+      final saw = (d.wornMin ?? 0) > 0 || (d.coveragePct ?? 0) > 0;
+      // A day CAN carry a strain with no trace behind it: `backfillStrainScale`
+      // rescales the stored headline onto the current scale and DROPS the
+      // per-minute curve, which cannot be rescaled with it. Measured on
+      // whoop-4, that is 6 of 17 days — and on every one of them this card said
+      // "this day produced no strain" directly above a day that produced 10.8.
+      // The absence is the TRACE, so that is what the card is allowed to name;
+      // why the trace is not stored is not something this screen was told.
+      final s = d.strain;
+      return [
         StatusCard(
-          'No strain trace for this day',
-          'Strain is integrated over your waking heart rate, so it needs a '
-              'resting heart rate from a scored night and a day the band was '
-              'on your wrist.',
-          fix: 'Wear the band through the day',
+          s == null
+              ? 'No strain trace for this day'
+              : 'No minute-by-minute trace for this day',
+          s == null
+              ? why ?? 'Nothing recorded says why this day produced no strain.'
+              : 'The day strain is ${s.toStringAsFixed(1)}. The waking minutes '
+                  'it was built from are not stored for this day.',
+          fix: (s == null && !saw) ? 'Wear the band through the day' : '',
           icon: LucideIcons.trendingUp,
         ),
       ];

@@ -804,9 +804,17 @@ class StatusCard extends StatelessWidget {
     this.onFix,
   });
 
-  /// Build straight from a baseline-gated abstention — turns the analytics
-  /// `need_baseline:have=H,need=N` note into the honest three-part copy
-  /// instead of a dash. Returns null when [m] actually has a value.
+  /// Build straight from an abstention — turns the metric's own note into the
+  /// honest three-part copy instead of a dash. Returns null when [m] actually
+  /// has a value.
+  ///
+  /// THE PIPELINE'S REASON OUTRANKS THE SCREEN'S. [why] is a sentence written
+  /// into a widget by someone who never saw the day, so it is the FALLBACK, not
+  /// the answer: whenever the metric came back carrying a reason of its own,
+  /// that reason is what renders. And when there is neither — no note, no
+  /// [why] — the card says it does not know. It used to say "No measurement
+  /// covering this period", which is a cause, and it was printed on days with
+  /// 89 % wear and a scored night.
   static StatusCard? forMetric(
     String what,
     Metric? m, {
@@ -816,13 +824,17 @@ class StatusCard extends StatelessWidget {
   }) {
     if (m != null && !m.isEmpty) return null;
     final need = needMessageFromNote(m?.note, unit: unit);
+    // A need_baseline note is rendered as the FIX ("Need 3 more nights"), so
+    // its why stays the generic one — every other note is the why itself.
+    final told = need == null ? whyFromNote(m?.note) : null;
     return StatusCard(
       what,
-      why.isNotEmpty
-          ? why
-          : (need != null
-                ? 'Not enough history yet to know what normal looks like for you.'
-                : 'No measurement covering this period.'),
+      told ??
+          (why.isNotEmpty
+              ? why
+              : need != null
+                  ? 'Not enough history yet to know what normal looks like for you.'
+                  : 'Nothing recorded says why this is missing.'),
       fix: need ?? '',
       onFix: onFix,
     );

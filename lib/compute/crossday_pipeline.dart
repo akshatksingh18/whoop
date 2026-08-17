@@ -18,6 +18,12 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+// Pure string helper only (the `need_input:name=…` note grammar) — no DB, no
+// IO, no Flutter binding, so importing it does not compromise this file's
+// isolate safety. One grammar for "a required input was missing" across both
+// pipelines rather than a second one here.
+import 'onehz_pipeline.dart' show needInputNote;
+
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
 ///
@@ -363,9 +369,14 @@ Map<String, dynamic> buildCrossDayBundle(
   final lastTstMin = _lastNum(days, 'tst_min');
   final perf = (need.present && lastTstMin != null)
       ? ana.sleepPerformance(lastTstMin * 60.0, need.value!.needSec)
-      : const ana.Metric<ana.SleepPerformance>.absent(
+      : ana.Metric<ana.SleepPerformance>.absent(
           tier: ana.Tier.estimate,
-          inputs_used: ['tst', 'sleep_need'],
+          inputs_used: const ['tst', 'sleep_need'],
+          // Name the input that is actually missing. When it is the need
+          // itself, carry the need's own reason forward rather than restating
+          // it as "no sleep need" — that would name a sibling metric, which is
+          // the failure this whole convention exists to stop.
+          note: need.present ? needInputNote('tst_min') : need.note,
         );
   // typical wake clock-minute + efficiency from recent days (medians).
   final wakeMins = <double>[
@@ -386,9 +397,14 @@ Map<String, dynamic> buildCrossDayBundle(
           typicalWakeMinOfDay: typicalWakeMin,
           typicalEfficiencyPct: typicalEff,
         )
-      : const ana.Metric<ana.BedtimeRec>.absent(
+      : ana.Metric<ana.BedtimeRec>.absent(
           tier: ana.Tier.estimate,
-          inputs_used: ['sleep_need', 'wake_time', 'efficiency'],
+          inputs_used: const ['sleep_need', 'wake_time', 'efficiency'],
+          note: !need.present
+              ? need.note
+              : typicalWakeMin == null
+              ? needInputNote('wake_time')
+              : needInputNote('efficiency'),
         );
   // Same efficiency as the bedtime above, by construction — the two ends of one
   // night must be backed off the same time-in-bed. `bedtime.present` already
@@ -399,9 +415,14 @@ Map<String, dynamic> buildCrossDayBundle(
           needSec: need.value!.needSec,
           typicalEfficiencyPct: typicalEff,
         )
-      : const ana.Metric<ana.WakeRec>.absent(
+      : ana.Metric<ana.WakeRec>.absent(
           tier: ana.Tier.estimate,
-          inputs_used: ['sleep_need', 'bedtime', 'efficiency'],
+          inputs_used: const ['sleep_need', 'bedtime', 'efficiency'],
+          note: !need.present
+              ? need.note
+              : !bedtime.present
+              ? bedtime.note
+              : needInputNote('efficiency'),
         );
 
   // ── STRAIN COACH: recovery-gated target for today (uses today's recovery +

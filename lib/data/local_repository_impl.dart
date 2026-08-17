@@ -20,6 +20,7 @@ import 'dart:math' as math;
 import '../compute/derivation_engine.dart';
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
+import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
@@ -159,6 +160,9 @@ class LocalRepositoryImpl extends LocalRepository {
   /// A bare metric from a scalar (used where a screen reads a number directly).
   /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
   /// the UI can render "Need N more nights" for baseline-gated abstentions.
+  /// [note] is attached ONLY when there is no value — a note on a number that
+  /// arrived is an explanation of an absence that did not happen, and callers
+  /// that pass one unconditionally would otherwise ship it.
   Map<String, dynamic> _scalarMetric(
     num? v,
     String tier, {
@@ -170,7 +174,7 @@ class LocalRepositoryImpl extends LocalRepository {
     'tier': tier,
     'inputs_used': const [],
     'unit': ?unit,
-    'note': ?note,
+    if (v == null) 'note': ?note,
   };
 
   /// The `note` string of a metric envelope at [path] (e.g.
@@ -181,6 +185,38 @@ class LocalRepositoryImpl extends LocalRepository {
     final note = env?['note'];
     return note is String ? note : null;
   }
+
+  /// WHY the bare-valued figure [key] is absent on this bundle, from the
+  /// pipeline's `absent_notes` block (onehz_pipeline.dart / the engine's
+  /// `_applyWakeDayFeatures`). Null when that figure is present.
+  ///
+  /// `strain`, `calories`, `calories_total`, `zones` and `max_hr_used` are
+  /// stored as bare values, so there is no envelope on them to carry a tier and
+  /// a note. The reason was computed correctly at the gate and then thrown away
+  /// before it reached anyone: the only place `unknown_device_family:id=none`
+  /// was written was onto `daytime_hrv` and `hr_ceiling`, which no screen that
+  /// renders these reads. The screens guessed instead, and the guesses were
+  /// wrong. This is the route back.
+  String? _absentNote(Map<String, dynamic>? b, String key) {
+    final n = _sub(b, 'absent_notes')?[key];
+    if (n is String && n.isNotEmpty) return n;
+    // An IMPORTED day carries only what the export file carried, and no gate in
+    // this app ever ran on it — there is no raw to re-derive from, so this is
+    // not a wait-and-it-fills absence. The payload says so itself
+    // (`LocalDb.isMeasuredDayRow` reads the same flag), so this is a fact about
+    // the row, not a plausible reason invented for it. Measured: 284 of
+    // whoop-5's 287 days are this, and every activity slot on all of them went
+    // absent with nothing to say.
+    if (b?['imported'] == true) return needInputNote('imported_day');
+    return null;
+  }
+
+  /// An ABSENT metric envelope carrying only its tier and the reason it is
+  /// absent — for a payload whose value key is a bare scalar the UI already
+  /// reads. `Metric.parse` reads this shape directly, so a screen gets
+  /// `isEmpty == true` plus a `note` it can render instead of guessing.
+  Map<String, dynamic>? _absentMetric(String? note, String tier) =>
+      note == null ? null : _scalarMetric(null, tier, note: note);
 
   // ── profile ─────────────────────────────────────────────────────────────────
   // The profile lives in AppState (shared_preferences); AppState.updateProfile
@@ -279,14 +315,45 @@ class LocalRepositoryImpl extends LocalRepository {
         readinessScalar = pin.value.toDouble();
       }
     }
+    // Everything on the overnight side of Home is absent for ONE reason when
+    // there is no night to read: there is no scored night. Said once here so
+    // readiness and resting HR stop going absent with nothing at all — measured
+    // on whoop-5, where they are two of the eight dashes on a Home built over
+    // 287 days of history.
+    final overnightNote = showOvernight ? null : needInputNote('scored_night');
     final readinessNote = readinessScalar == null && showOvernight
-        ? _needNote(sleepBundle, 'clinical.readiness_composite')
-        : null;
+        ? _needNote(sleepBundle, 'clinical.readiness_composite') ??
+              kUnknownAbsenceNote
+        : overnightNote;
     final readinessMetric = _scalarMetric(
       readinessScalar,
       'HIGH',
       note: readinessNote,
     );
+    // WHY an absent activity figure is absent, from whichever source Home is
+    // reading it from. The derived day and the interim wake features both carry
+    // the same `absent_notes` map (the engine writes one and persists the
+    // other), so Home does not have to know which one answered.
+    //
+    // When NEITHER exists there is no gate to name — the day simply has no
+    // activity yet — and that is its own cause, not an unknown one. Home used
+    // to render five bare dashes there (strain, calories, calories_total,
+    // steps, wear) with no tier and no note at all.
+    // `_scalarMetric` drops the note when a value arrived, so this can answer
+    // unconditionally. The floor is "we do not know", never a plausible guess:
+    // `steps` and `wear_min` have no gate that names itself, so an absent one
+    // says exactly that rather than borrowing the strain gate's reason.
+    String activityNote(String key) {
+      if (activityBundle == null && wakeFeatures == null) {
+        return needInputNote('today_activity');
+      }
+      if (activityBundle != null) {
+        return _absentNote(activityBundle, key) ?? kUnknownAbsenceNote;
+      }
+      final n = (wakeFeatures?['absent_notes'] as Map?)?[key];
+      return n is String && n.isNotEmpty ? n : kUnknownAbsenceNote;
+    }
+
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -294,6 +361,7 @@ class LocalRepositoryImpl extends LocalRepository {
         showOvernight ? _scalar(sleepBundle, 'rhr')?.round() : null,
         'HIGH',
         unit: 'bpm',
+        note: overnightNote ?? kUnknownAbsenceNote,
       ),
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(
@@ -301,6 +369,7 @@ class LocalRepositoryImpl extends LocalRepository {
             ? (wakeFeatures?['strain'] as num?)?.toDouble()
             : _scalar(activityBundle, 'strain'),
         'ESTIMATE',
+        note: activityNote('strain'),
       ),
       'wear_min': _scalarMetric(
         activityBundle == null
@@ -308,6 +377,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _wearMin(activityBundle),
         'HIGH',
         unit: 'min',
+        note: activityNote('wear_min'),
       ),
       // Active calories (Keytel HR→kcal over the wake span) + total daily energy
       // (TDEE: Mifflin BMR floor + active surplus).
@@ -317,6 +387,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'calories')?.round(),
         'ESTIMATE',
         unit: 'kcal',
+        note: activityNote('calories'),
       ),
       'calories_total': _scalarMetric(
         activityBundle == null
@@ -324,6 +395,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'calories_total')?.round(),
         'ESTIMATE',
         unit: 'kcal',
+        note: activityNote('calories_total'),
       ),
       // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
       // rest; the derivation combines them and avoids double-counting.
@@ -333,6 +405,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'steps')?.round(),
         'ESTIMATE',
         unit: 'steps',
+        note: activityNote('steps'),
       ),
     };
 
@@ -1180,24 +1253,28 @@ class LocalRepositoryImpl extends LocalRepository {
     } else {
       stepsBase = _scalar(b, 'steps');
     }
+    // The five bare-valued figures, resolved once so the reason block below can
+    // key off what this payload IS ABOUT TO SAY rather than re-deriving it.
+    final strain = _scalar(b, 'strain');
+    final trimp = _scalar(b, 'trimp');
+    final calories = _scalar(b, 'calories')?.round();
+    final caloriesTotal = _scalar(b, 'calories_total')?.round();
+    final maxHrUsed = b['max_hr_used'] is num
+        ? b['max_hr_used'] as num
+        : _scalar(b, 'max_hr_used');
+    final zoneMin = <String, int?>{
+      for (var i = 1; i <= 5; i++) 'z$i': (zones?['z$i'] as num?)?.toInt(),
+    };
     return {
       // Headline 0–21 strain (the detail screen clamps to 0..21). Raw Banister
       // TRIMP is kept as the secondary "training load" figure.
-      'strain': _scalar(b, 'strain'),
-      'training_load': _scalar(b, 'trimp'),
-      // Secondary 0–100 Edwards "effort" strain (zone-weighted, per-second wake HR).
-      'effort': _scalar(b, 'strain_effort'),
+      'strain': strain,
+      'training_load': trimp,
       'load': cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
       // HR-zone minutes (Z1–Z5 by %HRmax) — the zone bars. `?? 0` on all five
       // turned a day with no zone block into five confident 0-minute bars; a
       // day we never measured reads null so the caller can say nothing.
-      'zones': {
-        'z1': (zones?['z1'] as num?)?.toInt(),
-        'z2': (zones?['z2'] as num?)?.toInt(),
-        'z3': (zones?['z3'] as num?)?.toInt(),
-        'z4': (zones?['z4'] as num?)?.toInt(),
-        'z5': (zones?['z5'] as num?)?.toInt(),
-      },
+      'zones': zoneMin,
       'curve': [
         for (final p in curve.whereType<Map>()) {'t': p['t'], 'v': p['v']},
       ],
@@ -1205,18 +1282,16 @@ class LocalRepositoryImpl extends LocalRepository {
         for (final p in zoneTimeline.whereType<Map>())
           {'t': p['t'], 'z': p['z']},
       ],
-      'calories': _scalar(b, 'calories')?.round(),
+      'calories': calories,
       // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
-      'calories_total': _scalar(b, 'calories_total')?.round(),
+      'calories_total': caloriesTotal,
       'steps': stepsBase?.round(),
       'hr': {
         'max': (hrStats?['max'] as num?)?.toInt(),
         'avg': (hrStats?['avg'] as num?)?.toInt(),
         'min': (hrStats?['min'] as num?)?.toInt(),
       },
-      'max_hr_used': b['max_hr_used'] is num
-          ? b['max_hr_used'] as num
-          : _scalar(b, 'max_hr_used'),
+      'max_hr_used': maxHrUsed,
       // TS-04 — which two numbers THIS day's zone bars were binned on:
       // 'karvonen' (observed ceiling + measured resting HR), 'observed'
       // (measured ceiling, resting-HR history still too short) or 'tanaka'
@@ -1224,6 +1299,38 @@ class LocalRepositoryImpl extends LocalRepository {
       // footnote states what the bar IS rather than what it usually is.
       'zone_source': b['zone_source'],
       'zone_max_hr': (b['zone_max_hr'] as num?)?.round(),
+      // The HEADLINE absence's reason, promoted to the top level because the
+      // screen's primary content when there is no strain is a single card
+      // explaining why. Same string as `absent.strain`.
+      'note': strain == null ? _absentNote(b, 'strain') : null,
+      // WHY each absent figure above is absent, keyed by that figure's OWN
+      // name — never by a sibling's. Every entry is an absent Metric envelope
+      // ({value:'—', confidence:0, tier, note}), so a screen can
+      // `Metric.parse(strain['absent']?['calories'])` and render the real
+      // reason. Entries exist ONLY for figures that are actually absent.
+      //
+      // This is the fix for a first-law violation: `strain`, `calories`,
+      // `calories_total`, `zones` and `max_hr_used` went absent with no tier
+      // and no note while the gate that killed them wrote its reason onto
+      // `heart.daytime_hrv` and `hr_ceiling`, which this screen never reads. So
+      // the screen guessed — "it needs a resting heart rate from a scored
+      // night" on a day with a scored night, "add your age in Profile" on a
+      // profile with an age. An honest-looking absence with a false cause and
+      // an unactionable fix is worse than a bare dash.
+      'absent': <String, Map<String, dynamic>>{
+        // Keyed the way the VALUE above is keyed — `training_load` is what this
+        // payload calls `trimp` — or the caller has to know both names.
+        for (final e in <String, (bool, String)>{
+          'strain': (strain == null, 'strain'),
+          'training_load': (trimp == null, 'trimp'),
+          'calories': (calories == null, 'calories'),
+          'calories_total': (caloriesTotal == null, 'calories_total'),
+          'zones': (zoneMin.values.every((v) => v == null), 'zones'),
+          'max_hr_used': (maxHrUsed == null, 'max_hr_used'),
+        }.entries)
+          if (e.value.$1)
+            e.key: ?_absentMetric(_absentNote(b, e.value.$2), 'ESTIMATE'),
+      },
       'flags': const {},
     };
   }
@@ -3426,9 +3533,23 @@ class LocalRepositoryImpl extends LocalRepository {
     // retention and derived days outlive everything, so this still answers for
     // a user who has not synced in a week. Unknown stays unknown — it is never
     // filled in with gen4.
+    final todayBundle = await _bundleForDate(todayLabel());
     final family = _familyOfSessions(recent) ??
         await LocalDb.latestSessionDeviceFamily() ??
-        (await _bundleForDate(todayLabel()))?['device_family'] as String?;
+        todayBundle?['device_family'] as String?;
+    // WHY there is no measured ceiling — but ONLY the reason that holds across
+    // the whole history, because that is what an all-time max is taken over.
+    // An unknown family is exactly that: `observedCeilingBpm` has no motion
+    // gate for one, so it refuses on every day and no future session can change
+    // it. Any other day's note is one day's reason and would be a guess here.
+    //
+    // The card stated a cause of its own — "the band has not yet HELD a high
+    // enough heart rate" — and offered "wear the band for your normal hard
+    // sessions". Measured on all three real databases, both are false: every
+    // row is unstamped (`unknown_device_family:id=none` on `hr_ceiling`).
+    final ceilingNote = ceiling == null && ana.deviceFamilyOf(family) == null
+        ? ana.unknownFamilyNote(family)
+        : null;
     final set = trainingZones(
       age: _profileAge(),
       deviceFamily: family,
@@ -3436,9 +3557,47 @@ class LocalRepositoryImpl extends LocalRepository {
       restingHrHistory: rhrHistory,
     );
     final measured = zonesAreMeasured(set?.source);
+    // WHY there are no edges. This screen printed "Without your age or a strap
+    // we have calibrated a ceiling for, there is no ceiling" and offered "Add
+    // your age in Profile" — on a profile whose age IS set, because the only
+    // thing actually missing was the strap stamp. Name the one that is missing.
+    final age = _profileAge();
+    final zonesNote = set != null
+        ? null
+        : age == null
+        ? needInputNote('age')
+        : ana.unknownFamilyNote(family);
+    // TS-05 — the 28-day distribution is ABSENT, not captioned, until BOTH zone
+    // anchors were measured on this user; a three-bar "you live in the grey
+    // middle" read off `208 − 0.7·age` bands is manufactured and no footnote
+    // repairs it. So it has three distinct causes and they are not the same
+    // fix: no edges at all, edges off the age estimate, or edges off a measured
+    // ceiling whose reserve anchor is still short. Name the one that applies.
+    final distribution = measured ? _intensity28d(set!, recent) : null;
+    final distributionNote = distribution != null
+        ? null
+        : zonesNote ??
+              (set!.source == 'tanaka'
+                  // The ceiling's OWN reason outranks "no hard session yet" —
+                  // on all three real databases it refused for an unstamped
+                  // strap, which a hard session cannot fix.
+                  ? ceilingNote ?? needInputNote('observed_ceiling')
+                  : !measured
+                  ? needInputNote(
+                      'resting_hr_days',
+                      have: rhrHistory.length,
+                      need: ana.HeartRateZones.reserveMinDays,
+                    )
+                  : needInputNote(
+                      'sessions',
+                      have: recent.length,
+                      need: _minDistributionSessions,
+                    ));
     return {
       'ceiling': ?ceiling?.toJson(),
-      'age': _profileAge(),
+      // Why there is no ceiling, when there is none. Never set alongside one.
+      'ceiling_note': ceilingNote,
+      'age': age,
       'device_family': family,
       'source': set?.source,
       'max_hr': set?.maxHr.round(),
@@ -3446,6 +3605,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // because "your easy zone got wider" is only answerable if the two
       // numbers it was built from are on the screen.
       'resting_hr': measured ? _median(rhrHistory)?.round() : null,
+      // Why there are no edges, at the top level: with no zones the screen IS
+      // this one card. Same string as `absent.zones`.
+      'note': zonesNote,
       'resting_days': rhrHistory.length,
       'resting_min_days': ana.HeartRateZones.reserveMinDays,
       'zones': set == null
@@ -3464,7 +3626,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // TS-05 — ABSENT, not captioned, while the ceiling is the age formula.
       // A three-bar "you live in the grey middle" read off 220−age bands is
       // manufactured, and no footnote repairs it, so the gate is the absence.
-      'distribution': measured ? _intensity28d(set!, recent) : null,
+      'distribution': distribution,
+      // Per-figure reasons, same shape and same contract as `getDayStrain`'s.
+      // Present only for what is actually absent.
+      'absent': <String, Map<String, dynamic>>{
+        'zones': ?_absentMetric(zonesNote, 'ESTIMATE'),
+        'max_hr': ?_absentMetric(zonesNote, 'ESTIMATE'),
+        'distribution': ?_absentMetric(distributionNote, 'ESTIMATE'),
+      },
     };
   }
 

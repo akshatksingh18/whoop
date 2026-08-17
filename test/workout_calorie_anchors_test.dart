@@ -91,8 +91,11 @@ void main() {
         ),
         isNotNull,
       );
-      // And no strap stamp is its own refusal: the ceiling the flex gate is a
-      // fraction of belongs to a sensor package we cannot name.
+      // An unstamped strap is NOT a refusal here. The ceiling the flex gate is
+      // a fraction of is Tanaka on age — a population regression that reads no
+      // sensor — so swapping the strap cannot move it. Gating it on
+      // `device_family` (NULL on every pre-schema-41 row, never backfilled)
+      // deleted calories, zones and strain from whole histories for nothing.
       expect(
         DerivationEngine.wakeDayEnergy(
           <double>[for (var i = 0; i < 60; i++) 140.0],
@@ -103,8 +106,8 @@ void main() {
             sex: 'm',
           ),
         ),
-        isNull,
-        reason: 'unknown device family is not gen4 with a different badge',
+        isNotNull,
+        reason: 'Tanaka is an age formula, not a calibration constant',
       );
     });
   });

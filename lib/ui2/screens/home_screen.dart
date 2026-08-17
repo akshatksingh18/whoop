@@ -838,8 +838,12 @@ class _HomeScreenState extends State<HomeScreen> {
               'Readiness is not scored today',
               need != null
                   ? '$need to know what normal looks like for you.'
-                  : 'Needs a night of beat-to-beat data, plus your own '
-                      'history to compare it to.',
+                  // Was "Needs a night of beat-to-beat data, plus your own
+                  // history to compare it to" — a cause, stated for every
+                  // absence the note convention did not cover. The door below
+                  // is what actually answers it.
+                  : whyFromNote(d.readiness.note) ??
+                      'Nothing recorded says why.',
               fix: 'See what was missing',
               icon: LucideIcons.batteryCharging,
               onFix: () => go(c, const ReadinessDetail()),
@@ -898,6 +902,9 @@ class _HomeScreenState extends State<HomeScreen> {
           hm(d.sleepMin.value),
           sub: ofNight(_sleepWord(d.sleepEff.value)),
           onTap: () => go(c, const SleepDetail())),
+      // Kept: sleep duration absent IS "no night was scored" — the fallback
+      // restates the headline rather than naming a second cause, and a real
+      // note from the stager now outranks it anyway.
       () => StatusCard.forMetric('No sleep last night', d.sleepMin,
           why: 'No night long enough to score was recorded.'),
     );
@@ -913,12 +920,16 @@ class _HomeScreenState extends State<HomeScreen> {
       // duration. Sleep duration and nocturnal RHR are gated separately: a
       // night staged from the accelerometer with no clean resting window
       // produces exactly that pair.
+      // The else-branch used to name the gate — "no stretch of beats clean
+      // enough" — which is one of several reasons a scored night yields no
+      // resting rate, picked by a human writing copy. Only the branch the
+      // screen can actually see is stated; the other defers to the note, or to
+      // saying it does not know.
       () => StatusCard.forMetric('No resting heart rate', d.rhr,
           why: d.sleepMin.isEmpty
               ? 'Resting heart rate is read from sleep, and no sleep was '
                   'recorded.'
-              : 'Read from sleep, and last night had no stretch of beats '
-                  'clean enough to take one from.'),
+              : ''),
     );
     // Steps keeps its tile whether or not a counter reported. Zero steps is a
     // real reading — an unmoved counter — and it renders as 0, not as absence.
@@ -946,8 +957,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ? 'Estimated'
               : '${thousands(d.caloriesTotal.value)} total',
           onTap: () => go(c, const MetricDetail('calories'))),
-      () => StatusCard.forMetric('No energy estimate', d.calories,
-          why: 'Needs your weight and age.'),
+      // No `why:`. It said "Needs your weight and age" — and the measured run
+      // printed that to a profile carrying both, because energy had gone absent
+      // for an entirely different reason that the card never asked for.
+      () => StatusCard.forMetric('No energy estimate', d.calories),
     );
 
     return Column(children: [

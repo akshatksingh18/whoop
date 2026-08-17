@@ -153,9 +153,11 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         const Center(child: CircularProgressIndicator()),
       ] else ...[
         if (v == null) ...[
-          StatusCard.forMetric('Readiness is not scored', d.readiness,
-                  why: 'Needs a night of beat-to-beat data, plus your own '
-                      'history to compare it to.') ??
+          // No `why:`. The pipeline records why readiness abstained on every
+          // day it does, and the "What was missing" section directly below is
+          // built from that record — a sentence written here was competing
+          // with the real answer one line down and winning.
+          StatusCard.forMetric('Readiness is not scored', d.readiness) ??
               const SizedBox.shrink(),
           if (d.absentDiag != null)
             Section('What was missing', _absence(c, p, d.absentDiag!)),

@@ -117,12 +117,18 @@ void main() {
   );
 
   test(
-    'an UNSTAMPED window scores nothing — no ceiling, no zones, no strain',
+    'an UNSTAMPED window still scores off the AGE estimate',
     () async {
-      // TS-03a: the HR ceiling is `estimatedMaxHr(age, family)`, so a window
-      // whose 1 Hz rows carry no `device_family` — every pre-schema-41 row,
-      // every import, every raw replay — has no ceiling to be a percentage of.
-      // It refuses; it does NOT quietly fall back to gen4's numbers.
+      // REVERSAL of the TS-03a over-application. The ceiling here is Tanaka
+      // `208 − 0.7·age` — a population regression that reads no sensor — so an
+      // unstamped window (every pre-schema-41 row, every import, every raw
+      // replay) is banded on it exactly as a stamped one is. Gating it on
+      // `device_family` cost zones/strain/calories on a user's whole history
+      // for a number the strap cannot move.
+      //
+      // What DOES still refuse for an unstamped strap is the ceiling the band
+      // MEASURED (analytics `observed_max_hr.dart`, whose motion-corroboration
+      // floor is 0.10 g on gen4 and 0.04 g on gen5) — see the seam's own tests.
       const unstampedStart = 1_700_100_000;
       await _seedHr(unstampedStart, 3600, 150, deviceFamily: null);
 
@@ -132,13 +138,11 @@ void main() {
         type: 'run',
       );
       final w = await repo.getWorkout(res['workout_id'] as String);
-      // The window was measured — avg HR is a plain average and still stands.
       expect(w['avg_hr'], 150);
-      // Everything that needs a ceiling abstains.
-      expect(w['strain'], isNull);
-      expect(w['calories'], isNull);
-      expect((w['zone_bands'] as List?) ?? const [], isEmpty);
-      expect((w['zone_min'] as List?) ?? const [], isEmpty);
+      expect(w['strain'], isNotNull);
+      expect(w['calories'], isNotNull);
+      expect((w['zone_bands'] as List?) ?? const [], isNotEmpty);
+      expect((w['zone_min'] as List?) ?? const [], isNotEmpty);
     },
   );
 

@@ -28,6 +28,7 @@ import 'package:openstrap_edge/ui2/activity/poster.dart';
 import 'package:openstrap_edge/ui2/activity/setup.dart';
 import 'package:openstrap_edge/ui2/activity/share.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
+import 'package:openstrap_edge/ui2/activity/zones.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -660,6 +661,103 @@ void main() {
       expect(find.text('—'), findsNothing);
       expect(find.byType(StatusCard), findsWidgets,
           reason: 'a day with no trace has to say why, not draw a flat line');
+    });
+
+    // THE MEASURED whoop-4 CASE: a day derived at v70 with 89 % wear and a
+    // scored night (RHR 56.8) and no strain at all. The screen printed "it
+    // needs a resting heart rate from a scored night and a day the band was on
+    // your wrist" — both of which it had — and offered "Wear the band through
+    // the day", which the user had already done.
+    testWidgets('day strain states only a cause it was handed', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      var n = 0;
+      Future<void> show(DayStrainData d) async {
+        // A fresh key each time — the state reads `widget.data` in initState
+        // only, so re-pumping into the same slot would show the previous case.
+        await tester.pumpWidget(_frame(
+            DayStrainDetail(key: ValueKey(n++), data: d),
+            Brightness.light,
+            1.0));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('—'), findsNothing);
+      }
+
+      await show(const DayStrainData(wornMin: 1274, coveragePct: 89));
+      expect(find.textContaining('scored night'), findsNothing,
+          reason: 'the night WAS scored — a cause nobody gave this screen');
+      expect(find.textContaining('Wear the band through the day'), findsNothing,
+          reason: 'an action that cannot change the outcome is worse than none');
+      expect(find.textContaining('Nothing recorded says why'), findsOneWidget);
+
+      // The same absence WITH the pipeline's reason attached renders that
+      // reason, and still offers nothing to tap — no button can fix it.
+      await show(const DayStrainData(
+          wornMin: 1274,
+          coveragePct: 89,
+          note: 'unknown_device_family:id=none'));
+      expect(find.textContaining('which strap'), findsOneWidget);
+      expect(find.textContaining('Nothing recorded says why'), findsNothing);
+
+      // A day the band genuinely never saw is the ONE state where "wear the
+      // band" is an instruction rather than an insult, so it survives there.
+      await show(const DayStrainData());
+      expect(find.textContaining('Wear the band through the day'),
+          findsOneWidget);
+
+      // MEASURED on whoop-4, 6 of 17 days: `backfillStrainScale` rescales the
+      // headline and drops the curve it cannot rescale, so the day has a strain
+      // and no trace. The card claimed "this day produced no strain" over a
+      // stored 10.8.
+      await show(const DayStrainData(strain: 10.8, wornMin: 1274));
+      expect(find.textContaining('produced no strain'), findsNothing);
+      expect(find.textContaining('10.8'), findsOneWidget);
+    });
+
+    // The Zones screen offered "Add your age in Profile" on all three real
+    // databases. The age was set on all three, so following it did nothing.
+    testWidgets('zones never sends you after data it already has',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1600 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      var n = 0;
+      Future<void> show(ZonesData d) async {
+        await tester.pumpWidget(_frame(
+            ZonesDetail(key: ValueKey(n++), data: d), Brightness.light, 1.0));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('—'), findsNothing);
+      }
+
+      await show(const ZonesData(age: 30));
+      expect(find.textContaining('Add your age'), findsNothing);
+      expect(find.textContaining('Without your age'), findsNothing);
+      // Nor the claim that the (absent) zones below came off the age.
+      expect(find.textContaining('zones below come off your age'), findsNothing);
+
+      await show(const ZonesData(age: 30, note: 'need_input:name=wake_hr'));
+      expect(find.textContaining('No waking heart rate'), findsOneWidget);
+
+      // Age genuinely missing — now the button is a real promise.
+      await show(const ZonesData());
+      expect(find.textContaining('Add your age in Profile'), findsOneWidget);
+
+      // The ceiling card had the same defect: it blamed a missing hard session
+      // on all three real databases, where the ceiling had actually refused for
+      // an unstamped strap. No hard session fixes that, so no button either.
+      await show(const ZonesData(
+          age: 30,
+          source: 'tanaka',
+          ceilingNote: 'unknown_device_family:id=none'));
+      expect(find.textContaining('HELD'), findsNothing);
+      expect(find.textContaining('Wear the band for your normal hard sessions'),
+          findsNothing);
+      expect(find.textContaining('which strap'), findsWidgets);
     });
 
     for (final arch in Arch.values) {

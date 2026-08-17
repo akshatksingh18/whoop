@@ -39,28 +39,32 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 // is to drop impossible samples before a spike defines a peak. Folding it into
 // the training ceiling would clip real effort.
 
-/// Age coefficients per sensor package: HRmax ≈ `intercept − slope · age`.
+/// Estimated HRmax (bpm) for [age] — Tanaka (2001), `208 − 0.7 · age`. Null
+/// only when the age is unknown.
 ///
-/// Both families carry Tanaka (2001) today. They are listed SEPARATELY on
-/// purpose — the number a strap's zones should be banded on is a property of
-/// what that strap can actually measure at intensity (wrist PPG under-reads
-/// where a chest strap does not), so the day a family earns its own ceiling it
-/// changes one entry here rather than everyone's.
-const Map<ana.DeviceFamily, (double, double)> _maxHrByFamily = {
-  ana.DeviceFamily.gen4: (208.0, 0.7),
-  ana.DeviceFamily.gen5: (208.0, 0.7),
-};
-
-/// Estimated HRmax (bpm) for [age] as measured by [deviceFamily], or null.
+/// THIS IS NOT DEVICE-GATED, AND IT WAS, AND THAT WAS THE BUG. Tanaka is a
+/// population regression on AGE. It reads no sensor, no accelerometer and no
+/// ADC; swapping the strap does not move the number by one bpm. Dispatching it
+/// through `calibrationFor` therefore refused a ceiling for every row written
+/// before schema 41 — `device_family` is NULL there and is never backfilled by
+/// design — and with the ceiling went zones, TRIMP, strain, Keytel calories and
+/// `max_hr_used` for a user's entire history. device.dart's contract is "unknown
+/// family ⇒ refuse a CALIBRATION CONSTANT"; the test is *does the sensor change
+/// the answer*, and here it does not.
 ///
-/// Null on unknown age AND on an unknown/unstamped strap — see device.dart's
-/// contract: an uncalibrated family is not gen4 with a different badge, so it
-/// gets no ceiling rather than gen4's. Every dependent figure (zones, TRIMP,
-/// strain, Keytel calories) then goes honestly absent.
+/// [deviceFamily] is accepted and DELIBERATELY UNUSED, so the ~6 call sites that
+/// already resolve the strap keep compiling and the parameter stays as the hook
+/// for the day a family earns its own age line. Do not re-add a null return for
+/// an unstamped strap.
+///
+/// What this returns is an ESTIMATE and every consumer must say so: zones built
+/// on it carry `source: 'tanaka'` (see [trainingZones]), which is materially
+/// different from `observed`/`karvonen`. The device-dependent ceiling — the one
+/// the band actually MEASURED — is `observedCeilingBpm`, and that one still
+/// refuses for an unknown family, in analytics' `observed_max_hr.dart`.
 double? estimatedMaxHr(num? age, String? deviceFamily) {
   if (age == null || age <= 0) return null;
-  final c = ana.calibrationFor(_maxHrByFamily, deviceFamily);
-  return c == null ? null : c.$1 - c.$2 * age.toDouble();
+  return 208.0 - 0.7 * age.toDouble();
 }
 
 /// THE zone set every surface bands on — day zones, the day zone timeline and a
@@ -81,8 +85,9 @@ double? estimatedMaxHr(num? age, String? deviceFamily) {
 ///   AGE ESTIMATE. Byte-for-byte what this app did before TS-03 landed, so a
 ///   user with no observed ceiling sees no number move.
 ///
-/// Null when there is no ceiling at all (no age, or an uncalibrated strap) —
-/// no ceiling, no zones, nothing substituted.
+/// Null only when there is no ceiling at all — no observed ceiling AND no age.
+/// An unstamped strap is no longer one of those cases: Tanaka does not read a
+/// sensor, so it lands on `tanaka` with the estimate's label, not on nothing.
 ///
 /// The age estimate is deliberately NOT run through Karvonen: reserve bands off
 /// a guessed ceiling are one measured anchor and one guessed one, which is not

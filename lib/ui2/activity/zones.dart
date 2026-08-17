@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/local_repository.dart';
+import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
@@ -79,6 +80,26 @@ class ZonesData {
   final int distSessions, distEasy, distModerate, distHard;
   final String? distShape;
 
+  /// WHY there are no edges, as the repository said it. Never a sentence
+  /// written on this screen; null means nothing said why.
+  final String? note;
+
+  /// WHY the 28-day distribution is absent — it has three distinct causes and
+  /// the repository names the one that applies, so the screen no longer picks
+  /// between two of them off `source`.
+  final String? distNote;
+
+  /// WHY there is no measured ceiling. `observedCeilingBpm` refuses for an
+  /// unstamped strap, and on all three real databases that — not "no hard
+  /// session yet" — is the reason. Null means nothing said why.
+  final String? ceilingNote;
+
+  /// The age on file. Null is the ONE case where "Add your age in Profile" is
+  /// a real instruction — the screen used to offer it unconditionally, and the
+  /// measured run printed it to a user whose age was set, so following it did
+  /// nothing at all.
+  final int? age;
+
   const ZonesData({
     this.ceilingBpm,
     this.ceilingDate,
@@ -95,6 +116,10 @@ class ZonesData {
     this.distModerate = 0,
     this.distHard = 0,
     this.distShape,
+    this.note,
+    this.distNote,
+    this.ceilingNote,
+    this.age,
   });
 
   bool get measured => source == 'karvonen';
@@ -129,6 +154,11 @@ class ZonesData {
       distModerate: d is Map ? (d['moderate_min'] as num?)?.toInt() ?? 0 : 0,
       distHard: d is Map ? (d['hard_min'] as num?)?.toInt() ?? 0 : 0,
       distShape: d is Map ? d['shape'] as String? : null,
+      note: z['note'] as String?,
+      ceilingNote: z['ceiling_note'] as String?,
+      distNote: ((z['absent'] as Map?)?['distribution'] as Map?)?['note']
+          as String?,
+      age: (z['age'] as num?)?.toInt(),
     );
   }
 
@@ -194,13 +224,27 @@ class _ZonesDetailState extends State<ZonesDetail> {
   Widget _ceiling(P p, ZonesData d) {
     final bpm = d.ceilingBpm;
     if (bpm == null) {
-      return const StatusCard(
+      // THE CEILING METRIC'S OWN REASON, when it gave one. The hold sentence
+      // below is a cause this screen wrote, and on all three real databases it
+      // was the wrong one — the ceiling refused for an unstamped strap, and
+      // "wear the band for your normal hard sessions" could never fix that.
+      final why = whyFromNote(d.ceilingNote);
+      final tail = d.source == 'tanaka'
+          // Only when there ARE age-estimated edges below. Said
+          // unconditionally it described a section that, on every database in
+          // the measured run, was itself empty.
+          ? ' Until one is measured, the zones below come off your age.'
+          : '';
+      return StatusCard(
         'No measured ceiling yet',
-        'The highest heart rate we can stand behind is one the band HELD for '
-            'at least 15 seconds while you were moving — a one-second spike is '
-            'a sleeve dragging over the sensor, not a heart rate. Until a '
-            'session produces one, the zones below come off your age.',
-        fix: 'Wear the band for your normal hard sessions',
+        why != null
+            ? '$why$tail'
+            : 'The highest heart rate we can stand behind is one the band HELD '
+                  'for at least 15 seconds while you were moving — a '
+                  'one-second spike is a sleeve dragging over the sensor, not a '
+                  'heart rate.$tail',
+        // The hard-session instruction belongs to the hold gate alone.
+        fix: why == null ? 'Wear the band for your normal hard sessions' : '',
         icon: LucideIcons.heartPulse,
       );
     }
@@ -246,12 +290,21 @@ class _ZonesDetailState extends State<ZonesDetail> {
   // ── the edges, and the two numbers they were built from ────────────────────
   Widget _zones(P p, ZonesData d) {
     if (d.zones.isEmpty) {
-      return const StatusCard(
+      // THE REPOSITORY'S REASON, or none. This card used to name one — no age
+      // — and offer "Add your age in Profile" as the fix, on a screen whose own
+      // payload carries the age. The age was set, the button led to a filled-in
+      // field, and nothing changed. It is offered now only when the age really
+      // is missing, which is the only state in which it does anything.
+      final why = whyFromNote(d.note, unit: 'days');
+      final noAge = (d.age ?? 0) <= 0;
+      return StatusCard(
         'No zones yet',
-        'Zone edges are percentages of a maximum heart rate. Without your age '
-            'or a strap we have calibrated a ceiling for, there is no ceiling '
-            'to take a percentage of.',
-        fix: 'Add your age in Profile',
+        why ??
+            (noAge
+                ? 'Zone edges are percentages of a maximum heart rate, and '
+                    'without your age there is nothing to take a percentage of.'
+                : 'Nothing recorded says why there are no zone edges yet.'),
+        fix: noAge ? 'Add your age in Profile' : '',
         icon: LucideIcons.activity,
       );
     }
@@ -342,13 +395,19 @@ class _ZonesDetailState extends State<ZonesDetail> {
           'Where your intensity went',
           StatusCard(
             'Not shown yet',
-            d.measured
-                ? 'It needs about a month of recorded sessions to describe a '
-                      'pattern rather than a fortnight of noise, each with the '
-                      'per-minute heart rate we keep for them.'
-                : 'These bars would be a picture of the age estimate, not of '
-                      'your training. They appear once the zone edges above come '
-                      'from a measured ceiling and a measured resting rate.',
+            // THE REPOSITORY'S REASON. This has three distinct causes — no
+            // edges at all, edges off the age estimate, or a reserve anchor
+            // still short — and the screen was choosing between two of them
+            // off `source` alone.
+            whyFromNote(d.distNote, unit: 'days') ??
+                (d.measured
+                    ? 'It needs about a month of recorded sessions to describe '
+                          'a pattern rather than a fortnight of noise, each with '
+                          'the per-minute heart rate we keep for them.'
+                    : 'These bars would be a picture of the age estimate, not '
+                          'of your training. They appear once the zone edges '
+                          'above come from a measured ceiling and a measured '
+                          'resting rate.'),
             icon: LucideIcons.chartColumn,
           ),
         ),

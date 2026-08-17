@@ -236,19 +236,24 @@ void main() {
 
   // TS-03a: there used to be five HRmax formulas across the app, two of which
   // banded the same user's day timeline and session zones on different
-  // ceilings. One function now, dispatched on the strap.
-  group('estimatedMaxHr is the one ceiling, per family', () {
-    test('a stamped family gets its own coefficients', () {
+  // ceilings. One function now — Tanaka, on age alone.
+  group('estimatedMaxHr is the one ceiling', () {
+    test('Tanaka, not 220 - age', () {
       expect(estimatedMaxHr(30, 'gen4'), closeTo(187.0, 0.001));
       expect(estimatedMaxHr(30, 'gen5'), closeTo(187.0, 0.001));
       // NOT 220 - age, which is what two of the five call sites used: 190 here.
       expect(estimatedMaxHr(30, 'gen4'), isNot(closeTo(190.0, 0.001)));
     });
 
-    test('an unknown or unstamped strap gets no ceiling at all', () {
-      expect(estimatedMaxHr(30, null), isNull);
-      expect(estimatedMaxHr(30, ''), isNull);
-      expect(estimatedMaxHr(30, 'polar-h10'), isNull);
+    // REGRESSION: this used to be device-gated, so every pre-schema-41 day
+    // (device_family NULL, never backfilled) lost zones, TRIMP, strain,
+    // calories and max_hr_used. Tanaka reads no sensor — the strap cannot move
+    // it, so an unstamped strap gets the same age estimate, labelled `tanaka`.
+    test('an unknown or unstamped strap still gets the age estimate', () {
+      expect(estimatedMaxHr(30, null), closeTo(187.0, 0.001));
+      expect(estimatedMaxHr(30, ''), closeTo(187.0, 0.001));
+      expect(estimatedMaxHr(30, 'polar-h10'), closeTo(187.0, 0.001));
+      expect(trainingZones(age: 30)?.source, 'tanaka');
     });
 
     test('no age, no ceiling', () {

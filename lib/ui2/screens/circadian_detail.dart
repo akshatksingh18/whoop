@@ -571,10 +571,11 @@ class _CircadianDetailState extends State<CircadianDetail> {
     ];
 
     if (rows.isEmpty) {
-      return StatusCard.forMetric('Your rhythm is not established yet',
-              d.regularity,
-              why: 'Comparing free nights against working nights takes a few '
-                   'weeks of both.') ??
+      // No `why:`. "Takes a few weeks of both" is one reason SRI abstains and
+      // it is not the one the measured run hit — `no valid epoch pairs` was,
+      // on both gen5 databases, and that note was being overwritten here.
+      return StatusCard.forMetric(
+              'Your rhythm is not established yet', d.regularity) ??
           const SizedBox.shrink();
     }
 

@@ -3277,7 +3277,16 @@ class DerivationEngine {
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
       // hrr_bpm reach the persisted series map below.
+      // `addAll` REPLACES `absent_notes` wholesale, and the two halves own
+      // different keys: `trimp` is only ever the pure pipeline's (nothing in the
+      // second half recomputes it), while strain/zones/calories/max_hr_used are
+      // the recompute's. Keep the pipeline's trimp reason across the merge or
+      // the Activity screen's "training load" goes absent with nothing to say.
+      final trimpNote = (bundle['absent_notes'] as Map?)?['trimp'] as String?;
       bundle.addAll(blocks.bundlePatch);
+      if (trimpNote != null && (bundle['scalars'] as Map?)?['trimp'] == null) {
+        (bundle['absent_notes'] as Map?)?['trimp'] = trimpNote;
+      }
       (bundle['series'] as Map?)?.cast<String, dynamic>().addAll(
             blocks.seriesPatch,
           );
@@ -3291,11 +3300,16 @@ class DerivationEngine {
       // bundle could hold "—" in one and a confident 5.99 in the other.
       if (scMap != null && scMap['strain'] == null) {
         final strainEnv = (bundle['clinical'] as Map?)?['strain'];
-        if (strainEnv is Map && strainEnv['value'] != '—') {
+        if (strainEnv is Map) {
           strainEnv['value'] = '—';
           strainEnv['confidence'] = 0;
+          // The note is stamped even when the envelope was ALREADY absent. It
+          // used to be gated on `value != '—'`, so on every day where both
+          // halves abstained — which is every day this matters on — the reason
+          // never landed and the envelope kept the scorer's "strain needs a
+          // TRIMP", naming a sibling metric instead of the missing input.
           strainEnv['note'] =
-              'strain_absent:${blocks.wake['strain_absent'] ?? 'unknown'}';
+              blocks.wake['strain_absent'] ?? kUnknownAbsenceNote;
         }
       }
 
@@ -4708,6 +4722,16 @@ class DerivationEngine {
             'active Keytel surplus over the wake span (HR-flex)',
       };
     }
+    // WHY each of the above is absent, per figure. This recompute is the answer
+    // every surface reads for the figures it owns, so its reasons win. NOTE
+    // `bundle` here is the isolate's PATCH map, not the pure pipeline's bundle
+    // — the two are merged at the `bundle.addAll(blocks.bundlePatch)` call
+    // site, and that merge is where `trimp` (the pipeline's alone; nothing here
+    // recomputes it) is carried across.
+    bundle['absent_notes'] = <String, String>{
+      for (final e in ((wake['absent_notes'] as Map?) ?? const {}).entries)
+        e.key.toString(): e.value.toString(),
+    };
     bundle['activity'] = wake['activity'];
     bundle['activity_curve'] = wake['activity_curve'];
     bundle['zones'] = wake['zones'];
@@ -5068,24 +5092,57 @@ class DerivationEngine {
     final hrMax = estimatedMaxHr(profile.ageYears, daySub.deviceFamily);
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
     double? strain;
-    // Why the headline is absent, in the order the gates below apply. Absence
-    // is never a bare nothing here: the day carries its own reason so a caller
-    // (and `clinical.strain`) can say what is missing instead of showing a dash.
+    // Why each absent activity figure is absent, in the order the gates below
+    // apply. Absence is never a bare nothing here: the day carries its own
+    // reason PER FIGURE so every caller can say what is missing instead of
+    // showing a dash — or, worse, guessing (the Strain screen used to blame a
+    // missing resting HR on a day that had one, because the only reason written
+    // down was attached to a metric it does not read).
+    //
+    // Same order and same vocabulary as `deriveDayBundle`'s pure half, which
+    // gates on exactly these inputs; the two must not disagree about WHY.
+    final ceilingAbsent = hrMax != null
+        ? null
+        : profile.ageYears == null
+        ? needInputNote('age')
+        // We know the age; we do not know what measured the HR, so we
+        // have no ceiling to band it against.
+        : ana.unknownFamilyNote(daySub.deviceFamily);
     String? strainAbsent = perMin.isEmpty
-        ? 'no_wake_minutes'
+        ? needInputNote('wake_hr')
         : hrMax == null
-        ? (profile.ageYears == null
-              ? 'need_age'
-              // We know the age; we do not know what measured the HR, so we
-              // have no ceiling to band it against.
-              : ana.unknownFamilyNote(daySub.deviceFamily))
+        ? ceilingAbsent
             : dayHrValid.isEmpty
-                ? 'no_hr_samples'
+        ? needInputNote('hr_samples')
                 : rhrForTrimp == null
-                    ? 'need_resting_hr'
+        ? needInputNote('resting_hr')
                     : sex == null
-                        ? 'need_sex'
+        ? needInputNote('sex')
+        : null;
+    // `wakeDayEnergy`'s own gates, named. It returns a bare null, so the reason
+    // has to be reconstructed from the same inputs it reads — in its order.
+    final caloriesAbsent = perMin.isEmpty
+        ? needInputNote('wake_hr')
+        // The whole energy pass is gated on having motion minutes to pro-rate
+        // the basal floor over; a day with no accel never reaches it.
+        : motion.isEmpty
+        ? needInputNote('accel_1hz')
+        : profile.ageYears == null
+        ? needInputNote('age')
+        : profile.weightKg == null
+        ? needInputNote('weight_kg')
+        : sex == null
+        ? needInputNote('sex')
+        : hrMax == null
+        ? ceilingAbsent
+        // Keytel does not read height; `dailyEnergy`'s ACTIVE
+        // term nets out a Mifflin basal minute, which does.
+        : profile.heightCm == null
+        ? needInputNote('height_cm')
                         : null;
+    final zonesAbsent = perMin.isEmpty
+        ? needInputNote('wake_hr')
+        : ceilingAbsent;
     double? calories;
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
@@ -5124,7 +5181,10 @@ class DerivationEngine {
           );
           if (score.present) strain = score.value;
         }
-        strainAbsent ??= strain == null ? 'trimp_absent' : null;
+        // Every named input was there and the scorer still abstained. We do not
+        // know why; saying so is the honest floor, and it is what the rule
+        // "never a guessed cause" leaves when there is no cause to name.
+        strainAbsent ??= strain == null ? kUnknownAbsenceNote : null;
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
@@ -5193,6 +5253,19 @@ class DerivationEngine {
       // Machine-readable reason `strain` is null (see `strainAbsent`). Null
       // when a strain WAS produced.
       'strain_absent': strain == null ? strainAbsent : null,
+      // …and the same, per figure, for the rest of the activity family. A key
+      // is present ONLY when that figure is absent. `_applyWakeDayFeatures`
+      // merges this onto the bundle's `absent_notes`, which is what the serve
+      // seam attaches to the value it hands a screen — see the note there.
+      'absent_notes': <String, String>{
+        if (strain == null) 'strain': strainAbsent ?? kUnknownAbsenceNote,
+        if (zones.isEmpty) 'zones': zonesAbsent ?? kUnknownAbsenceNote,
+        if (hrMax == null && ceilingAbsent != null)
+          'max_hr_used': ceilingAbsent,
+        if (calories == null) 'calories': caloriesAbsent ?? kUnknownAbsenceNote,
+        if (caloriesTotal == null)
+          'calories_total': caloriesAbsent ?? kUnknownAbsenceNote,
+      },
       'calories': calories,
       'steps': steps,
       'calories_total': caloriesTotal,

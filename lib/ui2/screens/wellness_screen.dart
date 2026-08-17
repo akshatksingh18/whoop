@@ -24,6 +24,7 @@ import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
+import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'calm_breathing.dart';
@@ -190,9 +191,13 @@ class _WellnessScreenState extends State<WellnessScreen> {
         Section(
           'Stress last night',
           score == null
+              // "Last night had none" was a claim about a gate this screen
+              // never read — the stress payload carries no reason, so the card
+              // states what stress IS and stops there.
               ? const StatusCard(
                   'No stress reading last night',
-                  'Needs a long enough resting stretch. Last night had none.',
+                  'Stress is read from beat timing over a resting stretch '
+                      'overnight, and last night produced no reading.',
                   icon: LucideIcons.activity,
                 )
               : SignalCard(
@@ -302,9 +307,13 @@ class _WellnessScreenState extends State<WellnessScreen> {
         Section(
           'Sleep need tonight',
           needSec == null
-              ? const StatusCard(
+              // The coach's own reason for the absent need — it names the
+              // input that is actually missing. "Not enough of them yet" named
+              // nothing, and was printed for every cause the estimator has.
+              ? StatusCard(
                   'No sleep need yet',
-                  'Not enough of them yet.',
+                  whyFromNote((coachMap?['need'] as Map?)?['note'] as String?) ??
+                      'Nothing recorded says why there is no need for tonight.',
                   icon: LucideIcons.bedDouble,
                 )
               : Surface(

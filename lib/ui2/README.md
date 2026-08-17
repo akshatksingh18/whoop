@@ -179,6 +179,14 @@ DeepDiveCard(String label, String value, String unit, String cta, Color color,
 An absent metric is `StatusCard.forMetric(...)`: what is missing → why → what
 fixes it.
 
+**And never guess the why.** A screen may only state a cause the data actually
+gave it. `forMetric` renders the metric's OWN note (via `whyFromNote`) ahead of
+the `why:` you pass, and when there is neither it says it does not know — a
+hardcoded explanation beside an absent value is a guess wearing the clothes of a
+diagnosis. The same rule governs `fix:`: an action button is a promise, so never
+offer one that cannot change the outcome. "Add your age in Profile" printed to a
+profile with an age costs more trust than no button at all.
+
 ### Rows
 
 ```dart

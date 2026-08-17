@@ -86,8 +86,11 @@ void main() {
       expect(zonesAreMeasured(z.source), isFalse);
     });
 
-    test('unknown strap and unknown age refuse — nothing is substituted', () {
-      expect(trainingZones(age: 30, deviceFamily: null), isNull);
+    test('no AGE refuses; an unknown strap does not', () {
+      // Tanaka is a population regression on age, not a calibration constant —
+      // an unstamped strap gets the estimate, labelled as the estimate.
+      expect(trainingZones(age: 30, deviceFamily: null)?.source, 'tanaka');
+      // No age, no ceiling at all: nothing is substituted.
       expect(trainingZones(age: null, deviceFamily: 'gen4'), isNull);
       // …but a measured ceiling stands on its own: it did not come from a
       // per-family formula, so it does not need a calibrated family.
@@ -258,13 +261,19 @@ void main() {
         );
 
     test(
-      'an unstamped install gets NO zones — never gen4 by default',
+      'an unstamped install still gets the AGE-estimate zones',
       () async {
         await seedRhr(28);
         final z = await repo.getZones();
+        // Provenance is still honestly unknown and still not claimed as gen4…
         expect(z['device_family'], isNull);
-        expect(z['source'], isNull);
-        expect(z['zones'], isEmpty);
+        // …but the bands are Tanaka on age, which no strap can move. This
+        // screen used to be two paragraphs of copy and nothing else on every
+        // real export, including a 287-day history.
+        expect(z['source'], 'tanaka');
+        expect(z['max_hr'], 187);
+        expect(z['zones'], isNotEmpty);
+        // The DISTRIBUTION still refuses: it needs measured anchors.
         expect(z['distribution'], isNull);
       },
     );

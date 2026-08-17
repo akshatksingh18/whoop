@@ -273,9 +273,14 @@ const _catalogue = <_Cat>[
 ];
 
 class ExploreData {
-  /// Days of stored history per `metric_series` key. `metricSeriesCounts`
-  /// counts non-null rows, which is exactly "days this app has something to
-  /// say" — and it is one query for the whole catalogue.
+  /// Non-null `metric_series` rows per key — used ONLY as has / hasn't.
+  ///
+  /// The number itself is never rendered per row (see `_family`): as a value
+  /// beside a metric it reads as a score, and it collapses "rare", "new key"
+  /// and "substrate pruned" into one figure. What it is good for is the split —
+  /// which rows have history, which are named in the empty card, and the
+  /// "N of M measures" header, where the aggregate is honest because it is
+  /// about the DEVICE and not about any one metric.
   final Map<String, int> counts;
   const ExploreData({this.counts = const {}});
 
@@ -971,13 +976,23 @@ class _HealthScreenState extends State<HealthScreen> {
                 Builder(builder: (c) {
                   final r = have[i];
                   final s = specOf(r.key);
-                  final n = counts[r.series]!;
-                  // The value slot is the LENGTH OF THE HISTORY, not a
-                  // reading. A catalogue that showed last night's number would
-                  // be a fifth copy of Overview; what a browser needs to know
-                  // is whether there is anything in there.
-                  return MetricRow(s.icon, s.color, s.title, '$n',
-                      unit: n == 1 ? 'day' : 'days',
+                  // NO NUMBER IN THE VALUE SLOT, on purpose.
+                  //
+                  // This used to print the day count. It read as a score: nine
+                  // days of breathing rate beside seventeen of resting HR looks
+                  // like the app is worse at breathing, when what it means is
+                  // that the estimator abstains more — which is the behaviour
+                  // we want. It also collapsed three different causes into one
+                  // number: genuinely rare, key shipped last week, substrate
+                  // pruned. `midsleep_sec` is forward-only and can never be
+                  // backfilled, so it would sit at 1 next to everything else's
+                  // 17 and mean nothing of the sort.
+                  //
+                  // And it was redundant. Rows with history sort above rows
+                  // without, and the empty ones are named in the StatusCard
+                  // below. Has / hasn't is the only thing an index owes you,
+                  // and the layout already says it.
+                  return MetricRow(s.icon, s.color, s.title, '',
                       sub: r.blurb,
                       onTap: () => go(c, MetricDetail(r.key)));
                 }),

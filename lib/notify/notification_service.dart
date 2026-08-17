@@ -125,12 +125,11 @@ class NotificationService {
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
 
-  /// Dead slot band, kept only so the cancel loop in
-  /// [NotificationCenter.scheduleStandingReminders] can clear it. #28 shipped
-  /// hydration reminders as up to 24 daily-repeating slots in [idWaterBase ..
-  /// idWaterBase + maxWaterSlots); MT-14 deleted everything that armed them, but
-  /// the OS still holds the ones already scheduled on an upgrading phone. Do not
-  /// reuse these ids for anything new.
+  /// Slot band [idWaterBase .. idWaterBase + maxWaterSlots) — #28 shipped the
+  /// water reminder as up to 24 daily-repeating OS notifications here. It is a
+  /// strap buzz now (WaterBuzzer), so nothing arms these; the cancel loop in
+  /// [NotificationCenter.scheduleStandingReminders] tears down whatever that
+  /// build left standing on an upgrading phone. Do not reuse these ids.
   static const int idWaterBase = 2100;
   static const int maxWaterSlots = 24;
 

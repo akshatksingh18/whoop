@@ -439,6 +439,10 @@ class MoreSettingsView extends StatelessWidget {
 // The alarm is deliberately not switchable here: its off switch is cancelling
 // the alarm, and burying a second one in settings is how an alarm silently
 // fails to wake someone.
+//
+// The water reminder is on this screen but not in that count: it's a strap
+// buzz, not a shade entry. It reminds you to LOG a drink — the app measures no
+// hydration and this screen may never imply it does. See MT-14 in IDEAS.md.
 
 class NotificationSettings extends StatefulWidget {
   const NotificationSettings({super.key});
@@ -474,6 +478,9 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     // cancels what it was standing for, rather than taking effect at some
     // later resume.
     await NotificationCenter.instance.scheduleStandingReminders(next);
+    // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
+    // the switch only takes effect at the next launch.
+    if (mounted) await context.read<AppState>().armWaterReminder(next);
   }
 
   /// The one contextual moment left where prompting is honest: the user is
@@ -565,6 +572,16 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             remindersEnabled: !prefs.remindersEnabled))),
+                    // A prompt to log, not a reading. The app measures no
+                    // hydration and this row may never imply it does.
+                    SetRow(LucideIcons.glassWater, C.teal, 'Water reminder',
+                        sub: 'A buzz on the strap through your waking hours, '
+                            'to remind you to log a drink. Nothing is measured '
+                            'either way',
+                        value: prefs.waterEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(
+                            prefs.copyWith(waterEnabled: !prefs.waterEnabled))),
                   ]),
                   settingsGroup(c, 'Quiet hours', [
                     SetRow(LucideIcons.moon, C.indigo, 'Quiet hours',

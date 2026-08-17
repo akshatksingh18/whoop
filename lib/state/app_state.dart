@@ -76,6 +76,7 @@ import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
+import '../notify/water_buzzer.dart';
 import '../sync/background_sync.dart' show checkSyncStaleness;
 import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
@@ -165,6 +166,13 @@ class AppState extends ChangeNotifier {
   /// Relay selected phone-app notifications to the strap as a buzz (Android only).
   /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
   late final NotificationRelay notificationRelay = NotificationRelay(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
+
+  /// Fires a strap haptic at each water-reminder slot (best-effort, only when
+  /// the band is connected). Armed at launch + whenever the toggle changes.
+  late final WaterBuzzer _waterBuzzer = WaterBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
   );
@@ -1200,6 +1208,7 @@ class AppState extends ChangeNotifier {
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
+    _waterBuzzer.dispose();
     // Owned notifiers/observers. notificationRelay in particular holds a
     // WidgetsBindingObserver, a 120 s Timer.periodic and a StreamSubscription —
     // its observer accumulated on the binding across every hot restart.
@@ -1267,6 +1276,18 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugHandleAlarmEvent(int id) =>
       _handleAlarmEvent(id, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+  /// (Re)arm the strap-buzz timer for the water reminder from the current
+  /// notification prefs. Call at launch and whenever the toggle changes (the
+  /// Notifications screen passes [prefs] so we skip a reload). Timers don't
+  /// persist, so launch is not optional.
+  Future<void> armWaterReminder([NotificationPrefs? prefs]) async {
+    final p = prefs ?? await NotificationPrefs.load();
+    _waterBuzzer.configure(
+      enabled: p.waterEnabled,
+      slotMinutes: NotificationCenter.waterSlotMinutes(p),
+    );
+  }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
   /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
@@ -1981,6 +2002,8 @@ class AppState extends ChangeNotifier {
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
     // OFF the critical path so it can never block/break boot. Guarded internally.
     unawaited(_initCompanion());
+    // arm the water-reminder strap buzz (timers don't persist)
+    unawaited(armWaterReminder());
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications

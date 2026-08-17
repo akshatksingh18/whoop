@@ -22,6 +22,20 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Band-gesture "ring my phone" haptic. Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The phone's OWN step counter (Sensor.TYPE_STEP_COUNTER), which is the app's
+         only 24/7 step source — a wrist cannot resolve gait at 1 Hz. RUNTIME
+         (dangerous) permission on API 29+; below that the sensor reads without it,
+         which is why minSdk 26 still works. This is NOT a Play Console
+         declaration-class permission, only a data-safety disclosure.
+
+         The listener rides EdgeTrackingService's process (see PhoneStepCounter.kt) —
+         Android 9+ withholds sensor events from background processes and a foreground
+         service of ANY type lifts that. We deliberately do NOT claim the API 34
+         "health" FGS type for it: the service's purpose is still the band connection,
+         and each declared type costs a separate Play declaration plus a demo video.
+         If Play ever pushes back, add FOREGROUND_SERVICE_HEALTH here and OR the type
+         into EdgeTrackingService.onStartCommand — no code shape changes. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- Reboot survival: restart EdgeTrackingService + headless auto-connect after device reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- CompanionDeviceManager: association makes us a "companion app" (exempt from the

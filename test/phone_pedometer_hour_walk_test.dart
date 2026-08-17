@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/phone_pedometer.dart';
@@ -147,6 +148,82 @@ void main() {
 
     // 3. The banked day survives.
     expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+  });
+
+  test('an UNCOVERED hour is skipped, and the covered ones still bank',
+      () async {
+    final day = yesterday();
+    final dayId = _label(day);
+
+    // The sensor holds no record of the first six hours (fresh install, or the
+    // stretch lost across an Android reboot). That is neither a failure nor a
+    // zero: those hours bank nothing and the walk carries on.
+    var h = 0;
+    final ped = PhonePedometer(stepReader: (from, to) async =>
+        h++ < 6 ? PhonePedometer.intervalNotCovered : 50);
+
+    final total = await ped.syncDay(day);
+    expect(total, isNotNull);
+    expect(total, greaterThan(0), reason: 'the covered hours must still count');
+    expect(await LocalDb.liveStepsForDay(dayId), total);
+  });
+
+  test('a day with NO covered hour is unknown, not zero', () async {
+    final day = yesterday();
+    final dayId = _label(day);
+    await LocalDb.addLiveCoverage(
+      day.millisecondsSinceEpoch ~/ 1000,
+      day.millisecondsSinceEpoch ~/ 1000 + 600,
+      321,
+      dayId,
+    );
+
+    final ped = PhonePedometer(
+        stepReader: (from, to) async => PhonePedometer.intervalNotCovered);
+    expect(await ped.syncDay(day), isNull,
+        reason: 'nothing was read, so nothing is known — it must not count '
+            'toward daysRead either');
+    // And it must not have erased the band's day.
+    expect(await LocalDb.liveStepsForDay(dayId), 321);
+  });
+
+  // THE REGRESSION THIS EXISTS FOR: a permission the app never requests is
+  // invisible in iOS Settings, and CoreMotion has no request API at all — the
+  // native side raises the prompt by issuing a query. So if `requestPermission`
+  // stops reaching the channel, the feature is dead with nothing for the user
+  // to fix, and it looks exactly like a platform problem. We just shipped that
+  // bug once for Location; this pins the arming path.
+  test('arming actually reaches the platform', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(phoneStepsChannel, (call) async {
+      calls.add(call.method);
+      return true;
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(phoneStepsChannel, null);
+    });
+
+    expect(await PhonePedometer().requestPermission(), isTrue);
+    expect(calls, ['requestPermission']);
+  });
+
+  test('no platform implementation reads as unknown, never as zero steps',
+      () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(phoneStepsChannel, (call) async {
+      throw PlatformException(code: 'nope');
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(phoneStepsChannel, null);
+    });
+
+    final ped = PhonePedometer();
+    expect(await ped.requestPermission(), isFalse);
+    expect(await ped.hasPermission(), isFalse);
+    expect(await ped.syncDay(yesterday()), isNull);
   });
 
   test('the routine sync window is much smaller than the backfill window', () {

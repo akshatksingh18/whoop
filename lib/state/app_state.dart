@@ -33,8 +33,9 @@ import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hr_sensor.dart';
 import '../ble/live_cadence.dart';
+import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
-    show AlarmConfirmation, AlarmEffect, LiveStepDayWindow, SyncActivityWindow;
+    show AlarmConfirmation, AlarmEffect, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -569,6 +570,10 @@ class AppState extends ChangeNotifier {
     phoneStepsLastTotal = null;
     phoneStepsToday = 0;
     _phoneStepsDay = null;
+    // Stop the sensor BEFORE dropping the rows: on Android the counter keeps
+    // accumulating into its own on-device store, so clearing `live_coverage`
+    // alone would leave this app counting a user who just asked it to stop.
+    await _phonePedometer.stop();
     try {
       await LocalDb.clearPhoneCoverage();
     } catch (e) {
@@ -2338,58 +2343,76 @@ class AppState extends ChangeNotifier {
   // has enough gait-like minutes for the median already.
   final List<int> _workoutMinuteSteps = [];
   int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
-  int _liveSamples = 0; // total 100 Hz samples streamed this session
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
   int _lastWalkMs = 0; // last time steps were accumulated
   int _lastProneMs = 0; // last time the wrist was in a flat/typing posture
   int _lastLiveUiNotifyMs = 0;
-  // DEVICE-time window (epoch sec) the live pedometer covered this session — so
-  // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
-  //
-  // The band's record timestamp is the ANCHOR only: it keeps the window in the
+  // The band's record timestamp on the FIRST live frame of this session — the
+  // ANCHOR, and only the anchor. It keeps every span this session banks in the
   // same base as `decoded_onehz.rec_ts` (what `coverageWindowsOverlapping`
-  // compares against). It is NOT the duration — in practice every live frame of
-  // a session repeats the same `recTs`, so start==end and the window covered
-  // nothing. The duration comes from what we actually ingested (100 Hz sample
-  // count + the phone-clock hull of the ingest times), combined by
-  // [deriveLiveCoverageWindow]. See that function for the base reconciliation.
+  // compares against). It is never a duration: in practice every live frame of
+  // a session repeats the same `recTs`, so its own extent is 0. Duration comes
+  // from what we ingested — see [_bandTsAt].
+  //
+  // The session-END record timestamp used to be tracked alongside it, for the
+  // hull [deriveLiveCoverageWindow] built. Nothing reads a hull any more.
   int? _liveCoverStartTs;
-  int _liveCoverEndTs = 0;
   int? _liveFirstIngestMs; // phone clock at the first ingested live frame
   int? _liveLastIngestMs; // …and at the last one
   void _trackCoverage(int? recTs) {
     if (recTs == null || recTs <= 0) return;
     _liveCoverStartTs ??= recTs;
-    if (recTs > _liveCoverEndTs) _liveCoverEndTs = recTs;
   }
 
-  /// The window this session covered, or null when there is nothing defensible
-  /// to record. Pure decision lives in [deriveLiveCoverageWindow]; this only
-  /// feeds it the observations.
-  LiveCoverageWindow? _liveCoverageWindow(int steps) => deriveLiveCoverageWindow(
-        steps: steps,
-        samples100Hz: _liveSamples,
-        bandStartTs: _liveCoverStartTs,
-        bandEndTs: _liveCoverEndTs,
-        firstIngestMs: _liveFirstIngestMs,
-        lastIngestMs: _liveLastIngestMs,
-      );
+  /// The spans of THIS session in which the pedometer actually counted — what
+  /// gets banked, one `live_coverage` row each. See [GaitRuns]: a session hull
+  /// says "a live link was up", which is not a step measurement and is not
+  /// something a source ladder can rank.
+  final GaitRuns _gaitRuns = GaitRuns();
+
+  /// Map a phone-clock instant onto the BAND's record-time base, the base
+  /// `live_coverage` rows live in.
+  ///
+  /// Same rule [deriveLiveCoverageWindow] uses: the band's first record
+  /// timestamp is the ANCHOR (it places the session on the band's timeline),
+  /// the phone clock supplies the DURATION (the band repeats one record
+  /// timestamp for a whole live session, so it cannot). Null before anything
+  /// has been ingested — there is no session to place.
+  int? _bandTsAt(int nowMs) {
+    final first = _liveFirstIngestMs;
+    if (first == null) return null;
+    final band = _liveCoverStartTs;
+    final anchor = (band != null && band > 0) ? band : first ~/ 1000;
+    return anchor + (nowMs - first) ~/ 1000;
+  }
+
+  /// Record one completed pedometer chunk — [samples] of signal that finished
+  /// arriving at [endMs] (phone clock) and produced [rawSteps].
+  void _addGaitChunk(int endMs, int samples, int rawSteps) {
+    if (rawSteps <= 0 || samples <= 0) return;
+    final endTs = _bandTsAt(endMs);
+    final floorTs = _bandTsAt(_liveFirstIngestMs ?? endMs);
+    if (endTs == null || floorTs == null) return;
+    _gaitRuns.addChunk(
+      endTs: endTs,
+      // The chunk covers the time it SAMPLED, not the wall time it took to
+      // dribble in over a flaky link — see live_step_runs.dart.
+      seconds: (samples / kLiveSampleRateHz).round(),
+      rawSteps: rawSteps,
+      floorTs: floorTs,
+    );
+  }
 
   /// Steps counted on the live 100 Hz stream this connected session (real,
   /// gain-applied). Used for cadence calibration. 0 when not streaming.
   int get _liveRaw =>
       _committedRaw + (_magMin.isEmpty ? 0 : ana.pedometer(_magMin));
 
-  /// The gain-applied step count for THIS connected session. Everything that
-  /// PERSISTS reads this.
-  ///
-  /// There is no display counterpart any more. `liveSteps` — the day-windowed,
-  /// grace-cushioned variant, plus the [LiveStepDayWindow] that rebased it at
-  /// midnight — was maintained on the sample path and drawn by nothing: the
-  /// Today tile reads the DERIVED steps scalar. It went with the cushion it
-  /// existed for. `live_coverage` is still the honest record of the session.
-  int get _rawSessionSteps => (_liveRaw * ana.StepParams.gain).round();
+  // The session-total getter that used to feed persistence is gone with the
+  // session-hull row it wrote. What persists is per-run now ([_bankGaitRuns]),
+  // and the gain is applied there; a second, session-level application was
+  // exactly the silent x1.23 this path should not be able to express.
 
   // Snapshot of the RAW session total at the moment a manual workout started, so
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
@@ -2448,11 +2471,10 @@ class AppState extends ChangeNotifier {
       _magMin.add(m);
       magSum += m;
     }
-    _liveSamples += mags.length;
     final e = (magSum / mags.length) - 1.0;
     // Phone-clock extent of the ingested stream — the only observation that
     // reports how long this session actually ran (the band's record timestamp
-    // typically repeats). Used as a DURATION only; see [_liveCoverageWindow].
+    // typically repeats). Used as a DURATION only; see [_bandTsAt].
     _liveFirstIngestMs ??= nowMs;
     if (_liveLastIngestMs == null || nowMs > _liveLastIngestMs!) {
       _liveLastIngestMs = nowMs;
@@ -2485,6 +2507,10 @@ class AppState extends ChangeNotifier {
       final minuteSteps = ana.pedometer(minute);
       _committedRaw += minuteSteps;
       if (_committedRaw > before) _lastWalkMs = nowMs;
+      // A counting minute is a COVERED minute; a silent one is not, and does
+      // not extend the run in progress. This is what keeps a 20-minute walk
+      // inside a ten-hour connected session from claiming ten hours.
+      _addGaitChunk(nowMs, _minuteSamples, minuteSteps);
       // A completed chunk is exactly 60 s, so its count is a steps-per-minute
       // reading — session cadence is a summary of these, not a second decode.
       // Workout-scoped: gen4's R10 is live-only, so there is no 24/7 cadence.
@@ -2519,37 +2545,61 @@ class AppState extends ChangeNotifier {
     }
     _magMin.clear();
     _committedRaw = 0;
-    _liveSamples = 0;
     _lastLiveUiNotifyMs = 0;
     _imuStreamSeen = false;
     _liveCoverStartTs = null;
-    _liveCoverEndTs = 0;
     _liveFirstIngestMs = null;
     _liveLastIngestMs = null;
+    _gaitRuns.clear();
   }
 
-  /// End-of-session: bank the REAL 100 Hz step window into `live_coverage`.
+  /// End-of-session: bank the REAL 100 Hz step spans into `live_coverage`.
+  ///
+  /// ONE ROW PER GAIT RUN, not one per session. The single row this replaces
+  /// spanned the whole connected hull, so it claimed the still hours between
+  /// two walks as measured coverage — see live_step_runs.dart for the
+  /// measurement off the owner's own export that killed it.
   ///
   /// No cadence calibration any more — its only consumer was the deleted 1 Hz
   /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
-    final steps = _rawSessionSteps; // gain-applied
-    // Derive the coverage window BEFORE resetting (it reads session counters).
-    final window = _liveCoverageWindow(steps);
-    _resetLivePedometer();
-    // Record the REAL 100 Hz step window (device time). This is BAND-sourced
-    // coverage; the derivation reads it via `liveStepsForDay`, which prefers a
-    // phone count for the day when one exists and never sums the two.
-    if (window != null) {
-      final day = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
-      );
-      await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
+    // The still-filling partial minute is real signal that was about to be
+    // discarded: count it over the time it actually sampled.
+    if (_magMin.isNotEmpty && _liveLastIngestMs != null) {
+      _addGaitChunk(_liveLastIngestMs!, _magMin.length, ana.pedometer(_magMin));
     }
+    final runs = _gaitRuns.runs;
+    _resetLivePedometer();
+    await _bankGaitRuns(runs);
     // The session ended cleanly and is now durably recorded — the checkpoint
     // that would otherwise let a killed-process session recover is no longer
     // needed.
     await _clearLiveSessionCheckpoint();
+  }
+
+  /// Persist [runs] as `live_coverage` rows under the STRAP source.
+  ///
+  /// `ana.StepParams.gain` is applied HERE and nowhere else on the persistence
+  /// path — the runs carry the raw count exactly as `pedometer()` returns it,
+  /// and this is the daily-sum layer `calcSteps` documents as the gain's home.
+  /// Applying it at both ends shipped a silent x1.23.
+  Future<void> _bankGaitRuns(List<LiveStepRun> runs) async {
+    for (final run in runs) {
+      final steps = (run.rawSteps * ana.StepParams.gain).round();
+      if (steps <= 0) continue;
+      // Per RUN, so a walk either side of midnight lands on the right days
+      // instead of both going to whichever day the session started on.
+      final day = dayLabelOf(
+        DateTime.fromMillisecondsSinceEpoch(run.startTs * 1000),
+      );
+      await LocalDb.addLiveCoverage(
+        run.startTs,
+        run.endTs,
+        steps,
+        day,
+        source: kStepSourceStrap,
+      );
+    }
   }
 
   // Whatever accrued via _committedRaw/_magMin between minute-commits is
@@ -2562,18 +2612,20 @@ class AppState extends ChangeNotifier {
   static const String _kLiveSessionCheckpoint = 'live_session_checkpoint';
 
   Future<void> _checkpointLiveSession() async {
-    if (_committedRaw <= 0 || _liveCoverStartTs == null) return;
+    if (_gaitRuns.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _kLiveSessionCheckpoint,
+        // Runs are stored gain-applied, i.e. exactly the numbers
+        // [_bankGaitRuns] would have written — recovery banks them verbatim, so
+        // this path has one gain application too. Rewritten whole each minute
+        // (the open run keeps growing), never appended to.
         jsonEncode({
-          'steps': (_committedRaw * ana.StepParams.gain).round(),
-          'samples': _liveSamples,
-          'cover_start_ts': _liveCoverStartTs,
-          'cover_end_ts': _liveCoverEndTs,
-          'first_ingest_ms': _liveFirstIngestMs,
-          'last_ingest_ms': _liveLastIngestMs,
+          'runs': [
+            for (final r in _gaitRuns.runs)
+              [r.startTs, r.endTs, (r.rawSteps * ana.StepParams.gain).round()],
+          ],
         }),
       );
     } catch (e) {
@@ -2622,35 +2674,64 @@ class AppState extends ChangeNotifier {
       Future<void> drop() => prefs.remove(_kLiveSessionCheckpoint);
       final m = jsonDecode(raw);
       if (m is! Map) return await drop();
-      final steps = (m['steps'] as num?)?.toInt() ?? 0;
-      final startTs = (m['cover_start_ts'] as num?)?.toInt();
-      final endTs = (m['cover_end_ts'] as num?)?.toInt();
-      if (steps <= 0 || startTs == null || endTs == null || endTs <= startTs) {
-        return await drop();
+      // `runs` is the current shape. A checkpoint written by the PREVIOUS build
+      // carries a single session-hull window instead; it is recovered as one
+      // run, through the derivation that wrote it, so an in-flight walk is not
+      // lost to the upgrade.
+      final spans = <List<int>>[];
+      final storedRuns = m['runs'];
+      if (storedRuns is List) {
+        for (final r in storedRuns) {
+          if (r is! List || r.length < 3) continue;
+          final s = (r[0] as num).toInt();
+          final e = (r[1] as num).toInt();
+          final n = (r[2] as num).toInt();
+          if (n > 0 && e > s) spans.add([s, e, n]);
+        }
+      } else {
+        final steps = (m['steps'] as num?)?.toInt() ?? 0;
+        final startTs = (m['cover_start_ts'] as num?)?.toInt();
+        final endTs = (m['cover_end_ts'] as num?)?.toInt();
+        if (steps > 0 && startTs != null && endTs != null && endTs > startTs) {
+          final window = deriveLiveCoverageWindow(
+            steps: steps,
+            samples100Hz: (m['samples'] as num?)?.toInt() ?? 0,
+            bandStartTs: startTs,
+            bandEndTs: endTs,
+            firstIngestMs: (m['first_ingest_ms'] as num?)?.toInt(),
+            lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
+          );
+          if (window != null) spans.add([window.startTs, window.endTs, steps]);
+        }
       }
-      final window = deriveLiveCoverageWindow(
-        steps: steps,
-        samples100Hz: (m['samples'] as num?)?.toInt() ?? 0,
-        bandStartTs: startTs,
-        bandEndTs: endTs,
-        firstIngestMs: (m['first_ingest_ms'] as num?)?.toInt(),
-        lastIngestMs: (m['last_ingest_ms'] as num?)?.toInt(),
-      );
-      if (window == null) return await drop();
-      // The clean-shutdown path writes coverage BEFORE clearing the checkpoint,
-      // so a kill in that gap leaves a checkpoint whose bout is already banked —
-      // and `live_coverage` has no uniqueness on the window, so replaying it
-      // would silently inflate the day. Skip anything already recorded.
-      if (await LocalDb.hasLiveCoverageWindow(window.startTs, window.endTs)) {
-        _log('[steps] orphan checkpoint already banked — not re-adding');
-        return await drop();
+      if (spans.isEmpty) return await drop();
+      var recovered = 0;
+      for (final s in spans) {
+        // The clean-shutdown path writes coverage BEFORE clearing the
+        // checkpoint, so a kill in that gap leaves a checkpoint whose runs are
+        // already banked — and `live_coverage` has no uniqueness on the window,
+        // so replaying it would silently inflate the day. Skip what is already
+        // recorded.
+        if (await LocalDb.hasLiveCoverageWindow(s[0], s[1])) continue;
+        final day = dayLabelOf(
+          DateTime.fromMillisecondsSinceEpoch(s[0] * 1000),
+        );
+        await LocalDb.addLiveCoverage(
+          s[0],
+          s[1],
+          s[2],
+          day,
+          source: kStepSourceStrap,
+        );
+        recovered += s[2];
       }
-      final day = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch(window.startTs * 1000),
-      );
-      await LocalDb.addLiveCoverage(window.startTs, window.endTs, steps, day);
       await drop();
-      _log('[steps] recovered $steps orphaned step(s) from a killed session');
+      if (recovered == 0) {
+        _log('[steps] orphan checkpoint already banked — not re-adding');
+      } else {
+        _log('[steps] recovered $recovered orphaned step(s) '
+            'from a killed session');
+      }
     } catch (e) {
       _log('[steps] orphan recovery skipped: $e');
     }

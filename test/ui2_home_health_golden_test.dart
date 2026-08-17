@@ -678,6 +678,24 @@ Map<String, Widget> _cases() => {
     'steps',
     data: InvestigateData(series: []),
   ),
+  // THE LADDER, DISCLOSED. A day the strap streamed part of and the phone
+  // carried the rest of — the split the Steps card names in one word. The
+  // strap's on-chip counter read 622 and did not win; it is still shown,
+  // because "what the wrist thought" is a fact this screen owes the user.
+  'investigate_steps': const Investigate(
+    'steps',
+    data: InvestigateData(
+      day: '2026-03-15',
+      algoVersion: 71,
+      coveragePct: 86,
+      steps: {
+        'value': 5200,
+        'band_measured': 622,
+        'by_source': {'strap': 4000, 'phone': 1200},
+      },
+      series: [],
+    ),
+  ),
   // CycleTab renders a Column so it drops into Wellness's own ListView;
   // the golden supplies the scroller the tab does not own.
   'cycle': _scroll(CycleTab(data: _cycle)),

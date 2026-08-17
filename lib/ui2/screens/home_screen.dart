@@ -100,6 +100,28 @@ DbRebuild? dbRebuildOf(BuildContext c) {
 /// an absent value, so this must never be replaced by `map['value'] as num`.
 Metric metricOf(Object? raw) => Metric.parse(raw);
 
+/// WHICH SENSOR counted the steps, in the two words a card has room for — or
+/// null when nothing counted (and on days derived before the ladder existed,
+/// whose envelopes name no sensor).
+///
+/// Read off `inputs_used`, which names the sensor rather than the table the
+/// count was stored in. The strap's 100 Hz pedometer and its on-chip counter
+/// are BOTH "Strap" here: they are genuinely different measurements, but that
+/// difference is a density-3 fact and it is spelled out on Investigate. What
+/// this must never blur is strap versus phone — a card that lets the phone's
+/// count read as the wrist's, or the other way round, defeats the whole point
+/// of resolving the day per window.
+String? stepSensorLabel(Metric m) {
+  final used = m.inputsUsed;
+  final strap = used.contains('band_pedometer_100hz') ||
+      used.contains('band_step_counter');
+  final phone = used.contains('phone_pedometer');
+  if (strap && phone) return 'Strap + phone';
+  if (strap) return 'Strap';
+  if (phone) return 'Phone';
+  return null;
+}
+
 /// The inner object of an envelope whose `value` is a MAP, not a number —
 /// every cross-day metric is one of these (`regularity.value.sri`,
 /// `sleep_coach.need.value.need_sec`). `Metric.parse` reads those as absent,
@@ -941,11 +963,17 @@ class _HomeScreenState extends State<HomeScreen> {
       C.green,
       'Steps',
       d.steps.value == null ? 'None' : thousands(d.steps.value),
+      // The sensor rides the line that is already there rather than adding a
+      // row: the day is resolved per window now, so "8,412" can be the strap's
+      // count, the phone's, or both, and the card has to say which. The split
+      // behind a mixed day is on Investigate, one tap down.
       sub: d.steps.value == null
           ? 'NOT RECORDED'
-          : d.stepGoal <= 0
-              ? ''
-              : '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
+          : [
+              if (d.stepGoal > 0)
+                '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
+              ?stepSensorLabel(d.steps),
+            ].join(' · '),
       onTap: () => go(c, const MetricDetail('steps')),
     ));
     add(

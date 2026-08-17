@@ -62,6 +62,10 @@ object NativeChannels {
 
         HealthConnectSleepWriter.register(engine, app)
         HealthConnectHeartRateWriter.register(engine, app)
+        // The phone's own step counter. Registered here (from EdgeApplication.onCreate)
+        // so the channel exists headless; the sensor listener itself arms on the first
+        // Dart call, which only happens when the user has phone steps switched on.
+        PhoneStepCounter.register(engine, app)
 
         MethodChannel(engine.dartExecutor.binaryMessenger, EDGE_TRACKING_CHANNEL)
             .setMethodCallHandler { call, result ->

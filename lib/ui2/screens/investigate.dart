@@ -47,6 +47,10 @@ class InvestigateData {
   /// nowhere else. Empty on every key but `sleep`.
   final Map<String, dynamic> night;
 
+  /// The day's `steps` envelope, for the per-sensor split. Empty on every key
+  /// but `steps`, because it costs a bundle decode.
+  final Map<String, dynamic> steps;
+
   /// RESP-05 — the day's all-day lines (`getDayTimeline`). Only `resp` is read
   /// from it, and only outside the sleep window. Empty on every key but
   /// `resp_rate`, because it is a second bundle decode.
@@ -74,6 +78,7 @@ class InvestigateData {
     this.cvhr,
     this.cvhrDist,
     this.night = const {},
+    this.steps = const {},
     this.timeline = const {},
     this.dcPoints = const [],
     this.rhythmPoints = const [],
@@ -110,11 +115,20 @@ class InvestigateData {
     // An imported day says so. `imported`/`source` are written by the importers
     // onto the bundle itself; a day derived here has neither.
     String? importedFrom;
+    var steps = const <String, dynamic>{};
     final payload = row?['payload_json'];
-    if (payload is String && payload.contains('"imported"')) {
+    // The `contains` guard is what keeps every other key off the decode; the
+    // steps split needs the bundle, so that key pays for it deliberately.
+    if (payload is String &&
+        (key == 'steps' || payload.contains('"imported"'))) {
       final b = jsonDecode(payload);
-      if (b is Map && b['imported'] == true) {
-        importedFrom = b['source']?.toString() ?? 'an import';
+      if (b is Map) {
+        if (b['imported'] == true) {
+          importedFrom = b['source']?.toString() ?? 'an import';
+        }
+        if (b['steps'] is Map) {
+          steps = (b['steps'] as Map).cast<String, dynamic>();
+        }
       }
     }
 
@@ -127,6 +141,7 @@ class InvestigateData {
       cvhr: lungs['cvhr'],
       cvhrDist: key == 'resp_rate' ? await _cvhrHistory(repo, days) : null,
       night: key == 'sleep' ? await repo.getDaySleepV2(day) : const {},
+      steps: steps,
       timeline: key == 'resp_rate' ? await repo.getDayTimeline(day) : const {},
       dcPoints: dc,
       rhythmPoints: rhythm,
@@ -227,6 +242,7 @@ class _InvestigateState extends State<Investigate> {
         if (widget.metricKey == 'resp_rate') ..._restingBreathPanels(d),
         if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
         if (widget.metricKey == 'sleep') ..._stagePanels(d),
+        if (widget.metricKey == 'steps') ..._stepSourcePanels(d),
         const SizedBox(height: S.x3),
         MonoTable('Provenance', [
           ('Day', d.day ?? '—'),
@@ -247,6 +263,34 @@ class _InvestigateState extends State<Investigate> {
         _method(c, spec),
       ],
     ]);
+  }
+
+  // ── STEPS: which sensor counted which part of the day ──
+  //
+  // The card upstairs names the dominant sensor in one word. This is the split
+  // behind it, and it is the only place the strap's two counters are told
+  // apart: the 100 Hz pedometer runs our own algorithm on raw wrist accel and
+  // only exists while the strap is streaming, while the on-chip counter is
+  // vendor hardware reporting a whole-day cumulative total with no window
+  // behind it — which is why it is the last resort rather than the first.
+  //
+  // The chip's own reading is shown whether or not it was used. A gen5 day the
+  // phone won still gets to say what the wrist thought, and a gen4 day drops
+  // the row entirely because that hardware cannot count steps at all.
+  List<Widget> _stepSourcePanels(InvestigateData d) {
+    final by = d.steps['by_source'];
+    final split = by is Map ? by : const {};
+    String n(Object? v) => v is num ? thousands(v) : '—';
+    return [
+      MonoTable('Which sensor counted', [
+        ('strap · 100 Hz pedometer', n(split['strap'])),
+        ('strap · on-chip counter', n(split['strap_counter'])),
+        ('phone · pedometer', n(split['phone'])),
+        ('day total', n(d.steps['value'])),
+        ('strap chip reported', n(d.steps['band_measured'])),
+      ]),
+      const SizedBox(height: S.x3),
+    ];
   }
 
   // ── HRV: time, frequency, non-linear ──

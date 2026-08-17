@@ -3179,7 +3179,10 @@ class DerivationEngine {
     try {
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-      final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
+      // Resolved PER WINDOW, not per day: each span of the day goes to the best
+      // source that actually covered it. `.strap` is carried alongside the
+      // total so the bundle can name the sensor that counted.
+      final liveSteps = await LocalDb.resolvedStepsForDay(day.date);
       final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
       // Off-wrist / charging spans over the NAP window (which runs past this
@@ -3248,7 +3251,8 @@ class DerivationEngine {
         // sleep session was detected — exactly the gate readiness uses.
         rhr: (scMap?['rhr_nocturnal'] as num?)?.toDouble(),
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
-        liveStepsReal: liveStepsReal,
+        liveStepsReal: liveSteps.total,
+        liveStepsFromStrap: liveSteps.strap,
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
         savedSessions: savedSessions,
@@ -4638,6 +4642,7 @@ class DerivationEngine {
     double? restingHr,
     double? dynFloorG,
     int liveStepsReal = 0,
+    int liveStepsFromStrap = 0,
     int dynHistoryDays = 0,
   }) {
     final wake = _buildWakeDayFeatures(
@@ -4655,6 +4660,7 @@ class DerivationEngine {
       daySub,
       profile,
       liveStepsReal,
+      liveStepsFromStrap,
       dynFloorG,
       dynHistoryDays,
     );
@@ -4874,18 +4880,30 @@ class DerivationEngine {
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     int liveStepsReal, {
+    int liveStepsFromStrap = 0,
     int? bandSteps,
   }) {
-    // Band counter WINS when the strap reported one: it is wrist-side gait
-    // hardware, where `liveStepsReal` is whatever `live_coverage` banked (phone
-    // pedometer, or a live 100 Hz session that only covers the minutes it ran).
+    // THE SOURCE LADDER, and where each rung is actually decided.
     //
-    // ponytail: straight precedence, no source fusion. A day the strap was worn
-    // for four hours and the phone carried for twelve will report the strap's
-    // smaller number. Both numbers are disclosed below (`band_measured` /
-    // `real_measured`), so nothing is hidden; add coverage-weighted selection
-    // only if that day shape turns out to be common.
-    final useBand = bandSteps != null && bandSteps > 0;
+    // Rungs 1 (band 100 Hz) and 3 (phone) are WINDOWED and were already settled
+    // before this ran: `LocalDb.resolvedStepsForDay` walked the day's spans and
+    // gave each one to the best source that covered it, so `liveStepsReal` is
+    // already a sum of resolved spans and `liveStepsFromStrap` is the band's
+    // share of it. Nothing here re-decides that.
+    //
+    // Rung 2, the gen5 ON-CHIP COUNTER, cannot join that sum honestly. It is a
+    // cumulative u16 with no midnight reset and no timestamps of its own
+    // (`hardwareStepsFromCounter` differences it across the day's records): a
+    // whole-day total with no window behind it. Slicing it into spans would
+    // mean inventing an extent for it, and adding it to windowed spans would
+    // double-count every walk the other two already counted. So it stays a
+    // WHOLE-DAY FALLBACK — used only when no span source covered the day at
+    // all. That inversion is deliberate: whole-day precedence for this counter
+    // is exactly the bug being fixed (622 steps published over the phone's
+    // 18,856 on a day the strap synced for part of).
+    final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
+    final phone = liveStepsReal - strap;
+    final useBand = liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
     final steps = useBand ? bandSteps : liveStepsReal;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
@@ -4899,9 +4917,27 @@ class DerivationEngine {
       // What the strap's own pedometer counted, independent of which source
       // won. Null (never 0) when this generation has no counter at all.
       'band_measured': bandSteps,
-      'source': haveRealSteps
-          ? (useBand ? 'band_pedometer' : 'pedometer_100hz_or_phone')
-          : null,
+      // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
+      // the phone's count came off the wrist or the other way round. Only the
+      // keys that contributed are present — a zero here would read as "that
+      // sensor was there and counted nothing", which is a different claim.
+      'by_source': haveRealSteps
+          ? <String, int>{
+              if (useBand)
+                'strap_counter': steps
+              else ...{
+                if (strap > 0) 'strap': strap,
+                if (phone > 0) 'phone': phone,
+              },
+            }
+          : const <String, int>{},
+      'source': !haveRealSteps
+          ? null
+          : useBand
+              ? 'strap_counter'
+              : (strap > 0 && phone > 0)
+                  ? 'mixed'
+                  : (strap > 0 ? 'strap' : 'phone'),
       'confidence': haveRealSteps ? 0.9 : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
@@ -4913,18 +4949,32 @@ class DerivationEngine {
       // grades and the edge must not widen it from here.
       'tier': haveRealSteps ? 'HIGH' : null,
       // Likewise, nothing was used when nothing was measured.
-      'inputs_used': haveRealSteps
-          ? (useBand
+      // NAMES THE SENSOR, not the table it came out of. `live_coverage_pedometer`
+      // was the storage location and covered both the wrist and the pocket,
+      // which is the one distinction the ladder exists to preserve. The UI
+      // reads these to label the card.
+      'inputs_used': !haveRealSteps
+          ? const <String>[]
+          : useBand
               ? const ['band_step_counter']
-              : const ['live_coverage_pedometer'])
-          : const <String>[],
+              : <String>[
+                  if (strap > 0) 'band_pedometer_100hz',
+                  if (phone > 0) 'phone_pedometer',
+                ],
       'note': haveRealSteps
           ? (useBand
               ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
                   'counter; wrapped and reset boundaries contribute nothing '
                   'rather than a guess'
-              : 'real pedometer count over measured windows only; time outside '
-                  'those windows is not counted rather than estimated')
+              : (strap > 0 && phone > 0)
+                  ? 'counted over measured windows only, each window by the '
+                      'better sensor that was actually recording it — the '
+                      'strap while it streamed, your phone the rest of the '
+                      'time. Overlaps are counted once, and time no sensor '
+                      'covered is not counted rather than estimated'
+                  : 'real pedometer count over measured windows only; time '
+                      'outside those windows is not counted rather than '
+                      'estimated')
           : 'no step count: nothing that can resolve gait measured this day. '
               'A 1 Hz wrist stream cannot count steps, so no number is shown '
               'instead of an invented one',
@@ -4950,6 +5000,7 @@ class DerivationEngine {
     Substrate daySub,
     Profile profile,
     int liveStepsReal,
+    int liveStepsFromStrap,
     double? dynFloorG,
     int dynHistoryDays,
   ) {
@@ -4970,6 +5021,7 @@ class DerivationEngine {
         bundle,
         scMap,
         liveStepsReal,
+        liveStepsFromStrap: liveStepsFromStrap,
         bandSteps: hardwareStepsFromCounter(daySub),
       );
 
@@ -6379,6 +6431,7 @@ class DerivationEngine {
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
+      liveStepsFromStrap: inp.liveStepsFromStrap,
       dynHistoryDays: inp.dynHistoryDays,
     );
 
@@ -7060,6 +7113,12 @@ class _DayBlocksInput {
   final int? maxHrUsed;
   final int liveStepsReal;
 
+  /// How much of [liveStepsReal] the BAND's own 100 Hz pedometer was credited
+  /// with after the per-window resolution; the rest is the phone's. Carried so
+  /// the bundle can say which sensor counted without re-reading the DB from the
+  /// isolate, which has no handle.
+  final int liveStepsFromStrap;
+
   /// PERSONAL ambulatory floor (g, dynAmp units) from trailing days, or null
   /// when there isn't enough history yet — in which case the 1 Hz estimator
   /// abstains rather than falling back to a constant. Computed on the main
@@ -7110,6 +7169,7 @@ class _DayBlocksInput {
     required this.rhr,
     required this.maxHrUsed,
     required this.liveStepsReal,
+    this.liveStepsFromStrap = 0,
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,

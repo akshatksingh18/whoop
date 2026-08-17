@@ -150,7 +150,10 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.footprints,
     method: 'Counted, never modelled. A step count comes from a gait-capable '
         'counter: the band\'s 100 Hz pedometer while it streams, or your '
-        'phone\'s. There is no 1 Hz estimate — walking cadence sits above what '
+        'phone\'s. Each stretch of the day is counted by whichever of the two '
+        'was actually recording it, and a stretch both covered is counted '
+        'once, so a session never takes the day from the sensor that carried '
+        'the rest of it. There is no 1 Hz estimate — walking cadence sits above what '
         'one sample a second can resolve, so a day with no counter behind it '
         'reports no steps rather than a guess.',
     citation: 'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',

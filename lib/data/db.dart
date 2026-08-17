@@ -1572,34 +1572,44 @@ class LocalDb {
     );
   }
 
-  /// Real pedometer steps attributed to [day], from ONE source.
+  /// [day]'s real pedometer steps, resolved PER WINDOW and split by sensor.
   ///
-  /// Phone and band counts are never added together: both count the same walk,
-  /// one from the pocket and one from the wrist, so summing them roughly
-  /// doubles a day. When the phone has any data for the day it wins outright —
-  /// a pocket/waist pedometer observes trunk motion (real gait), whereas a
-  /// wrist one is documented emitting 22-27 false steps/min during dishes,
-  /// reaching and driving while missing slow walking (O'Connell 2017,
-  /// doi:10.1371/journal.pone.0169616). Band rows are the fallback.
-  static Future<int> liveStepsForDay(String day) async {
+  /// Phone and band counts are never blindly added: both count the same walk,
+  /// one from the pocket and one from the wrist, so summing a day whole doubles
+  /// it. But they are not alternatives either — the strap streams only while a
+  /// session runs, so it can only ever cover workout minutes, and letting
+  /// either source take a whole day it only partly covered is the bug this
+  /// replaces (it reported 622 steps against the phone's 18,856 on a real
+  /// export). Each SPAN goes to the best source that actually covered it, and
+  /// the spans sum. [resolveDaySteps] owns that decision, including why a wide
+  /// band span with no gait in it does NOT outrank the phone (a wrist counter
+  /// is documented emitting 22-27 false steps/min during dishes, reaching and
+  /// driving while missing slow walking — O'Connell 2017,
+  /// doi:10.1371/journal.pone.0169616).
+  static Future<ResolvedDaySteps> resolvedStepsForDay(String day) async {
     final db = await instance;
-    final r = await db.rawQuery(
-      'SELECT source, COALESCE(SUM(steps),0) s FROM live_coverage '
-      'WHERE day = ? GROUP BY source',
-      [day],
+    final rows = await db.query(
+      'live_coverage',
+      columns: ['start_ts', 'end_ts', 'steps', 'source'],
+      where: 'day = ?',
+      whereArgs: [day],
     );
-    var band = 0;
-    var phone = 0;
-    for (final row in r) {
-      final n = (row['s'] as num?)?.toInt() ?? 0;
-      if (row['source'] == kStepSourcePhone) {
-        phone += n;
-      } else {
-        band += n;
-      }
-    }
-    return phone > 0 ? phone : band;
+    return resolveDaySteps([
+      for (final r in rows)
+        CoverageSpan(
+          startTs: (r['start_ts'] as num).toInt(),
+          endTs: (r['end_ts'] as num).toInt(),
+          steps: (r['steps'] as num).toInt(),
+          // Anything not explicitly 'phone' is band — pre-v27 rows default to
+          // it, and relabelling them would suppress a real band count.
+          fromBand: r['source'] != kStepSourcePhone,
+        ),
+    ]);
   }
+
+  /// [day]'s resolved step TOTAL. See [resolvedStepsForDay] for the split.
+  static Future<int> liveStepsForDay(String day) async =>
+      (await resolvedStepsForDay(day)).total;
 
   /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec), for ONE
   /// [source] (band by default).

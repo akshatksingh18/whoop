@@ -59,6 +59,20 @@ class MainActivity : FlutterFragmentActivity() {
         super.onDestroy()
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        // ACTIVITY_RECOGNITION for the phone step counter — same borrow-the-Activity
+        // pattern as the CDM dialog below. Only OUR request code is consumed here;
+        // everything else still reaches the plugins.
+        if (PhoneStepCounter.handlePermissionResult(applicationContext, requestCode, grantResults)) {
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     @Deprecated("Deprecated in AndroidX; Flutter still routes plugin results through it")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         // CDM association dialog result → CompanionBridge (consumed there).

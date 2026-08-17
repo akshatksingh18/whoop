@@ -361,7 +361,13 @@ class LocalRepositoryImpl extends LocalRepository {
         showOvernight ? _scalar(sleepBundle, 'rhr')?.round() : null,
         'HIGH',
         unit: 'bpm',
-        note: overnightNote ?? kUnknownAbsenceNote,
+        // There IS a night bundle and still no resting HR — the pipeline says
+        // why (no scored sleep, or no clean 30-min window inside one), so read
+        // its reason instead of shipping `unknown_cause` beside a card that
+        // just lost a number it used to show.
+        note: overnightNote ??
+            _needNote(sleepBundle, 'clinical.resting_hr') ??
+            kUnknownAbsenceNote,
       ),
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(
@@ -774,12 +780,66 @@ class LocalRepositoryImpl extends LocalRepository {
       'hrv_freq': _sub(b, 'clinical.hrv_freq'),
       'prsa_dc': _sub(b, 'clinical.prsa_dc'),
       'prsa_ac': _sub(b, 'clinical.prsa_ac'),
+      // The SLEEP-window Poincaré screen — sd1/sd2/flag over the same beats
+      // `getNightBeats` returns, which is what makes it legal to print these
+      // two numbers beside that scatter. (`clinical.irregular_24h`, served by
+      // `getDayHeart`, is the WHOLE-DAY screen and a different set of beats;
+      // the two must never be mixed on one picture.)
+      'irregular': _sub(b, 'clinical.irregular'),
+      // Beats read, beats that survived correction, and the surviving fraction
+      // — the denominator for everything above. Pure re-exposure of a block
+      // already on the bundle in hand.
+      'coverage': _sub(b, 'coverage'),
+      // WHICH STRAP measured it. gen4 and gen5/MG do not read the same RMSSD
+      // on the same person, so a screen that trends this across a band swap
+      // has to be able to say so.
+      'device_family': b['device_family'],
       // CV-06 — per-bin RMSSD across the night, plus `origin_ms`, the wall
       // clock its bin offsets are counted from. The pipeline has emitted this
       // envelope since v70 and nothing read it; pure re-exposure, no new
       // computation and no extra decode (it is on the bundle already in hand).
       'night_shape': b['hrv_night_shape'],
     };
+  }
+
+  /// The night's beats, corrected. See [LocalRepository.getNightBeats].
+  ///
+  /// Reads `window_json` — the small sibling column — rather than decoding the
+  /// payload: the sleep window is the only thing needed to bound the query, and
+  /// this is the one method on this class that goes back to the raw decoded
+  /// store at all. `[onset_ms, offset_ms]` is exactly the span the pipeline
+  /// sliced `sleepRrMs` from, so the count this returns matches the bundle's
+  /// own `coverage.rr_beats` on a day whose raw survives.
+  ///
+  /// THE EXACT DAY, never the Today fallback: a scatter borrowed from another
+  /// night and drawn under this night's date is the worst failure this screen
+  /// has available to it.
+  @override
+  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
+      String date) async {
+    const none = (nn: <double>[], rawBeats: 0, cleanFraction: 0.0);
+    final row = await LocalDb.dayResult(date);
+    final w = row == null ? null : jsonDecode(row['window_json'] as String? ?? '{}');
+    if (w is! Map) return none;
+    final on = w['onset_ms'] as num?, off = w['offset_ms'] as num?;
+    if (on == null || off == null || off <= on) return none;
+    // rr_ts_ms == rec_ts * 1000, so `rec_ts >= ceil(on/1000)` and
+    // `rec_ts <= floor(off/1000)` is the same set of beats as bounding on
+    // rr_ts_ms directly — no beat either side of the window sneaks in.
+    final rows = await LocalDb.decodedRrByRecTsRange(
+      fromRecTs: (on / 1000).ceil(),
+      toRecTs: (off / 1000).floor(),
+    );
+    final ts = <double>[], rr = <double>[];
+    for (final r in rows) {
+      final t = r['rr_ts_ms'] as num?, v = r['rr_ms'] as num?;
+      if (t == null || v == null) continue;
+      ts.add(t.toDouble());
+      rr.add(v.toDouble());
+    }
+    if (rr.length < 2) return none;
+    final c = ana.correctRr(rr, rrTsMs: ts);
+    return (nn: c.nn, rawBeats: rr.length, cleanFraction: c.cleanFraction);
   }
 
   @override

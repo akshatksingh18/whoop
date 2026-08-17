@@ -390,6 +390,31 @@ Tabs build lazily and are kept alive after first visit. **There is no sixth
 tab.** Anything that feels like one is `SubTabs` inside the domain that owns
 it.
 
+### The catalogue — Health › Explore
+
+Progressive disclosure hid the app from its own owner: 25 written `MetricSpec`s
+existed and `MetricDetail` was constructed with **seven** keys anywhere in the
+tree, so 16 finished drill-downs — title, unit, colour, method, citation, all
+written — had no navigation edge at all.
+
+`_catalogue` in `health_screen.dart` is the routing, and it is the one place a
+metric becomes browsable. A row is `(spec key, metric_series key, one line)`;
+its icon, colour and title come off the spec, never a second copy. **Add a
+`MetricSpec` and add its catalogue row in the same commit** — a spec with no row
+is a screen nobody can open, which is the bug this fixed.
+
+Three rules the tab keeps:
+
+- The number in the row is **how many days of history there are**, read from
+  `LocalDb.metricSeriesCounts`. Not last night's value: a catalogue that showed
+  readings would be a fifth copy of Overview.
+- A metric with zero stored days is listed as not measured yet, **with no
+  cause** — this screen reads a row count, and a count of zero never says why.
+  No `fix:` either; nothing here can make a locked day derive.
+- A capability this app does not produce gets **no row and no spec**. SpO2, ODI
+  and anything apnea-shaped are refused; an index entry that existed to explain
+  an absence is the thing the absent-forever rule forbids.
+
 ---
 
 ## Conventions that are not enforced by a test — follow them anyway

@@ -246,6 +246,36 @@ const _labs = LabsData(
   ],
 );
 
+// The fill rates SURFACE_MAP measured on 17 real gen4 days, rounded to the
+// stored day counts. Deliberately MIXED: `hrr_bpm` and `resp_rate` are the
+// half-firing pair, and three keys are absent outright, so the case captures
+// both a family that has everything and a family that is missing part of
+// itself.
+const _explore = ExploreData(
+  counts: {
+    'rhr': 16,
+    'rmssd': 14,
+    'hrv_cv': 14,
+    'lf_hf': 14,
+    'dip_pct': 14,
+    'hrr_bpm': 9,
+    'tst_min': 15,
+    'efficiency': 15,
+    'deep_min': 15,
+    'rem_min': 15,
+    'nap_min': 17,
+    'resp_rate': 9,
+    'brv_cv': 14,
+    'steps': 17,
+    'active_min': 17,
+    'calories': 17,
+    'strain': 16,
+    'trimp': 0,
+    'skin_temp_z': 11,
+    'worn_min': 17,
+  },
+);
+
 final _metricDetail = MetricData(
   series: _points(60, 54, 6),
   daysAvailable: 60,
@@ -651,13 +681,19 @@ Map<String, Widget> _cases() => {
   'home_cold': const HomeScreen(data: _homeCold, hour: 20),
   'health_overview': HealthScreen(data: _health, tab: 0),
   'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
-  'health_trends': HealthScreen(data: _health, tab: 1),
-  'health_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 2),
-  'health_labs': HealthScreen(data: _health, labs: _labs, tab: 3),
+  'health_trends': HealthScreen(data: _health, tab: 2),
+  'health_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 3),
+  'health_labs': HealthScreen(data: _health, labs: _labs, tab: 4),
   'health_labs_cold': HealthScreen(
     data: _health,
     labs: const LabsData(),
-    tab: 3,
+    tab: 4,
+  ),
+  'health_explore': HealthScreen(data: _health, explore: _explore, tab: 1),
+  'health_explore_cold': const HealthScreen(
+    data: _healthCold,
+    explore: ExploreData(),
+    tab: 1,
   ),
   'metric_detail': MetricDetail('resting_hr', data: _metricDetail),
   'metric_detail_cold': const MetricDetail('resting_hr', data: MetricData()),
@@ -856,8 +892,9 @@ void main() {
       const MetricDetail('skin_temp', data: MetricData()),
       const Investigate('hrv', data: InvestigateData()),
       const Investigate('steps', data: InvestigateData()),
-      const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 2),
-      const HealthScreen(data: _healthCold, labs: LabsData(), tab: 3),
+      const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 3),
+      const HealthScreen(data: _healthCold, labs: LabsData(), tab: 4),
+      const HealthScreen(data: _healthCold, explore: ExploreData(), tab: 1),
       _scroll(const CycleTab(data: CycleData())),
       _scroll(const CycleTab(data: _cycleEmpty)),
       const JournalFindings(rows: [], weekday: {}),

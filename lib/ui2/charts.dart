@@ -39,6 +39,8 @@
 //    survives. Naive stride decimation would drop them.
 
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' show PointMode;
 
 import 'package:flutter/material.dart';
 
@@ -938,6 +940,92 @@ class Spectrum extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant Spectrum o) => o.psd != psd;
+}
+
+/// Poincaré — every beat interval plotted against the one before it.
+///
+/// THE ONLY SCATTER IN THIS LIBRARY, and the only reason a new painter was
+/// added: nothing here maps two values of the SAME unit onto two axes, and
+/// every existing painter puts index on x. SD1 and SD2 are the two axes of
+/// this cloud, and the app computed both and printed them as two integers.
+///
+/// [nn] is the cleaned NN series in ms, in beat order — point i is
+/// `(nn[i], nn[i+1])`. A gap in the beats is NOT representable here (a scatter
+/// has no path to break), so the caller must hand over a series that was
+/// artifact-corrected as one window and say how much of it survived.
+///
+/// SQUARE, ALWAYS. The whole grammar of this plot is the 45° identity line —
+/// distance across it is beat-to-beat change, distance along it is drift — so
+/// x and y take the SAME [axis] and the plot is the largest square that fits,
+/// centred. Stretching it to a wide box would tilt the identity line and every
+/// visual reading off it would be wrong. It draws its own gridlines at the
+/// axis ticks for the same reason: `ChartFrame` rules the full width, and the
+/// square is narrower than that.
+class Poincare extends CustomPainter {
+  final List<double> nn;
+  final Color color;
+
+  /// Shared by both axes. `ChartFrame`'s tick labels down the left therefore
+  /// read across the bottom too, which is what the caller's footnote says.
+  final AxisSpec axis;
+
+  /// The gridline / identity-line ink — pass `p.line`.
+  final Color grid;
+
+  Poincare(this.nn, this.color, {required this.axis, required this.grid});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (nn.length < 2) return;
+    final side = min(s.width, s.height);
+    if (side <= 0) return;
+    final ox = (s.width - side) / 2, oy = (s.height - side) / 2;
+
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = grid;
+    for (final v in axis.tickValues) {
+      final t = axis.t(v);
+      final y = oy + side - t * side, x = ox + t * side;
+      cv.drawLine(Offset(ox, y), Offset(ox + side, y), line);
+      cv.drawLine(Offset(x, oy), Offset(x, oy + side), line);
+    }
+    // The identity line. Every reading of this plot is taken relative to it.
+    cv.drawLine(Offset(ox, oy + side), Offset(ox + side, oy), line);
+
+    // One draw call for the whole cloud. Thirty thousand `drawCircle`s is a
+    // dropped frame; `drawRawPoints` is a single vertex buffer.
+    final pts = Float32List((nn.length - 1) * 2);
+    var n = 0;
+    for (var i = 0; i + 1 < nn.length; i++) {
+      final a = nn[i], b = nn[i + 1];
+      if (!a.isFinite || !b.isFinite) continue;
+      pts[n++] = ox + axis.t(a) * side;
+      pts[n++] = oy + side - axis.t(b) * side;
+    }
+    if (n == 0) return;
+    cv.drawRawPoints(
+      PointMode.points,
+      n == pts.length ? pts : Float32List.sublistView(pts, 0, n),
+      Paint()
+        // Semi-transparent so DENSITY is visible: the core of a night's cloud
+        // is thousands of overlapping points, and drawn opaque it is a flat
+        // blob with no interior. The caller passes an already-solved ink.
+        //
+        // ponytail: fixed alpha and point size, tuned for a night (17k–30k
+        // intervals on the owner's real records). A whole-DAY window would
+        // saturate the core further; bin to a density grid before drawing one,
+        // rather than tapering the alpha and calling it a fix.
+        ..color = color.withValues(alpha: .28)
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant Poincare o) =>
+      o.nn != nn || o.color != color || o.axis != axis || o.grid != grid;
 }
 
 /// Several signals stacked over one shared night timeline — HR, movement,

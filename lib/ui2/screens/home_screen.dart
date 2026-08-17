@@ -107,7 +107,7 @@ Metric metricOf(Object? raw) => Metric.parse(raw);
 /// Read off `inputs_used`, which names the sensor rather than the table the
 /// count was stored in. The strap's 100 Hz pedometer and its on-chip counter
 /// are BOTH "Strap" here: they are genuinely different measurements, but that
-/// difference is a density-3 fact and it is spelled out on Investigate. What
+/// difference is a density-3 fact and it is spelled out on Nerd stats. What
 /// this must never blur is strap versus phone — a card that lets the phone's
 /// count read as the wrist's, or the other way round, defeats the whole point
 /// of resolving the day per window.
@@ -966,7 +966,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // The sensor rides the line that is already there rather than adding a
       // row: the day is resolved per window now, so "8,412" can be the strap's
       // count, the phone's, or both, and the card has to say which. The split
-      // behind a mixed day is on Investigate, one tap down.
+      // behind a mixed day is on Nerd stats, one tap down.
       sub: d.steps.value == null
           ? 'NOT RECORDED'
           : [

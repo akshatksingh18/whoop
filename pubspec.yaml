@@ -183,7 +183,7 @@ dependencies:
       # UNPUSHED at time of writing, same as protocol: both SHAs live only on
       # the local sibling clones, so these pins resolve on this machine and
       # nowhere else.
-      ref: 52fca080657208fe927cc40c01dcc64fd36fecad
+      ref: 21664f8cbb55449e2e274421aa4b02036dc682a4
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

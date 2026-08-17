@@ -12,12 +12,11 @@
 // What this screen deliberately does NOT draw:
 //   * CTL/ATL/TSB. That is a fortnight of history and it already has a card one
 //     tap away on the Workout tab. A day screen repeating it is noise.
-//   * the resting heart rate TRIMP was anchored on. `scalars.rhr_nocturnal` is
-//     the real input and no repo method exposes it; `getDayHeart`'s
-//     `resting_hr` is `scalars.rhr`, which the pipeline's own comment calls
-//     "useless as a TRIMP reference" because it can be a daytime fallback.
-//     Naming the input in a sentence is honest; printing a different number
-//     under it is not.
+//   * the resting heart rate TRIMP was anchored on. `getDayHeart`'s
+//     `resting_hr` is now that same nocturnal number (`scalars.rhr` no longer
+//     falls back to daytime HR), so it COULD be printed — it just does not earn
+//     a line on a day screen whose subject is the curve. Naming the input in a
+//     sentence is enough.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';

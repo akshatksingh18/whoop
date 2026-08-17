@@ -106,6 +106,23 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
 
+  /// The individual beat intervals behind [date]'s night — the substrate the
+  /// Poincaré plot on Beats is drawn from, artifact-corrected exactly the way
+  /// the pipeline corrected them.
+  ///
+  /// `nn` is the cleaned NN series in ms, in beat order; `rawBeats` is how many
+  /// intervals were read before correction, so a screen can state what it threw
+  /// away instead of implying the cloud is every beat of the night.
+  ///
+  /// EMPTY IS THE NORMAL STEADY STATE, not an error. `decoded_rr` is pruned at
+  /// `rawRetentionDays` behind the data edge, so the beats exist for the last
+  /// few nights and are gone forever after that — while every number computed
+  /// FROM them lives in the day bundle for good. A caller must render that as
+  /// "the beats are no longer on this phone", never as "no data".
+  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
+          String date) =>
+      throw UnimplementedError('re-layer: getNightBeats');
+
   /// [date]'s steps as the RESOLVED spans behind them — when each stretch was
   /// counted, by which sensor, and inside which session if any.
   ///

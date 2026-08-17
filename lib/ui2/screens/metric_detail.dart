@@ -1,7 +1,7 @@
 // The shared metric drill-down — density 2 of 3.
 //
 // Glance (a row on Health) → MetricDetail (your normal range, what moves it,
-// how this week compares) → Investigate (everything, in mono). There is no
+// how this week compares) → Nerd stats (everything, in mono). There is no
 // "advanced mode" switch: depth is a place you walk to, not a preference you
 // set, so the same person gets the shallow read on Monday and the deep one
 // when something looks wrong.
@@ -14,6 +14,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/local_repository.dart';
 import '../ui2.dart';
+import 'beats.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -35,7 +36,7 @@ class MetricSpec {
   final String? suppress;
   final String? suppressFix;
 
-  /// How it is computed, and who published the method. Rendered by Investigate.
+  /// How it is computed, and who published the method. Rendered by Nerd stats.
   final String method;
   final String citation;
 
@@ -245,6 +246,32 @@ const _specs = <String, MetricSpec>{
     method: 'Coefficient of variation of per-window respiratory rate across '
         'the night.',
     citation: 'Within-user dispersion',
+  ),
+  // Both of these were written to `metric_series` on every derive since v55 and
+  // had no spec, so nothing could open them — `specOf` fell through to a
+  // generic entry titled "nap min". They are 17/17 on real data.
+  'nap_min': MetricSpec(
+    chartKey: 'nap_min',
+    title: 'Daytime sleep',
+    unit: 'min',
+    color: C.indigo,
+    icon: LucideIcons.moon,
+    method: 'Minutes of sleep detected OUTSIDE the main night: the same wrist '
+        'z-angle window detector the night uses, confirmed by a heart-rate dip. '
+        'Naps are counted separately and never folded into time asleep.',
+    citation: 'van Hees 2015 window detection + nocturnal HR dip',
+  ),
+  'active_min': MetricSpec(
+    chartKey: 'active_min',
+    title: 'Movement minutes',
+    unit: 'min',
+    color: C.green,
+    icon: LucideIcons.activity,
+    method: 'Minutes whose acceleration sits above a movement floor. That floor '
+        'is pooled from your own recent days once there are enough of them, and '
+        'a population one before that. This is activity VOLUME, not locomotion: '
+        'steps are counted by a pedometer and are never derived from it.',
+    citation: 'ENMO over a personal dynamic-range floor',
   ),
   'wear': MetricSpec(
     chartKey: 'wear',
@@ -525,6 +552,18 @@ class _MetricDetailState extends State<MetricDetail> {
         // counted by a different sensor. That breakdown is a day's worth of
         // detail and it belongs behind a tap, not on the tile and not as a
         // fourth card here.
+        // HRV's own substrate. RMSSD is one number squeezed out of tens of
+        // thousands of beat intervals, and the geometry of those intervals —
+        // the Poincaré cloud, the night's curve, deceleration capacity, the
+        // rhythm screen — is the most differentiated thing this app computes.
+        // It is a screen, not a fourth card here: one number's drill-down does
+        // not become five pictures.
+        if (widget.metricKey == 'hrv') ...[
+          detailLinkRow(c, LucideIcons.heartPulse, 'Beats',
+              'The intervals behind this number, drawn',
+              () => go(c, const Beats())),
+          const SizedBox(height: S.x3),
+        ],
         if (widget.metricKey == 'steps') ...[
           detailLinkRow(c, LucideIcons.footprints, 'Where today\'s came from',
               'Each stretch of today, and what counted it',
@@ -847,13 +886,21 @@ Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
   );
 }
 
-/// The one door into density 3. Deliberately plain: it is a workbench entrance,
-/// not a feature.
+/// The door into density 3 — the screen the user sees as "Nerd stats". Kept
+/// deliberately plain: it is a workbench entrance, not a feature, and it now
+/// reads as a companion to the picture above it rather than as the place the
+/// interesting numbers are hiding.
+///
+/// The identifier stays `investigateRow` to match `investigate.dart` and the
+/// `investigate_row` gallery key; only the string changed.
 Widget investigateRow(BuildContext c, VoidCallback onTap) => detailLinkRow(
     c,
     LucideIcons.cpu,
-    'Investigate',
-    'Raw readings, method, sensor quality',
+    'Nerd stats',
+    // One line at 1x. A subtitle that wraps makes this row taller than every
+    // other `detailLinkRow` in the app, which is a layout change dressed up as
+    // a copy change — keep it at or under the old string's length.
+    'The figures behind the picture',
     onTap);
 
 /// A two-column legend. Used by the hypnogram and the overnight stack.
@@ -882,7 +929,7 @@ class Legend extends StatelessWidget {
   }
 }
 
-/// The mono table Investigate is built from — label left, value right, both in
+/// The mono table Nerd stats is built from — label left, value right, both in
 /// a fixed-pitch face so columns line up and nothing pretends to be prose.
 class MonoTable extends StatelessWidget {
   final String title;

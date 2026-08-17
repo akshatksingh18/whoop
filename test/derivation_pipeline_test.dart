@@ -159,9 +159,6 @@ void main() {
     expect(() => jsonEncode(bundle), returnsNormally);
 
     final scalars = (bundle['scalars'] as Map).cast<String, dynamic>();
-    // RHR present + physiologically plausible.
-    expect(scalars['rhr'], isNotNull, reason: 'nocturnal RHR computed');
-    expect(scalars['rhr'] as num, inInclusiveRange(25, 220));
     // An HRV value present + positive.
     expect(scalars['rmssd'], isNotNull, reason: 'RMSSD computed');
     expect(scalars['rmssd'] as num, greaterThan(0));
@@ -176,13 +173,18 @@ void main() {
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
 
-    // The NOCTURNAL-only resting HR is published beside the general one. This
-    // fixture has no detected sleep, so it is ABSENT while `rhr` (which may
-    // fall back to daytime HR for the resting-HR card) is present — exactly the
-    // pair the strain path needs to be able to tell apart.
+    // This fixture has no detected sleep, so there is NO resting HR — on either
+    // key. `rhr` used to fall back to the day's HR here and publish an awake
+    // number as a resting one; both keys are now the same nocturnal value, and
+    // the clinical envelope says why it is missing.
     expect(scalars.containsKey('rhr_nocturnal'), isTrue);
-    expect(scalars['rhr_nocturnal'], isNull,
-        reason: 'no sleep session → no nocturnal RHR, whatever `rhr` says');
+    expect(scalars['rhr'], isNull,
+        reason: 'no sleep session → no resting HR, never the daytime fallback');
+    expect(scalars['rhr_nocturnal'], scalars['rhr']);
+    expect(
+      (clinical['resting_hr'] as Map)['note'],
+      contains('no sleep was scored'),
+    );
 
     // hrv_timeline.t is EPOCH SECONDS, on the same axis as hr_curve — the
     // v_series contract and the coach prompt both promise that, and the stored

@@ -195,28 +195,132 @@ class LabsData {
   }
 }
 
+// ═══════════════════ the catalogue ═══════════════════
+//
+// EXPLORE. The app persists 39 daily series and carries 25 written metric
+// specs — title, unit, colour, icon, method, citation — and until this tab
+// existed `MetricDetail` was constructed with SEVEN keys anywhere in the tree.
+// Sixteen finished screens had no navigation edge at all. That is a routing
+// gap, not a content gap, and this is the routing.
+//
+// It is an index, not a dashboard: nothing here computes, nothing here is a
+// number about you. It says what this app can tell you, groups it the way a
+// person would look for it, and says for each one how many days it actually
+// has — which is the only honest answer to "is there anything in there".
+
+/// One catalogue entry: the [MetricSpec] key (which is what [MetricDetail]
+/// takes), the `metric_series` key its history is stored under, and the single
+/// line that says what it answers.
+///
+/// Icon, colour and title are NOT here — they come off the spec. A second copy
+/// is how two screens end up disagreeing about what a metric is called.
+class _CatRow {
+  final String key, series, blurb;
+  const _CatRow(this.key, this.series, this.blurb);
+}
+
+class _Cat {
+  final String title;
+  final List<_CatRow> rows;
+  const _Cat(this.title, this.rows);
+}
+
+/// The families, in the order a person looks for them.
+///
+/// What is deliberately NOT here:
+/// - SpO2, ODI and anything apnea-shaped. Refused outright — a capability this
+///   app does not produce has no entry, no card and no key, and an index that
+///   listed them to explain their absence would be the exact thing the
+///   absent-forever rule forbids.
+/// - Cycle. It is a Wellness tab with its own door and its own on/off switch;
+///   a second entrance from Health would be a duplicate route, not a feature.
+/// - `rmssd_whole`, `stress_si`, `brv_slope`. Real numbers, but single-night
+///   with no series ever — a row here would open a screen whose only content is
+///   why it cannot be charted.
+/// - Body clock, zones, Nerd stats. Each already has a door at the same depth
+///   as this one; adding a second is navigation debt.
+const _catalogue = <_Cat>[
+  _Cat('Heart & rhythm', [
+    _CatRow('resting_hr', 'rhr', 'The lowest sustained rate of the night'),
+    _CatRow('hrv', 'rmssd', 'RMSSD over the cleanest window of sleep'),
+    _CatRow('hrv_cv', 'hrv_cv', 'How much that swings from night to night'),
+    _CatRow('lf_hf', 'lf_hf', 'Where beat-timing power sits across frequencies'),
+    _CatRow('dip', 'dip_pct', 'How far your heart rate falls while you sleep'),
+    _CatRow('hrr', 'hrr_bpm', 'How fast it falls in the minute after a bout'),
+  ]),
+  _Cat('Sleep', [
+    _CatRow('sleep', 'tst_min', 'Time asleep, from motion and beat timing'),
+    _CatRow('efficiency', 'efficiency', 'Asleep as a share of time in bed'),
+    _CatRow('deep', 'deep_min', 'Heart-rate flatness inside NREM'),
+    _CatRow('rem', 'rem_min', 'Staged from beat variability and movement'),
+    _CatRow('nap_min', 'nap_min', 'Sleep detected outside the main night'),
+  ]),
+  _Cat('Breathing', [
+    _CatRow('resp_rate', 'resp_rate', 'Breaths per minute, recovered from beat timing'),
+    _CatRow('brv', 'brv_cv', 'How much that rate varies across the night'),
+  ]),
+  _Cat('Movement & load', [
+    _CatRow('steps', 'steps', 'Counted by a pedometer, never modelled'),
+    _CatRow('active_min', 'active_min', 'Minutes of movement volume, not locomotion'),
+    _CatRow('calories', 'calories', 'Active energy from heart rate and your profile'),
+    _CatRow('strain', 'strain', 'Cardiovascular load over the day, on 0–21'),
+    _CatRow('trimp', 'trimp', 'Time in each zone, weighted by its cost'),
+  ]),
+  _Cat('Body & wear', [
+    _CatRow('skin_temp', 'skin_temp_z', 'Distance from your own recent nights'),
+    _CatRow('wear', 'worn_min', 'Minutes with a band record present'),
+  ]),
+];
+
+class ExploreData {
+  /// Days of stored history per `metric_series` key. `metricSeriesCounts`
+  /// counts non-null rows, which is exactly "days this app has something to
+  /// say" — and it is one query for the whole catalogue.
+  final Map<String, int> counts;
+  const ExploreData({this.counts = const {}});
+
+  static Future<ExploreData> load() async => ExploreData(
+        counts: await LocalDb.metricSeriesCounts([
+          for (final f in _catalogue)
+            for (final r in f.rows) r.series,
+        ]),
+      );
+}
+
 class HealthScreen extends StatefulWidget {
   final HealthData? data;
   final VitalsData? vitals;
   final LabsData? labs;
+  final ExploreData? explore;
 
   /// Which sub-tab to open on. Goldens use it; production always starts at 0.
   final int tab;
 
   const HealthScreen(
-      {super.key, this.data, this.vitals, this.labs, this.tab = 0});
+      {super.key,
+      this.data,
+      this.vitals,
+      this.labs,
+      this.explore,
+      this.tab = 0});
 
   @override
   State<HealthScreen> createState() => _HealthScreenState();
 }
 
 class _HealthScreenState extends State<HealthScreen> {
-  static const _tabs = ['Overview', 'Trends', 'Vitals', 'Labs'];
+  // EXPLORE SITS SECOND, not last. Five chips do not fit a 390 pt frame at 1×:
+  // the fifth is clipped by the edge, and a half-visible chip is exactly the
+  // discoverability failure this tab exists to fix. Labs takes the clip instead
+  // — it is the manual-entry tab, the one a user goes looking for on purpose,
+  // and the only one here that holds numbers this app did not measure.
+  static const _tabs = ['Overview', 'Explore', 'Trends', 'Vitals', 'Labs'];
   late int _tab = widget.tab;
 
   HealthData? _d;
   VitalsData? _v;
   LabsData? _l;
+  ExploreData? _e;
   bool _loading = true;
 
   @override
@@ -225,6 +329,7 @@ class _HealthScreenState extends State<HealthScreen> {
     _d = widget.data;
     _v = widget.vitals;
     _l = widget.labs;
+    _e = widget.explore;
     if (widget.data != null) {
       _loading = false;
       return;
@@ -250,7 +355,7 @@ class _HealthScreenState extends State<HealthScreen> {
   /// spinner, so swallowing the error left the tab spinning silently for as
   /// long as the user stayed on it — there was no absent state on that path at
   /// all, whatever the old comment here said.
-  bool _vFailed = false, _lFailed = false;
+  bool _vFailed = false, _lFailed = false, _eFailed = false;
 
   Future<void> _loadVitals() async {
     final repo = repoOf(context);
@@ -284,10 +389,21 @@ class _HealthScreenState extends State<HealthScreen> {
         onFix: retry,
       );
 
+  Future<void> _loadExplore() async {
+    if (_e != null) return;
+    try {
+      final e = await ExploreData.load();
+      if (mounted) setState(() => (_e = e, _eFailed = false));
+    } catch (_) {
+      if (mounted) setState(() => _eFailed = true);
+    }
+  }
+
   void _select(int i) {
     setState(() => _tab = i);
-    if (i == 2) _loadVitals();
-    if (i == 3) _loadLabs();
+    if (i == 1) _loadExplore();
+    if (i == 3) _loadVitals();
+    if (i == 4) _loadLabs();
   }
 
   @override
@@ -305,8 +421,9 @@ class _HealthScreenState extends State<HealthScreen> {
       else
         switch (_tab) {
           0 => _overview(c, d),
-          1 => _trends(c, d),
-          2 => _vitals(c, d),
+          1 => _explore(c),
+          2 => _trends(c, d),
+          3 => _vitals(c, d),
           _ => _labs(c),
         },
     ]);
@@ -703,14 +820,19 @@ class _HealthScreenState extends State<HealthScreen> {
             sub: tempNight == null
                 ? 'vs your own nights'
                 : 'vs your own nights · ${prettyDay(tempNight)}',
-            unit: 'SD'),
+            unit: 'SD',
+            // Both this row and the wear row below it carry a FULL, written,
+            // cited spec in `metric_detail.dart` that no tap in the app opened.
+            // The number was on screen and its method was unreachable.
+            onTap: () => go(c, const MetricDetail('skin_temp'))),
       if (worn != null)
         MetricRow(LucideIcons.watch, C.green, 'Wear time', hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
             sub: coverage == null
                 ? dayWord
                 : '${coverage.round()}% of '
-                    '${dayWord == 'Today' ? 'the day' : dayWord}'),
+                    '${dayWord == 'Today' ? 'the day' : dayWord}',
+            onTap: () => go(c, const MetricDetail('wear'))),
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -782,6 +904,100 @@ class _HealthScreenState extends State<HealthScreen> {
         size: Size.infinite,
         painter: LineChart(win, p.on(C.green), t: animate(c, 1), axis: axis),
       ),
+    );
+  }
+
+  // ─────────────── EXPLORE ───────────────
+  Widget _explore(BuildContext c) {
+    final p = P.of(c);
+    final e = _e;
+    if (e == null) {
+      return _eFailed
+          ? _readFailed('measures', () {
+              setState(() => _eFailed = false);
+              _loadExplore();
+            })
+          : const Padding(
+              padding: EdgeInsets.only(top: S.x8),
+              child: Center(child: CircularProgressIndicator()),
+            );
+    }
+
+    var have = 0, total = 0;
+    for (final f in _catalogue) {
+      for (final r in f.rows) {
+        total++;
+        if ((e.counts[r.series] ?? 0) > 0) have++;
+      }
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Surface(
+        child: Consistency(have, total,
+            'Measures with stored history on this device', C.domHealth,
+            unit: 'measures'),
+      ),
+      const SizedBox(height: S.x3),
+      // Not a promise of insight — a statement of what a tap gets you. Every
+      // row below opens the same drill-down: the chart, your own range, the
+      // method in full, and the paper it came from.
+      Text(
+          'Each one opens its chart, how it is computed, and the published '
+          'method behind it.',
+          style: F.over.copyWith(color: p.ink3, height: 1.6)),
+      for (final f in _catalogue) _family(c, p, f, e.counts),
+    ]);
+  }
+
+  Widget _family(BuildContext c, P p, _Cat f, Map<String, int> counts) {
+    final have = [
+      for (final r in f.rows)
+        if ((counts[r.series] ?? 0) > 0) r,
+    ];
+    final none = [
+      for (final r in f.rows)
+        if ((counts[r.series] ?? 0) == 0) r,
+    ];
+
+    return Section(
+      f.title,
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (have.isNotEmpty)
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(children: [
+              for (var i = 0; i < have.length; i++) ...[
+                if (i > 0) Divider(color: p.line, height: 1),
+                Builder(builder: (c) {
+                  final r = have[i];
+                  final s = specOf(r.key);
+                  final n = counts[r.series]!;
+                  // The value slot is the LENGTH OF THE HISTORY, not a
+                  // reading. A catalogue that showed last night's number would
+                  // be a fifth copy of Overview; what a browser needs to know
+                  // is whether there is anything in there.
+                  return MetricRow(s.icon, s.color, s.title, '$n',
+                      unit: n == 1 ? 'day' : 'days',
+                      sub: r.blurb,
+                      onTap: () => go(c, MetricDetail(r.key)));
+                }),
+              ],
+            ]),
+          ),
+        if (none.isNotEmpty) ...[
+          if (have.isNotEmpty) const SizedBox(height: S.x3),
+          StatusCard(
+            have.isEmpty ? 'Nothing measured here yet' : 'Not measured yet',
+            // No cause is named, because none is known here: this screen reads
+            // a row count, and a count of zero says the day never produced one
+            // — never why. No `fix:` either; there is no button that makes a
+            // derive happen for a night that has already been scored.
+            '${none.map((r) => specOf(r.key).title).join(' · ')}. '
+                'No day on this device has produced one yet.',
+            icon: LucideIcons.chartLine,
+          ),
+        ],
+      ]),
     );
   }
 

@@ -207,6 +207,9 @@ const _notComponents = {
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
   'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'DayStepsDetail',
   'ZonesDetail',
+  // Reads the day bundle AND the raw beat store to draw one night's Poincaré
+  // cloud — a gallery case would have to mock 27 000 beat intervals.
+  'Beats',
   'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',

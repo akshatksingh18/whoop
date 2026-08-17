@@ -369,19 +369,30 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 20),
         );
-  // Nocturnal RHR over the SLEEP HR (fallback to the DAY series only if there
-  // is no sleep HR at all).
+  // Nocturnal RHR over the SLEEP HR. NO SLEEP ⇒ NO RESTING HR.
   //
-  // Both arguments must be POSITIONALLY DENSE 1 Hz series where 0 means
-  // off-skin — `nocturnalRhr` slides its 30-minute window over wall-clock
-  // POSITIONS and enforces a minimum on-skin coverage per window. Passing the
-  // compacted `dayHrValid` here defeated that: with gaps squeezed out, 1800
-  // consecutive entries could span many hours, so "lowest 30-minute mean"
-  // silently became "lowest mean over whatever 1800 samples happened to
-  // survive". `dayHr` keeps its zeros, so a day too sparse to contain a real
-  // contiguous window now abstains instead of reporting a stitched-together
-  // trough.
-  final rhr = nocturnalRhr(sleepHr.isNotEmpty ? sleepHr : dayHr);
+  // This used to fall back to the whole-day HR when no sleep was scored, and
+  // published the result as resting heart rate. On the owner's own export a
+  // 213-minute day with no scored night published 88.0 bpm for a man whose
+  // measured resting HR is 55.7–64.2; a second export published 116.7. That is
+  // the lowest 30-minute mean of a day spent AWAKE, which is not a resting
+  // heart rate at any tier — it is a different quantity wearing the label. The
+  // only honest output is absence, so the card says why instead.
+  //
+  // `sleepHr` must be a POSITIONALLY DENSE 1 Hz series where 0 means off-skin —
+  // `nocturnalRhr` slides its 30-minute window over wall-clock POSITIONS and
+  // enforces a minimum on-skin coverage per window. Passing a compacted series
+  // defeats that: with gaps squeezed out, 1800 consecutive entries could span
+  // many hours, so "lowest 30-minute mean" silently becomes "lowest mean over
+  // whatever 1800 samples happened to survive".
+  final rhr = (hasSleep && sleepHr.isNotEmpty)
+      ? nocturnalRhr(sleepHr)
+      : const Metric<NocturnalRhr>.absent(
+          tier: Tier.high,
+          inputs_used: ['hr_1hz', 'sleep_window'],
+          note: 'no sleep was scored for this day — resting HR is only ever '
+              'measured over a sleep window, never over waking hours',
+        );
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
@@ -483,19 +494,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final lnToday = (sleepSessionRmssd != null && sleepSessionRmssd > 0)
       ? math.log(sleepSessionRmssd)
       : null;
-  // Readiness's RHR input must come from an ACTUAL detected sleep session.
-  // `rhr` above intentionally falls back to daytime HR (`dayHr`) for the
-  // general-purpose "resting HR" display card, but feeding that fallback into
-  // readiness let a handful of minutes of live daytime HR masquerade as an
-  // overnight resting rate — the sole reason a same-day score of 100 could
-  // appear ~10 minutes after first wearing the strap, with no real sleep yet.
-  // HRV/resp/temp above are already correctly gated on the sleep window (`nn`
-  // comes from `d.sleepRrMs`); this makes RHR consistent with them so a
-  // no-sleep day has ALL FOUR composite inputs null and readiness reports "—"
-  // instead of computing off RHR alone.
-  final rhrToday = (hasSleep && sleepHr.isNotEmpty && rhr.present)
-      ? rhr.value!.low30Mean
-      : null;
+  // Readiness's RHR input must come from an ACTUAL detected sleep session —
+  // feeding a daytime number into readiness let a handful of minutes of live HR
+  // masquerade as an overnight resting rate, the sole reason a same-day score
+  // of 100 could appear ~10 minutes after first wearing the strap. That gate
+  // used to live HERE, on top of a `rhr` that fell back to daytime; it now
+  // lives in `rhr` itself, so this is the same number the card shows.
+  final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
   final composite = readinessComposite([
     hrvInput(lnToday, d.lnRmssdHistory),
@@ -911,7 +916,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   };
 
   // Indexed scalars (also surfaced to metric_series by the engine).
-  final rhrScalar = rhr.present ? rhr.value!.low30Mean : null;
   // HEADLINE RMSSD = mean of 5-min cleaned-window RMSSDs across the detected
   // sleep session. Fall back to the robust estimator, then the whole-window
   // RMSSD only when the canonical sleep-session value is absent.
@@ -1112,7 +1116,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final baselines = <String, dynamic>{
     'resting_hr': baselineBlock(
       d.rhrHistory,
-      rhrScalar,
+      rhrToday,
       Baselines.restingHRCfg,
     ),
     'hrv': baselineBlock(d.rmssdHistory, rmssdScalar, Baselines.hrvCfg),
@@ -1200,13 +1204,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     },
     'readiness_absent_diag': ?readinessAbsentDiag,
     'scalars': {
-      'rhr': rhrScalar,
-      // NOCTURNAL-ONLY resting HR — the same `rhrToday` readiness uses, i.e.
-      // null unless a sleep session was actually detected. `rhr` above may be
-      // the DAYTIME fallback (see `nocturnalRhr` at the top of this file); it
-      // is fine for the general resting-HR card and useless as a TRIMP
-      // reference, where an awake "resting" HR ~20 bpm high silently inflates
-      // strain. The engine's second half recomputes strain from THIS key.
+      // ONE resting HR. It is nocturnal or it is absent — `rhr` and
+      // `rhr_nocturnal` are now the same number, and the second key survives
+      // only so the strain recompute keeps reading a key that was never wrong
+      // on a bundle stored before this change. Two keys, one honest and one
+      // not, is how the daytime fallback outlived the v46→47 fix: readiness
+      // moved to the gated key and the CHARTED series stayed on the ungated
+      // one. Delete `rhr_nocturnal` with the kAlgoVersion bump that re-derives
+      // every stored bundle.
+      'rhr': rhrToday,
       'rhr_nocturnal': rhrToday,
       // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.
       'rmssd': rmssdScalar,

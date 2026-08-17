@@ -1,13 +1,24 @@
-// INVESTIGATE — density 3 of 3.
+// NERD STATS — density 3 of 3. (File and classes keep the old `Investigate`
+// name on purpose: renaming them churns every import, the gallery keys and
+// twelve golden files for zero user benefit. The user-facing string is the
+// only thing that was ever "Investigate".)
 //
-// The workbench. Everything the pipeline actually produced for one metric, in
-// fixed pitch, with the method and its citation underneath. Nothing here is
-// styled to reassure: a number that is absent is absent, and a number that is
-// relative says so on its own row.
+// THE NUMBERS BEHIND THE PICTURE. The visual screens — Beats above all — are
+// where the RR-derived family is now shown; this is the companion that prints
+// what those pictures were drawn from: the figures, the beat counts, the
+// coverage, the abstention notes, the algorithm version, in fixed pitch, with
+// the method and its citation underneath. It is no longer where the good
+// stuff hides. It is where you check the good stuff's arithmetic.
 //
-// There is no "advanced mode" toggle anywhere in this app. This screen is
-// reached by walking here, which is the same thing without a setting to
-// forget.
+// Nothing here is styled to reassure: a number that is absent is absent, a
+// number that is relative says so on its own row, and an estimator that
+// abstained gets to state its own reason VERBATIM — a raw diagnostic string
+// belongs on exactly this surface and nowhere else.
+//
+// There is no "advanced mode" toggle anywhere in this app and this screen is
+// not gated by one. Density 3 here means "one tap from the picture", not
+// "locked" — Beats, Vitals, Sleep, Readiness and every metric drill-down each
+// carry a plain row down to it.
 
 import 'dart:convert' show jsonDecode;
 import 'dart:math' show sqrt;
@@ -233,7 +244,7 @@ class _InvestigateState extends State<Investigate> {
     final d = _d ?? const InvestigateData();
     final hrvish = widget.metricKey == 'hrv' || widget.metricKey == 'rmssd_whole';
 
-    return detailScaffold(c, spec.title, sub: 'INVESTIGATE', [
+    return detailScaffold(c, spec.title, sub: 'NERD STATS', [
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -448,14 +459,19 @@ class _InvestigateState extends State<Investigate> {
     final p = P.of(c);
     final v = envValue(raw);
     if (v == null) {
+      // The estimator's own reason, VERBATIM — too few beats and a night too
+      // short for three bins are different nights and it distinguishes them.
+      // This used to be run through a prettifier that stripped the machine
+      // prefix and reworded the counts; on a nerd-stats screen that is lost
+      // information, not politeness. The raw string is the point.
+      final note = metricOf(raw).note;
       return [
         const SizedBox(height: S.x3),
         StatusCard(
           'No shape for this night',
-          // The estimator's own reason — too few beats, or a night too short
-          // for three bins are different nights and it distinguishes them.
-          _readable(metricOf(raw).note) ??
-              'The night carried too few clean beats to bin.',
+          note?.isNotEmpty == true
+              ? note!
+              : 'The night carried too few clean beats to bin.',
           icon: LucideIcons.activity,
         ),
       ];
@@ -719,7 +735,7 @@ class _InvestigateState extends State<Investigate> {
   // shape those means hide: a night of a few deep dips and a night of many
   // shallow ones share a mean.
   //
-  // Numbers, no adjectives, no interpretation, no category — and Investigate
+  // Numbers, no adjectives, no interpretation, no category — and Nerd stats
   // only. Nothing here is a sleep-apnea finding and no copy anywhere near it
   // names a breathing disorder or a mechanism.
   List<Widget> _cvhrPanels(InvestigateData d) {
@@ -803,20 +819,10 @@ class _InvestigateState extends State<Investigate> {
   // finding — so the card that says "across nights, never on one" has to come
   // after the night it is talking about, not before it.
   //
-  // And it lives on Investigate, density 3, reached only by walking here. On the
+  // And it lives on Nerd stats, density 3, reached by walking here. On the
   // Sleep screen the same words become a headline, and a headline is how a
   // screen that fires on atrial fibrillation, on altitude and on any broken-up
   // night turns into a diagnosis in somebody's head.
-  /// An analytics abstention note as a sentence. Null when there is none.
-  static String? _readable(String? note) {
-    if (note == null || note.isEmpty) return null;
-    final s = note
-        .replaceFirst('need_baseline:', '')
-        .replaceFirstMapped(RegExp(r'nights=(\d+)/(\d+)'),
-            (m) => '${m[1]} of ${m[2]} nights');
-    return s.isEmpty ? null : '${s[0].toUpperCase()}${s.substring(1)}.';
-  }
-
   List<Widget> _cvhrDistribution(InvestigateData d) {
     final m = d.cvhrDist;
     if (m == null) return const [];
@@ -828,14 +834,14 @@ class _InvestigateState extends State<Investigate> {
         const SizedBox(height: S.x3),
         StatusCard(
           'Not enough nights for the across-nights view',
-          // The screen's OWN reason, including which gate dropped which night —
-          // quoting the pipeline beats inferring a reason here. `need_baseline:`
-          // is the pipeline's machine prefix and `nights=A/B` its machine
-          // spelling; both are stripped rather than shown, because a user-facing
-          // card printing a key=value pair is how a real explanation ends up
-          // reading like a crash.
-          _readable(m.note) ??
-              'This needs several nights with a few observed hours each.',
+          // The screen's OWN reason, VERBATIM, including which gate dropped
+          // which night. `need_baseline:` and `nights=A/B` are the pipeline's
+          // machine spellings and they stay: this is the surface where the
+          // exact string the estimator emitted is more useful than a smoothed
+          // paraphrase of it, and the owner asked for it that way.
+          m.note?.isNotEmpty == true
+              ? m.note!
+              : 'This needs several nights with a few observed hours each.',
           icon: LucideIcons.wind,
         ),
       ];

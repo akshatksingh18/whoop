@@ -868,8 +868,8 @@ import 'substrate.dart';
 // a single increment rather than one per fix:
 //
 //   1. STRAIN STOPS BEING BUILT ON A DAYTIME "RESTING" HR. The offloaded second
-//      half took its TRIMP reference from `scalars.rhr`, which the pure
-//      pipeline lets fall back to daytime HR for the general resting-HR card,
+//      half took its TRIMP reference from `scalars.rhr`, which back then fell
+//      back to daytime HR for the general resting-HR card (it no longer does),
 //      and then overwrote `scalars.strain` with the result — so a day where the
 //      pure pipeline abstained (`clinical.strain` "—") still published a
 //      number, off an awake reference ~20 bpm high. It now reads the
@@ -1196,7 +1196,7 @@ import 'substrate.dart';
 // STALE IN THIS FILE, not fixed here because it is another owner's diff: the
 // comments at :4377, :4425, :5023 and the header block at :637-666 all still
 // quote the old 0.50*HRmax flex gate that item 1 moved.
-const int kAlgoVersion = 72;
+const int kAlgoVersion = 73;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1207,7 +1207,7 @@ const int kAlgoVersion = 72;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = '52fca080657208fe927cc40c01dcc64fd36fecad';
+const String kAnalyticsPin = '21664f8cbb55449e2e274421aa4b02036dc682a4';
 const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

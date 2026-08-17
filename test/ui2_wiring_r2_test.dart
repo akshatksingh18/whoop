@@ -254,7 +254,8 @@ void main() {
       addTearDown(t.view.reset);
       await t.pumpWidget(MaterialApp(
         theme: buildTheme(Brightness.light),
-        home: Scaffold(body: HealthScreen(data: d, tab: 1)),
+        // Trends. Explore was inserted at index 1, so Trends moved to 2.
+        home: Scaffold(body: HealthScreen(data: d, tab: 2)),
       ));
       await t.pumpAndSettle();
     }
@@ -450,6 +451,37 @@ void main() {
       await t.tap(find.text('7 days'));
       await t.pumpAndSettle();
       expect(find.text('Worn'), findsNothing);
+    });
+  });
+
+  // ── the screen is called "Nerd stats" everywhere the user can read it ──
+  //
+  // The file, the class and the gallery keys still say `investigate`; that is
+  // deliberate and invisible. What must never come back is the old word on
+  // screen, in either of the two places it appeared: the scaffold's overline
+  // and the link row every detail screen ends with.
+  group('Nerd stats naming', () {
+    testWidgets('the screen and its door both say Nerd stats', (t) async {
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv', data: InvestigateData(day: _day(0))),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('NERD STATS'), findsOneWidget);
+      expect(find.textContaining('INVESTIGATE'), findsNothing);
+
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: Builder(builder: (c) => investigateRow(c, () {})),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Nerd stats'), findsOneWidget);
+      expect(find.text('Investigate'), findsNothing);
     });
   });
 
@@ -715,10 +747,11 @@ void main() {
       expect(find.text('Not enough nights for the across-nights view'),
           findsOneWidget);
       expect(find.textContaining('running higher'), findsNothing);
-      // The pipeline's own reason, in English — not its machine spelling.
-      expect(find.textContaining('3 of 5 nights'), findsOneWidget);
-      expect(find.textContaining('need_baseline'), findsNothing);
-      expect(find.textContaining('nights=3/5'), findsNothing);
+      // The pipeline's own reason, VERBATIM. This is Nerd stats — the raw
+      // diagnostic is what the surface is FOR, and the prettifier that used to
+      // rewrite `need_baseline:nights=3/5` into English threw away the one
+      // detail someone opening this screen came for.
+      expect(find.textContaining('need_baseline:nights=3/5'), findsOneWidget);
     });
 
     testWidgets('the card survives 3.1x text', (t) async {

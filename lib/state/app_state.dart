@@ -478,9 +478,10 @@ class AppState extends ChangeNotifier {
     // Gate on the user's own preference. `disablePhoneSteps` deliberately does
     // NOT revoke the platform permission (that is the user's to do in
     // Settings), so an unconditional sync here would write phone rows straight
-    // back after the user turned the feature off — and since `liveStepsForDay`
-    // prefers phone rows outright, it would re-suppress the band count, the
-    // exact outcome `disablePhoneSteps` exists to prevent.
+    // back after the user turned the feature off — and the ladder ranks a
+    // phone span above any band span that does not look like gait, so those
+    // rows would go on taking steps off the band. The exact outcome
+    // `disablePhoneSteps` exists to prevent.
     // An explicit health sync is a user gesture — take the full window.
     if (phoneStepsEnabled) {
       unawaited(syncPhoneSteps(days: PhonePedometer.fullSyncDays));
@@ -493,17 +494,30 @@ class AppState extends ChangeNotifier {
         () => _healthExport.exportAll(forceRetry: forceRetry),
       );
 
-  // ── phone pedometer (the ONLY source of real 24/7 step counts) ─────────────
+  // ── phone pedometer — the fallback tier, and the only 24/7 one ────────────
+  // Not "the only real source": the strap's 100 Hz counter is measured and
+  // ranks above it, but only inside a gait workout, and the gen5 on-chip
+  // counter only exists on a gen5. Both are windows; this is the one that
+  // covers a whole day.
   final PhonePedometer _phonePedometer = PhonePedometer();
   bool phoneStepsEnabled = false;
   static const String _kPhoneSteps = 'phone_steps';
 
-  /// Ask for READ access to the phone's own step counts (user gesture).
+  /// Ask the OS for this phone's own step SENSOR (user gesture).
   ///
-  /// The band cannot count steps: it is on the wrist, and its 24/7 stream is
-  /// 1 Hz, where gait is sub-Nyquist. The phone rides in a pocket and already
-  /// counts steps continuously into the on-device health store — this reads
-  /// them. Nothing is uploaded and nothing is written back.
+  /// `CMPedometer` on iOS, `Sensor.TYPE_STEP_COUNTER` on Android, read straight
+  /// off the device — see [PhonePedometer] for why a pocket beats a wrist here.
+  /// It is the FALLBACK tier of the step ladder: our 100 Hz strap counter only
+  /// runs inside a gait workout and the gen5 on-chip counter only exists on a
+  /// gen5, so with a WHOOP 4 and this off a user gets steps for the workout and
+  /// nothing for the other twenty-odd hours.
+  ///
+  /// NOT the health store, and nobody may "restore" that. This used to read
+  /// `HealthDataType.STEPS`, which is a multi-writer aggregate any app can
+  /// write into (an `HKStatisticsQuery` sum on iOS, a `StepsRecord` aggregate
+  /// on Android) — so "real pedometer measurements only" was not enforceable
+  /// while we read it. The sensor is the one writer we actually want. Nothing
+  /// is uploaded and nothing is written back.
   Future<bool> requestPhoneSteps() async {
     final ok = await _phonePedometer.requestPermission();
     // PERSIST BEFORE mutating in-memory state. Setting the field first and
@@ -546,10 +560,11 @@ class AppState extends ChangeNotifier {
   /// Turn phone steps off and DROP the counts we pulled.
   ///
   /// Leaving the rows behind would keep serving phone-sourced steps from a
-  /// source the user just switched off, and `liveStepsForDay` prefers phone
-  /// rows over band rows — so a stale row would keep overriding the band
-  /// indefinitely. Revoking the platform permission is the user's to do in
-  /// Settings; all we can do is stop reading and forget what we read.
+  /// source the user just switched off, and the ladder in `resolveDaySteps`
+  /// ranks a phone span ABOVE any band span that does not look like gait — so
+  /// a stale phone row would go on taking steps off the band indefinitely.
+  /// Revoking the OS motion permission is the user's to do in Settings; all we
+  /// can do is stop reading and forget what we read.
   ///
   /// Clearing `live_coverage` only changes what FUTURE derives compute — the
   /// screens read scalars persisted in `day_result`/`metric_series`. So this

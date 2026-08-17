@@ -343,6 +343,19 @@ class MoreSettingsView extends StatelessWidget {
                       sub: 'Buzzes on your wrist, on the band’s own clock',
                       onTap: onAlarm),
                 ]),
+                // NOT in Preferences. Units and Appearance change how numbers
+                // are drawn; this one asks the OS for a sensor and decides
+                // where a measurement comes from. Its own group, next to the
+                // band, because the two together are the step ladder — the
+                // band covers the workout, the phone covers the rest — and
+                // "This phone" is what the sources screen already calls it.
+                settingsGroup(c, 'This phone', [
+                  SetRow(LucideIcons.footprints, C.teal, 'Steps',
+                      sub: 'This phone’s own step counter, for the hours the '
+                          'band doesn’t cover. Nothing leaves the device',
+                      value: phoneSteps ? 'On' : 'Off',
+                      onTap: onTogglePhoneSteps),
+                ]),
                 settingsGroup(c, 'Notifications', [
                   SetRow(LucideIcons.bell, C.blue, 'Manage notifications',
                       sub: 'Three kinds, quiet hours, and off switches for all '
@@ -354,9 +367,6 @@ class MoreSettingsView extends StatelessWidget {
                       value: units, onTap: onCycleUnits),
                   SetRow(LucideIcons.sun, C.yellow, 'Appearance',
                       value: appearance, onTap: onCycleAppearance),
-                  SetRow(LucideIcons.footprints, C.teal, 'Phone steps',
-                      value: phoneSteps ? 'On' : 'Off',
-                      onTap: onTogglePhoneSteps),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.download, C.green, 'Export, backup, import',

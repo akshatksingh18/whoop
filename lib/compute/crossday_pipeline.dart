@@ -833,9 +833,10 @@ typedef _Circadian = ({
 /// (≥5 real minutes each, enforced upstream in `_hourlyHrProfile`). Missing hours
 /// are never filled — an imputed hour is exactly the kind of smooth, regular
 /// signal IS is designed to reward, so imputation would manufacture rhythm
-/// strength out of missing data. Only the MOST RECENT RUN of calendar-consecutive
-/// admitted days is used, because IV differences successive epochs and a jump
-/// across a multi-day gap is not a real hour-to-hour transition.
+/// strength out of missing data. Only the LONGEST RUN of calendar-consecutive
+/// admitted days is used (ties go to the more recent one), because IV differences
+/// successive epochs and a jump across a multi-day gap is not a real hour-to-hour
+/// transition. `first_day`/`last_day` in the coverage block date that run.
 ///
 /// (A spring-forward day has 23 local hours, so one bin can never be covered and
 /// the day is excluded. That is the honest outcome; it costs one day, twice a year.)
@@ -843,20 +844,48 @@ _Circadian _crossDayCircadian(List<Map<String, dynamic>> days) {
   const inputs = ['hourly_hr_epochs'];
   const epochsPerDay = 24;
 
-  // Most recent run of calendar-consecutive days with a complete 24 h profile.
+  // LONGEST run of calendar-consecutive days with a complete 24 h profile —
+  // not the trailing one.
+  //
+  // This used to keep only the run alive when the loop ended, and TODAY IS
+  // ALWAYS INCOMPLETE: `days` carries today flagged `unsettled` rather than
+  // dropped, and today cannot have 24 covered local hours until midnight. So the
+  // final day always cleared the run and `have` was 0 every day, forever — IS/IV
+  // and the cosinor were absent permanently while the note claimed `have=0`
+  // about a corpus with 88–97 % daily coverage. That note was a false statement
+  // about the user's own data. Measured on the real gen4 export: 08-08..08-12 is
+  // a 5-day run, 08-13 fails (22/24 bins), 08-14 passes, 08-15 fails — shipped
+  // have=0, correct have=5.
   final run = <List<double>>[];
+  final best = <List<double>>[];
   String? runFirstDate;
+  String? bestFirstDate;
+  String? bestLastDate;
   String? prevDate;
+  void keepBest() {
+    // `>=` so that on a tie the MORE RECENT run wins — a circadian profile is
+    // about how the user lives now.
+    if (run.isNotEmpty && run.length >= best.length) {
+      best
+        ..clear()
+        ..addAll(run);
+      bestFirstDate = runFirstDate;
+      bestLastDate = prevDate;
+    }
+  }
+
   for (final d in days) {
     final date = d['date'] as String?;
     final profile = _completeHourlyProfile(d['hourly_hr']);
     if (date == null || profile == null) {
+      keepBest();
       run.clear();
       runFirstDate = null;
       prevDate = null;
       continue;
     }
     if (prevDate != null && !_isNextDay(prevDate, date)) {
+      keepBest();
       run.clear();
       runFirstDate = null;
     }
@@ -864,9 +893,10 @@ _Circadian _crossDayCircadian(List<Map<String, dynamic>> days) {
     run.add(profile);
     prevDate = date;
   }
+  keepBest();
 
-  final have = run.length;
-  final x = <double>[for (final day in run) ...day];
+  final have = best.length;
+  final x = <double>[for (final day in best) ...day];
 
   final np = have >= kCircadianNpMinDays
       ? ana.circadianNonparametric(x, epochsPerDay)
@@ -897,8 +927,8 @@ _Circadian _crossDayCircadian(List<Map<String, dynamic>> days) {
       'days_used': have,
       'days_need_np': kCircadianNpMinDays,
       'days_need_cosinor': kCircadianCosinorMinDays,
-      'first_day': runFirstDate,
-      'last_day': have == 0 ? null : prevDate,
+      'first_day': bestFirstDate,
+      'last_day': bestLastDate,
       'signal': 'hourly_hr',
     },
   );

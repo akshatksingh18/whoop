@@ -293,7 +293,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // HRV/RHR are rest/sleep-only per the catalog. Running correctRr+hrvTime over
   // the SLEEP RR (not the whole day) is what brings RMSSD back to physiological
   // tens-of-ms instead of the whole-day ~166 ms inflated value.
-  final corrected = correctRr(d.sleepRrMs);
+  final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
@@ -385,7 +385,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
   // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
   // irregularBeatScreen; returns absent on a thin/noisy day.
-  final dayCorrected = correctRr(d.dayRrMs);
+  final dayCorrected = correctRr(d.dayRrMs,
+      rrTsMs: d.dayRrTsMs.isEmpty ? null : d.dayRrTsMs);
   final irregular24h = irregularBeatScreen(
     dayCorrected.nn,
     artifactFraction: (1.0 - dayCorrected.cleanFraction).clamp(0.0, 1.0),

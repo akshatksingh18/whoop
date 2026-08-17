@@ -891,6 +891,12 @@ void main() {
         // Five bands of colour with the minutes in the key.
         expect(find.text('minutes'), findsWidgets, reason: '${arch.name} zones');
         expect(find.textContaining('Z1 · '), findsWidgets);
+        // The edges are drawn off a GUESSED ceiling, so the card that draws
+        // them says so in words. This was only ever pinned by the goldens,
+        // which is why it went four sweeps without anyone being able to say
+        // what the 20 red PNGs were red about.
+        expect(find.text(kZonesWhy), findsOneWidget,
+            reason: '${arch.name} zones must admit the ceiling is estimated');
       }
       expect(tester.takeException(), isNull);
     });
@@ -1331,6 +1337,26 @@ void main() {
   //
   // Regenerate deliberately:
   //   flutter test --update-goldens test/ui2_activity_test.dart
+  //
+  // 2026-08-17 — the twenty `summary_*` PNGs were red for four straight
+  // sweeps and every verify pass hand-filtered them out, which is exactly
+  // where the next real regression would have hidden. Root cause: they were
+  // last baked at f7a73e6 and the screen has legitimately grown twice since.
+  //
+  //   · dc2d4b6 added the MAX HR row — the measured peak was on the history
+  //     row and not on the screen it came from.
+  //   · edbd76a/3df58da added [kZonesWhy] under the zone bar and widened the
+  //     heart-rate chart's range to hold the peak (the `match` y-axis goes
+  //     120/150/180 → 120/160/200).
+  //
+  // Both are content the screens are supposed to carry, so these were STALE
+  // goldens, not a layout defect. The "identical ~18% diff regardless of
+  // theme" signature that made it look like one is just geometry: an inserted
+  // 88 pt row plus a three-line note shift everything below them, and
+  // route/laps/journey share a card of the same height so they shift by the
+  // same amount and diff by the same count. Rebaked, and the two additions
+  // are now pinned in words above (`Max HR`, [kZonesWhy]) so the next drift
+  // reads as a failed string match instead of twenty unreadable PNGs.
   group('goldens', () {
     setUpAll(() async {
       TestWidgetsFlutterBinding.ensureInitialized();

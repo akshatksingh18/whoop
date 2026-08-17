@@ -25,9 +25,18 @@ void main() {
   // A healthy, well-spread baseline: a real robust-z, well within the cap.
   final clean = [for (var i = 0; i < 28; i++) 50.0 + i.toDouble()];
 
+  // TWO drivers, not one. `readinessComposite` refuses to renormalise a single
+  // input up to an effective weight of 1.0, so a one-input fixture now abstains
+  // before the logistic is ever reached — which would have made these tests
+  // pass for the wrong reason. HRV (0.40) + RHR (0.30) clears that floor and
+  // still drives the composite the same way, so the saturation path below is
+  // the thing under test rather than the input-count rule.
+  Metric<Readiness> composite(double hrv, double rhr, List<double> base) =>
+      readinessComposite([hrvInput(hrv, base), rhrInput(rhr, base)]);
+
   group('headlineReadinessScalar', () {
     test('a near-degenerate baseline saturates the logistic → abstained', () {
-      final sat = readinessComposite([hrvInput(61.0, degenerate)]);
+      final sat = composite(61.0, 59.0, degenerate);
       // The bug precondition: it computes, and it saturates the rail.
       expect(sat.present, isTrue);
       expect(sat.value!.score, greaterThan(99),
@@ -38,7 +47,7 @@ void main() {
     });
 
     test('a clean baseline yields a real score, surfaced unchanged', () {
-      final ok = readinessComposite([hrvInput(70.0, clean)]);
+      final ok = composite(70.0, 60.0, clean);
       expect(ok.present, isTrue);
       expect(ok.value!.compositeZ.abs(), lessThanOrEqualTo(kReadinessZCap));
       final score = headlineReadinessScalar(ok);
@@ -50,8 +59,8 @@ void main() {
     });
 
     test('ready→ready bounce: the headline never takes the saturated value', () {
-      final sat = readinessComposite([hrvInput(61.0, degenerate)]);
-      final ok = readinessComposite([hrvInput(70.0, clean)]);
+      final sat = composite(61.0, 59.0, degenerate);
+      final ok = composite(70.0, 60.0, clean);
       // Two consecutive re-derives of the SAME already-`ready` day: a saturated
       // pass then a clean pass. What the ring would headline for each:
       final surfaced = [sat, ok].map(headlineReadinessScalar).toList();
@@ -64,7 +73,7 @@ void main() {
 
     test('exact-zero MAD stays the honest blank path (unchanged)', () {
       // Fully-quantised baseline → robustZ null → composite absent → '—', not 100.
-      final flat = readinessComposite([hrvInput(61.0, List.filled(28, 60.0))]);
+      final flat = composite(61.0, 59.0, List.filled(28, 60.0));
       expect(flat.present, isFalse);
       expect(headlineReadinessScalar(flat), isNull);
     });

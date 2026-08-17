@@ -1053,7 +1053,150 @@ import 'substrate.dart';
 //   ALSO, not a re-derive: schema 43 (`source` on decoded_onehz/decoded_rr,
 //   `external_hr`, `imported_measurement`, `sessions.cadence_spm`,
 //   `sessions.rpe`) and `Substrate.hrValid` (gen5-only, no consumer yet).
-const int kAlgoVersion = 70;
+//
+// v71 — the algorithms audit. No new feature in here. Every item is a number we
+// could not stand behind, either corrected or withdrawn. Pins do not move:
+// analytics stays 391ede4, protocol stays e33e53a, sealed and unread.
+//
+// READ THIS FIRST — THE PIN DOES NOT CARRY THE FIXES BELOW, YET.
+//
+//   Every analytics change in this block is UNCOMMITTED in the sibling working
+//   copy. 391ede4 is analytics HEAD and predates all of it. So a local build
+//   (pubspec_overrides.yaml) derives a day at v71 with these numbers and a
+//   clean checkout derives the SAME day at v71 with v70's — the collision this
+//   constant exists to prevent, and the v67/v68 failure with the sides swapped.
+//   Do not cut a build off this pin. Commit analytics, repin, and bump again in
+//   the same change; then this block is true. Until then v71 is local-only.
+//   Both sibling branches are also UNPUSHED (analytics
+//   `fix/numerical-correctness`, protocol `fix/gen5-bounds-and-write-guard`),
+//   so these SHAs resolve on this machine and nowhere else.
+//
+// WHAT DROPS OR GOES ABSENT — the part that reads like a regression:
+//
+//   1. ACTIVE ENERGY FALLS, HARD. `dailyEnergy` bills only the minutes actually
+//      above the flex-HR gate. Measured through the real code on the real DBs:
+//      gen4 median daily ACTIVE 1,955 -> 48 kcal, total 1,544-5,582 -> 793-3,437
+//      kcal/day; MG active 539 -> 9, 3,042 -> 680, 695 -> 0. A quiet day now
+//      reads essentially basal, because that is what it was. This is the number
+//      people eat against, and the Apple Health / Health Connect ACTIVE_ENERGY
+//      export moves with it. Already-derived days keep the old inflated figure
+//      until re-derived. Strain, TRIMP, steps and active minutes are unchanged.
+//
+//   2. NIGHTLY RMSSD REFUSES ON A JITTERY NIGHT. The lag-1 autocorrelation of
+//      the NN difference series (`diff_acf1`, new key on every night) separates
+//      real beat-to-beat variability from per-second beat quantisation. Both
+//      WHOOP 5 nights in the corpus refuse — so readiness on a W5 runs on its
+//      other three drivers — MG drops 87.7/82.9/76.9 -> 58.0/52.7/48.0 ms, and
+//      gen4 comes down 2-13%. `rmssd_ms`/`pnn50_pct` are absent on all five
+//      gen5/MG nights and none of the thirteen gen4 ones; `rmssd_nocturnal` is
+//      absent on gen5/MG and 0.1-1.8 ms lower on gen4. `confidence` moved on
+//      every night, 0.95 -> 0.30..0.82 — the old value was a constant wearing a
+//      measurement's clothes. Refusal note prefix `rmssd_refused:acf1=`.
+//      Everyone's `ln_rmssd` history is now on a slightly different scale than
+//      the days before it: the trailing baseline re-converges, the transition
+//      day reads off. Deliberately NOT a device-family gate — MG and W5 are the
+//      same family and land on opposite sides of it, so the night's own signal
+//      is the better judge and an unknown strap gets judged on its data.
+//
+//   3. READINESS REFUSES ON A COLD START. Under 2 surviving inputs, or under
+//      0.5 of the weight, the composite is '—' rather than a score built out of
+//      one driver and a shrug. Two of seventeen real gen4 days go: 2026-08-03
+//      (was 44.7) and 08-07 (was 0.8). Note prefix `need_inputs:`.
+//
+//   4. THE TEMP DRIVER REFUSES UNTIL WE MEASURE A SETTLED FRACTION. A nightly
+//      skin-temp mean over a window that includes warm-up and off-wrist is not
+//      a nightly skin temp. Nothing supplies a settled fraction yet (see
+//      BLOCKED), so the driver is refused everywhere and readiness runs on
+//      three drivers: 7 of 17 gen4 days shift, all within 2.1 points except
+//      08-14 at -7.6. THE CHANNEL IS UNTOUCHED — `skin_temp_raw` ingest,
+//      `skinTempAdc`, `skinTempZ`, `skinTempCoverage`, `tempIllnessFlag`,
+//      `menstrualCoverline`, `tempCircadian` all still exist and still publish.
+//      What is gated is one nightly mean's fitness to be used, and the band is
+//      one-sided on purpose so a fever is never trimmed.
+//
+// BASELINES, AND THEREFORE EVERYTHING GATED ON A Z:
+//
+//   5. `Baselines.update` — the engine under recovery, illness and stress.
+//      Measured on real gen4 nights: resting_hr spread +11.0%, hrv spread
+//      +5.6%, |z| down 11.5% and 5.6%. Every z threshold in the stack shifts
+//      with it. `nightsSinceUpdate` now also increments on a hard-outlier
+//      night, so fourteen consecutive rejected nights correctly read `stale`
+//      instead of `trusted`.
+//
+//   6. SLEEP CONFIDENCE moves on 3 of 8 real gen4 nights, largest 0.440 ->
+//      0.600. It scales `stageIntervals` half-widths and stamps three sleep
+//      Metrics, so the stage ranges on screen widen or narrow with it.
+//
+// THINGS THAT COULD NEVER FIRE, AND NOW CAN:
+//
+//   7. `glassBoxReadiness` published an empty `drivers` list and "nothing moved
+//      beyond your normal day-to-day noise" on essentially every night. Both
+//      populate now. The `past_mdc` JSON key is unchanged on the wire but means
+//      "outside your usual spread" (SWC), which is what the detail screen's
+//      copy already said.
+//
+//   8. `overreachingConjunction` was structurally unable to fire.
+//      `nights_elevated` can be non-zero and `both_point_same_way` true.
+//
+//   9. Cross-day circadian: `circadian_rhythm`, `circadian_cosinor` and
+//      `circadian_coverage` go from permanently absent to populated.
+//
+// THINGS THAT DISAPPEAR:
+//
+//  10. JOURNAL INSIGHTS GET MUCH STRICTER — permutation p, Benjamini-Hochberg q
+//      over the whole grid. A small journal now produces zero insight rows
+//      where it produced several, and zero is the honest answer the card has to
+//      be able to say. New optional `p`/`q`; thin rows come back
+//      `insufficient` with `need_history:have=N,need=M`, which nothing reads
+//      yet and should be surfaced.
+//
+//  11. `alertnessForecast` changes shape, LENGTH (the curve now ends with the
+//      waking day, so it varies with sleep duration), trough window and note.
+//      Any golden over that curve moves.
+//
+//  12. Withdrawn keys and wrong attributions: `prsa` loses `risk_tier` (no
+//      readers), `segmentChangePoints` says GREEDY / Killick 2012 and doubles
+//      its default penalty (no production callers), `sleepDebt` loses a
+//      citation it never implemented.
+//
+//  13. `multivariateAnomaly`'s default gate is 1.25x-13.23x wider under 90
+//      nights of baseline. Zero flags before and zero after on the real corpus,
+//      so nothing on screen changes today — it removes ~4%/night of false-flag
+//      exposure during a new user's first month.
+//
+// BLOCKED ON EDGE WIRING — INERT AT THIS VERSION, EACH ONE LINE, EACH ITS OWN
+// BUMP WHEN IT LANDS:
+//
+//   * `onehz_pipeline.dart:296/:388` — `correctRr(d.sleepRrMs)` /
+//     `correctRr(d.dayRrMs)` want `rrTsMs: d.sleepRrTsMs` / `d.dayRrTsMs`. The
+//     default path is byte-identical, so nothing moves until they are passed.
+//     The moment they are: the analysed span goes from 0.13-0.87 of the window
+//     to 0.99-1.00, LF/HF moves on 12 of 13 nights and CROSSES 1.0 — the line
+//     people read as sympathetic-vs-vagal — on three (MG 08-12 0.65 -> 1.53,
+//     W5 08-11 0.72 -> 1.25, gen4 08-09 0.88 -> 1.01), VLF by up to 33x, and
+//     rsaRespRate stops publishing 9.00 br/min on gen4.
+//   * `onehz_pipeline.dart:329` — `hrvTime(nn, nnTimesMs: nnTimes)` wants
+//     `artifactFraction: artifactFraction`, already in scope twelve lines above
+//     where `hrvFreq` gets it. Worth 13.7-15.3% of confidence on the MG nights
+//     and 1.8-5.1% on gen4; until then half of item 2's confidence fix is dead.
+//   * `derivation_engine.dart:4010` — `ana.cusumChangePoints(rhrSeries, h: 5.0)`
+//     wants `dates: rhrDates`, built four lines above it. Until then the
+//     critical-priority "Your resting heart-rate trend shifted" notification
+//     still accumulates evidence straight across a wear gap.
+//   * Nothing measures a settled fraction, so `nightlySkinTemp` is unwired and
+//     item 4 fails closed everywhere. When it lands, nightly skin temp becomes
+//     the mean of the settled portion rather than of the window: +0.2 to +6.0
+//     counts on real gen4 nights, and the stored `skin_temp_adc` history is
+//     old-rule until a recompute regenerates it.
+//
+// RULINGS, unchanged and re-checked: protocol sealed, not read, not edited.
+// The gen4 skin-temp channel stays. SpO2 still refuses on every day of every
+// DB. `_crossDayWindow` is still 90. Water is still a reminder.
+//
+// STALE IN THIS FILE, not fixed here because it is another owner's diff: the
+// comments at :4377, :4425, :5023 and the header block at :637-666 all still
+// quote the old 0.50*HRmax flex gate that item 1 moved.
+const int kAlgoVersion = 71;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1064,7 +1207,7 @@ const int kAlgoVersion = 70;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = '391ede4cc214ba85bbd6b25a8275742bdf2ed1cc';
+const String kAnalyticsPin = '1a131c96e267b894c7872cdf172a3a8a1ae888e8';
 const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

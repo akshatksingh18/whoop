@@ -156,18 +156,34 @@ dependencies:
       #   `git show 98d42b6:lib/src/onehz/device.dart |
       #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
       #
-      # THE PIN IS BEHIND THE WORKING COPY, ON PURPOSE — this is the SHA, and
-      # the sibling's remaining work is uncommitted. Nine symbols edge lib/
-      # already calls do NOT exist at 98d42b6: alertnessForecast,
-      # AlertnessForecast, CvhrNight, CvhrDistribution, cvhrPersonalDistribution,
-      # cvhrDistributionWindowNights, StageInterval, stageIntervals,
-      # journalFieldLagDays. Local builds resolve them through
-      # pubspec_overrides.yaml; a clean `flutter pub get` against this pin does
-      # not compile. Commit analytics, then repin and bump kAlgoVersion in the
-      # same change.
+      # analytics `fix/numerical-correctness` @ 391ede4 — analytics HEAD, and
+      # what kAlgoVersion 71 is pinned against. This is the commit that landed
+      # the nine symbols edge lib/ was already calling and 98d42b6 did not have
+      # (alertnessForecast, AlertnessForecast, CvhrNight, CvhrDistribution,
+      # cvhrPersonalDistribution, cvhrDistributionWindowNights, StageInterval,
+      # stageIntervals, journalFieldLagDays) plus observed_max_hr, session_cost,
+      # night_hrv_shape, cycle_lengths and the cvhr apnea screen. The "a clean
+      # checkout does not compile" warning that used to sit here is RESOLVED —
+      # checked symbol by symbol against this SHA.
       #
-      # UNPUSHED at time of writing, same as protocol.
-      ref: 391ede4cc214ba85bbd6b25a8275742bdf2ed1cc
+      # Verified against the SHA:
+      #   `git show 391ede4:lib/src/onehz/human/alertness_forecast.dart | head -1`
+      #   `git show 391ede4:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # THE PIN IS AGAIN BEHIND THE WORKING COPY, and this time it matters more:
+      # the whole algorithms-audit wave (readiness refusing on a cold start, the
+      # RMSSD jitter gate, the active-energy correction, the EWMA baseline fix,
+      # BH-corrected journal insights) is UNCOMMITTED in the sibling. Everything
+      # kAlgoVersion 71's changelog describes lives there and NOT at this SHA,
+      # so a local build and a clean checkout produce different numbers at the
+      # same version. Commit analytics, repin here AND in kAnalyticsPin, and
+      # bump kAlgoVersion again — one change, or it is v67/v68 a third time.
+      #
+      # UNPUSHED at time of writing, same as protocol: both SHAs live only on
+      # the local sibling clones, so these pins resolve on this machine and
+      # nowhere else.
+      ref: 1a131c96e267b894c7872cdf172a3a8a1ae888e8
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

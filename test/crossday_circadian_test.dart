@@ -159,10 +159,9 @@ void main() {
       expect(_npOf(b)['note'], 'need_baseline:have=0,need=$kCircadianNpMinDays');
     });
 
-    test('only the MOST RECENT consecutive run is used', () {
-      // 12 days with day 5 incomplete: the run before it (0-4) is discarded and
-      // the run after it (6-11, six days) is what remains — below the
-      // nonparametric minimum of 7, so it must abstain at have=6 rather than
+    test('the LONGEST consecutive run is used', () {
+      // 12 days with day 5 incomplete: two runs, 0-4 (five days) and 6-11 (six
+      // days). The longer one wins — and either way it must abstain rather than
       // silently stitching 11 days across the hole.
       final b = buildCrossDayBundle(
         _days(12, profileFor: (i) => i == 5 ? (_profile()..[3] = null) : null),
@@ -170,6 +169,25 @@ void main() {
       );
       expect(_covOf(b)['days_used'], 6);
       expect(_npOf(b)['note'], 'need_baseline:have=6,need=$kCircadianNpMinDays');
+    });
+
+    test('RD-03: a trailing incomplete day cannot zero the block', () {
+      // THE BUG THIS FILE EXISTS TO CATCH NOW. `days` always ends with TODAY —
+      // flagged `unsettled`, never dropped — and today cannot have 24 covered
+      // local hours until midnight. Reading the run AFTER the loop meant that
+      // last day cleared it every time, so IS/IV and the cosinor were absent
+      // permanently while the note said `have=0` about a corpus with 88–97 %
+      // daily coverage. On the real gen4 export the shipped code found have=0
+      // where the data holds a five-day run.
+      final b = buildCrossDayBundle(
+        _days(11, profileFor: (i) => i == 10 ? (_profile()..[3] = null) : null),
+        profile,
+      );
+      expect(_covOf(b)['days_used'], 10);
+      expect(_covOf(b)['first_day'], _date(0));
+      expect(_covOf(b)['last_day'], _date(9));
+      expect(_npOf(b)['value'], isA<Map>());
+      expect(_cosOf(b)['value'], isA<Map>());
     });
 
     test('a CALENDAR gap breaks the run even when both sides are complete', () {

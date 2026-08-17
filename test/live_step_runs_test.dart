@@ -218,9 +218,14 @@ void main() {
     expect(rows[0]['steps'], (rawWalk1 * ana.StepParams.gain).round());
     expect(rows[1]['steps'], (rawWalk2 * ana.StepParams.gain).round());
     // The shape of the bug this replaces: gain on the run AND on the session.
+    // The default gain is 1.00 since the 2026-08-16 steps audit, so a second
+    // application is numerically invisible and `lessThan(doubled)` no longer
+    // bites — it holds against any non-unit gain, and separately against the
+    // exact value the old 1.11 double-application used to write.
     final doubled = (rawWalk1 * ana.StepParams.gain * ana.StepParams.gain)
         .round();
-    expect(rows[0]['steps'], lessThan(doubled));
+    expect(rows[0]['steps'], lessThanOrEqualTo(doubled));
+    expect(rows[0]['steps'], isNot((rawWalk1 * 1.11 * 1.11).round()));
 
     // 4. The still minutes contributed nothing at all.
     expect(ana.pedometer(minutes[5]), 0);

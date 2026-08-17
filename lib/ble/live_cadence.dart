@@ -1,6 +1,6 @@
 // Session cadence from the band's live 100 Hz IMU stream.
 //
-// The step COUNT was already wired: `_ingestLiveMagsAt` runs the locked AN-2554
+// The step COUNT was already wired: `_ingestLiveMagsAt` runs the analytics
 // `pedometer` over each completed 60 s chunk of live |a| samples. A completed
 // chunk is one minute, so its step count IS a steps-per-minute reading — the
 // cadence needs no second decode, no second stream and no second algorithm,
@@ -36,8 +36,16 @@ const int kMinCadenceMinutes = 3;
 /// have one.
 ///
 /// [rawMinuteSteps] are pre-gain counts, exactly as `ana.pedometer` returns
-/// them; the AN-2554 calibration gain is applied here so the gait gate is tested
-/// against a real cadence rather than a raw one.
+/// them.
+///
+/// GATE FIRST, GAIN LAST. `ana.StepParams.gain` used to be applied to each
+/// minute BEFORE the 60–200 spm test, which stretched the band by whatever the
+/// gain was: at the old 1.11 a raw minute of 54 read 60 and entered the median,
+/// and a raw 181 read 201 and was thrown out — an 11% wider window at both ends
+/// than the constants say. The band is a band of REAL cadences (it is the same
+/// one `livePedometer` applies to its own pre-gain count), so the raw minute is
+/// what it must test. The gain is a per-user count trim and belongs on the
+/// answer, applied once, at the end.
 ///
 /// NULL IS THE ANSWER for a session with fewer than [kMinCadenceMinutes]
 /// gait-like minutes. It is never 0 and never the mean of everything — an
@@ -46,17 +54,15 @@ const int kMinCadenceMinutes = 3;
 int? sessionCadenceSpm(List<int> rawMinuteSteps) {
   final gait = <int>[
     for (final raw in rawMinuteSteps)
-      if (raw > 0)
-        if ((raw * ana.StepParams.gain).round() case final spm
-            when spm >= kMinCadenceSpm && spm <= kMaxCadenceSpm)
-          spm,
+      if (raw >= kMinCadenceSpm && raw <= kMaxCadenceSpm) raw,
   ];
   if (gait.length < kMinCadenceMinutes) return null;
   gait.sort();
   final mid = gait.length ~/ 2;
-  // Even count: mean of the two middle minutes, rounded — cadence is reported
-  // as a whole number of steps per minute.
-  return gait.length.isOdd
-      ? gait[mid]
-      : ((gait[mid - 1] + gait[mid]) / 2).round();
+  // Even count: mean of the two middle minutes — cadence is reported as a whole
+  // number of steps per minute, so the gain and the rounding both land here.
+  final median = gait.length.isOdd
+      ? gait[mid].toDouble()
+      : (gait[mid - 1] + gait[mid]) / 2;
+  return (median * ana.StepParams.gain).round();
 }

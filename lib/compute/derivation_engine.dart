@@ -1196,7 +1196,7 @@ import 'substrate.dart';
 // STALE IN THIS FILE, not fixed here because it is another owner's diff: the
 // comments at :4377, :4425, :5023 and the header block at :637-666 all still
 // quote the old 0.50*HRmax flex gate that item 1 moved.
-const int kAlgoVersion = 71;
+const int kAlgoVersion = 72;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1207,7 +1207,7 @@ const int kAlgoVersion = 71;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = '1a131c96e267b894c7872cdf172a3a8a1ae888e8';
+const String kAnalyticsPin = '73a3ca8e783b0269309c2e2848fe532da3ff0cc8';
 const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

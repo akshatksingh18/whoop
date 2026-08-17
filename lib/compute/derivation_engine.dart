@@ -1207,7 +1207,7 @@ const int kAlgoVersion = 72;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = '73a3ca8e783b0269309c2e2848fe532da3ff0cc8';
+const String kAnalyticsPin = '52fca080657208fe927cc40c01dcc64fd36fecad';
 const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

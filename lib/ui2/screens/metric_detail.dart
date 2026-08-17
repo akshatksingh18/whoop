@@ -14,6 +14,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/local_repository.dart';
 import '../ui2.dart';
+import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 
@@ -520,6 +521,16 @@ class _MetricDetailState extends State<MetricDetail> {
         if (d.movers.isNotEmpty)
           Section('What moves it', _movers(c, d.movers)),
         const SizedBox(height: S.x5),
+        // Steps are the one metric assembled from SPANS of the day, each
+        // counted by a different sensor. That breakdown is a day's worth of
+        // detail and it belongs behind a tap, not on the tile and not as a
+        // fourth card here.
+        if (widget.metricKey == 'steps') ...[
+          detailLinkRow(c, LucideIcons.footprints, 'Where today\'s came from',
+              'Each stretch of today, and what counted it',
+              () => go(c, const DayStepsDetail())),
+          const SizedBox(height: S.x3),
+        ],
         investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ],
     ]);
@@ -808,25 +819,26 @@ Widget detailScaffold(BuildContext c, String title, List<Widget> body,
   );
 }
 
-/// The one door into density 3. Deliberately plain: it is a workbench entrance,
-/// not a feature.
-Widget investigateRow(BuildContext c, VoidCallback onTap) {
+/// A plain door onto another screen. Deliberately quiet: a doorway is not a
+/// card, and a metric screen that grows a second loud card stops having a
+/// headline.
+Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
+    VoidCallback onTap) {
   final p = P.of(c);
   return Pressable(
     onTap: onTap,
-    semanticLabel: 'Investigate: raw readings, method and sensor quality',
+    semanticLabel: '$title: $sub',
     child: Container(
       padding: const EdgeInsets.all(S.x4),
       decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
       child: Row(children: [
-        Icon(LucideIcons.cpu, size: 17, color: p.ink3),
+        Icon(icon, size: 17, color: p.ink3),
         const SizedBox(width: S.x3),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Investigate',
+            Text(title,
                 style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            Text('Raw readings, method, sensor quality',
-                style: F.over.copyWith(color: p.ink3)),
+            Text(sub, style: F.over.copyWith(color: p.ink3)),
           ]),
         ),
         Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
@@ -834,6 +846,15 @@ Widget investigateRow(BuildContext c, VoidCallback onTap) {
     ),
   );
 }
+
+/// The one door into density 3. Deliberately plain: it is a workbench entrance,
+/// not a feature.
+Widget investigateRow(BuildContext c, VoidCallback onTap) => detailLinkRow(
+    c,
+    LucideIcons.cpu,
+    'Investigate',
+    'Raw readings, method, sensor quality',
+    onTap);
 
 /// A two-column legend. Used by the hypnogram and the overnight stack.
 class Legend extends StatelessWidget {

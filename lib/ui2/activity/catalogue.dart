@@ -54,8 +54,20 @@ class Activity {
   /// activity — a different default, which the user can flip either way.
   final bool private;
 
+  /// Locomotion on foot, so the strap's 100 Hz pedometer may count its steps.
+  ///
+  /// NOT the same question as [gps] — cycling records a route and takes no
+  /// steps; a treadmill takes steps and records nothing. Default false: an
+  /// activity is only gait when someone has said so, because the failure is
+  /// silent and expensive. Wrist step error is UNBOUNDED ABOVE on rhythmic arm
+  /// work (OxWalk: +199.5% worst case at the wrist against +5.3% at the hip),
+  /// so rowing or boxing admitted here would bank hundreds of steps nobody
+  /// took. `kGaitStepTypeKeys` is derived from this flag and pinned to it in
+  /// both directions by test/gait_step_types_test.dart.
+  final bool gait;
+
   const Activity(this.name, this.icon, this.color, this.track, this.met,
-      {this.gps = false, this.private = false});
+      {this.gps = false, this.private = false, this.gait = false});
 
   /// kcal = MET × 3.5 × kg / 200 × minutes.
   ///
@@ -78,14 +90,14 @@ class ActGroup {
 const activityLibrary = <ActGroup>[
   ActGroup('Cardio', LucideIcons.heartPulse, [
     Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,
-        gps: true),
+        gps: true, gait: true),
     Activity(
         'Trail running', LucideIcons.mountain, C.green, Track.distance, 10.5,
-        gps: true),
+        gps: true, gait: true),
     Activity('Walking', LucideIcons.footprints, C.teal, Track.distance, 3.5,
-        gps: true),
+        gps: true, gait: true),
     Activity('Hiking', LucideIcons.mountainSnow, C.green, Track.distance, 6.0,
-        gps: true),
+        gps: true, gait: true),
     Activity('Cycling', LucideIcons.bike, C.blue, Track.distance, 8.0,
         gps: true),
     Activity('Indoor bike', LucideIcons.bike, C.blue, Track.duration, 7.0),
@@ -97,7 +109,7 @@ const activityLibrary = <ActGroup>[
     // Tracked by duration, not distance: a treadmill belt reports nothing to
     // this app and a wrist cannot measure indoor distance, so the session is
     // its heart rate and its clock.
-    Activity('Treadmill', LucideIcons.footprints, C.green, Track.duration, 8.3),
+    Activity('Treadmill', LucideIcons.footprints, C.green, Track.duration, 8.3, gait: true),
     Activity('Jump rope', LucideIcons.circleDashed, C.red, Track.interval, 12.3),
   ]),
   ActGroup('Strength', LucideIcons.dumbbell, [
@@ -138,7 +150,7 @@ const activityLibrary = <ActGroup>[
     Activity('Track intervals', LucideIcons.timer, C.red, Track.interval, 11.8),
     Activity(
         'Cross country', LucideIcons.mountain, C.green, Track.distance, 9.0,
-        gps: true),
+        gps: true, gait: true),
     Activity('Hurdles', LucideIcons.zap, C.orange, Track.interval, 10.0),
     Activity('Long jump', LucideIcons.moveUpRight, C.orange, Track.duration, 6.0),
     Activity('Shot put', LucideIcons.circle, C.purple, Track.duration, 4.0),
@@ -177,7 +189,7 @@ const activityLibrary = <ActGroup>[
     Activity('Housework', LucideIcons.house, C.n500, Track.duration, 3.3),
     Activity('Gardening', LucideIcons.sprout, C.green, Track.duration, 3.8),
     Activity('Dog walking', LucideIcons.dog, C.teal, Track.distance, 3.0,
-        gps: true),
+        gps: true, gait: true),
     Activity('Childcare', LucideIcons.baby, C.pink, Track.duration, 3.0),
     Activity('DIY', LucideIcons.hammer, C.orange, Track.duration, 4.5),
     Activity('Shopping', LucideIcons.shoppingBag, C.n500, Track.duration, 2.3),
@@ -229,11 +241,11 @@ const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[
   Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,
-      gps: true),
+      gps: true, gait: true),
   Activity('Weight training', LucideIcons.dumbbell, C.purple, Track.sets, 6.0),
   Activity('Cycling', LucideIcons.bike, C.blue, Track.distance, 8.0, gps: true),
   Activity('Walking', LucideIcons.footprints, C.teal, Track.distance, 3.5,
-      gps: true),
+      gps: true, gait: true),
   Activity('Football', LucideIcons.volleyball, C.green, Track.duration, 8.0),
   Activity('Yoga', LucideIcons.personStanding, C.teal, Track.stillness, 3.0),
 ];

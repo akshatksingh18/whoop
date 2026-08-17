@@ -106,6 +106,20 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
 
+  /// [date]'s steps as the RESOLVED spans behind them — when each stretch was
+  /// counted, by which sensor, and inside which session if any.
+  ///
+  /// `{total, strap, phone, day_total, day_source, note, spans: [{start_ts,
+  /// end_ts, steps, source: 'band'|'phone', activity}]}`, epoch SECONDS.
+  ///
+  /// The spans are post-ladder (see `resolveDaySteps`), so they sum to `total`
+  /// and never show the same walk twice. `day_total`/`day_source` are the
+  /// number the day actually published, which is NOT always this sum: with no
+  /// span source at all a gen5 day falls back to the strap's on-chip counter,
+  /// a whole-day figure with no times behind it and therefore no spans.
+  Future<Map<String, dynamic>> getDaySteps(String date) =>
+      throw UnimplementedError('re-layer: getDaySteps');
+
   /// Every day ('YYYY-MM-DD') the lookback screen can actually RENDER — the days
   /// with a genuine derived bundle (`getDayTimeline` returns real data for), not
   /// raw-only or skip-marker days that would render empty — newest first. Bounds

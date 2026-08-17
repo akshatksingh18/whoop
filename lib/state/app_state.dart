@@ -2406,8 +2406,59 @@ class AppState extends ChangeNotifier {
 
   /// Steps counted on the live 100 Hz stream this connected session (real,
   /// gain-applied). Used for cadence calibration. 0 when not streaming.
-  int get _liveRaw =>
-      _committedRaw + (_magMin.isEmpty ? 0 : ana.pedometer(_magMin));
+  ///
+  /// The still-filling partial minute is dropped once the stream has been
+  /// MEASURED below [kMinLiveSampleRateHz] — a count off a stream that slow is
+  /// 60-90% short, so it is absent rather than wrong.
+  ///
+  /// ponytail: the rate used here is the last COMPLETED chunk's, so the first
+  /// minute of a too-slow session can still show a live readout before the
+  /// first measurement lands. It is never banked (the commit path measures its
+  /// own chunk, below). Measure the partial too only if a rate that low is ever
+  /// seen on real hardware.
+  int get _liveRaw {
+    if (_magMin.isEmpty) return _committedRaw;
+    final hz = _liveHz;
+    if (hz != null && hz < kMinLiveSampleRateHz) return _committedRaw;
+    return _committedRaw + ana.pedometer(_magMin);
+  }
+
+  // ── the two safety gates on this tier — see live_step_runs.dart ────────────
+  /// Phone-clock instant the current chunk's first sample arrived AFTER, i.e.
+  /// the previous frame's arrival. The span from here to the frame that
+  /// completes the chunk is exactly the wall time those samples took.
+  int? _chunkStartMs;
+
+  /// Measured samples/second of the last completed chunk. Null until one
+  /// completes — nothing has been measured yet.
+  double? _liveHz;
+  bool _liveHzLogged = false;
+
+  /// Set when the last completed chunk was refused for running under the floor.
+  bool _liveTooSlow = false;
+
+  /// Why the strap contributed no steps right now, or null when it did.
+  ///
+  /// Never a number and never a zero: both gates make a window ABSENT, and this
+  /// is the sentence that says which one did it. A workout screen or a per-day
+  /// source view reads this instead of drawing a bare dash.
+  String? get liveStepsAbsentReason {
+    final t = activeWorkout?.type;
+    if (t != null && !isGaitStepType(t)) {
+      return 'Steps are only counted from the strap while you are on foot — '
+          'a wrist counts arm rhythm as strides. Your phone covers these '
+          'minutes.';
+    }
+    if (_liveTooSlow) {
+      final hz = _liveHz;
+      final rate = hz == null
+          ? ''
+          : ' (${hz.toStringAsFixed(0)} Hz, needs '
+              '${kMinLiveSampleRateHz.toStringAsFixed(0)})';
+      return 'The strap sent motion too slowly to count steps$rate.';
+    }
+    return null;
+  }
 
   // The session-total getter that used to feed persistence is gone with the
   // session-hull row it wrote. What persists is per-run now ([_bankGaitRuns]),
@@ -2458,20 +2509,41 @@ class AppState extends ChangeNotifier {
   void _ingestLiveMagsAt(proto.ImuFrame f, int nowMs) {
     final mags = f.mags;
     if (mags.isEmpty) return;
-    // Survives `_resetLivePedometer()` — see [_workoutSawSamples].
-    if (activeWorkout != null) _workoutSawSamples = true;
-    // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
-    // threshold rides the ~1 g baseline). `e` is this frame's 1 Hz-equivalent
-    // ENMO (mean |a| − 1 g), read below by the stillness nudge and the posture
-    // check. It no longer feeds a cadence calibration — that was deleted along
-    // with the 1 Hz step estimator that was its only consumer (kAlgoVersion
-    // v55).
+    // `e` is this frame's 1 Hz-equivalent ENMO (mean |a| − 1 g), read below by
+    // the stillness nudge and the posture check. Computed for EVERY frame:
+    // those two are about wear and movement, not about steps, so neither gate
+    // below may switch them off. It no longer feeds a cadence calibration —
+    // that was deleted along with the 1 Hz step estimator that was its only
+    // consumer (kAlgoVersion v55).
     var magSum = 0.0;
     for (final m in mags) {
-      _magMin.add(m);
       magSum += m;
     }
     final e = (magSum / mags.length) - 1.0;
+
+    // GATE 1 — gait activities only. See kGaitStepTypeKeys. No active session
+    // is countable (passive wear is the case the ladder was built for); a
+    // session that is not locomotion on foot is not.
+    final w = activeWorkout;
+    if (w == null || isGaitStepType(w.type)) {
+      // Survives `_resetLivePedometer()` — see [_workoutSawSamples].
+      if (w != null) _workoutSawSamples = true;
+      // The chunk's clock starts at the PREVIOUS frame's arrival (this one is
+      // when its samples landed), so the span measured at commit is exactly the
+      // wall time this chunk's samples took. `_liveLastIngestMs` is still the
+      // previous frame here — it is advanced below.
+      _chunkStartMs ??= _liveLastIngestMs ?? nowMs;
+      // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's
+      // dynamic threshold rides the ~1 g baseline).
+      _magMin.addAll(mags);
+    } else if (_magMin.isNotEmpty) {
+      // Drop the partial minute rather than splice non-gait signal onto gait
+      // signal and count the seam. Up to 60 s of real walking is lost at the
+      // moment a non-gait session starts; absent beats a fabricated seam, and
+      // the pedometer re-seeds `dynVal` from each chunk's own mean anyway.
+      _magMin.clear();
+      _chunkStartMs = null;
+    }
     // Phone-clock extent of the ingested stream — the only observation that
     // reports how long this session actually ran (the band's record timestamp
     // typically repeats). Used as a DURATION only; see [_bandTsAt].
@@ -2503,6 +2575,28 @@ class AppState extends ChangeNotifier {
     while (_magMin.length >= _minuteSamples) {
       final minute = _magMin.sublist(0, _minuteSamples);
       _magMin.removeRange(0, _minuteSamples);
+      // GATE 2 — the MEASURED rate of the samples in this chunk, not
+      // kLiveSampleRateHz. See achievedSampleRateHz / kMinLiveSampleRateHz.
+      final hz = achievedSampleRateHz(_minuteSamples, _chunkStartMs, nowMs);
+      _chunkStartMs = nowMs;
+      if (hz != null) {
+        _liveHz = hz;
+        if (!_liveHzLogged) {
+          _liveHzLogged = true;
+          // The number STEPS_ALGO §5 says is documented nowhere. Once per
+          // connected session, so it finally gets recorded somewhere.
+          _log(
+            '[steps] live IMU measured ${hz.toStringAsFixed(1)} Hz '
+            '(floor ${kMinLiveSampleRateHz.toStringAsFixed(0)} Hz)',
+          );
+        }
+      }
+      _liveTooSlow = hz == null || hz < kMinLiveSampleRateHz;
+      if (_liveTooSlow) {
+        // ABSENT, never zero: nothing committed, nothing banked, no minute
+        // handed to sessionCadenceSpm. `liveStepsAbsentReason` says why.
+        continue;
+      }
       final before = _committedRaw;
       final minuteSteps = ana.pedometer(minute);
       _committedRaw += minuteSteps;
@@ -2547,6 +2641,12 @@ class AppState extends ChangeNotifier {
     _committedRaw = 0;
     _lastLiveUiNotifyMs = 0;
     _imuStreamSeen = false;
+    // The measured rate is a property of THIS link — a reconnect must re-measure
+    // rather than carry a verdict (or a "too slow" note) across the gap.
+    _chunkStartMs = null;
+    _liveHz = null;
+    _liveHzLogged = false;
+    _liveTooSlow = false;
     _liveCoverStartTs = null;
     _liveFirstIngestMs = null;
     _liveLastIngestMs = null;
@@ -2564,8 +2664,19 @@ class AppState extends ChangeNotifier {
   /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
     // The still-filling partial minute is real signal that was about to be
-    // discarded: count it over the time it actually sampled.
-    if (_magMin.isNotEmpty && _liveLastIngestMs != null) {
+    // discarded: count it over the time it actually sampled — but only if that
+    // time says it arrived fast enough to count (GATE 2). The tail has its own
+    // measurable span, so it is measured on its own rather than inheriting the
+    // last chunk's rate.
+    final tailHz = achievedSampleRateHz(
+      _magMin.length,
+      _chunkStartMs,
+      _liveLastIngestMs,
+    );
+    if (_magMin.isNotEmpty &&
+        _liveLastIngestMs != null &&
+        tailHz != null &&
+        tailHz >= kMinLiveSampleRateHz) {
       _addGaitChunk(_liveLastIngestMs!, _magMin.length, ana.pedometer(_magMin));
     }
     final runs = _gaitRuns.runs;

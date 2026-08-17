@@ -1161,6 +1161,71 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> getDaySteps(String date) async {
+    final r = await LocalDb.resolvedStepsForDay(date);
+    // Only for naming: a span that sits inside a session gets that session's
+    // name. Cheap — one indexed read over one day.
+    final sessions = r.spans.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await LocalDb.sessionsInRange(
+            _localMidnightSec(date),
+            _localDayEndSec(date),
+          );
+    // THE EXACT DAY, never `_bundleForDate`'s latest-complete fallback: the
+    // spans come from this date's coverage rows, and pairing them with another
+    // day's published total is the one mismatch this screen must not show.
+    final st = _sub(await _bundle(date), 'steps');
+    return {
+      'total': r.total,
+      'strap': r.strap,
+      'phone': r.phone,
+      'day_total': (st?['value'] as num?)?.toInt(),
+      'day_source': st?['source'] as String?,
+      'note': st?['note'] as String?,
+      'spans': [
+        for (final s in r.spans)
+          {
+            'start_ts': s.startTs,
+            'end_ts': s.endTs,
+            'steps': s.steps,
+            'source': s.fromBand
+                ? LocalDb.kStepSourceBand
+                : LocalDb.kStepSourcePhone,
+            'activity': _sessionOver(sessions, s.startTs, s.endTs),
+          },
+      ],
+    };
+  }
+
+  /// The session a step span sits inside, by type — or null.
+  ///
+  /// HALF THE SPAN OR MORE has to fall inside the session. Naming one is a
+  /// claim about where those steps came from, and a walk that merely touches
+  /// the end of a workout did not happen during it.
+  String? _sessionOver(
+    List<Map<String, dynamic>> sessions,
+    int startTs,
+    int endTs,
+  ) {
+    final dur = endTs - startTs;
+    if (dur <= 0) return null;
+    String? best;
+    var bestOv = 0;
+    for (final s in sessions) {
+      final a = (s['start_ts'] as num?)?.toInt();
+      final b = (s['end_ts'] as num?)?.toInt();
+      final type = s['type'] as String?;
+      if (a == null || b == null || type == null || type.isEmpty) continue;
+      final ov = math.min<int>(endTs, b) - math.max<int>(startTs, a);
+      if (ov > bestOv) {
+        bestOv = ov;
+        best = type;
+      }
+    }
+    return bestOv * 2 >= dur ? best : null;
+  }
+
+  @override
   Future<Map<String, dynamic>> getDayStress(String date) async {
     // Stress = the pipeline's Baevsky Stress Index block (resting autonomic
     // tension; transparent RR-histogram metric → 0–100 score). No fallback: the

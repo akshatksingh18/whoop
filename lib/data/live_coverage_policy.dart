@@ -198,13 +198,29 @@ class CoverageSpan {
 
 /// A day's steps after the ladder has run, split by the sensor that counted.
 class ResolvedDaySteps {
-  const ResolvedDaySteps({this.strap = 0, this.phone = 0});
+  const ResolvedDaySteps({
+    this.strap = 0,
+    this.phone = 0,
+    this.spans = const [],
+  });
 
   /// Steps credited to the band's 100 Hz pedometer.
   final int strap;
 
   /// Steps credited to the phone's pedometer.
   final int phone;
+
+  /// The spans AS CREDITED, in time order — never the raw table rows.
+  ///
+  /// A screen that draws the day's spans has to draw these: a raw row still
+  /// carries the steps the ladder took back off it, so a strap session inside a
+  /// phone-covered hour would be drawn twice, showing the user a walk the total
+  /// (correctly) only counts once. Spans credited nothing are dropped for the
+  /// same reason.
+  ///
+  /// Each span is rounded on its own, so re-summing this list can differ from
+  /// [total] by a step or two. [total] is the number to publish.
+  final List<CoverageSpan> spans;
 
   int get total => strap + phone;
 
@@ -274,7 +290,20 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
       phone += s.credited;
     }
   }
-  return ResolvedDaySteps(strap: strap.round(), phone: phone.round());
+  return ResolvedDaySteps(
+    strap: strap.round(),
+    phone: phone.round(),
+    spans: [
+      for (final s in spans)
+        if (s.credited.round() > 0)
+          CoverageSpan(
+            startTs: s.startTs,
+            endTs: s.endTs,
+            steps: s.credited.round(),
+            fromBand: s.fromBand,
+          ),
+    ]..sort((a, b) => a.startTs.compareTo(b.startTs)),
+  );
 }
 
 /// Persistence-boundary guard: normalise a window before it reaches the

@@ -205,7 +205,8 @@ const _notComponents = {
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
-  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'ZonesDetail',
+  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'DayStepsDetail',
+  'ZonesDetail',
   'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',

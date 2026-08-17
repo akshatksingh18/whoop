@@ -231,6 +231,125 @@ void main() {
     expect(ana.pedometer(minutes[5]), 0);
   });
 
+  // ── GATE 1: gait activities only ───────────────────────────────────────────
+  group('the gait gate', () {
+    test('the pure predicate accepts foot locomotion and nothing else', () {
+      expect(isGaitStepType('walking'), isTrue);
+      expect(
+        isGaitStepType('Trail running'.toLowerCase()),
+        isFalse,
+        reason: 'the stored key is trail_running, not "trail running"',
+      );
+      expect(isGaitStepType('trail_running'), isTrue);
+      expect(isGaitStepType('Running'), isTrue, reason: 'case-insensitive');
+      // The unbounded-over-count cases: rhythmic arm work with no strides.
+      expect(isGaitStepType('rowing'), isFalse);
+      expect(isGaitStepType('boxing'), isFalse);
+      expect(isGaitStepType('elliptical'), isFalse);
+      expect(isGaitStepType('weight_training'), isFalse);
+      // "No session" is not a gait type — the caller decides that separately.
+      expect(isGaitStepType(null), isFalse);
+    });
+
+    test(
+      'a ROWING session banks no steps from a walking-shaped signal',
+      () async {
+        final app = AppState.forTesting();
+        addTearDown(app.dispose);
+        // The signal is a textbook walk. The only thing refusing it is the
+        // session type — which is the whole point: on a wrist, rowing LOOKS like
+        // this (OxWalk P18: 217 true steps read as 650).
+        app.activeWorkout = LiveWorkoutState(
+          startTime: DateTime.now(),
+          targetKcal: 0,
+          type: 'rowing',
+        );
+        const recTs = 1786600000;
+        for (var f = 0; f < 1200; f++) {
+          app.debugFeedLiveAccel(
+            _walkFrame(f, 10),
+            recTs: recTs,
+            atMs: recTs * 1000 + f * 100,
+          );
+        }
+        expect(
+          app.liveStepsAbsentReason,
+          isNotNull,
+          reason: 'absent must carry a reason, never a bare dash or a 0',
+        );
+        await app.debugFinalizeLivePedometer();
+        final db = await LocalDb.instance;
+        expect(await db.query('live_coverage'), isEmpty);
+      },
+    );
+
+    test('the SAME signal under a WALKING session banks normally', () async {
+      // The control: without this, the test above passes if the gate is wired
+      // to reject everything.
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.activeWorkout = LiveWorkoutState(
+        startTime: DateTime.now(),
+        targetKcal: 0,
+        type: 'walking',
+      );
+      const recTs = 1786700000;
+      for (var f = 0; f < 1200; f++) {
+        app.debugFeedLiveAccel(
+          _walkFrame(f, 10),
+          recTs: recTs,
+          atMs: recTs * 1000 + f * 100,
+        );
+      }
+      expect(app.liveStepsAbsentReason, isNull);
+      await app.debugFinalizeLivePedometer();
+      final db = await LocalDb.instance;
+      final rows = await db.query('live_coverage');
+      expect(rows, isNotEmpty);
+      expect((rows.first['steps'] as num).toInt(), greaterThan(0));
+    });
+  });
+
+  // ── GATE 2: the measured sample rate ───────────────────────────────────────
+  group('the sample-rate floor', () {
+    test('achievedSampleRateHz measures, and refuses to guess', () {
+      expect(achievedSampleRateHz(6000, 0, 60000), 100.0);
+      expect(achievedSampleRateHz(6000, 0, 240000), 25.0);
+      // A 30 s stall inside a chunk halves the achieved rate — which is how the
+      // gap `_magMin` cannot see gets caught.
+      expect(achievedSampleRateHz(6000, 0, 120000), 50.0);
+      // Unmeasurable is not "fine": no span, no samples, inverted.
+      expect(achievedSampleRateHz(6000, 0, 0), isNull);
+      expect(achievedSampleRateHz(0, 0, 60000), isNull);
+      expect(achievedSampleRateHz(6000, null, 60000), isNull);
+      expect(achievedSampleRateHz(6000, 100, 50), isNull);
+    });
+
+    test('a 25 Hz stream banks NOTHING even though the signal counts', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1786800000;
+      // Identical frames to the walk above, delivered at 400 ms instead of
+      // 100 ms: 6000 samples over 240 s = 25 Hz. OxWalk §4 measures MAPE 90.8%
+      // there, with nine of 39 participants reading exactly zero.
+      for (var f = 0; f < 600; f++) {
+        app.debugFeedLiveAccel(
+          _walkFrame(f, 10),
+          recTs: recTs,
+          atMs: recTs * 1000 + f * 400,
+        );
+      }
+      expect(app.liveStepsAbsentReason, contains('too slowly'));
+      await app.debugFinalizeLivePedometer();
+      final db = await LocalDb.instance;
+      expect(
+        await db.query('live_coverage'),
+        isEmpty,
+        reason: 'a refused window is ABSENT, never a count and never a 0',
+      );
+    });
+  });
+
   test('a session that never counted writes nothing', () async {
     final app = AppState.forTesting();
     addTearDown(app.dispose);

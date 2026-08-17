@@ -167,6 +167,29 @@ void main() {
       expect(r.total, 6000);
     });
 
+    test('THE SPANS COME BACK CREDITED, so a day screen draws what the total '
+        'counted and not the raw rows', () {
+      // Same case as the double-count test above: the phone's hour keeps only
+      // the 1,000 steps the ladder left it, or a screen drawing the rows would
+      // show the strap's walk twice under a total that counts it once.
+      final r = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 4000),
+        _band(9 * _h + 600, 9 * _h + 2400, 3000),
+      ]);
+      expect(r.spans.map((s) => (s.startTs - _t0, s.steps, s.fromBand)), [
+        (9 * _h, 1000, false),
+        (9 * _h + 600, 3000, true),
+      ], reason: 'time order, credited counts');
+      // A span the ladder took everything back from is not drawn at all: it
+      // contributed no steps, and an empty bar on a timeline is a claim.
+      final swallowed = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 3000),
+        _band(9 * _h, 10 * _h, 3000),
+      ]);
+      expect(swallowed.spans.length, 1);
+      expect(swallowed.spans.single.fromBand, isTrue);
+    });
+
     test('nothing covered anything → nothing, and no dominant sensor', () {
       expect(resolveDaySteps(const []).total, 0);
       expect(resolveDaySteps(const []).dominant, isNull);

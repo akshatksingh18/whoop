@@ -775,4 +775,64 @@ void main() {
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
+
+  test(
+    'upgrade from v6 with an OFF-SKIN record completes — step 19 backfills '
+    'through a writer that emits NULL hr, so the relax must precede it',
+    () async {
+      // v43 made `decoded_onehz.hr` nullable and `_queueDecodedOneHz` writes
+      // NULL for a record with no heart rate. `hr = 0` is the off-skin
+      // sentinel and is ORDINARY, not rare. Step 19 re-keys the decoded store
+      // with `hr INTEGER NOT NULL` and then runs the backfill through that
+      // same writer — so without the relax at the top of _backfillDecodedStore
+      // the first off-skin record fails the constraint, throws inside the one
+      // exclusive onUpgrade transaction, and quarantines the user's database.
+      const name = 'migrate_v6_offskin_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        6,
+        [
+          _v6RawDdl,
+          'CREATE TABLE samples (counter INTEGER PRIMARY KEY, ts INTEGER NOT NULL, hr INTEGER)',
+          '''CREATE TABLE events (
+               hex TEXT PRIMARY KEY, event_id INTEGER, ts INTEGER,
+               captured_at INTEGER NOT NULL)''',
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          for (final e in const [(4300, 70), (4301, 0), (4302, 71)]) {
+            await db.insert('raw_records', {
+              'hex': _v24RecordHex(
+                counter: e.$1,
+                tsEpoch: 1786000000 + e.$1,
+                hr: e.$2,
+              ),
+              'counter': e.$1,
+              'packet_type': 47,
+              'captured_at': (1786000000 + e.$1) * 1000,
+              'rec_ts': 1786000000 + e.$1,
+            });
+          }
+        },
+      );
+
+      // `_openThroughLocalDb` already fails loudly if the ladder bricked and
+      // fell back to quarantine-and-rebuild.
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      final db = await LocalDb.instance;
+      final rows = await db.rawQuery(
+        'SELECT rec_ts, hr FROM decoded_onehz ORDER BY rec_ts ASC',
+      );
+      expect(rows.length, 3);
+      expect(rows[0]['hr'], 70);
+      // The off-skin second SURVIVES as a row and its HR reads as absent.
+      expect(rows[1]['hr'], isNull);
+      expect(rows[2]['hr'], 71);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
 }

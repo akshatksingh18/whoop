@@ -10,13 +10,16 @@
 //     form. None of them feed a metric, and a field that changes nothing is a
 //     field that implies an account.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/auto_backup.dart';
 import '../../notify/notification_center.dart';
+import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
@@ -115,6 +118,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
       onData: () => goto(c, const DataScreen()),
+      onAutomation: () => goto(c, const AutomationSettings()),
       onCycleUnits: () => units.setSystem(units.isImperial
           ? UnitSystem.metric
           : UnitSystem.imperial),
@@ -276,6 +280,7 @@ class MoreSettingsView extends StatelessWidget {
       onAlarm,
       onNotifications,
       onData,
+      onAutomation,
       onCycleUnits,
       onCycleAppearance,
       onTogglePhoneSteps,
@@ -305,6 +310,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onAlarm,
     this.onNotifications,
     this.onData,
+    this.onAutomation,
     this.onCycleUnits,
     this.onCycleAppearance,
     this.onTogglePhoneSteps,
@@ -356,6 +362,15 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.download, C.green, 'Export, backup, import',
                       sub: 'Spreadsheets, a full copy, and bringing history in',
                       onTap: onData),
+                ]),
+                settingsGroup(c, 'Automation', [
+                  SetRow(LucideIcons.workflow, C.indigo, 'Tasker and Shortcuts',
+                      // The row states the asymmetry rather than leaving it to
+                      // the screen: someone on an iPhone should learn what they
+                      // are not getting before they tap into it.
+                      sub: 'Android only for events out. iOS can buzz the band '
+                          'but cannot be triggered by it',
+                      onTap: onAutomation),
                 ]),
                 settingsGroup(c, 'Privacy', [
                   SetRow(LucideIcons.bug, C.orange, 'Crash reports',
@@ -803,5 +818,163 @@ class _EditProfileViewState extends State<EditProfileView> {
         ),
       ),
     ]);
+  }
+}
+
+// ══════════════════ AUTOMATION ══════════════════
+//
+// THE TWO PLATFORMS ARE NOT SYMMETRIC AND THIS SCREEN SAYS SO.
+//
+// Android gets real outbound event triggers: the app broadcasts an intent an
+// automation app can start a profile on. iOS does NOT — there is no public
+// mechanism for a Shortcuts personal automation to trigger on an arbitrary
+// app-donated intent; that trigger list is a fixed system set, and
+// `donate`/INInteraction buys Siri suggestions and discoverability, not an
+// event trigger. So the iOS half of this screen names what iOS can do (invoke
+// the app) and what it cannot (be invoked by it), rather than describing the
+// Android feature in language vague enough to read as parity.
+//
+// And nothing that leaves here is a measurement. A Shortcut that receives
+// `readiness=0` has recreated the fabricated-number problem outside the app,
+// where there is no tier and no note to explain it — so the one event that
+// ships carries facts about the SYNC and no metric at all.
+
+class AutomationSettings extends StatefulWidget {
+  const AutomationSettings({super.key});
+
+  @override
+  State<AutomationSettings> createState() => _AutomationSettingsState();
+}
+
+class _AutomationSettingsState extends State<AutomationSettings> {
+  String? _token;
+  bool _copied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    TaskerBridge.authToken().then((t) {
+      if (mounted) setState(() => _token = t);
+    });
+  }
+
+  Future<void> _copy() async {
+    final t = _token;
+    if (t == null) return;
+    await Clipboard.setData(ClipboardData(text: t));
+    if (mounted) setState(() => _copied = true);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final token = _token;
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar('Automation'),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+              children: [
+                Section(
+                  'When a sync finishes',
+                  Surface(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            android
+                                ? 'The app broadcasts an intent your automation '
+                                    'app can start a profile on. Filter on the '
+                                    'action below; it carries how many records '
+                                    'landed and when, at most one a minute.'
+                                : 'iOS cannot do this. A Shortcuts personal '
+                                    'automation can only trigger on Apple’s '
+                                    'own fixed list of events, and no app can '
+                                    'add one — so nothing here can start a '
+                                    'shortcut for you. Android gets it; this '
+                                    'is a platform limit, not a setting.',
+                            style: F.body.copyWith(color: p.ink2, height: 1.4),
+                          ),
+                          if (android) ...[
+                            const SizedBox(height: S.x3),
+                            SelectableText(
+                              'wtf.openstrap.openstrap_edge.SYNC_COMPLETE',
+                              style: F.cap.copyWith(color: p.ink),
+                            ),
+                            const SizedBox(height: S.x1),
+                            Text('Extras: records (int), at (unix seconds)',
+                                style: F.over.copyWith(color: p.ink3)),
+                          ],
+                        ]),
+                  ),
+                ),
+                const SizedBox(height: S.x5),
+                Section(
+                  'What it will never send',
+                  const Surface(
+                    child: Text(
+                      'No readiness, no strain, no sleep score — on either '
+                      'platform. A number this app would have shown as absent, '
+                      'with a reason attached, becomes a bare zero the moment '
+                      'it leaves. Facts about the sync go out; measurements do '
+                      'not.',
+                      style: F.body,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: S.x5),
+                Section(
+                  'Buzzing the band from a shortcut',
+                  Surface(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            android
+                                ? 'Send '
+                                    'wtf.openstrap.openstrap_edge.BUZZ_STRAP '
+                                    'with this token as the “token” string '
+                                    'extra. Without it any app on the phone '
+                                    'could buzz your band.'
+                                : 'This direction works on iOS: a shortcut you '
+                                    'run yourself can reach the app. What it '
+                                    'cannot do is run itself when the band '
+                                    'syncs.',
+                            style: F.body.copyWith(color: p.ink2, height: 1.4),
+                          ),
+                          if (android) ...[
+                            const SizedBox(height: S.x4),
+                            if (token == null)
+                              Text('No token yet — reopen this screen.',
+                                  style: F.cap.copyWith(color: p.ink3))
+                            else ...[
+                              SelectableText(token,
+                                  style: F.cap.copyWith(color: p.ink)),
+                              const SizedBox(height: S.x3),
+                              BigButton(_copied ? 'Copied' : 'Copy the token',
+                                  icon: _copied
+                                      ? LucideIcons.check
+                                      : LucideIcons.copy,
+                                  color: C.indigo,
+                                  soft: true,
+                                  onTap: _copy),
+                            ],
+                          ],
+                        ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }

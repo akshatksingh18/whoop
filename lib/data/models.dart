@@ -63,6 +63,24 @@ class Sample {
   /// unconfirmed record never lands as a real reading of total darkness.
   final int? ambientRaw;
 
+  /// The gen5 record's SECOND and THIRD temperature channels, °C — GEN5 ONLY.
+  ///
+  /// NOT NAMED AFTER A BODY PART, on purpose and permanently. protocol calls
+  /// their semantics loose; they may be ambient, board, die or battery. Naming
+  /// one of them "core" or "ambient" before anyone has checked is exactly how
+  /// gen4's `skinTempRaw` ended up feeding readiness as a skin temperature.
+  /// Nothing reads these yet — persisting them claims nothing, which is the
+  /// point: it is what makes it possible to find out later whether they mean
+  /// anything at all. Dual-heat-flux core temperature is assumed UNAVAILABLE.
+  final double? tempCh2C;
+  final double? tempCh3C;
+
+  /// The band's own per-second signal-quality figure (log-variance) — GEN5 ONLY.
+  ///
+  /// The band's own scale, so it can only ever be a within-night RANK or a
+  /// weight. Never a percentage, never a bar, never "HRV confidence: 82%".
+  final double? signalQualityLogVar;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -82,6 +100,9 @@ class Sample {
     this.hrValid,
     this.hrAlt,
     this.ambientRaw,
+    this.tempCh2C,
+    this.tempCh3C,
+    this.signalQualityLogVar,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -107,6 +128,9 @@ class Sample {
     hrValid: hrValid,
     hrAlt: hrAlt,
     ambientRaw: ambientRaw,
+    tempCh2C: tempCh2C,
+    tempCh3C: tempCh3C,
+    signalQualityLogVar: signalQualityLogVar,
   );
 
   bool get wristOn => hr > 0;
@@ -147,6 +171,9 @@ class Sample {
       hrAlt: (m['hr_alt'] as num?)?.toInt(),
       // Already 0-mapped-to-NULL on the way in, so a stored value is a reading.
       ambientRaw: (m['ambient_raw'] as num?)?.toInt(),
+      tempCh2C: (m['temp_ch2_c'] as num?)?.toDouble(),
+      tempCh3C: (m['temp_ch3_c'] as num?)?.toDouble(),
+      signalQualityLogVar: (m['signal_quality_logvar'] as num?)?.toDouble(),
     );
   }
 }

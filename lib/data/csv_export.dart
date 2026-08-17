@@ -62,12 +62,29 @@ const kCsvExportSets = <CsvExportSet>[
       'sleep_efficiency',
       'steps',
       'worn_min',
+      'source',
+      'algo_version',
     ],
+    // PROVENANCE, on every row. `v_daily` is a pure pivot over `metric_series`
+    // with no source and no version, so an imported vendor snapshot day and a
+    // 1 Hz-derived day came out of here BYTE-IDENTICAL — a file presenting
+    // another vendor's derived score beside your band's measured one,
+    // unlabelled. `algo_version` rides along for the same reason: someone
+    // comparing two exports six months apart can see the numbers moved because
+    // the maths changed, not because they did.
+    //
+    // LEFT JOIN, not a view change: `v_daily` is in the coach's allow-list and
+    // widening it changes what the coach sees. A day with no stamp writes two
+    // EMPTY cells — unknown provenance, never a claim.
     sql: '''
-      SELECT date, readiness, resting_hr, hrv, sdnn, resp_rate, stress, strain,
-             active_calories, total_calories, sleep_min, deep_min, rem_min,
-             light_min, nap_min, sleep_efficiency, steps, worn_min
-      FROM v_daily ORDER BY date ASC
+      SELECT d.date, d.readiness, d.resting_hr, d.hrv, d.sdnn, d.resp_rate,
+             d.stress, d.strain, d.active_calories, d.total_calories,
+             d.sleep_min, d.deep_min, d.rem_min, d.light_min, d.nap_min,
+             d.sleep_efficiency, d.steps, d.worn_min,
+             v.source, v.algo_version
+      FROM v_daily d
+      LEFT JOIN metric_series_version v ON v.date = d.date
+      ORDER BY d.date ASC
     ''',
   ),
   CsvExportSet(

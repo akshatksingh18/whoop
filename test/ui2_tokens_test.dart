@@ -198,6 +198,10 @@ const _notComponents = {
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   'MyDevices', 'MyDevicesView', 'DeviceDetail', 'DeviceDetailView', 'RePair',
+  // Both are Scaffold routes that read the database and ask the OS for a
+  // permission on tap — a gallery case would either mock all of that or
+  // trigger a real health-store prompt from a screenshot sweep.
+  'PhoneImport', 'AutomationSettings',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

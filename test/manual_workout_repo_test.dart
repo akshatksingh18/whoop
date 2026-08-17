@@ -49,11 +49,20 @@ RawRecord _raw(int ts, int counter) => RawRecord(
 /// Lay down 1 Hz HR at [hr] bpm for [seconds] starting at [start].
 /// One row per 10 s keeps the fixture small; the estimators weight each sample
 /// by the elapsed gap, so the window is still covered end to end.
-Future<void> _seedHr(int start, int seconds, int hr) async {
+/// STAMPED gen4: since TS-03a the zone ceiling comes from `estimatedMaxHr(age,
+/// family)`, so an UNSTAMPED window scores nothing at all — which is the
+/// honest answer for an import or a pre-v41 row, and not what this fixture is
+/// about. `commitSyncBatch` is the seam that carries the stamp.
+Future<void> _seedHr(int start, int seconds, int hr,
+    {String? deviceFamily = 'gen4'}) async {
+  final raws = <RawRecord>[];
+  final samples = <Sample?>[];
   for (var i = 0; i < seconds; i += 10) {
     final ts = start + i;
-    await LocalDb.insertRecord(_raw(ts, ts), _sample(ts, ts, hr));
+    raws.add(_raw(ts, ts));
+    samples.add(_sample(ts, ts, hr));
   }
+  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: deviceFamily);
 }
 
 void main() {
@@ -104,6 +113,32 @@ void main() {
       // getWorkout's on-read enrichment fills the detail screen's chart.
       expect((w['hr'] as List?) ?? const [], isNotEmpty);
       expect((w['zone_bands'] as List?) ?? const [], isNotEmpty);
+    },
+  );
+
+  test(
+    'an UNSTAMPED window scores nothing — no ceiling, no zones, no strain',
+    () async {
+      // TS-03a: the HR ceiling is `estimatedMaxHr(age, family)`, so a window
+      // whose 1 Hz rows carry no `device_family` — every pre-schema-41 row,
+      // every import, every raw replay — has no ceiling to be a percentage of.
+      // It refuses; it does NOT quietly fall back to gen4's numbers.
+      const unstampedStart = 1_700_100_000;
+      await _seedHr(unstampedStart, 3600, 150, deviceFamily: null);
+
+      final res = await repo.logManualWorkout(
+        startTs: unstampedStart,
+        endTs: unstampedStart + 3600,
+        type: 'run',
+      );
+      final w = await repo.getWorkout(res['workout_id'] as String);
+      // The window was measured — avg HR is a plain average and still stands.
+      expect(w['avg_hr'], 150);
+      // Everything that needs a ceiling abstains.
+      expect(w['strain'], isNull);
+      expect(w['calories'], isNull);
+      expect((w['zone_bands'] as List?) ?? const [], isEmpty);
+      expect((w['zone_min'] as List?) ?? const [], isEmpty);
     },
   );
 

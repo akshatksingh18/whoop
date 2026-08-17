@@ -54,7 +54,11 @@ Future<void> _insertHr(int fromTs, int toTs, int Function(int ts) hrOf,
     samples.add(_sample(ts, c, hrOf(ts)));
     c++;
   }
-  await LocalDb.insertRecordsBatch(raws, samples);
+  // STAMPED gen4 — since TS-03a the zone ceiling is `estimatedMaxHr(age,
+  // family)`, so unstamped rows have no ceiling and draw no zone bands.
+  // `commitSyncBatch` is the seam that carries the stamp; `insertRecordsBatch`
+  // has none.
+  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
 }
 
 void main() {
@@ -88,7 +92,10 @@ void main() {
     LocalDb.dbName = 'openstrap_workout_enrichment_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
-    repo = LocalRepositoryImpl(getProfileMap: () => {'age': 30}); // maxHr 190
+    // maxHr = estimatedMaxHr(30, 'gen4') = 208 - 0.7*30 = 187 (TS-03a). It was
+    // 220-30 = 190 here and Tanaka 187 in the analytics anchors for the SAME
+    // session; one ceiling now, and it takes the strap as well as the age.
+    repo = LocalRepositoryImpl(getProfileMap: () => {'age': 30});
   });
 
   tearDownAll(() async {
@@ -113,6 +120,8 @@ void main() {
       'strain': 8.5,
       'duration_min': 10,
       'source': 'manual',
+      // Which strap measured it — the zone ceiling dispatches on this.
+      'device_family': 'gen4',
       'created_at': start * 1000,
     });
     // In-session: 120 bpm then 150 bpm.
@@ -137,17 +146,19 @@ void main() {
       expect(e['t'], inInclusiveRange(start - 60, end));
     }
 
-    // Zones at maxHr 190: 120 bpm = 63% → Z2, 150 bpm = 79% → Z3; 5 min each.
+    // Zones at maxHr 187: 120 bpm = 64% → Z2, 150 bpm = 80.2% → Z4; 5 min each.
+    // 150 sat in Z3 under the old 190 ceiling — the same heartbeat, banded
+    // differently by the two conventions the app used to carry at once.
     final bands = (w['zone_bands'] as List).cast<Map>();
     expect(bands.length, 5);
     expect(bands[0]['zone'], 1);
     expect((bands[1]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z2
-    expect((bands[2]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z3
+    expect((bands[3]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z4
     expect(bands[1]['pct'], 50);
-    expect(bands[3]['min'], 0);
-    // lo/hi bpm edges follow the 50/60/70/80/90% thresholds of maxHr 190.
-    expect(bands[0]['lo'], 95);
-    expect(bands[4]['hi'], 190);
+    expect(bands[2]['min'], 0);
+    // lo/hi bpm edges follow the 50/60/70/80/90% thresholds of maxHr 187.
+    expect(bands[0]['lo'], 94);
+    expect(bands[4]['hi'], 187);
 
     // First 150 bpm sample is 300 s in → 5 min to peak.
     expect(w['time_to_peak_min'], 5);
@@ -184,7 +195,8 @@ void main() {
   test('no age in the profile means NO zones — not a 220-30 ceiling', () async {
     // Age is optional in onboarding. _profileMaxHr used to substitute age 30,
     // so a user who skipped it got zone bars and a persisted zone_min computed
-    // against a stranger's 190 bpm ceiling, with nothing saying so.
+    // against a stranger's 190 bpm ceiling, with nothing saying so. The same
+    // refusal now covers a strap with no calibrated ceiling (TS-03a).
     final ageless = LocalRepositoryImpl(getProfileMap: () => const {});
     final w = await ageless.getWorkout('w-enrich');
     expect(w['zone_bands'], anyOf(isNull, isEmpty));

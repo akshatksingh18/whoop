@@ -12,6 +12,8 @@
 // it is tapped: a payload written by an older build must still land somewhere
 // deterministic after the five tabs were renamed.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -20,8 +22,11 @@ import 'package:openstrap_edge/app.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/import/backup_crypto.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
+import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
+    show isEncryptedBackup;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -433,5 +438,85 @@ void main() {
     expect(formatBytes(512), '512 B');
     expect(formatBytes(1536), '1.5 KB');
     expect(formatBytes(1024 * 1024 * 1024), '1.0 GB');
+  });
+
+  // MT-12 / CV-04a. Per-family calibration means two straps can tier
+  // differently on the same physiology; if that is nowhere on screen the tier
+  // stops meaning anything. The case that matters most is the THIRD one —
+  // every pre-stamp row, every import and every raw replay carries no family,
+  // and the disclosure has to say "abstains", never quietly imply gen4.
+  group('the device disclosure', () {
+    HealthSource band(String? family) => HealthSource(
+          name: 'Band',
+          kind: 'wrist optical',
+          tier: SourceTier.wristOptical,
+          icon: LucideIcons.watch,
+          isBand: true,
+          family: family,
+        );
+
+    test('names the family it is calibrated for', () {
+      expect(calibrationDisclosure(band('gen4'))!.$1, 'WHOOP 4');
+      expect(calibrationDisclosure(band('gen5'))!.$1, 'WHOOP 5');
+    });
+
+    test('an unknown family is a refusal, not gen4 by default', () {
+      final d = calibrationDisclosure(band(null))!;
+      expect(d.$1, isNot(contains('WHOOP 4')));
+      expect(d.$2, contains('abstain'));
+      // Same answer for a family this build does not know.
+      expect(calibrationDisclosure(band('gen9'))!.$1, d.$1);
+    });
+
+    test('the phone has no per-sensor calibration to disclose', () {
+      expect(
+        calibrationDisclosure(const HealthSource(
+          name: 'This phone',
+          kind: 'Motion coprocessor',
+          tier: SourceTier.phone,
+          icon: LucideIcons.smartphone,
+        )),
+        isNull,
+      );
+    });
+
+    testWidgets('reaches the band page', (tester) async {
+      _tallView(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: DeviceDetailView(band('gen5')),
+      ));
+      expect(find.text('Calibration'), findsOneWidget);
+      expect(find.text('WHOOP 5'), findsOneWidget);
+    });
+  });
+
+  // An encrypted backup comes back off iCloud Drive or a mail attachment with
+  // whatever name that round trip gave it, so routing on the extension would
+  // hand the user's entire history to the vendor-CSV importer and report
+  // "nothing in it this app could use".
+  group('an encrypted backup is recognised by its magic', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('osbk-test');
+    });
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('whatever it was renamed to', () async {
+      final plain = File('${dir.path}/x.db')
+        ..writeAsBytesSync(List<int>.generate(5000, (i) => i % 251));
+      final sealed = File('${dir.path}/Backup (1).bin');
+      await encryptBackupFile(plain, sealed, 'correct horse battery',
+          iterations: 1000);
+      expect(await isEncryptedBackup(sealed.path), isTrue);
+    });
+
+    test('and a plaintext database is not one', () async {
+      final plain = File('${dir.path}/y.db')
+        ..writeAsStringSync('SQLite format 3\u0000 and then some');
+      expect(await isEncryptedBackup(plain.path), isFalse);
+      expect(await isEncryptedBackup('${dir.path}/does-not-exist'), isFalse);
+    });
   });
 }

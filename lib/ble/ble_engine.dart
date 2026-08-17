@@ -44,6 +44,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
+import '../platform/tasker_bridge.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'ble_state.dart';
@@ -2743,6 +2744,29 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
+      //
+      // WHAT THE v26 PPG BUFFER MAY NOT BECOME: vascular age, arterial
+      // stiffness, a "PPG aging clock", or any pulse-morphology claim about a
+      // blood vessel. this is not the v25 scar being reapplied — that one
+      // killed rate/ratio derivations and morphology is a per-pulse shape, so
+      // it gets its own refusal, and it fails for four independent reasons:
+      //   1. sample rate. 24-50 Hz is ~12-25 samples per cardiac cycle,
+      //      nowhere near enough to locate a dicrotic notch, and gen4's v25 is
+      //      13-27 s bursts every ~20 min.
+      //   2. multiplexing. v26's subChannel means one burst is several
+      //      interleaved optical channels, not one signal, and 0.2% of records
+      //      report a channel we don't know (protocol's `subChannelKnown` is
+      //      the gate, and it returning null is the common failure).
+      //   3. amplitude. the band re-tunes gain per record, and morphology IS
+      //      amplitude-shape, so pulse shape is not comparable across records
+      //      without a normalisation nobody has validated.
+      //   4. physiology. the diastolic peak is frequently absent in older
+      //      subjects — the exact population such a feature targets — and
+      //      green-light wrist reflectance is the worst site and wavelength
+      //      for morphology, with no explainable transfer to arterial stiffness.
+      // the defensible uses of this waveform are internal and claim nothing
+      // about a vessel: beat-detection quality, motion-artifact rejection,
+      // corroborating the band's own RR intervals. build those, not a number.
       sample = decodeGen5HistoricalSample(frame.inner);
     } else if (recType != Record.r25 &&
         kKnownRecordVersions.contains(recType)) {
@@ -2801,6 +2825,15 @@ class BleEngine {
           // temperature — that's what the deprecation is warning about.
           // ignore: deprecated_member_use
           skinTempRaw: r.skinTempRaw,
+          // gen4 ambient-light ADC (u16 @inner[70]). Decoded on every
+          // historical record since forever and thrown away here — this was
+          // the ONLY hole left in SD-04: the column, the Sample field and the
+          // write all exist, but the live drain never handed the value over,
+          // so `ambient_raw` was NULL on every row the band ever delivered.
+          // 0 is the ADC-ABSENT sentinel (records.dart emits `optical ? u16@70
+          // : 0` for unconfirmed versions) and is mapped to NULL at the write
+          // in `_queueDecodedOneHz` — do not "fix" it by zero-filling here.
+          ambientRaw: r.ambientRaw,
         );
       }
     } else if (recType == Record.r10) {
@@ -3276,12 +3309,16 @@ class BleEngine {
   /// records-per-day divisor, and a week of these lines is how we get one. No
   /// notification, no copy, no user-facing claim.
   ///
-  /// Sink is its OWN `sync_ledger` row (`chunk_id='backlog'`), not the shared
-  /// `capture` one: this rides the same reply as `range_seen`, both writes are
-  /// un-awaited, and they would race over the row's single `status`. sync_ledger
-  /// is never pruned, and one row carries the PREVIOUS snapshot forward, which
-  /// is the only history the wrap check needs. A real per-connect series wants
-  /// its own table beside `band_battery`; one call site to move when it exists.
+  /// Sink is `band_backlog`, one row per connect, keyed on the connect second
+  /// and never pruned — the same shape and the same reason as `band_battery`.
+  /// It replaces the single `sync_ledger` row this used to overwrite: that row
+  /// only ever held the LAST reading, which is enough for the wrap check and
+  /// nothing else, and the records-per-day divisor the loss wording needs can
+  /// only come from a series. `device_family` rides along because `free_records`
+  /// on gen4 and on gen5 do not belong on one axis.
+  ///
+  /// The previous `wrap_count` now comes from the newest stored row, so the
+  /// check survives on the table it writes to rather than on ledger JSON.
   Future<void> _recordPagesBehind(Map<String, dynamic> pb) async {
     int? asInt(Object? v) => v is num ? v.toInt() : null;
     final used = asInt(pb['used']);
@@ -3293,11 +3330,8 @@ class BleEngine {
 
     int? prevWrap;
     try {
-      final meta = (await LocalDb.syncLedgerEntry('backlog'))?['meta_json'];
-      if (meta is String && meta.isNotEmpty) {
-        final decoded = jsonDecode(meta);
-        if (decoded is Map) prevWrap = asInt(decoded['backlog_wrap_count']);
-      }
+      final prev = await LocalDb.bandBacklog(limit: 1);
+      if (prev.isNotEmpty) prevWrap = asInt(prev.first['wrap_count']);
     } catch (_) {/* no prior snapshot — first connect since install */}
 
     final wrapped = (prevWrap != null && wrap != null && wrap > prevWrap)
@@ -3307,19 +3341,16 @@ class BleEngine {
         '+$wrapped) written=$written/$capacity trim_page=$trimPage');
 
     await _bestEffortLedgerWrite(
-      () => LocalDb.upsertSyncLedgerEntry(
-        chunkId: 'backlog',
-        kind: 'device_state',
-        status: 'seen',
-        metaPatch: {
-          'backlog_used_records': used,
-          'backlog_free_records': free,
-          'backlog_wrap_count': wrap,
-          'backlog_written_page': written,
-          'backlog_capacity_pages': capacity,
-          'backlog_trim_page': trimPage,
-          'backlog_seen_at': DateTime.now().millisecondsSinceEpoch,
-        },
+      () => LocalDb.putBandBacklog(
+        ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        written: written,
+        used: used,
+        capacity: capacity,
+        trimPage: trimPage,
+        wrapCount: wrap,
+        freeRecords: free,
+        // Unknown link ⇒ NULL, never a guessed gen4.
+        deviceFamily: linkDeviceFamily,
       ),
     );
   }
@@ -4205,6 +4236,14 @@ class BleEngine {
       },
     );
     if (!report.complete) _setOffloadActive(false);
+    // OUTBOUND automation event (Android only — see TaskerBridge.emitEvent for
+    // why iOS gets no equivalent). Only on a COMPLETE offload: "sync finished"
+    // must mean the strap actually drained, not that a link dropped mid-drain.
+    // Un-awaited and rate-limited inside the bridge; a broadcast that cannot be
+    // sent must never hold up the sync path.
+    if (report.complete) {
+      unawaited(TaskerBridge.emitSyncComplete(records: report.records));
+    }
     _log(
       '[SYNC] OFFLOAD SUMMARY: records=${report.records} '
       'batches=${report.batches} complete=${report.complete}',

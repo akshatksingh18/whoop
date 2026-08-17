@@ -70,6 +70,47 @@ void main() {
     for (final t in ['decoded_onehz', 'decoded_rr', 'sessions']) {
       expect(await _columns(t), contains('device_family'), reason: t);
     }
+    // v43: the sensor-provenance guard rides beside it on the two substrate
+    // tables — a chest strap's resting HR and the wrist's differ
+    // systematically, so every baseline read filters on this.
+    for (final t in ['decoded_onehz', 'decoded_rr']) {
+      expect(await _columns(t), contains('source'), reason: t);
+    }
+  });
+
+  test('a baseline read never sees a non-band row', () async {
+    await _useFreshDb('source_filter_test.db');
+    await LocalDb.commitSyncBatch([_raw(1000, 1)], [_sample(1000, 1)]);
+    final db = await LocalDb.instance;
+    // Stand in for a peripheral sensor writing into the substrate: one second
+    // that is NOT the band's. Nothing routes here today, which is exactly why
+    // the filter has to be proven now rather than when it does.
+    await db.insert('decoded_onehz', {
+      'rec_ts': 2000,
+      'counter': 2,
+      'hr': 55,
+      'source': 'hrs:Chest strap',
+    });
+    await db.insert('decoded_rr', {
+      'rec_ts': 2000,
+      'beat_index': 0,
+      'rr_ts_ms': 2000 * 1000,
+      'rr_ms': 900,
+      'source': 'hrs:Chest strap',
+    });
+
+    final page = await LocalDb.decodedOneHzBatchByRecTsRange(
+      limit: 100,
+      fromRecTs: 0,
+      toRecTs: 9999,
+    );
+    expect(page.map((r) => r['rec_ts']), [1000]);
+    final rr = await LocalDb.decodedRrByRecTsRange(fromRecTs: 0, toRecTs: 9999);
+    expect(rr.every((r) => r['rec_ts'] == 1000), isTrue);
+    // The data edge is the BAND's edge — a sensor second must not look like
+    // sync progress.
+    expect(await LocalDb.lastDecodedRecTs(), 1000);
+    expect(await LocalDb.firstAndLastRecordTs(), (1000, 1000));
   });
 
   test('the stamp comes from the commit, and absence stays NULL', () async {
@@ -149,6 +190,17 @@ void main() {
           )).first['n'];
           // ignore: avoid_print
           print('[devfam] ${p.basename(src)} $t rows=$rows');
+        }
+        // v43 `source` — the peripheral-sensor guard. Same rule as
+        // device_family: it exists after the ladder and every migrated row
+        // reads NULL, i.e. "the band measured this", which is the truth for
+        // every row that predates a second sensor being possible at all.
+        for (final t in ['decoded_onehz', 'decoded_rr']) {
+          expect(await _columns(t), contains('source'), reason: '$src $t');
+          final nonNull = (await db.rawQuery(
+            'SELECT COUNT(*) AS n FROM $t WHERE source IS NOT NULL',
+          )).first['n'];
+          expect(nonNull, 0, reason: '$src $t source must migrate as NULL');
         }
         final health = await LocalDb.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');

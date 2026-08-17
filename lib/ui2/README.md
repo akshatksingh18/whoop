@@ -392,3 +392,37 @@ it.
   names a cause.
 - Copy in `StatusCard` is three parts: what is missing, why, what fixes it.
   "No data" alone is not acceptable copy.
+
+---
+
+## Banned strings — the respiratory surface
+
+Landed before any respiratory screen exists, because this is the cheap moment.
+Nothing in the UI prints these today and nothing may start.
+
+| Banned | Why |
+|---|---|
+| `AHI` | an index we cannot compute |
+| `apnea-hypopnea`, `apnoea` | same, spelled out |
+| `mild` / `moderate` / `severe` | severity bands are an individual assignment |
+| `you have` | the grammar of a diagnosis |
+
+CVHR correlates with AHI at about r≈0.84, which sounds high and is nowhere near
+enough to put one person in a severity category — at that correlation the CI on
+a single person's AHI spans multiple clinical bands. The screen has no airflow,
+no effort belt, no oximetry, no EEG for arousals, and no way to separate
+obstructive from central.
+
+**A lint cannot catch a card that quantifies without using the word.** "18
+events per hour last night" contains none of the banned strings and is the same
+claim. So the word list is the cheap half and copy review is the load-bearing
+half; treat a grep pass as necessary, never sufficient.
+
+Two more rules for anything that does ship on this surface:
+
+- It terminates in "a clinician can test properly", never in a number.
+- **It may not reassure.** An absent flag is not a negative result, and the copy
+  says so on the same card — not in a footnote, not on a detail screen.
+
+The same shape applies wherever detection meets a named condition: state that a
+pattern is unlike the user's own baseline, never that they have the thing.

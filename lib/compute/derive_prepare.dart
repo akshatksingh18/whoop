@@ -411,6 +411,7 @@ class _PrepareAccumulator {
   /// Gen5 on-chip cumulative step counter, `-1` = the record carried none.
   /// See [Substrate.stepCount] for why the sentinel is not 0.
   final List<int> stepCount = [];
+  final List<int> hrValid = [];
 
   /// The DISTINCT non-null `device_family` stamps seen across every page fed in
   /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
@@ -453,6 +454,9 @@ class _PrepareAccumulator {
     // but read it rather than assuming, so the arrays stay 1:1 with tsSec.
     stepCount.addAll(sub.stepCount.length == sub.length
         ? sub.stepCount
+        : List<int>.filled(sub.length, -1));
+    hrValid.addAll(sub.hrValid.length == sub.length
+        ? sub.hrValid
         : List<int>.filled(sub.length, -1));
   }
 
@@ -509,6 +513,15 @@ class _PrepareAccumulator {
       // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
       // reading from a band that has not moved since its counter last wrapped.
       stepCount.add(_num(row['step_count'])?.toInt() ?? -1);
+      // CV-04a — the band's own "this second's beat is valid" flag, the first
+      // of the five write-only gen5 columns to reach Substrate.
+      //
+      // NULL IS ABSENT (-1), NOT FALSE. gen4's R24 has no such field, so every
+      // gen4 row is NULL here, and a `?? 0` would tell every downstream reader
+      // that a whole generation's beats were rejected BY THE BAND. 0 is a real
+      // reading and only gen5 can produce it. `Substrate.hrValidAt` gates the
+      // read on `device_family == 'gen5'` on top of this.
+      hrValid.add(_num(row['hr_valid'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
@@ -533,6 +546,7 @@ class _PrepareAccumulator {
     skinTemp: skinTemp,
     skinContact: skinContact,
     stepCount: stepCount,
+    hrValid: hrValid,
     deviceFamily: deviceFamily,
   );
 }

@@ -43,7 +43,7 @@ the user's DERIVED data (raw signals are intentionally unavailable). Tables are 
     irregular_rhythm_flag. (Use this for arbitrary keys / trends.)
 - v_daily(date, resting_hr, hrv, sdnn, readiness, strain, resp_rate, stress, sleep_efficiency,
     sleep_min, deep_min, rem_min, light_min, nap_min, steps, active_calories, total_calories,
-    skin_temp_z, lf_hf, hrv_cv, dip_pct, odi_per_hour, worn_min, hrr_bpm, brv_cv, irregular_flag)
+    skin_temp_z, lf_hf, hrv_cv, dip_pct, worn_min, hrr_bpm, brv_cv, irregular_flag)
     — one row per day; the convenient wide view for most questions.
 - v_series(date, series, t, v) — intra-day curves. series ∈ hr_curve, strain_curve, hrv_timeline,
     hrv_day, resp_day, skin_temp_day, zone_timeline, activity_curve. t = epoch seconds, v = value.

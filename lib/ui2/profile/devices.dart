@@ -80,6 +80,11 @@ class HealthSource {
   /// True for the paired band — the only source with device controls.
   final bool isBand;
 
+  /// The ingest-stamped sensor family (`'gen4'` / `'gen5'`), or null when the
+  /// link has not said yet. Not cosmetic: it is the key every sensor-dependent
+  /// metric looks its own constants up under, and null is a refusal.
+  final String? family;
+
   const HealthSource({
     required this.name,
     required this.kind,
@@ -91,7 +96,45 @@ class HealthSource {
     this.charging = false,
     this.lastData,
     this.isBand = false,
+    this.family,
   });
+}
+
+/// The one-row device disclosure (MT-12 / CV-04a).
+///
+/// Metrics whose correct behaviour depends on the sensor carry their own
+/// per-family constants, so a gen4 strap and a gen5 strap can land on different
+/// tiers for identical physiology. If that asymmetry is nowhere on screen the
+/// tier stops meaning anything — so it lives on the band's own page, as one
+/// row, next to the battery.
+///
+/// Returns null for a non-band source: the phone reports steps and nothing that
+/// is calibrated per sensor.
+(String value, String sub)? calibrationDisclosure(HealthSource s) {
+  if (!s.isBand) return null;
+  return switch (s.family) {
+    'gen4' => (
+        'WHOOP 4',
+        'Metrics that depend on the sensor use this band’s own constants, so '
+            'a WHOOP 4 and a WHOOP 5 can land on different tiers for the same '
+            'physiology.'
+      ),
+    'gen5' => (
+        'WHOOP 5',
+        'Metrics that depend on the sensor use this band’s own constants, so '
+            'a WHOOP 5 and a WHOOP 4 can land on different tiers for the same '
+            'physiology.'
+      ),
+    // Null is the honest majority case, not an error: every row banked before
+    // the stamp existed, every import and every raw replay carries no family,
+    // and those metrics abstain rather than borrow gen4's numbers.
+    _ => (
+        'Not stated yet',
+        'This band has not said which generation it is, and imported or older '
+            'days never will. Metrics that depend on the sensor abstain rather '
+            'than borrow another band’s numbers.'
+      ),
+  };
 }
 
 /// The sources that actually exist right now. Nothing is listed that cannot
@@ -111,6 +154,7 @@ List<HealthSource> liveSources(AppState app) => [
           charging: app.device.charging ?? false,
           lastData: app.lastRecordAt,
           isBand: true,
+          family: app.device.generation,
         ),
       if (app.phoneStepsEnabled)
         HealthSource(
@@ -475,6 +519,7 @@ class DeviceDetailView extends StatelessWidget {
     final battery = s.batteryPct;
     final last = s.lastData;
     final fault = status?.isFault == true ? status : null;
+    final calibration = calibrationDisclosure(s);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -546,6 +591,13 @@ class DeviceDetailView extends StatelessWidget {
                           value: last == null ? '' : formatDayTime(last),
                           sub: last == null ? 'Nothing banked yet' : '',
                           chevron: false),
+                      if (calibration != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.sliders, C.teal, 'Calibration',
+                            value: calibration.$1,
+                            sub: calibration.$2,
+                            chevron: false),
+                      ],
                       if (onFind != null) ...[
                         Divider(color: p.line, height: 1),
                         SetRow(LucideIcons.bellRing, C.orange, 'Buzz the band',

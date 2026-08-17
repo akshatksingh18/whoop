@@ -16,6 +16,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
@@ -91,6 +92,37 @@ int? _noonOf(String? day) => day == null
 
 String _pct(double v) => '${v.round()}%';
 String _pts(double v) => '${v.round()} points';
+
+/// SLP-13 — the three staged figures of a night, as the intervals they are.
+///
+/// Null when the night published no stage split. The half-widths come from
+/// `stageIntervals`, which scales them by THIS night's own segmentation
+/// confidence — a well-covered night gets a narrow range and one scraping the
+/// observed floor gets a wide one. A missing confidence is the widest case, not
+/// the narrowest: we do not know how well we saw the night, so we say the least.
+({ana.StageInterval light, ana.StageInterval deep, ana.StageInterval rem})?
+    _ranges(Map<String, dynamic> n) {
+  final l = (n['light_min'] as num?)?.round();
+  final d = (n['deep_min'] as num?)?.round();
+  final r = (n['rem_min'] as num?)?.round();
+  final t = (n['duration_min'] as num?)?.round();
+  if (l == null || d == null || r == null || t == null) return null;
+  return ana.stageIntervals(
+    lightSec: l * 60,
+    deepSec: d * 60,
+    remSec: r * 60,
+    tstSec: t * 60,
+    confidence: (n['stages_confidence'] as num?)?.toDouble() ?? 0.0,
+  );
+}
+
+/// A stage interval as one label. Seconds in, because that is what the analytics
+/// interval carries; `hm` wants minutes.
+String _rangeText(ana.StageInterval i) =>
+    '${hm(i.loSec / 60)}–${hm(i.hiSec / 60)}';
+
+String _capitalise(String s) =>
+    s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
 class SleepData {
   final String? day;
@@ -334,7 +366,7 @@ class _SleepDetailState extends State<SleepDetail> {
       ...?_windowCard(c, p, d, n),
 
       // ── 3 · WHAT IT WAS MADE OF ──
-      Section('Stages', _stages(c, p, d, n, n['duration_min'] as num?)),
+      Section('Stages', _stages(c, p, n)),
 
       // ── 4 · AGAINST THE USER'S OWN NIGHTS ──
       if (_versusUsual(c, p, d, n) case final versus?)
@@ -824,38 +856,28 @@ class _SleepDetailState extends State<SleepDetail> {
         SleepStage.deep => 'Deep sleep',
       };
 
-  /// One stage of the night: a name, its minutes and its share. The two
-  /// numbers are non-flex, so the minutes column and the percent column each
-  /// have ONE right edge down the whole table — `Flexible` shrink-wrapped
-  /// every row to its own width and parked the leftover after the percentage,
-  /// so neither column lined up and neither reached the card edge the old
-  /// comment here claimed they did. The percent slot is fixed but SCALED, so
-  /// it never wraps "19%" onto two lines; above the big-text threshold the
-  /// row restacks rather than squeeze, exactly like [MetricRow].
-  Widget _stageRow(BuildContext c, P p, (String, num?, Color) s, num total) {
+  /// One stage of the night: a name and what it came to. The value is one
+  /// string — the range for a staged figure, a plain duration for Awake — so
+  /// the column has ONE right edge down the whole table. It is `Flexible`
+  /// rather than fixed because "1h 15m–2h 30m" is twice the width the old
+  /// minutes column was sized for; above the big-text threshold the row
+  /// restacks rather than squeeze, exactly like [MetricRow].
+  Widget _stageRow(BuildContext c, P p, (String, String, Color) s) {
     final dot = Container(
         width: 10,
         height: 10,
         decoration: BoxDecoration(color: s.$3, shape: BoxShape.circle));
     final name = Text(s.$1, style: F.body.copyWith(color: p.ink));
-    final minutes = Text(hm(s.$2),
-        style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600));
-    final share = SizedBox(
-      width: MediaQuery.textScalerOf(c).scale(34),
-      child: Text(
-        total == 0 ? '' : '${((s.$2! / total) * 100).round()}%',
+    final value = Text(s.$2,
         textAlign: TextAlign.right,
-        style: F.cap.copyWith(color: p.ink3),
-      ),
-    );
+        style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600));
     if (!bigText(c)) {
       return Row(children: [
         dot,
         const SizedBox(width: S.x3),
         Expanded(child: name),
-        minutes,
         const SizedBox(width: S.x3),
-        share,
+        Flexible(child: value),
       ]);
     }
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -865,64 +887,67 @@ class _SleepDetailState extends State<SleepDetail> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           name,
           const SizedBox(height: S.x1),
-          // Wrap, not Row: at 3.1× "1h 25m" alone is most of the card, so the
-          // share has to be allowed onto a second line.
-          Wrap(spacing: S.x3, runSpacing: S.x1, children: [minutes, share]),
+          Text(s.$2, style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
         ]),
       ),
     ]);
   }
 
-  Widget _stages(
-      BuildContext c, P p, SleepData d, Map<String, dynamic> n, num? tst) {
-    final rows = <(String, num?, Color)>[
-      ('Deep', n['deep_min'] as num?, C.blue),
-      ('REM', n['rem_min'] as num?, C.teal),
-      ('Light', n['light_min'] as num?, C.sky),
-      ('Awake', n['awake_min'] as num?, C.orange),
+  /// SLP-13 — the stage block, as ranges.
+  ///
+  /// The share column is GONE and that is the point. A percentage is computed
+  /// from the exact minute count, so printing "19%" beside "45m–1h 15m" would
+  /// have restored, on the same row, the precision the range exists to retire.
+  /// Nothing is lost that the range does not carry better.
+  ///
+  /// Awake keeps a single figure. It is not one of the three the overlay splits
+  /// — asleep-versus-awake is a different decision with a different weakness,
+  /// already stated where the awakening count is, and `stageIntervals` publishes
+  /// no interval for it. Inventing one here would be exactly the fabricated
+  /// precision this item removes.
+  Widget _stages(BuildContext c, P p, Map<String, dynamic> n) {
+    final r = _ranges(n);
+    final awake = n['awake_min'] as num?;
+    final rows = <(String, String, Color)>[
+      if (r != null) ('Deep', _rangeText(r.deep), C.blue),
+      if (r != null) ('REM', _rangeText(r.rem), C.teal),
+      if (r != null) ('Light', _rangeText(r.light), C.sky),
+      if (awake != null) ('Awake', hm(awake), C.orange),
     ];
-    final present = [for (final r in rows) if (r.$2 != null) r];
-    if (present.isEmpty) {
+    if (rows.isEmpty) {
       return const StatusCard(
         'No stage split for this night',
         'No beat timing across the whole window.',
         icon: LucideIcons.chartNoAxesColumn,
       );
     }
-    // ONE denominator, and it is the whole in-bed span. Awake sits OUTSIDE
-    // total sleep time (`tst_sec` and `waso_sec` are mutually exclusive), so
-    // dividing all four by TST inflated the Awake share and made the four rows
-    // sum past 100% in a list a user can add up.
-    final awake = (n['awake_min'] as num?) ?? 0;
-    final asleep = tst ??
-        present
-            .where((r) => r.$1 != 'Awake')
-            .fold<num>(0, (a, r) => a + r.$2!);
-    final total = asleep + awake;
     return Column(children: [
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [
-          for (var i = 0; i < present.length; i++) ...[
+          for (var i = 0; i < rows.length; i++) ...[
             if (i > 0) Divider(color: p.line, height: 1),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: S.x3),
-              child: _stageRow(c, p, present[i], total),
+              child: _stageRow(c, p, rows[i]),
             ),
           ],
         ]),
       ),
-      const SizedBox(height: S.x2),
-      // The stager is a wrist ESTIMATE and Deep is the weakest of the four —
-      // an HR-depth overlay, not an EEG read. Said once, here, rather than
-      // decorating every number with a caveat.
-      // The four rows sum to TST + WASO, which excludes the seconds nobody
-      // watched — so on a night with a hole "your time in bed" was the wrong
-      // denominator to name.
-      Text(
-          '${(d.unobservedMin ?? 0) > 0 ? 'Shares of the time we watched' : 'Shares of your time in bed'}. '
-          'Deep is the least certain of the four.',
-          style: F.over.copyWith(color: p.ink3, height: 1.5)),
+      if (r != null) ...[
+        const SizedBox(height: S.x2),
+        // The range IS the reading, and the copy says so straight. A wrist
+        // infers stages from beat timing and movement; it does not count them.
+        // The width is this night's own — better coverage, narrower range —
+        // rather than one published figure applied to every night.
+        Text(
+            'A wrist infers stages, so each one is a range rather than a count. '
+            'The better we saw the night, the narrower it is. Deep is widest: '
+            'telling it apart from light sleep is the weakest step we take. '
+            'Awake is a different call and stays one figure. Investigate has '
+            'the exact counts.',
+            style: F.over.copyWith(color: p.ink3, height: 1.5)),
+      ],
     ]);
   }
 
@@ -956,12 +981,20 @@ class _SleepDetailState extends State<SleepDetail> {
       ));
     }
 
-    final deep = (n['deep_min'] as num?)?.toDouble();
-    if (deep != null) {
+    // SLP-13 — the deep row keeps its band but stops asserting a difference off
+    // a figure the Stages card has just published as a range. `blur` is this
+    // night's own half-width in minutes: the verdict only fires when the WHOLE
+    // interval sits outside the band, and it drops the magnitude, because the
+    // size of a gap between one fuzzy number and a band of fuzzy numbers is the
+    // most confident thing on the card and the least supported.
+    final deepRange = _ranges(n)?.deep;
+    if (deepRange != null) {
+      final deep = deepRange.pointSec / 60;
       rows.add(_Compare(
         label: 'Deep sleep',
-        value: hm(deep),
+        value: _rangeText(deepRange),
         tonight: deep,
+        blur: (deepRange.hiSec - deepRange.loSec) / 120,
         history: d.deepHistory,
         color: C.blue,
         low: 'less than usual',
@@ -1385,6 +1418,14 @@ class _Compare extends StatelessWidget {
   final List<double> history;
   final Color color;
 
+  /// How far [tonight] could be wrong on this row's own axis, in the same
+  /// units. Zero for a measured quantity. Non-zero on a row whose value is an
+  /// ESTIMATE with a published interval (SLP-13): the verdict then needs the
+  /// whole interval to clear the band, and it states the direction without a
+  /// size, because the size would be a difference of two things neither of
+  /// which is a count.
+  final double blur;
+
   /// [fmt] renders a value on this row's axis (minutes → `7h 23m`, relative
   /// minutes → a clock time). [dfmt] renders the SIZE of a difference on it.
   final String Function(double) fmt, dfmt;
@@ -1393,6 +1434,7 @@ class _Compare extends StatelessWidget {
     required this.label,
     required this.value,
     required this.tonight,
+    this.blur = 0,
     required this.history,
     required this.color,
     required this.low,
@@ -1428,11 +1470,18 @@ class _Compare extends StatelessWidget {
       ]);
     }
 
-    final verdict = tonight < band.lo
-        ? '${dfmt((band.mid - tonight).abs())} $low'
-        : tonight > band.hi
-            ? '${dfmt((tonight - band.mid).abs())} $high'
-            : 'Typical for you';
+    final verdict = tonight + blur < band.lo
+        ? (blur > 0 ? _capitalise(low) : '${dfmt((band.mid - tonight).abs())} $low')
+        : tonight - blur > band.hi
+            ? (blur > 0
+                ? _capitalise(high)
+                : '${dfmt((tonight - band.mid).abs())} $high')
+            : blur > 0
+                // NOT "typical". The interval overlaps the band, which means
+                // this night is not far enough from usual for us to tell —
+                // a different statement, and the honest one.
+                ? 'Not far enough from usual to call'
+                : 'Typical for you';
 
     final lo = math.min(tonight, history.reduce(math.min));
     final hi = math.max(tonight, history.reduce(math.max));

@@ -11,6 +11,8 @@
 // from the database, so a custom field behaves exactly like a built-in one
 // everywhere downstream.
 
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 /// What a field measures, which decides how it is entered and read back.
@@ -189,7 +191,84 @@ const kJournalFields = <JournalFieldSpec>[
     max: 480,
     step: 15,
   ),
+  // MT-03 — WEIGHT AS A SERIES, not a profile field.
+  //
+  // HealthKit/Health Connect WEIGHT is read once at profile import and
+  // collapsed to a single scalar, so Mifflin BMR is pinned to whatever you
+  // weighed on install day forever. `journal_metric` is already (date, field,
+  // value) with a field-first index and CSV export, so this one row gets
+  // storage, editor, chart and correlation without a table.
+  //
+  // ENTERED, NEVER MEASURED, and labelled that way wherever it appears. Read
+  // the ceiling before building anything on it: this is the most
+  // eating-disorder-adjacent surface in the app and it must never EMIT.
+  //   * Render [weightTrendEwma], NOT the raw readings — day-to-day scale
+  //     noise is water and glycogen at ±1-2 kg and a raw line makes that read
+  //     as change.
+  //   * Show gaps. Never interpolate one.
+  //   * No goal weight, no daily prompt, no red/green, no "you gained"
+  //     notification, no body fat, no lean mass, no metabolic age.
+  //   * BMR keeps reading the onboarding scalar for now — see the note on
+  //     [weightTrendEwma].
+  JournalFieldSpec(
+    key: 'weight_kg',
+    label: 'Weight',
+    kind: JournalFieldKind.dose,
+    unit: 'kg',
+    max: 400,
+    step: 0.1,
+  ),
 ];
+
+/// Half-life of the weight trend, in days.
+///
+/// A week is long enough that a salty dinner does not move the line and short
+/// enough that a real four-week change is visible by the end of it.
+const double kWeightTrendHalfLifeDays = 7;
+
+/// The EWMA trend through a set of dated weight readings — THE thing to draw.
+///
+/// [byDay] is keyed by 'YYYY-MM-DD'. The output has one entry per day that
+/// actually had a reading, in date order: gaps stay gaps, because a smoothed
+/// line drawn across a fortnight nobody weighed is a fortnight of invented
+/// data. The decay is by ELAPSED DAYS, not by position in the list, so two
+/// readings a month apart do not smooth into each other the way two
+/// consecutive ones do.
+///
+/// NOT WIRED TO BMR, deliberately. Changing the BMR input recomputes every
+/// historical calorie number in the app, so that lands on its own commit where
+/// a regression is attributable. And the calorie-model calibration from a
+/// weight-drift residual is DROPPED, not deferred: the noise band on a weekly
+/// delta (~±1 kg) is several times the signal a 2 400 kcal weekly imbalance
+/// produces (~0.3 kg), so "your balance says −2 400 and you didn't move, so
+/// the model is off for you" would be false more often than true.
+Map<String, double> weightTrendEwma(
+  Map<String, double> byDay, {
+  double halfLifeDays = kWeightTrendHalfLifeDays,
+}) {
+  final days = byDay.keys.toList()..sort();
+  final out = <String, double>{};
+  double? ewma;
+  DateTime? prev;
+  for (final day in days) {
+    final d = DateTime.tryParse(day);
+    final v = byDay[day];
+    if (d == null || v == null || !v.isFinite) continue;
+    if (ewma == null || prev == null) {
+      ewma = v;
+    } else {
+      final gap = d.difference(prev).inDays.abs().clamp(0, 3650).toDouble();
+      // Weight of the new reading after `gap` days of decay. One day at a
+      // 7-day half-life is ~0.094; a month is ~0.95, i.e. after a long gap the
+      // trend restarts from the reading rather than dragging the old one in.
+      final w = 1 - math.pow(0.5, gap / halfLifeDays).toDouble();
+      ewma = ewma + w * (v - ewma);
+    }
+    prev = d;
+    out[day] = ewma;
+  }
+  return out;
+}
 
 /// Built-ins by key, for a lookup that does not walk the list.
 final Map<String, JournalFieldSpec> kJournalFieldsByKey = {

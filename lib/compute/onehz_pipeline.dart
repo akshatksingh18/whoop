@@ -31,6 +31,11 @@ import 'package:openstrap_analytics/onehz.dart';
 // instead of two that can drift.
 import 'hr_max.dart' show estimatedMaxHr;
 import 'profile.dart' show workoutSex;
+// Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
+// the ONE definition of "the UTC offset in effect at this instant" in the tree,
+// and a second copy here would be the exact drift SLP-09's timezone guard is
+// about.
+import 'substrate.dart' show tzOffsetSecondsAt;
 
 const MetricCfg _skinTempAdcCfg = MetricCfg(
   minVal: 1.0,
@@ -1098,8 +1103,56 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'sol_min': (runs['sol_sec'] as int?) == null
           ? null
           : ((runs['sol_sec'] as int) / 60).roundToDouble(),
+      // SLP-09 / L10 — WHERE ON THE CLOCK the night sat. Mid-sleep is computed
+      // every night and was thrown away; nothing can reconstruct it once the
+      // 1 Hz substrate is pruned, so the value of writing it is that history
+      // starts accruing NOW. FUTURE NIGHTS ONLY — there is no backfill and
+      // there cannot be one.
+      //
+      // Both are tz-corrected LOCAL clock positions in seconds, signed,
+      // relative to 04:00 local — see [sleepClockOffsetSec] for why they are
+      // not a plain second-of-day.
+      'midsleep_sec': sleepClockOffsetSec(
+        d.sleepOffsetSec > d.sleepOnsetSec && d.sleepOnsetSec > 0
+            ? d.sleepOnsetSec + (d.sleepOffsetSec - d.sleepOnsetSec) ~/ 2
+            : 0,
+      ),
+      'sleep_onset_sec': sleepClockOffsetSec(
+        d.sleepOffsetSec > d.sleepOnsetSec ? d.sleepOnsetSec : 0,
+      ),
     },
   };
+}
+
+/// The anchor the two SLP-09 clock series are measured from: 04:00 local.
+///
+/// Any fixed hour would do; 04:00 is the one furthest from a normal bedtime
+/// AND from a normal wake time, so neither series sits near the wrap.
+const int _sleepClockAnchorSec = 4 * 3600;
+
+/// A sleep instant's LOCAL clock position, in seconds either side of 04:00 —
+/// negative before, positive after. Null for an absent window (never 0, which
+/// is a real reading: exactly 04:00).
+///
+/// STORED UNWRAPPED, and that is the whole point. As a plain second-of-day,
+/// 23:30 → 01:30 is a two-hour shift that reads as MINUS 22 hours, and binary
+/// segmentation over that series finds a beautiful change-point which is a
+/// modulo artifact and nothing else. Measuring signed distance from an anchor
+/// nobody sleeps through puts a night's normal range on one continuous stretch
+/// of the axis, so a difference between two nights is the real difference.
+///
+/// TIMEZONE. Converted with the offset in effect AT THAT INSTANT, not today's:
+/// a flight or a DST transition moves the clock without moving the behaviour,
+/// and a change-point search reading raw UTC would report the flight as a
+/// lifestyle shift. That is the guard, not a nicety — see [tzOffsetSecondsAt].
+double? sleepClockOffsetSec(int epochSec) {
+  if (epochSec <= 0) return null;
+  final local = epochSec + tzOffsetSecondsAt(epochSec);
+  final secOfDay = ((local % 86400) + 86400) % 86400;
+  var offset = secOfDay - _sleepClockAnchorSec;
+  if (offset > 43200) offset -= 86400;
+  if (offset <= -43200) offset += 86400;
+  return offset.toDouble();
 }
 
 // ── helpers (pure) ───────────────────────────────────────────────────────────

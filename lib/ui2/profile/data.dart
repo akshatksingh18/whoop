@@ -12,6 +12,8 @@
 // A local-first app whose data cannot leave is not local-first, it is trapped.
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -22,11 +24,19 @@ import 'package:share_plus/share_plus.dart';
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
+import '../../import/backup_crypto.dart';
 import '../../state/app_state.dart';
 import '../activity/share.dart' show shareOrigin;
-import '../onboarding/welcome.dart' show ImportOutcome, runImport;
+import '../onboarding/welcome.dart'
+    show
+        ImportOutcome,
+        ImportReport,
+        PassphraseCancelled,
+        askBackupPassphrase,
+        runImport;
 import '../screens/home_screen.dart' show dbRebuiltCard;
 import '../ui2.dart';
+import 'phone_import.dart';
 import 'profile.dart';
 
 /// What an action has to say for itself: the line to show, and whether it is a
@@ -72,6 +82,9 @@ class _DataScreenState extends State<DataScreen> {
     try {
       final (text, failed) = await job();
       _say(text, failed: failed);
+    } on PassphraseCancelled {
+      // Closing the passphrase prompt is a decision. "Failed:" over it would
+      // report the user's own choice back to them as a fault.
     } catch (e) {
       _say('Failed: $e', failed: true);
     } finally {
@@ -107,6 +120,39 @@ class _DataScreenState extends State<DataScreen> {
     return ('Database shared. It is the complete copy.', false);
   }
 
+  /// The same VACUUM'd snapshot as [_exportDb], sealed with AES-256-GCM under
+  /// a key derived from a passphrase this app never stores.
+  ///
+  /// The plaintext intermediate is deleted whatever happens: an encrypted
+  /// backup that leaves a readable copy of the whole health record in the
+  /// share directory has encrypted nothing.
+  Future<_Note> _exportEncrypted() async {
+    final pass = await askBackupPassphrase(context, creating: true);
+    if (pass == null) return ('', false); // cancelled
+    if (!mounted) return ('', false);
+    final origin = shareOrigin(context);
+    final plain = await LocalDb.exportCopy();
+    final dest = '$plain.osbk';
+    try {
+      // 210 000 PBKDF2 rounds is seconds of solid CPU. On the UI isolate that
+      // is a frozen app; nothing in the crypto path touches a plugin, which is
+      // what makes the worker legal.
+      await Isolate.run(
+          () => encryptBackupFile(File(plain), File(dest), pass));
+    } finally {
+      try {
+        await File(plain).delete();
+      } catch (_) {}
+    }
+    await Share.shareXFiles([XFile(dest)],
+        subject: 'OpenStrap encrypted backup', sharePositionOrigin: origin);
+    return (
+      'Encrypted backup shared. Without that passphrase nobody can open it — '
+          'including this app, and including us.',
+      false
+    );
+  }
+
   Future<_Note> _reanalyze(AppState app) async {
     final n = await app.reanalyzeAll();
     return ('$n day${n == 1 ? '' : 's'} re-analyzed.', false);
@@ -133,7 +179,8 @@ class _DataScreenState extends State<DataScreen> {
         .toList();
     // cancelled — not a failure, say nothing
     if (paths.isEmpty) return ('', false);
-    final outcome = await runImport(app, paths);
+    final outcome = await runImport(app, paths,
+        askPassphrase: () => askBackupPassphrase(context));
     if (mounted) setState(() => _outcome = outcome);
     return ('', false);
   }
@@ -173,19 +220,39 @@ class _DataScreenState extends State<DataScreen> {
                 settingsGroup(c, 'Export', [
                   SetRow(LucideIcons.fileSpreadsheet, C.green,
                       'Export as spreadsheets',
+                      // export-provenance: the daily file now carries `source`
+                      // and `algo_version` per day, so an imported vendor
+                      // snapshot and a day derived from 1 Hz rows stop being
+                      // byte-identical. An empty source cell is unknown
+                      // provenance — never back-filled to 'band'.
                       sub: '${kCsvExportSets.length} CSV files — daily metrics, '
                           'workouts, sleep, journal, labs, and everything you '
-                          'typed in',
+                          'typed in. Each day carries where it came from and '
+                          'which algorithm version scored it',
                       onTap: _busy ? null : () => _run(_exportCsv)),
                   SetRow(LucideIcons.database, C.blue, 'Export the database',
                       sub: 'One .db file. Lossless, and the only format that '
-                          'restores onto another phone',
+                          'restores onto another phone. Readable by anything '
+                          'that opens SQLite — including anyone who gets the '
+                          'file',
                       onTap: _busy ? null : () => _run(_exportDb)),
+                  SetRow(LucideIcons.lock, C.purple,
+                      'Export an encrypted backup',
+                      sub: 'The same complete copy, sealed with a passphrase, '
+                          'for somewhere like iCloud. Forget the passphrase '
+                          'and that file is gone — there is no recovery, '
+                          'because there is no account holding a key',
+                      onTap: _busy ? null : () => _run(_exportEncrypted)),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, 'Automatic backup', [
                   SetRow(LucideIcons.calendarClock, C.purple, 'How often',
-                      sub: 'Writes a compressed copy to '
+                      // Unencrypted, and it says so. The encrypted format is
+                      // new and its restore path has not yet run green against
+                      // a file written by an older build — defaulting the
+                      // automatic copy to a format that might not open is
+                      // worse than the plaintext it replaced.
+                      sub: 'Writes a compressed, unencrypted copy to '
                           '$kBackupDirName, keeping the last $kBackupsKept',
                       value: app.backupCadence.label,
                       onTap: _busy
@@ -201,10 +268,18 @@ class _DataScreenState extends State<DataScreen> {
                 const SizedBox(height: S.x5),
                 settingsGroup(c, 'Bring data in', [
                   SetRow(LucideIcons.upload, C.orange, 'Import a file',
-                      sub: 'An OpenStrap backup, a raw sensor export, or a '
-                          'vendor CSV. Days this band already measured are '
-                          'never overwritten',
+                      sub: 'An OpenStrap backup (encrypted or not), a journal '
+                          'CSV you edited, a raw sensor export, or a vendor '
+                          'CSV. Days this band already measured are never '
+                          'overwritten',
                       onTap: _busy ? null : () => _run(() => _import(app))),
+                  // Progressive disclosure: two health-store reads, each with
+                  // its own consent and its own ceiling, behind one row rather
+                  // than two more rows on this screen.
+                  SetRow(LucideIcons.smartphone, C.blue, 'From your phone',
+                      sub: 'Resting heart rate to shape a baseline, and '
+                          'readings from devices this band cannot measure',
+                      onTap: _busy ? null : () => goto(c, const PhoneImport())),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, 'Rebuild', [
@@ -245,36 +320,13 @@ class _DataScreenState extends State<DataScreen> {
                     onFix: _busy ? null : () => _run(() => _reanalyze(app)),
                   ),
                 ],
+                // The onboarding report, not a second copy of it. This
+                // screen used to render its own paraphrase, which had already
+                // drifted: it lost the rollup error entirely and stated the
+                // loss counts in one run-on sentence.
                 if (o != null) ...[
                   const SizedBox(height: S.x5),
-                  StatusCard(
-                    o.error != null
-                        ? 'Import failed'
-                        : o.nothingLanded
-                            ? 'Nothing was imported'
-                            : o.source,
-                    o.error ??
-                        (o.nothingLanded
-                            ? o.readError ??
-                                'The file was read and there was nothing in it '
-                                    'this app could use, or every day in it '
-                                    'was one this band had already measured.'
-                            : '${o.days} day${o.days == 1 ? '' : 's'} imported.'
-                                '${o.workouts > 0 ? ' ${o.workouts} workout(s) '
-                                    'written.' : ''}'
-                                '${o.skippedDays > 0 ? ' ${o.skippedDays} '
-                                    'day(s) this band had already measured were '
-                                    'left alone.' : ''}'
-                                '${o.lostSomething ? ' ${o.lateRows} row(s) '
-                                    'arrived too late and ${o.strandedDays} '
-                                    'day(s) could not be derived on their '
-                                    'own.' : ''}'
-                                '${o.readError != null ? ' One file could not '
-                                    'be read: ${o.readError}' : ''}'),
-                    icon: o.error != null || o.nothingLanded
-                        ? LucideIcons.triangleAlert
-                        : LucideIcons.check,
-                  ),
+                  ImportReport(o),
                 ],
               ],
             ),

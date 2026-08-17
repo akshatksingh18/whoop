@@ -840,6 +840,10 @@ Future<ActivityResult> _finishSession(
   // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
   if (id == null) return draft;
+  // The row exists from here on, so the summary can carry its id — which is
+  // what TS-09's rating is written against. A draft that never reached the
+  // database keeps a null id and is never offered the prompt.
+  draft = draft.copyWith(sessionId: id);
 
   // The privacy toggle, finally landing somewhere. `putSession` is
   // INSERT-OR-REPLACE over the whole row and does not carry the flag, so this
@@ -1018,6 +1022,14 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   } catch (_) {
     // Enrichment is best-effort; the scalars on the row still render.
   }
+  // TS-09 — the session's own rating. `getWorkout` is the derived bundle and
+  // does not carry the column, so this is one primary-key read of the row.
+  try {
+    final rpe = (await LocalDb.session(w.id))?['rpe'] as num?;
+    if (rpe != null) out = out.copyWith(rpe: rpe.toDouble());
+  } catch (_) {
+    // An unrated session and an unreadable row both render as unrated.
+  }
   try {
     final sets = await LocalDb.strengthSets(w.id);
     if (sets.isNotEmpty) out = out.copyWith(strength: _logFrom(sets));
@@ -1105,6 +1117,10 @@ class _PastWorkout {
         start: start,
         duration: duration,
         private: private,
+        // TS-09 — the id travels so the summary can write a rating against
+        // it; the rating itself is read on open by `_detailOf`, not carried on
+        // this row (the list does not show it).
+        sessionId: id,
         strain: strain,
         calories: calories,
         avgHr: avgHr,

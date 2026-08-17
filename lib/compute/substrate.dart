@@ -67,6 +67,17 @@ class Substrate {
   final List<double> az;
 
   /// Relative-ADC channels (raw counts; NO absolute units). Parallel to [tsSec].
+  ///
+  /// [spo2Red] / [spo2Ir] are named after the LED, not after a metric. NO
+  /// oxygen number may be derived from them, at any tier: `ir − red` is a fixed
+  /// integer within a capture session while both channels drift together, so
+  /// every ratio built from the pair measures one channel's baseline drift.
+  /// they are carried because they ARE the bytes at those offsets and the
+  /// substrate round-trips the record; they are not carried because something
+  /// downstream is meant to consume them. gen5's `spo2CandidateRaw` is
+  /// deliberately not in this struct either — see `Spo2Data` in
+  /// models/payloads.dart for the whole refusal, including why the gen5 field
+  /// is the tempting one.
   final List<int> spo2Red;
   final List<int> spo2Ir;
   final List<int> skinTemp;
@@ -81,6 +92,18 @@ class Substrate {
   /// generation cannot count steps". Same absent-marker discipline as
   /// [accelPresentAt].
   final List<int> stepCount;
+
+  /// The band's own "heart rate and RR are valid this second" flag. Parallel to
+  /// [tsSec]. **`-1` means the record carried no flag at all** — gen4's R24 has
+  /// no such field, so every gen4 second reads -1, and reading that as `false`
+  /// would turn "this band cannot say" into "the band said no".
+  ///
+  /// GEN5 ONLY, and gated twice on purpose: the sentinel above, and
+  /// [deviceFamily]. A gen4 strap and a gen5 strap will tier DIFFERENTLY on
+  /// identical physiology because of exactly this kind of extra evidence, so a
+  /// reader that weights by it has to say so somewhere the user can see.
+  /// Same absent-marker discipline as [stepCount] and [accelPresentAt].
+  final List<int> hrValid;
 
   /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
   ///
@@ -129,6 +152,7 @@ class Substrate {
     required List<int> skinTemp,
     required List<int> skinContact,
     List<int> stepCount = const [],
+    List<int> hrValid = const [],
     String? deviceFamily,
   }) =>
       Substrate._(
@@ -145,6 +169,7 @@ class Substrate {
         skinTemp: skinTemp,
         skinContact: skinContact,
         stepCount: stepCount,
+        hrValid: hrValid,
       );
 
   const Substrate._({
@@ -160,6 +185,7 @@ class Substrate {
     required this.skinTemp,
     required this.skinContact,
     this.stepCount = const [],
+    this.hrValid = const [],
     this.deviceFamily,
   });
 
@@ -247,9 +273,28 @@ class Substrate {
     return v < 0 ? null : v;
   }
 
+  /// The band's own HR-validity verdict for second [i], or `null` when this
+  /// record carried none — which is EVERY gen4 second, and every second of a
+  /// substrate whose provenance is unknown.
+  ///
+  /// ABSENT, NEVER FALSE. A gen4 strap has no such field and a NULL read as
+  /// `false` would silently mark a whole generation's beats untrustworthy.
+  bool? hrValidAt(int i) {
+    // Unknown provenance refuses outright: the column is gen5's, and a row with
+    // no device stamp cannot be shown to have come from one.
+    if (deviceFamily != 'gen5') return null;
+    if (i < 0 || i >= hrValid.length) return null;
+    final v = hrValid[i];
+    return v < 0 ? null : v != 0;
+  }
+
+  /// A per-second companion array sliced to [lo, hi), tolerating the legacy
+  /// empty list (an older payload that predates the array entirely).
+  List<int> _perSecSlice(List<int> src, int lo, int hi) =>
+      src.length == tsSec.length ? src.sublist(lo, hi) : const [];
+
   /// [stepCount] sliced to [lo, hi), tolerating the legacy empty list.
-  List<int> _stepSlice(int lo, int hi) =>
-      stepCount.length == tsSec.length ? stepCount.sublist(lo, hi) : const [];
+  List<int> _stepSlice(int lo, int hi) => _perSecSlice(stepCount, lo, hi);
 
   /// Slice to the half-open window [startSec, endSec) by record time. Returns a
   /// new Substrate with the 1 Hz arrays sliced and the sparse RR arrays filtered
@@ -274,6 +319,7 @@ class Substrate {
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
+      hrValid: _perSecSlice(hrValid, lo, hi),
       deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
@@ -301,6 +347,7 @@ class Substrate {
       skinTemp: skinTemp.sublist(lo, hi),
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
+      hrValid: _perSecSlice(hrValid, lo, hi),
       deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
@@ -364,6 +411,7 @@ class Substrate {
         'skin_temp': skinTemp,
         'skin_contact': skinContact,
         'step_count': stepCount,
+        'hr_valid': hrValid,
         // Null (unknown provenance) is a real answer — emit the key regardless.
         'device_family': deviceFamily,
       };
@@ -413,6 +461,12 @@ class Substrate {
       // absent marker is -1, not 0 (0 is a real, unmoved counter reading).
       stepCount: () {
         final l = ints(m, 'step_count');
+        return l.length == n ? l : List<int>.filled(n, -1);
+      }(),
+      // Same reason as `step_count`: the absent marker is -1. 0 is a real
+      // reading — the band saying THIS second's beat is not trustworthy.
+      hrValid: () {
+        final l = ints(m, 'hr_valid');
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
       deviceFamily: m['device_family'] as String?,
@@ -531,6 +585,10 @@ Substrate decodeSubstrate(List<String> hexes) {
     // a confident zero. Gen5 counters reach the substrate through the
     // decoded_onehz loader (derive_prepare.addDecodedPage), not this path.
     stepCount: List<int>.filled(n, -1),
+    // Same story for the band's HR-validity flag, and this path is raw-hex
+    // replay, which carries no device stamp either — so it would refuse at
+    // `hrValidAt` regardless.
+    hrValid: List<int>.filled(n, -1),
   );
 }
 

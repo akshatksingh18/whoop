@@ -389,6 +389,36 @@ void main() {
       expect(namesOf(noPeak), isNot(contains('Max HR')),
           reason: 'absent is dropped, never dashed');
     });
+
+    // TS-09 — the rating is a SELF-REPORT and has to read as one.
+    test('a rating is shown as the user\'s own, and never invented', () {
+      final rated = ActivityResult(_first(Arch.strength),
+          start: _start,
+          duration: const Duration(minutes: 40),
+          sessionId: 's1',
+          rpe: 8,
+          strength: StrengthLog(_sets));
+      expect(namesOf(rated), contains('Your rating'),
+          reason: 'named for who said it, not for the instrument');
+      expect(namesOf(rated), isNot(contains('RPE')));
+      expect(
+          [for (final s in sessionStats(rated, null)) s.$2], contains('8 of 10'));
+
+      // Unrated is DROPPED, not zeroed and not defaulted to the set picker's 7.
+      final unrated = rated.copyWith();
+      expect(unrated.rpe, 8, reason: 'copyWith must not lose it');
+      final never = ActivityResult(_first(Arch.strength),
+          start: _start,
+          duration: const Duration(minutes: 40),
+          sessionId: 's1',
+          strength: StrengthLog(_sets));
+      expect(namesOf(never), isNot(contains('Your rating')));
+
+      // And a feeling is not one of the things the session MEASURED, so it is
+      // not offered to the share card.
+      expect([for (final s in shareStats(rated)) s.$1],
+          isNot(contains('Your rating')));
+    });
   });
 
   // ── formatting ───────────────────────────────────────────────────────────
@@ -596,6 +626,147 @@ void main() {
         }
       });
     }
+
+    // ── MT-08 · heat and cold ────────────────────────────────────────────
+    //
+    // The card is built AROUND its no-signal state. Cold water constricts the
+    // wrist's vessels, which is exactly what the optical sensor reads through,
+    // so "no pulse" is the expected content of a plunge and not a fault to
+    // offer a Check-band button for.
+    testWidgets('a cold plunge with no pulse says why, and offers no fix',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final plunge = activityByName('Cold plunge')!;
+      await tester.pumpWidget(_frame(
+          ActivitySummary(ActivityResult(plunge,
+              start: _start, duration: const Duration(minutes: 3))),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('—'), findsNothing);
+      expect(find.textContaining('optical sensor reads through'),
+          findsOneWidget);
+      expect(find.text('Check band connection'), findsNothing,
+          reason: 'there is no connection to check — the blood moved');
+      // Nothing that reads as a target, a dose or a score.
+      for (final banned in const [
+        'thermal load',
+        'adaptation',
+        'next time',
+        'longer'
+      ]) {
+        expect(find.textContaining(banned), findsNothing, reason: banned);
+      }
+      // And it is not the yoga tile: no poses, no breaths.
+      expect(find.textContaining('poses'), findsNothing);
+    });
+
+    testWidgets('a sauna that WAS read draws the trace and names the gaps',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      // Twelve minutes, four of them lost — the ordinary partial case.
+      final hr = <double?>[
+        for (var i = 0; i < 12; i++) i >= 4 && i < 8 ? null : 95.0 + i,
+      ];
+      await tester.pumpWidget(_frame(
+          ActivitySummary(ActivityResult(activityByName('Sauna')!,
+              start: _start,
+              duration: const Duration(minutes: 12),
+              avgHr: 99,
+              hr: hr)),
+          Brightness.dark,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('8 of 12 minutes'), findsOneWidget,
+          reason: 'the coverage is stated, not averaged away');
+    });
+
+    // ── TS-09 · session RPE ──────────────────────────────────────────────
+    testWidgets('the rating is asked once, pre-selects nothing, and retires',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+
+      final saved = _result(Arch.strength).copyWith(sessionId: 'sess-1');
+
+      // Not at finish → never asked. Opening an old session is not the moment.
+      await tester.pumpWidget(
+          _frame(ActivitySummary(saved, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
+
+      // Written, and just finished → asked.
+      await tester.pumpWidget(_frame(
+          ActivitySummary(saved, weightKg: 72.4, justFinished: true),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW HARD DID THAT FEEL?'), findsOneWidget);
+      // Ten choices, and NOT ONE of them is lit: the answer is the tap. The
+      // set-level picker's default of 7 is the garbage-data mechanism this
+      // field exists to avoid.
+      for (var v = 1; v <= 10; v++) {
+        expect(find.text('$v'), findsWidgets, reason: 'choice $v');
+      }
+
+      // Skipping counts, and the count is what retires the prompt.
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
+      expect(Prefs.getInt('workout.rpe_skips', 0), 1);
+
+      // iOS reaches 3.1x effective. Five choices across a row is the shape on
+      // this card that can overflow there, and an overflow fails the build.
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+      await tester.pumpWidget(_frame(
+          ActivitySummary(saved, weightKg: 72.4, justFinished: true),
+          Brightness.light,
+          3.1));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // Three passes and it stops asking rather than escalating.
+      SharedPreferences.setMockInitialValues(const {'workout.rpe_skips': 3});
+      await Prefs.ensureLoaded();
+      await tester.pumpWidget(_frame(
+          ActivitySummary(saved, weightKg: 72.4, justFinished: true),
+          Brightness.dark,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
+    });
+
+    testWidgets('a session that never reached the database is not asked',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+
+      // No `sessionId` — the write threw, so there is nowhere to put a rating.
+      await tester.pumpWidget(_frame(
+          ActivitySummary(_result(Arch.strength),
+              weightKg: 72.4, justFinished: true),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
+    });
 
     testWidgets('a match shows heart rate, not a court map', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);

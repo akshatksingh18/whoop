@@ -1,4 +1,4 @@
-# Tasker integration — buzz your strap
+# Tasker integration — buzz your strap, and hear back
 
 OpenStrap Edge can vibrate your WHOOP strap in response to a Broadcast intent
 from Tasker (or any automation app). Use it to buzz the strap for phone calls,
@@ -59,6 +59,43 @@ It's an int; the default is `2` (a quick double buzz) when the extra is
 omitted. `pattern:1` buzzes until acked by tapping the strap, which makes it
 ideal for phone-call notifications. See [BUZZ_MEANINGS.md](BUZZ_MEANINGS.md)
 for the full list.
+
+## The other direction: OpenStrap tells Tasker
+
+**Android only.** iOS does not get this and is not going to: a Shortcuts
+personal automation can only trigger on a fixed system list of events, and
+there is no public mechanism for an app to add one. Donating an intent buys
+Siri suggestions and discoverability, not a trigger. So on iOS you get more
+things *you* can invoke; you do not get events that invoke *your* shortcut.
+
+One event ships today. When an offload from the strap finishes, the app sends
+a broadcast:
+
+| Field | Value |
+|---|---|
+| Action | `wtf.openstrap.openstrap_edge.SYNC_COMPLETE` |
+| Extra `records` | int — how many records that sync stored |
+| Extra `at` | int — unix seconds when it finished |
+
+Catch it with a Tasker Profile → **Event → System → Intent Received**, with
+Action set to the string above. Leave Package empty.
+
+Rate-limited to one outbound event a minute, so a reconnect storm cannot spam
+your profile.
+
+### What the extras deliberately do not contain
+
+No token. This is an implicit broadcast, so anything on your phone can read
+the extras — putting your buzz token in there would hand every installed app
+the ability to buzz your strap, which is the one thing that token exists to
+stop. There is nothing to protect in this direction: the worst a forged
+`SYNC_COMPLETE` can do is run your own profile early.
+
+No readiness, no recovery, no strain, no sleep. Those numbers are sometimes
+*absent* — not zero, absent, with a reason attached — and the app shows you
+which. Once a number leaves the app that context is gone, and a Shortcut that
+received `readiness=0` would have no way to tell "you scored zero" from "we
+did not measure it". Only facts about the sync itself go out.
 
 ## Troubleshooting
 

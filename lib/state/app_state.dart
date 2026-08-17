@@ -31,6 +31,8 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
+import '../ble/hr_sensor.dart';
+import '../ble/live_cadence.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, LiveStepDayWindow, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
@@ -2303,6 +2305,10 @@ class AppState extends ChangeNotifier {
   // still-filling partial minute is re-counted each frame for a live readout.
   // AN-2554's CONFIRM=8 regularity gate reads 0 at rest (rejects fidgeting).
   final List<double> _magMin = []; // current minute's magnitude signal
+  // Per-minute RAW step counts for the ACTIVE workout only, for
+  // [sessionCadenceSpm]. Bounded at 12 h of minutes; a session longer than that
+  // has enough gait-like minutes for the median already.
+  final List<int> _workoutMinuteSteps = [];
   int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
   int _liveSamples = 0; // total 100 Hz samples streamed this session
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
@@ -2448,8 +2454,15 @@ class AppState extends ChangeNotifier {
       final minute = _magMin.sublist(0, _minuteSamples);
       _magMin.removeRange(0, _minuteSamples);
       final before = _committedRaw;
-      _committedRaw += ana.pedometer(minute);
+      final minuteSteps = ana.pedometer(minute);
+      _committedRaw += minuteSteps;
       if (_committedRaw > before) _lastWalkMs = nowMs;
+      // A completed chunk is exactly 60 s, so its count is a steps-per-minute
+      // reading — session cadence is a summary of these, not a second decode.
+      // Workout-scoped: gen4's R10 is live-only, so there is no 24/7 cadence.
+      if (activeWorkout != null && _workoutMinuteSteps.length < 720) {
+        _workoutMinuteSteps.add(minuteSteps);
+      }
       committedThisTick = true;
     }
     // Checkpoint once a minute (only on an actual commit, not every frame) so
@@ -4091,16 +4104,15 @@ class AppState extends ChangeNotifier {
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
-  // Sourced from the LOCAL profile (no server). Fall back to representative
-  // defaults when a field isn't set yet. maxHr = 220 - age.
-  int get _maxHr {
-    final age = (user?['age'] as num?)?.toDouble() ?? 30.0;
-    return (220 - age).round();
-  }
-
-  /// Estimated max HR (220 − age) — used by the route map / splits to colour by
-  /// HR zone, matching the live zone bands.
-  int get maxHr => _maxHr;
+  // `_maxHr` (220 − age, silently substituting age 30 → a flat 190 for every
+  // user who skipped the field) and the public `maxHr` that wrapped it are
+  // GONE (TS-03a). The live session now carries its own ceiling, resolved once
+  // at start from the athlete's age AND the strap that is measuring it
+  // ([LiveWorkoutState.hrMax]) — the same `estimatedMaxHr` the day pipeline and
+  // the session re-score band on, so the live gauge, the persisted `zone_min`
+  // and the detail screen's recomputed `zone_bands` can no longer disagree.
+  // `maxHr` had no readers left at all; its doc still claimed the route map
+  // used it, and the route map takes its ceiling from the session.
 
   int get _restingHr => (user?['resting_hr'] as num?)?.round() ?? 60;
 
@@ -4138,9 +4150,16 @@ class AppState extends ChangeNotifier {
   }
 
   /// HR → zone 0..5 (% of max HR), matching the app's zone bands.
+  ///
+  /// The ceiling is the LIVE SESSION's, not the profile's: it is fixed at start
+  /// from the age and the strap actually measuring, and 0 is the honest answer
+  /// when there is no ceiling (no age, or an uncalibrated/unstamped band) —
+  /// which lands every second in Z0 and persists an empty `zone_min`, rather
+  /// than banding the whole workout against a stranger's 190 bpm.
   int _zoneFor(int hr) {
-    if (hr <= 0 || _maxHr <= 0) return 0;
-    final pct = hr / _maxHr * 100;
+    final maxHr = activeWorkout?.hrMax ?? 0;
+    if (hr <= 0 || maxHr <= 0) return 0;
+    final pct = hr / maxHr * 100;
     if (pct >= 90) return 5;
     if (pct >= 80) return 4;
     if (pct >= 70) return 3;
@@ -4193,6 +4212,7 @@ class AppState extends ChangeNotifier {
     }
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
+    _workoutMinuteSteps.clear();
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -4214,6 +4234,15 @@ class AppState extends ChangeNotifier {
       age: (user?['age'] as num?)?.round(),
       // Score against the profile the session is performed under.
       profile: Profile.fromMap(user),
+      // ...and against the strap performing it. Pinned at start for the same
+      // reason the profile is: the link can drop mid-session, and a workout
+      // that silently changed zone ceilings halfway through is worse than one
+      // scored end-to-end on the band it began on. Null when nothing is
+      // linked — unknown provenance, which refuses rather than assuming gen4.
+      hrMax: estimatedMaxHr(
+        (user?['age'] as num?),
+        engine.linkDeviceFamily,
+      ),
       restingHr: _liveRestingHr,
     );
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
@@ -4244,12 +4273,18 @@ class AppState extends ChangeNotifier {
     LiveActivity.start(
       startedAt: start,
       targetKcal: targetKcal.round(),
-      maxHr: _maxHr,
+      // 0 = no ceiling, same convention `_zoneFor` uses. The widget declares
+      // the field and draws nothing with it (`zone` is computed here), so this
+      // is a passthrough, not a number anyone reads.
+      maxHr: activeWorkout?.hrMax?.round() ?? 0,
       rhr: _restingHr,
     );
     _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
     // GPS route: only for run/ride/walk, and only if the user grants location.
     unawaited(_maybeStartRouteTracking(id, type));
+    // A paired heart-rate sensor is armed by a workout and only by a workout —
+    // the same rule GPS follows. No-op when nothing is paired.
+    unawaited(HrSensorLink.instance.arm(id));
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -4409,6 +4444,7 @@ class AppState extends ChangeNotifier {
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
           _workoutSawSamples = false;
+          _workoutMinuteSteps.clear();
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -4428,6 +4464,7 @@ class AppState extends ChangeNotifier {
           // rows (`id` is unchanged), so the pre-restart part of the route is
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
+          unawaited(HrSensorLink.instance.arm(id));
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
@@ -4462,6 +4499,9 @@ class AppState extends ChangeNotifier {
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
     // would otherwise leave the screen pinned awake until the app is killed.
+    // AWAITED, like the route tail: an unawaited disarm races the finish screen
+    // and the last buffered batch of sensor beats never reaches the database.
+    await HrSensorLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
@@ -4472,6 +4512,10 @@ class AppState extends ChangeNotifier {
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
     final wSteps = workoutStepsMeasured;
+    // Measured walking cadence, or null when this session had too few gait-like
+    // minutes to have one — most indoor sessions. Never 0.
+    final wCadence =
+        _workoutSawSamples ? sessionCadenceSpm(_workoutMinuteSteps) : null;
     // Persist the finalized session before clearing the live state. zone_min =
     // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
@@ -4497,6 +4541,7 @@ class AppState extends ChangeNotifier {
         zoneMin.any((v) => v > 0) ? zoneMin : const <num>[],
       ),
       if (wSteps != null && wSteps > 0) 'steps': wSteps,
+      'cadence_spm': ?wCadence,
       'source': 'manual',
       'device_family': bandFamily,
       'created_at': w.startTime.millisecondsSinceEpoch,
@@ -4530,6 +4575,7 @@ class AppState extends ChangeNotifier {
     activeWorkout = null;
     _workoutRawBase = null;
     _workoutSawSamples = false;
+    _workoutMinuteSteps.clear();
     notifyListeners();
     _log(
       finalKcal == null
@@ -4562,11 +4608,15 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
       EdgeTracking.start(location: false);
     }
+    // AWAITED, like the route tail: an unawaited disarm races the finish screen
+    // and the last buffered batch of sensor beats never reaches the database.
+    await HrSensorLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
     _workoutRawBase = null;
     _workoutSawSamples = false;
+    _workoutMinuteSteps.clear();
     LiveActivity.end();
   }
 
@@ -4706,7 +4756,7 @@ class AppState extends ChangeNotifier {
         // lock screen for the whole session. Unmeasured is not zero.
         strain: w.strain,
         calories: w.caloriesOrNull,
-        maxHr: _maxHr,
+        maxHr: w.hrMax?.round() ?? 0, // 0 = no ceiling; the widget ignores it
         rhr: _restingHr,
       );
     }
@@ -4778,10 +4828,11 @@ class LiveWorkoutState {
   ///     of 60 at a 5 s notify rate.
   void _scoreCalories() {
     final rhr = restingHr;
-    final hrMax = profile.hrMaxTanaka;
+    // Local copy: a public final field does not type-promote across the guard.
+    final maxHr = hrMax;
     // The re-score refuses to invent a 220/60 anchor pair, so neither does
     // this. A resting HR landing later re-scores the whole bout.
-    if (!profile.hasCalorieAnchors || rhr == null || hrMax == null) {
+    if (!profile.hasCalorieAnchors || rhr == null || maxHr == null) {
       _caloriesScored = false;
       calories = 0.0;
       return;
@@ -4799,7 +4850,7 @@ class LiveWorkoutState {
     // floor. Defaulted to match `computeManualSessionStats`, so the two paths
     // cannot disagree for a profile that carries no height.
     final heightCm = profile.heightCm ?? 170.0;
-    final gate = rhr + ana.Calories.activeHRRFraction * (hrMax - rhr);
+    final gate = rhr + ana.Calories.activeHRRFraction * (maxHr - rhr);
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
 
@@ -4810,7 +4861,7 @@ class LiveWorkoutState {
           : ana.Calories.activeKcalPerS(
               coeffs,
               bpm.toDouble(),
-              hrMax,
+              maxHr,
               weightKg,
               age,
             );
@@ -4864,6 +4915,12 @@ class LiveWorkoutState {
   /// must be scored against the profile it was performed under, not whatever
   /// the profile happens to say when the session ends.
   final Profile profile;
+
+  /// THE HR ceiling for this session — `estimatedMaxHr(age, family)`, resolved
+  /// once at start from the athlete's age and the strap measuring the window.
+  /// Null when either is missing, and then strain, calories and the zone split
+  /// all abstain: there is no ceiling to be a percentage of.
+  final double? hrMax;
 
   /// Resting-HR anchor for the strain score. NOT final: the measured nightly
   /// value is loaded asynchronously, so a session can begin before it lands.
@@ -4944,6 +5001,7 @@ class LiveWorkoutState {
     this.type = 'other',
     int? age,
     this.profile = const Profile(),
+    this.hrMax,
     this.restingHr,
   }) : _hrPeak = RollingMaxHr(age: age);
 
@@ -5001,6 +5059,7 @@ class LiveWorkoutState {
       perMinuteHr(),
       profile: profile,
       restingHr: restingHr,
+      hrMax: hrMax,
     );
 
     // Calories re-score off the same series, through the same estimator the

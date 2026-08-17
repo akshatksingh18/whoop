@@ -23,6 +23,25 @@
 // Tracking is off until the user turns it on, and the switch lives here rather
 // than in a settings screen — the toggle and the thing it toggles are one tap
 // apart.
+//
+//   4. NO ANOMALY SURFACE MAY BE RENDERED ON THIS SCREEN. not the health
+//      exception, not the illness CUSUM, not a multivariate-anomaly card, not
+//      an "elevated for N nights" row — however it is worded and whatever the
+//      strings say. "your resting heart rate has been elevated for 10
+//      consecutive nights" placed next to a late period IS a pregnancy
+//      inference; the layout does the inferring and no copy edit undoes it.
+//      the app must never infer, display, store or export a pregnancy
+//      probability: a false positive is cruel, a false negative reaching
+//      someone deciding about medication, alcohol or imaging is dangerous, and
+//      an inferred-pregnancy field is a category of data with real legal
+//      exposure in several jurisdictions even when it never leaves the phone.
+//      keep the anomaly surfaces on their own screens. the only honest
+//      pregnancy feature is a DECLARED state whose entire function is to make
+//      the app say less, and a declared state stays out of exports and out of
+//      any AI-briefing prompt — exports are allow-listed to views, so keeping
+//      it out is one line, and it is worth a test.
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -32,6 +51,28 @@ import '../../data/day_label.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
+import 'metric_detail.dart' show detailScaffold;
+
+/// WH-08 — the published range for an adult menstrual cycle, in days.
+///
+/// It is drawn as two lines and NOTHING ELSE. There is no verdict text on that
+/// chart, no label for being outside it, and no vocabulary anywhere in this
+/// file — strings, identifiers or otherwise — for any life stage. The code is
+/// named after the arithmetic it does, because a variable name leaks into
+/// logs, exports and eventually into copy.
+const kPublishedCycleDays = (low: 24.0, high: 38.0);
+
+/// How many consecutive measured gaps WH-08 needs before it will draw. Roughly
+/// a year of unbroken logging: the chart is a description of a long run, and a
+/// short run of it says nothing that the next three months would not overturn.
+const kCycleLengthReviewMinGaps = 12;
+
+/// A gap longer than this is far more likely a start that was never logged than
+/// a cycle that genuinely ran that long, and from here the two are
+/// indistinguishable. REFUSING ON HOLES IS THE FEATURE: one missed tap
+/// manufactures a 60-day "cycle", and a chart that draws it has invented the
+/// most alarming bar on the screen.
+const kCycleLengthUnloggableGapDays = 60;
 
 /// What the user may attach to a day. A short, plain, non-diagnostic list —
 /// these are observations, not symptoms of anything the app claims to know.
@@ -313,7 +354,20 @@ class _CycleTabState extends State<CycleTab> {
           _prediction(c, p, d),
         ],
 
-        Section('Resting heart rate this cycle', _overlay(c, d)),
+        // The current-cycle chart used to live here. It moved BEHIND this card
+        // rather than sitting above three more of them: WH-02, WH-03 and WH-08
+        // are all look-backs, and the tab itself is for logging today.
+        const SizedBox(height: S.x5),
+        DeepDiveCard(
+          'Across your cycles',
+          '${_completedCycles(d)}',
+          _completedCycles(d) == 1 ? 'complete cycle' : 'complete cycles',
+          'Open',
+          C.pink,
+          onTap: () => Navigator.of(c).push(
+            MaterialPageRoute<void>(builder: (_) => _CycleHistory(d)),
+          ),
+        ),
 
         Section('What you noticed today', _symptoms(c, p, d)),
 
@@ -477,60 +531,6 @@ class _CycleTabState extends State<CycleTab> {
   int? _spanDays(String from, String to) {
     final a = _parse(from), b = _parse(to);
     return (a == null || b == null) ? null : b.difference(a).inDays;
-  }
-
-  // ── overlay ──────────────────────────────────────────────────────────────
-
-  /// Resting HR against cycle day, for the CURRENT cycle only. `cycle_day` is
-  /// counted from the last logged start, so anything outside 1…today is a row
-  /// from a previous cycle wearing this cycle's numbering.
-  Widget _overlay(BuildContext c, CycleData d) {
-    final today = d.cycleDay;
-    final byDay = <int, double>{};
-    for (final o in d.overlay) {
-      final cd = o['cycle_day'], v = o['resting_hr'];
-      if (cd is! num || v is! num) continue;
-      if (cd < 1 || (today != null && cd > today)) continue;
-      byDay[cd.round()] = v.toDouble();
-    }
-    // Indexed by cycle day, not compacted: a night the band was off is a HOLE
-    // in the line, and a compacted series would quietly join Day 4 to Day 9 as
-    // if they were adjacent.
-    final last = byDay.isEmpty
-        ? 0
-        : today ?? byDay.keys.reduce((a, b) => a > b ? a : b);
-    final vals = <double?>[for (var i = 1; i <= last; i++) byDay[i]];
-    final present = byDay.values.toList();
-    final axis = present.length < 3 ? null : AxisSpec.of(present);
-    final p = P.of(c);
-    return Surface(
-      child: ChartFrame(
-        title: 'Resting heart rate',
-        unit: 'bpm',
-        height: 120,
-        yAxis: axis,
-        xLabels: axis == null ? const [] : ['Day 1', 'Day $last'],
-        footnote: 'Descriptive only.',
-        empty: axis == null
-            ? const NoData(message: 'Not enough derived nights this cycle yet')
-            : null,
-        series: vals,
-        child: axis == null
-            ? const SizedBox.shrink()
-            // No fill: a filled area under a heart-rate axis that starts at 52
-            // is the truncated-axis form with the truncation hidden.
-            : CustomPaint(
-                size: Size.infinite,
-                painter: LineChart(
-                  vals,
-                  p.on(C.pink),
-                  fill: false,
-                  t: animate(c, 1),
-                  axis: axis,
-                ),
-              ),
-      ),
-    );
   }
 
   // ── symptoms ─────────────────────────────────────────────────────────────
@@ -760,3 +760,495 @@ String _phaseLabel(String p) => switch (p) {
   'luteal' => 'Luteal',
   _ => p,
 };
+
+// ══════════════════════ ACROSS YOUR CYCLES ══════════════════════
+//
+// Density 3. Everything on this screen is a LOOK BACK over days she logged
+// herself, and it is behind one tap because the tab in front of it is for
+// logging today, not for reading history.
+//
+// WH-02 · the (cycle index, cycle day) fix. `getCycle` numbers every derived
+//   day against the LAST logged start, so a night from March came back as
+//   "cycle day 214" and only the newest cycle could ever be drawn. Here each
+//   day is placed against the start that actually preceded it, which is the
+//   whole feature — the medians and the day-against-itself comparison both
+//   ride on it.
+// WH-03 · a COMPARISON, never a correction. Nothing here rescales readiness.
+// WH-08 · cycle lengths against a published range. Bars, two lines, no verdict.
+//
+// AND NOTHING ELSE GOES HERE. In particular no anomaly surface — an elevated
+// resting-HR card rendered next to a late period IS a pregnancy inference no
+// matter what its strings say.
+
+/// Complete cycles behind everything on this screen: one fewer than her logged
+/// starts, because the newest one has not finished.
+int _completedCycles(CycleData d) {
+  final n = startDates(d).length;
+  return n <= 1 ? 0 : n - 1;
+}
+
+/// Every logged start, oldest first.
+List<DateTime> startDates(CycleData d) => <DateTime>[
+  for (final l in d.logs)
+    if (l['kind'] == 'start') ?_parse(l['date'] as String? ?? ''),
+]..sort();
+
+/// Consecutive gaps between logged starts, in days, oldest first.
+List<int> cycleGaps(List<DateTime> s) => [
+  for (var i = 1; i < s.length; i++) s[i].difference(s[i - 1]).inDays,
+];
+
+/// WH-02 — `cycleDay -> {cycleIndex: value}` for one overlay key.
+///
+/// The index is the start the day actually followed, found by walking every
+/// logged start rather than assuming the last one. That is what stops an old
+/// day from being numbered in the 200s, and it is what makes "the same day of
+/// a different cycle" a thing this screen can talk about at all.
+Map<int, Map<int, double>> byCycleDay(CycleData d, String key) {
+  final starts = startDates(d);
+  final out = <int, Map<int, double>>{};
+  if (starts.isEmpty) return out;
+  for (final o in d.overlay) {
+    final v = o[key];
+    if (v is! num || !v.toDouble().isFinite) continue;
+    final day = _parse(o['date'] as String? ?? '');
+    if (day == null) continue;
+    final i = starts.lastIndexWhere((s) => !s.isAfter(day));
+    if (i < 0) continue; // before she ever logged a start
+    final cd = day.difference(starts[i]).inDays + 1;
+    if (cd < 1) continue;
+    (out[cd] ??= {})[i] = v.toDouble();
+  }
+  return out;
+}
+
+double _median(List<double> v) {
+  final s = [...v]..sort();
+  final n = s.length;
+  return n.isOdd ? s[n ~/ 2] : (s[n ~/ 2 - 1] + s[n ~/ 2]) / 2;
+}
+
+/// Mean and SAMPLE standard deviation, or null when there is nothing to spread
+/// — fewer than two values, or every value identical. A z against a zero
+/// spread is an infinity dressed as a finding.
+({double mean, double sd})? _spread(List<double> v) {
+  if (v.length < 2) return null;
+  final m = v.reduce((a, b) => a + b) / v.length;
+  var ss = 0.0;
+  for (final x in v) {
+    ss += (x - m) * (x - m);
+  }
+  final sd = math.sqrt(ss / (v.length - 1));
+  return sd < 1e-9 ? null : (mean: m, sd: sd);
+}
+
+class _CycleHistory extends StatefulWidget {
+  const _CycleHistory(this.data);
+  final CycleData data;
+
+  @override
+  State<_CycleHistory> createState() => _CycleHistoryState();
+}
+
+class _CycleHistoryState extends State<_CycleHistory> {
+  CycleData get d => widget.data;
+
+  /// The store, or null in a golden — the same defence `unitsOf` uses. A build
+  /// that throws because a provider is missing is a screen nobody can add to
+  /// the gallery.
+  AppState? get _app {
+    try {
+      return context.watch<AppState>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// WH-08 is OPT IN. It is never turned on by an age read off the profile —
+  /// that would be the app deciding what stage of life she is in, which is the
+  /// one thing this screen must never do.
+  bool get _lengthReview => _app?.user?['cycle_length_review'] == true;
+
+  @override
+  Widget build(BuildContext c) {
+    return detailScaffold(c, 'Across your cycles', [
+      const SizedBox(height: S.x2),
+      Section('This cycle', _currentCycleChart(c, d)),
+      Section('By day of your cycle', _byDay(c)),
+      Section('How long your cycles have been', _lengths(c)),
+    ]);
+  }
+
+  // ── WH-02 ────────────────────────────────────────────────────────────────
+
+  Widget _byDay(BuildContext c) {
+    final p = P.of(c);
+    final rhr = byCycleDay(d, 'resting_hr');
+    final rmssd = byCycleDay(d, 'hrv_rmssd');
+    // TWO SERIES, NOT THREE. The third would be `skin_temp_idx`, which is the
+    // generic `skin_temp_z` under a name that implies a cycle temperature
+    // index. It is not one, so it is not drawn.
+    final charts = [
+      _cycleDayChart(c, 'Resting heart rate', 'bpm', C.pink, rhr),
+      _cycleDayChart(c, 'HRV (RMSSD)', 'ms', C.purple, rmssd),
+    ];
+    if (charts.every((w) => w == null)) {
+      return const StatusCard(
+        'Not enough cycles to describe a cycle day yet',
+        'Every point here is the middle of the same day across two or more of '
+            'your own cycles. Nothing has two behind it yet.',
+        icon: LucideIcons.circleDot,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final w in charts)
+          if (w != null) ...[w, const SizedBox(height: S.x3)],
+        Text(
+          'Your own past cycles, described. Days that only one cycle reached '
+          'are left empty rather than drawn — one night is not a middle. '
+          'Cycles of different lengths put the same part of the cycle on '
+          'different days, which flattens this; it describes what happened, it '
+          'does not predict what will.',
+          style: F.over.copyWith(color: p.ink3, height: 1.5),
+        ),
+        const SizedBox(height: S.x4),
+        _dayAgainstItself(c),
+      ],
+    );
+  }
+
+  /// One chart, or null when fewer than three cycle days had two cycles behind
+  /// them — which is not enough to plot and is the normal state for months.
+  Widget? _cycleDayChart(
+    BuildContext c,
+    String title,
+    String unit,
+    Color color,
+    Map<int, Map<int, double>> byDay,
+  ) {
+    final med = <int, double>{
+      for (final e in byDay.entries)
+        if (e.value.length >= 2) e.key: _median(e.value.values.toList()),
+    };
+    if (med.length < 3) return null;
+    final last = med.keys.reduce((a, b) => a > b ? a : b);
+    // Indexed by cycle day, never compacted: a day with no median is a HOLE,
+    // and a compacted series quietly joins day 4 to day 9 as if adjacent.
+    final vals = <double?>[for (var i = 1; i <= last; i++) med[i]];
+    final axis = AxisSpec.of(med.values);
+    if (axis == null) return null;
+    final ns = [for (final k in med.keys) byDay[k]!.length]..sort();
+    final p = P.of(c);
+    return Surface(
+      child: ChartFrame(
+        title: title,
+        unit: unit,
+        yAxis: axis,
+        xLabels: ['Day 1', 'Day $last'],
+        // n, on every point — as the range it actually spans, because thirty
+        // little numbers along a line is not a readable chart and a single
+        // headline n would be false for most of the points under it.
+        footnote: ns.first == ns.last
+            ? 'Middle of ${ns.first} cycles at each day.'
+            : 'Middle of between ${ns.first} and ${ns.last} cycles at each day.',
+        series: vals,
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: LineChart(
+            vals,
+            p.on(color),
+            fill: false,
+            t: animate(c, 1),
+            axis: axis,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── WH-03 ────────────────────────────────────────────────────────────────
+
+  /// Two numbers with their baselines named, and NOTHING RESCALED.
+  ///
+  /// A readiness composite quietly re-based on a calendar count is a hidden
+  /// model, and the glass box exists precisely so that no composite in this app
+  /// gets to be one. So this is a sentence in a detail screen, never a second
+  /// hero, and it never appears next to the readiness number itself.
+  ///
+  /// It needs three previous cycles that reached the same day, so the empty
+  /// state is the common one for most of a year.
+  Widget _dayAgainstItself(BuildContext c) {
+    final p = P.of(c);
+    final lines = [
+      for (final (key, label, dp) in const [
+        ('hrv_rmssd', 'HRV', 1),
+        ('resting_hr', 'Resting heart rate', 1),
+      ])
+        ?_compareLine(key, label, dp),
+    ];
+    if (lines.isEmpty) {
+      final cd = d.cycleDay;
+      return StatusCard(
+        'Not enough cycles to compare a day against itself',
+        cd == null
+            ? 'This puts today next to the same day of your own previous '
+                  'cycles. It needs three of them that got that far.'
+            : 'This puts today next to the same day of your own previous '
+                  'cycles. It needs three of them that reached day $cd.',
+        icon: LucideIcons.circleDot,
+      );
+    }
+    // Which night these two numbers are about. The newest DERIVED night, which
+    // is often not today — a line that silently means "three days ago" is the
+    // same fabrication as a fabricated number.
+    final night = [
+      for (final o in d.overlay)
+        if (o['resting_hr'] is num || o['hrv_rmssd'] is num)
+          ?(o['date'] as String?),
+    ];
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (night.isNotEmpty) ...[
+            Text(
+              'NIGHT OF ${_short(night.last).toUpperCase()}',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x2),
+          ],
+          for (final l in lines) ...[
+            Text(l, style: F.body.copyWith(color: p.ink, height: 1.4)),
+            const SizedBox(height: S.x2),
+          ],
+          Text(
+            'A comparison, not a correction. Nothing on your readiness has '
+            'been rescaled by this, and nothing here is a training '
+            'instruction.',
+            style: F.over.copyWith(color: p.ink3, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "HRV −1.2 vs your last 3 weeks, −0.3 vs your last three day-22s."
+  String? _compareLine(String key, String label, int dp) {
+    final starts = startDates(d);
+    if (starts.isEmpty) return null;
+    // Newest row that carries this key. `overlay` is oldest first.
+    final dated = <(DateTime, int, double)>[];
+    for (final o in d.overlay) {
+      final v = o[key];
+      final day = _parse(o['date'] as String? ?? '');
+      if (v is! num || !v.toDouble().isFinite || day == null) continue;
+      final i = starts.lastIndexWhere((s) => !s.isAfter(day));
+      if (i < 0) continue;
+      dated.add((day, i, v.toDouble()));
+    }
+    if (dated.isEmpty) return null;
+    dated.sort((a, b) => a.$1.compareTo(b.$1));
+    final (latest, cycleIndex, value) = dated.last;
+    final cycleDay = latest.difference(starts[cycleIndex]).inDays + 1;
+
+    // Baseline one: her trailing three weeks, ending the day before this one.
+    // Straddles the follicular/luteal boundary by construction, which is the
+    // whole reason the second baseline exists.
+    final trailing = [
+      for (final (day, _, v) in dated)
+        if (day.isBefore(latest) && latest.difference(day).inDays <= 21) v,
+    ];
+    // Baseline two: the SAME cycle day, in her own earlier cycles.
+    final sameDay = [
+      for (final (day, i, v) in dated)
+        if (i != cycleIndex && day.difference(starts[i]).inDays + 1 == cycleDay)
+          v,
+    ];
+    if (sameDay.length < 3) return null;
+    final a = _spread(trailing), b = _spread(sameDay);
+    if (a == null || b == null) return null;
+    final z1 = (value - a.mean) / a.sd, z2 = (value - b.mean) / b.sd;
+    return '$label ${_signed(z1, dp)} vs your last 3 weeks, '
+        '${_signed(z2, dp)} vs your last ${sameDay.length} day-${cycleDay}s.';
+  }
+
+  // ── WH-08 ────────────────────────────────────────────────────────────────
+
+  /// Days between consecutive logged starts, drawn as bars against the two
+  /// published lines. There is no sentence under it that says whether they meet
+  /// the criterion, because the chart already shows that and a sentence would
+  /// be a verdict.
+  Widget _lengths(BuildContext c) {
+    final p = P.of(c);
+    final starts = startDates(d);
+    final gaps = cycleGaps(starts);
+
+    if (!_lengthReview) {
+      return StatusCard(
+        'Your cycle lengths against a published range',
+        'Off unless you ask for it. It draws the days between your own logged '
+            'starts next to the range published for an adult cycle, and says '
+            'nothing else about them.',
+        fix: 'Show it',
+        icon: LucideIcons.ruler,
+        onFix: _app == null
+            ? null
+            : () => _app!.updateProfile({'cycle_length_review': true}),
+      );
+    }
+    if (gaps.length < kCycleLengthReviewMinGaps) {
+      return StatusCard(
+        'Not enough logged cycles yet',
+        'This reads a long run or it reads nothing: ${gaps.length} of '
+            '$kCycleLengthReviewMinGaps measured gaps so far, which is about a '
+            'year of logging every start.',
+        icon: LucideIcons.ruler,
+      );
+    }
+    // REFUSING ON HOLES IS THE FEATURE.
+    if (gaps.any((g) => g > kCycleLengthUnloggableGapDays)) {
+      return const StatusCard(
+        'There is a gap in your logged starts',
+        'One of them is more than $kCycleLengthUnloggableGapDays days after '
+            'the one before it. A start that was never logged and a cycle that '
+            'genuinely ran that long look identical from here, so nothing is '
+            'drawn rather than drawing the wrong one.',
+        icon: LucideIcons.ruler,
+      );
+    }
+
+    final vals = [for (final g in gaps) g.toDouble()];
+    // FROM ZERO. A bar is drawn from the canvas floor, so an axis that starts
+    // at 20 makes a 26-day cycle look a third the length of a 38-day one —
+    // the truncated-bar form, and on this chart the exaggeration lands on the
+    // most frightening reading. `ceil` only EXTENDS, so a cycle longer than
+    // the published range still sets the top of the scale.
+    final axis = AxisSpec.of(
+      vals,
+      floor: 0,
+      ceil: kPublishedCycleDays.high + 4,
+    );
+    if (axis == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Surface(
+          child: ChartFrame(
+            title: 'Days between your logged starts',
+            unit: 'days',
+            yAxis: axis,
+            xLabels: [_short(_ymdOf(starts[1])), _short(_ymdOf(starts.last))],
+            legend: [
+              ('Your cycles', p.on(C.pink)),
+              ('Published range', p.ink3),
+            ],
+            footnote:
+                'The two lines are ${kPublishedCycleDays.low.round()} and '
+                '${kPublishedCycleDays.high.round()} days.',
+            series: vals,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CustomPaint(
+                  painter: Bars(vals, p.on(C.pink), t: animate(c, 1), axis: axis),
+                ),
+                for (final v in [
+                  kPublishedCycleDays.low,
+                  kPublishedCycleDays.high,
+                ])
+                  Align(
+                    alignment: Alignment(0, 1 - 2 * axis.t(v)),
+                    child: Container(height: 1, color: p.ink3),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: S.x3),
+        // Non-dismissible, and deliberately not a card that can be closed.
+        Text(
+          'Cycle length changes for many reasons — thyroid, stress, weight '
+          'change, contraception, PCOS and others. This is your own logged '
+          'data next to a published range. It is a reason to ask a clinician, '
+          'not an answer from one.',
+          style: F.over.copyWith(color: p.ink3, height: 1.5),
+        ),
+        const SizedBox(height: S.x3),
+        Pressable(
+          onTap: _app == null
+              ? null
+              : () => _app!.updateProfile({'cycle_length_review': false}),
+          child: Text(
+            'Hide cycle lengths',
+            textAlign: TextAlign.center,
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Resting HR against cycle day, for the CURRENT cycle only. `cycle_day` from
+/// the repo is counted off the last logged start, so anything outside 1…today
+/// is a row from a previous cycle wearing this cycle's numbering.
+Widget _currentCycleChart(BuildContext c, CycleData d) {
+  final today = d.cycleDay;
+  final byDay = <int, double>{};
+  for (final o in d.overlay) {
+    final cd = o['cycle_day'], v = o['resting_hr'];
+    if (cd is! num || v is! num) continue;
+    if (cd < 1 || (today != null && cd > today)) continue;
+    byDay[cd.round()] = v.toDouble();
+  }
+  // Indexed by cycle day, not compacted: a night the band was off is a HOLE in
+  // the line, and a compacted series would quietly join Day 4 to Day 9 as if
+  // they were adjacent.
+  final last = byDay.isEmpty
+      ? 0
+      : today ?? byDay.keys.reduce((a, b) => a > b ? a : b);
+  final vals = <double?>[for (var i = 1; i <= last; i++) byDay[i]];
+  final present = byDay.values.toList();
+  final axis = present.length < 3 ? null : AxisSpec.of(present);
+  final p = P.of(c);
+  return Surface(
+    child: ChartFrame(
+      title: 'Resting heart rate',
+      unit: 'bpm',
+      height: 120,
+      yAxis: axis,
+      xLabels: axis == null ? const [] : ['Day 1', 'Day $last'],
+      footnote: 'Descriptive only.',
+      empty: axis == null
+          ? const NoData(message: 'Not enough derived nights this cycle yet')
+          : null,
+      series: vals,
+      child: axis == null
+          ? const SizedBox.shrink()
+          // No fill: a filled area under a heart-rate axis that starts at 52 is
+          // the truncated-axis form with the truncation hidden.
+          : CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(
+                vals,
+                p.on(C.pink),
+                fill: false,
+                t: animate(c, 1),
+                axis: axis,
+              ),
+            ),
+    ),
+  );
+}
+
+/// A z with its sign always printed — "0.3" and "−0.3" are different findings
+/// and a bare number reads as the first one.
+String _signed(double z, int dp) =>
+    '${z < 0 ? '−' : '+'}${z.abs().toStringAsFixed(dp)}';
+
+String _ymdOf(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';

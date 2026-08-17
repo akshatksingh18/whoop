@@ -1772,7 +1772,8 @@ class LocalRepositoryImpl extends LocalRepository {
       if (hrRows.isNotEmpty) {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
-        w.addAll(_sessionTrace(ts, hr, startTs, endTs));
+        w.addAll(_sessionTrace(ts, hr, startTs, endTs,
+            rescored.row['device_family'] as String?));
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -1809,6 +1810,7 @@ class LocalRepositoryImpl extends LocalRepository {
     List<int> hr,
     int startTs,
     int endTs,
+    String? deviceFamily,
   ) {
     final w = <String, dynamic>{};
     w['hr'] = _minuteHrCurve(ts, hr);
@@ -1823,7 +1825,7 @@ class LocalRepositoryImpl extends LocalRepository {
       w['max_hr'] = peakAt.$1;
       w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
     }
-    w['zone_bands'] = _zoneBands(hr);
+    w['zone_bands'] = _zoneBands(hr, deviceFamily);
     final drift = _hrDriftPct(ts, hr, startTs, endTs);
     if (drift != null) w['hr_drift_pct'] = drift;
     w['trace_samples'] = hr.length;
@@ -1889,10 +1891,14 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// Time-in-zone bands Z1..Z5 (50/60/70/80/90 % of max HR) over the session's
   /// 1 Hz HR — the shape the zones card + summary bar parse.
-  List<Map<String, dynamic>> _zoneBands(List<int> hr) {
-    final maxHr = _profileMaxHr();
-    if (maxHr == null) return const []; // no age ⇒ no ceiling ⇒ no bands
-    const names = ['Warm-up', 'Fat burn', 'Aerobic', 'Threshold', 'Max effort'];
+  List<Map<String, dynamic>> _zoneBands(List<int> hr, String? deviceFamily) {
+    final maxHr = _profileMaxHr(deviceFamily);
+    // No age, or a strap with no calibrated ceiling ⇒ no bands.
+    if (maxHr == null) return const [];
+    // "Fat burn" was a substrate-utilisation claim on a band that measures
+    // heart rate. Z2 is an INTENSITY label; which fuel is being oxidised there
+    // needs respiratory exchange, which no wrist sensor produces (TS-04a).
+    const names = ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
     const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
     final secs = List<int>.filled(5, 0);
     for (final v in hr) {
@@ -1973,17 +1979,51 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  /// The DISPLAY HRmax (220−age), or null when the profile has no age.
+  /// The HRmax this session's zones are banded on, or null.
   ///
-  /// It used to substitute age 30 → a flat 190 bpm ceiling, which is the exact
-  /// thing `Profile.hrMaxTanaka` forbids ("the caller must NOT substitute
-  /// 220−age or any default — that would fabricate a ceiling"). Age is optional
-  /// in onboarding, so a user who skipped it got zone bars computed against a
-  /// stranger's ceiling, persisted onto the session, with nothing saying so.
-  /// No age, no zones.
-  int? _profileMaxHr() {
-    final age = (getProfileMap()?['age'] as num?)?.toDouble();
-    return age == null ? null : (220 - age).round();
+  /// [deviceFamily] is `sessions.device_family` — WHICH STRAP measured the
+  /// window. It was `220 − age` here and Tanaka `208 − 0.7·age` in the analytics
+  /// anchors, so one session's persisted `zone_min` and the `zone_bands` its own
+  /// detail screen recomputes were banded off ceilings 3 bpm apart at 30 and 6
+  /// apart at 60. Both are gone: [estimatedMaxHr] is the single definition
+  /// (TS-03a).
+  ///
+  /// Null on no age AND on an unknown/unstamped strap — every pre-schema-41
+  /// session, every import and every raw replay carries no family, and a strap
+  /// we have not calibrated a ceiling for is not gen4 with a different badge.
+  /// No ceiling, no zones; nothing is substituted.
+  int? _profileMaxHr(String? deviceFamily) => estimatedMaxHr(
+        (getProfileMap()?['age'] as num?),
+        deviceFamily,
+      )?.round();
+
+  /// Which strap measured [startTs, endTs] — the `device_family` the ingest
+  /// stamped on the 1 Hz rows themselves, which is the same stamp the day
+  /// pipeline dispatches on. Null when the window is unstamped: every
+  /// pre-schema-41 row, every import and every raw replay carries NULL, and
+  /// unknown provenance is its own case, never gen4.
+  ///
+  /// Only a manual/retimed WRITE needs this — every other seam reads the stamp
+  /// off `sessions.device_family`, which this write is what banks.
+  Future<String?> _windowDeviceFamily(int startTs, int endTs) async {
+    // ponytail: one row, the first second of the window, over the derive path's
+    // existing range query rather than a new `SELECT DISTINCT` in db.dart. A
+    // window whose FIRST second is unstamped reads as unknown even if later
+    // seconds are stamped, which refuses rather than over-claims. If a window
+    // can ever span two straps, this needs the distinct-set read that
+    // `SubstratePages.deviceFamily` already does over the pages it holds.
+    try {
+      final rows = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 1,
+        fromRecTs: startTs,
+        toRecTs: endTs,
+      );
+      if (rows.isEmpty) return null;
+      final f = rows.first['device_family'] as String?;
+      return (f == null || f.isEmpty) ? null : f;
+    } catch (_) {
+      return null; // unknown provenance, same as an unstamped window
+    }
   }
 
   /// Profile age in years, or null when unset — the input to the physiological
@@ -2133,14 +2173,18 @@ class LocalRepositoryImpl extends LocalRepository {
     final restingHr =
         await _recentRestingHr() ?? profile.restingHrManual?.toDouble();
 
+    // WHICH STRAP measured this window. An edit keeps the stamp the row already
+    // carries; a hand-entered window has none of its own, so it is read off the
+    // substrate it is scored from. Null — an unstamped window (every pre-v41
+    // row, every import, every raw replay) — is a refusal, not gen4 by default.
+    final deviceFamily = (existing?['device_family'] as String?) ??
+        await _windowDeviceFamily(startTs, endTs);
+
     final stats = computeManualSessionStats(
       hrTs: hrTs,
       hrBpm: hrBpm,
       profile: profile,
-      // 0 is `zoneMinutesFor`'s own "no ceiling" input — it returns an empty
-      // split, so a profile with no age persists no zone_min rather than a
-      // split against an invented 190 bpm.
-      zoneMaxHr: _profileMaxHr()?.toDouble() ?? 0,
+      hrMax: _profileMaxHr(deviceFamily)?.toDouble(),
       restingHr: restingHr,
     );
 
@@ -2154,6 +2198,10 @@ class LocalRepositoryImpl extends LocalRepository {
       sessionId: sessionId,
       source: source,
     );
+    // Banked on the row so the on-read re-score, the zone bands and the frozen
+    // trace all band on the SAME ceiling this write did — `putSession` is
+    // INSERT-OR-REPLACE, so omitting it would blank an edit's existing stamp.
+    row['device_family'] = deviceFamily;
     await LocalDb.putSession(row);
 
     // Retire the fragment(s) this window supersedes, so the athlete isn't
@@ -2220,7 +2268,7 @@ class LocalRepositoryImpl extends LocalRepository {
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
-        zoneMaxHr: _profileMaxHr()?.toDouble() ?? 0,
+        hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
       );
@@ -2309,6 +2357,7 @@ class LocalRepositoryImpl extends LocalRepository {
           hrBpm,
           startTs,
           endTs,
+          row['device_family'] as String?,
         );
         // The post-end recovery window is outside the session and outside the
         // rows read above, so it costs one more bounded (~205 s) read — only on
@@ -2327,6 +2376,11 @@ class LocalRepositoryImpl extends LocalRepository {
         traceJson: traceJson,
         traceSamples: needsTrace ? stats.hrSampleCount : null,
       );
+      // CV-01 / TS-07 — freeze the per-km splits on the SAME improvement pass
+      // as the trace, and for the same reason: `avg_hr` per split is a join
+      // against `decoded_onehz`, which is gone at ~3 days, so a split not
+      // written inside that window can never be written at all. Forward-only.
+      if (needsTrace) await _persistKmSplits(id, hrRows);
       final updated = {
         ...current,
         'strain': merged.strain,
@@ -2448,6 +2502,85 @@ class LocalRepositoryImpl extends LocalRepository {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Freeze this session's per-KILOMETRE splits (CV-01 / TS-07).
+  ///
+  /// THE WHOLE FEATURE IS THIS WRITE. A split's `avg_hr` is a join against
+  /// `decoded_onehz`, which the retention window prunes at ~3 days, so there is
+  /// no retroactive index and never can be: this is forward-only and produces
+  /// its first honest "same pace, fewer beats?" chart 8-12 weeks after it
+  /// ships. Nothing reads `workout_split` yet, and that is expected.
+  ///
+  /// [hrRows] is the session's 1 Hz HR the caller has already read — reused
+  /// rather than re-queried, and the reason this hangs off the re-score pass.
+  Future<void> _persistKmSplits(
+    String id,
+    List<Map<String, dynamic>> hrRows,
+  ) async {
+    try {
+      if (!await LocalDb.sessionHasRoute(id)) return;
+      final rows = await LocalDb.routePoints(id);
+      if (rows.length < 2) return;
+      final points = [for (final r in rows) RoutePoint.fromRow(r)];
+      final hr = [
+        for (final r in hrRows)
+          HrSample(
+            tsMs: (r['rec_ts'] as num).toInt() * 1000,
+            hr: (r['hr'] as num).toInt(),
+          ),
+      ];
+      final splits = rmath.computeSplits(
+        points,
+        hr,
+        unitMeters: rmath.kMetersPerKm,
+      );
+      if (splits.isEmpty) return;
+      // Splits are CONTIGUOUS in time by construction (each one starts where
+      // the last crossed), so walking the durations reproduces their exact
+      // boundaries without `computeSplits` having to return them.
+      var edgeMs = points.first.tsMs;
+      final out = <Map<String, Object?>>[];
+      for (final s in splits) {
+        final startMs = edgeMs;
+        edgeMs += s.durationSec * 1000;
+        out.add({
+          'km': s.index,
+          'meters': s.meters,
+          'duration_sec': s.durationSec,
+          'avg_hr': s.avgHr,
+          'net_elev_m': _netElevation(points, startMs, edgeMs),
+        });
+      }
+      await LocalDb.putWorkoutSplits(id, out);
+    } catch (_) {
+      /* best-effort: a missing route or a malformed row costs the splits only */
+    }
+  }
+
+  /// Elevation change across [fromMs, toMs] — LAST altitude minus FIRST, over
+  /// the whole kilometre.
+  ///
+  /// NOT a summed ascent with a deadband. GPS altitude error is tens of metres
+  /// pointwise and there is no barometer anywhere in this stack, so a
+  /// point-to-point sum is mostly integrated noise; the net over a km is the
+  /// only elevation figure the fix actually supports. Null — never 0 — when
+  /// either end carried no altitude, because 0 reads as "flat".
+  static double? _netElevation(
+    List<RoutePoint> points,
+    int fromMs,
+    int toMs,
+  ) {
+    double? first, last;
+    for (final p in points) {
+      if (p.tsMs < fromMs) continue;
+      if (p.tsMs > toMs) break;
+      final a = p.alt;
+      if (a == null) continue;
+      first ??= a;
+      last = a;
+    }
+    return (first == null || last == null) ? null : last - first;
   }
 
   /// Tolerance when clipping route points to their session's window. GPS

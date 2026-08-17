@@ -15,6 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -558,6 +559,172 @@ void main() {
       expect(find.textContaining('free-day clock runs'), findsNothing);
       expect(find.text('1h 30m later'), findsOneWidget);
       expect(find.text('3 / 9'), findsOneWidget);
+    });
+  });
+
+  // ── MIND-11: a shape and a window, and an abstention that must stay ────────
+  //
+  // The item's own note is that the abstention is what gets quietly removed
+  // later if it is not pinned first. So it is pinned first.
+  group('alertness forecast', () {
+    Future<void> pumpC(WidgetTester t, CircadianData d,
+        {double scale = 1}) async {
+      t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: CircadianDetail(data: d),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('no judged night, no forecast — and no explanation either',
+        (t) async {
+      await pumpC(t, const CircadianData());
+      // Not an empty card, not a placeholder, not "we need more data". The
+      // section is absent, because a model prediction nobody asked for is not
+      // owed an apology.
+      expect(find.text('Today, predicted'), findsNothing);
+      expect(find.textContaining('flattest stretch'), findsNothing);
+    });
+
+    testWidgets('a shape, a named window, and the refusal on the card',
+        (t) async {
+      await pumpC(
+        t,
+        CircadianData(
+          alertness: ana.alertnessForecast(
+            wakeLocalHour: 7.0,
+            sleepDurationHours: 7.5,
+            circadianAcrophaseHours: 16.0,
+          ),
+        ),
+      );
+      expect(find.text('Today, predicted'), findsOneWidget);
+      expect(find.textContaining('flattest stretch lands in'), findsOneWidget);
+      // No score, and the chart says why there is no axis to read one off.
+      expect(find.textContaining('No scale, and there will not be one'),
+          findsOneWidget);
+      // The safety refusal is COPY, on the card, in both directions.
+      expect(find.textContaining('not a fitness-to-drive check'), findsOneWidget);
+      expect(find.textContaining('does not say you are impaired'),
+          findsOneWidget);
+      expect(find.textContaining('a prediction, not a reading'), findsOneWidget);
+    });
+
+    testWidgets('the card survives 3.1x text', (t) async {
+      // Any RenderFlex overflow anywhere in the pumped page fails this.
+      await pumpC(
+        t,
+        CircadianData(
+          alertness: ana.alertnessForecast(
+              wakeLocalHour: 7.0, sleepDurationHours: 7.5),
+        ),
+        scale: 3.1,
+      );
+      expect(find.textContaining('flattest stretch lands in'), findsOneWidget);
+    });
+
+    testWidgets('the jargon battery is behind a tap, not on the screen',
+        (t) async {
+      await pumpC(
+          t,
+          const CircadianData(
+              rhythmV: {'IS': .62, 'IV': .81, 'RA': .74},
+              cosinorV: {'acrophase_hours': 15.2}));
+      expect(find.text('Day-to-day stability'), findsNothing);
+      await t.tap(find.text('Show'));
+      await t.pumpAndSettle();
+      expect(find.text('Day-to-day stability'), findsOneWidget);
+    });
+  });
+
+  // ── RESP-01: across nights, never on one, and it may not reassure ─────────
+  group('the across-nights breathing screen', () {
+    /// [n] nights all at [rate], newest first, with the last [recent] raised.
+    List<ana.CvhrNight> nights(int n,
+        {double rate = 2.0, int recent = 0, double recentRate = 40.0}) => [
+          for (var i = 0; i < n; i++)
+            ana.CvhrNight(
+              dayKey: _day(i),
+              cvhrPerHour: i < recent ? recentRate : rate,
+              analyzedHours: 6,
+            ),
+        ];
+
+    Future<void> pumpI(WidgetTester t, ana.Metric<ana.CvhrDistribution> m,
+        {double scale = 1}) async {
+      t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Investigate('resp_rate',
+              data: InvestigateData(day: _day(0), cvhrDist: m)),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('it names no condition, no number and no severity', (t) async {
+      await pumpI(t, ana.cvhrPersonalDistribution(nights(20, recent: 3)));
+      expect(find.textContaining('ACROSS 20 OF YOUR OWN NIGHTS'), findsOneWidget);
+      expect(find.textContaining('running higher'), findsOneWidget);
+      // The vocabulary that turns a screen into a diagnosis, in any casing.
+      final page = t
+          .widgetList<Text>(find.byType(Text))
+          .map((w) => (w.data ?? '').toLowerCase())
+          .join(' ');
+      for (final banned in const [
+        'apnea',
+        'apnoea',
+        'hypopnea',
+        'ahi',
+        'mild',
+        'moderate',
+        'severe',
+        'you have',
+        'disorder',
+      ]) {
+        expect(page.contains(banned), isFalse, reason: 'said "$banned"');
+      }
+    });
+
+    testWidgets('a quiet screen refuses to clear anything', (t) async {
+      await pumpI(t, ana.cvhrPersonalDistribution(nights(20)));
+      // The same-card refusal, in the state where a user most wants it to be
+      // reassurance. Not a footnote, not a tooltip, not conditional.
+      expect(find.textContaining('nothing here is a negative result'),
+          findsOneWidget);
+      expect(find.textContaining('a clinician can test that properly'),
+          findsOneWidget);
+      // And it never generalises from the aggregate to a night.
+      expect(find.textContaining('says anything about any one night'),
+          findsOneWidget);
+    });
+
+    testWidgets('too few nights says so instead of showing a partial one',
+        (t) async {
+      await pumpI(t, ana.cvhrPersonalDistribution(nights(3)));
+      expect(find.text('Not enough nights for the across-nights view'),
+          findsOneWidget);
+      expect(find.textContaining('running higher'), findsNothing);
+      // The pipeline's own reason, in English — not its machine spelling.
+      expect(find.textContaining('3 of 5 nights'), findsOneWidget);
+      expect(find.textContaining('need_baseline'), findsNothing);
+      expect(find.textContaining('nights=3/5'), findsNothing);
+    });
+
+    testWidgets('the card survives 3.1x text', (t) async {
+      await pumpI(t, ana.cvhrPersonalDistribution(nights(20)), scale: 3.1);
+      expect(find.textContaining('nothing here is a negative result'),
+          findsOneWidget);
     });
   });
 }

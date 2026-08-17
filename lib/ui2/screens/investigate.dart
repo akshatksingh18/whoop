@@ -14,7 +14,9 @@ import 'dart:math' show sqrt;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../ui2.dart';
@@ -36,6 +38,15 @@ class InvestigateData {
   /// counted nothing.
   final Object? cvhr;
 
+  /// RESP-01 — the 30-night personal distribution the per-night index above is
+  /// only allowed to be read through. Null on every key but `resp_rate`.
+  final ana.Metric<ana.CvhrDistribution>? cvhrDist;
+
+  /// The night `getDaySleepV2` served, for the exact stage counts. SLP-13 shows
+  /// ranges everywhere a normal user goes; the counts behind them live here and
+  /// nowhere else. Empty on every key but `sleep`.
+  final Map<String, dynamic> night;
+
   /// The stored `prsa_dc` series, dated. Deceleration capacity is the one
   /// HRV-family number with hard outcome evidence behind it and its only
   /// reader was a single row in the table below.
@@ -56,6 +67,8 @@ class InvestigateData {
     this.hrv = const {},
     this.heart = const {},
     this.cvhr,
+    this.cvhrDist,
+    this.night = const {},
     this.dcPoints = const [],
     this.rhythmPoints = const [],
     this.coveragePct,
@@ -106,6 +119,8 @@ class InvestigateData {
       hrv: hrv,
       heart: heart,
       cvhr: lungs['cvhr'],
+      cvhrDist: key == 'resp_rate' ? await _cvhrHistory(repo, days) : null,
+      night: key == 'sleep' ? await repo.getDaySleepV2(day) : const {},
       dcPoints: dc,
       rhythmPoints: rhythm,
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
@@ -113,6 +128,42 @@ class InvestigateData {
       windowEnd: win is Map ? (win['end'] as num?)?.toInt() : null,
       series: series,
     );
+  }
+
+  /// RESP-01 — assemble the stored nights and hand them to the analytics screen.
+  ///
+  /// One bundle decode per night. That is the cost of a screen whose whole point
+  /// is that no single night may be shown, and it is paid once, on a density-3
+  /// screen the user walked to.
+  // ponytail: N bundle reads per open, same shape as the actogram's. If this
+  // ever feels slow the fix is a repo method that reads `cvhr_per_hour` and
+  // `analyzed_hours` without the payload, not a shorter window — the window is
+  // the gate.
+  static Future<ana.Metric<ana.CvhrDistribution>> _cvhrHistory(
+      LocalRepository repo, List<String> daysNewestFirst) async {
+    // RESP-02's cross-gate. The flag is stored one value per derived day,
+    // stamped at local noon, so the day LABEL is what matches a night — never
+    // the raw epoch, which is a different day either side of the stamp.
+    final flags = <String, double>{
+      for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))
+        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)): p.v,
+    };
+    final nights = <ana.CvhrNight>[];
+    for (final day in daysNewestFirst.take(ana.cvhrDistributionWindowNights)) {
+      final v = envValue((await repo.getDayLungs(day))['cvhr']);
+      final rate = v?['cvhr_per_hour'] as num?;
+      final hours = v?['analyzed_hours'] as num?;
+      // A night the screen abstained on is not a night with a zero. It is not
+      // a night at all, and it never enters the denominator.
+      if (rate == null || hours == null) continue;
+      nights.add(ana.CvhrNight(
+        dayKey: day,
+        cvhrPerHour: rate.toDouble(),
+        analyzedHours: hours.toDouble(),
+        irregularRhythm: (flags[day] ?? 0) >= 1,
+      ));
+    }
+    return ana.cvhrPersonalDistribution(nights);
   }
 }
 
@@ -167,6 +218,7 @@ class _InvestigateState extends State<Investigate> {
       ] else ...[
         if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
         if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
+        if (widget.metricKey == 'sleep') ..._stagePanels(d),
         const SizedBox(height: S.x3),
         MonoTable('Provenance', [
           ('Day', d.day ?? '—'),
@@ -422,6 +474,10 @@ class _InvestigateState extends State<Investigate> {
               : 'Not enough clean beats to run it.',
           icon: LucideIcons.wind,
         ),
+        // The across-nights view survives a night that abstained — that is the
+        // whole reason it is an aggregate. Dropping it here would have made the
+        // screen go quiet on exactly the nights it is least about.
+        ..._cvhrDistribution(d),
       ];
     }
 
@@ -453,6 +509,170 @@ class _InvestigateState extends State<Investigate> {
         // p25 · p50 · p75 of the SAME per-cycle lists the means come from.
         ('Cycle length, quartiles', q(v['width_quartiles_sec'], 's', 1)),
         ('Dip depth, quartiles', q(v['depth_quartiles_ms'], 'ms', 1)),
+      ]),
+      ..._cvhrDistribution(d),
+    ];
+  }
+
+  // ── RESP-01 · the 30-night screen ───────────────────────────────────────────
+  //
+  // THE COPY IS THE PRODUCT and it was written before this widget existed. It
+  // has to survive an adversarial reader trying to get a diagnosis out of it, so
+  // four things are structural rather than editorial:
+  //
+  //   * NO CONDITION IS NAMED. Not in the headline, not in the body, not as a
+  //     hedge ("this is not X" still teaches the reader that X is the subject).
+  //     The card names the pattern it counted and what a clinician does.
+  //   * NO NUMBER. No index, no rate, no severity, no per-night value, no count
+  //     of anything that could be read as events. `nights_used` is provenance —
+  //     how much of the user's own record is behind the sentence — and it is the
+  //     only figure allowed.
+  //   * IT MAY NOT REASSURE. The refusal to clear anything is a paragraph in the
+  //     body, present in BOTH states, and never a footnote or a tooltip. An
+  //     absent flag is not a negative result: this screen is blunted by
+  //     beta-blockers, autonomic neuropathy and diabetes and misses real cases.
+  //   * IT TERMINATES IN A CLINICIAN, never in a number and never in an action
+  //     the app can take.
+  //
+  // It sits BELOW the per-night table on purpose. The table is one night's raw
+  // counts, which is what the whole aggregate exists to stop anyone reading as a
+  // finding — so the card that says "across nights, never on one" has to come
+  // after the night it is talking about, not before it.
+  //
+  // And it lives on Investigate, density 3, reached only by walking here. On the
+  // Sleep screen the same words become a headline, and a headline is how a
+  // screen that fires on atrial fibrillation, on altitude and on any broken-up
+  // night turns into a diagnosis in somebody's head.
+  /// An analytics abstention note as a sentence. Null when there is none.
+  static String? _readable(String? note) {
+    if (note == null || note.isEmpty) return null;
+    final s = note
+        .replaceFirst('need_baseline:', '')
+        .replaceFirstMapped(RegExp(r'nights=(\d+)/(\d+)'),
+            (m) => '${m[1]} of ${m[2]} nights');
+    return s.isEmpty ? null : '${s[0].toUpperCase()}${s.substring(1)}.';
+  }
+
+  List<Widget> _cvhrDistribution(InvestigateData d) {
+    final m = d.cvhrDist;
+    if (m == null) return const [];
+    final p = P.of(context);
+    final v = m.value;
+
+    if (v == null) {
+      return [
+        const SizedBox(height: S.x3),
+        StatusCard(
+          'Not enough nights for the across-nights view',
+          // The screen's OWN reason, including which gate dropped which night —
+          // quoting the pipeline beats inferring a reason here. `need_baseline:`
+          // is the pipeline's machine prefix and `nights=A/B` its machine
+          // spelling; both are stripped rather than shown, because a user-facing
+          // card printing a key=value pair is how a real explanation ends up
+          // reading like a crash.
+          _readable(m.note) ??
+              'This needs several nights with a few observed hours each.',
+          icon: LucideIcons.wind,
+        ),
+      ];
+    }
+
+    final n = v.nightsUsed;
+    final dropped = [
+      if (v.nightsExcludedIrregular > 0)
+        '${v.nightsExcludedIrregular} left out because the irregular-rhythm '
+            'screen flagged them',
+      if (v.nightsExcludedThin > 0)
+        '${v.nightsExcludedThin} left out for too few observed hours',
+    ];
+
+    return [
+      const SizedBox(height: S.x3),
+      Surface(
+        color: p.card2,
+        elevation: 0,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('ACROSS $n OF YOUR OWN NIGHTS',
+              style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x3),
+          Text(
+            v.aboveOwnUsual
+                ? 'Over your most recent nights, the heart-rate cycling this '
+                    'screen counts has been running higher than across the $n '
+                    'nights behind it.'
+                : 'Over your most recent nights, the heart-rate cycling this '
+                    'screen counts has stayed inside the range of the $n '
+                    'nights behind it.',
+            style: F.body.copyWith(color: p.ink, height: 1.5),
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            'It is a pattern in your pulse, not a measurement of your '
+            'breathing, and it is not a test for anything. The same cycling '
+            'comes from an irregular rhythm, from being at altitude, and from '
+            'any broken-up night — and beta-blockers, diabetes and nerve '
+            'conditions flatten it, so genuinely disturbed breathing often '
+            'leaves nothing here at all.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.6),
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            'So nothing here is a negative result and nothing here clears '
+            'anything, and none of it says anything about any one night — a '
+            'single night’s count moves for a dozen reasons on its own.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.6),
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            'If you snore, wake unrefreshed, or someone has seen you stop '
+            'breathing in your sleep, a clinician can test that properly.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.6),
+          ),
+          if (dropped.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            Text('${dropped.join('; ')}.',
+                style: F.over.copyWith(color: p.ink3, height: 1.5)),
+          ],
+        ]),
+      ),
+    ];
+  }
+
+  // ── SLP-13 · the counts the ranges are made of ──────────────────────────────
+  //
+  // Every user-facing surface shows stage minutes as intervals now. The exact
+  // figures the segmenter counted still exist and belong somewhere; this is the
+  // somewhere the item names. Both are on the row, so the width is legible as a
+  // property of the night rather than as a house style.
+  List<Widget> _stagePanels(InvestigateData d) {
+    final n = d.night;
+    int? min(String k) => (n[k] as num?)?.round();
+    final l = min('light_min'), dp = min('deep_min'), r = min('rem_min');
+    final tst = min('duration_min');
+    if (l == null || dp == null || r == null || tst == null) return const [];
+    final conf = (n['stages_confidence'] as num?)?.toDouble();
+    final iv = ana.stageIntervals(
+      lightSec: l * 60,
+      deepSec: dp * 60,
+      remSec: r * 60,
+      tstSec: tst * 60,
+      confidence: conf ?? 0.0,
+    );
+    String row(int exact, ana.StageInterval i) =>
+        '$exact min · shown as ${(i.loSec / 60).round()}–'
+        '${(i.hiSec / 60).round()} min';
+    return [
+      const SizedBox(height: S.x3),
+      MonoTable('Stage minutes, as counted', [
+        ('Light', row(l, iv.light)),
+        ('Deep', row(dp, iv.deep)),
+        ('REM', row(r, iv.rem)),
+        ('Awake', min('awake_min') == null ? '—' : '${min('awake_min')} min'),
+        ('Total sleep', '$tst min'),
+        // The width of every interval above is a function of this one number
+        // and nothing else, so it goes on the same table.
+        ('Segmentation confidence',
+            conf == null ? 'not published' : conf.toStringAsFixed(2)),
       ]),
     ];
   }

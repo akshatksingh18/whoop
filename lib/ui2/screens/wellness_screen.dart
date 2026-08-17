@@ -17,6 +17,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' show journalFieldLagDays;
 import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
@@ -969,11 +970,40 @@ class _JournalFindingsState extends State<JournalFindings> {
         '${slope > 0 ? 'higher' : 'lower'} per $step';
   }
 
+  /// MIND-02 — WHICH NIGHT this row is about.
+  ///
+  /// Outcomes labelled with a date come from the night that ENDED on that
+  /// morning, while the journal row is written at bedtime and describes the
+  /// daytime. So analytics pairs each field at its own lag: behaviour (coffee,
+  /// alcohol, water, steps) lands on the night that FOLLOWS, and a
+  /// retrospective self-report (mood, sleep quality, soreness) already
+  /// describes the night that just finished. It is never a blanket shift — the
+  /// two kinds point in opposite directions and one constant breaks half of
+  /// them.
+  ///
+  /// Said out loud on every row, because the alignment changed underneath
+  /// findings people had already read, and a finding that quietly means a
+  /// different night is a different finding.
+  String _alignment(Map<String, dynamic> r) {
+    // Read from the same constant analytics paired on, so the sentence cannot
+    // drift away from the arithmetic.
+    final field = (r['field'] ?? '').toString();
+    // The two derived caffeine-timing keys carry caffeine's own lag.
+    final lag =
+        journalFieldLagDays[field] ??
+        (field.startsWith('caffeine') ? journalFieldLagDays['caffeine'] : null);
+    if (lag == null) return 'Matched against the same day\'s numbers.';
+    return lag > 0
+        ? 'Matched against the night that followed.'
+        : 'Matched against the night that ended that morning.';
+  }
+
   String _detail(Map<String, dynamic> r) {
+    final when = _alignment(r);
     if (r['binary'] == true) {
       final d = (r['cohens_d'] as num?)?.toDouble();
       return 'Against the ${r['n_without']} days you did not'
-          '${d == null ? '' : ' · d ${d.abs().toStringAsFixed(1)}'}.';
+          '${d == null ? '' : ' · d ${d.abs().toStringAsFixed(1)}'}. $when';
     }
     final lo = (r['rho_low'] as num?)?.toDouble();
     final hi = (r['rho_high'] as num?)?.toDouble();
@@ -988,12 +1018,12 @@ class _JournalFindingsState extends State<JournalFindings> {
     // occurrence, so timing cannot tell two coffees from five, and a late
     // stressful day produces both the late coffee and the bad night.
     if (r['field'] == 'caffeine_last_min') {
-      return '${base}This is your LAST caffeine of the day only — two cups and '
-          'five look identical here, so "later" can quietly mean "more". A '
+      return '$base$when This is your LAST caffeine of the day only — two cups '
+          'and five look identical here, so "later" can quietly mean "more". A '
           'long, stressful day produces both the late coffee and the poor '
           'night.';
     }
-    return base.trim();
+    return '$base$when'.trim();
   }
 
   /// How to say one step of this field. Minutes-past-midnight is unreadable per

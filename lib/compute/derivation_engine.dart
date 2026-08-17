@@ -959,7 +959,101 @@ import 'substrate.dart';
 //
 //   ALSO: `crossday.recent[]` carries an `unsettled` bool, `hrv_timeline` keeps
 //   the v68 epoch fix, and the strain/energy paths are unchanged.
-const int kAlgoVersion = 69;
+// v70 — the device seam. Which band measured a day is now an INPUT to the
+// numbers derived from it, and a day that cannot say which band that was gets
+// no number instead of gen4's. Pins move to analytics 98d42b6; protocol stays
+// at e33e53a, unchanged and sealed.
+//
+// READ THIS FIRST — WHAT WILL LOOK LIKE A REGRESSION AND IS NOT:
+//
+//   `decoded_onehz.device_family` arrived at schema 41. It is NULL on every row
+//   written before that, on every import and on every raw replay — which is all
+//   of today's data. So on a re-derive of any EXISTING day, everything
+//   downstream of the HR ceiling goes ABSENT: strain, TRIMP, the day's HR
+//   zones, wake-day calories, and every session's zone_bands/zone_min. That is
+//   the contract working, not a break. We do not know what measured those
+//   seconds, so we cannot say where their ceiling is, and gen4's number is not
+//   a default for a strap we did not identify. Days recorded from here on carry
+//   the family and keep their numbers. Already-banked session strain/kcal/zone
+//   splits are NOT destroyed — reconcile keeps the stored value; it is the
+//   re-score and the on-read recompute that abstain.
+//
+// What moves on a re-derive:
+//
+//   1. ONE HR CEILING, DEVICE-DISPATCHED. There were five: `220 − age` in
+//      local_repository_impl, app_state and analytics' load_trimp; Tanaka
+//      `208 − 0.7·age` inlined in onehz_pipeline and crossday_pipeline; and
+//      `(220 − age) + 25` in hr_max. A session stored its zone_min against one
+//      and its detail screen recomputed zone_bands against the other, for the
+//      same session, with nothing on screen saying so. Everything routes
+//      through `estimatedMaxHr(age, family)` now. At 30 the ceiling goes
+//      190 → 187 and at 60 160 → 166, so BAND MEMBERSHIP CHANGES: 150 bpm at
+//      age 30 was Z3 and is now Z4. `hrCeilingForAge` is deliberately NOT
+//      folded in — it is an artefact-plausibility bound with headroom, and
+//      clipping it to the training ceiling would eat real effort.
+//
+//   2. Both families carry Tanaka today, and they are listed SEPARATELY on
+//      purpose. The ceiling a strap's zones sit on is a property of what that
+//      strap can measure at intensity, so the day gen5 earns its own number it
+//      changes one entry in hr_max.dart rather than everyone's.
+//
+//   3. TWO NEW `metric_series` KEYS: `midsleep_sec` and `sleep_onset_sec` —
+//      signed seconds either side of 04:00 LOCAL, tz-corrected per instant and
+//      unwrapped. Not a second-of-day, not an epoch. FORWARD-ONLY: midsleep was
+//      never persisted, the 1 Hz substrate they come from is pruned at 3 days
+//      and a day locks ~48 h after wake, so no past night can be given one.
+//
+//   4. `day_result` stamps `source: 'band'`. An importer's day is a different
+//      vendor's derived score and must carry its own tag; a day whose
+//      provenance is genuinely unknown stays NULL and is never retro-filled.
+//
+//   5. `decoded_onehz.hr` stores NULL where it stored 0 — off-skin is absence,
+//      not a heartbeat. No number the app produces changes (every reader
+//      already gated `hr > 0`), but a new query must not assume NOT NULL.
+//
+//   6. FROM ANALYTICS (98d42b6, the device-seam commit — and only that):
+//      * `device.dart`: `DeviceFamily`, `deviceFamilyOf()` returning null for
+//        anything it does not recognise, and `calibrationFor()` returning null
+//        rather than handing back gen4's constants. This is what (1) dispatches
+//        on. No registry, no shared constants file — a metric declares its own
+//        map next to itself and refuses when the family is not in it.
+//      * journal correlations ran 9 numeric fields against 4 outcomes behind a
+//        per-test gate. That is 36 simultaneous tests, so ~2 spurious
+//        "meaningful" findings per user were guaranteed by construction.
+//        Benjamini-Hochberg over the grid now, so FINDINGS DISAPPEAR and an
+//        empty result is a real answer the card has to be able to say.
+//      * habits are custom fields with max == 1, so a 0/1 variable was getting
+//        a Spearman rho and a Theil-Sen "slope per unit". They route to
+//        difference-of-means.
+//      * `hrRecovery` publishes a fitted tau off a 180 s tail with a residual
+//        gate, alongside hrr-60 rather than replacing it. It abstains often —
+//        the recovery is biphasic and one exponential conflates the phases.
+//      * the weekday effect is Kruskal-Wallis first, then a permutation test on
+//        the max deviation, so the 7-way selection is paid for. Without that it
+//        is a machine for manufacturing superstitions about Saturdays.
+//      * sleep runs terminate at unobserved instead of merging across it.
+//      * the apnea screen returns the per-cycle depths and widths it was
+//        already accumulating and throwing away.
+//      * `vo2maxEstimate` and `physiologicalAge` are GONE: 15.3·maxHr/rhr is
+//        k/rhr, a restatement of a line already on screen, and the age function
+//        then counted rhr twice in the same direction. Edge stopped calling
+//        both before this pin, so nothing on screen loses a value.
+//
+//   7. FROM PROTOCOL: nothing. e33e53a is unchanged and sealed.
+//
+//   NOT IN THIS PIN, SO NOT AT THIS VERSION: the rest of this wave's analytics
+//   work is UNCOMMITTED in the sibling working copy — the journal lag
+//   realignment, SRI's `pairs`, the sleep stage ranges, `stageIntervals`,
+//   `cvhrPersonalDistribution`, `alertnessForecast`, `sessionHrCeiling`,
+//   `tempCircadian`'s family dispatch. Local runs see them through
+//   pubspec_overrides.yaml; a clean checkout does not, and edge lib/ already
+//   calls nine of those symbols. Commit analytics and repin at the NEXT
+//   version — this is exactly the v67/v68 failure, one commit from repeating.
+//
+//   ALSO, not a re-derive: schema 43 (`source` on decoded_onehz/decoded_rr,
+//   `external_hr`, `imported_measurement`, `sessions.cadence_spm`,
+//   `sessions.rpe`) and `Substrate.hrValid` (gen5-only, no consumer yet).
+const int kAlgoVersion = 70;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -970,7 +1064,7 @@ const int kAlgoVersion = 69;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = 'beaeafa59d3587192aa761bd232ae3e47a0e5093';
+const String kAnalyticsPin = '391ede4cc214ba85bbd6b25a8275742bdf2ed1cc';
 const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
@@ -3145,6 +3239,11 @@ class DerivationEngine {
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
       readiness: sc('readiness'),
+      // export-provenance: this day's scalars came out of the 1 Hz substrate
+      // the strap recorded. An importer's day is a DIFFERENT vendor's derived
+      // score and must carry its own tag; a day whose provenance is genuinely
+      // unknown stays NULL and is never retro-filled with this.
+      source: 'band',
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -3216,6 +3315,15 @@ class DerivationEngine {
         'awakenings': sc('awakenings'),
         'longest_sleep_min': sc('longest_sleep_min'),
         'sol_min': sc('sol_min'),
+        // SLP-09 / L10 — where on the clock the night sat, tz-corrected and
+        // UNWRAPPED (signed seconds either side of 04:00 local; see
+        // onehz_pipeline's sleepClockOffsetSec). Written so a schedule-shift
+        // segmentation has a series to run on in six months. FORWARD-ONLY:
+        // mid-sleep was never persisted, the 1 Hz substrate it comes from is
+        // gone at 3 days, and days lock ~48 h after wake — so every night
+        // before this shipped has no value and cannot be given one.
+        'midsleep_sec': sc('midsleep_sec'),
+        'sleep_onset_sec': sc('sleep_onset_sec'),
       },
     );
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
@@ -5247,6 +5355,26 @@ class DerivationEngine {
   ///
   /// Absent accel is NOT stillness (see [Substrate.accelPresentAt]), and an
   /// unknown device family has no cut we can stand behind. Both refuse.
+  ///
+  /// THIS IS ONE RELABEL AWAY FROM A BODY BATTERY, AND IT MUST NOT TAKE THE
+  /// STEP. quiet windows described as variability is the honest residue; a
+  /// continuous all-day stress score or a depleting battery icon built on this
+  /// series is refused, and the pressure to relabel will arrive from outside
+  /// the code rather than from anything here. two independent reasons:
+  ///   * the signal. wrist PPG beat timing collapses under motion without
+  ///     aggressive quality gating — which is why this function gates at all —
+  ///     so the waking hours a stress score would describe are exactly the
+  ///     hours its input is worst. gen4 has no per-beat quality flag, and
+  ///     gen5's `signalQualityLogVariance` is decoded and dropped before the
+  ///     DB, so the one thing that could gate harder is thrown away.
+  ///   * the construct. the systematic evaluation of 14 vendor composite
+  ///     scores found NONE with independent peer-reviewed validation. the
+  ///     inputs validate; the composite does not, and a depleting battery
+  ///     invents a physiological quantity that does not exist — which teaches
+  ///     the user to distrust a real body for disagreeing with a made-up one.
+  /// so: no score, no 0-100, no battery, no gauge, no "current stress". a
+  /// timeline of RMSSD over still minutes, labelled as variability, is the
+  /// whole allowed surface.
   static Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
     const binSec = 300;
     final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);

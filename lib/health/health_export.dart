@@ -846,7 +846,9 @@ class HealthExporter {
       hrRows = await db.rawQuery(
         'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
         'FROM decoded_onehz '
-        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
+        // Band rows only (`source IS NULL`): what we write to HealthKit as
+        // OpenStrap's measurement must be OpenStrap's measurement.
+        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 AND source IS NULL '
         'GROUP BY minute_ts',
         [startTs, endTs],
       );

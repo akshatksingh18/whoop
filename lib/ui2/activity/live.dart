@@ -489,8 +489,14 @@ class LiveShellState extends State<LiveShell> {
     // on "choose an activity", immediately after finishing one.
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
+        // `justFinished` — TS-09's prompt is asked here and only here. On a
+        // failed write `result` is the draft, which carries no session id, so
+        // the prompt does not appear over a session that is not in the
+        // database.
         builder: (_) => ActivitySummary(result,
-            weightKg: widget.weightKg, onRetrySave: retrySave),
+            weightKg: widget.weightKg,
+            onRetrySave: retrySave,
+            justFinished: true),
       ),
       (r) => r.isFirst,
     );

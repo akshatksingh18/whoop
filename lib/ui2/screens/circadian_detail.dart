@@ -19,6 +19,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -64,6 +65,11 @@ class CircadianData {
   final List<int> hourlyN;
   final String? hourlyNote;
 
+  /// MIND-11 — the shape of today, forecast from last night. Absent whenever
+  /// the night is missing or was never judged; the analytics gate does that and
+  /// this screen only draws what it published.
+  final ana.Metric<ana.AlertnessForecast> alertness;
+
   const CircadianData({
     this.actogram = const [],
     this.labels = const [],
@@ -82,6 +88,11 @@ class CircadianData {
     this.hourlyDays = 0,
     this.hourlyN = const [],
     this.hourlyNote,
+    this.alertness = const ana.Metric<ana.AlertnessForecast>.absent(
+      tier: ana.Tier.estimate,
+      inputs_used: [],
+      note: 'no night loaded',
+    ),
   });
 
   /// The middle value of [xs], which must be non-empty. A median, not a mean:
@@ -114,6 +125,10 @@ class CircadianData {
     final have = days.toSet();
     final cols = <List<double>?>[];
     final labels = <String>[];
+    // The newest night that actually has a window, picked up as the actogram
+    // walks past it. MIND-11 needs exactly this and nothing else, so it costs no
+    // read of its own — the loop below is already decoding every one of them.
+    Map<String, dynamic>? latestNight;
     if (days.isNotEmpty) {
       final a = DateTime.parse(days.first);
       for (var back = _nights - 1; back >= 0; back--) {
@@ -125,6 +140,7 @@ class CircadianData {
         }
         final n = await repo.getDaySleepV2(day);
         cols.add(_column(n['onset_ts'] as num?, n['wake_ts'] as num?));
+        if (n['wake_ts'] is num) latestNight = n;
       }
     }
 
@@ -156,9 +172,27 @@ class CircadianData {
       for (final xs in byHour) xs.length < 3 ? null : _median(xs),
     ];
 
+    final cosV = envValue(cos) ?? const {};
+    // MIND-11. Both inputs are REQUIRED by the analytics gate and neither has a
+    // default here: a missing night abstains rather than assuming eight hours,
+    // which is the gate the item says gets quietly removed later if it is not
+    // pinned. Naps are not passed — the forecast is for today and today's naps
+    // have not happened; the card says it only knows last night.
+    final wake = (latestNight?['wake_ts'] as num?)?.round();
+    final wakeLocal = wake == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(wake * 1000);
+    final tstMin = (latestNight?['duration_min'] as num?)?.toDouble();
+
     return CircadianData(
       actogram: cols,
       labels: labels,
+      alertness: ana.alertnessForecast(
+        wakeLocalHour:
+            wakeLocal == null ? null : wakeLocal.hour + wakeLocal.minute / 60.0,
+        sleepDurationHours: tstMin == null ? null : tstMin / 60.0,
+        circadianAcrophaseHours: (cosV['acrophase_hours'] as num?)?.toDouble(),
+      ),
       hourly: hourly,
       hourlyDays: week.length,
       hourlyN: [for (final xs in byHour) xs.length],
@@ -172,7 +206,7 @@ class CircadianData {
       nWork: sjlV['n_work'] as num?,
       rhythm: envMetric(np, npV['IS'] as num?),
       rhythmV: npV,
-      cosinorV: envValue(cos) ?? const {},
+      cosinorV: cosV,
       coverage: (cd['circadian_coverage'] as Map?)?.cast<String, dynamic>() ??
           const {},
     );
@@ -211,6 +245,9 @@ class CircadianDetail extends StatefulWidget {
 class _CircadianDetailState extends State<CircadianDetail> {
   CircadianData? _d;
   bool _loading = true;
+
+  /// Whether the non-parametric battery is unfolded. Off by default.
+  bool _showStrength = false;
 
   @override
   void initState() {
@@ -285,7 +322,22 @@ class _CircadianDetailState extends State<CircadianDetail> {
 
         Section('Your rhythm', _rhythm(c, p, d)),
 
-        Section('Rhythm strength', _strength(c, p, d)),
+        // MIND-11 sits directly under the measured rhythm because it is built
+        // on it — and directly above the battery it borrows the acrophase from.
+        if (_forecast(c, p, d) case final f?) Section('Today, predicted', f),
+
+        // COLLAPSED BY DEFAULT, and that is how the screen paid for the card
+        // above. Interdaily stability, intradaily variability, relative
+        // amplitude and an adjusted R² are density-3 numbers that were sitting
+        // at density 2 with eight rows and no tap between them and the reader.
+        // Nothing is lost: the section, its title and its own empty state are
+        // unchanged one tap away.
+        Section(
+          'Rhythm strength',
+          _showStrength ? _strength(c, p, d) : const SizedBox.shrink(),
+          action: _showStrength ? 'Hide' : 'Show',
+          onAction: () => setState(() => _showStrength = !_showStrength),
+        ),
 
         // The social-jetlag InsightCard that used to sit here restated three
         // rows of the table above it as a sentence. Its one extra fact — the
@@ -365,6 +417,77 @@ class _CircadianDetailState extends State<CircadianDetail> {
           painter: Bars(d.hourly, p.ink3, axis: axis, t: animate(c, 1)),
         ),
       ),
+    );
+  }
+
+  /// MIND-11 — the shape of today, and the window it bottoms out in.
+  ///
+  /// NO NUMBER LEAVES THIS CARD. Not a score, not a percentage, not an axis
+  /// tick: the chart is drawn without a y axis and the frame is handed no series
+  /// to read aloud, because the only quantity here is a unitless curve
+  /// normalised inside its own day and any figure taken off it would be the
+  /// thing that gets screenshotted and quoted back. What the card publishes is a
+  /// shape and a named two-hour window, which is the resolution a group model
+  /// fitted to laboratory sleep restriction actually supports.
+  ///
+  /// The safety refusal is COPY ON THE CARD, not a note in a file. And the card
+  /// is absent — not empty, not a placeholder — whenever the night was missing
+  /// or unjudged: the analytics gate refuses rather than assuming eight hours,
+  /// and this returns null rather than explaining an absence nobody asked about.
+  Widget? _forecast(BuildContext c, P p, CircadianData d) {
+    final v = d.alertness.value;
+    if (v == null) return null;
+    final assumedPhase = d.cosinorV['acrophase_hours'] == null;
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ChartFrame(
+          title: 'How today is likely to run',
+          // There is no unit. Saying so is more honest than borrowing one, and
+          // the frame renders it in the slot a unit would have occupied.
+          unit: 'shape only',
+          height: 96,
+          xLabels: [
+            _hourClock(v.startHour),
+            _hourClock(v.startHour + 9),
+            _hourClock(v.startHour + 18),
+          ],
+          // No `series:`. A shape has no reading; handing the frame one would
+          // have it speak numbers off a curve that deliberately has none.
+          footnote: 'No scale, and there will not be one — the shape is the '
+              'whole output.',
+          child: CustomPaint(
+            size: Size.infinite,
+            // p.ink3, like every other mark on this screen that is not a
+            // verdict. A colour would make the trough a warning.
+            painter: LineChart(v.shape, p.ink3,
+                fill: false, t: animate(c, 1)),
+          ),
+        ),
+        const SizedBox(height: S.x3),
+        Text(
+          'The flattest stretch lands in ${v.troughLabel}, around '
+          '${_hourClock(v.troughStartHour)}–${_hourClock(v.troughEndHour)}.',
+          style: F.body.copyWith(color: p.ink, height: 1.5),
+        ),
+        const SizedBox(height: S.x3),
+        Text(
+          'This is a prediction, not a reading. It comes from a published model '
+          'of how sleep timing and the body clock move alertness in the average '
+          'person, applied to your night — nothing on the band measures how '
+          'alert you are, and how much sleep you need and how strong your own '
+          'clock is are exactly what the model cannot see. It knows last night '
+          'and nothing else: a nap, coffee, or anything that happens today '
+          'never reaches it.'
+          '${assumedPhase ? ' Your own clock peak is not established yet, so this borrows the population’s.' : ''}',
+          style: F.cap.copyWith(color: p.ink2, height: 1.6),
+        ),
+        const SizedBox(height: S.x3),
+        Text(
+          'It is not a fitness-to-drive check and not a shift-safety tool, and '
+          'it does not say you are impaired.',
+          style: F.cap.copyWith(color: p.ink2, height: 1.6),
+        ),
+      ]),
     );
   }
 

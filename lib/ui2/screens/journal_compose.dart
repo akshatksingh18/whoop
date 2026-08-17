@@ -15,9 +15,13 @@ import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart' show kJournalPresetTags;
 import '../../data/day_label.dart';
+import '../../data/db.dart';
 import '../../data/journal_fields.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../ui2.dart';
+import 'home_screen.dart' show unitsOf;
+import 'metric_detail.dart' show detailScaffold;
 
 class JournalCompose extends StatefulWidget {
   const JournalCompose({super.key, this.date});
@@ -153,15 +157,27 @@ class _JournalComposeState extends State<JournalCompose> {
                                 for (final s in _specs.where(
                                   (s) => s.key != 'mood',
                                 ))
-                                  FieldStepper(
-                                    spec: s,
-                                    value: _values[s.key]?.value,
-                                    atMin: _values[s.key]?.atMinuteOfDay,
-                                    onChanged: (v) => _set(s.key, v),
-                                    onTime: s.hasTime
-                                        ? () => _setTime(s.key)
-                                        : null,
-                                  ),
+                                  // MT-03 — weight is TYPED, not stepped. On a
+                                  // 0.1 kg step a stepper is 700 taps from
+                                  // blank, and the field it writes is the one
+                                  // surface in this app that must never nag: a
+                                  // control nobody can reach is a field nobody
+                                  // fills, which is its own kind of dishonest.
+                                  if (s.key == 'weight_kg')
+                                    _WeightRow(
+                                      kg: _values[s.key]?.value,
+                                      onChanged: (v) => _set(s.key, v),
+                                    )
+                                  else
+                                    FieldStepper(
+                                      spec: s,
+                                      value: _values[s.key]?.value,
+                                      atMin: _values[s.key]?.atMinuteOfDay,
+                                      onChanged: (v) => _set(s.key, v),
+                                      onTime: s.hasTime
+                                          ? () => _setTime(s.key)
+                                          : null,
+                                    ),
                               ],
                             ),
                           ),
@@ -446,5 +462,320 @@ class OsTextField extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ══════════════════════════ MT-03 · WEIGHT ══════════════════════════
+//
+// The most eating-disorder-adjacent surface in the app, and it is built to
+// EMIT NOTHING. Read the ceiling before adding anything here:
+//
+//   · ENTERED, never measured, and labelled that way everywhere it appears.
+//   · The seven-day EWMA trend is what gets drawn — never the raw readings.
+//     Day-to-day scale noise is water and glycogen at ±1-2 kg, and a raw line
+//     makes that read as change that happened to a body.
+//   · Gaps stay gaps. Nothing is interpolated across a fortnight nobody
+//     weighed.
+//   · NO goal weight. NO daily prompt. NO red/green. NO arrow, no delta, no
+//     "you gained" anything, no notification, ever. No body fat, no lean mass,
+//     no metabolic age.
+//   · It lives here, where it is entered, and nowhere else. It is on no
+//     dashboard and in no summary, because a number that greets you is a
+//     number that asks you for something.
+//
+// BMR still reads the onboarding scalar. Changing the BMR input recomputes
+// every historical calorie number in the app, so it lands on its own commit
+// where a regression is attributable.
+
+/// How much history the trend screen reads. Long enough for a real four-week
+/// change to be visible with a season either side of it.
+const int kWeightTrendDays = 180;
+
+/// One journal row, typed rather than stepped, plus the way into the trend.
+class _WeightRow extends StatelessWidget {
+  const _WeightRow({required this.kg, required this.onChanged});
+
+  /// Today's entry in kilograms, or null when nothing was entered. Null is not
+  /// zero and it is not a missed target — it is a day she did not weigh.
+  final double? kg;
+  final ValueChanged<double?> onChanged;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final u = unitsOf(c);
+    final v = kg;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Weight', style: F.body.copyWith(color: p.ink)),
+                    Text(
+                      v == null
+                          ? 'Not entered'
+                          : '${u == null ? '${v.toStringAsFixed(1)} kg' : u.weight(v)} · entered, not measured',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
+              Pressable(
+                semanticLabel: 'Enter weight',
+                onTap: () async {
+                  final next = await _askWeight(c, u, v);
+                  if (next != null) onChanged(next.value);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: S.x3,
+                    vertical: S.x2,
+                  ),
+                  decoration: BoxDecoration(color: p.card2, borderRadius: R.rSm),
+                  child: Text(
+                    v == null ? 'Enter' : 'Change',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Pressable(
+            semanticLabel: 'See the weight trend',
+            onTap: () => Navigator.of(c).push(
+              MaterialPageRoute<void>(builder: (_) => const _WeightTrend()),
+            ),
+            child: Text(
+              'See the trend',
+              style: F.over.copyWith(color: p.on(C.blue)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The typed entry. Returns a box holding the new value (null inside it means
+  /// "clear today's entry"), or null when she backed out — the two are
+  /// different answers and collapsing them would make clearing impossible.
+  static Future<({double? value})?> _askWeight(
+    BuildContext c,
+    UnitsController? u,
+    double? kg,
+  ) {
+    final imperial = u?.isImperial ?? false;
+    final ctrl = TextEditingController(text: u?.weightField(kg) ?? '');
+    return showDialog<({double? value})>(
+      context: c,
+      builder: (dc) => AlertDialog(
+        backgroundColor: P.of(dc).card,
+        title: Text(
+          'Weight today',
+          style: F.head.copyWith(color: P.of(dc).ink),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OsTextField(
+              controller: ctrl,
+              label: u?.weightLabel ?? 'Weight (kg)',
+              hint: imperial ? '154' : '70.0',
+              keyboard: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: S.x3),
+            Text(
+              'What you or your scale read. The band does not measure this.',
+              style: F.over.copyWith(color: P.of(dc).ink3, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          if (kg != null)
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop((value: null)),
+              child: Text(
+                'Clear',
+                style: F.body.copyWith(color: P.of(dc).ink2),
+              ),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(dc).pop(),
+            child: Text(
+              'Cancel',
+              style: F.body.copyWith(color: P.of(dc).ink2),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              // A typo is not a blank. Nothing is saved from an unreadable
+              // field, and the form says which one rather than storing a hole.
+              if (Typed.of(ctrl.text).bad) {
+                sayUnreadable(dc, [u?.weightLabel ?? 'Weight']);
+                return;
+              }
+              final kgIn = u == null
+                  ? Typed.of(ctrl.text).value
+                  : u.weightToKg(ctrl.text);
+              Navigator.of(dc).pop((value: kgIn));
+            },
+            child: Text(
+              'Save',
+              style: F.body.copyWith(color: P.of(dc).on(C.blue)),
+            ),
+          ),
+        ],
+      ),
+    ).whenComplete(ctrl.dispose);
+  }
+}
+
+/// The trend, and only the trend.
+///
+/// One line, no headline number, no delta, no arrow, no target and no colour
+/// that means good or bad. If a future change wants to add any of those, the
+/// answer is in the ceiling at the top of this section.
+class _WeightTrend extends StatefulWidget {
+  const _WeightTrend();
+
+  @override
+  State<_WeightTrend> createState() => _WeightTrendState();
+}
+
+class _WeightTrendState extends State<_WeightTrend> {
+  Map<String, double> _byDay = const {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    try {
+      // Day arithmetic, not a subtracted duration: a DST day is 23 or 25 hours
+      // long and `now - 180 days` lands on the wrong calendar date across one.
+      final now = DateTime.now();
+      final since = dayLabelOf(
+        DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
+      );
+      final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
+      if (!mounted) return;
+      setState(() {
+        _byDay = {
+          for (final e in rows.entries)
+            if (e.value['weight_kg']?.value case final v?
+                when v.isFinite && v > 0)
+              e.key: v,
+        };
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    if (_loading) {
+      return detailScaffold(c, 'Weight', const [
+        SizedBox(height: S.x8),
+        Center(child: CircularProgressIndicator()),
+      ]);
+    }
+    final p = P.of(c);
+    final u = unitsOf(c);
+    final trend = weightTrendEwma(_byDay);
+    if (trend.length < 2) {
+      return detailScaffold(c, 'Weight', const [
+        SizedBox(height: S.x2),
+        StatusCard(
+          'Not enough entries for a trend',
+          'The line is a seven-day average through what you entered, so it '
+              'needs at least two days. Nothing is filled in between them.',
+          icon: LucideIcons.scale,
+        ),
+      ]);
+    }
+
+    // Indexed by CALENDAR DAY, never compacted: a fortnight nobody weighed is a
+    // hole in the line, and compacting would draw a straight, confident segment
+    // across it.
+    final days = trend.keys.toList()..sort();
+    final first = DateTime.parse(days.first);
+    final span = DateTime.parse(days.last).difference(first).inDays;
+    // The controller owns every conversion; this only asks it for the number
+    // rather than the sentence, because an axis cannot print "72.4 kg".
+    double show(double kg) =>
+        u == null ? kg : (double.tryParse(u.weightField(kg)) ?? kg);
+    // NOT null-aware: a null here is a day she did not weigh, and dropping it
+    // would compact the series and draw a confident straight segment across
+    // the gap. The holes are the point.
+    final vals = <double?>[
+      for (var i = 0; i <= span; i++) _at(trend, first, i, show),
+    ];
+    final present = <double>[for (final v in vals) ?v];
+    final axis = AxisSpec.of(present, format: axisFixed);
+
+    return detailScaffold(c, 'Weight', [
+      const SizedBox(height: S.x2),
+      Surface(
+        child: ChartFrame(
+          title: 'Seven-day trend',
+          unit: u?.isImperial == true ? 'lb' : 'kg',
+          height: 140,
+          yAxis: axis,
+          xLabels: [days.first, days.last],
+          footnote: 'Entered by you. Days with no entry are left empty.',
+          series: vals,
+          empty: axis == null ? const NoData() : null,
+          child: axis == null
+              ? const SizedBox.shrink()
+              // No fill: a filled area under an axis that starts at 68 kg is a
+              // truncated axis with the truncation hidden.
+              : CustomPaint(
+                  size: Size.infinite,
+                  painter: LineChart(
+                    vals,
+                    p.on(C.blue),
+                    fill: false,
+                    t: animate(c, 1),
+                    axis: axis,
+                  ),
+                ),
+        ),
+      ),
+      const SizedBox(height: S.x4),
+      Text(
+        'Entered by you or your scale — the band does not measure weight. What '
+        'is drawn is a seven-day average, because a scale moves one to two '
+        'kilos on water and food alone and the raw readings would show that as '
+        'something happening to your body. ${trend.length} '
+        '${trend.length == 1 ? 'day' : 'days'} entered.',
+        style: F.over.copyWith(color: p.ink3, height: 1.5),
+      ),
+    ]);
+  }
+
+  /// The trend value on one calendar day, or null. Nulls are what draw the gaps
+  /// — there is no nearest-neighbour lookup here on purpose.
+  double? _at(
+    Map<String, double> trend,
+    DateTime first,
+    int offset,
+    double Function(double) show,
+  ) {
+    // Calendar arithmetic, not a 24 h duration: a DST day is 23 or 25 hours
+    // long and adding days as hours slides the whole series by one across one.
+    final day = DateTime(first.year, first.month, first.day + offset);
+    final v = trend[dayLabelOf(day)];
+    return v == null ? null : show(v);
   }
 }

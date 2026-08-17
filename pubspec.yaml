@@ -138,8 +138,36 @@ dependencies:
       # and the suite goes red, because kAlgoVersion alone cannot tell two
       # different analytics apart.
       #
+      #
+      # analytics `fix/numerical-correctness` @ 98d42b6 — the device seam, at
+      # kAlgoVersion 70. One commit on top of beaeafa, and the one every
+      # family-dispatched metric in edge needs: `lib/src/onehz/device.dart`
+      # (DeviceFamily, deviceFamilyOf() -> null on anything unrecognised,
+      # calibrationFor() -> null rather than gen4's constants). It also lands
+      # Benjamini-Hochberg over the 9x4 journal-correlation grid (findings
+      # disappear; empty is a real answer), binary habits routed to
+      # difference-of-means instead of a rho, hrRecovery's fitted tau,
+      # Kruskal-Wallis + permutation on the weekday effect, sleep runs
+      # terminating at unobserved, per-cycle depths/widths out of the apnea
+      # screen, and the removal of vo2maxEstimate/physiologicalAge — edge
+      # stopped calling those two before this pin, so nothing loses a value.
+      #
+      # Verified against the SHA:
+      #   `git show 98d42b6:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # THE PIN IS BEHIND THE WORKING COPY, ON PURPOSE — this is the SHA, and
+      # the sibling's remaining work is uncommitted. Nine symbols edge lib/
+      # already calls do NOT exist at 98d42b6: alertnessForecast,
+      # AlertnessForecast, CvhrNight, CvhrDistribution, cvhrPersonalDistribution,
+      # cvhrDistributionWindowNights, StageInterval, stageIntervals,
+      # journalFieldLagDays. Local builds resolve them through
+      # pubspec_overrides.yaml; a clean `flutter pub get` against this pin does
+      # not compile. Commit analytics, then repin and bump kAlgoVersion in the
+      # same change.
+      #
       # UNPUSHED at time of writing, same as protocol.
-      ref: beaeafa59d3587192aa761bd232ae3e47a0e5093
+      ref: 391ede4cc214ba85bbd6b25a8275742bdf2ed1cc
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -154,6 +182,13 @@ dependencies:
   # SQLite database (issues #199, #160). Already present transitively; declared
   # directly because `lib/import/import_container.dart` imports it.
   archive: ^4.0.9
+
+  # Passphrase-encrypted backup (lib/import/backup_crypto.dart). A vetted,
+  # long-standing pure-Dart implementation of AES-256-GCM and
+  # PBKDF2-HMAC-SHA256 — no hand-rolled construction, and no platform channel,
+  # so the round trip is testable headless. `crypto` (already transitive) has
+  # HMAC but no AEAD, which is the one primitive that must not be improvised.
+  pointycastle: ^3.9.1
 
   # Background scheduled derivation (the heavy nightly pass: sleep staging +
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the

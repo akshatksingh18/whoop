@@ -807,8 +807,13 @@ class CoachEngine {
         'v_metric(date,key,value); '
         'v_daily(date,resting_hr,hrv,sdnn,readiness,strain,resp_rate,stress,'
         'sleep_efficiency,sleep_min,deep_min,rem_min,light_min,nap_min,steps,'
+        // `odi_per_hour` is NOT listed: the view still has the column but the
+        // pipeline stopped writing the key when SpO2 was refused edge-side, so
+        // it is permanently NULL. Advertising a column that can never hold a
+        // value makes the model query it, get nothing, and reason about the
+        // hole. A column that can never have data is a lie to the model.
         'active_calories,total_calories,skin_temp_z,lf_hf,hrv_cv,dip_pct,'
-        'odi_per_hour,worn_min,hrr_bpm,brv_cv,irregular_flag); '
+        'worn_min,hrr_bpm,brv_cv,irregular_flag); '
         'v_series(date,series,t,v) — series ∈ hr_curve,strain_curve,hrv_timeline,'
         'hrv_day,resp_day,skin_temp_day,zone_timeline,activity_curve; ALWAYS filter '
         'WHERE date=\'YYYY-MM-DD\' AND series=\'…\'; '

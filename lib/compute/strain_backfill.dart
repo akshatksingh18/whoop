@@ -195,6 +195,9 @@ Future<StrainBackfillResult> backfillStrainScale({
       rhr: (row['rhr'] as num?)?.toDouble(),
       rmssd: (row['rmssd'] as num?)?.toDouble(),
       readiness: (row['readiness'] as num?)?.toDouble(),
+      // Rewriting a band-derived day's strain from its own stored payload —
+      // same provenance it already had (see export-provenance).
+      source: 'band',
       // `putDayResult` skips the series write for a partial row, so only count
       // the trend as rewritten when it actually was.
       series: {'strain': next},

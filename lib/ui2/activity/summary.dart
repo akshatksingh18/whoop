@@ -21,6 +21,8 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/db.dart';
+import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
 import '../grammar.dart';
@@ -54,6 +56,15 @@ const _laps = {'Swimming', 'Rowing'};
 const _journey = {
   'Hiking', 'Trail running', 'Mountain biking', 'Skiing', 'Snowboarding',
 };
+
+/// MT-08 — deliberate heat and cold. Not an archetype: both are
+/// `Track.stillness`, so both land on [Arch.flow], and what they need is a
+/// different defining object inside it rather than an eighth centre of
+/// gravity. The reason they need one is physiological — **cold exposure causes
+/// peripheral vasoconstriction, which is exactly when wrist reflectance PPG
+/// has nothing to measure** — so a plunge whose card says the sensor could not
+/// find a pulse is the correct outcome, not a failure state to design around.
+const _thermal = {'Sauna', 'Cold plunge'};
 
 /// Name first, then track. The named sets are the activities whose defining
 /// object is not what their tracking mode would suggest — a hike is tracked by
@@ -196,6 +207,17 @@ class ActivityResult {
   final Duration duration;
   final bool private;
 
+  /// `sessions.id`, once the session is durably written. Null on a draft, on a
+  /// session whose write threw, and in every fixture — and the RPE prompt is
+  /// gated on it, because there is nowhere to put an answer without one.
+  final String? sessionId;
+
+  /// TS-09 — session RPE, 1–10. A SELF-REPORT and labelled as one wherever it
+  /// is shown. Null means UNRATED, which is not a 0 and not a 7: the
+  /// set-level picker's default of 7 is the garbage-data mechanism this field
+  /// exists to avoid, so nothing here is ever pre-selected.
+  final double? rpe;
+
   // measured by the band / phone
   final int? avgHr, maxHr, calories;
   final double? strain;
@@ -252,6 +274,8 @@ class ActivityResult {
     required this.start,
     required this.duration,
     this.private = false,
+    this.sessionId,
+    this.rpe,
     this.avgHr,
     this.maxHr,
     this.calories,
@@ -281,6 +305,8 @@ class ActivityResult {
   /// recorded route above all. Every field defaults to `this`, so enrichment
   /// can never silently drop the sets or the score the user typed.
   ActivityResult copyWith({
+    String? sessionId,
+    double? rpe,
     int? avgHr,
     int? maxHr,
     List<double?>? hr,
@@ -301,6 +327,8 @@ class ActivityResult {
         start: start,
         duration: duration,
         private: private,
+        sessionId: sessionId ?? this.sessionId,
+        rpe: rpe ?? this.rpe,
         avgHr: avgHr ?? this.avgHr,
         maxHr: maxHr ?? this.maxHr,
         calories: calories,
@@ -342,6 +370,18 @@ class ActivityResult {
   double? get hardMinutes => zoneMinutes.length == 5
       ? zoneMinutes[3] + zoneMinutes[4]
       : null;
+
+  /// `(minutes that carry a heart rate, minutes in the session)`.
+  ///
+  /// `(0, n)` is the band reading nothing for the whole session. On a cold
+  /// plunge that is the EXPECTED reading and not an error — see [_thermal].
+  (int, int) get hrMinutes {
+    var have = 0;
+    for (final v in hr) {
+      if (v != null) have++;
+    }
+    return (have, hr.length);
+  }
 
   /// Seconds per kilometre. Null without a distance — there is no pace
   /// without one, and a duration alone will not do.
@@ -406,6 +446,9 @@ IconData statIcon(String name) => switch (name) {
       'Strain' => LucideIcons.trendingUp,
       'Avg HR' => LucideIcons.heart,
       'Max HR' => LucideIcons.heartPulse,
+      // A person, not an instrument — the one row on this card the band had
+      // no part in.
+      'Your rating' => LucideIcons.userRound,
       _ => posterStatIcon(name),
     };
 
@@ -472,6 +515,11 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   add('Max HR', r.maxHr == null ? null : '${r.maxHr} bpm');
   add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
   add('Strain', r.strain?.toStringAsFixed(1));
+  // TS-09 — last, under the measurements, and named 'Your rating' rather than
+  // 'RPE' so the row cannot read as something the band found out. It is not on
+  // the share card: `shareStats` is its own list and a self-report is not one
+  // of the things a session measured.
+  add('Your rating', r.rpe == null ? null : '${r.rpe!.round()} of 10');
   return out;
 }
 
@@ -537,8 +585,17 @@ class ActivitySummary extends StatefulWidget {
   /// the write again.
   final Future<ActivityResult> Function()? onRetrySave;
 
+  /// True only on the screen a session lands on the moment it ends. TS-09's
+  /// prompt appears here and nowhere else: "how hard did that feel" asked
+  /// three weeks later is a memory test, and re-asking on every open is the
+  /// escalation the spec refuses.
+  final bool justFinished;
+
   const ActivitySummary(this.result,
-      {super.key, this.weightKg, this.onRetrySave});
+      {super.key,
+      this.weightKg,
+      this.onRetrySave,
+      this.justFinished = false});
 
   @override
   State<ActivitySummary> createState() => _ActivitySummaryState();
@@ -561,9 +618,31 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   late bool unsaved = widget.onRetrySave != null;
   bool _saving = false;
 
-  ActivityResult get r => widget.result;
+  /// The session as this screen currently knows it.
+  ///
+  /// [widget.result] is the source of truth; [_rated] is set only by TS-09, so
+  /// the rating the user just typed reaches [sessionStats] without a reload.
+  /// It is NOT seeded from `widget.result` in a field initialiser: Flutter
+  /// reuses this State when the same route is rebuilt with a different
+  /// session, and a `late` copy taken once would then describe the previous
+  /// one for the rest of the screen's life.
+  ActivityResult? _rated;
+
+  ActivityResult get r => _rated ?? widget.result;
+
+  @override
+  void didUpdateWidget(covariant ActivitySummary old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.result, widget.result)) {
+      _rated = null;
+      _rpeDismissed = false;
+    }
+  }
   Activity get a => r.activity;
   Arch get arch => r.arch;
+
+  /// Both are heat/cold exposure sessions — see [_thermal].
+  bool get thermal => _thermal.contains(a.name);
 
   /// The user's unit system, watched in [build] so a switch in Settings
   /// repaints this screen. Null only in a golden, where metric is what the
@@ -579,6 +658,111 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   }
 
   String get _distanceUnit => _u?.distanceUnit ?? 'km';
+
+  // ─────────────────── TS-09 · SESSION RPE ───────────────────
+  //
+  // Scores the sessions heart rate cannot see — lifting, climbing, anything
+  // intermittent. Three rules, all of them refusals:
+  //
+  //   * NOTHING IS PRE-SELECTED. The set-level picker defaults to 7 and that
+  //     default is a garbage-data mechanism already running. Here a tap IS the
+  //     answer, so an untouched card leaves the column NULL.
+  //   * SKIPPABLE FOREVER, and the app stops asking rather than escalating —
+  //     [_kRpeSkips] counts the passes and the prompt retires at [_maxSkips].
+  //   * IT IS A FEELING, not a measurement, and every surface says so.
+  //
+  // What is NOT built: no sRPE score fused into training load, no comparison
+  // against TRIMP. The interesting thing about this number is where it
+  // DISAGREES with the measured load, and that needs weeks of both.
+  static const _kRpeSkips = 'workout.rpe_skips';
+  static const _maxSkips = 3;
+
+  /// Set when the user passes on this session, so the card goes away for this
+  /// screen without waiting on the write.
+  bool _rpeDismissed = false;
+
+  bool get _askRpe =>
+      widget.justFinished &&
+      r.sessionId != null &&
+      r.rpe == null &&
+      !_rpeDismissed &&
+      Prefs.getInt(_kRpeSkips, 0) < _maxSkips;
+
+  Future<void> _saveRpe(int v) async {
+    final id = r.sessionId;
+    if (id == null) return;
+    try {
+      await LocalDb.setSessionRpe(id, v.toDouble());
+    } catch (_) {
+      return; // the row is unchanged, so the card stays and says nothing false
+    }
+    if (!mounted) return;
+    // Rating one resets the skip count: the feature retires because it is
+    // being ignored, not because it was once inconvenient.
+    Prefs.setInt(_kRpeSkips, 0);
+    setState(() => _rated = r.copyWith(rpe: v.toDouble()));
+  }
+
+  void _skipRpe() {
+    Prefs.setInt(_kRpeSkips, Prefs.getInt(_kRpeSkips, 0) + 1);
+    setState(() => _rpeDismissed = true);
+  }
+
+  /// Ten choices, two rows of five, none of them lit. A tap saves and the card
+  /// is replaced by the rating in [SessionStats] — there is no confirm step,
+  /// because a picker with a default and a Save button is how a 7 ends up in
+  /// the database on behalf of somebody who never touched it.
+  Widget _rpePrompt(P p) => Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('HOW HARD DID THAT FEEL?',
+              style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          Text(
+              'Your own rating of the effort. It is a feeling, not a '
+              'measurement — which is the point, because it can disagree with '
+              'the numbers above.',
+              style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+          const SizedBox(height: S.x4),
+          for (var row = 0; row < 2; row++) ...[
+            if (row > 0) const SizedBox(height: S.x2),
+            Row(children: [
+              for (var i = 0; i < 5; i++) ...[
+                if (i > 0) const SizedBox(width: S.x2),
+                Expanded(
+                  child: Pressable(
+                    semanticLabel: 'Rate this effort ${row * 5 + i + 1} of 10',
+                    onTap: () => _saveRpe(row * 5 + i + 1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: S.x3),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                          color: p.wash(a.color), borderRadius: R.rMd),
+                      child: Text('${row * 5 + i + 1}',
+                          style: F.n17.copyWith(color: p.on(a.color))),
+                    ),
+                  ),
+                ),
+              ],
+            ]),
+          ],
+          const SizedBox(height: S.x3),
+          Row(children: [
+            Text('1 · very easy', style: F.over.copyWith(color: p.ink3)),
+            const Spacer(),
+            Text('10 · maximal', style: F.over.copyWith(color: p.ink3)),
+          ]),
+          const SizedBox(height: S.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Pressable(
+              onTap: _skipRpe,
+              child: Text('Not now',
+                  style: F.body.copyWith(
+                      color: p.ink2, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ]),
+      );
 
   Future<void> _retrySave() async {
     if (_saving) return;
@@ -689,6 +873,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       ..._definingObject(c, p),
       const SizedBox(height: S.x5),
       SessionStats(r),
+      // TS-09 — directly under the measurements, because that is what it is
+      // being asked against, and directly where the answer lands: once rated,
+      // this card is gone and 'Your rating' is the last row of the card above.
+      if (_askRpe) ...[
+        const SizedBox(height: S.x3),
+        _rpePrompt(p),
+      ],
       ..._body(c, p),
       // Zones belong to any session that banked a split — a lift and a yoga
       // class have heart-rate zones too.
@@ -891,6 +1082,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ];
 
       case Arch.flow:
+        // MT-08 — a sauna and a cold plunge are not a yoga flow. They have no
+        // poses and no paced breath; what they have is a heart rate the
+        // sensor may or may not have been able to read.
+        if (thermal) return _thermalObject(p);
         // No breath ring here. The live screen's ring is a PACER driven by a
         // controller the user breathes along with; on a finished session there
         // is no phase to draw, and a static ring at some pleasing fraction is
@@ -1001,6 +1196,75 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
   }
 
+  // ─────────────────── MT-08 · HEAT AND COLD ───────────────────
+  //
+  // THE CARD IS BUILT AROUND ITS OWN NO-SIGNAL STATE, and on a cold plunge
+  // that state is the common one. Cold water triggers peripheral
+  // vasoconstriction — the vessels in the wrist close — and a reflectance PPG
+  // sensor reads a pulse through exactly those vessels. So "the band could not
+  // find your pulse" is the physiologically expected reading of a plunge, not
+  // a fault, not a strap problem, and not something to hide behind an average
+  // computed from four surviving seconds.
+  //
+  // What is deliberately NOT here, and must not be added: thermal load, a heat
+  // or cold adaptation score, core temperature, brown fat, and above all any
+  // duration target or "go longer next time". Cold-water immersion carries
+  // real cardiac and drowning risk and this app is not going to nudge anybody
+  // deeper into it.
+
+  /// Why a heat/cold session has no pulse in it — or null when the session is
+  /// not one, in which case a missing trace really is a link problem and the
+  /// sources list really is the fix.
+  ///
+  /// The one string, so the overview card, the Graphs tab and the shared
+  /// [_noHrCard] cannot end up telling three different stories about the same
+  /// silent sensor. Offering "Check band connection" for a plunge is a fix for
+  /// a problem the user does not have.
+  String? get _thermalWhy => !thermal
+      ? null
+      : a.name == 'Cold plunge'
+          ? 'Cold constricts the blood vessels in your wrist, and those are '
+              'the vessels the optical sensor reads through. Finding nothing '
+              'here is the expected result, not a fault.'
+          : 'Heat, sweat and a strap that loosens as you warm up all stop the '
+              'optical sensor seeing a pulse. Finding nothing here is '
+              'ordinary, not a fault.';
+
+  IconData get _thermalIcon =>
+      a.name == 'Cold plunge' ? LucideIcons.snowflake : LucideIcons.thermometer;
+
+  List<Widget> _thermalObject(P p) {
+    final (have, total) = r.hrMinutes;
+    // Under two readings there is no line to draw — one point is not a trace.
+    // The two headlines are not the same statement: nothing arrived, or one
+    // minute did and a single point is not a curve.
+    if (have < 2) {
+      return [
+        StatusCard(
+          have == 0
+              ? 'No pulse reading for this ${a.name.toLowerCase()}'
+              : 'One minute of pulse, and no more',
+          _thermalWhy!,
+          icon: _thermalIcon,
+        ),
+      ];
+    }
+    return [
+      Surface(
+        child: _hrFrame(
+          p,
+          extra: have < total
+              ? 'The band found a pulse in $have of $total minutes. The gaps '
+                  'are expected: ${a.name == 'Cold plunge' ? 'cold closes the '
+                      'vessels the optical sensor reads through' : 'heat and '
+                      'sweat break the optical contact'}, so what is drawn is '
+                  'the part it could see.'
+              : null,
+        ),
+      ),
+    ];
+  }
+
   /// Why there is no trace — and the two reasons are not the same reason.
   ///
   /// The curve is per-MINUTE, so a session stopped after forty-five seconds
@@ -1014,15 +1278,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           'One minute of heart rate is a point, not a line.',
           icon: LucideIcons.heartPulse,
         )
-      : StatusCard(
-          'No heart rate for this session',
-          'The band reported nothing while this was running.',
-          fix: 'Check band connection',
-          // The band, its battery and its link all live behind the profile's
-          // sources list. The CTA used to be paint.
-          onFix: () => openProfile(c),
-          icon: LucideIcons.heartPulse,
-        );
+      // MT-08 — a third reason, and it is not a fault. On a heat or cold
+      // session the sensor is working and the blood is not where it can see
+      // it, so there is no connection to check and no button that helps.
+      : thermal
+          ? StatusCard(
+              'No pulse reading for this ${a.name.toLowerCase()}',
+              _thermalWhy!,
+              icon: _thermalIcon,
+            )
+          : StatusCard(
+              'No heart rate for this session',
+              'The band reported nothing while this was running.',
+              fix: 'Check band connection',
+              // The band, its battery and its link all live behind the
+              // profile's sources list. The CTA used to be paint.
+              onFix: () => openProfile(c),
+              icon: LucideIcons.heartPulse,
+            );
 
   /// The heart-rate trace, framed — the one chart both `basic` and `match`
   /// are built on, so they cannot end up with two different axes for one
@@ -1041,12 +1314,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     return 'Partial trace — the band handed over $pct% of these minutes.';
   }
 
-  Widget _hrFrame(P p, {double height = 130}) {
+  Widget _hrFrame(P p, {double height = 130, String? extra}) {
     final axis = AxisSpec.of(r.hr.whereType<double>());
     final hard = r.hardMinutes;
     final note = [
       if (hard != null) '${hard.round()} min above 80% of your maximum.',
       ?_traceNote,
+      ?extra,
     ];
     return ChartFrame(
       title: 'HEART RATE',
@@ -1485,6 +1759,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             'Too short to chart',
             'One minute of heart rate is a point, not a line.',
             icon: LucideIcons.chartLine,
+          )
+        // MT-08 — same guard as `_noHrCard`: a plunge with no trace has a
+        // reason, and "check band connection" is not it.
+        else if (thermal)
+          StatusCard(
+            'Nothing to plot for this ${a.name.toLowerCase()}',
+            _thermalWhy!,
+            icon: _thermalIcon,
           )
         else
           StatusCard(

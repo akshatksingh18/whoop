@@ -16,10 +16,18 @@ import 'package:openstrap_edge/state/app_state.dart';
 
 const _anchored = Profile(ageYears: 34, weightKg: 72, sex: 'm');
 
-LiveWorkoutState _session(Profile p) => LiveWorkoutState(
+/// The session's HR ceiling — `estimatedMaxHr(age, family)` for [_anchored] on
+/// either family (Tanaka, 208 - 0.7*34). Passed in since TS-03a: the ceiling is
+/// a property of the strap as well as the athlete, so the live session is
+/// handed one rather than deriving a universal formula off the profile.
+const _hrMax = 184.2;
+
+LiveWorkoutState _session(Profile p, {double? hrMax = _hrMax}) =>
+    LiveWorkoutState(
   startTime: DateTime(2026, 1, 1, 7),
   targetKcal: 300,
   profile: p,
+  hrMax: hrMax,
 );
 
 void main() {
@@ -165,7 +173,7 @@ void main() {
     final unanchored = computeManualSessionStats(
       hrTs: ts,
       hrBpm: hr,
-      zoneMaxHr: 185,
+      hrMax: 185,
       profile: const Profile(weightKg: 72, sex: 'm'),
       restingHr: 55,
     );
@@ -180,7 +188,7 @@ void main() {
     final anchored = computeManualSessionStats(
       hrTs: ts,
       hrBpm: hr,
-      zoneMaxHr: 185,
+      hrMax: 185,
       profile: _anchored,
       restingHr: 55,
     );

@@ -5,9 +5,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_ids.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
+import 'package:openstrap_edge/ui2/profile/settings.dart';
 
 NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
       dedupeKey: '2026-06-27:${c.name}',
@@ -147,6 +149,39 @@ void main() {
           date: '2026-06-27');
       expect(await NotificationIds.instance.idFor(a),
           equals(await NotificationIds.instance.idFor(b)));
+    });
+  });
+
+  group('water interval is pickable', () {
+    // 08:00–22:00 waking window, quiet hours off.
+    const base = NotificationPrefs(waterEnabled: true, quietEnabled: false);
+    test('every offered choice reaches the slots and changes the count', () {
+      final counts = {
+        for (final (min, _) in NotificationSettingsView.waterEvery)
+          min: NotificationCenter.waterSlotMinutes(
+                  base.copyWith(waterIntervalMin: min))
+              .length,
+      };
+      // in bounds, and a shorter interval is never fewer slots
+      for (final (min, _) in NotificationSettingsView.waterEvery) {
+        expect(min, greaterThanOrEqualTo(NotificationPrefs.waterIntervalMinAllowed));
+        expect(min, lessThanOrEqualTo(NotificationPrefs.waterIntervalMaxAllowed));
+      }
+      expect(counts[30], greaterThan(counts[120]!)); // 30m vs the 2h default
+      expect(counts[120], greaterThan(counts[240]!));
+      expect(counts.values.toSet().length, greaterThan(1));
+    });
+    test('spacing is the picked interval', () {
+      final s = NotificationCenter.waterSlotMinutes(
+          base.copyWith(waterIntervalMin: 90));
+      expect(s.first, equals(8 * 60));
+      expect(s[1] - s[0], equals(90));
+    });
+    test('off means no slots whatever the interval', () {
+      expect(
+          NotificationCenter.waterSlotMinutes(
+              const NotificationPrefs(waterIntervalMin: 30)),
+          isEmpty);
     });
   });
 }

@@ -582,6 +582,15 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(
                             prefs.copyWith(waterEnabled: !prefs.waterEnabled))),
+                    // only while it's on — the group is dense enough, and an
+                    // interval for a reminder nobody armed is furniture.
+                    if (prefs.waterEnabled)
+                      SetRow(LucideIcons.timer, C.teal, 'Buzz every',
+                          value: _everyLabel(prefs.waterIntervalMin),
+                          chevron: false,
+                          onTap: () => set(prefs.copyWith(
+                              waterIntervalMin:
+                                  _nextEvery(prefs.waterIntervalMin)))),
                   ]),
                   settingsGroup(c, 'Quiet hours', [
                     SetRow(LucideIcons.moon, C.indigo, 'Quiet hours',
@@ -625,6 +634,29 @@ class NotificationSettingsView extends StatelessWidget {
         ]),
       ),
     );
+  }
+
+  /// The water intervals on offer, all inside
+  /// [NotificationPrefs.waterIntervalMinAllowed]..[NotificationPrefs.waterIntervalMaxAllowed].
+  /// None of them is "recommended" — we have no basis for one.
+  static const waterEvery = [
+    (30, '30m'),
+    (60, '1h'),
+    (90, '90m'),
+    (120, '2h'),
+    (180, '3h'),
+    (240, '4h'),
+  ];
+
+  static String _everyLabel(int min) =>
+      waterEvery.firstWhere((e) => e.$1 == min, orElse: () => (min, '${min}m'))
+          .$2;
+
+  /// Tapped through in place, like Units and Appearance. An unknown stored
+  /// value (an older build, a hand-edited pref) lands on the first choice.
+  static int _nextEvery(int min) {
+    final i = waterEvery.indexWhere((e) => e.$1 == min);
+    return waterEvery[(i + 1) % waterEvery.length].$1;
   }
 
   static String _hhmm(int minuteOfDay) {

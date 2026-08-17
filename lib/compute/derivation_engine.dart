@@ -1199,6 +1199,12 @@ class _BaselineHistoryCache {
     // single-day threshold collapses on a quiet day and passes everything,
     // which is the mirror image of the absolute-constant failure it replaced.
     'dyn_p90',
+    // TS-03 — the per-day OBSERVED heart-rate ceiling (bpm). Not a baseline
+    // like the rest: nothing is z-scored against it and it is never averaged.
+    // It rides in this cache because it is a `metric_series` key the day's
+    // derive needs the PRIOR days' values of, which is exactly what this
+    // snapshot is (see [maxBefore]).
+    'hr_ceiling_bpm',
   ];
 
   /// DATED baseline samples, ascending by date, one entry per day (metric_series
@@ -1287,6 +1293,23 @@ class _BaselineHistoryCache {
   Set<String> datesFor(String key) => {
         for (final s in _series[key] ?? const <_DatedValue>[]) s.date,
       };
+
+  /// The LARGEST value of [key] over every stored day strictly before
+  /// [beforeDate], or null when there is none.
+  ///
+  /// Deliberately NOT windowed to the trailing 28 like [valuesBefore]: this
+  /// backs "highest we've seen", and a ceiling that silently drops out of the
+  /// window would move every zone boundary in the app with nothing on screen
+  /// saying why. The date it happened is shown next to it, so an old one is
+  /// visible rather than anonymous.
+  double? maxBefore(String key, String beforeDate) {
+    double? best;
+    for (final s in _series[key] ?? const <_DatedValue>[]) {
+      if (s.date.compareTo(beforeDate) >= 0) continue;
+      if (best == null || s.value > best) best = s.value;
+    }
+    return best;
+  }
 
   List<double> valuesBefore(String key, String beforeDate) => _trailing([
         for (final s in _series[key] ?? const <_DatedValue>[])
@@ -3324,6 +3347,10 @@ class DerivationEngine {
         // before this shipped has no value and cannot be given one.
         'midsleep_sec': sc('midsleep_sec'),
         'sleep_onset_sec': sc('sleep_onset_sec'),
+        // TS-03 — this day's observed HR ceiling (bpm), or NULL on the ordinary
+        // day that held none. The app-wide "highest we've seen" is the max of
+        // this series; the date/session behind it lives in that day's bundle.
+        'hr_ceiling_bpm': sc('hr_ceiling_bpm'),
       },
     );
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
@@ -3618,6 +3645,10 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = history.valuesBefore('skin_temp_adc', date);
+    // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
+    // not a window (see [maxBefore]), and strictly before today so a day is
+    // never banded on a ceiling its own session set.
+    m['observed_hr_ceiling_bpm'] = history.maxBefore('hr_ceiling_bpm', date);
     return m;
   }
 
@@ -6187,7 +6218,19 @@ class DerivationEngine {
     bundlePatch['workout_suggestions'] = wc.boutJson;
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
     if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
-    bundlePatch['hr_ceiling'] = _dayHrCeiling(daySub, inp.savedSessions);
+    final ceiling = _dayHrCeiling(daySub, inp.savedSessions);
+    bundlePatch['hr_ceiling'] = ceiling;
+    // TS-03 — the day's observed ceiling as a SCALAR too, so the app-wide
+    // "highest we've seen" is a max over `metric_series` (one small query the
+    // baseline cache already loads) instead of a scan of every stored bundle.
+    // The envelope above keeps the date/session/hold the copy needs; this is
+    // just the number, and only when the day actually held one.
+    // `Metric.toJson` writes the STRING '—' for an absent value, not null, so
+    // this must type-test rather than cast.
+    final ceilingValue = ceiling['value'];
+    if (ceilingValue is Map && ceilingValue['bpm'] is num) {
+      scMap['hr_ceiling_bpm'] = (ceilingValue['bpm'] as num).toDouble();
+    }
 
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};

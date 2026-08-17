@@ -29,7 +29,7 @@ import 'package:openstrap_analytics/onehz.dart';
 // does not compromise this file's isolate safety. It is here so the sex
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
-import 'hr_max.dart' show estimatedMaxHr;
+import 'hr_max.dart' show estimatedMaxHr, trainingZones;
 import 'profile.dart' show workoutSex;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
@@ -132,6 +132,17 @@ class DayBundleInput {
   /// matches today's raw mean (the old z-vs-z series was a unit mismatch bug).
   final List<double> skinTempAdcHistory;
 
+  /// TS-03 — the highest heart rate the band has OBSERVED (held >=15 s with
+  /// corroborating motion, `observed_max_hr.dart`) on any day STRICTLY BEFORE
+  /// this one, or null when there is none. Not a physiological HRmax: if the
+  /// user has never gone truly hard it is an underestimate and it keeps
+  /// creeping up.
+  ///
+  /// Strictly-before, like every other history here and for the same reason —
+  /// a day must not be banded on a ceiling its own record-setting session set,
+  /// or the derived output depends on nothing but itself.
+  final double? observedHrCeilingBpm;
+
   // ── day confidence + flags (e.g. LOW_CONFIDENCE_RECOVERY for fallback days) ─
   final double dayConfidence;
   final List<String> dayFlags;
@@ -171,6 +182,7 @@ class DayBundleInput {
     this.respHistory = const [],
     this.rmssdHistory = const [],
     this.skinTempAdcHistory = const [],
+    this.observedHrCeilingBpm,
     this.dayConfidence = 0,
     this.dayFlags = const [],
     this.deviceFamily,
@@ -200,6 +212,7 @@ class DayBundleInput {
     'resp_history': respHistory,
     'rmssd_history': rmssdHistory,
     'skin_temp_adc_history': skinTempAdcHistory,
+    'observed_hr_ceiling_bpm': observedHrCeilingBpm,
     'day_confidence': dayConfidence,
     'day_flags': dayFlags,
     'device_family': deviceFamily,
@@ -238,6 +251,7 @@ class DayBundleInput {
       respHistory: dbls('resp_history'),
       rmssdHistory: dbls('rmssd_history'),
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
+      observedHrCeilingBpm: (m['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
       deviceFamily: m['device_family'] as String?,
@@ -525,6 +539,18 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // which takes TRIMP/strain/zones/calories with it — deliberately: we do not
   // know what measured this HR, so we cannot say where its ceiling is.
   final hrMax = estimatedMaxHr(age, d.deviceFamily);
+  // TS-04 — THE zone set (hr_max.dart). Karvonen %HRR between the OBSERVED
+  // ceiling and the 28-day median resting HR once both exist; %HRmax off the
+  // age estimate until then, which is exactly what this line used to do alone.
+  // `zone_source` below is what the screens print, and TRIMP/calories are
+  // deliberately NOT moved onto the observed ceiling here — that re-scores
+  // every historical strain and is its own decision.
+  final zoneSet = trainingZones(
+    age: age,
+    deviceFamily: d.deviceFamily,
+    observedCeilingBpm: d.observedHrCeilingBpm,
+    restingHrHistory: d.rhrHistory,
+  );
   final rhrForTrimp = rhrToday ?? (prof['resting_hr'] as num?)?.toDouble();
   final weightKg = (prof['weight_kg'] as num?)?.toDouble();
   final heightCm = (prof['height_cm'] as num?)?.toDouble();
@@ -547,7 +573,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
       );
     }
-    hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
+    if (zoneSet != null) {
+      hrZones = _wakeZoneMinutesFromSeries(wakeHr, zoneSet);
+    }
     // ACTIVE energy only, over the WAKE series — the same quantity, from the
     // same series, that `DerivationEngine.wakeDayEnergy` publishes as the day's
     // `calories`. That method is canonical; this is the early-read mirror the
@@ -622,9 +650,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     maxHr: hrMax,
     sex: sex,
   );
-  final zoneTimeline = hrMax == null
+  final zoneTimeline = zoneSet == null
       ? const <Map<String, num>>[]
-      : _zoneTimeline(wakeHr, hrMax);
+      : _zoneTimeline(wakeHr, zoneSet);
 
   // ── ASSEMBLE the bundle (envelopes are plain JSON) ─────────────────────────
   // ── HRV stability (CV = SDNN/meanNN) + Poincaré irregular-beat screen ──────
@@ -1010,6 +1038,21 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'sleep': sleep,
     'zones': hrZones,
     'max_hr_used': hrMax,
+    // TS-04 — WHICH ANCHORS the `zones` block above was binned on, stored with
+    // the bins so a later reader can never present them as something they are
+    // not. 'karvonen' = observed ceiling + measured resting HR, 'observed' =
+    // measured ceiling only, 'tanaka' = the age estimate. Null when there were
+    // no zones. TS-05's 28-day distribution is gated on this, not captioned.
+    // WHICH STRAP measured this day, echoed onto the bundle. The zone ceiling
+    // is a per-family constant, so a screen printing zone EDGES has to name the
+    // strap — and `decoded_onehz` is pruned at ~3 days, so the derived day is
+    // the only place that provenance survives a quiet week.
+    'device_family': d.deviceFamily,
+    'zone_source': zoneSet?.source,
+    'zone_max_hr': zoneSet == null ? null : _round(zoneSet.maxHr, 0),
+    'zone_lower_bpm': zoneSet == null
+        ? null
+        : [for (final z in zoneSet.zones) _round(z.lower, 0)],
     'hr_stats': ?hrStats,
     'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
     'respiration': respiration,
@@ -1299,17 +1342,18 @@ List<_WakeMinuteHr> _perMinuteWakeSeries(DayBundleInput d) {
 
 Map<String, int> _wakeZoneMinutesFromSeries(
   List<_WakeMinuteHr> wakeHr,
-  double hrMax,
+  HeartRateZoneSet zoneSet,
 ) {
   final samples = <HrSample>[
     for (final p in wakeHr) HrSample(p.tsSec * 1000.0, p.hr),
   ];
-  final zoneSet = HeartRateZones.zonesFromMaxHr(hrMax);
   return HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
 }
 
-List<Map<String, num>> _zoneTimeline(List<_WakeMinuteHr> wakeHr, double hrMax) {
-  final zoneSet = HeartRateZones.zonesFromMaxHr(hrMax);
+List<Map<String, num>> _zoneTimeline(
+  List<_WakeMinuteHr> wakeHr,
+  HeartRateZoneSet zoneSet,
+) {
   return [
     for (final p in wakeHr) {'t': p.tsSec, 'z': zoneSet.zoneNumber(p.hr)},
   ];

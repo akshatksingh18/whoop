@@ -28,6 +28,7 @@ import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show kZonesWhy;
+import 'zones.dart' show ZonesDetail;
 
 /// Below this the day is not comparable to a full one and the screen says so.
 /// Wear coverage is a percentage of the whole day, so a normal night off the
@@ -56,6 +57,13 @@ class DayStrainData {
   /// number the maths saw.
   final num? maxHrUsed;
 
+  /// TS-04 — which anchors THIS day's zone bars were binned on: 'karvonen'
+  /// (observed ceiling + measured resting HR), 'observed' (measured ceiling
+  /// only) or 'tanaka' (the age estimate). The bar's footnote states what the
+  /// bar IS, rather than what it usually is.
+  final String? zoneSource;
+  final num? zoneMaxHr;
+
   final int? peakHr, wornMin, coveragePct;
 
   const DayStrainData({
@@ -64,6 +72,8 @@ class DayStrainData {
     this.strain,
     this.zoneMin,
     this.maxHrUsed,
+    this.zoneSource,
+    this.zoneMaxHr,
     this.peakHr,
     this.wornMin,
     this.coveragePct,
@@ -121,6 +131,8 @@ class DayStrainData {
       strain: (s['strain'] as num?)?.toDouble(),
       zoneMin: zoneMin,
       maxHrUsed: s['max_hr_used'] as num?,
+      zoneSource: s['zone_source'] as String?,
+      zoneMaxHr: s['zone_max_hr'] as num?,
       peakHr: hr is Map ? (hr['max'] as num?)?.toInt() : null,
       wornMin: (wear['worn_min'] as num?)?.toInt(),
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
@@ -281,18 +293,35 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
               for (var i = 0; i < 5; i++)
                 ('Z${i + 1} · ${z[i]}m', ZoneBar.cols(p)[i]),
             ],
-            // TS-03/TS-05 — the edges, and where they came from. There is no
-            // 28-day intensity distribution above this bar and there must not
-            // be one while that sentence is true: naming a week pyramidal or
-            // polarised off bands built on 220−age is a manufactured read, and
-            // a caption cannot repair it. The gate is the absence.
-            footnote: kZonesWhy,
+            // TS-03/TS-04 — the edges, and where THIS day's came from. Stated
+            // per day, not as a standing hedge: the same screen tomorrow can be
+            // banded on a measured ceiling, and a footnote that still said
+            // "estimated from your age" would then be false. The 28-day
+            // distribution is NOT here — it lives one tap away and is gated on
+            // the same anchors (TS-05).
+            footnote: switch (d.zoneSource) {
+              'karvonen' =>
+                'Zone edges span the gap between your measured resting heart '
+                    'rate and the highest we have seen (${d.zoneMaxHr?.round()} '
+                    'bpm). Both measured on you.',
+              'observed' =>
+                'Zone edges are percentages of the highest heart rate we have '
+                    'seen (${d.zoneMaxHr?.round()} bpm) — measured, not '
+                    'estimated.',
+              _ => kZonesWhy,
+            },
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar([for (final v in z) v / total], p),
             ),
           ),
         ),
+        // Progressive disclosure: this day screen gains a LINK, not a row. The
+        // ceiling, the edges in bpm and the 28-day distribution are all one tap
+        // behind it.
+        action: 'How these are set',
+        onAction: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const ZonesDetail())),
       ),
     ];
   }
@@ -310,6 +339,14 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             'It was integrated against an assumed maximum of '
                 '${max.round()} bpm — estimated from your age and your strap, '
                 'not measured.',
+          // Said out loud because the zone bar above can now be banded on a
+          // MEASURED ceiling while this number is still the age estimate, and
+          // two different ceilings on one screen with nothing saying so is
+          // exactly the defect TS-03a removed.
+          if (max != null && d.zoneSource != null && d.zoneSource != 'tanaka')
+            'The zone bar above uses the measured ceiling instead; strain has '
+                'not been moved onto it, because that would rewrite every '
+                'strain score you have ever seen.',
           'The other anchor is your resting heart rate from the night before, '
               'so a night the band missed moves the whole day.',
         ].join(' '),

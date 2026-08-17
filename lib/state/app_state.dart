@@ -2218,7 +2218,8 @@ class AppState extends ChangeNotifier {
 
   /// True while some foreground feature is actively consuming the live streams
   /// (workout coach, breathing session).
-  bool get _hasLiveConsumer => activeWorkout != null || breathingActive;
+  bool get _hasLiveConsumer =>
+      activeWorkout != null || breathingActive || breathingWindowOpen;
 
   /// Downgrade live to HR-only when backgrounded with no live consumer. The
   /// keep-alive re-arm respects the HR-only mode, so the downgrade sticks until
@@ -2262,7 +2263,10 @@ class AppState extends ChangeNotifier {
     // label to "now" while the app was connected, hiding whether the overnight
     // HISTORICAL backlog had actually synced. "Last data" must reflect the newest
     // STORED record (the data edge), which only _onRecord advances.
-    if (breathingActive && (pt == 0x28 || pt == 0x2B)) {
+    // `breathingWindowOpen` is the MIND-06 quiet window either side of the
+    // paced block — the same buffer, held open across the pacing's own start
+    // and stop so a "before" and an "after" exist at all.
+    if ((breathingActive || breathingWindowOpen) && (pt == 0x28 || pt == 0x2B)) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
     // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
@@ -3928,6 +3932,105 @@ class AppState extends ChangeNotifier {
   Timer? _breathingRecomputeTimer;
   bool _breathingEnabledStreams = false;
 
+  // ── MIND-06 · the quiet windows either side of the paced block ─────────────
+  //
+  // The lifecycle, not the statistics, is what blocked this. The live streams
+  // were enabled by [startBreathingSession] and torn down by
+  // [stopBreathingSession], and the frame buffer was cleared at start — so the
+  // two minutes BEFORE the pacing had no streams and the two minutes AFTER it
+  // had neither streams nor a buffer. A window therefore brackets the session
+  // rather than living inside it: it owns the stream enable, survives the
+  // paced block's start and stop, and hands the buffer over at each boundary.
+  //
+  // Only the two quiet windows are stored. The paced block's own RMSSD is not
+  // computed here and has nowhere to go — see `lib/stress/session_effect.dart`.
+
+  /// True while a quiet window is capturing outside the paced block.
+  bool breathingWindowOpen = false;
+
+  /// The frames of the PRE window, taken at the moment pacing began.
+  List<String>? _preWindowFrames;
+
+  /// The banked row the windows belong to, or null when the paced block was
+  /// too short to bank one (in which case the windows have nothing to attach
+  /// to and are dropped).
+  int? _windowRowStartedAt;
+
+  /// Open the quiet window: live streams on, frames buffering, no pacing yet.
+  ///
+  /// Takes stream ownership itself so [startBreathingSession] finds live
+  /// already enabled and claims nothing — otherwise the paced block's stop
+  /// would turn off streams the post window is still reading.
+  Future<void> openBreathingWindow() async {
+    if (breathingWindowOpen || breathingActive) return;
+    if (!isConnected) {
+      breathingError = 'Connect your band first.';
+      notifyListeners();
+      return;
+    }
+    breathingWindowOpen = true;
+    _preWindowFrames = null;
+    _windowRowStartedAt = null;
+    _breathingFrames.clear();
+    notifyListeners();
+    try {
+      if (!engine.liveEnabled) {
+        await engine.enableLiveStreams();
+        _breathingEnabledStreams = true;
+      } else if (engine.liveHrOnly) {
+        await engine.enableLiveStreams();
+      }
+    } catch (_) {
+      /* best-effort; we still collect whatever arrives */
+    }
+  }
+
+  /// Close the window, measure both quiet stretches and attach them to the
+  /// banked session. Safe to call when no window is open.
+  ///
+  /// RMSSD comes from the SAME seam the live spot-check uses, so the two
+  /// windows are cleaned and estimated identically — a pre window scored one
+  /// way and a post window another would produce a difference that is entirely
+  /// method.
+  Future<void> closeBreathingWindow() async {
+    if (!breathingWindowOpen) return;
+    breathingWindowOpen = false;
+    final post = List<String>.from(_breathingFrames);
+    final pre = _preWindowFrames;
+    final row = _windowRowStartedAt;
+    _preWindowFrames = null;
+    _windowRowStartedAt = null;
+    _breathingFrames.clear();
+    _stopBreathingStreams();
+    notifyListeners();
+    if (row == null || pre == null) return;
+    final before = await _windowRmssd(pre);
+    final after = await _windowRmssd(post);
+    // Nothing readable either side is not a measurement — leave both columns
+    // NULL rather than writing a row the paired test would then have to drop.
+    if (before == null && after == null) return;
+    try {
+      await LocalDb.updateBreathingWindows(
+        startedAt: row,
+        preRmssd: before,
+        postRmssd: after,
+      );
+    } catch (_) {
+      /* best-effort; a lost window is one dropped pair, not a broken session */
+    }
+  }
+
+  Future<double?> _windowRmssd(List<String> frames) async {
+    final r = repo;
+    if (r == null || frames.isEmpty) return null;
+    try {
+      final res = await r.spotCheck(frames);
+      return res['ok'] == true ? (res['rmssd'] as num?)?.toDouble() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Begin a guided-breathing session. Requires a connected band.
   Future<void> startBreathingSession({
     BreathPattern? pattern,
@@ -3944,6 +4047,12 @@ class AppState extends ChangeNotifier {
     breathingActive = true;
     breathingResult = null;
     breathingError = null;
+    // MIND-06 — hand the pre window over before the buffer is reused for the
+    // paced block. The clear is still right; what was missing is that the
+    // frames it throws away are the "before" measurement.
+    if (breathingWindowOpen) {
+      _preWindowFrames = List<String>.from(_breathingFrames);
+    }
     _breathingFrames.clear();
     _breathingStartedAt = DateTime.now();
     notifyListeners();
@@ -4000,18 +4109,30 @@ class AppState extends ChangeNotifier {
         // Null unless the pattern is one a coherence score means something
         // for AND the estimator actually produced one.
         final rated = breathingPattern.coherenceRated && scored;
-        unawaited(
-          LocalDb.putBreathingSession(
-            startedAt: started.millisecondsSinceEpoch,
-            endedAt: ended.millisecondsSinceEpoch,
-            pattern: breathingPattern.key,
-            seconds: seconds,
-            coherence: rated ? (res['score'] as num?)?.toDouble() : null,
-            confidence: rated ? (res['confidence'] as num?)?.toDouble() : null,
-          ),
+        final put = LocalDb.putBreathingSession(
+          startedAt: started.millisecondsSinceEpoch,
+          endedAt: ended.millisecondsSinceEpoch,
+          pattern: breathingPattern.key,
+          seconds: seconds,
+          coherence: rated ? (res['score'] as num?)?.toDouble() : null,
+          confidence: rated ? (res['confidence'] as num?)?.toDouble() : null,
         );
+        if (breathingWindowOpen) {
+          // AWAITED only here: the post window's UPDATE lands on this row, and
+          // an UPDATE that overtakes its own INSERT writes nothing and reports
+          // success. Everywhere else the insert stays off the stop path.
+          _windowRowStartedAt = started.millisecondsSinceEpoch;
+          await put;
+        } else {
+          unawaited(put);
+        }
       }
     }
+    // MIND-06 — the post window starts here and reads the same buffer, so the
+    // paced block's frames have to go. They are not part of either quiet
+    // window and RMSSD over them would be the RSA artefact this feature exists
+    // to avoid reporting.
+    if (breathingWindowOpen) _breathingFrames.clear();
     notifyListeners();
   }
 
@@ -4071,6 +4192,10 @@ class AppState extends ChangeNotifier {
   }
 
   void _stopBreathingStreams() {
+    // The post window is still reading them. [closeBreathingWindow] is the one
+    // caller that clears the flag first, so it is the only one that gets past
+    // here while a window exists.
+    if (breathingWindowOpen) return;
     if (_breathingEnabledStreams && activeWorkout == null) {
       unawaited(engine.disableLiveStreams());
     }
@@ -4131,8 +4256,17 @@ class AppState extends ChangeNotifier {
   double? get _liveRestingHr =>
       _nightlyRhr ?? (user?['resting_hr'] as num?)?.toDouble();
 
+  /// TS-03 — the highest heart rate the band has ever OBSERVED, and the last
+  /// 28 nightly resting values. The two anchors [trainingZones] bands on; both
+  /// are cross-day reads, so they are cached here rather than queried when a
+  /// user taps start. Absent is the ordinary case and yields the age estimate.
+  double? _observedCeilingBpm;
+  List<double> _rhr28 = const [];
+
   Future<void> _refreshNightlyRhr() async {
     try {
+      _observedCeilingBpm = (await LocalDb.observedHrCeiling())?.bpm;
+      _rhr28 = await LocalDb.trailingSeriesValues('rhr', 28);
       final vals = await LocalDb.trailingSeriesValues('rhr', 7);
       if (vals.isEmpty) return;
       _nightlyRhr = vals.last;
@@ -4149,23 +4283,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// HR → zone 0..5 (% of max HR), matching the app's zone bands.
+  /// HR → zone 0..5, through THE app's zone set ([trainingZones]).
   ///
-  /// The ceiling is the LIVE SESSION's, not the profile's: it is fixed at start
-  /// from the age and the strap actually measuring, and 0 is the honest answer
-  /// when there is no ceiling (no age, or an uncalibrated/unstamped band) —
-  /// which lands every second in Z0 and persists an empty `zone_min`, rather
-  /// than banding the whole workout against a stranger's 190 bpm.
+  /// The set is the LIVE SESSION's, not the profile's: it is fixed at start
+  /// from the age, the strap actually measuring, the observed ceiling and the
+  /// measured resting HR. 0 is the honest answer when there is no set at all
+  /// (no age, or an uncalibrated/unstamped band) — which lands every second in
+  /// Z0 and persists an empty `zone_min`, rather than banding the whole workout
+  /// against a stranger's 190 bpm.
   int _zoneFor(int hr) {
-    final maxHr = activeWorkout?.hrMax ?? 0;
-    if (hr <= 0 || maxHr <= 0) return 0;
-    final pct = hr / maxHr * 100;
-    if (pct >= 90) return 5;
-    if (pct >= 80) return 4;
-    if (pct >= 70) return 3;
-    if (pct >= 60) return 2;
-    if (pct >= 50) return 1;
-    return 0;
+    final set = activeWorkout?.zoneSet;
+    if (hr <= 0 || set == null) return 0;
+    return set.zoneNumber(hr.toDouble());
   }
 
   /// The zone the live session is in right now, 1..5, or null at rest / with
@@ -4242,6 +4371,17 @@ class AppState extends ChangeNotifier {
       hrMax: estimatedMaxHr(
         (user?['age'] as num?),
         engine.linkDeviceFamily,
+      ),
+      // TS-04 — zones are banded on the MEASURED pair when both exist. The
+      // anchors are read on the same refresh that loads the nightly resting HR
+      // (see [_refreshNightlyRhr]); an anchor that has not landed yet simply
+      // yields the age-estimate set, which is what this session would have got
+      // before TS-03 anyway.
+      zoneSet: trainingZones(
+        age: (user?['age'] as num?),
+        deviceFamily: engine.linkDeviceFamily,
+        observedCeilingBpm: _observedCeilingBpm,
+        restingHrHistory: _rhr28,
       ),
       restingHr: _liveRestingHr,
     );
@@ -4374,7 +4514,12 @@ class AppState extends ChangeNotifier {
   Future<void> maybeStopBreathingFromLiveActivity() async {
     // Same latch, same fix as above.
     final asked = await WidgetService.consumeEndBreathingFlag();
-    if (asked && breathingActive) await stopBreathingSession();
+    if (!asked) return;
+    if (breathingActive) await stopBreathingSession();
+    // Ending from the Live Activity ends the whole thing, quiet windows
+    // included — otherwise the streams stay on with no screen left to close
+    // them, which is the leak `PopScope` was added to the screen to fix.
+    await closeBreathingWindow();
   }
 
   /// Reconcile any session row still `status='live'` left over from a
@@ -4920,7 +5065,23 @@ class LiveWorkoutState {
   /// once at start from the athlete's age and the strap measuring the window.
   /// Null when either is missing, and then strain, calories and the zone split
   /// all abstain: there is no ceiling to be a percentage of.
+  ///
+  /// This is the STRAIN/CALORIE anchor only. The zone split reads [zoneSet],
+  /// which may be banded on a MEASURED ceiling while this stays the age
+  /// estimate — see the comment there.
   final double? hrMax;
+
+  /// THE zone set this session's per-second split is binned with (TS-04),
+  /// resolved once at start from `trainingZones` — the same function the day
+  /// pipeline and the detail screen's `zone_bands` use, so the live gauge, the
+  /// persisted `zone_min` and the recomputed bands cannot disagree about one
+  /// heartbeat.
+  ///
+  /// Deliberately NOT derived from [hrMax]. Once the band has observed a
+  /// ceiling, zones move onto it and onto the measured resting HR; strain does
+  /// not, because moving it would rewrite every strain score ever shown. Two
+  /// anchors, named, beats one anchor quietly used for both.
+  final ana.HeartRateZoneSet? zoneSet;
 
   /// Resting-HR anchor for the strain score. NOT final: the measured nightly
   /// value is loaded asynchronously, so a session can begin before it lands.
@@ -5002,6 +5163,7 @@ class LiveWorkoutState {
     int? age,
     this.profile = const Profile(),
     this.hrMax,
+    this.zoneSet,
     this.restingHr,
   }) : _hrPeak = RollingMaxHr(age: age);
 

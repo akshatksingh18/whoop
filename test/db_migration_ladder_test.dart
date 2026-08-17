@@ -501,6 +501,20 @@ void main() {
       );
       expect((await LocalDb.labResults()).single['value'], 42.0);
       expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      // MIND-06's window columns reach an OLD database through the onOpen
+      // repair rather than a ladder rung, so this is the only thing that
+      // proves they arrive at all on an upgrade.
+      await LocalDb.updateBreathingWindows(
+        startedAt: 1000,
+        preRmssd: 38.5,
+        postRmssd: 44.25,
+      );
+      expect((await LocalDb.breathingSessions()).single['pre_rmssd'], 38.5);
+      expect((await LocalDb.breathingSessions()).single['post_rmssd'], 44.25);
+      // An UPDATE, never an upsert: a session too short to bank has no row,
+      // and its windows must not create one behind it.
+      await LocalDb.updateBreathingWindows(startedAt: 999, preRmssd: 40);
+      expect((await LocalDb.breathingSessions()).length, 1);
       expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
       expect(await LocalDb.napEditDays(), {'2026-06-01'});
 

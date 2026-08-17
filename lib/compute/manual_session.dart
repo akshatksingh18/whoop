@@ -193,27 +193,32 @@ List<double> hrPerMinute(List<int> hrTs, List<int> hrBpm) {
   return out;
 }
 
-/// Minutes spent in each of Z1..Z5 (50/60/70/80/90 % of [zoneMaxHr]).
+/// Minutes spent in each of Z1..Z5.
 ///
-/// [zoneMaxHr] is a parameter, not derived here, because the ceiling depends on
-/// the STRAP that measured the window (`estimatedMaxHr`), which this pure
-/// scorer has no way to know. It used to also be a second HRmax convention —
-/// the screens banded zones on 220−age while the analytics anchors below used
-/// Tanaka — and those two are now the same number (TS-03a). 0 means "no
-/// ceiling": no age, or a strap we have no calibrated ceiling for, so no split.
-List<double> zoneMinutesFor(List<int> hrBpm, double zoneMaxHr) {
-  if (hrBpm.isEmpty || zoneMaxHr <= 0) return const [];
-  const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
+/// [zoneSet] is THE app's zone set (`trainingZones`) — banded on the OBSERVED
+/// ceiling and the measured resting HR once both exist, and on the age estimate
+/// until then. It is a parameter, not derived here, because both anchors are
+/// cross-day reads this pure scorer has no way to make. Pass it: a session that
+/// persists a `zone_min` split binned differently from the `zone_bands` its own
+/// detail screen recomputes is the TS-03a defect, one layer up.
+///
+/// [zoneMaxHr] is the fallback ceiling for a caller with no set in hand, and it
+/// resolves to the SAME %HRmax bands (`zonesFromMaxHr`) the inline loop here
+/// used to hard-code. 0 means "no ceiling": no age, or a strap we have no
+/// calibrated ceiling for, so no split.
+List<double> zoneMinutesFor(
+  List<int> hrBpm,
+  double zoneMaxHr, {
+  ana.HeartRateZoneSet? zoneSet,
+}) {
+  final set = zoneSet ??
+      (zoneMaxHr > 0 ? ana.HeartRateZones.zonesFromMaxHr(zoneMaxHr) : null);
+  if (hrBpm.isEmpty || set == null) return const [];
   final secs = List<int>.filled(5, 0);
   for (final v in hrBpm) {
     if (v <= 0) continue;
-    final pct = v / zoneMaxHr;
-    for (var z = 4; z >= 0; z--) {
-      if (pct >= loPct[z]) {
-        secs[z]++;
-        break;
-      }
-    }
+    final z = set.zoneNumber(v.toDouble());
+    if (z >= 1) secs[z - 1]++;
   }
   return [
     for (var z = 0; z < 5; z++)
@@ -295,6 +300,7 @@ ManualSessionStats computeManualSessionStats({
   required Profile profile,
   required double? hrMax,
   double? restingHr,
+  ana.HeartRateZoneSet? zoneSet,
 }) {
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
@@ -355,7 +361,7 @@ ManualSessionStats computeManualSessionStats({
     strain: strain,
     calories: calories,
     // 0 is `zoneMinutesFor`'s own "no ceiling" input → an empty split.
-    zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0),
+    zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0, zoneSet: zoneSet),
     hrSampleCount: worn.length,
   );
 }

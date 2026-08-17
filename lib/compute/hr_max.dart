@@ -63,6 +63,60 @@ double? estimatedMaxHr(num? age, String? deviceFamily) {
   return c == null ? null : c.$1 - c.$2 * age.toDouble();
 }
 
+/// THE zone set every surface bands on — day zones, the day zone timeline and a
+/// session's zone bands. One function so those three cannot drift (TS-03a's
+/// unification, extended to the anchors rather than just the ceiling).
+///
+/// Which anchors it used is in `HeartRateZoneSet.source`, and the screens must
+/// print it, because they are materially different claims:
+///
+/// * `karvonen` — %HRR bands between two heart rates the band MEASURED: the
+///   observed ceiling ([observedCeilingBpm], TS-03) and the median of
+///   [restingHrHistory]. Still a model — %HRR bands are a convention, not a
+///   measurement of anyone's thresholds — but both ends are measured.
+/// * `observed` — the ceiling is measured, the resting-HR history is still too
+///   short for a reserve anchor ([HeartRateZones.reserveMinDays]), so these are
+///   %HRmax bands off the observed ceiling.
+/// * `tanaka` — no observed ceiling yet: %HRmax off `208 − 0.7·age`, i.e. the
+///   AGE ESTIMATE. Byte-for-byte what this app did before TS-03 landed, so a
+///   user with no observed ceiling sees no number move.
+///
+/// Null when there is no ceiling at all (no age, or an uncalibrated strap) —
+/// no ceiling, no zones, nothing substituted.
+///
+/// The age estimate is deliberately NOT run through Karvonen: reserve bands off
+/// a guessed ceiling are one measured anchor and one guessed one, which is not
+/// the claim `karvonen` makes here and not worth moving every existing user's
+/// zone boundaries for.
+ana.HeartRateZoneSet? trainingZones({
+  num? age,
+  String? deviceFamily,
+  double? observedCeilingBpm,
+  List<double> restingHrHistory = const [],
+}) {
+  if (observedCeilingBpm != null && observedCeilingBpm > 0) {
+    return ana.HeartRateZones.reserveZones(
+          restingHrHistory: restingHrHistory,
+          maxHr: observedCeilingBpm,
+        ) ??
+        ana.HeartRateZones.zonesFromMaxHr(
+          observedCeilingBpm,
+          source: 'observed',
+        );
+  }
+  final est = estimatedMaxHr(age, deviceFamily);
+  return est == null
+      ? null
+      : ana.HeartRateZones.zonesFromMaxHr(est, source: 'tanaka');
+}
+
+/// Whether [source] means BOTH zone anchors were measured on this user.
+///
+/// The gate TS-05 hangs on: a three-bar "your training is polarised" read off
+/// bands built on 220−age is manufactured, and a caption cannot repair it, so
+/// the distribution is not drawn at all unless this is true.
+bool zonesAreMeasured(String? source) => source == 'karvonen';
+
 /// Below this a sample is sensor dropout/garbage, not a heartbeat.
 const int kHrFloorBpm = 30;
 

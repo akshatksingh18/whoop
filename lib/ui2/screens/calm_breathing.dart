@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../../stress/breath_phases.dart';
+import '../../stress/session_effect.dart';
 import '../ui2.dart';
 
 /// Session lengths offered, in minutes. Converted to whole pattern cycles so
@@ -153,6 +154,32 @@ class _CalmBreathingState extends State<CalmBreathing>
   /// unscored and unrecorded — still worth doing, and said out loud.
   bool _banded = false;
 
+  // ── MIND-06 · the quiet windows ────────────────────────────────────────────
+  //
+  // Opt-in, and off by default: it adds four minutes of sitting still to a
+  // five-minute session, which is not what someone who opened this screen to
+  // breathe came for. The whole state it needs on the screen is which window
+  // is running and how far into it — everything else lives in AppState, which
+  // is what holds the streams open across the paced block's own start and stop.
+
+  /// 'pre' or 'post' while a quiet window is running, null otherwise.
+  String? _quiet;
+  Timer? _quietTick;
+  final _quietWatch = Stopwatch();
+  Duration _quietElapsed = Duration.zero;
+
+  /// Whether this session brackets the pacing with the two quiet windows.
+  bool _windows = false;
+
+  /// What a run of past sessions shows, which is usually "not enough yet".
+  /// Read once on open and again after a session banks its windows.
+  BreathingEffect? _effect;
+
+  /// Held from `initState` so `dispose` can close the window without a context
+  /// — a swipe away mid-window would otherwise leave the live streams on with
+  /// nothing left to turn them off.
+  AppState? _app;
+
   /// RESP-06 — the running sweep, or null for an ordinary session. Holds the
   /// block index and one score per finished block (null where a block produced
   /// no clean estimate), so the ranking is only ever read off blocks that
@@ -171,15 +198,111 @@ class _CalmBreathingState extends State<CalmBreathing>
     // The pace two sittings agreed on, read once. `read` rather than `watch`:
     // the pattern is the user's choice from here on, and a profile write mid
     // session must not silently repace her.
-    final yours = agreedPace(context.read<AppState>().user?[kPaceWinsKey]);
+    final app = context.read<AppState>();
+    _app = app;
+    final yours = agreedPace(app.user?[kPaceWinsKey]);
     if (yours != null) _pattern = paceAt(yours);
+    unawaited(_loadEffect());
   }
 
   @override
   void dispose() {
     _slowTick?.cancel();
+    _quietTick?.cancel();
     _ticker?.dispose();
+    // No-op unless a window is open. Detached on purpose: dispose cannot await,
+    // and the alternative is streams left running after the screen is gone.
+    unawaited(_app?.closeBreathingWindow() ?? Future<void>.value());
     super.dispose();
+  }
+
+  Future<void> _loadEffect() async {
+    final app = _app;
+    if (app == null) return;
+    // Sixty rather than the default thirty: the test wants every pair it can
+    // get, and a row is ~40 bytes.
+    final rows = await app.breathingHistory(limit: 60);
+    if (!mounted) return;
+    setState(() => _effect = breathingEffect(rows));
+  }
+
+  /// The Begin button. With the windows on, the PRE window runs first and the
+  /// pacer does not start until it finishes — the point of the window is that
+  /// it is not paced.
+  Future<void> _begin() async {
+    if (!_windows) return _start();
+    final app = context.read<AppState>();
+    await app.openBreathingWindow();
+    if (!mounted) return;
+    // The band refused (not connected). Fall through to an ordinary unmeasured
+    // session rather than blocking the one thing this screen is for.
+    if (!app.breathingWindowOpen) return _start();
+    setState(() {
+      _finished = false;
+      _quiet = 'pre';
+    });
+    _startQuietTick();
+  }
+
+  void _startQuietTick() {
+    _quietTick?.cancel();
+    _quietWatch
+      ..reset()
+      ..start();
+    setState(() => _quietElapsed = Duration.zero);
+    // One second, not a frame clock: nothing here animates, and the reduced
+    // motion gate would pin a ring that is not drawn anyway.
+    _quietTick = Timer.periodic(Motion.tick, (_) {
+      if (!mounted) return;
+      final e = _quietWatch.elapsed;
+      if (e >= kBreathingWindow) {
+        _quietDone();
+        return;
+      }
+      setState(() => _quietElapsed = e);
+    });
+  }
+
+  void _quietDone() {
+    _quietTick?.cancel();
+    _quietWatch.stop();
+    final was = _quiet;
+    setState(() => _quiet = null);
+    if (was == 'pre') {
+      unawaited(_start());
+    } else {
+      unawaited(_endWindows());
+    }
+  }
+
+  /// Close the windows and land on the result. The two numbers go to the
+  /// database and NOWHERE else — a delta shown at the end of a session is a
+  /// score to chase, and chasing it is stress.
+  Future<void> _endWindows() async {
+    _quietTick?.cancel();
+    _quietWatch.stop();
+    final app = context.read<AppState>();
+    setState(() {
+      _quiet = null;
+      _running = false;
+      _finished = true;
+    });
+    await app.closeBreathingWindow();
+    if (mounted) await _loadEffect();
+  }
+
+  /// Stop during a window. Before the pacing there is nothing banked to attach
+  /// to, so it drops the whole thing and goes back to the setup.
+  Future<void> _abortQuiet() async {
+    _quietTick?.cancel();
+    _quietWatch.stop();
+    final app = context.read<AppState>();
+    final wasPre = _quiet == 'pre';
+    setState(() => _quiet = null);
+    await app.closeBreathingWindow();
+    if (!mounted) return;
+    if (!wasPre) setState(() => _finished = true);
+    await _loadEffect();
   }
 
   Future<void> _start() async {
@@ -230,6 +353,9 @@ class _CalmBreathingState extends State<CalmBreathing>
       _blockScores.clear();
       _minutes = kPaceSweepBlockMinutes;
       _pattern = paceAt(kPaceSweepRates.first);
+      // The sweep is three paced blocks back to back. There is no unpaced
+      // stretch anywhere in it to be a "before", so the windows do not apply.
+      _windows = false;
     });
     await _start();
   }
@@ -267,11 +393,25 @@ class _CalmBreathingState extends State<CalmBreathing>
       await _bankSweep();
       if (!mounted) return;
     }
+    // MIND-06 — the pacing has stopped but the session has not. The POST
+    // window runs on the streams the window (not the paced block) owns, and
+    // the row it attaches to has just been banked.
+    if (app.breathingWindowOpen && !abort) {
+      setState(() {
+        _running = false;
+        _quiet = 'post';
+      });
+      _startQuietTick();
+      return;
+    }
+    if (app.breathingWindowOpen) await app.closeBreathingWindow();
+    if (!mounted) return;
     setState(() {
       _running = false;
       _finished = true;
       if (block != null && abort) _sweepAborted = true;
     });
+    await _loadEffect();
   }
 
   /// Append this sweep's winner to the profile. A sweep that measured nothing
@@ -300,11 +440,19 @@ class _CalmBreathingState extends State<CalmBreathing>
     // Swiping back is the same exit as the X, and it used to be a different
     // one: the ticker stopped, nothing banked the session, `breathingActive`
     // stayed true, and the band's live streams stayed on until the app died.
+    // A quiet window holds the same live streams the paced block does, so it
+    // owes the same exit — swiping away during one has to close it, not leave
+    // it running behind a screen that is gone.
+    final busy = _running || _quiet != null;
     return PopScope(
-      canPop: !_running,
+      canPop: !busy,
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop || !_running) return;
-        await _stop(abort: true);
+        if (didPop || !busy) return;
+        if (_running) {
+          await _stop(abort: true);
+        } else {
+          await _abortQuiet();
+        }
         if (mounted) Navigator.of(context).pop();
       },
       child: Scaffold(
@@ -320,14 +468,20 @@ class _CalmBreathingState extends State<CalmBreathing>
                   child: Pressable(
                     semanticLabel: 'Close breathing',
                     onTap: () async {
-                      if (_running) await _stop(abort: true);
+                      if (_running) {
+                        await _stop(abort: true);
+                      } else if (_quiet != null) {
+                        await _abortQuiet();
+                      }
                       if (c.mounted) Navigator.of(c).pop();
                     },
                     child: Icon(LucideIcons.x, size: 22, color: p.ink2),
                   ),
                 ),
                 Expanded(
-                  child: _finished
+                  child: _quiet != null
+                      ? _Quiet(phase: _quiet!, elapsed: _quietElapsed)
+                      : _finished
                       ? (_sweeping
                             ? _SweepResult(
                                 scores: _blockScores,
@@ -345,21 +499,34 @@ class _CalmBreathingState extends State<CalmBreathing>
                       : _Setup(
                           pattern: _pattern,
                           minutes: _minutes,
+                          windows: _windows,
+                          effect: _effect,
                           onPattern: (v) => setState(() => _pattern = v),
                           onMinutes: (v) => setState(() => _minutes = v),
+                          onWindows: (v) => setState(() => _windows = v),
                           onSweep: _startSweep,
                         ),
                 ),
                 BigButton(
-                  _running
+                  _quiet == 'post'
+                      ? 'Finish now'
+                      : _quiet == 'pre'
+                      ? 'Stop'
+                      : _running
                       ? (_sweeping ? 'Stop' : 'End session')
                       : (_finished ? 'Done' : 'Begin'),
-                  icon: _running ? LucideIcons.square : LucideIcons.play,
+                  icon: (_running || _quiet != null)
+                      ? LucideIcons.square
+                      : LucideIcons.play,
                   color: C.domMind,
-                  soft: _running,
-                  onTap: _running
+                  soft: _running || _quiet != null,
+                  onTap: _quiet == 'post'
+                      ? _endWindows
+                      : _quiet != null
+                      ? _abortQuiet
+                      : _running
                       ? () => _stop(abort: true)
-                      : (_finished ? () => Navigator.of(c).pop() : _start),
+                      : (_finished ? () => Navigator.of(c).pop() : _begin),
                 ),
                 const SizedBox(height: S.x6),
               ],
@@ -377,15 +544,21 @@ class _Setup extends StatelessWidget {
   const _Setup({
     required this.pattern,
     required this.minutes,
+    required this.windows,
+    required this.effect,
     required this.onPattern,
     required this.onMinutes,
+    required this.onWindows,
     required this.onSweep,
   });
 
   final BreathPattern pattern;
   final int minutes;
+  final bool windows;
+  final BreathingEffect? effect;
   final ValueChanged<BreathPattern> onPattern;
   final ValueChanged<int> onMinutes;
+  final ValueChanged<bool> onWindows;
   final VoidCallback onSweep;
 
   @override
@@ -453,32 +626,41 @@ class _Setup extends StatelessWidget {
           ),
         Section(
           'How long',
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final m in _minuteOptions) ...[
-                Expanded(
-                  child: Pressable(
-                    onTap: () => onMinutes(m),
-                    semanticLabel: '$m minutes',
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: S.x3),
-                      decoration: BoxDecoration(
-                        color: m == minutes ? p.fill(C.domMind) : p.card,
-                        borderRadius: R.rMd,
-                      ),
-                      child: Center(
-                        child: Text(
-                          '$m min',
-                          style: F.body.copyWith(
-                            color: m == minutes ? p.inkOnFill : p.ink2,
+              Row(
+                children: [
+                  for (final m in _minuteOptions) ...[
+                    Expanded(
+                      child: Pressable(
+                        onTap: () => onMinutes(m),
+                        semanticLabel: '$m minutes',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: S.x3),
+                          decoration: BoxDecoration(
+                            color: m == minutes ? p.fill(C.domMind) : p.card,
+                            borderRadius: R.rMd,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$m min',
+                              style: F.body.copyWith(
+                                color: m == minutes ? p.inkOnFill : p.ink2,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                if (m != _minuteOptions.last) const SizedBox(width: S.x3),
-              ],
+                    if (m != _minuteOptions.last) const SizedBox(width: S.x3),
+                  ],
+                ],
+              ),
+              const SizedBox(height: S.x3),
+              // MIND-06 — inside "How long" because that is what it changes:
+              // four more minutes of sitting. One row, not a fifth section.
+              _windowRow(c, p, app.isConnected),
             ],
           ),
         ),
@@ -488,6 +670,66 @@ class _Setup extends StatelessWidget {
         // thing to read before beginning.
         Section('Your own pace', _sweepDoor(c, p, app.isConnected, yours)),
       ],
+    );
+  }
+
+  /// MIND-06 — the opt-in, and the only place the finding is ever shown.
+  ///
+  /// It sits HERE, on the screen you read before deciding to do a session,
+  /// rather than at the end of one: a number that lands the moment you finish
+  /// is a score, and a score you can move is a thing to chase. What is shown
+  /// is one sentence about a run of sessions — never this session, never a
+  /// delta, never a count that only goes up.
+  Widget _windowRow(BuildContext c, P p, bool connected) {
+    final e = effect;
+    final on = windows && connected;
+    return Surface(
+      onTap: connected ? () => onWindows(!windows) : null,
+      color: on ? p.wash(C.domMind) : null,
+      semanticLabel: 'Measure before and after, adds four minutes',
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            on ? LucideIcons.circleCheck : LucideIcons.circle,
+            size: 18,
+            color: on ? p.on(C.domMind) : p.ink3,
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Measure before and after · adds 4 min',
+                  style: F.body.copyWith(
+                    color: connected ? p.ink : p.ink3,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: S.x1),
+                Text(
+                  !connected
+                      ? 'Needs the band on — the comparison is made from beat '
+                            'timing.'
+                      : breathingEffectLine(e ?? _noSessionsYet),
+                  style: F.cap.copyWith(color: p.ink3, height: 1.4),
+                ),
+                // The caveat rides WITH the finding, never as a footnote
+                // somewhere else: sitting still for ten minutes is itself the
+                // plausible cause, and nothing here can separate the two.
+                if (connected && e != null && e.detected) ...[
+                  const SizedBox(height: S.x2),
+                  Text(
+                    kBreathingEffectCaveat,
+                    style: F.over.copyWith(color: p.ink3, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -540,6 +782,10 @@ class _Setup extends StatelessWidget {
     ),
   );
 }
+
+/// What the row says before the history has loaded — the same thing it says
+/// with no sessions in it, so the copy never flickers between two answers.
+const _noSessionsYet = BreathingEffect(pairs: 0, p: null, direction: 0);
 
 // ── running ────────────────────────────────────────────────────────────────
 
@@ -599,6 +845,64 @@ class _Running extends StatelessWidget {
             icon: LucideIcons.bluetoothOff,
           ),
         ],
+      ],
+    );
+  }
+}
+
+// ── MIND-06 · a quiet window ───────────────────────────────────────────────
+
+/// The two minutes either side of the pacing.
+///
+/// NO RING. The ring is a pacer, and the entire value of these windows is that
+/// nothing is pacing you — a ring here would make the "before" a slow-breathing
+/// measurement too, and then the comparison would be of two paced stretches
+/// with nothing between them.
+class _Quiet extends StatelessWidget {
+  const _Quiet({required this.phase, required this.elapsed});
+
+  /// 'pre' or 'post'.
+  final String phase;
+  final Duration elapsed;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final pre = phase == 'pre';
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          pre ? 'BEFORE' : 'AFTER',
+          textAlign: TextAlign.center,
+          style: F.over.copyWith(color: p.ink3),
+        ),
+        const SizedBox(height: S.x4),
+        Text(
+          pre ? 'Sit still for a moment.' : 'Stay sitting.',
+          textAlign: TextAlign.center,
+          style: F.t2.copyWith(color: p.ink),
+        ),
+        const SizedBox(height: S.x3),
+        Text(
+          'Breathe however you normally would. Nothing is pacing you and '
+          'nothing is being scored.',
+          textAlign: TextAlign.center,
+          style: F.cap.copyWith(color: p.ink2, height: 1.5),
+        ),
+        const SizedBox(height: S.x8),
+        Text(
+          _clock(elapsed),
+          textAlign: TextAlign.center,
+          style: F.n34.copyWith(color: p.ink2),
+        ),
+        const SizedBox(height: S.x1),
+        Text(
+          'of ${_clock(kBreathingWindow)}',
+          textAlign: TextAlign.center,
+          style: F.cap.copyWith(color: p.ink3),
+        ),
       ],
     );
   }

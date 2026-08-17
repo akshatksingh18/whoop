@@ -138,6 +138,12 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     tempCh2C: g.tempAux1C,
     tempCh3C: g.tempAux2C,
     signalQualityLogVar: g.signalQualityLogVariance,
+    // The band's own gravity-removed motion magnitude for this second (g).
+    // Present on 1,035/1,035 real MG records and 3/3 WHOOP 5 (GATES.md §4b).
+    // NOT our ENMO and never a substitute for it: the band's window, filter
+    // and statistic are all unknown, so the two are on different scales.
+    // Stored, unread — the point is to make the comparison possible later.
+    dynAccelG: g.dynamicAccelerationG,
   );
 }
 
@@ -2787,11 +2793,45 @@ class BleEngine {
       // them. gen5 also ships a v18 with a completely different layout; the
       // `isGen5` branch above claims it first, so this is gen4 only.
       //
-      // v25 is EXCLUDED on purpose and keeps going to the archive, exactly as
-      // before. Not because the decode is wrong — it is right, and checked
-      // against 20k of these records: the timestamp at inner[7] is monotonic
-      // and steps by exactly 1 s, and the gravity vector reads a mean |g| of
-      // 0.97 with 19999/20000 inside the plausible window.
+      // v25 is EXCLUDED on purpose and keeps going to the archive.
+      //
+      // THE TIMESTAMP IS RIGHT AND THE GRAVITY VECTOR IS NOT. inner[7] is
+      // monotonic and steps by exactly 1 s. But `_parseV25`'s accel — i16s at
+      // inner[69/71/73], the only "validation" behind which is a mean |g| of
+      // 0.97 sitting inside a 0.5-1.5 g window — is NOT an accelerometer.
+      // MEASURED on all 28,395 v25 records in `whoop-4.db`:
+      //
+      //   * inner[73] (the "z" axis) takes THREE distinct values across 28,395
+      //     records: 0, 1 and 256. inner[71] ("y") takes 17, one of which
+      //     (2896) is 68% of them. No axis of a worn IMU does that.
+      //   * inner[69] ("x") is the upper half of a little-endian f32 that
+      //     starts at inner[67], which is why it is pinned near 0.94 g. |g|
+      //     ≈ 0.97 is that constant, not a wrist.
+      //   * 13,394 v25 seconds also have a v24 record for the SAME second.
+      //     Against that real gravity vector: per-axis correlation 0.16 /
+      //     0.22 / 0.06, and the median ANGLE between the two vectors is 83°
+      //     — orthogonal, i.e. unrelated.
+      //
+      // A near-constant vector is exactly the "perfectly still wrist" this
+      // file's `ax/ay/az` note refuses to fabricate, and van Hees immobility
+      // is precisely what would consume it. So SLP-05's routing half is
+      // REFUSED on the data, not deferred. Consistent with GATES.md §4a: the
+      // 76-byte v25 inner is the same record as gen5's v26 — 24 × i16 of
+      // waveform — so there is no room in it for a gravity vector, and what
+      // lives at 69/71/73 is the waveform's tail and a constant.
+      //
+      // AND THERE IS NOTHING TO GAIN EITHER WAY. Of the 13,395 v25 seconds
+      // that fall inside `decoded_onehz`'s retained range on that export,
+      // 13,394 are ALREADY covered by a v24 record; exactly one is new in
+      // 8.5 days. Recomputed over all 24 stored sleep windows, the observed
+      // fraction (`sampled && hrNear`) moves +0.00 pp. The "1-5 pp lift"
+      // SLP-05 sizes does not exist on real data.
+      //
+      // Worse, routing it here would be a REGRESSION: `_queueDecodedOneHz`
+      // writes REPLACE on the rec_ts key, so a v25 record arriving for a
+      // second a v24 record already holds would evict it — deleting that
+      // second's HR, R-R, optical and thermal readings and leaving an
+      // HR-less row behind. That is 49% of v25 records.
       //
       // The record genuinely has NO heart rate. Every byte and u16 offset was
       // scanned for anything in a bpm range with physiological drift across
@@ -2800,13 +2840,12 @@ class BleEngine {
       // is a 24-slot raw waveform buffer spanning the full i16 range — the band
       // ships samples here and computes HR into the v24 records instead.
       //
-      // So `_parseV25` reporting `hr: 0` is an honest absence. The collision is
-      // downstream: `decoded_onehz.hr` is NOT NULL and `hr == 0` is this app's
-      // off-skin sentinel, so banking v25 would assert "the band was off the
-      // wrist" for every one of those seconds — ~50k in one real export — while
-      // the genuine gravity keeps the accel-coverage gate happy with the
-      // window. The gravity IS worth having; it needs a nullable `hr` column
-      // first. Until then the bytes are archived and nothing is lost.
+      // So `_parseV25` reporting `hr: 0` is an honest absence, and the nullable
+      // `hr` column (schema v43) that used to be the blocker is in place — the
+      // blocker now is the accel, above. `undecodable_rec_v25` is therefore NOT
+      // in `LocalDb.redrivableArchiveReasons` and must not be added: the bytes
+      // stay archived, unpruned, whole, for a build that can actually read the
+      // waveform (RESP-15/SD-15). Nothing is lost by leaving them there.
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;

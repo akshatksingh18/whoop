@@ -81,6 +81,19 @@ class Sample {
   /// weight. Never a percentage, never a bar, never "HRV confidence: 82%".
   final double? signalQualityLogVar;
 
+  /// Gravity-removed motion magnitude for this second, in g — GEN5 ONLY.
+  ///
+  /// The band's own scalar (protocol: `dynamicAccelerationG`, f32, null when
+  /// the bytes are not a finite in-full-scale value). It is NOT our ENMO and
+  /// must not be substituted for one: we do not know the band's window, its
+  /// filter, or whether it is a mean, an RMS or a peak, so the two are on
+  /// different scales and a swap would move every motion number silently.
+  ///
+  /// Persisting it claims nothing — same contract as [tempCh2C]. It is stored
+  /// so that a later comparison against our own ENMO on the same seconds is
+  /// possible at all; nothing reads it today.
+  final double? dynAccelG;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -103,6 +116,7 @@ class Sample {
     this.tempCh2C,
     this.tempCh3C,
     this.signalQualityLogVar,
+    this.dynAccelG,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -131,6 +145,7 @@ class Sample {
     tempCh2C: tempCh2C,
     tempCh3C: tempCh3C,
     signalQualityLogVar: signalQualityLogVar,
+    dynAccelG: dynAccelG,
   );
 
   bool get wristOn => hr > 0;
@@ -174,6 +189,7 @@ class Sample {
       tempCh2C: (m['temp_ch2_c'] as num?)?.toDouble(),
       tempCh3C: (m['temp_ch3_c'] as num?)?.toDouble(),
       signalQualityLogVar: (m['signal_quality_logvar'] as num?)?.toDouble(),
+      dynAccelG: (m['dyn_accel_g'] as num?)?.toDouble(),
     );
   }
 }

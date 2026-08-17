@@ -205,7 +205,8 @@ const _notComponents = {
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
-  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'Investigate',
+  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'ZonesDetail',
+  'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',
   // a live session — a stateful screen with a clock, per archetype

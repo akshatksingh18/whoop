@@ -250,9 +250,18 @@ const kCsvExportSets = <CsvExportSet>[
   CsvExportSet(
     name: 'breathing',
     title: 'Breathing sessions',
-    columns: ['started_at', 'ended_at', 'pattern', 'seconds', 'coherence'],
-    sql: 'SELECT started_at, ended_at, pattern, seconds, coherence '
-        'FROM breathing_session ORDER BY started_at ASC',
+    columns: [
+      'started_at',
+      'ended_at',
+      'pattern',
+      'seconds',
+      'coherence',
+      'pre_rmssd',
+      'post_rmssd',
+    ],
+    sql:
+        'SELECT started_at, ended_at, pattern, seconds, coherence, '
+        'pre_rmssd, post_rmssd FROM breathing_session ORDER BY started_at ASC',
   ),
   CsvExportSet(
     name: 'cycle',

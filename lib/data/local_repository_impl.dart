@@ -1217,6 +1217,13 @@ class LocalRepositoryImpl extends LocalRepository {
       'max_hr_used': b['max_hr_used'] is num
           ? b['max_hr_used'] as num
           : _scalar(b, 'max_hr_used'),
+      // TS-04 — which two numbers THIS day's zone bars were binned on:
+      // 'karvonen' (observed ceiling + measured resting HR), 'observed'
+      // (measured ceiling, resting-HR history still too short) or 'tanaka'
+      // (the age estimate). Stored with the bins by the pipeline, so the bar's
+      // footnote states what the bar IS rather than what it usually is.
+      'zone_source': b['zone_source'],
+      'zone_max_hr': (b['zone_max_hr'] as num?)?.round(),
       'flags': const {},
     };
   }
@@ -1778,7 +1785,7 @@ class LocalRepositoryImpl extends LocalRepository {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
-            rescored.row['device_family'] as String?));
+            rescored.row['device_family'] as String?, await _zoneAnchors()));
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -1816,6 +1823,7 @@ class LocalRepositoryImpl extends LocalRepository {
     int startTs,
     int endTs,
     String? deviceFamily,
+    _ZoneAnchors anchors,
   ) {
     final w = <String, dynamic>{};
     w['hr'] = _minuteHrCurve(ts, hr);
@@ -1830,7 +1838,7 @@ class LocalRepositoryImpl extends LocalRepository {
       w['max_hr'] = peakAt.$1;
       w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
     }
-    w['zone_bands'] = _zoneBands(hr, deviceFamily);
+    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors);
     final drift = _hrDriftPct(ts, hr, startTs, endTs);
     if (drift != null) w['hr_drift_pct'] = drift;
     w['trace_samples'] = hr.length;
@@ -1894,39 +1902,106 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  /// Time-in-zone bands Z1..Z5 (50/60/70/80/90 % of max HR) over the session's
-  /// 1 Hz HR — the shape the zones card + summary bar parse.
-  List<Map<String, dynamic>> _zoneBands(List<int> hr, String? deviceFamily) {
-    final maxHr = _profileMaxHr(deviceFamily);
+  /// Zone names. "Fat burn" was a substrate-utilisation claim on a band that
+  /// measures heart rate. Z2 is an INTENSITY label; which fuel is being
+  /// oxidised there needs respiratory exchange, which no wrist sensor produces
+  /// (TS-04a). Never "aerobic threshold" either — a %HRR band is a convention,
+  /// not a measurement of anyone's threshold.
+  static const zoneNames = ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
+
+  /// Time-in-zone bands Z1..Z5 over the session's 1 Hz HR — the shape the zones
+  /// card + summary bar parse.
+  ///
+  /// Banded on [trainingZones], the SAME set the day pipeline bins its own
+  /// `zones` block with, so a session's bands and the day's bars can never come
+  /// off different ceilings again (TS-03a) or different anchors (TS-04).
+  List<Map<String, dynamic>> _zoneBands(
+    List<int> hr,
+    String? deviceFamily,
+    _ZoneAnchors anchors,
+  ) {
+    final set = _zoneSetFor(deviceFamily, anchors);
     // No age, or a strap with no calibrated ceiling ⇒ no bands.
-    if (maxHr == null) return const [];
-    // "Fat burn" was a substrate-utilisation claim on a band that measures
-    // heart rate. Z2 is an INTENSITY label; which fuel is being oxidised there
-    // needs respiratory exchange, which no wrist sensor produces (TS-04a).
-    const names = ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
-    const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
+    if (set == null) return const [];
     final secs = List<int>.filled(5, 0);
     for (final v in hr) {
-      final pct = v / maxHr;
-      for (var z = 4; z >= 0; z--) {
-        if (pct >= loPct[z]) {
-          secs[z]++;
-          break;
-        }
-      }
+      final z = set.zoneNumber(v.toDouble());
+      if (z >= 1) secs[z - 1]++;
     }
     final total = hr.length;
     return [
       for (var z = 0; z < 5; z++)
         {
           'zone': z + 1,
-          'name': names[z],
-          'lo': (loPct[z] * maxHr).round(),
-          'hi': z == 4 ? maxHr : (loPct[z + 1] * maxHr).round(),
+          'name': zoneNames[z],
+          'lo': set.zones[z].lower.round(),
+          'hi': set.zones[z].upper.round(),
           'min': double.parse((secs[z] / 60).toStringAsFixed(1)),
           'pct': total == 0 ? 0 : (secs[z] / total * 100).round(),
+          'source': set.source,
         },
     ];
+  }
+
+  /// THE zone set for a window measured by [deviceFamily] — one call so every
+  /// producer of a zone split in this file bands identically.
+  ana.HeartRateZoneSet? _zoneSetFor(String? deviceFamily, _ZoneAnchors a) =>
+      trainingZones(
+        age: _profileAge(),
+        deviceFamily: deviceFamily,
+        observedCeilingBpm: a.observedCeilingBpm,
+        restingHrHistory: a.restingHrHistory,
+      );
+
+  /// The two anchors [trainingZones] needs, read once per call chain.
+  ///
+  /// Both are cross-day reads, so a per-session recompute must not do them
+  /// again for every row it touches.
+  Future<_ZoneAnchors> _zoneAnchors() async {
+    try {
+      return _ZoneAnchors(
+        observedCeilingBpm: (await _observedCeiling())?.bpm,
+        restingHrHistory: await LocalDb.trailingSeriesValues('rhr', 28),
+      );
+    } catch (_) {
+      return const _ZoneAnchors();
+    }
+  }
+
+  /// TS-03 — the highest heart rate the band has ever OBSERVED on this user:
+  /// the max of the per-day `hr_ceiling_bpm` series, with the day it happened
+  /// and the session it came from.
+  ///
+  /// NOT a physiological HRmax. Every value in that series already passed the
+  /// hold + corroborating-motion guard in `observed_max_hr.dart`; nothing here
+  /// may take a max over un-guarded numbers (a raw `sessions.max_hr` max would
+  /// be one PPG artifact away from dragging every zone boundary up forever).
+  ///
+  /// All-time, not a trailing window: this is "highest we've seen", and the
+  /// date is rendered beside it so an old one is visible rather than anonymous.
+  Future<_ObservedCeiling?> _observedCeiling() async {
+    final top = await LocalDb.observedHrCeiling();
+    if (top == null) return null;
+    // The session + hold behind it live in that day's own bundle envelope —
+    // one extra day read, only on the day that actually set the ceiling.
+    String? sessionType;
+    int? heldSeconds;
+    try {
+      final env = (await _bundleForDate(top.date))?['hr_ceiling'];
+      if (env is Map) {
+        sessionType = env['session_type'] as String?;
+        final v = env['value'];
+        if (v is Map) heldSeconds = (v['held_seconds'] as num?)?.toInt();
+      }
+    } catch (_) {
+      /* the number and its date still stand */
+    }
+    return _ObservedCeiling(
+      bpm: top.bpm,
+      date: top.date,
+      sessionType: sessionType,
+      heldSeconds: heldSeconds,
+    );
   }
 
   /// Cardiac drift: mean HR of the 2nd half vs the 1st half, %; sessions under
@@ -2191,6 +2266,11 @@ class LocalRepositoryImpl extends LocalRepository {
       profile: profile,
       hrMax: _profileMaxHr(deviceFamily)?.toDouble(),
       restingHr: restingHr,
+      // TS-04 — the persisted `zone_min` is binned with the SAME set the detail
+      // screen's `zone_bands` recomputes. `hrMax` above stays the strain and
+      // calorie anchor; the two are named separately because they can now be
+      // different ceilings.
+      zoneSet: _zoneSetFor(deviceFamily, await _zoneAnchors()),
     );
 
     final row = buildManualSessionRow(
@@ -2276,6 +2356,8 @@ class LocalRepositoryImpl extends LocalRepository {
         hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+        zoneSet: _zoneSetFor(
+            row['device_family'] as String?, await _zoneAnchors()),
       );
       // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
       // writes a PPG spike into the column `getWorkout` deliberately refuses to
@@ -2363,6 +2445,7 @@ class LocalRepositoryImpl extends LocalRepository {
           startTs,
           endTs,
           row['device_family'] as String?,
+          await _zoneAnchors(),
         );
         // The post-end recovery window is outside the session and outside the
         // rows read above, so it costs one more bounded (~205 s) read — only on
@@ -3321,6 +3404,198 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
+
+  // ── TS-03 / TS-04 / TS-05 — the zones screen ───────────────────────────────
+
+  /// Everything the zones screen draws: the observed ceiling and where it came
+  /// from, the zone edges and WHICH TWO NUMBERS they were anchored on, and —
+  /// only when both of those were measured — the 28-day intensity distribution.
+  @override
+  Future<Map<String, dynamic>> getZones() async {
+    final ceiling = await _observedCeiling();
+    final rhrHistory = await LocalDb.trailingSeriesValues('rhr', 28);
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // One read, two jobs: which strap these edges belong to, and the 28-day
+    // distribution below.
+    final recent = await LocalDb.sessionsInRange(nowSec - 28 * 86400, nowSec);
+    // The strap these edges belong to — from the most recent session that
+    // carries one, then from the day's own 1 Hz rows while they still exist.
+    // Sessions outlive the 3-day raw retention, so this still answers for a
+    // user who has not synced in a week.
+    // The strap these edges belong to. Sessions outlive the ~3-day raw
+    // retention and derived days outlive everything, so this still answers for
+    // a user who has not synced in a week. Unknown stays unknown — it is never
+    // filled in with gen4.
+    final family = _familyOfSessions(recent) ??
+        await LocalDb.latestSessionDeviceFamily() ??
+        (await _bundleForDate(todayLabel()))?['device_family'] as String?;
+    final set = trainingZones(
+      age: _profileAge(),
+      deviceFamily: family,
+      observedCeilingBpm: ceiling?.bpm,
+      restingHrHistory: rhrHistory,
+    );
+    final measured = zonesAreMeasured(set?.source);
+    return {
+      'ceiling': ?ceiling?.toJson(),
+      'age': _profileAge(),
+      'device_family': family,
+      'source': set?.source,
+      'max_hr': set?.maxHr.round(),
+      // The reserve anchor, and how many nights it is a median of — printed,
+      // because "your easy zone got wider" is only answerable if the two
+      // numbers it was built from are on the screen.
+      'resting_hr': measured ? _median(rhrHistory)?.round() : null,
+      'resting_days': rhrHistory.length,
+      'resting_min_days': ana.HeartRateZones.reserveMinDays,
+      'zones': set == null
+          ? const []
+          : [
+              for (var i = 0; i < 5; i++)
+                {
+                  'zone': i + 1,
+                  'name': zoneNames[i],
+                  'lo': set.zones[i].lower.round(),
+                  'hi': set.zones[i].upper.round(),
+                  'lo_pct': (set.zones[i].lowerPct * 100).round(),
+                  'hi_pct': (set.zones[i].upperPct * 100).round(),
+                },
+            ],
+      // TS-05 — ABSENT, not captioned, while the ceiling is the age formula.
+      // A three-bar "you live in the grey middle" read off 220−age bands is
+      // manufactured, and no footnote repairs it, so the gate is the absence.
+      'distribution': measured ? _intensity28d(set!, recent) : null,
+    };
+  }
+
+  /// The family stamped on the most recent of [rows] that carries one (they
+  /// arrive `start_ts DESC`) — the free answer when the caller has already
+  /// read the window. Falls through to [LocalDb.latestSessionDeviceFamily] at
+  /// the call site when the window holds none.
+  static String? _familyOfSessions(List<Map<String, dynamic>> rows) {
+    for (final r in rows) {
+      final f = r['device_family'] as String?;
+      if (f != null && f.isNotEmpty) return f;
+    }
+    return null;
+  }
+
+  /// Sessions in the last 28 days that are worth calling a training pattern.
+  /// Below this it is a handful of workouts, not a distribution.
+  static const _minDistributionSessions = 8;
+
+  /// TS-05 — where the last 28 days of SESSION minutes actually went.
+  ///
+  /// SESSIONS, never whole days. The pipeline's day `zones` block bins the
+  /// whole waking day, so Z1 there is mostly sitting down; a pyramidal /
+  /// polarised read off that would be a description of having a job.
+  ///
+  /// Every session is re-binned HERE, with ONE current zone set, off its frozen
+  /// per-minute HR trace — the stored `zone_min_json` was binned with whatever
+  /// anchors were current when that session was scored, and summing bins from
+  /// different anchors is the same defect TS-03a removed one layer down.
+  ///
+  /// Null (not a partial chart) when there are too few sessions or none of them
+  /// carries a trace — a session scored before the trace column existed has no
+  /// per-minute HR and never will.
+  Map<String, dynamic>? _intensity28d(
+    ana.HeartRateZoneSet set,
+    List<Map<String, dynamic>> rows,
+  ) {
+    final minutes = List<double>.filled(5, 0);
+    var sessions = 0, withoutTrace = 0;
+    for (final r in rows) {
+      if (r['status'] == 'live') continue;
+      final hr = _frozenTrace(r)['hr'];
+      if (hr is! List || hr.isEmpty) {
+        withoutTrace++;
+        continue;
+      }
+      var counted = false;
+      for (final e in hr) {
+        if (e is! Map || e['v'] is! num) continue;
+        final z = set.zoneNumber((e['v'] as num).toDouble());
+        if (z >= 1) minutes[z - 1] += 1; // the trace is one point per MINUTE
+        counted = true;
+      }
+      if (counted) sessions++;
+    }
+    if (sessions < _minDistributionSessions) return null;
+    final total = minutes.fold<double>(0, (a, b) => a + b);
+    if (total <= 0) return null;
+    final easy = minutes[0] + minutes[1];
+    final moderate = minutes[2];
+    final hard = minutes[3] + minutes[4];
+    return {
+      'minutes': [for (final m in minutes) m.round()],
+      'sessions': sessions,
+      'sessions_without_trace': withoutTrace,
+      'days': 28,
+      'easy_min': easy.round(),
+      'moderate_min': moderate.round(),
+      'hard_min': hard.round(),
+      // A DESCRIPTION of the shape and nothing else. There is no target here:
+      // the 80/20 literature is trained endurance athletes against lab-defined
+      // thresholds, and these are %HRR bands off a wrist-measured ceiling.
+      'shape': intensityShape(easy, moderate, hard),
+    };
+  }
+
+  /// Names the SHAPE of an easy/moderate/hard split. Pure, so the naming is
+  /// testable without a database. Null when nothing has a clear largest share.
+  static String? intensityShape(double easy, double moderate, double hard) {
+    final total = easy + moderate + hard;
+    if (total <= 0) return null;
+    if (easy < moderate || easy < hard) return 'middle-heavy';
+    if (moderate >= hard) return 'pyramidal';
+    return 'polarised';
+  }
+
+  static double? _median(List<double> xs) {
+    if (xs.isEmpty) return null;
+    final v = [...xs]..sort();
+    return v.length.isOdd
+        ? v[v.length ~/ 2]
+        : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2.0;
+  }
+}
+
+/// The two anchors every zone set in the app is built from — read once, passed
+/// down, so a per-session recompute does not re-query them per row.
+class _ZoneAnchors {
+  final double? observedCeilingBpm;
+  final List<double> restingHrHistory;
+  const _ZoneAnchors({
+    this.observedCeilingBpm,
+    this.restingHrHistory = const [],
+  });
+}
+
+/// TS-03 — the highest heart rate the band has OBSERVED, and where.
+///
+/// An observed maximum, never a physiological one. The date and the session
+/// travel WITH the number because that is what makes a wrong one attributable:
+/// a walk that cadence-locked at 180 bpm for twenty seconds passes the hold and
+/// the motion gate, and the only defence against it is that the user can see
+/// which session it came from.
+class _ObservedCeiling {
+  final double bpm;
+  final String date; // 'YYYY-MM-DD', the local day it was held on
+  final String? sessionType;
+  final int? heldSeconds;
+  const _ObservedCeiling({
+    required this.bpm,
+    required this.date,
+    this.sessionType,
+    this.heldSeconds,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'bpm': bpm.round(),
+        'date': date,
+        'session_type': ?sessionType,
+        'held_seconds': ?heldSeconds,
+      };
 }
 
 /// The /today `coach` block, bridging the cross-day strain target onto the

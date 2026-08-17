@@ -497,6 +497,16 @@ Substrate decodeSubstrate(List<String> hexes) {
     } catch (_) {
       r = null;
     }
+    // v25 is DROPPED, not decoded. `FirmwareAwareR24Decoder` routes it to
+    // `_parseV25`, whose `accelG` is not an accelerometer reading: measured
+    // across all 28,395 v25 records in `whoop-4.db`, the "z" axis takes three
+    // distinct values, the "y" seventeen (68% of them one value), the "x" is
+    // the upper half of an f32 starting two bytes earlier — and the median
+    // angle to the REAL gravity vector from the v24 record for the same
+    // second is 83°. Near-constant, so it reads as a perfectly still wrist to
+    // van Hees. The record carries no HR either, so dropping it costs
+    // nothing this path can use. Same refusal as `LocalDb._decodeOneHzSample`.
+    if (r != null && r.histVersion == 25) continue;
     if (r != null && r.tsEpoch > 0) {
       recs.add(_Rec(r));
       continue;

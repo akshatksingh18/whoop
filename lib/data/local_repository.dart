@@ -85,6 +85,12 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getDaySleepV2');
   Future<Map<String, dynamic>> getDayStrain(String date) =>
       throw UnimplementedError('re-layer: getDayStrain');
+
+  /// TS-03/04/05 — the observed HR ceiling, the zone edges with the anchors
+  /// they were built from, and (only when both anchors were measured) the
+  /// 28-day session intensity distribution.
+  Future<Map<String, dynamic>> getZones() =>
+      throw UnimplementedError('re-layer: getZones');
   Future<Map<String, dynamic>> getDaySleep(String date) =>
       throw UnimplementedError('re-layer: getDaySleep');
   Future<Map<String, dynamic>> getDayTimeline(String date) =>

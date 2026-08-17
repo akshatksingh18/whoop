@@ -55,6 +55,7 @@ import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
 import '../gps/gps_source.dart';
 import '../gps/route_tracker.dart';
+import '../gps/route_types.dart';
 import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
 import '../data/series_codec.dart';
@@ -4248,7 +4249,6 @@ class AppState extends ChangeNotifier {
   // route screen's hero numbers are distance and pace, and pace down a
   // lift-served descent is not the same claim as pace on a walk — it would
   // read as a performance figure while measuring gravity.
-  static const Set<String> _routeTypes = {'run', 'cycle', 'walk', 'hike'};
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -4468,7 +4468,7 @@ class AppState extends ChangeNotifier {
   Future<void> _maybeStartRouteTracking(String id, String type) async {
     // Lowercased for the same reason every other type lookup is: the stored
     // `type` column is free-form text and older rows carry mixed case.
-    if (!_routeTypes.contains(type.toLowerCase())) return;
+    if (!typeRecordsRoute(type)) return;
     if (_routeTracker != null) return;
     routeLocationIssue = null;
     var perm = GpsPermissionStatus.error;

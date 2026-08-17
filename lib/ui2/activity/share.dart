@@ -407,6 +407,9 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
     ),
   if (_paceOf(r, u) != null)
     ('Pace', '${_paceOf(r, u)} /${u?.distanceUnit ?? 'km'}'),
+  // Bare, like Sets and Laps: the label already says what they are, and
+  // 'STEPS 8,412 steps' spends a cell saying it twice.
+  if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
   if (r.avgHr != null) ('Heart rate', '${r.avgHr} bpm'),
   // With its unit. A bare "612" on a card is a number nobody can read back.
   if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),

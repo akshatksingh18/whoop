@@ -1244,6 +1244,12 @@ class _PastWorkout {
   final Duration duration;
   final double? strain;
   final int? calories, avgHr, maxHr;
+
+  /// `sessions.steps` — banked at finish from the live 100 Hz pedometer and
+  /// never recomputed. It is a COLUMN, so unlike the trace it does not depend
+  /// on the 1 Hz substrate and does not go blank when that is pruned; a session
+  /// that never measured one reads NULL forever, which is the truth for it.
+  final int? steps;
   final List<double> zoneMinutes;
 
   /// The user's "keep this one off the shared surfaces" flag, read back from
@@ -1255,6 +1261,7 @@ class _PastWorkout {
       this.calories,
       this.avgHr,
       this.maxHr,
+      this.steps,
       this.zoneMinutes = const [],
       this.private = false});
 
@@ -1291,6 +1298,7 @@ class _PastWorkout {
         calories: calories,
         avgHr: avgHr,
         maxHr: maxHr,
+        steps: steps,
         zoneMinutes: zoneMinutes,
       );
 }
@@ -1441,6 +1449,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             // — not the last sample anybody happened to see.
             avgHr: (r['avg_hr'] as num?)?.round(),
             maxHr: (r['max_hr'] as num?)?.toInt(),
+            steps: (r['steps'] as num?)?.toInt(),
             zoneMinutes: [
               for (final z in (r['zone_min'] as List? ?? const []))
                 if (z is num) z.toDouble(),

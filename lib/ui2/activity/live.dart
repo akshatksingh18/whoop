@@ -929,6 +929,11 @@ ActivityResult _baseResult(
       strain: feed.strain,
       hr: feed.hrCurve,
       zoneMinutes: feed.zoneMinutes,
+      // The same count the live screen has printed all session, carried onto
+      // the summary it hands over to. Null stays null: `stopWorkout` only banks
+      // `sessions.steps` when there is one, so an unmeasured session reads the
+      // same before and after it is stored.
+      steps: feed.steps,
       route: feed.route,
       distanceKm: feed.distanceKm,
       strength: strength,

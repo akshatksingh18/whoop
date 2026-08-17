@@ -230,6 +230,19 @@ class ActivityResult {
   final List<double?> hr;
   final List<double> zoneMinutes; // five, Z1..Z5
 
+  /// Steps the strap's own 100 Hz pedometer counted over this session —
+  /// `AppState.workoutStepsMeasured` while it runs, `sessions.steps` once it is
+  /// banked. That column has exactly one producer (an import and a hand-logged
+  /// session write it null on purpose), so this number has one provenance.
+  ///
+  /// NULL IS UNMEASURED, and it is the common case: no live link, the raw
+  /// stream suppressed by the standard-HR fallback, a session logged by hand,
+  /// or an activity the counter is not allowed to count. Never a 0 standing in
+  /// for any of those — that is issue #183, a mile walked under '0 STEPS'.
+  ///
+  /// Read [stepsCounted], not this. The gait gate lives there.
+  final int? steps;
+
   /// How much of the session window the stored trace actually covers, 0–100.
   /// 1 Hz means one sample a second, so the banked sample count against the
   /// window length is the honest coverage of everything drawn off it. Null on a
@@ -282,6 +295,7 @@ class ActivityResult {
     this.strain,
     this.hr = const [],
     this.zoneMinutes = const [],
+    this.steps,
     this.traceCoveragePct,
     this.route = const [],
     this.geo = const [],
@@ -335,6 +349,10 @@ class ActivityResult {
         strain: strain,
         hr: hr ?? this.hr,
         zoneMinutes: zoneMinutes ?? this.zoneMinutes,
+        // Carried, never re-derived: every enrichment pass on this object goes
+        // through here, and a field left off this list is a measurement the
+        // detail screen silently loses the moment it opens.
+        steps: steps,
         traceCoveragePct: traceCoveragePct ?? this.traceCoveragePct,
         route: route ?? this.route,
         geo: geo ?? this.geo,
@@ -355,6 +373,17 @@ class ActivityResult {
       );
 
   Arch get arch => archOf(activity);
+
+  /// [steps], but only for an activity the pedometer is allowed to count.
+  ///
+  /// The counter's own gate is on the session TYPE at ingest
+  /// (`isGaitStepType`, `ble/live_step_runs.dart`) and it is not a nicety: on a
+  /// free-living wrist the counter over-counts by up to +199.5%, and rowing,
+  /// boxing and lifting are an hour of exactly the rhythmic arm work that does
+  /// it. [Activity.gait] is that same law spelled in the catalogue — the two are
+  /// pinned equal by `gait_step_types_test` — so a count banked under one type
+  /// can never surface on a screen for another.
+  int? get stepsCounted => activity.gait ? steps : null;
 
   /// Per-lap speed relative to the fastest lap — what [LapBars] draws. The
   /// fastest lap is the only reference the swim itself provides.
@@ -506,6 +535,9 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
     case Arch.basic:
       break; // time, heart rate and calories are the whole story
   }
+  // Beside the other movement facts, above the heart. Offered only where the
+  // strap was allowed to count — see [ActivityResult.stepsCounted].
+  add('Steps', r.stepsCounted == null ? null : grouped(r.stepsCounted!));
   // 'Avg HR', not 'Heart rate': the trace above is the heart rate, this is its
   // mean, and the two sat on one screen under one word.
   add('Avg HR', r.avgHr == null ? null : '${r.avgHr} bpm');
@@ -885,16 +917,26 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       // class have heart-rate zones too.
       ..._zoneSection(p),
       const SizedBox(height: S.x5),
-      _calorieNote(p),
+      _basisNote(p),
     ];
   }
 
-  Widget _calorieNote(P p) => Surface(
+  /// What the numbers on this screen were made of. The calorie sentence is
+  /// always here; the step one joins it whenever a count is on the card,
+  /// because a step row that does not name its sensor is weaker than the day
+  /// screens beside it, which have named theirs all along.
+  Widget _basisNote(P p) => Surface(
         elevation: 0,
         color: p.card2,
         child: Row(children: [
           Expanded(
-            child: Text(_calorieBasis(),
+            child: Text(
+                [
+                  _calorieBasis(),
+                  if (r.stepsCounted != null)
+                    "Steps came from the strap's own motion sensor, which only "
+                        'counts them on foot.',
+                ].join(' '),
                 style: F.cap.copyWith(color: p.ink3, height: 1.5)),
           ),
         ]),

@@ -422,6 +422,63 @@ void main() {
     });
   });
 
+  // ── steps ────────────────────────────────────────────────────────────────
+  // The strap's 100 Hz pedometer over-counts arm work by up to +199.5%
+  // (OXWALK_VALIDATION), so `kGaitStepTypeKeys` stops it counting anything but
+  // locomotion on foot. `Activity.gait` is that same law in the catalogue —
+  // pinned to the set by gait_step_types_test — and it gates the screens too,
+  // so a count banked under one type cannot follow a corrected session onto a
+  // rowing machine.
+  group('steps are shown only where the strap was allowed to count', () {
+    ActivityResult session(String name, {int? steps}) => ActivityResult(
+          activityByName(name)!,
+          start: _start,
+          duration: const Duration(minutes: 52),
+          avgHr: 131,
+          steps: steps,
+        );
+
+    List<String> screenNames(ActivityResult r) =>
+        [for (final s in sessionStats(r, null)) s.$1];
+    List<String> cardNames(ActivityResult r) =>
+        [for (final s in shareStats(r)) s.$1];
+
+    test('a walk that counted them prints them, on the screen and the card',
+        () {
+      final walk = session('Walking', steps: 8412);
+      expect(screenNames(walk), contains('Steps'));
+      expect(cardNames(walk), contains('Steps'));
+      // Grouped, and bare on both: the label already says what they are.
+      expect([for (final s in shareStats(walk)) s.$2], contains('8,412'));
+      expect(
+          [for (final s in sessionStats(walk, null)) s.$2], contains('8,412'));
+    });
+
+    test('a walk with nothing measured is dropped, never zeroed', () {
+      // Issue #183: the raw stream is routinely absent during a perfectly good
+      // walk, and '0 STEPS' beside a real distance is a fabricated measurement.
+      final unmeasured = session('Walking');
+      expect(screenNames(unmeasured), isNot(contains('Steps')));
+      expect(cardNames(unmeasured), isNot(contains('Steps')));
+    });
+
+    test('a rowing session never shows a count, even carrying one', () {
+      final rowing = session('Rowing', steps: 4000);
+      expect(rowing.activity.gait, isFalse,
+          reason: 'stale test, not stale code');
+      expect(rowing.stepsCounted, isNull);
+      expect(screenNames(rowing), isNot(contains('Steps')));
+      expect(cardNames(rowing), isNot(contains('Steps')));
+    });
+
+    test('enrichment does not lose the count', () {
+      // Every stored session reaches the summary through copyWith — the route,
+      // the trace and the rating are all folded in that way. A field left off
+      // that list goes blank the moment the session is opened from history.
+      expect(session('Running', steps: 5120).copyWith().stepsCounted, 5120);
+    });
+  });
+
   // ── formatting ───────────────────────────────────────────────────────────
   // ── the daily-load axis ──────────────────────────────────────────────────
   group('daily load is bucketed by date, not by position', () {

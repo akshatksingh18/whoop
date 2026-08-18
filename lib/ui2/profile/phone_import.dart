@@ -13,10 +13,12 @@
 // button you press when you think of it, no background sync, no prompt at
 // launch — which is exactly what a settings screen is for.
 //
-//   · Resting heart rate seeds a BASELINE — a centre and a spread — and never a
-//     day. Another device's resting HR is on another device's scale, which is
-//     exactly why it can shape "usual for you" and can never be a value on a
-//     chart. No imported night, no back-filled readiness.
+//   · Resting heart rate seeds a RANGE — a normal to compare against — and
+//     never a day. Another device's resting HR is on another device's scale,
+//     which is exactly why it can shape "usual for you" and can never be a
+//     value on a chart. No imported night, no back-filled readiness.
+//     The screen says this in ordinary words; "a centre and a spread" was the
+//     register the owner objected to, and the fact underneath it is unchanged.
 //   · Cuff, meter and thermometer readings are DISPLAY ONLY, with the source
 //     app's name attached to every one. They are never blended into a composite
 //     and never a training target — the moment someone trains a wrist→BP
@@ -181,36 +183,30 @@ class _PhoneImportState extends State<PhoneImport> {
                 children: [
                   // ── seed-baselines ──────────────────────────────────────────
                   Section(
-                    'A baseline, not days',
+                    'Resting heart rate',
                     Surface(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Reads one thing: your resting heart rate, from '
-                            '$storeName. It is folded into a centre and a '
-                            'spread — what counts as usual for you — and then '
-                            'held.',
+                            'Reads your resting heart rate from $storeName, so '
+                            'the app has a rough idea of your normal before the '
+                            'band has measured one.',
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           const SizedBox(height: S.x3),
                           Text(
-                            // Says what it does TODAY, which is nothing. The
-                            // seed is deliberately read by no metric until it
-                            // has been checked against the band; copy that
-                            // implied it was already shaping readiness would be
-                            // promising a number this screen does not produce.
-                            'Nothing in the app uses it yet. It waits for this '
-                            'band’s own first 14 nights and is compared '
-                            'against them below — a phone that disagrees with '
-                            'the band is a liability, not a head start.',
-                            style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                          ),
-                          const SizedBox(height: S.x3),
-                          Text(
-                            'It never becomes a value either way. No night '
-                            'appears on the sleep chart, no day gets a '
-                            'readiness score, and nothing is written back.',
+                            // The two facts that have to survive any rewrite.
+                            // The first is a promise-limit: copy implying this
+                            // already shapes readiness would promise a number
+                            // the screen does not produce. The second is why it
+                            // can never be a chart value — another device's
+                            // resting HR is on another device's scale.
+                            'Nothing uses it yet. It waits until the band has '
+                            'measured 14 of its own nights, then gets compared '
+                            'against them below. It never becomes a reading of '
+                            'its own: no night on the sleep chart, no day with '
+                            'a score.',
                             style: F.cap.copyWith(color: p.ink3, height: 1.5),
                           ),
                           const SizedBox(height: S.x4),
@@ -230,12 +226,16 @@ class _PhoneImportState extends State<PhoneImport> {
                     MetricRow(
                       LucideIcons.heartPulse,
                       C.blue,
-                      'Seeded centre',
+                      'What your phone says',
                       '${seed.baseline.round()}',
                       unit: 'bpm',
+                      // The spread is what makes this a range rather than a
+                      // number, so it stays — but as a range the reader can
+                      // picture, not as the word "spread".
                       sub:
-                          '${seed.nValid} days from $storeName · '
-                          'spread ${seed.spread.toStringAsFixed(1)}',
+                          'usually ${(seed.baseline - seed.spread).round()}'
+                          '–${(seed.baseline + seed.spread).round()} bpm, '
+                          'over ${seed.nValid} days from $storeName',
                     ),
                   ],
                   // THE GATE. Null until the band has its own 14 nights — and a
@@ -253,12 +253,11 @@ class _PhoneImportState extends State<PhoneImport> {
                                 '${cmp.deltaBpm > 0 ? 'higher' : 'lower'} than '
                                 'this band measures it over '
                                 '${cmp.bandNights} nights. They are not describing '
-                                'the same thing, so the seed stays where it is and '
-                                'is used for nothing.'
+                                'the same thing, so it stays unused.'
                           : 'Over ${cmp.bandNights} nights the band lands within '
                                 '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm of '
-                                'what $storeName said. The seed is still only a '
-                                'centre and a spread.',
+                                'what $storeName said. It still is not used for '
+                                'anything.',
                       icon: cmp.disagrees
                           ? LucideIcons.triangleAlert
                           : LucideIcons.check,

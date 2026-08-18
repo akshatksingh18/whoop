@@ -18,7 +18,6 @@ import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import 'devices.dart';
-import 'phone_import.dart';
 import 'settings.dart';
 
 // ══════════════════ shared list furniture ══════════════════
@@ -192,7 +191,6 @@ class _ProfileHomeState extends State<ProfileHome> {
           onDevices: () => _open(c, const MyDevices()),
           onSettings: () => _open(c, const MoreSettings()),
           onEdit: () => _open(c, const EditProfile()),
-          onPhoneImport: () => _open(c, const PhoneImport()),
           onCoach: () => _open(c, const CoachSetup()),
         ),
       );
@@ -202,7 +200,7 @@ class ProfileHomeView extends StatelessWidget {
   /// Null while the counts are still being read — the numbers are absent, not
   /// zero, and a zero rendered during a load is a wrong number on screen.
   final ProfileStats? stats;
-  final VoidCallback? onDevices, onSettings, onEdit, onPhoneImport, onCoach;
+  final VoidCallback? onDevices, onSettings, onEdit, onCoach;
 
   const ProfileHomeView(
       {super.key,
@@ -211,7 +209,7 @@ class ProfileHomeView extends StatelessWidget {
       this.onCoach,
       this.onSettings,
       this.onEdit,
-      this.onPhoneImport});
+      });
 
   @override
   Widget build(BuildContext c) {
@@ -268,15 +266,6 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onDevices),
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEdit),
-                  // What is LEFT on that screen, described honestly. Height,
-                  // weight and workouts moved to the screens they fill — Edit
-                  // profile and Workout › History — so this row no longer
-                  // promises them. There is a second door under More settings ›
-                  // Your data.
-                  SetRow(LucideIcons.smartphone, C.blue, 'From $storeName',
-                      sub: 'Resting heart rate, and readings from instruments '
-                          'this band does not have',
-                      onTap: onPhoneImport),
                   // THE ONLY DOOR TO THE COACH'S SETUP, and it has to be —
                   // Home's sparkles button is now gated on `coachReady`, so on
                   // a fresh install there is no icon to find it behind. It
@@ -298,7 +287,15 @@ class ProfileHomeView extends StatelessWidget {
                           : formatBytes(s!.storageBytes!),
                       chevron: false),
                   SetRow(LucideIcons.settings, C.n500, 'More settings',
-                      sub: 'Export, backup, units, privacy, reset',
+                      // `From $storeName` used to sit on Quick access too. It
+                      // came off: height, weight and workouts already moved to
+                      // the screens they fill, and what is left — a resting
+                      // heart rate the app does not use yet, plus readings from
+                      // instruments this band does not have — is not quick and
+                      // is not accessed often. It keeps its one door here, and
+                      // this line names it so the door is findable.
+                      sub: 'Import from $storeName, export, backup, units, '
+                          'privacy, reset',
                       onTap: onSettings),
                 ]),
               ],

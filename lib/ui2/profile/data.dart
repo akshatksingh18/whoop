@@ -277,8 +277,8 @@ class _DataScreenState extends State<DataScreen> {
                   // its own consent and its own ceiling, behind one row rather
                   // than two more rows on this screen.
                   SetRow(LucideIcons.smartphone, C.blue, 'From your phone',
-                      sub: 'Resting heart rate to shape a baseline, and '
-                          'readings from devices this band cannot measure',
+                      sub: 'Resting heart rate, blood pressure, glucose and '
+                          'body temperature',
                       onTap: _busy ? null : () => goto(c, const PhoneImport())),
                 ]),
                 const SizedBox(height: S.x5),

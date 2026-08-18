@@ -446,7 +446,12 @@ class _SleepDetailState extends State<SleepDetail> {
       Section('Tonight', _tonight(c, p, d)),
 
       const SizedBox(height: S.x5),
-      investigateRow(c, () => go(c, const Investigate('sleep'))),
+      // The night this screen is steered to, not the newest one. Dropping it
+      // meant stepping back to Tuesday and then tapping Nerd stats landed
+      // on last night — the same numbers every time, whichever day you
+      // came from.
+      investigateRow(
+          c, () => go(c, Investigate('sleep', day: _day ?? d.day))),
     ]);
   }
 

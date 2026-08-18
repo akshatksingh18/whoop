@@ -546,6 +546,9 @@ void main() {
             series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
             wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
           ));
+      // The screen opens on Today; the denominator is a long-range thing.
+      await t.tap(find.text('30 days'));
+      await t.pumpAndSettle();
       expect(find.text('Worn'), findsOneWidget);
       expect(find.textContaining('12 of these 30 days have a wear record'),
           findsOneWidget);
@@ -563,6 +566,48 @@ void main() {
       await t.tap(find.text('7 days'));
       await t.pumpAndSettle();
       expect(find.text('Worn'), findsNothing);
+    });
+  });
+
+  // ── a tile opens today, not the widest range the install can fill ──
+  group('MetricDetail default range', () {
+    Future<void> pump(WidgetTester t, String key, MetricData d) async {
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(body: MetricDetail(key, data: d))));
+      await t.pumpAndSettle();
+    }
+
+    // The old default was index 2, clamped to whatever the install could fill
+    // — so it landed on 30 days, or on 7 for a young install, and moved as the
+    // install aged. It was never today.
+    testWidgets('opens on today however much history there is', (t) async {
+      await pump(
+          t,
+          'resting_hr',
+          MetricData(
+            daysAvailable: 400,
+            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
+          ));
+      expect(find.text('Today'), findsWidgets);
+      // Today's headline is today's reading, not a window average.
+      expect(find.textContaining('Daily average'), findsNothing);
+    });
+
+    testWidgets('the range switcher still goes wide', (t) async {
+      await pump(
+          t,
+          'resting_hr',
+          MetricData(
+            daysAvailable: 400,
+            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
+          ));
+      await t.tap(find.text('30 days'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Daily average'), findsOneWidget);
     });
   });
 

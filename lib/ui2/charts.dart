@@ -862,8 +862,14 @@ class Actogram extends CustomPainter {
   bool shouldRepaint(covariant Actogram o) => o.days != days;
 }
 
-/// Week × weekday grid. [values] is week-major, 7 per week; null = no data,
-/// which paints the empty track rather than a low value.
+/// Column-major grid. [weeks] is one list per COLUMN — seven days of a
+/// calendar week for the rhythm strip, one value per domain for the month
+/// grid; null = no data, which paints the empty track rather than a low value.
+///
+/// The row count is the longest column rather than a fixed seven. It was
+/// seven, which is the only thing that stopped this painter from being the
+/// three-row month grid as well: same cells, same absence rule, same file. A
+/// column of seven lays out exactly as it always did.
 class HeatMap extends CustomPainter {
   final List<List<double?>> weeks;
   final Color color, track;
@@ -873,9 +879,14 @@ class HeatMap extends CustomPainter {
   @override
   void paint(Canvas cv, Size s) {
     if (weeks.isEmpty) return;
-    final cw = s.width / weeks.length, ch = s.height / 7;
+    var rows = 0;
+    for (final w in weeks) {
+      if (w.length > rows) rows = w.length;
+    }
+    if (rows == 0) return;
+    final cw = s.width / weeks.length, ch = s.height / rows;
     for (var w = 0; w < weeks.length; w++) {
-      for (var d = 0; d < 7 && d < weeks[w].length; d++) {
+      for (var d = 0; d < weeks[w].length; d++) {
         final v = weeks[w][d];
         // Absence is an OUTLINE, not a fainter fill. Drawn as a filled track
         // the two measured 1.00:1 against the faintest real value — a day that

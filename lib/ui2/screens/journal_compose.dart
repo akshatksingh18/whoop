@@ -680,6 +680,10 @@ class _WeightTrendState extends State<_WeightTrend> {
       setState(() {
         _byDay = {
           for (final e in rows.entries)
+            // The `when` does real work — a non-finite or non-positive weight
+            // is not a weight — and the null-aware element form has nowhere to
+            // put a guard.
+            // ignore: use_null_aware_elements
             if (e.value['weight_kg']?.value case final v?
                 when v.isFinite && v > 0)
               e.key: v,

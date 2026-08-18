@@ -927,7 +927,69 @@ Map<String, Widget> extraCases() => {
               accent: C.domHealth),
         ]),
       ),
+
+      // The rough-night card in all three states it can be in. Swept rather
+      // than photographed because what can break here is length: four moved
+      // measurements, four knowns and fourteen tag chips is the longest this
+      // card ever gets, and it is the 3.1x sweep that catches it.
+      //
+      // Not photographed for a second reason. A PNG of a card offering
+      // "alcohol" is a file in the repo that a reviewer meets out of context,
+      // and the whole design of this card is that nobody meets that vocabulary
+      // without asking for it.
+      'rough_night_invite': const RoughNightCard(night: _roughFull),
+      'rough_night_asking':
+          const RoughNightCard(night: _roughBare, ask: 'on'),
+      'rough_night_declined':
+          const RoughNightCard(night: _roughTwoSign, ask: 'never'),
     };
+
+/// The longest realistic night: every sign fired and every knowable known.
+const _roughFull = RoughNight(
+  day: '2026-08-15',
+  signs: 4,
+  descriptor: 'a rougher night than usual for you — your body worked harder '
+      'overnight',
+  moved: [
+    'your resting heart rate ran higher',
+    'your HRV ran lower',
+    'your heart rate dropped less overnight than it usually does',
+    'your skin ran warmer',
+  ],
+  knows: [
+    'You trained until 9:40 PM, which often does this on its own.',
+    'The illness watch flagged this night too — a sustained rise against your '
+        'own baseline, not a diagnosis.',
+    'You are in the luteal phase, which lifts resting heart rate and skin '
+        'temperature by itself.',
+    'Your skin ran warmer than your usual — a warm room does this too.',
+  ],
+);
+
+/// The other end: the app knows nothing about why, so it states the night and
+/// asks an open question. This is the common case.
+const _roughBare = RoughNight(
+  day: '2026-08-15',
+  signs: 2,
+  descriptor: 'a rougher night than usual for you — your body worked harder '
+      'overnight',
+  moved: ['your resting heart rate ran higher', 'your HRV ran lower'],
+  knows: [],
+);
+
+/// Two signs, one knowable. The card's floor — below two signs there is no
+/// card at all, which is why there is no "quiet" case here to shoot.
+const _roughTwoSign = RoughNight(
+  day: '2026-08-15',
+  signs: 2,
+  descriptor: 'a rougher night than usual for you — your body worked harder '
+      'overnight',
+  moved: [
+    'your HRV ran lower',
+    'your heart rate dropped less overnight than it usually does',
+  ],
+  knows: ['You trained until 10:15 PM, which often does this on its own.'],
+);
 
 /// The SECOND state of every card.
 ///

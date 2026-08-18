@@ -19,13 +19,16 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
+import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
+import '../../state/prefs.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
+import 'rough_night.dart';
 
 /// Nights of history before a personal normal is claimed at all. Below this the
 /// quartiles of three or four nights are noise wearing a band's clothing.
@@ -316,6 +319,12 @@ class _SleepDetailState extends State<SleepDetail> {
   /// Why the last correction did not take. Null when it did.
   String? _overrideFailed;
 
+  /// Last night's state against the user's own nights, when it was rough enough
+  /// to say so and has not been dismissed. See `rough_night.dart` — it REPLACES
+  /// the elevated-sleeping-HR card rather than joining it, so one night can
+  /// never read as two observations.
+  RoughNight? _rough;
+
   @override
   void initState() {
     super.initState();
@@ -336,7 +345,16 @@ class _SleepDetailState extends State<SleepDetail> {
     }
     try {
       final d = await SleepData.load(repo, want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      // LAST NIGHT ONLY. The card names the luteal phase, and `getCycle` knows
+      // today's phase and no other day's — so a card offered while stepping
+      // back through the record would either drop that half or invent it.
+      // Stepping back is also not the moment to ask about a night, which is the
+      // stronger half of the reason.
+      final rough = d.day == todayLabel() &&
+              Prefs.getString(kRoughNightDismissed, '') != d.day
+          ? await loadRoughNight(repo, d.day!)
+          : null;
+      if (mounted) setState(() => (_d = d, _rough = rough, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -1177,9 +1195,27 @@ class _SleepDetailState extends State<SleepDetail> {
     // Detection against the user's own resting baseline, never a diagnosis: a
     // sleeping heart rate this far above baseline is the signal the illness
     // watch is built on, and it is worth saying on the night it happens.
+    // ONE CARD ABOUT THE NIGHT'S AUTONOMIC STATE, EVER.
+    //
+    // When the rough-night card is up it says everything this one says and
+    // more, off a strictly harder gate: `elevated` is a flat baseline + 4 bpm
+    // on one channel, the rough card needs two of four channels past their own
+    // minimal detectable change on this person's scale. Showing both puts two
+    // cards on one observation and the reader cannot tell they are one.
+    final rough = _rough;
+    if (rough != null) {
+      items.add(RoughNightCard(
+        night: rough,
+        onDismiss: () => setState(() => _rough = null),
+      ));
+    }
+
     final noc = n['nocturnal'];
     final vsBase = noc is Map ? noc['vs_baseline_bpm'] as num? : null;
-    if (noc is Map && noc['elevated'] == true && vsBase != null) {
+    if (rough == null &&
+        noc is Map &&
+        noc['elevated'] == true &&
+        vsBase != null) {
       items.add(InsightCard(
         'Sleeping heart rate ran high',
         '${vsBase.toStringAsFixed(1)} bpm above your own baseline. Common '

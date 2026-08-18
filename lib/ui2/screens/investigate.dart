@@ -31,6 +31,7 @@ import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../ui2.dart';
+import 'day_timeline.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
 
@@ -294,6 +295,20 @@ class _InvestigateState extends State<Investigate> {
           ('Algorithm version',
               d.algoVersion == null ? '—' : 'v${d.algoVersion}'),
         ]),
+        // The arithmetic is above; this is the other question a person has in
+        // front of a number they do not like — what else was going on. Placed
+        // here because the day is already resolved and already steerable, so
+        // the door opens onto the SAME day rather than onto "the newest one".
+        if (d.day != null) ...[
+          const SizedBox(height: S.x3),
+          detailLinkRow(
+            c,
+            LucideIcons.listOrdered,
+            'What happened that day',
+            'Sleep, sessions, meals and logs in time order',
+            () => go(c, DayTimelineScreen(day: d.day)),
+          ),
+        ],
         const SizedBox(height: S.x5),
         _method(c, spec),
       ],

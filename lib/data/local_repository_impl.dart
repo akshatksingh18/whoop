@@ -965,6 +965,25 @@ class LocalRepositoryImpl extends LocalRepository {
       // an unvalidated overlay. The screen badges the whole stage block honestly.
       'stages_confidence': sleepConf,
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
+      // The movement ribbon that goes UNDER the hypnogram, on the hypnogram's
+      // own axis. 5-min mean-ENMO buckets over the same sleep window
+      // (`derivation_engine._computeDayBlocks`, "Feature 6"), so a caller can
+      // draw both against one x without resampling either: measured spans agree
+      // to the bucket (1786480200→1786498200 against 1786480446→1786498206 on a
+      // real night). `density` is 0..1, a RELATIVE amplitude index — it is not
+      // a fraction of anything and never becomes a percentage.
+      //
+      // Absent, not empty, when the night produced none: buckets with no
+      // present accel second are omitted by the producer (absent accel would
+      // score ENMO 1.0 — maximal restlessness out of no data), and a day that
+      // produced no map at all must not arrive as a flat calm night.
+      'restlessness_map': ?b['restlessness_map'],
+      // Charging inside this sleep window — {present:false}, or present with
+      // minutes/spans/note. A battery-pack swap leaves the strap on the wrist,
+      // so `wear` correctly reads "worn" through it and nothing else on this
+      // screen can say so. The night is published normally and the caveat rides
+      // with it; see `sleepChargingBlock` for why it has no confidence penalty.
+      'charging': b['sleep_charging'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
       // Oxygen dips (SpO2/ODI) — moved here from getDayHeart's payload: an
@@ -1239,7 +1258,21 @@ class LocalRepositoryImpl extends LocalRepository {
       // row printed "Wear time 20m · 100% of the day". The engine wear block is
       // the only thing that measures coverage; without it we say nothing.
       'coverage_pct': (w?['coverage_pct'] as num?)?.toInt(),
-      'segments': w?['segments'] ?? const [],
+      // AND MISSING IS NOT "NEVER OFF". Same rule as the two fields above, and
+      // the same day hits it: an imported day has no `wear` block, and an empty
+      // segment list there is not "we looked and the band was never off" — it
+      // is "we never looked". A renderer cannot tell those apart from `[]`, so
+      // the key is absent instead.
+      //
+      // The segments themselves are `{on, start, end, len_min}` over the
+      // OBSERVABLE day (local midnight → now, or → next midnight once the day
+      // is done), which is what makes them renderable as "your band was off
+      // your wrist 11:20 PM – 2:14 AM": the leading and trailing holes are on
+      // the list now, so a day whose records start at 9am shows the 00:00-09:00
+      // gap instead of opening the timeline at the first record and implying
+      // the night before it never existed. `sum(on) / observable` is exactly
+      // `coverage_pct`, so the ribbon and the percentage cannot disagree.
+      'segments': ?w?['segments'],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
       'longest_off_min': w?['longest_off_min'],

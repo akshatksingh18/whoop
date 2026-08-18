@@ -224,13 +224,19 @@ void main() {
     ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run() {
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
+      final daySub = build();
       DerivationEngine.applyDayActivity(
         bundle: bundle,
         scalars: scalars,
-        daySub: build(),
+        daySub: daySub,
         profile: older,
         sleepOnsetSec: sleepOnset,
         sleepOffsetSec: sleepOffset,
+        // Wear/coverage is not what this test measures — the substrate's own
+        // span is the day. See wear_coverage_test.dart for the denominator.
+        dayStartSec: daySub.tsSec.first,
+        dayCalendarEndSec: daySub.tsSec.last + 1,
+        dataNowSec: daySub.tsSec.last + 1,
       );
       return (bundle: bundle, scalars: scalars);
     }
@@ -298,13 +304,17 @@ void main() {
       // movement and a step count; it must simply carry no calorie figure.
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
+      final daySub = build();
       DerivationEngine.applyDayActivity(
         bundle: bundle,
         scalars: scalars,
-        daySub: build(),
+        daySub: daySub,
         profile: const Profile(ageYears: 70, weightKg: 80, heightCm: 175),
         sleepOnsetSec: sleepOnset,
         sleepOffsetSec: sleepOffset,
+        dayStartSec: daySub.tsSec.first,
+        dayCalendarEndSec: daySub.tsSec.last + 1,
+        dataNowSec: daySub.tsSec.last + 1,
       );
 
       expect(scalars.containsKey('calories'), isFalse);

@@ -60,14 +60,21 @@ Map<String, dynamic> _runDayActivity({
   Map<String, dynamic>? seedScalars,
 }) {
   final scalars = seedScalars ?? <String, dynamic>{};
+  final sub = _daySub();
   DerivationEngine.applyDayActivity(
     bundle: <String, dynamic>{},
     scalars: scalars,
-    daySub: _daySub(),
+    daySub: sub,
     profile: profile,
     // No sleep on this day — the whole span is waking.
     sleepOnsetSec: 0,
     sleepOffsetSec: 0,
+    // Wear/coverage is not what this test measures; the window is just the
+    // substrate's own span with the data edge past its end, so `_wearBlock`
+    // has a well-formed day to divide by. See wear_coverage_test.dart.
+    dayStartSec: sub.tsSec.first,
+    dayCalendarEndSec: sub.tsSec.last + 1,
+    dataNowSec: sub.tsSec.last + 1,
     restingHr: restingHr,
   );
   return scalars;

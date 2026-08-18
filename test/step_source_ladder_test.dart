@@ -73,6 +73,11 @@ Substrate _sub(List<int> counters, {int step = 600}) {
     profile: const Profile(ageYears: 35, sex: 'm', weightKg: 75, heightCm: 178),
     sleepOnsetSec: 0,
     sleepOffsetSec: 0,
+    // Wear/coverage is not what this test measures — the substrate's own span
+    // is the day. See wear_coverage_test.dart for the denominator itself.
+    dayStartSec: sub.tsSec.first,
+    dayCalendarEndSec: sub.tsSec.last + 1,
+    dataNowSec: sub.tsSec.last + 1,
     liveStepsReal: liveStepsReal,
     liveStepsFromStrap: liveStepsFromStrap,
   );

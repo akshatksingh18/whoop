@@ -1196,7 +1196,43 @@ import 'substrate.dart';
 // STALE IN THIS FILE, not fixed here because it is another owner's diff: the
 // comments at :4377, :4425, :5023 and the header block at :637-666 all still
 // quote the old 0.50*HRmax flex gate that item 1 moved.
-const int kAlgoVersion = 73;
+//
+// v74: WEAR COVERAGE divided by the wrong thing, and a charging caveat.
+//
+//   1. `coverage_pct` was `wornSec / (last sample - first sample)` — the span
+//      of the DATA, not the day. A band worn 9-11am and nowhere else reported
+//      100%, and `day_strain` renders that number as the sentence "The band saw
+//      N% of this day". The denominator is now the OBSERVABLE day: local
+//      midnight → min(data edge, next local midnight), both bounds from the day
+//      LABEL so the two DST days are 23 h/25 h rather than a hardcoded 86400.
+//      A day still in progress divides by the part of it that has elapsed, so a
+//      fully-worn morning still reads 100% instead of "60% missing" for hours
+//      that have not happened. Every finalized day re-derives onto a LOWER
+//      number wherever the band came off before the last record of the day —
+//      on a partly-worn day this is the whole point, and it is the first time
+//      that sentence has been true. Nothing else consumed the field: three
+//      screens read it (day_strain, investigate, health_screen) and all three
+//      already handle null.
+//   2. `wear.segments` followed the same span, so the hole between midnight and
+//      the first record was invisible — which would now contradict the
+//      percentage beside it. Leading and trailing off-segments are emitted, and
+//      `sum(on)/observable == coverage_pct` exactly. `longest_off_min` can grow
+//      on a day that started late; that is the measurement, not a regression.
+//   3. Charging INSIDE the scored sleep window is flagged (`sleep_charging`),
+//      after being scored, staged and fed into baselines unremarked on 2 of 9
+//      real nights. A battery-pack swap is not a wrist-off event — the strap
+//      stays on the wrist and keeps logging, so no wear signal can see it. NO
+//      confidence penalty: see `sleepChargingBlock` for the mechanism argument. The
+//      charging/wrist-off span read also widened back to sleep ONSET, which is
+//      before local midnight on any normal night, so a pre-bed top-up that
+//      opened and closed before the day's first record is no longer missed.
+//   4. Comment-only: the daytime-stress refusal at `_daytimeHrv` claimed gen5's
+//      `signalQualityLogVariance` is "dropped before the DB". Since schema 43
+//      it is written to `decoded_onehz.signal_quality_logvar`. Still unread, and
+//      deliberately so — it is gen5/MG-only, so gating on it makes the same
+//      night answer differently on two straps. The refusal's construct argument
+//      is untouched and is the one that carries it.
+const int kAlgoVersion = 74;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -3193,8 +3229,18 @@ class DerivationEngine {
           day.napSub.length == 0 ? dayLo : day.napSub.tsSec.first;
       final napHi =
           day.napSub.length == 0 ? dayHi : day.napSub.tsSec.last + 60;
-      final wristOffSpans = await LocalDb.wristOffSpans(napLo, napHi);
-      final chargingSpans = await LocalDb.chargingSpans(napLo, napHi);
+      // ...and back to SLEEP ONSET, which is routinely EARLIER than napLo. This
+      // day's sleep is the night that ENDED this morning, so its onset sits at
+      // ~23:00 YESTERDAY — before local midnight, before the day's first
+      // record. `_toggleSpans` carries an already-open state in from before its
+      // window, so a charge that straddles midnight was always covered; one
+      // that opened AND closed at 23:20 was invisible. That is the shape of a
+      // battery-pack top-up before bed, i.e. the exact case this feeds.
+      final spanLo = day.sleepOnsetSec > 0
+          ? math.min(napLo, day.sleepOnsetSec)
+          : napLo;
+      final wristOffSpans = await LocalDb.wristOffSpans(spanLo, napHi);
+      final chargingSpans = await LocalDb.chargingSpans(spanLo, napHi);
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //
@@ -4639,6 +4685,14 @@ class DerivationEngine {
     required Profile profile,
     required int sleepOnsetSec,
     required int sleepOffsetSec,
+    /// Local midnight opening this day, and the start of the NEXT local day —
+    /// both from the day LABEL. `_DayBlocksInput.dayEndSec` is NOT this: it is
+    /// the data edge (`daySub.lastTs + 1`), which is exactly the span-shaped
+    /// denominator `_wearBlock` had to stop using. Passing it here would
+    /// reinstate the bug under a different name.
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
     double? restingHr,
     double? dynFloorG,
     int liveStepsReal = 0,
@@ -4650,6 +4704,9 @@ class DerivationEngine {
       profile,
       sleepOnsetSec: sleepOnsetSec,
       sleepOffsetSec: sleepOffsetSec,
+      dayStartSec: dayStartSec,
+      dayCalendarEndSec: dayCalendarEndSec,
+      dataNowSec: dataNowSec,
       restingHr: restingHr,
       dynFloorG: dynFloorG,
     );
@@ -5116,11 +5173,19 @@ class DerivationEngine {
     Profile profile, {
     required int sleepOnsetSec,
     required int sleepOffsetSec,
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
     double? restingHr,
     double? dynFloorG,
   }) {
     final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
-    final wear = _wearBlock(daySub);
+    final wear = _wearBlock(
+      daySub,
+      dayStartSec: dayStartSec,
+      dayCalendarEndSec: dayCalendarEndSec,
+      dataNowSec: dataNowSec,
+    );
     final perMin = _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
     final motion = _motionMinutes(daySub);
     final dayHrValid = <double>[
@@ -5465,7 +5530,44 @@ class DerivationEngine {
   /// CAVEAT: this assumes the band does NOT keep logging while off-wrist. If a
   /// future firmware streams off-wrist records, add a skin-temp/motion on-body
   /// gate here (the substrate carries accel + skinTemp).
-  static Map<String, dynamic> _wearBlock(Substrate s) {
+  ///
+  /// THE DENOMINATOR IS THE DAY, NOT THE DATA. `coverage_pct` used to divide
+  /// worn seconds by `last sample - first sample`, so a band worn 9-11am and
+  /// nowhere else reported 100% — and `day_strain` renders that number as the
+  /// sentence "The band saw N% of this day", which was then false. The span
+  /// between the first and last record cannot answer a question about the day;
+  /// only the day can.
+  ///
+  /// WHICH day, for a day still in progress: the ELAPSED part of it, not all 24
+  /// hours. A day that is 40% over must not read as 60% missing — that would
+  /// make every morning open on "the band saw 30% of this day" and re-teach the
+  /// user to ignore the one number that is supposed to mean something. So the
+  /// window is [dayStartSec, min(dataNowSec, dayCalendarEndSec)): for a finished
+  /// past day that is the whole local day (23 h / 25 h on the two DST days,
+  /// because both bounds come from the day LABEL, never from `+86400`), and for
+  /// today it is midnight-to-now.
+  ///
+  /// [dataNowSec] is the DATA edge, not the wall clock, for the same reason
+  /// finalization is: a day whose sync stopped at 14:00 has not been observed
+  /// since, and charging the phone against wall-clock time would invent hours of
+  /// "not worn" out of hours we simply have not received yet.
+  ///
+  /// The segments follow the same window. They used to start at the first
+  /// record and stop at the last, so the hole from midnight to the first record
+  /// was invisible — which would now contradict the coverage number sitting
+  /// beside it. Leading and trailing holes are emitted as off-segments, so
+  /// `sum(on segments) / observable == coverage_pct` exactly.
+  static Map<String, dynamic> _wearBlock(
+    Substrate s, {
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
+  }) {
+    final observableEnd = math.min(
+      math.max(dataNowSec, dayStartSec),
+      math.max(dayCalendarEndSec, dayStartSec),
+    );
+    final observableSec = observableEnd - dayStartSec;
     final n = s.length;
     if (n == 0) {
       return {
@@ -5474,53 +5576,72 @@ class DerivationEngine {
         'last_on': null,
         'longest_off_min': 0,
         'worn_min': 0,
-        'coverage_pct': 0,
+        // Zero here is a measurement — the day was derived and held no record.
+        // Null only when there is no day to divide by at all (an unparseable
+        // label), where a percentage would be division by nothing.
+        'coverage_pct': observableSec > 0 ? 0 : null,
       };
     }
     const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
-    final segments = <Map<String, dynamic>>[];
     final firstOn = s.tsSec.first;
     final lastOn = s.tsSec.last + 1;
-    var longestOff = 0, wornSec = 0;
+
+    // On-runs first: contiguous stretches of record presence. The off-segments
+    // are then everything else inside the observable window, which is what puts
+    // the leading/trailing holes on the list.
+    final runs = <List<int>>[];
     var runStart = s.tsSec.first;
     var prev = s.tsSec.first;
-
-    void closeOnRun(int endTs) {
-      segments.add({
-        'on': true,
-        'start': runStart,
-        'end': endTs,
-        'len_min': ((endTs - runStart) / 60).round(),
-      });
-      wornSec += endTs - runStart;
-    }
-
     for (var i = 1; i < n; i++) {
       final ts = s.tsSec[i];
-      final gap = ts - prev;
-      if (gap > offGapSec) {
-        closeOnRun(prev + 1);
-        segments.add({
-          'on': false,
-          'start': prev + 1,
-          'end': ts,
-          'len_min': (gap / 60).round(),
-        });
-        if (gap > longestOff) longestOff = gap;
+      if (ts - prev > offGapSec) {
+        runs.add([runStart, prev + 1]);
         runStart = ts;
       }
       prev = ts;
     }
-    closeOnRun(prev + 1);
+    runs.add([runStart, prev + 1]);
 
-    final totalSec = s.tsSec.last - s.tsSec.first + 1;
+    final segments = <Map<String, dynamic>>[];
+    var longestOff = 0, wornSec = 0;
+    void addOff(int start, int end) {
+      if (end <= start) return;
+      segments.add({
+        'on': false,
+        'start': start,
+        'end': end,
+        'len_min': ((end - start) / 60).round(),
+      });
+      if (end - start > longestOff) longestOff = end - start;
+    }
+
+    var cursor = dayStartSec;
+    for (final r in runs) {
+      addOff(cursor, r[0]);
+      segments.add({
+        'on': true,
+        'start': r[0],
+        'end': r[1],
+        'len_min': ((r[1] - r[0]) / 60).round(),
+      });
+      wornSec += r[1] - r[0];
+      cursor = r[1];
+    }
+    addOff(cursor, observableEnd);
+
     return {
       'segments': segments,
       'first_on': firstOn,
       'last_on': lastOn,
       'longest_off_min': (longestOff / 60).round(),
       'worn_min': (wornSec / 60).round(),
-      'coverage_pct': totalSec > 0 ? (100 * wornSec / totalSec).round() : 0,
+      // Clamped only against a substrate that reaches outside its own day —
+      // production slices `daySub` to the day, so this is a guard, not a
+      // correction, and it must never be the thing that makes the number look
+      // sane.
+      'coverage_pct': observableSec > 0
+          ? (100 * wornSec / observableSec).round().clamp(0, 100).toInt()
+          : null,
     };
   }
 
@@ -5784,9 +5905,18 @@ class DerivationEngine {
   ///   * the signal. wrist PPG beat timing collapses under motion without
   ///     aggressive quality gating — which is why this function gates at all —
   ///     so the waking hours a stress score would describe are exactly the
-  ///     hours its input is worst. gen4 has no per-beat quality flag, and
-  ///     gen5's `signalQualityLogVariance` is decoded and dropped before the
-  ///     DB, so the one thing that could gate harder is thrown away.
+  ///     hours its input is worst. gen4 has no per-beat quality flag at all.
+  ///     CORRECTION, schema 43: gen5's `signalQualityLogVariance` is no longer
+  ///     dropped — it is decoded, mapped and written to
+  ///     `decoded_onehz.signal_quality_logvar`, and this comment claimed
+  ///     otherwise for three schema versions. It is still not READ (it is in
+  ///     neither substrate column list), and wiring it would not rescue a
+  ///     stress score: it exists on gen5/MG only, so gating on it means the
+  ///     same night measured by two straps answers differently — which is the
+  ///     one thing a metric that enters a cross-device baseline may never do.
+  ///     A gen5-only within-night RANK or WEIGHT is defensible; a percentage,
+  ///     a bar, or anything a gen4 user could compare against is not, because
+  ///     the scale is the band's own with no units and no calibration.
   ///   * the construct. the systematic evaluation of 14 vendor composite
   ///     scores found NONE with independent peer-reviewed validation. the
   ///     inputs validate; the composite does not, and a depleting battery
@@ -5943,6 +6073,68 @@ class DerivationEngine {
   /// makes it unknown — and `nap_min` is already left unwritten in that case.
   /// Publishing `total_asleep_min = mainTstMin` there would state a complete
   /// day total while `naps.value` is null, which is internally inconsistent.
+  /// The strap's own CHARGING_ON/OFF spans that fall INSIDE the scored sleep
+  /// window — published as a caveat on the night, never as a reason to drop it.
+  ///
+  /// Why `wear` cannot see this: a battery-pack swap is not a wrist-off event.
+  /// The pack clips onto the strap while the strap stays on the wrist, so the
+  /// band keeps logging 1 Hz records the whole time and every wear signal we
+  /// have — record presence, and the band's own WRIST_ON/OFF, which `wear`
+  /// matches to the minute — correctly says "worn". Measured on a real 9-day
+  /// export, 2 of 9 nights contained CHARGING_ON + BATTERY_PACK_CONNECTED +
+  /// BATTERY_PACK_REMOVED inside the sleep window and were scored, staged and
+  /// fed into baselines with nothing attached.
+  ///
+  /// NO CONFIDENCE PENALTY, deliberately. A confidence number here is a claim
+  /// about how well we measured THIS NIGHT'S SLEEP, and the mechanism does not
+  /// support that claim: the band is on the wrist, the PPG is against skin, and
+  /// beat timing — which is what the stager and every HRV metric actually run
+  /// on — has no pathway to degrade because a battery is sitting on the strap.
+  /// Multiplying the night's confidence down would be inventing a measured
+  /// degradation to express a suspicion, which is the same fabrication as any
+  /// other confident wrong number, only pointing the safe way. What the
+  /// mechanism DOES support is named in the note and left to the reader:
+  ///   * SKIN TEMPERATURE. A charging pack is a heat source bonded to the strap
+  ///     and the channel is relative-ADC with no absolute reference, so this
+  ///     night's skin temp is not comparable to a night without one. That is a
+  ///     per-CHANNEL caveat, and the honest fix is to withhold the night from
+  ///     the skin-temp baseline rather than to fuzz the whole night's sleep —
+  ///     which is a baseline-layer change, not this one.
+  ///   * A MOTION BURST at each end. Clipping and unclipping the pack is a hand
+  ///     movement on the instrumented wrist, so the stager will read wake there.
+  ///     It is bounded, it is at a known timestamp, and it is real movement, so
+  ///     it is reported rather than smoothed away.
+  @visibleForTesting
+  static Map<String, dynamic> sleepChargingBlock(
+    List<List<int>> chargingSpans,
+    int onsetSec,
+    int offsetSec,
+  ) {
+    if (offsetSec <= onsetSec) return const {'present': false};
+    final spans = <List<int>>[];
+    var sec = 0;
+    for (final c in chargingSpans) {
+      if (c.length < 2) continue;
+      final lo = math.max(c[0], onsetSec);
+      final hi = math.min(c[1], offsetSec);
+      if (hi <= lo) continue;
+      spans.add([lo, hi]);
+      sec += hi - lo;
+    }
+    if (spans.isEmpty) return const {'present': false};
+    return {
+      'present': true,
+      'minutes': (sec / 60).round(),
+      'spans': spans,
+      'note':
+          'the strap was charging for part of this night. it stayed on your '
+          'wrist and kept recording, so heart rate and beat timing are '
+          'measured as usual — but the pack warms the strap, so this night\'s '
+          'skin temperature is not comparable to a night without it, and '
+          'clipping the pack on and off registers as wrist movement.',
+    };
+  }
+
   static Map<String, dynamic> _sleepPeriods(
     int onsetSec,
     int offsetSec,
@@ -6428,6 +6620,10 @@ class DerivationEngine {
       profile: inp.profile,
       sleepOnsetSec: onset,
       sleepOffsetSec: offset,
+      dayStartSec: inp.dayStartSec,
+      // NOT `inp.dayEndSec` — that is the data edge. See `applyDayActivity`.
+      dayCalendarEndSec: localNextMidnightSecForDayLabel(inp.date),
+      dataNowSec: inp.dataNowSec,
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
@@ -6465,6 +6661,11 @@ class DerivationEngine {
       napPeriods,
       mainTstMin: inp.mainTstMin,
       mainEfficiency: inp.mainEfficiency,
+    );
+    bundlePatch['sleep_charging'] = sleepChargingBlock(
+      inp.chargingSpans,
+      onset,
+      offset,
     );
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);

@@ -7,20 +7,35 @@
 // underneath, opened deliberately, and never the path a new user is walked
 // down.
 //
-// There is no barcode scan and no photo estimate. The sheet does not say so
-// either — a card explaining a feature that does not exist is an advert for
-// it. See docs/internal/UI_ROADMAP.md. The store's guard for a future photo path
+// There is no photo estimate. The sheet does not say so either — a card
+// explaining a feature that does not exist is an advert for it. See
+// docs/internal/UI_ROADMAP.md. The store's guard for a future photo path
 // (`FoodEntry.sanitised`, which never lets a photo carry a total) stays where
 // it is, because it is a data rule rather than a screen.
+//
+// There IS a barcode scan, and it lives inside "Add the numbers" rather than
+// beside the occasion button. A scan is macro detail, and macro detail is the
+// tier underneath — a new user is not walked down it.
+//
+// A SCAN PART-FILLS. That is the normal case, not a failure: only about 12% of
+// products carry all seven core fields, and everything Open Food Facts hands
+// over goes through `gateNutrients` first, which drops a physically impossible
+// value rather than round it into range. Every box the lookup could not stand
+// behind is left EMPTY for the user to type. None of it is a measurement —
+// see `FoodSource.barcode`.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../data/nutrition_store.dart';
+import '../../data/off_lookup.dart';
+import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
+import 'scan_barcode.dart';
 
 class LogFoodSheet extends StatefulWidget {
   const LogFoodSheet({super.key, this.date, this.meal = 'snack'});
@@ -59,18 +74,43 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   final _fat = TextEditingController();
   final _fibre = TextEditingController();
 
+  /// Grams. Only on screen once a scan has landed — the numbers arrive per
+  /// 100 g and somebody who ate one 33 g packet should not have to do the
+  /// arithmetic themselves.
+  final _portion = TextEditingController();
+
   List<FoodEntry> _recent = const [];
   bool _detail = false;
+
+  /// The last scan's product, when it produced one. Holds the per-100 g
+  /// figures the portion field rescales from, and its barcode becomes the
+  /// entry's `foodKey`.
+  OffProduct? _scanned;
+
+  /// What the last lookup did, for the card that says so. Null before the
+  /// first scan of this sheet.
+  OffOutcome? _outcome;
+  bool _looking = false;
 
   @override
   void initState() {
     super.initState();
     _loadRecent();
+    _portion.addListener(_rescale);
   }
 
   @override
   void dispose() {
-    for (final t in [_label, _kcal, _protein, _carbs, _fat, _fibre]) {
+    _portion.removeListener(_rescale);
+    for (final t in [
+      _label,
+      _kcal,
+      _protein,
+      _carbs,
+      _fat,
+      _fibre,
+      _portion,
+    ]) {
       t.dispose();
     }
     super.dispose();
@@ -105,6 +145,135 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   /// meal was written with the energy silently dropped.
   double? _num(TextEditingController t) => Typed.of(t.text).value;
 
+  // ── the barcode path ──────────────────────────────────────────────────────
+
+  /// Scan, then look the code up — but only after the user has agreed to the
+  /// one outbound call this screen can make.
+  ///
+  /// The consent is asked BEFORE the camera opens, not after: someone who
+  /// would decline should not have pointed their phone at a packet first.
+  Future<void> _scan() async {
+    if (!offLookupAllowed) {
+      final agreed = await _askLookupConsent(context);
+      if (agreed != true || !mounted) return;
+      setOffLookupAllowed(true);
+    }
+    final code = await scanBarcode(context);
+    if (code == null || !mounted) return;
+    setState(() {
+      _looking = true;
+      _outcome = null;
+    });
+    final res = await _lookup(code);
+    if (!mounted) return;
+    setState(() {
+      _looking = false;
+      _outcome = res.outcome;
+      final p = res.product;
+      if (p != null) _apply(p);
+    });
+  }
+
+  /// Cache first. `food_def` is keyed by barcode, so the second scan of the
+  /// same packet is a local read and openfoodfacts.org hears nothing.
+  Future<OffResult> _lookup(String code) async {
+    final db = await LocalDb.instance;
+    final cached = await NutritionDb.foodDef(db, code);
+    // Only a row this path wrote. Crediting Open Food Facts for a dictionary
+    // entry that came from somewhere else would be an attribution in the
+    // wrong direction, which is its own kind of licence problem.
+    if (cached != null && cached['source'] == 'barcode') {
+      return OffResult(OffOutcome.ok, OffProduct.fromDefRow(cached));
+    }
+    final res = await fetchOffProduct(code);
+    final p = res.product;
+    if (p != null) await NutritionDb.putFoodDef(db, p.toDefRow());
+    return res;
+  }
+
+  /// Fill the form from a product. Every box the gates could not stand behind
+  /// is CLEARED rather than left holding the previous scan's number.
+  void _apply(OffProduct p) {
+    _scanned = p;
+    _label.text = _productLabel(p);
+    _portion.text = _plain(p.defaultPortionG);
+    _fillFrom(p, p.defaultPortionG);
+  }
+
+  /// The portion field changed, so the five numbers change with it. Only when
+  /// a scan is what put them there — a typed number is the user's and is never
+  /// overwritten.
+  void _rescale() {
+    final p = _scanned;
+    final g = Typed.of(_portion.text).value;
+    if (p == null || g == null) return;
+    _fillFrom(p, g);
+  }
+
+  /// What to say about the last lookup, or null when there is nothing to say
+  /// — which is the case when it worked.
+  ///
+  /// Every branch ends in the same place on purpose: type the numbers off the
+  /// pack. That is the fallback, it always was, and none of these are errors
+  /// the user did anything to cause.
+  StatusCard? get _lookupProblem {
+    final o = _outcome;
+    if (o == null) return null;
+    // A product whose numbers all survived needs no card; the filled boxes
+    // are the answer.
+    if (o == OffOutcome.ok && _scanned?.isBare != true) return null;
+    return switch (o) {
+      OffOutcome.ok => const StatusCard(
+          'No numbers for this one',
+          'Open Food Facts has the product but nothing usable on its '
+              'nutrition — or what it had did not survive a sanity check.',
+          icon: LucideIcons.scanBarcode,
+        ),
+      OffOutcome.notFound => const StatusCard(
+          'Not in Open Food Facts',
+          'Nobody has added this barcode yet.',
+          icon: LucideIcons.scanBarcode,
+        ),
+      OffOutcome.flagged => const StatusCard(
+          'This record is flagged as wrong',
+          'Open Food Facts marks this product as containing errors, so none '
+              'of its numbers were filled in.',
+          icon: LucideIcons.triangleAlert,
+        ),
+      OffOutcome.unreachable => const StatusCard(
+          'No answer from Open Food Facts',
+          'The lookup could not reach openfoodfacts.org.',
+          icon: LucideIcons.cloudOff,
+        ),
+      OffOutcome.refused => const StatusCard(
+          'Barcode lookup is off',
+          'Nothing was sent. You can turn it on in Settings › Privacy.',
+          icon: LucideIcons.scanBarcode,
+        ),
+    };
+  }
+
+  /// What basis the boxes are on. The pack's own serving is named when the
+  /// record states one, because "33 g" beside a 400 g jar is the difference
+  /// between a spoonful and a fortnight.
+  String _portionNote(OffProduct p) {
+    final base = 'Open Food Facts lists this per 100 g. Change the portion and '
+        'the numbers follow.';
+    if (p.servingLabel.isEmpty && p.servingG == null) return base;
+    final serving =
+        p.servingLabel.isNotEmpty ? p.servingLabel : '${_plain(p.servingG)} g';
+    return '$base The pack’s own serving is $serving.';
+  }
+
+  void _fillFrom(OffProduct p, double grams) {
+    final v = p.forPortion(grams);
+    _kcal.text = _plain(v.kcal);
+    _protein.text = _plain(v.proteinG);
+    _carbs.text = _plain(v.carbsG);
+    _fat.text = _plain(v.fatG);
+    _fibre.text = _plain(v.fibreG);
+  }
+
   /// The number fields that were typed into and cannot be read.
   List<String> get _unreadable => [
         for (final (name, ctl) in [
@@ -113,6 +282,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
           ('Carbs', _carbs),
           ('Fat', _fat),
           ('Fibre', _fibre),
+          if (_scanned != null) ('Portion', _portion),
         ])
           if (Typed.of(ctl.text).bad) name,
       ];
@@ -234,11 +404,49 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
             ),
             if (_detail) ...[
               const SizedBox(height: S.x3),
+              Surface(
+                pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: SetRow(
+                  LucideIcons.scanBarcode,
+                  C.domFood,
+                  'Scan a barcode',
+                  sub: offLookupAllowed
+                      ? 'Asks openfoodfacts.org about the barcode, and fills '
+                          'in what it can stand behind'
+                      : 'Looks the pack up online. Asks first',
+                  chevron: false,
+                  onTap: _looking ? null : _scan,
+                ),
+              ),
+              if (_looking) ...[
+                const SizedBox(height: S.x3),
+                const StatusCard(
+                  'Looking it up',
+                  'The boxes fill as soon as the answer is here.',
+                  icon: LucideIcons.scanBarcode,
+                ),
+              ] else if (_lookupProblem != null) ...[
+                const SizedBox(height: S.x3),
+                _lookupProblem!,
+              ],
+              const SizedBox(height: S.x4),
               OsTextField(
                 controller: _label,
                 label: 'What',
                 hint: 'Chicken and rice',
               ),
+              if (_scanned != null) ...[
+                const SizedBox(height: S.x4),
+                _NumberRow(
+                  fields: [('Portion', 'g', _portion)],
+                  hint: '100',
+                ),
+                const SizedBox(height: S.x2),
+                Text(
+                  _portionNote(_scanned!),
+                  style: F.cap.copyWith(color: p.ink3, height: 1.45),
+                ),
+              ],
               const SizedBox(height: S.x4),
               _NumberRow(
                 fields: [
@@ -262,6 +470,13 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 'A blank number stays blank. Only "What" is needed.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.45),
               ),
+              // ODbL asks for attribution "reasonably calculated" to make a
+              // viewer aware. It goes HERE, on the screen where the numbers
+              // are, and not only in the licences page.
+              if (_scanned != null) ...[
+                const SizedBox(height: S.x3),
+                const _OffCredit(),
+              ],
               const SizedBox(height: S.x4),
               BigButton(
                 'Save',
@@ -284,6 +499,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                     return;
                   }
                   final b = _base(label: label);
+                  final scan = _scanned;
                   _write(
                     FoodEntry(
                       id: b.id,
@@ -291,6 +507,14 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                       meal: b.meal,
                       label: label,
                       atTs: b.atTs,
+                      // The barcode, so a repeat of this food is a local
+                      // read — and so the row can say where its numbers came
+                      // from. NOT `verified`: see FoodSource.barcode.
+                      foodKey: scan?.barcode,
+                      quantity: scan == null ? null : _num(_portion),
+                      source: scan == null
+                          ? FoodSource.manual
+                          : FoodSource.barcode,
                       kcal: _num(_kcal),
                       proteinG: _num(_protein),
                       carbsG: _num(_carbs),
@@ -307,6 +531,137 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
       ),
     );
   }
+}
+
+/// A number in a text box. Trailing zeros trimmed, because "33" is what the
+/// pack says and "33.0" is what a float says.
+String _plain(double? v) {
+  if (v == null) return '';
+  final r = (v * 10).round() / 10;
+  return r == r.roundToDouble()
+      ? r.round().toString()
+      : r.toStringAsFixed(1);
+}
+
+/// Brand in front of the product name, unless the name already carries it —
+/// "Parle Parle-G" is how that goes wrong.
+String _productLabel(OffProduct p) {
+  final name = p.label;
+  if (p.brand.isEmpty) return name;
+  return name.toLowerCase().contains(p.brand.toLowerCase())
+      ? name
+      : '${p.brand} $name';
+}
+
+/// The disclosure, before the first lookup ever happens.
+///
+/// Asked once, then remembered; revocable from Settings › Privacy. It states
+/// what leaves the phone — the barcode, and nothing else — because this app's
+/// whole claim is that nothing does unless you said so.
+Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
+      context: c,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: P.of(c).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) {
+        final p = P.of(s);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Look barcodes up online?',
+                    style: F.t2.copyWith(color: p.ink)),
+                const SizedBox(height: S.x4),
+                Text(
+                  'A scan sends the barcode to openfoodfacts.org, a free, '
+                  'open food database. They see the barcode and your IP '
+                  'address. Nothing about you, your meals or your health '
+                  'leaves this phone, and a barcode you have scanned before '
+                  'is answered from your own copy without asking them again.',
+                  style: F.body.copyWith(color: p.ink2, height: 1.5),
+                ),
+                const SizedBox(height: S.x3),
+                Text(
+                  'Their numbers are typed in by the public and a fair few of '
+                  'them are wrong, so anything that fails a sanity check is '
+                  'left blank rather than filled in. Everything it does fill '
+                  'in is yours to edit before you save.',
+                  style: F.body.copyWith(color: p.ink2, height: 1.5),
+                ),
+                const SizedBox(height: S.x3),
+                Text(
+                  'You can turn this back off in Settings › Privacy. Typing '
+                  'the numbers off the pack works either way.',
+                  style: F.cap.copyWith(color: p.ink3, height: 1.45),
+                ),
+                const SizedBox(height: S.x5),
+                BigButton('Allow lookups',
+                    color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
+                const SizedBox(height: S.x3),
+                BigButton('Not now',
+                    color: C.domFood,
+                    soft: true,
+                    onTap: () => Navigator.of(s).pop(false)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+/// The ODbL credit, wherever Open Food Facts numbers are shown. Both links
+/// are the licence's, not decoration — the notice names the source and the
+/// terms, and a user has to be able to reach both.
+class _OffCredit extends StatelessWidget {
+  const _OffCredit();
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(kOffAttribution,
+            style: F.cap.copyWith(color: p.ink3, height: 1.45)),
+        const SizedBox(height: S.x1),
+        // Wrap, not Row: "Open Database License" beside a URL runs off the
+        // right of the sheet at accessibility text sizes, and a link that has
+        // overflowed is a link nobody can follow.
+        const Wrap(
+          spacing: S.x3,
+          runSpacing: S.x1,
+          children: [
+            _Link('openfoodfacts.org', kOffSite),
+            _Link('Open Database License', kOffLicence),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _Link extends StatelessWidget {
+  const _Link(this.label, this.url);
+  final String label, url;
+
+  @override
+  Widget build(BuildContext c) => Pressable(
+        semanticLabel: '$label, opens in your browser',
+        onTap: () => launchUrl(Uri.parse(url),
+            mode: LaunchMode.externalApplication),
+        child: Text(
+          label,
+          style: F.cap.copyWith(
+            color: P.of(c).on(C.domFood),
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      );
 }
 
 String _mealLabel(String m) => switch (m) {
@@ -359,11 +714,15 @@ class FoodRow extends StatelessWidget {
                 ],
               ),
             ),
-            // The "Verified" branch is unreachable: only `manual` and
-            // `repeat` are ever written, because there is no food database to
-            // verify against. Every entry here is yours, and only that is said.
+            // "Verified" is still unreachable — there is no manufacturer feed
+            // and a crowd-sourced record is not one. A barcode row says so by
+            // name, which is also the ODbL credit at the point of display;
+            // everything else here is the user's own.
             const SizedBox(width: S.x2),
-            const Pill('Yours', C.n400),
+            Pill(
+              entry.source == FoodSource.barcode ? 'Open Food Facts' : 'Yours',
+              C.n400,
+            ),
             if (trailing != null) ...[
               const SizedBox(width: S.x2),
               Icon(trailing, size: 20, color: p.on(C.domFood)),
@@ -387,8 +746,9 @@ class FoodRow extends StatelessWidget {
 }
 
 class _NumberRow extends StatelessWidget {
-  const _NumberRow({required this.fields});
+  const _NumberRow({required this.fields, this.hint = 'unknown'});
   final List<(String, String, TextEditingController)> fields;
+  final String hint;
 
   @override
   Widget build(BuildContext c) => Row(
@@ -399,7 +759,7 @@ class _NumberRow extends StatelessWidget {
           child: OsTextField(
             controller: fields[i].$3,
             label: '${fields[i].$1} (${fields[i].$2})',
-            hint: 'unknown',
+            hint: hint,
             keyboard: const TextInputType.numberWithOptions(decimal: true),
           ),
         ),

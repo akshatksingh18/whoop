@@ -1,6 +1,6 @@
 # Privacy Policy — Edge / OpenStrap
 
-_Last updated: August 16, 2026_
+_Last updated: August 18, 2026_
 
 Edge ("the App") is an independent, open-source project. It is not affiliated
 with, sponsored by, or endorsed by WHOOP, Inc.
@@ -61,6 +61,35 @@ App. It runs when the App starts and when you bring it back to the foreground.
 You can turn it off in Settings › Privacy › "Check for updates", and then the
 App makes no network request of its own accord at all. It is on by default
 because a sideloaded app has no store to tell you a security fix exists.
+
+**Barcode lookup for food logging**
+The food log can read a barcode with the camera and fill in the nutrition
+figures for you. Doing that means asking a database, so it is **off until you
+turn it on**, and the App asks you before the first lookup ever happens — not
+after.
+
+- **What is sent is the barcode.** It goes to openfoodfacts.org, the free and
+  open food database. Nothing about you, your meals, your health or your device
+  goes with it. Like any network request it discloses your IP address to them.
+- **Only when you scan.** There is no background lookup, no batch and no
+  pre-fetch. One barcode, one request, and only because you pointed the camera
+  at a packet.
+- **A barcode you have scanned before is answered from your own phone.** The
+  App keeps a local copy of what it has fetched, so re-scanning the same packet
+  asks nobody anything.
+- **The camera reads digits and nothing else.** No photo is taken, stored or
+  sent. Declining camera access leaves the rest of the food log working.
+- **Everything still works with it off.** Typing the numbers off the pack was
+  always the way in and still is.
+
+You can turn it off at any time in Settings › Privacy › "Look barcodes up
+online", and the App then makes no food-related network request at all.
+
+Their data is contributed by the public, is licensed under the Open Database
+License, and their own terms say it must not be used for medical purposes. So a
+scanned figure is treated as something you typed rather than something the App
+measured: anything that fails a basic plausibility check is left blank instead
+of filled in, and every filled box is yours to edit before you save.
 
 **Location and workout routes**
 If you record a run, ride or walk, the App uses your device's location to draw
@@ -123,6 +152,8 @@ moment you tap it:
   further upload immediately, and the App tells you when the last one was.
 - **Check for updates** — turning it off stops the App making any network
   request of its own accord.
+- **Look barcodes up online** — off by default; turning it off stops any
+  further lookup immediately, and the food log keeps working by hand.
 
 You can also disable AI Coach or Health app integration at any time in Settings
 if you'd previously turned them on.

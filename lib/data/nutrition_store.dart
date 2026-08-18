@@ -90,6 +90,17 @@ enum FoodSource {
   /// Read off a manufacturer or USDA panel. The only VERIFIED tier.
   verified,
 
+  /// Filled from a barcode scanned against Open Food Facts, then edited by
+  /// the user if they chose to.
+  ///
+  /// NOT [verified], and the difference is load-bearing. OFF is crowd-sourced:
+  /// about 6% of its products carrying nutrition data hold a physically
+  /// impossible value, ~20% among the most-scanned. [isVerified] gates search
+  /// ranking, so calling this verified would promote exactly that data above
+  /// numbers the user read off the pack themselves. It is input, never a
+  /// measurement — their own terms say the data is not for medical use.
+  barcode,
+
   /// Copied from an earlier entry of the same food.
   repeat,
 
@@ -100,6 +111,7 @@ enum FoodSource {
 
 FoodSource _sourceOf(String s) => switch (s) {
   'verified' => FoodSource.verified,
+  'barcode' => FoodSource.barcode,
   'repeat' => FoodSource.repeat,
   'photo' => FoodSource.photo,
   _ => FoodSource.manual,
@@ -522,6 +534,15 @@ class NutritionDb {
       "ORDER BY (source = 'verified') DESC, label ASC LIMIT ?",
       ['%$q%', '%$q%', limit],
     );
+  }
+
+  /// One dictionary entry by key. The key for a scanned product is its
+  /// barcode, which makes this table the barcode cache — a second scan of the
+  /// same packet is a local read and no network request at all.
+  static Future<Map<String, Object?>?> foodDef(Database db, String key) async {
+    final rows =
+        await db.query('food_def', where: 'key = ?', whereArgs: [key], limit: 1);
+    return rows.isEmpty ? null : rows.first;
   }
 
   static Future<void> putFoodDef(

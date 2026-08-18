@@ -84,6 +84,8 @@
 	     (PedometerBridge). -->
 	<key>NSMotionUsageDescription</key>
 	<string>OpenStrap counts your daily steps from this iPhone's own motion chip, because a band on your wrist cannot tell walking from stirring a pot, and the phone in your pocket can. It reads step counts only — never your location or anything else the motion chip records — and only the last few days of them. Your steps stay on this device and are never uploaded.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>OpenStrap uses the camera to read the barcode on a food packet, so logging a meal does not mean typing its nutrition panel out by hand. It reads the barcode digits and nothing else — no photo is taken, kept, or sent anywhere.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

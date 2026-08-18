@@ -16,8 +16,10 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auto_backup.dart';
+import '../../data/off_lookup.dart';
 import '../../notify/notification_center.dart';
 import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
@@ -60,6 +62,10 @@ class MoreSettings extends StatefulWidget {
 
 class _MoreSettingsState extends State<MoreSettings> {
   bool _dev = Prefs.getBool(Prefs.devMode, false);
+
+  /// Whether a food barcode may be looked up online. Not on AppState: it is a
+  /// screen-local preference like the map basemap's, read straight off Prefs.
+  bool _barcode = offLookupAllowed;
   String _version = '';
   int _taps = 0;
 
@@ -104,6 +110,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       appearance: theme.choice.label,
       phoneSteps: app.phoneStepsEnabled,
       telemetry: app.telemetryConsent,
+      barcodeLookup: _barcode,
       // Shown when the build has the feature OR when this install already
       // consented under an older build. A consent that cannot be withdrawn is
       // not consent, and the old `lib/ui` toggle died with that package while
@@ -128,6 +135,10 @@ class _MoreSettingsState extends State<MoreSettings> {
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
+      onToggleBarcodeLookup: () {
+        setOffLookupAllowed(!_barcode);
+        setState(() => _barcode = !_barcode);
+      },
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleUpdateChecks: () =>
           app.setUpdateChecksEnabled(!app.updateChecksEnabled),
@@ -252,7 +263,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
-  final bool phoneSteps, telemetry;
+  final bool phoneSteps, telemetry, barcodeLookup;
 
   /// The health-contribution row appears only where it means something: a
   /// build that has the feature, or an install that already said yes to it.
@@ -285,6 +296,7 @@ class MoreSettingsView extends StatelessWidget {
       onCycleAppearance,
       onTogglePhoneSteps,
       onToggleTelemetry,
+      onToggleBarcodeLookup,
       onToggleHealthShare,
       onToggleUpdateChecks,
       onReset;
@@ -295,6 +307,7 @@ class MoreSettingsView extends StatelessWidget {
     this.appearance = 'System',
     this.phoneSteps = false,
     this.telemetry = false,
+    this.barcodeLookup = false,
     this.showHealthShare = false,
     this.healthShare = false,
     this.showUpdateChecks = false,
@@ -315,6 +328,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onCycleAppearance,
     this.onTogglePhoneSteps,
     this.onToggleTelemetry,
+    this.onToggleBarcodeLookup,
     this.onToggleHealthShare,
     this.onToggleUpdateChecks,
     this.onReset,
@@ -387,6 +401,15 @@ class MoreSettingsView extends StatelessWidget {
                       sub: 'Nothing is sent until you say so',
                       value: telemetry ? 'On' : 'Off',
                       onTap: onToggleTelemetry),
+                  // The food log's one outbound call. Named by what it sends,
+                  // not by the feature it powers — a scan is the only thing
+                  // that triggers it and the barcode is the whole payload.
+                  SetRow(LucideIcons.scanBarcode, C.domFood,
+                      'Look barcodes up online',
+                      sub: 'Sends a scanned barcode to openfoodfacts.org. '
+                          'Nothing about you goes with it',
+                      value: barcodeLookup ? 'On' : 'Off',
+                      onTap: onToggleBarcodeLookup),
                   if (showHealthShare)
                     SetRow(LucideIcons.cloudUpload, C.red,
                         'Contribute my health data',
@@ -406,11 +429,20 @@ class MoreSettingsView extends StatelessWidget {
                         value: updateChecks ? 'On' : 'Off',
                         onTap: onToggleUpdateChecks),
                 ]),
-                if (version.isNotEmpty)
-                  settingsGroup(c, 'About', [
+                settingsGroup(c, 'About', [
+                  if (version.isNotEmpty)
                     SetRow(LucideIcons.info, C.n500, 'Version',
                         value: version, chevron: false, onTap: onVersionTap),
-                  ]),
+                  // Where the licences of what this app uses are written out
+                  // in full. Open Food Facts' ODbL asks for the notice to be
+                  // reachable, not only for the credit beside the numbers.
+                  SetRow(LucideIcons.scale, C.n500, 'Notices and licences',
+                      sub: 'Who this app is not, and whose data it uses',
+                      onTap: () => launchUrl(
+                          Uri.parse(
+                              'https://openstrap.github.io/edge/notice.html'),
+                          mode: LaunchMode.externalApplication)),
+                ]),
                 if (devMode)
                   settingsGroup(c, 'Developer', [
                     SetRow(LucideIcons.layoutGrid, C.purple,

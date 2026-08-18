@@ -206,6 +206,10 @@ void main() {
       FoodSource.manual,
       FoodSource.photo,
       FoodSource.repeat,
+      // A crowd-sourced barcode record is not a manufacturer panel. Ranking
+      // it as one would promote the 6% of Open Food Facts products carrying a
+      // physically impossible value above numbers the user typed themselves.
+      FoodSource.barcode,
     ]) {
       expect(isVerified(s), isFalse, reason: '$s must not read as verified');
     }

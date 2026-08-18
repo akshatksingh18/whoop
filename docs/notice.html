@@ -33,6 +33,28 @@
       see the
       <a href="https://github.com/OpenStrap/protocol">protocol package's README</a>
       for methodology notes.</p>
+
+    <h2>Open Food Facts</h2>
+
+    <p>Contains information from
+      <a href="https://openfoodfacts.org">Open Food Facts</a>, which is made
+      available under the
+      <a href="https://opendatacommons.org/licenses/odbl/1-0/">Open Database
+      License (ODbL) v1.0</a>. Individual contents of the database are
+      available under the
+      <a href="https://opendatacommons.org/licenses/dbcl/1-0/">Database
+      Contents License</a>.</p>
+
+    <p>When you scan a food barcode, Edge asks Open Food Facts about that
+      barcode and shows you the nutrition figures on file, which you can then
+      edit before saving. Edge does not fetch or display Open Food Facts
+      product photographs: those are licensed separately, per photographer,
+      and may carry third-party trademark restrictions of their own.</p>
+
+    <p>Open Food Facts' terms state that the data must not be used for medical
+      purposes. Edge treats a scanned figure as something you entered, never as
+      something it measured, and drops any value that fails a basic
+      plausibility check rather than showing it to you.</p>
   </main>
 
   <footer class="site">

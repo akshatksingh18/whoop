@@ -216,6 +216,19 @@ dependencies:
   # and the AI Coach's direct LLM (BYOK) calls. No backend / auth traffic anymore.
   http: ^1.2.2
 
+  # Barcode scanning for the food log (lib/ui2/screens/scan_barcode.dart).
+  #
+  # The floor is not cosmetic: 7.3.0 and 7.4.0 fixed a controller-dispose bug
+  # that tore down ANOTHER controller's camera, and an Apple `captureOutput`
+  # race. This app holds a camera nowhere else today, but the first bug is the
+  # kind that only shows up once it does.
+  #
+  # The default Android config links the BUNDLED ML Kit model, which is what we
+  # want: +3-10 MB of APK in exchange for needing no Google Play Services at
+  # all, on a build distributed through GitHub Releases. Do NOT set the
+  # `useUnbundled` Gradle property.
+  mobile_scanner: ^7.3.1
+
   # State + small settings persistence.
   provider: ^6.1.2
   shared_preferences: ^2.3.3

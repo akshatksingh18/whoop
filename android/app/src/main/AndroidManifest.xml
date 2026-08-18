@@ -14,6 +14,12 @@
     <!-- FGS location type (API 34+): lets EdgeTrackingService keep sampling GPS while
          a run/ride/walk session is active and the app is backgrounded. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Camera: reading the barcode on a food packet in the food log, and
+         nothing else. No frame is captured, stored or sent — mobile_scanner is
+         asked for the digits only. Declared not-required so a phone without a
+         camera still installs; the scan row falls back to typing. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Edge Tracking foreground service: keeps the strap connection alive in the background. -->

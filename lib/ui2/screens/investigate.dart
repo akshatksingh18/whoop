@@ -36,6 +36,10 @@ import 'metric_detail.dart';
 
 class InvestigateData {
   final String? day;
+
+  /// Every derived day, newest first — what [DayNav] steers over.
+  final List<String> days;
+
   final int? algoVersion;
 
   /// Where this day came from — `null` when the bundle was derived on this
@@ -82,6 +86,7 @@ class InvestigateData {
 
   const InvestigateData({
     this.day,
+    this.days = const [],
     this.algoVersion,
     this.importedFrom,
     this.hrv = const {},
@@ -99,12 +104,13 @@ class InvestigateData {
     this.series = const [],
   });
 
-  static Future<InvestigateData> load(LocalRepository repo, String key) async {
+  static Future<InvestigateData> load(LocalRepository repo, String key,
+      {String? want}) async {
     final today = await repo.getToday();
-    var day = (today['status'] as Map?)?['today_day']?.toString();
     final days = await repo.availableDays();
-    if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
-    if (day == null) return const InvestigateData();
+    final day = pickDay(
+        days, want, (today['status'] as Map?)?['today_day']?.toString());
+    if (day == null) return InvestigateData(days: days);
 
     final spec = specOf(key);
     final hrv = await repo.getDayHrv(day);
@@ -145,6 +151,7 @@ class InvestigateData {
 
     return InvestigateData(
       day: day,
+      days: days,
       algoVersion: (row?['algo_version'] as num?)?.toInt(),
       importedFrom: importedFrom,
       hrv: hrv,
@@ -203,7 +210,12 @@ class InvestigateData {
 class Investigate extends StatefulWidget {
   final String metricKey;
   final InvestigateData? data;
-  const Investigate(this.metricKey, {super.key, this.data});
+
+  /// The day to open. Null means the newest derived one — which is what every
+  /// caller did before a day could be asked for.
+  final String? day;
+
+  const Investigate(this.metricKey, {super.key, this.data, this.day});
 
   @override
   State<Investigate> createState() => _InvestigateState();
@@ -212,10 +224,12 @@ class Investigate extends StatefulWidget {
 class _InvestigateState extends State<Investigate> {
   InvestigateData? _d;
   bool _loading = true;
+  String? _day;
 
   @override
   void initState() {
     super.initState();
+    _day = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -231,11 +245,20 @@ class _InvestigateState extends State<Investigate> {
       return;
     }
     try {
-      final d = await InvestigateData.load(repo, widget.metricKey);
+      final d =
+          await InvestigateData.load(repo, widget.metricKey, want: _day);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _loading = true;
+    });
+    _load();
   }
 
   @override
@@ -245,6 +268,7 @@ class _InvestigateState extends State<Investigate> {
     final hrvish = widget.metricKey == 'hrv' || widget.metricKey == 'rmssd_whole';
 
     return detailScaffold(c, spec.title, sub: 'NERD STATS', [
+      ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),

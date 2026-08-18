@@ -67,6 +67,9 @@ class BeatsData {
   /// screen has most available to it.
   final String? day;
 
+  /// Every derived day, newest first — what [DayNav] steers over.
+  final List<String> days;
+
   /// Cleaned NN intervals for [day]'s sleep window, and what they cost.
   /// Empty once the raw records are pruned; that is a steady state, not a bug.
   final List<double> nn;
@@ -105,6 +108,7 @@ class BeatsData {
 
   const BeatsData({
     this.day,
+    this.days = const [],
     this.nn = const [],
     this.rawBeats = 0,
     this.cleanFraction = 0,
@@ -122,12 +126,12 @@ class BeatsData {
     this.deviceFamily,
   });
 
-  static Future<BeatsData> load(LocalRepository repo) async {
+  static Future<BeatsData> load(LocalRepository repo, {String? want}) async {
     final today = await repo.getToday();
-    var day = (today['status'] as Map?)?['today_day']?.toString();
     final days = await repo.availableDays();
-    if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
-    if (day == null) return const BeatsData();
+    final day = pickDay(
+        days, want, (today['status'] as Map?)?['today_day']?.toString());
+    if (day == null) return BeatsData(days: days);
 
     final hrv = await repo.getDayHrv(day);
     final heart = await repo.getDayHeart(day);
@@ -137,6 +141,7 @@ class BeatsData {
 
     return BeatsData(
       day: day,
+      days: days,
       nn: beats.nn,
       rawBeats: beats.rawBeats,
       cleanFraction: beats.cleanFraction,
@@ -183,7 +188,11 @@ class BeatsData {
 /// place you walk to, and there is no sixth tab.
 class Beats extends StatefulWidget {
   final BeatsData? data;
-  const Beats({super.key, this.data});
+
+  /// The night to open. Null means the newest derived one.
+  final String? day;
+
+  const Beats({super.key, this.data, this.day});
 
   @override
   State<Beats> createState() => _BeatsState();
@@ -192,10 +201,12 @@ class Beats extends StatefulWidget {
 class _BeatsState extends State<Beats> {
   BeatsData? _d;
   bool _loading = true;
+  String? _day;
 
   @override
   void initState() {
     super.initState();
+    _day = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -211,11 +222,19 @@ class _BeatsState extends State<Beats> {
       return;
     }
     try {
-      final d = await BeatsData.load(repo);
+      final d = await BeatsData.load(repo, want: _day);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _loading = true;
+    });
+    _load();
   }
 
   @override
@@ -225,6 +244,7 @@ class _BeatsState extends State<Beats> {
       c,
       'Beats',
       [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
         if (_loading)
           const Padding(
             padding: EdgeInsets.only(top: S.x8),

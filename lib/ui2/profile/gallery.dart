@@ -32,6 +32,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../coach/coach_config.dart';
+import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
@@ -110,6 +111,17 @@ const _ringsHeldOver = HomeData(
   sleepMin: Metric(
       value: 322, unit: 'min', confidence: .8, tier: MetricTier.estimate),
 );
+
+/// Newest first, the shape `availableDays()` returns. Today leads it so the
+/// stepper's "Today" state can be photographed; the rest are FIXED dates,
+/// because a golden whose label is `DateTime.now()` fails tomorrow morning.
+final _navDays = [
+  todayLabel(),
+  '2026-05-20',
+  '2026-05-19',
+  '2026-05-18',
+  '2026-05-17',
+];
 
 const _night = <SleepStage>[
   ...[SleepStage.awake, SleepStage.light, SleepStage.light, SleepStage.deep],
@@ -223,6 +235,16 @@ Map<String, Widget> goldenCases() => {
           const ['Today', 'Sleep', 'Recovery', 'Strain'], 1, (_) {},
           color: C.domHealth),
       'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
+      // The stepper every single-day screen wears. Shot mid-history, where
+      // both arrows are live and the middle opens the calendar — the state a
+      // user spends all their time in once there is more than a week on disk.
+      'day_nav': DayNav(
+          day: _navDays[2], days: _navDays, onDay: (_) {}),
+      // The newest day: forward is dead, and the label reads Today rather than
+      // a date. Both halves of that are the honesty — there is no day after
+      // this one, and saying so beats a live arrow that does nothing.
+      'day_nav_today': DayNav(
+          day: _navDays.first, days: _navDays, onDay: (_) {}),
       'section': const Section('Recovery', StatusCard('Nothing yet today',
           'The first sync of the day has not landed.'),
           action: 'History'),
@@ -948,6 +970,9 @@ Map<String, Widget> _stateCases() => {
           const ['Today', '7 days', '30 days', '6 months', 'Year'], 0, (_) {},
           color: C.domHealth),
       'nav_bar_no_sub': const NavBar('Component gallery'),
+      // The oldest day on disk — back is dead, forward is live.
+      'day_nav_oldest': DayNav(
+          day: _navDays.last, days: _navDays, onDay: (_) {}),
       'section_no_action': const Section(
           'Recovery', StatusCard('Nothing yet today', '')),
       'inline_metrics_two': const InlineMetrics([

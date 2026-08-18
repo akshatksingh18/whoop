@@ -126,6 +126,11 @@ String _capitalise(String s) =>
 
 class SleepData {
   final String? day;
+
+  /// Every day this install has derived, newest first — what [DayNav] steers
+  /// over. Empty in a fixture, which is why a golden shows no stepper.
+  final List<String> days;
+
   final Map<String, dynamic> night;
   final Map<String, dynamic> timeline;
   final Metric need, debt, bedtime;
@@ -150,6 +155,7 @@ class SleepData {
 
   const SleepData({
     this.day,
+    this.days = const [],
     this.night = const {},
     this.timeline = const {},
     this.need = Metric.empty,
@@ -219,18 +225,20 @@ class SleepData {
     return null;
   }
 
-  static Future<SleepData> load(LocalRepository repo) async {
+  static Future<SleepData> load(LocalRepository repo, {String? want}) async {
     final today = await repo.getToday();
     // THE NIGHT `getToday` ACTUALLY SERVED. Home's Sleep card is that night, so
     // tapping it has to open that night. Resolving on `today_day` alone opened
     // a day that has a day_result but no night — wear the band all day with it
     // off overnight and the card said "7h 04m" while this screen answered "No
     // night to show" about the same tap.
-    var day = heldOverNightOf(today) ??
-        (today['status'] as Map?)?['today_day']?.toString();
     final days = await repo.availableDays();
-    if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
-    if (day == null) return const SleepData();
+    final day = pickDay(
+        days,
+        want,
+        heldOverNightOf(today) ??
+            (today['status'] as Map?)?['today_day']?.toString());
+    if (day == null) return SleepData(days: days);
 
     final night = await repo.getDaySleepV2(day);
     final timeline = await repo.getDayTimeline(day);
@@ -266,6 +274,7 @@ class SleepData {
 
     return SleepData(
       day: day,
+      days: days,
       night: night,
       timeline: timeline,
       need: envMetric(needEnv, needSec == null ? null : needSec / 60, unit: 'min'),
@@ -286,7 +295,12 @@ class SleepData {
 
 class SleepDetail extends StatefulWidget {
   final SleepData? data;
-  const SleepDetail({super.key, this.data});
+
+  /// The night to open. Null means last night — which is what every caller
+  /// passed before this existed and what the stepper starts from.
+  final String? day;
+
+  const SleepDetail({super.key, this.data, this.day});
 
   @override
   State<SleepDetail> createState() => _SleepDetailState();
@@ -295,6 +309,7 @@ class SleepDetail extends StatefulWidget {
 class _SleepDetailState extends State<SleepDetail> {
   SleepData? _d;
   bool _loading = true;
+  String? _day;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
 
@@ -304,6 +319,7 @@ class _SleepDetailState extends State<SleepDetail> {
   @override
   void initState() {
     super.initState();
+    _day = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -319,11 +335,22 @@ class _SleepDetailState extends State<SleepDetail> {
       return;
     }
     try {
-      final d = await SleepData.load(repo);
+      final d = await SleepData.load(repo, want: _day);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Another night. The scrub cursor belongs to the night it was placed on, so
+  /// it goes with it.
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _scrub = null;
+      _loading = true;
+    });
+    _load();
   }
 
   @override
@@ -339,7 +366,12 @@ class _SleepDetailState extends State<SleepDetail> {
 
     if (!d.hasNight) {
       return detailScaffold(c, 'Sleep', [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
+        // A day CAN be in `availableDays` and still hold no night — the band
+        // was worn through the day and off overnight. Stepping onto one of
+        // those says so and leaves the stepper above it, so it is a day you
+        // walk off rather than a dead end.
         const StatusCard(
           'No night to show',
           'No stretch of band recordings long enough to score.',
@@ -354,6 +386,8 @@ class _SleepDetailState extends State<SleepDetail> {
     final unusual = _unusual(c, p, d, n);
 
     return detailScaffold(c, 'Sleep', sub: (d.day ?? '').toUpperCase(), [
+      ...dayNavRow(_day ?? d.day, d.days, _goDay),
+
       // ── 1 · THE ANSWER ──
       _answer(c, p, d, n),
 

@@ -12,12 +12,14 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../ui2.dart';
 import 'beats.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
+import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
 
@@ -428,6 +430,11 @@ class _MetricDetailState extends State<MetricDetail> {
   MetricData? _d;
   bool _loading = true;
 
+  /// The slot the user has put a finger on, as an index into the DENSE window.
+  /// Null until they touch the chart. A window change clears it: slot 12 of a
+  /// 30-day window is not slot 12 of a year.
+  int? _pick;
+
   /// How many range buttons this install has data behind.
   ///
   /// Nothing prunes the derived series, so the honest horizon is the life of
@@ -457,7 +464,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final note = _lockedNote(d);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SubTabs(_labels.sublist(0, n), _range.clamp(0, n - 1),
-          (i) => setState(() => _range = i),
+          (i) => setState(() => (_range = i, _pick = null)),
           color: color),
       if (note != null) ...[
         const SizedBox(height: S.x2),
@@ -674,20 +681,37 @@ class _MetricDetailState extends State<MetricDetail> {
             // The dots are already beside the big number two rows up; twice on
             // one card reads as two different claims.
             series: series,
-            child: CustomPaint(
-              size: Size.infinite,
-              // Fill only when the axis genuinely starts at zero. Shaded to a
-              // baseline of 52 bpm, a 52→60 week reads as a mountain — the
-              // truncated-axis form with the truncation hidden.
-              painter: LineChart(series, p.on(spec.color),
-                  fill: axis?.min == 0,
-                  dots: series.length <= 40,
-                  t: animate(c, 1),
-                  dotInk: p.card,
-                  axis: axis),
+            // TOUCHING A POINT OPENS THAT DAY.
+            //
+            // This chart will draw the night somebody's sleep collapsed and
+            // there was no way into it: every single-day screen resolved the
+            // newest day and stopped. A slot with a value came out of
+            // `metric_series`, which gets a row only on a day that DERIVED, so
+            // a non-null slot is by construction a day this install can open —
+            // no membership check, and a null slot offers no door.
+            child: Scrubber(
+              value: _pick == null ? null : (_pick! + .5) / series.length,
+              step: 1 / series.length,
+              label: spec.title,
+              describe: (v) => _slotSays(spec, series, _slotAt(v, series.length)),
+              onChanged: (v) =>
+                  setState(() => _pick = _slotAt(v, series.length)),
+              child: CustomPaint(
+                size: Size.infinite,
+                // Fill only when the axis genuinely starts at zero. Shaded to
+                // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
+                // truncated-axis form with the truncation hidden.
+                painter: LineChart(series, p.on(spec.color),
+                    fill: axis?.min == 0,
+                    dots: series.length <= 40,
+                    t: animate(c, 1),
+                    dotInk: p.card,
+                    axis: axis),
+              ),
             ),
           );
         }),
+        if (_pick != null) _picked(c, spec, series),
         // L4 — the coverage denominator, under the curve it belongs to.
         //
         // Deliberately unflattering, and gated to the ranges where it changes
@@ -730,6 +754,89 @@ class _MetricDetailState extends State<MetricDetail> {
       ]),
     );
   }
+
+  // ── a point on the chart is a day you can open ──────────────────────────
+
+  /// A 0…1 position along the plot as a slot index into the dense window.
+  int _slotAt(double v, int len) =>
+      len <= 0 ? 0 : (v * len).floor().clamp(0, len - 1);
+
+  /// The calendar day a dense slot stands for. Slot `len - 1` is today and
+  /// slot 0 is `len - 1` days behind it — the same arithmetic [denseDays] fills
+  /// with, walked through [DateTime]'s own calendar so the two days a year that
+  /// are 23 or 25 hours long land on the right date.
+  String _dayOfSlot(int i, int len) {
+    final n = DateTime.now();
+    return dayLabelOf(DateTime(n.year, n.month, n.day - (len - 1 - i)));
+  }
+
+  /// What the slider reads out. The value, or the fact that the day is a hole.
+  String _slotSays(MetricSpec spec, List<double?> series, int i) {
+    final day = prettyDay(_dayOfSlot(i, series.length));
+    final v = series[i];
+    return v == null
+        ? '$day, no record'
+        : '$day, ${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight();
+  }
+
+  /// The touched day, and the door into it.
+  ///
+  /// A day with a value is a day that derived, so the door always leads
+  /// somewhere. A day with no value says so and offers nothing — an action
+  /// button is a promise, and there is no screen behind an empty day.
+  Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
+    final p = P.of(c);
+    final i = _pick!.clamp(0, series.length - 1);
+    final day = _dayOfSlot(i, series.length);
+    final v = series[i];
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x3),
+      child: Surface(
+        color: p.card2,
+        elevation: 0,
+        onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
+        semanticLabel: v == null
+            ? '${prettyDay(day)}, no record'
+            : 'Open ${prettyDay(day)}',
+        child: Row(children: [
+          Expanded(
+            child: Text(dayNavLabel(day),
+                style:
+                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
+          const SizedBox(width: S.x3),
+          Text(
+            v == null
+                ? 'No record'
+                : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
+            style: v == null
+                ? F.cap.copyWith(color: p.ink3)
+                : F.n17.copyWith(color: p.ink),
+          ),
+          if (v != null) ...[
+            const SizedBox(width: S.x2),
+            Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  /// Where a day opens. Each metric lands on the screen that actually shows
+  /// that day — Nerd stats is the fallback because it is the one screen that
+  /// exists for every key.
+  Widget _dayScreen(String key, String day) => switch (key) {
+        'sleep' ||
+        'deep' ||
+        'rem' ||
+        'efficiency' =>
+          SleepDetail(day: day),
+        'hrv' => Beats(day: day),
+        'steps' => DayStepsDetail(day: day),
+        _ => Investigate(key, day: day),
+      };
 
   /// [latestTs] is the stamp on the newest STORED point — the day the rank was
   /// computed for. `metric_series` gets a row only on a day that derives and
@@ -857,6 +964,133 @@ Widget detailScaffold(BuildContext c, String title, List<Widget> body,
     ),
   );
 }
+
+// ═══════════════════ which day a detail screen is showing ═══════════════════
+//
+// Nothing prunes `day_result`, so an install holds every day it has ever
+// derived — and until this existed every single-day screen resolved `days.first`
+// and stopped there. The chart on this screen would happily draw the night
+// somebody's sleep collapsed and offer no way into it.
+
+/// The day a single-day screen should load: the one it was OPENED with when
+/// that day exists, else the screen's own idea of now, else the newest day on
+/// disk.
+///
+/// [want] is the day the caller asked for and [prefer] the screen's own
+/// resolution (`today_day`, a held-over night). With no [want] this is exactly
+/// what every loader did inline, which is why passing no day changes nothing.
+String? pickDay(List<String> days, String? want, [String? prefer]) {
+  final d = want ?? prefer;
+  // No derived days at all: there is nothing to fall back TO, so the caller's
+  // own answer stands or the screen renders its absence.
+  if (days.isEmpty) return d;
+  if (d != null && days.contains(d)) return d;
+  return days.first;
+}
+
+/// 'Today' when it is, otherwise the day itself. Never "N days ago" — a
+/// control you steer with needs the name of the place, not the distance to it.
+String dayNavLabel(String? day) =>
+    (_dayBehind(day) ?? 1) <= 0 ? 'Today' : prettyDay(day);
+
+int? _dayBehind(String? dayId) {
+  final d = dayId == null ? null : DateTime.tryParse(dayId);
+  return d == null ? null : calendarDaysBetween(d, DateTime.now());
+}
+
+/// The calendar, restricted to the days that exist. A picker that offers an
+/// empty day is a dead end, so [days] greys out everything it does not contain.
+Future<String?> chooseDay(
+    BuildContext c, List<String> days, String? current) async {
+  if (days.isEmpty) return null;
+  final have = days.toSet();
+  final sorted = [...days]..sort(); // oldest → newest
+  final first = DateTime.parse(sorted.first);
+  final last = DateTime.parse(sorted.last);
+  final want = DateTime.tryParse(current ?? '') ?? last;
+  final picked = await showDatePicker(
+    context: c,
+    initialDate: want.isBefore(first) ? first : (want.isAfter(last) ? last : want),
+    firstDate: first,
+    lastDate: last,
+    selectableDayPredicate: (d) => have.contains(dayLabelOf(d)),
+    helpText: 'Choose a day',
+  );
+  return picked == null ? null : dayLabelOf(picked);
+}
+
+/// The day stepper every single-day screen wears under its nav bar.
+///
+/// [days] is `availableDays()` — NEWEST FIRST, and only days that derived. Both
+/// arrows and the picker walk that list, so there is no way to steer onto a day
+/// this install has no record of. With fewer than two days there is nowhere to
+/// go and the control renders nothing rather than two dead arrows.
+class DayNav extends StatelessWidget {
+  final String? day;
+  final List<String> days;
+  final ValueChanged<String> onDay;
+
+  const DayNav({
+    super.key,
+    required this.day,
+    required this.days,
+    required this.onDay,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    if (days.length < 2) return const SizedBox.shrink();
+    final p = P.of(c);
+    final i = days.indexOf(day ?? '');
+    // days is newest first: the OLDER day is further down the list.
+    final older = i < 0 ? days.first : (i + 1 < days.length ? days[i + 1] : null);
+    final newer = i > 0 ? days[i - 1] : null;
+
+    Widget arrow(IconData icon, String label, String? to) => Opacity(
+          opacity: to == null ? .35 : 1,
+          child: Pressable(
+            onTap: to == null ? null : () => onDay(to),
+            semanticLabel: label,
+            child: Icon(icon, size: 20, color: p.ink),
+          ),
+        );
+
+    return Container(
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      child: Row(children: [
+        arrow(LucideIcons.chevronLeft, 'Previous day', older),
+        Expanded(
+          child: Pressable(
+            onTap: () async {
+              final picked = await chooseDay(c, days, day);
+              if (picked != null && picked != day) onDay(picked);
+            },
+            semanticLabel: 'Choose a day. Showing ${dayNavLabel(day)}',
+            child: Text(
+              dayNavLabel(day),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        arrow(LucideIcons.chevronRight, 'Next day', newer),
+      ]),
+    );
+  }
+}
+
+/// [DayNav] and the gap under it, spread into a `detailScaffold` body — or
+/// nothing at all when there is only one day to look at.
+List<Widget> dayNavRow(
+        String? day, List<String> days, ValueChanged<String> onDay) =>
+    days.length < 2
+        ? const []
+        : [
+            DayNav(day: day, days: days, onDay: onDay),
+            const SizedBox(height: S.x3),
+          ];
 
 /// A plain door onto another screen. Deliberately quiet: a doorway is not a
 /// card, and a metric screen that grows a second loud card stops having a

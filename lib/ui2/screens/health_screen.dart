@@ -127,26 +127,32 @@ class VitalsData {
   /// loader falls back to the newest one there is, which is routinely days ago
   /// — and every row was captioned "Today" regardless.
   final String? day;
+
+  /// Every derived day, newest first — what [DayNav] steers over.
+  final List<String> days;
+
   final Map<String, dynamic> timeline, lungs, wear, hrv;
   const VitalsData({
     this.day,
+    this.days = const [],
     this.timeline = const {},
     this.lungs = const {},
     this.wear = const {},
     this.hrv = const {},
   });
 
-  static Future<VitalsData> load(LocalRepository repo) async {
+  static Future<VitalsData> load(LocalRepository repo, {String? want}) async {
     final today = await repo.getToday();
-    var day = (today['status'] as Map?)?['today_day']?.toString();
     final days = await repo.availableDays();
-    if (days.isNotEmpty && (day == null || !days.contains(day))) day = days.first;
-    if (day == null) return const VitalsData();
+    final day = pickDay(
+        days, want, (today['status'] as Map?)?['today_day']?.toString());
+    if (day == null) return VitalsData(days: days);
     final timeline = await repo.getDayTimeline(day);
     return VitalsData(
       // The repository stamps the bundle it actually served; prefer it over the
       // day we asked for, which is what its own comment says to do.
       day: timeline['date']?.toString() ?? day,
+      days: days,
       timeline: timeline,
       lungs: await repo.getDayLungs(day),
       wear: await repo.getDayWear(day),
@@ -362,15 +368,24 @@ class _HealthScreenState extends State<HealthScreen> {
   /// all, whatever the old comment here said.
   bool _vFailed = false, _lFailed = false, _eFailed = false;
 
-  Future<void> _loadVitals() async {
+  /// The day the Vitals tab is showing, once the user has steered off the
+  /// default. Null means "whatever the loader resolves", which is today.
+  String? _vDay;
+
+  Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
-    if (repo == null || _v != null) return;
+    if (repo == null || (_v != null && !force)) return;
     try {
-      final v = await VitalsData.load(repo);
+      final v = await VitalsData.load(repo, want: _vDay);
       if (mounted) setState(() => (_v = v, _vFailed = false));
     } catch (_) {
       if (mounted) setState(() => _vFailed = true);
     }
+  }
+
+  void _goVitalsDay(String day) {
+    setState(() => _vDay = day);
+    _loadVitals(force: true);
   }
 
   Future<void> _loadLabs() async {
@@ -841,6 +856,7 @@ class _HealthScreenState extends State<HealthScreen> {
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ...dayNavRow(_vDay ?? v.day, v.days, _goVitalsDay),
       if (rows.isEmpty)
         StatusCard(
           'Nothing measured for this day',

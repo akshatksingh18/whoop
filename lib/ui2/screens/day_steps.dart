@@ -36,8 +36,9 @@ import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../activity/catalogue.dart' show activityByName;
 import '../ui2.dart';
-import 'home_screen.dart' show clockOfTs, repoOf, thousands;
-import 'metric_detail.dart' show detailScaffold;
+import 'home_screen.dart' show clockOfTs, prettyDay, repoOf, thousands;
+import 'metric_detail.dart'
+    show dayNavLabel, dayNavRow, detailScaffold, pickDay;
 
 /// One resolved stretch of the day.
 class DayStepSpan {
@@ -62,6 +63,8 @@ class DayStepSpan {
 
 class DayStepsData {
   const DayStepsData({
+    this.day,
+    this.days = const [],
     this.spans = const [],
     this.total = 0,
     this.strap = 0,
@@ -76,6 +79,11 @@ class DayStepsData {
   /// said which generation it is this process — either way, naming a model we
   /// were not told is a guess.
   static const _defaultBand = 'Your band';
+
+  /// The day these spans belong to, and every derived day this install has —
+  /// newest first, which is what [DayNav] steers over.
+  final String? day;
+  final List<String> days;
 
   final List<DayStepSpan> spans;
 
@@ -101,9 +109,14 @@ class DayStepsData {
   static Future<DayStepsData> load(
     LocalRepository repo, {
     String bandLabel = _defaultBand,
+    String? want,
   }) async {
-    final d = await repo.getDaySteps(todayLabel());
+    final days = await repo.availableDays();
+    final day = pickDay(days, want, todayLabel()) ?? todayLabel();
+    final d = await repo.getDaySteps(day);
     return DayStepsData(
+      day: day,
+      days: days,
       spans: [
         for (final s in (d['spans'] as List? ?? const []))
           if (s is Map &&
@@ -219,7 +232,11 @@ List<DayStepSpan> mergeAdjacent(List<DayStepSpan> spans) {
 class DayStepsDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
   final DayStepsData? data;
-  const DayStepsDetail({super.key, this.data});
+
+  /// The day to open. Null means today.
+  final String? day;
+
+  const DayStepsDetail({super.key, this.data, this.day});
 
   @override
   State<DayStepsDetail> createState() => _DayStepsDetailState();
@@ -228,10 +245,12 @@ class DayStepsDetail extends StatefulWidget {
 class _DayStepsDetailState extends State<DayStepsDetail> {
   DayStepsData? _d;
   bool _loading = true;
+  String? _day;
 
   @override
   void initState() {
     super.initState();
+    _day = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -247,18 +266,28 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
       return;
     }
     try {
-      final d = await DayStepsData.load(repo, bandLabel: bandLabel(context));
+      final d = await DayStepsData.load(repo,
+          bandLabel: bandLabel(context), want: _day);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _loading = true;
+    });
+    _load();
+  }
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final d = _d ?? const DayStepsData();
-    return detailScaffold(c, 'Steps', sub: 'TODAY', [
+    return detailScaffold(c, 'Steps', [
+      ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -279,14 +308,19 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     // tile's 6,000 would be false, so the absence this card names is the one
     // that is real — the times.
     final chip = d.daySource == 'strap_counter' && (d.dayTotal ?? 0) > 0;
+    // The day this card is about, named. It used to say "today" on a screen
+    // that could only ever be today; now it can be any day on disk.
+    final when = dayNavLabel(d.day) == 'Today'
+        ? 'today'
+        : 'on ${prettyDay(d.day)}';
     return StatusCard(
-      chip ? 'No times behind today\'s count' : 'No steps counted today',
+      chip ? 'No times behind the count $when' : 'No steps counted $when',
       chip
-          ? 'Today\'s ${thousands(d.dayTotal)} steps came from the strap\'s own '
-                'step counter, which reports a running day total and no times. '
-                'There is nothing to place on a clock.'
+          ? 'The ${thousands(d.dayTotal)} steps counted $when came from the '
+                'strap\'s own step counter, which reports a running day total '
+                'and no times. There is nothing to place on a clock.'
           : whyFromNote(d.note, unit: 'days') ??
-                'Nothing that can count steps has recorded today.',
+                'Nothing that can count steps recorded $when.',
       icon: chip ? LucideIcons.watch : LucideIcons.footprints,
     );
   }

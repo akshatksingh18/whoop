@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:openstrap_edge/notify/notification_prefs.dart';
+import 'package:openstrap_edge/platform/app_icon.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/splash.dart';
@@ -92,6 +93,13 @@ Map<String, Widget> _cases() => {
       'device_detail': DeviceDetailView(_band, onFind: () {}, onForget: () {}),
       'more_settings': const MoreSettingsView(
           units: 'Metric', appearance: 'Dark', phoneSteps: true),
+      // The icon row appears only where the OS will actually change the icon,
+      // so the default case above is drawn without it — this is the iOS one.
+      'more_settings_icon': const MoreSettingsView(
+          units: 'Metric',
+          appearance: 'Dark',
+          phoneSteps: true,
+          appIcon: AppIconChoice.colourful),
       // The alarm's three confirmation states are the point of the screen: it
       // must not draw a confident tick over an alarm the band never
       // acknowledged.

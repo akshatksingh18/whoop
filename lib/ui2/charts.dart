@@ -1112,3 +1112,111 @@ class NightStack extends CustomPainter {
   bool shouldRepaint(covariant NightStack o) =>
       o.series != series || o.axes != axes;
 }
+
+/// The context behind a day's curve: when you were asleep, when you worked
+/// out, when you were moving, and when nothing was recorded at all.
+///
+/// Every position here is a FRACTION of the plot's x range, so this shares
+/// whatever time base the curve drawn over it uses and cannot drift from it —
+/// which is the whole point of a day view. Nothing it draws is measured
+/// against the y axis: the rest bands are full height, the workout blocks sit
+/// on the top edge and the movement strip has its own fixed floor at the
+/// bottom. The axis the frame labels stays the curve's alone.
+///
+/// A GAP AND A ZERO ARE NOT THE SAME MARK. A stretch with no measurement in it
+/// changes the GROUND — it is a different surface, not a low value — and a
+/// minute that was watched and was still keeps the hairline at the foot of the
+/// movement strip. Without that line an hour sitting at a desk and an hour
+/// with the band on the charger drew identically.
+class DayLanes extends CustomPainter {
+  /// Stretches with nothing recorded in them, as (from, to) fractions.
+  final List<(double, double)> gaps;
+
+  /// Asleep, and naps. A full-height tint, behind everything.
+  final List<(double, double, Color)> rest;
+
+  /// Workouts, as a block on the top edge — parallel to the clock and out of
+  /// the curve's way.
+  final List<(double, double, Color)> work;
+
+  /// One entry per slot of the same time base the caller drew the curve on:
+  /// 0…1 for the share of that slot spent moving, `null` where nothing was
+  /// recorded. A FIXED scale, so a full-height bar always means the same
+  /// thing and a quiet day cannot rescale itself into a dramatic one.
+  final List<double?> movement;
+
+  /// The surface's palette — the ground colour and the solved inks.
+  final P p;
+
+  DayLanes({
+    required this.p,
+    this.gaps = const [],
+    this.rest = const [],
+    this.work = const [],
+    this.movement = const [],
+  });
+
+  /// Height of the movement strip, and of the workout blocks.
+  static const _strip = 16.0, _block = 5.0;
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    double x(double f) => f.clamp(0.0, 1.0) * s.width;
+
+    for (final (a, b) in gaps) {
+      final l = x(a), r = x(b);
+      if (r - l < .5) continue;
+      cv.drawRect(Rect.fromLTRB(l, 0, r, s.height), Paint()..color = p.card2);
+    }
+    for (final (a, b, col) in rest) {
+      final l = x(a), r = x(b);
+      if (r - l < .5) continue;
+      cv.drawRect(
+        Rect.fromLTRB(l, 0, r, s.height),
+        Paint()..color = col.withValues(alpha: p.dark ? .20 : .13),
+      );
+    }
+
+    if (movement.isNotEmpty) {
+      // Same aggregation the bar chart uses: a column of nothing stays
+      // nothing, and a column of zeroes stays a zero.
+      final v = Bars._columns(
+          movement, (s.width / 2.5).floor().clamp(1, movement.length));
+      final cw = s.width / v.length;
+      final ink = p.on(C.domMove);
+      final watched = Paint()..color = ink.withValues(alpha: .40);
+      for (var i = 0; i < v.length; i++) {
+        final m = v[i];
+        if (m == null || !m.isFinite) continue;
+        cv.drawRect(
+            Rect.fromLTWH(i * cw, s.height - 1, cw + .5, 1), watched);
+        final h = m.clamp(0.0, 1.0) * _strip;
+        if (h <= 0) continue;
+        cv.drawRect(
+          Rect.fromLTWH(i * cw, s.height - h, max(cw - .5, 1), h),
+          Paint()..color = ink,
+        );
+      }
+    }
+
+    for (final (a, b, col) in work) {
+      final l = x(a), r = x(b);
+      cv.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(l, 0, max(r - l, 2), _block),
+          const Radius.circular(2),
+        ),
+        Paint()..color = col,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant DayLanes o) =>
+      o.gaps != gaps ||
+      o.rest != rest ||
+      o.work != work ||
+      o.movement != movement ||
+      o.p.dark != p.dark;
+}

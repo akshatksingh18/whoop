@@ -27,6 +27,7 @@ import '../../notify/notification_center.dart';
 import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
+import '../../platform/app_icon.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
@@ -72,10 +73,32 @@ class _MoreSettingsState extends State<MoreSettings> {
   String _version = '';
   int _taps = 0;
 
+  /// The home-screen icon, asked of the OS rather than stored — see
+  /// lib/platform/app_icon.dart. Null until the answer arrives, and the row is
+  /// not drawn at all where the OS cannot change it.
+  AppIconChoice? _icon;
+
   @override
   void initState() {
     super.initState();
     _readVersion();
+    _readIcon();
+  }
+
+  Future<void> _readIcon() async {
+    if (!await AppIcon.available()) return;
+    final now = await AppIcon.current();
+    if (mounted) setState(() => _icon = now);
+  }
+
+  /// iOS puts up its own confirmation alert, so there is nothing to confirm
+  /// here — but it can also be refused, and a refused change must not be drawn
+  /// as if it happened. The row re-reads the OS either way.
+  Future<void> _pickIcon(AppIconChoice choice) async {
+    if (choice == _icon) return;
+    await AppIcon.set(choice);
+    final now = await AppIcon.current();
+    if (mounted) setState(() => _icon = now);
   }
 
   Future<void> _readVersion() async {
@@ -111,6 +134,8 @@ class _MoreSettingsState extends State<MoreSettings> {
       onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
       appearance: theme.choice.label,
+      appIcon: _icon,
+      onPickIcon: _pickIcon,
       phoneSteps: app.phoneStepsEnabled,
       telemetry: app.telemetryConsent,
       barcodeLookup: _barcode,
@@ -150,6 +175,92 @@ class _MoreSettingsState extends State<MoreSettings> {
       onToggleUpdateChecks: () =>
           app.setUpdateChecksEnabled(!app.updateChecksEnabled),
       onReset: () => _confirmReset(c, app),
+    );
+  }
+}
+
+/// Pick the home-screen icon, with both options drawn so the choice is made by
+/// looking rather than by reading a word.
+///
+/// Not a [SetRow]: a cycling value row would flip the icon on every tap, and
+/// each flip on iOS is a system confirmation alert. Two targets, one tap, no
+/// wrong taps to undo.
+class _IconRow extends StatelessWidget {
+  final AppIconChoice chosen;
+  final ValueChanged<AppIconChoice>? onPick;
+
+  const _IconRow({required this.chosen, this.onPick});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: Row(children: [
+        Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          decoration:
+              BoxDecoration(color: p.wash(C.indigo), borderRadius: R.rSm),
+          child: Icon(LucideIcons.image, size: 16, color: p.on(C.indigo)),
+        ),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Icon', style: F.body.copyWith(color: p.ink)),
+            // The cost, stated where the choice is made. iOS shows its own
+            // alert on every change and there is no way to turn that off.
+            Text('iPhone will ask you to confirm',
+                style: F.over.copyWith(color: p.ink3)),
+          ]),
+        ),
+        const SizedBox(width: S.x2),
+        for (final choice in AppIconChoice.values) ...[
+          if (choice != AppIconChoice.values.first) const SizedBox(width: S.x2),
+          _IconChoice(
+            choice: choice,
+            selected: choice == chosen,
+            onTap: onPick == null ? null : () => onPick!(choice),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+class _IconChoice extends StatelessWidget {
+  final AppIconChoice choice;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _IconChoice(
+      {required this.choice, required this.selected, this.onTap});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // Decoded at the size it is drawn at: the source is the 1024 px launcher
+    // master, and decoding that in full to paint a 36 pt thumbnail is 4 MB of
+    // bitmap per option.
+    final px = (36 * MediaQuery.devicePixelRatioOf(c)).round();
+    return Pressable(
+      onTap: onTap,
+      semanticLabel:
+          '${choice.label} icon.${selected ? ' Selected.' : ''}',
+      child: Container(
+        padding: const EdgeInsets.all(S.x1 / 2),
+        decoration: BoxDecoration(
+          borderRadius: R.rMd,
+          border: Border.all(
+              color: selected ? p.on(C.indigo) : p.line, width: selected ? 2 : 1),
+        ),
+        child: ClipRRect(
+          borderRadius: R.rSm,
+          child: Image.asset(choice.asset,
+              width: 36, height: 36, cacheWidth: px, cacheHeight: px),
+        ),
+      ),
     );
   }
 }
@@ -321,6 +432,12 @@ class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
   final bool phoneSteps, telemetry, barcodeLookup;
 
+  /// The home-screen icon, or null where the OS will not change it — Android,
+  /// and the managed iOS configurations that refuse. Null means the row is not
+  /// drawn: a control that cannot do its one job is worse than no control.
+  final AppIconChoice? appIcon;
+  final ValueChanged<AppIconChoice>? onPickIcon;
+
   /// The health-contribution row appears only where it means something: a
   /// build that has the feature, or an install that already said yes to it.
   final bool showHealthShare, healthShare;
@@ -369,6 +486,8 @@ class MoreSettingsView extends StatelessWidget {
     super.key,
     this.units = 'Metric',
     this.appearance = 'System',
+    this.appIcon,
+    this.onPickIcon,
     this.phoneSteps = false,
     this.healthSync = false,
     this.healthState = HealthLinkState.unknown,
@@ -449,6 +568,8 @@ class MoreSettingsView extends StatelessWidget {
                       value: units, onTap: onCycleUnits),
                   SetRow(LucideIcons.sun, C.yellow, 'Appearance',
                       value: appearance, onTap: onCycleAppearance),
+                  if (appIcon != null)
+                    _IconRow(chosen: appIcon!, onPick: onPickIcon),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.download, C.green, 'Export, backup, import',

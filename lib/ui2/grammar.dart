@@ -37,6 +37,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../data/journal_fields.dart' show formatMinuteOfDay;
 import '../models/metric.dart';
 import 'charts.dart';
+import 'scroll_hint.dart';
 import 'theme.dart';
 
 /// ── PRESSABLE ── the only gesture primitive in lib/ui2 ────────────────────
@@ -1613,33 +1614,39 @@ class SubTabs extends StatelessWidget {
     final p = P.of(c);
     return SizedBox(
       height: MediaQuery.textScalerOf(c).scale(S.tap),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: S.x2),
-        itemBuilder: (_, i) {
-          final on = i == index;
-          return Pressable(
-            onTap: () => onTap(i),
-            child: AnimatedContainer(
-              duration: motion(c, Motion.base),
-              constraints: const BoxConstraints(minWidth: S.tap),
-              padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: on ? p.wash(color) : const Color(0x00000000),
-                borderRadius: R.rPill,
-              ),
-              child: Text(
-                items[i],
-                style: F.cap.copyWith(
-                  color: on ? p.on(color) : p.ink3,
-                  fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+      // The fifth tab is off the edge on every phone we ship to — at 360 pt
+      // it is entirely off-screen in both tab sets, and above 1.0x text every
+      // set overflows even a 430 pt screen. ScrollHint draws nothing at all
+      // while the row fits, and scales with how much is left to scroll.
+      child: ScrollHint(
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(width: S.x2),
+          itemBuilder: (_, i) {
+            final on = i == index;
+            return Pressable(
+              onTap: () => onTap(i),
+              child: AnimatedContainer(
+                duration: motion(c, Motion.base),
+                constraints: const BoxConstraints(minWidth: S.tap),
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: on ? p.wash(color) : const Color(0x00000000),
+                  borderRadius: R.rPill,
+                ),
+                child: Text(
+                  items[i],
+                  style: F.cap.copyWith(
+                    color: on ? p.on(color) : p.ink3,
+                    fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

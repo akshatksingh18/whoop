@@ -41,6 +41,7 @@ import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'coach.dart';
+import 'day_timeline.dart' show DayTimelineScreen;
 import 'metric_detail.dart';
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -1329,6 +1330,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // ── today's plan: only what the app can actually stand behind ──
         Section("Today's plan", _plan(c, p, d)),
+
+        // ── the way into the whole day ──
+        //
+        // A DOOR, NOT A CARD, and that is what keeps it on the right side of
+        // the law at the top of this file. It shows no number, previews no
+        // shape and makes no observation — it names a place and goes there.
+        // Home decides; the day view is where you go to look, and until this
+        // row existed the only ways in were two screens deep.
+        const SizedBox(height: S.x5),
+        detailLinkRow(c, LucideIcons.chartGantt, 'Breakdown of your day',
+            'Hour by hour', () => go(c, const DayTimelineScreen())),
       ],
     ]));
   }

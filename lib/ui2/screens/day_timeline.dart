@@ -26,6 +26,7 @@ import 'dart:convert' show jsonDecode;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
@@ -334,12 +335,184 @@ List<DayNote> dayNotes({
   return out;
 }
 
+// ═══════════════════ the day on one clock ═══════════════════
+//
+// The picture of the same day the list below is the writing of. One
+// destination, two halves: the graph answers WHEN, the list answers WHAT, and
+// neither is a second copy of the other.
+//
+// FOUR LANES, and the count is the design. Heart rate is the spine — it is the
+// only thing this band measures all day at a rate worth drawing. Sleep is a
+// band across the hours it covers. Workouts are blocks on the top edge.
+// Movement is a strip along the floor. Everything else the day holds — meals,
+// doses, notes, breathing, temperature, HRV — stays in the list rather than
+// getting a lane, because ten labelled lanes is a chart nobody reads twice and
+// the things that were left out are all better as a line of text with a time
+// on it than as a shape.
+//
+// GAPS STAY GAPS. The band spends real hours off the wrist, and a line drawn
+// across those hours is a measurement of somebody who was not wearing it. A
+// minute with nothing in it breaks the curve AND changes the ground behind it,
+// so an empty stretch reads as absent rather than as flat.
+
+/// One slot per minute. A sample's index IS its clock time, which is what
+/// makes every lane share one axis without any of them being resampled.
+const int kDayMinutes = 1440;
+
+/// The day, drawn. All four lanes on one time base, built once.
+@immutable
+class DayGraph {
+  const DayGraph({
+    this.hr = const [],
+    this.movement = const [],
+    this.rest = const [],
+    this.work = const [],
+  });
+
+  /// Beats per minute, one slot per minute of the day, `null` where nothing
+  /// was recorded.
+  final List<double?> hr;
+
+  /// Share of each minute spent moving, 0…1, `null` where nothing was
+  /// recorded. Note the difference from a zero: 0 is a minute we watched you
+  /// sit still, `null` is a minute we were not there for.
+  final List<double?> movement;
+
+  /// Asleep and naps, as (from, to) minute of the day.
+  final List<(int, int, Color)> rest;
+
+  /// Workouts, same units.
+  final List<(int, int, Color)> work;
+
+  int get slots => hr.length > movement.length ? hr.length : movement.length;
+
+  bool get hasCurve => hr.any((v) => v != null);
+
+  bool get isEmpty =>
+      !hasCurve &&
+      rest.isEmpty &&
+      work.isEmpty &&
+      !movement.any((v) => v != null);
+
+  /// The stretches with nothing measured in them, as (from, to) minutes.
+  ///
+  /// EVERY lane has to be empty. A minute with movement but no heart rate was
+  /// still a minute we were there for, and so was a minute inside a night or a
+  /// workout — the span itself is the measurement, even where no curve was
+  /// drawn over it. Marking those as unrecorded would put the two claims on
+  /// top of each other and let the ground contradict the band.
+  List<(int, int)> get unmeasured {
+    final n = slots;
+    final known = List<bool>.filled(n, false);
+    for (final (a, b, _) in [...rest, ...work]) {
+      for (var i = a; i < b && i < n; i++) {
+        known[i] = true;
+      }
+    }
+    final out = <(int, int)>[];
+    int? from;
+    for (var i = 0; i < n; i++) {
+      final has = known[i] ||
+          (i < hr.length && hr[i] != null) ||
+          (i < movement.length && movement[i] != null);
+      if (has) {
+        if (from != null) out.add((from, i));
+        from = null;
+      } else {
+        from ??= i;
+      }
+    }
+    if (from != null) out.add((from, n));
+    return out;
+  }
+}
+
+/// THE JOIN, for the picture. Pure, like [dayMoments] — the placement rules
+/// are the thing worth testing and they need neither a database nor a frame.
+///
+/// [timeline] is `getDayTimeline`. Anything it did not carry contributes
+/// nothing; there is no placeholder lane for a day with no workouts in it.
+DayGraph dayGraph(Map<String, dynamic> timeline) {
+  final dayStart = (timeline['day_start'] as num?)?.toInt();
+  if (dayStart == null || dayStart <= 0) return const DayGraph();
+  // The day's REAL length. A spring-forward day is 23 h and a fall-back day is
+  // 25 h, and a flat 1440 would drop the last hour of one of them — the same
+  // bug day_label.dart exists to stop everywhere else.
+  final end = localDayEndSec((timeline['date'] as String?) ?? '');
+  final n = end == null || end <= dayStart
+      ? kDayMinutes
+      : ((end - dayStart) / 60).round();
+
+  int? slot(Object? ts) {
+    final t = (ts as num?)?.toInt();
+    if (t == null) return null;
+    final m = (t - dayStart) ~/ 60;
+    return m < 0 || m >= n ? null : m;
+  }
+
+  final hr = List<double?>.filled(n, null);
+  for (final e in (timeline['hr'] as List?) ?? const []) {
+    if (e is! Map) continue;
+    final i = slot(e['t']);
+    final v = (e['v'] as num?)?.toDouble();
+    // hr 0 is the pipeline's "no lock", not a heart that stopped.
+    if (i == null || v == null || v <= 0) continue;
+    hr[i] = v;
+  }
+
+  // The activity curve is 5-minute buckets. Each one fills its own five
+  // minutes and no more — smearing it wider would put movement in minutes it
+  // was never measured over.
+  final movement = List<double?>.filled(n, null);
+  for (final e in (timeline['activity'] as List?) ?? const []) {
+    if (e is! Map) continue;
+    final i = slot(e['t']);
+    final v = (e['v'] as num?)?.toDouble();
+    if (i == null || v == null || !v.isFinite) continue;
+    for (var k = i; k < i + 5 && k < n; k++) {
+      movement[k] = v;
+    }
+  }
+
+  /// A span clipped to the day. A night's onset sits in the PREVIOUS calendar
+  /// day, so it clips to midnight rather than being dropped — you were already
+  /// asleep when this day started, and that is a fact about this day.
+  (int, int, Color)? span(Object? from, Object? to, Color col) {
+    final a = (from as num?)?.toInt(), b = (to as num?)?.toInt();
+    if (a == null || b == null || b <= a) return null;
+    final lo = ((a - dayStart) ~/ 60).clamp(0, n);
+    final hi = ((b - dayStart) ~/ 60).clamp(0, n);
+    return hi <= lo ? null : (lo, hi, col);
+  }
+
+  // A nap is asleep. It gets its own name in the list below, where the
+  // distinction is worth a word; up here a second blue would be a second key
+  // for the same fact.
+  final rest = <(int, int, Color)>[
+    for (final s in (timeline['sleep'] as List?) ?? const [])
+      if (s is Map) ?span(s['onset_ts'], s['wake_ts'], C.blue),
+    for (final s in (timeline['naps'] as List?) ?? const [])
+      if (s is Map) ?span(s['start'], s['end'], C.blue),
+  ];
+  // ONE COLOUR FOR EVERY WORKOUT. The list below draws each activity in its
+  // own, which is where that distinction is readable; up here it would be four
+  // more hues on a chart whose whole job is to be glanced at, and a legend
+  // swatch that lied about three quarters of the blocks.
+  final work = <(int, int, Color)>[
+    for (final s in (timeline['sessions'] as List?) ?? const [])
+      if (s is Map) ?span(s['start_ts'], s['end_ts'], C.orange),
+  ];
+
+  return DayGraph(hr: hr, movement: movement, rest: rest, work: work);
+}
+
 // ═══════════════════ the screen ═══════════════════
 
 class TimelineData {
   const TimelineData({
     this.day,
     this.days = const [],
+    this.graph = const DayGraph(),
     this.moments = const [],
     this.notes = const [],
   });
@@ -348,6 +521,9 @@ class TimelineData {
 
   /// Every derived day, newest first — what [DayNav] steers over.
   final List<String> days;
+
+  /// The same day as [moments], drawn.
+  final DayGraph graph;
   final List<Moment> moments;
   final List<DayNote> notes;
 
@@ -382,6 +558,7 @@ class TimelineData {
     return TimelineData(
       day: day,
       days: days,
+      graph: dayGraph(timeline),
       moments: dayMoments(
         timeline: timeline,
         wear: wear,
@@ -453,7 +630,8 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   @override
   Widget build(BuildContext c) {
     final d = _d ?? const TimelineData();
-    return detailScaffold(c, 'What happened', sub: 'ONE DAY, IN ORDER', [
+    return detailScaffold(c, 'Breakdown of your day',
+        sub: 'MIDNIGHT TO MIDNIGHT', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
@@ -464,12 +642,78 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   }
 }
 
+/// The graph, or nothing.
+///
+/// NOTHING when there is no heart-rate curve: the curve is what the y axis is
+/// for, and a frame with an axis and no line under it reads as a measurement
+/// of zero. A day like that is entirely carried by the list underneath, which
+/// is the right shape for it — a handful of things that happened, in order.
+Widget? dayGraphCard(BuildContext c, DayGraph g) {
+  if (!g.hasCurve) return null;
+  final p = P.of(c);
+  final n = g.slots;
+  double at(int m) => n <= 0 ? 0 : m / n;
+  final axis = AxisSpec.of([for (final v in g.hr) ?v], ticks: 3);
+  if (axis == null) return null;
+
+  final asleep = p.on(C.blue), workout = p.on(C.orange);
+  final gaps = g.unmeasured;
+  return Surface(
+    child: ChartFrame(
+      title: 'Heart rate',
+      unit: 'bpm',
+      height: 200,
+      yAxis: axis,
+      // Three, and only three, because ChartFrame lays the first flush left,
+      // the last flush right and the rest centred — which puts a middle label
+      // exactly on the middle of the plot and a five-label row 5 % out.
+      xLabels: const ['Midnight', 'Noon', 'Midnight'],
+      legend: [
+        if (g.rest.isNotEmpty) ('Asleep', asleep),
+        if (g.work.isNotEmpty) ('Workout', workout),
+        if (g.movement.any((v) => v != null)) ('Moving', p.on(C.domMove)),
+        if (gaps.isNotEmpty) ('Not recorded', p.card2),
+      ],
+      series: g.hr,
+      child: Stack(children: [
+        Positioned.fill(
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: DayLanes(
+              p: p,
+              gaps: [for (final (a, b) in gaps) (at(a), at(b))],
+              rest: [
+                for (final (a, b, _) in g.rest) (at(a), at(b), asleep),
+              ],
+              work: [
+                for (final (a, b, _) in g.work) (at(a), at(b), workout),
+              ],
+              movement: g.movement,
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: CustomPaint(
+            size: Size.infinite,
+            // No fill under the line: the area would swallow the bands behind
+            // it, and the bands are the half of this picture the curve cannot
+            // say on its own.
+            painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+          ),
+        ),
+      ]),
+    ),
+  );
+}
+
 /// The page's body, given loaded data. Split out so the gallery can build every
 /// state of it without a repository.
 List<Widget> timelineBody(BuildContext c, TimelineData d) {
   final p = P.of(c);
+  final graph = dayGraphCard(c, d.graph);
   return [
-    if (d.moments.isEmpty && d.notes.isEmpty)
+    ?graph,
+    if (d.moments.isEmpty && d.notes.isEmpty && graph == null)
       const StatusCard(
         'Nothing was recorded on this day',
         'No sleep, no session, no log and no band event carrying a time. A day '
@@ -484,12 +728,18 @@ List<Widget> timelineBody(BuildContext c, TimelineData d) {
           icon: LucideIcons.clock,
         )
       else
-        Surface(
-          pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x2),
-          child: Column(
-            children: [
-              for (final m in d.moments) MomentRow(m),
-            ],
+        // The written half of the same day. It carries its own heading now
+        // that the picture is above it: the graph says when, this says what,
+        // and without a name between them the rows read as a caption.
+        Section(
+          'What happened',
+          Surface(
+            pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x2),
+            child: Column(
+              children: [
+                for (final m in d.moments) MomentRow(m),
+              ],
+            ),
           ),
         ),
       if (d.notes.isNotEmpty)

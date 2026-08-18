@@ -268,11 +268,6 @@ dependencies:
   # time deterministically instead of needing a real multi-second sleep.
   clock: ^1.1.2
 
-  # Cold-start splash video (assets/splash/splashscreen.mp4) shown while AppState
-  # initializes; dismissed the instant the route gate resolves. See
-  # lib/ui/splash/boot_splash.dart.
-  video_player: ^2.9.2
-
   # Share recap cards (rendered card → image → share sheet).
   share_plus: ^10.1.4
 
@@ -356,13 +351,33 @@ dev_dependencies:
   # someone else's `pub upgrade` rather than on a deliberate one here.
   sqflite_common: 2.5.8
 
+# Run with `dart run flutter_launcher_icons`. TWO THINGS TO KNOW BEFORE YOU DO:
+#
+#   · 0.13.1 rewrites ios/Runner.xcodeproj/project.pbxproj with a regex that
+#     matches ANY `ASSETCATALOG_COMPILER_*` setting and overwrites its value
+#     with the app-icon name. On this project that silently sets
+#     GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS, GLOBAL_ACCENT_COLOR_NAME and
+#     WIDGET_BACKGROUND_COLOR_NAME to "AppIcon" on the widget and watch targets.
+#     `git checkout -- ios/Runner.xcodeproj/project.pbxproj` afterwards: the one
+#     setting it needs to write (APPICON_NAME = AppIcon) is already correct, and
+#     the alternate-icon settings next to it must survive.
+#   · It does NOT generate the alternate icon. AppIconBW.appiconset is built by
+#     hand from assets/images/icon_bw.png at the same slots as AppIcon.
+#
+# adaptive_icon_foreground is a PRE-INSET copy of the icon, not the icon itself.
+# Android composites both layers on a 108 dp canvas and every launcher mask
+# crops it to the middle 72 dp, so full-bleed art is zoomed 1.5x — which was
+# cutting the mark off both sides. assets/launcher/ is not a bundled asset dir;
+# it is build-time input only.
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/images/icon.png"
   remove_alpha_ios: true
-  adaptive_icon_background: "#F4F1EC"
-  adaptive_icon_foreground: "assets/images/icon.png"
+  # The icon's own plate, so the ring the mask leaves around the artwork is the
+  # same colour as the artwork's edge rather than the old cream.
+  adaptive_icon_background: "#020D1C"
+  adaptive_icon_foreground: "assets/launcher/icon_adaptive.png"
 
 flutter:
   uses-material-design: true
@@ -370,7 +385,6 @@ flutter:
     - assets/images/
     - assets/images/2.0x/
     - assets/images/3.0x/
-    - assets/splash/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user
   # has seen the consent screen, and contrary to PRIVACY.md. It also lets the

@@ -88,6 +88,11 @@ import CoreMotion
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AccessorySetup") {
       AccessorySetup.register(messenger: registrar.messenger())
     }
+    // Home-screen icon switching (setAlternateIconName). iOS only — see the
+    // bridge below for the system-alert cost it carries.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppIconBridge") {
+      AppIconBridge.register(messenger: registrar.messenger())
+    }
     // Build-time iOS configuration exposed to Dart without requiring --dart-define.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
@@ -285,6 +290,50 @@ enum ActionBridge {
       }
     default:
       return false
+    }
+  }
+}
+
+/// Switching the home-screen icon.
+///
+/// `setAlternateIconName` is the only public way to do this, and it comes with
+/// a cost the UI has to be honest about: iOS puts up its own "You have changed
+/// the icon for OpenStrap" alert on every change, and there is no way to
+/// suppress it. The icons themselves are compiled into the asset catalog
+/// (AppIcon / AppIconBW) and named by ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES
+/// in the Runner target — nothing here can invent one that was not built in.
+///
+/// `available` is asked rather than assumed: alternate icons are refused on some
+/// managed/enterprise configurations, and a settings row that cannot work should
+/// not be drawn.
+enum AppIconBridge {
+  private static let channelName = "openstrap/app_icon"
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "available":
+        result(UIApplication.shared.supportsAlternateIcons)
+      case "current":
+        // nil means the primary icon. iOS owns this state — nothing is mirrored
+        // into prefs, so the app can never disagree with the home screen.
+        result(UIApplication.shared.alternateIconName)
+      case "set":
+        guard UIApplication.shared.supportsAlternateIcons else {
+          result(false)
+          return
+        }
+        let name = (call.arguments as? [String: Any])?["name"] as? String
+        UIApplication.shared.setAlternateIconName(name) { error in
+          if let error = error {
+            NSLog("[app_icon] setAlternateIconName(\(name ?? "nil")) failed: \(error)")
+          }
+          result(error == nil)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 }

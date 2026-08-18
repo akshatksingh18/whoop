@@ -3,16 +3,16 @@
 // AppState's init (SQLite open, migrations, first derive check) is the slow
 // part of a launch and it happens before anything can be drawn honestly. This
 // covers exactly that window and cross-fades out the instant the gate leaves
-// `loading` — mid-play if need be. Shown once per launch; it latches itself
-// off afterwards so a later rebuild never re-covers a running app.
+// `loading`. Shown once per launch; it latches itself off afterwards so a later
+// rebuild never re-covers a running app.
 //
-// The video is decoration and is treated as such: if it fails to initialise
-// (test harness, codec, missing asset) the cover is the mark on the page
-// background and the launch is otherwise identical.
+// The cover is a glyph and a word on the page background — nothing to decode,
+// nothing to buffer, no frame the launch waits on. It used to be a bundled
+// video, which put an asset load and a codec on the critical path of the one
+// moment the app is already slowest.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:video_player/video_player.dart';
 
 import '../ui2.dart';
 
@@ -28,34 +28,9 @@ class BootSplash extends StatefulWidget {
 }
 
 class _BootSplashState extends State<BootSplash> {
-  VideoPlayerController? _video;
-
   /// Latched once the cover has faded. A splash that can come back is a splash
   /// that will come back at the worst possible moment.
   bool _gone = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final v = VideoPlayerController.asset('assets/splash/splashscreen.mp4');
-    v.initialize().then((_) {
-      if (!mounted) {
-        v.dispose();
-        return;
-      }
-      v.play();
-      setState(() => _video = v);
-    }).catchError((Object _) {
-      v.dispose();
-      // No video — the mark on the page background is the cover.
-    });
-  }
-
-  @override
-  void dispose() {
-    _video?.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext c) {
@@ -85,7 +60,7 @@ class _BootSplashState extends State<BootSplash> {
               onEnd: () {
                 if (widget.ready && mounted) setState(() => _gone = true);
               },
-              child: _Cover(video: _video),
+              child: const _Cover(),
             ),
           ),
         ),
@@ -95,23 +70,22 @@ class _BootSplashState extends State<BootSplash> {
 }
 
 class _Cover extends StatelessWidget {
-  final VideoPlayerController? video;
-  const _Cover({this.video});
+  const _Cover();
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final v = video;
-    return ColoredBox(
+    // Material, not ColoredBox: the cover sits at MaterialApp.home, above every
+    // route, so its own text has no Material ancestor to inherit from and debug
+    // builds painted the missing-Material underline right across the wordmark.
+    return Material(
       color: p.bg,
       child: Center(
-        child: v != null && v.value.isInitialized
-            ? AspectRatio(aspectRatio: v.value.aspectRatio, child: VideoPlayer(v))
-            : Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(LucideIcons.activity, size: 44, color: p.on(C.green)),
-                const SizedBox(height: S.x4),
-                Text('OpenStrap', style: F.t2.copyWith(color: p.ink)),
-              ]),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(LucideIcons.activity, size: 44, color: p.on(C.green)),
+          const SizedBox(height: S.x4),
+          Text('OpenStrap', style: F.t2.copyWith(color: p.ink)),
+        ]),
       ),
     );
   }

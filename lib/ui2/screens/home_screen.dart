@@ -5,10 +5,21 @@
 // and the small set of things the app can honestly say are worth doing. The
 // hard part is not the circles: readiness exists on 71 % of days and needs
 // four prior nights before it exists at all, so what a ring does with nothing
-// in it is the design. See [RingTrio]. No insight feed and
-// no health-observation card: those are OBSERVATION, and observation lives on
+// in it is the design. See [RingTrio]. No insight feed and no general
+// health-observation card: those are OBSERVATION, and observation lives on
 // Health. A home screen that also observes is a dashboard, and a dashboard is
 // what this rebuild is replacing.
+//
+// ONE NAMED EXCEPTION, and it is deliberately not a crack in that rule: the
+// illness watch ([_bodyWatch]). It is not a feed and it cannot grow into one —
+// exactly one detector may render here, it renders only when its own state is
+// amber or red, and it is silent on every ordinary day. The reason it earns
+// Home is timing rather than importance: the watch is at its most useful when
+// it first goes amber, and amber has no notification, so before this the
+// earliest signal the app produces could only be found by opening Health and
+// scrolling. A signal that arrives too late to act on is not worth computing.
+// If a second observation ever wants this slot, the answer is no — build the
+// feed on Health where the others already live.
 //
 // This file also carries the plumbing every screen in this folder shares —
 // navigation, the repo handle, and the three ways a value arrives from the
@@ -861,6 +872,18 @@ class HomeData {
   /// most recent one there is. Naming its night is the right one.
   final String? heldOverNight;
 
+  /// The illness watch's own state — 'green' / 'amber' / 'red', or null before
+  /// it has the 7 nights of baseline it needs. Home renders it only when it is
+  /// amber or red; see the exception noted at the top of this file.
+  final String? illnessState;
+
+  /// The night the watch is ABOUT, and how far that night sat from this user's
+  /// own baseline. `z` belongs to the latest night alone and can be negative
+  /// while the run is still up, so the copy says which direction rather than
+  /// implying the run reversed.
+  final String? illnessDay;
+  final double? illnessZ;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -877,8 +900,36 @@ class HomeData {
     this.bedtime = Metric.empty,
     this.strainTarget,
     this.heldOverNight,
+    this.illnessState,
+    this.illnessDay,
+    this.illnessZ,
     this.insightsStale,
   });
+
+  /// The three illness fields, replaced together. Test-facing sugar, and they
+  /// travel as a set on purpose — they are read as one envelope, and setting
+  /// one without the others describes a state the pipeline cannot produce.
+  HomeData copyOrIllness(String? state, String? day, double? z) => HomeData(
+        name: name,
+        dayId: dayId,
+        readiness: readiness,
+        drivers: drivers,
+        sleepMin: sleepMin,
+        rhr: rhr,
+        steps: steps,
+        calories: calories,
+        caloriesTotal: caloriesTotal,
+        strain: strain,
+        stepGoal: stepGoal,
+        sleepNeedMin: sleepNeedMin,
+        bedtime: bedtime,
+        strainTarget: strainTarget,
+        heldOverNight: heldOverNight,
+        illnessState: state,
+        illnessDay: day,
+        illnessZ: z,
+        insightsStale: insightsStale,
+      );
 
   static Future<HomeData> load(LocalRepository repo) async {
     final today = await repo.getToday();
@@ -902,10 +953,18 @@ class HomeData {
 
     final heldOver = heldOverNightOf(today);
 
+    // Same envelope Health reads. The watch runs on NOCTURNAL RESTING HEART
+    // RATE ALONE — it has never been given a temperature series — so nothing
+    // here may imply a second signal.
+    final illness = today['illness'];
+
     return HomeData(
       name: profile['name']?.toString(),
       dayId: (today['status'] as Map?)?['today_day']?.toString(),
       heldOverNight: heldOver,
+      illnessState: illness is Map ? illness['state']?.toString() : null,
+      illnessDay: illness is Map ? illness['date']?.toString() : null,
+      illnessZ: illness is Map ? (illness['z'] as num?)?.toDouble() : null,
       readiness: metricOf(d('readiness')),
       drivers: [
         for (final e in (gbDrivers is List ? gbDrivers : const []))
@@ -1086,6 +1145,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return _refreshable(ListView(padding: pad, children: [
       if (rebuilt != null) ...[const SizedBox(height: S.x3), rebuilt],
+
+      // ── the one observation Home is allowed to make ──
+      //
+      // OUTSIDE the derived / not-derived split, and above the rings, for two
+      // separate reasons. It outranks them: when this fires it is what matters
+      // today, which is the question this screen answers, and under them it
+      // would read as a footnote to three numbers. And it does not depend on
+      // them — the watch comes off the CROSSDAY rollup, so it can carry a real
+      // state on a morning whose own bundle has not derived yet, which is
+      // exactly the morning you would most want to be told.
+      ...?_bodyWatch(c, d),
       // ── greeting ──
       Padding(
         padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
@@ -1200,6 +1270,44 @@ class _HomeScreenState extends State<HomeScreen> {
         Section("Today's plan", _plan(c, p, d)),
       ],
     ]));
+  }
+
+  /// The illness watch, on Home, at amber as well as red.
+  ///
+  /// Returns null on every ordinary day — green, or no state at all because the
+  /// CUSUM has not got its 7 nights yet. Absence here is silence, not a card
+  /// explaining that nothing is wrong: "you are not getting sick" is not an
+  /// observation worth a slot, and a watch that renders daily stops being read.
+  ///
+  /// The tap goes to the resting-heart-rate chart rather than Health's copy of
+  /// this card, because the chart is the EVIDENCE — the watch reads that one
+  /// series, so the honest answer to "why are you telling me this" is to show
+  /// it. Health keeps its own fuller card; this is not a duplicate route to the
+  /// same words, it is a shorter road to the number underneath them.
+  static List<Widget>? _bodyWatch(BuildContext c, HomeData d) {
+    final state = d.illnessState;
+    if (state == null || state == 'green') return null;
+
+    final sameNight = d.illnessDay == null || d.illnessDay == d.dayId;
+    final z = d.illnessZ;
+
+    return [
+      Observation(
+        state == 'red'
+            ? 'Several nights in a row are away from your normal'
+            : sameNight
+                ? 'Last night sat outside your normal range'
+                : '${prettyDay(d.illnessDay)} sat outside your normal range',
+        'Your nocturnal resting heart rate has been running above your own '
+            'baseline${z == null ? '' : '; that night sat '
+                '${z.abs().toStringAsFixed(1)} standardised deviations '
+                '${z >= 0 ? 'above' : 'below'} it'}. This reads one signal. It '
+            'names a pattern, and it does not name a cause.',
+        advice: 'Worth noting if it continues past a couple of days.',
+        onTap: () => go(c, const MetricDetail('resting_hr')),
+      ),
+      const SizedBox(height: S.x3),
+    ];
   }
 
   /// Pull to reload. The screen also reloads itself on `insightsRevision`, but

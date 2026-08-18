@@ -319,6 +319,60 @@ void main() {
     });
   });
 
+  // ── the one observation Home is allowed to make ──
+  //
+  // The watch earns Home because of WHEN it is useful, not how alarming it is:
+  // amber has no notification, so before this the earliest signal the app
+  // produces could only be found by opening Health and scrolling to it.
+  group('illness watch on Home', () {
+    Widget frame(HomeData d) => MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(body: HomeScreen(data: d, hour: 9)));
+
+    const base = HomeData(dayId: '2026-05-20');
+
+    testWidgets('amber shows — this is the whole point of the change',
+        (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-20', 2.4)));
+      expect(find.textContaining('outside your normal range'), findsOneWidget);
+    });
+
+    testWidgets('red shows, and says it is a run rather than one night',
+        (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', 3.1)));
+      expect(find.textContaining('Several nights in a row'), findsOneWidget);
+    });
+
+    testWidgets('green is SILENT, not a card saying you are fine', (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('green', '2026-05-20', 0.2)));
+      expect(find.textContaining('normal range'), findsNothing);
+      expect(find.textContaining('Several nights'), findsNothing);
+    });
+
+    testWidgets('no state at all is silent too — the CUSUM wants 7 nights',
+        (t) async {
+      await t.pumpWidget(frame(base));
+      expect(find.textContaining('normal range'), findsNothing);
+    });
+
+    testWidgets('a negative z says BELOW while the run is still up', (t) async {
+      // The stored z is the latest night's own deviation and can be negative
+      // while the accumulator is still raised — it only clears after two
+      // nights back under. Printing "1.3 deviations" without a direction read
+      // as "above your baseline, 1.3 below it".
+      await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', -1.3)));
+      expect(find.textContaining('1.3 standardised deviations below it'),
+          findsOneWidget);
+    });
+
+    testWidgets('an older night is named rather than called last night',
+        (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-16', 2.2)));
+      expect(find.textContaining('16 May'), findsOneWidget);
+      expect(find.textContaining('Last night'), findsNothing);
+    });
+  });
+
   // ── a rebuild the user never hears about is data quietly vanishing ──
   group('dbRebuiltCard', () {
     test('says nothing when nothing was rebuilt', () {

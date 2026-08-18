@@ -94,6 +94,24 @@ class Sample {
   /// possible at all; nothing reads it today.
   final double? dynAccelG;
 
+  /// The record's SUB-SECOND, in units of 1/32768 s — the strap's 32 kHz RTC
+  /// crystal. BOTH GENERATIONS SEND IT (gen4 R24 at inner[11], gen5 v18 at the
+  /// same offset), both decoders have always read it, and until now nothing in
+  /// this app carried it past the decoder: every record was pinned to a whole
+  /// second and every beat inside one shared a millisecond.
+  ///
+  /// It is a real, live field, not padding — measured on the only gen4 frames
+  /// this app still keeps the bytes of (28,395 archived v25 records, which
+  /// share the header): uniformly spread over its whole range, and stepping by
+  /// a stable ~1,268 ticks from one record to the next rather than wandering.
+  /// A coherent clock. NOTE the scope of that measurement: it says the FIELD is
+  /// live and monotone, and it says nothing about any particular record
+  /// version's cadence — a v25 burst record's period is its own.
+  ///
+  /// Null means the record carried none (the gen4 R10-lite path, and any
+  /// external sensor), never zero — 0 is a legitimate sub-second.
+  final int? tsSubsec;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -117,6 +135,7 @@ class Sample {
     this.tempCh3C,
     this.signalQualityLogVar,
     this.dynAccelG,
+    this.tsSubsec,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -146,6 +165,7 @@ class Sample {
     tempCh3C: tempCh3C,
     signalQualityLogVar: signalQualityLogVar,
     dynAccelG: dynAccelG,
+    tsSubsec: tsSubsec,
   );
 
   bool get wristOn => hr > 0;
@@ -190,6 +210,7 @@ class Sample {
       tempCh3C: (m['temp_ch3_c'] as num?)?.toDouble(),
       signalQualityLogVar: (m['signal_quality_logvar'] as num?)?.toDouble(),
       dynAccelG: (m['dyn_accel_g'] as num?)?.toDouble(),
+      tsSubsec: (m['ts_subsec'] as num?)?.toInt(),
     );
   }
 }

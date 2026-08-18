@@ -144,6 +144,9 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     // and statistic are all unknown, so the two are on different scales.
     // Stored, unread — the point is to make the comparison possible later.
     dynAccelG: g.dynamicAccelerationG,
+    // The record's own sub-second (1/32768 s), decoded on both generations
+    // since forever and dropped here — see Sample.tsSubsec.
+    tsSubsec: g.tsSubsec,
   );
 }
 
@@ -2884,6 +2887,9 @@ class BleEngine {
           // : 0` for unconfirmed versions) and is mapped to NULL at the write
           // in `_queueDecodedOneHz` — do not "fix" it by zero-filling here.
           ambientRaw: r.ambientRaw,
+          // Same field, same offset, same omission on this side: the record's
+          // sub-second was decoded and thrown away here too.
+          tsSubsec: r.tsSubsec,
         );
       }
     } else if (recType == Record.r10) {

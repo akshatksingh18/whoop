@@ -944,6 +944,13 @@ class LocalDb {
       // so an existing install gets the column for one PRAGMA without
       // spending a schema version other branches are also reaching for.
       'dyn_accel_g': 'REAL',
+      // The record's own sub-second, u16 in units of 1/32768 s. BOTH
+      // GENERATIONS SEND IT and both decoders have always read it; nothing
+      // carried it past the decoder, so every record in this table was pinned
+      // to a whole second. Stored as the strap's own ticks, NOT converted to
+      // ms: the conversion is lossy and the raw count is what the strap said.
+      // See Sample.tsSubsec and beatTimesMs.
+      'ts_subsec': 'INTEGER',
     };
     final have = await _columnsOf(db, 'decoded_onehz');
     if (have.isEmpty) return; // table not created yet — the DDL carries them
@@ -996,6 +1003,18 @@ class LocalDb {
       await _addColumnIfMissing(db, t, 'source', 'TEXT');
     }
   }
+
+  /// `decoded_rr.beat_ts_ms` — where the beat actually was, beside the
+  /// whole-second `rr_ts_ms` rather than instead of it. NULL on every row
+  /// written before this column existed, and that NULL is the honest value: the
+  /// sub-second it is built from was never stored and the frames it could be
+  /// re-read from are pruned. See [beatTimesMs].
+  ///
+  /// Not a ladder rung, same as `dyn_accel_g`: `_ensureDecodedStore` runs from
+  /// `_repairOpenSchema` on every open, so an existing install gets the column
+  /// for one PRAGMA without spending a schema version.
+  static Future<void> _ensureBeatTimeColumn(Database db) =>
+      _addColumnIfMissing(db, 'decoded_rr', 'beat_ts_ms', 'INTEGER');
 
   static Future<void> _ensureDayResultSkippedColumn(Database db) =>
       _addColumnIfMissing(
@@ -3260,6 +3279,7 @@ class LocalDb {
     // Existing installs get these here (ADD COLUMN, idempotent).
     await _ensureDeviceFamilyColumns(db);
     await _ensureSourceColumns(db);
+    await _ensureBeatTimeColumn(db);
   }
 
   /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
@@ -3760,6 +3780,7 @@ class LocalDb {
             tempCh3C: g.tempAux2C,
             signalQualityLogVar: g.signalQualityLogVariance,
             dynAccelG: g.dynamicAccelerationG,
+            tsSubsec: g.tsSubsec,
           );
         }
       } catch (_) {}
@@ -3805,6 +3826,7 @@ class LocalDb {
             // gen4 ambient-light ADC. 0 (unconfirmed optical block) is turned
             // into NULL at the write, not here — see _queueDecodedOneHz.
             ambientRaw: r.ambientRaw,
+            tsSubsec: r.tsSubsec,
           );
         }
       } catch (_) {}
@@ -3891,6 +3913,9 @@ class LocalDb {
       // gen5 record carries a value, and no gen5 record is in a pre-v11
       // `raw_records`, so omitting-when-null loses nothing.
       'dyn_accel_g': ?decoded.dynAccelG,
+      // The record's own sub-second. Omitted-when-null for the same
+      // mid-ladder-backfill reason as `dyn_accel_g` directly above.
+      'ts_subsec': ?decoded.tsSubsec,
       // 0 IS THE ABSENT SENTINEL, NOT A READING. records.dart:501 emits
       // `ambientRaw: optical ? u16@70 : 0`, so every unconfirmed record version
       // reports 0 — writing that through would turn "we did not read the
@@ -3927,6 +3952,62 @@ class LocalDb {
     return (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
   }
 
+  /// Where each beat in one record actually sits, in absolute epoch ms — or
+  /// null for a beat that cannot be placed. One entry per entry in [rrMs].
+  ///
+  /// TWO PARTS, AND THEY ARE NOT EQUALLY SOLID. Read them separately.
+  ///
+  /// THE ANCHOR IS MEASURED. `rec_ts + tsSubsec/32768` is the record's own
+  /// timestamp, whole seconds and sub-second, exactly as the strap sent it.
+  /// This app has dropped the second half of that since forever, pinning every
+  /// record to a whole second. With no sub-second there is no anchor and every
+  /// beat here is null; a whole second is NOT substituted for one, because the
+  /// whole point of this column is to say something the old one could not.
+  ///
+  /// THE PLACEMENT IS A MODEL, and it is one assumption wide: an R-R interval
+  /// is the gap ENDING at its beat (that part is the definition), and the LAST
+  /// beat a record reports sits at the record's timestamp. Everything else
+  /// follows — beat i is the anchor minus the intervals after it. The direction
+  /// is chosen because backwards is the only one that cannot place a beat in
+  /// the future, i.e. after the moment we were told about it; a forward walk
+  /// would also run every multi-beat record past its own second (the intervals
+  /// sum to 1,426 ms on a 2-beat record and 2,594 ms on a 4-beat one, measured)
+  /// and straight through the next record's.
+  ///
+  /// WHAT THE INTERVALS DO NOT DO IS TILE THE SECOND. Over 81 uninterrupted
+  /// runs of 300+ consecutive records in a real export, the intervals sum to
+  /// 0.967 of the `rec_ts` span (0.960-0.990 across runs) — so the beat train is
+  /// a CHAIN that runs a few percent short, which is what a handful of rejected
+  /// beats looks like, and not a set of per-second buckets. Several of a
+  /// record's intervals reach back out of its own second. Per-record placement
+  /// is nevertheless what THIS path can do — records arrive batched, out of
+  /// order and with gaps, so no cross-record chain is available at the write —
+  /// and a consumer that wants the chain can walk `rr_ms` itself.
+  ///
+  /// WHAT MOVES AND WHAT DOES NOT. Nothing shipped changes: time-domain HRV
+  /// (RMSSD, SDNN, pNNx) is built out of interval VALUES, which were always
+  /// right, and no reader of this column exists. What it makes possible is
+  /// anything needing absolute placement — a Lomb-Scargle periodogram handed
+  /// beats where they happened instead of a staircase, a beat put on the same
+  /// axis as a motion sample, a real inter-record gap.
+  ///
+  /// A non-positive interval BREAKS THE CHAIN: the gap before that beat is
+  /// unknown, so every EARLIER beat in the record becomes unplaceable and gets
+  /// null rather than a position computed as if the missing gap were zero.
+  @visibleForTesting
+  static List<int?> beatTimesMs(int recTs, int? tsSubsec, List<int> rrMs) {
+    final out = List<int?>.filled(rrMs.length, null);
+    if (tsSubsec == null || rrMs.isEmpty) return out;
+    final anchor = recTs * 1000 + (tsSubsec * 1000) ~/ 32768;
+    var back = 0;
+    for (var i = rrMs.length - 1; i >= 0; i--) {
+      out[i] = anchor - back;
+      if (rrMs[i] <= 0) break;
+      back += rrMs[i];
+    }
+    return out;
+  }
+
   /// Replaces this second's RR beats. Returns the ops queued.
   ///
   /// Clear the second before reinserting so a SHRINKING beat count can't strand
@@ -3939,6 +4020,7 @@ class LocalDb {
     String? deviceFamily,
   }) {
     batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
+    final beatTs = beatTimesMs(recTs, decoded.tsSubsec, decoded.rrIntervalsMs);
     var ops = 1;
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
@@ -3946,9 +4028,24 @@ class LocalDb {
       batch.insert('decoded_rr', {
         'rec_ts': recTs,
         'beat_index': i,
+        // UNCHANGED, DELIBERATELY. `rr_ts_ms` stays `rec_ts * 1000` and
+        // `beat_ts_ms` lands beside it instead of replacing it, for one
+        // concrete reason: the sub-second is NOT RECOVERABLE for a row already
+        // on disk. Nothing stores it, and the raw frames it could be re-read
+        // from are pruned at the retention edge — so redefining this column
+        // would leave two different quantities living in it with nothing able
+        // to tell them apart. A nullable column beside it says the true thing:
+        // NULL is "we did not keep the sub-second for this beat", which is
+        // exactly the case for every row written before today.
+        //
+        // It is also the column the compute layer reads (substrate.dart,
+        // derive_prepare.dart), and this change is deliberately invisible to
+        // it — see beatTimesMs on why no shipped number moves.
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
-        // Omitted when null — see _queueDecodedOneHz.
+        // Omitted when null — see _queueDecodedOneHz. Also newer than the
+        // mid-ladder backfill, same trap.
+        'beat_ts_ms': ?beatTs[i],
         'device_family': ?deviceFamily,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       ops++;
@@ -3966,6 +4063,15 @@ class LocalDb {
     // standing trap this file is full of guards against. Self-skipping (one
     // PRAGMA) once the column is already nullable.
     await _relaxDecodedHrNull(db);
+    // SAME REASON, THE OTHER DIRECTION: these two columns are NEWER than this
+    // backfill, and unlike `ambient_raw` / `dyn_accel_g` (which are null on
+    // everything a pre-v11 `raw_records` can hold, so the omit-when-null form
+    // never names them) the sub-second is present on every real gen4 record
+    // being replayed here. Naming a column the ladder has not handed back yet
+    // throws inside onUpgrade's single transaction and quarantines the whole
+    // database. Both are ADD COLUMN, idempotent, and no-ops on a missing table.
+    await _addColumnIfMissing(db, 'decoded_onehz', 'ts_subsec', 'INTEGER');
+    await _ensureBeatTimeColumn(db);
     const pageSize = 1000;
     int afterCounter = -1;
     while (true) {

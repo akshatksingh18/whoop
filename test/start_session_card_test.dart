@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
+import 'package:openstrap_edge/ui2/screens/start_card.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 
 /// This card was built blind and shipped three defects a rendered check would
@@ -14,7 +14,8 @@ import 'package:openstrap_edge/ui2/theme.dart';
 /// photographed in a ~179 px component cell without the fixture, not the card,
 /// being what the golden shows. This stands in for that.
 void main() {
-  Future<void> pump(WidgetTester t, {double scale = 1.0}) async {
+  Future<void> pump(WidgetTester t,
+      {double scale = 1.0, double pad = 16}) async {
     t.view.physicalSize = const Size(390 * 2, 300 * 2);
     t.view.devicePixelRatio = 2;
     addTearDown(t.view.reset);
@@ -23,16 +24,23 @@ void main() {
       home: Scaffold(
         body: Builder(builder: (c) {
           // COPY the ambient MediaQuery and override only the scale. Building
-          // a bare MediaQueryData here sets `size` to zero, which starves the
-          // OverflowBox and renders the card at 0 width — a green test about
-          // a card nobody can see.
+          // a bare MediaQueryData here sets `size` to zero, which rendered the
+          // card at 0 width — a green test about a card nobody can see.
           return MediaQuery(
             data: MediaQuery.of(c).copyWith(
                 textScaler: TextScaler.linear(scale)),
-            // The real parent: a list that pads S.x4 a side.
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: StartSessionCard(count: 71),
+            // The real parent: a list that pads its other children S.x4 a
+            // side and gives this one nothing, which is how it bleeds.
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: pad),
+              child: const StartCard(
+                label: 'START A SESSION',
+                count: 71,
+                noun: 'activities',
+                asset: 'mascot_workout.png',
+                accent: C.purple,
+                deep: C.indigo,
+              ),
             ),
           );
         }),
@@ -51,14 +59,14 @@ void main() {
     expect(find.textContaining(r'$count'), findsNothing);
   });
 
-  testWidgets('it takes back the padding it was handed', (t) async {
-    await pump(t);
-    // The card itself is handed 390 - 32; the ClipRect inside the OverflowBox
-    // is the thing that gets the whole window width back.
-    final w = t
-        .getSize(find.descendant(
-            of: find.byType(StartSessionCard), matching: find.byType(ClipRect)))
-        .width;
+  testWidgets('it fills whatever width it is given', (t) async {
+    // Full bleed is the LIST's job now — it drops its side padding and pads
+    // every other child instead. Two earlier versions had the card escape its
+    // parent: a negative margin (which Flutter asserts against) and an
+    // OverflowBox (which takes an unbounded height in a scroll view and
+    // blanked the whole tab). So the card's own contract is just this.
+    await pump(t, pad: 0);
+    final w = t.getSize(find.byType(StartCard)).width;
     expect(w, 390);
   });
 

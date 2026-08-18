@@ -209,7 +209,7 @@ const _notComponents = {
   // fixture squeezing it, not the card. Covered instead by
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
-  'StartSessionCard',
+  'StartCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

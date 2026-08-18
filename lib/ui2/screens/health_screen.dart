@@ -25,6 +25,25 @@ import 'investigate.dart';
 import 'metric_detail.dart';
 import 'naps.dart';
 
+/// A read this screen can live without. The wear block and the nap block are
+/// ADDITIONS to the repository interface, so an implementation written before
+/// them throws `UnimplementedError` from the base class — and neither is worth
+/// taking every number on Health down for. An empty map is what both readers
+/// already treat as "we never looked", which is the truth in that case.
+///
+/// Deliberately not applied to the metric reads above it: a failure there IS
+/// the screen failing, and it must not be swallowed into a page of blanks.
+/// Takes a CALLBACK, not a future: the base class's stub is `=> throw`, which
+/// fires synchronously at the call site and never becomes a future to await.
+Future<Map<String, dynamic>> _soft(
+    Future<Map<String, dynamic>> Function() read) async {
+  try {
+    return await read();
+  } catch (_) {
+    return const {};
+  }
+}
+
 class HealthData {
   final Map<String, dynamic> today, insights, profile;
 
@@ -156,7 +175,8 @@ class HealthData {
     final gap = (nightStart == null || dayStart == null)
         ? null
         : wearGapWhy(
-            [await repo.getDayWear(prevDay), await repo.getDayWear(nightDay)],
+            [await _soft(() => repo.getDayWear(prevDay)),
+             await _soft(() => repo.getDayWear(nightDay))],
             fromSec: nightStart + 20 * 3600,
             toSec: dayStart + 10 * 3600,
           );
@@ -180,7 +200,7 @@ class HealthData {
     // asked for (an editable list must not be served off another day), and
     // today has usually not derived yet.
     final napDay = days.isEmpty ? todayLabel() : days.first;
-    final naps = await repo.getDayNaps(napDay);
+    final naps = await _soft(() => repo.getDayNaps(napDay));
 
     return HealthData(
       today: today,

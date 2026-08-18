@@ -1,11 +1,28 @@
 // Read workouts — and, on Apple, their routes — out of the platform health
 // store into a table this app does not derive from.
 //
-// WHAT THIS IS ALLOWED TO BECOME: a list, and a map. Nothing else. An imported
-// workout is not a session (see db.dart `_createImportedWorkout` for why it is
-// a separate table and not a flagged row in `sessions`), so it never reaches
-// strain, the day rollup, calories, the personal records or any baseline. The
-// separation is structural rather than a filter someone has to remember.
+// WHAT THIS IS ALLOWED TO BECOME — the line moved once, deliberately, and this
+// is where it now sits.
+//
+// ALLOWED: a list, a map, and a COUNT. An imported workout appears in Workout ›
+// History beside the band's own sessions, in date order, with the app or watch
+// that recorded it named on the row, and it counts toward "This week". A
+// session you did is a session you did, and a history that silently omits your
+// Sunday run is wrong in a way a user can see.
+//
+// REFUSED: weekly load, CTL/ATL/TSB, the day's strain, the personal records,
+// and every personal baseline. Not out of caution — there is nothing to put in
+// them. Training load here is TRIMP, which is minutes weighted by heart rate,
+// and an imported workout arrives with no heart-rate series at all; the only
+// way to give it a load number is to invent one from its duration and call it
+// measured. The calories and distance the source app recorded are shown as ITS
+// numbers, next to its name, and are never summed into ours: two devices'
+// calorie models added together is one number neither of them would agree with.
+//
+// The refusal is structural, not a filter someone has to remember: these rows
+// live in their own table (see db.dart `_createImportedWorkout`), so nothing
+// that reads `sessions` can reach them by accident. The screen opts a row IN,
+// one surface at a time, and each surface that takes one says whose it was.
 //
 // PLATFORM ASYMMETRY, and it is load-bearing:
 //   workouts — both platforms.
@@ -153,6 +170,26 @@ List<Map<String, Object?>> routeRowsFrom(Object? payload) {
     });
   }
   return out;
+}
+
+/// "RUNNING" → "Running". The health store's own enum name, title-cased and
+/// de-underscored.
+///
+/// Not mapped through a lookup table on purpose: a map would need an entry for
+/// every one of ~80 activity types and would print a blank for whatever the
+/// next OS version adds. Here rather than on a screen because both the Workout
+/// history and the receipt list have to say the same word for the same row.
+String importedWorkoutTitle(Object? kind) {
+  // Checked, not cast. It reads a `Map<String, dynamic>` straight off sqflite,
+  // and a cast that throws here would take a whole history screen down over a
+  // column that was the wrong type.
+  final raw = kind is String ? kind.trim() : '';
+  if (raw.isEmpty) return 'Workout';
+  return raw
+      .split('_')
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
 }
 
 /// What one import did, so the screen can report it rather than guess.

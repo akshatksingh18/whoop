@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../health/health_import_state.dart' show storeName;
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'devices.dart';
@@ -264,13 +265,14 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onDevices),
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEdit),
-                  // Next to Edit profile because it fills the same four fields.
-                  // There is a second door to this screen under More settings ›
-                  // Your data, where the rest of the import lives — this one is
-                  // here because the profile is what most people come to fill.
-                  SetRow(LucideIcons.smartphone, C.blue, 'Import from $storeName',
-                      sub: 'Height and weight for your profile, and workouts '
-                          'other apps recorded',
+                  // What is LEFT on that screen, described honestly. Height,
+                  // weight and workouts moved to the screens they fill — Edit
+                  // profile and Workout › History — so this row no longer
+                  // promises them. There is a second door under More settings ›
+                  // Your data.
+                  SetRow(LucideIcons.smartphone, C.blue, 'From $storeName',
+                      sub: 'Resting heart rate, and readings from instruments '
+                          'this band does not have',
                       onTap: onPhoneImport),
                 ]),
                 settingsGroup(c, 'Your data', [

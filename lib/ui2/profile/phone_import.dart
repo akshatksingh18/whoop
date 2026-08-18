@@ -3,6 +3,16 @@
 // They are on the same screen because they are the same promise: OpenStrap did
 // not measure any of this. What differs is what each one is ALLOWED to become.
 //
+// THE OTHER TWO READS ARE NOT HERE, and that is the point. Height and weight
+// live on Edit profile, which is the form they fill; workouts live on Workout ›
+// History, which is the list they join. Both used to be on this screen, three
+// taps deep beside a database export, where nobody goes looking for their
+// Sunday run. What is LEFT here is what has nowhere better to be: a resting
+// heart rate that becomes a shadow baseline nothing reads yet, and readings
+// from instruments this band does not have. They are collected passively — a
+// button you press when you think of it, no background sync, no prompt at
+// launch — which is exactly what a settings screen is for.
+//
 //   · Resting heart rate seeds a BASELINE — a centre and a spread — and never a
 //     day. Another device's resting HR is on another device's scale, which is
 //     exactly why it can shape "usual for you" and can never be a value on a
@@ -17,25 +27,16 @@
 // app's own baseline key is fed from rmssd; mixing them is how a new user gets
 // a confidently wrong first month, which is worse than the blank it replaces.
 
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
+import '../../health/health_import_state.dart';
 import '../../health/health_measurement_import.dart';
-import '../../health/health_profile_import.dart';
 import '../../health/health_rhr_seed.dart';
-import '../../health/health_workout_import.dart';
-import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'devices.dart' show formatDayTime;
-
-/// Whichever store this platform has. Named, because "your phone" is not a
-/// thing a user can go and check a permission on.
-String get storeName => Platform.isIOS ? 'Apple Health' : 'Health Connect';
 
 /// The kinds SD-12 imports, in the order they are shown, with the label and the
 /// unit each is stored in.
@@ -61,9 +62,6 @@ class _PhoneImportState extends State<PhoneImport> {
   ana.BaselineState? _seed;
   SeedComparison? _compare;
 
-  /// Imported workouts, newest first, with a route flag each.
-  List<(Map<String, dynamic> row, bool hasRoute)> _workouts = const [];
-
   /// Latest row per kind, newest first. Each carries its own `source`; a row
   /// without one is not renderable and never reaches here.
   final Map<String, Map<String, dynamic>> _latest = {};
@@ -81,18 +79,9 @@ class _PhoneImportState extends State<PhoneImport> {
       final rows = await LocalDb.importedMeasurements(kind, limit: 1);
       if (rows.isNotEmpty) latest[kind] = rows.first;
     }
-    // Only the most recent few: this is a receipt for what was imported, not a
-    // workout history screen. The app already has one of those, and it is for
-    // workouts this band measured.
-    final rows = await LocalDb.importedWorkouts(limit: 8);
-    final workouts = <(Map<String, dynamic>, bool)>[];
-    for (final r in rows) {
-      workouts.add((r, await LocalDb.sessionHasRoute(r['uuid'] as String)));
-    }
     if (!mounted) return;
     setState(() {
       _compare = compare;
-      _workouts = workouts;
       _latest
         ..clear()
         ..addAll(latest);
@@ -170,64 +159,6 @@ class _PhoneImportState extends State<PhoneImport> {
                 'recorded it.',
             false,
           );
-  }
-
-  /// Read body metrics into the local profile.
-  ///
-  /// Goes through `AppState.updateProfile`, the only writer of `AppState.user`.
-  /// The merge policy (weight and height win, age and sex only fill a gap)
-  /// lives in `mergeHealthProfile` and is not re-decided here.
-  Future<(String, bool)> _importProfile() async {
-    final importer = HealthProfileImporter();
-    if (!await importer.requestPermission()) {
-      return ('$storeName did not grant those fields. Nothing was read.', true);
-    }
-    final snap = await importer.read();
-    if (snap.isEmpty) {
-      return (
-        'Nothing came back. $storeName holds no height, weight'
-            '${Platform.isIOS ? ', birthday' : ''} or sex for you — type them '
-            'in on Edit profile instead.',
-        false,
-      );
-    }
-    if (!mounted) return ('', false);
-    final app = context.read<AppState>();
-    final changes = healthProfileChanges(app.user, snap);
-    if (changes.isEmpty) {
-      return (
-        'Read ${snap.found.join(', ')}. Your profile already says the same '
-            'thing, so nothing changed.',
-        false,
-      );
-    }
-    await app.updateProfile(mergeHealthProfile(app.user, snap));
-    return ('Updated ${changes.join(', ')} from $storeName.', false);
-  }
-
-  Future<(String, bool)> _importWorkouts() async {
-    final importer = HealthWorkoutImporter();
-    if (!await importer.requestPermission()) {
-      return ('$storeName did not grant workouts. Nothing was read.', true);
-    }
-    final res = await importer.sync();
-    if (res.workouts == 0) {
-      return (
-        'Nothing came back. $storeName holds no workouts inside the window it '
-            'will share.',
-        false,
-      );
-    }
-    final n = res.workouts;
-    final route = !res.routesSupported
-        // Stated every time rather than once in the body copy: this is the
-        // moment the user is looking for their map, and "Android cannot" has
-        // to arrive with the result, not near it.
-        ? ' Health Connect will not share routes, so none have coordinates.'
-        : res.withRoutes == 0
-            ? ' None of them had a route recorded.'
-            : ' ${res.withRoutes} came with a route.';
-    return ('$n workout${n == 1 ? '' : 's'} listed.$route', false);
   }
 
   @override
@@ -379,112 +310,17 @@ class _PhoneImportState extends State<PhoneImport> {
                         sub: _sourceLine(row),
                       ),
                     ],
-                  const SizedBox(height: S.x6),
-                  // ── body metrics → local profile ────────────────────────────
-                  Section(
-                    'Your body',
-                    Surface(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Height and weight from $storeName'
-                            '${Platform.isIOS ? ', plus your birthday and sex' : ''}'
-                            '. Weight is the one that matters: the calorie and '
-                            'BMR estimates read it, and a figure typed in once '
-                            'a year quietly gets more wrong every month.',
-                            style: F.body.copyWith(color: p.ink2, height: 1.4),
-                          ),
-                          const SizedBox(height: S.x3),
-                          Text(
-                            // The asymmetry, said on the platform it affects.
-                            // Health Connect has no characteristic record for
-                            // either — it is not a permission we could ask for.
-                            Platform.isIOS
-                                ? 'Height and weight are taken from the store '
-                                    'each time. Your age and sex are only '
-                                    'filled in if the profile has none — '
-                                    'neither drifts, so a value already there '
-                                    'was your choice.'
-                                : 'Health Connect has no birthday and no sex '
-                                    'to read — no app can. Set those on Edit '
-                                    'profile; height and weight come from '
-                                    'here.',
-                            style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                          ),
-                          const SizedBox(height: S.x4),
-                          BigButton(
-                            'Read height and weight',
-                            icon: LucideIcons.scale,
-                            color: C.purple,
-                            soft: true,
-                            onTap: _busy ? null : () => _run(_importProfile),
-                          ),
-                        ],
-                      ),
-                    ),
+                  const SizedBox(height: S.x5),
+                  // The two reads that MOVED, said once, so somebody who
+                  // remembers them being here is not left hunting.
+                  const StatusCard(
+                    'Height, weight and workouts moved',
+                    'Height and weight are on Edit profile now, and workouts '
+                        'this phone recorded are on Workout, under History. '
+                        'Each one sits on the screen it fills.',
+                    icon: LucideIcons.arrowRight,
                   ),
-                  const SizedBox(height: S.x6),
-                  // ── workouts + routes ───────────────────────────────────────
-                  Section(
-                    'Workouts recorded elsewhere',
-                    Surface(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Runs, rides and sessions another app recorded'
-                            '${Platform.isIOS ? ', with their routes' : ''}. '
-                            'They are listed and drawn, each named with the '
-                            'app that recorded it.',
-                            style: F.body.copyWith(color: p.ink2, height: 1.4),
-                          ),
-                          const SizedBox(height: S.x3),
-                          Text(
-                            // The ceiling, stated before the button rather than
-                            // discovered afterwards when a strain score does
-                            // not move.
-                            'They stay separate from workouts this band '
-                            'measured. An imported workout never adds to your '
-                            'strain, never changes a day’s score, and never '
-                            'becomes a personal record — this app did not '
-                            'measure it and cannot vouch for it.',
-                            style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                          ),
-                          if (!Platform.isIOS) ...[
-                            const SizedBox(height: S.x3),
-                            Text(
-                              'Routes are not included on Android. Health '
-                              'Connect keeps them behind a separate, '
-                              'restricted permission that this app has not '
-                              'applied for, so the workouts arrive without '
-                              'coordinates.',
-                              style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                            ),
-                          ],
-                          const SizedBox(height: S.x4),
-                          BigButton(
-                            'Read workouts',
-                            icon: LucideIcons.footprints,
-                            color: C.orange,
-                            soft: true,
-                            onTap: _busy ? null : () => _run(_importWorkouts),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  for (final (row, hasRoute) in _workouts) ...[
-                    const SizedBox(height: S.x3),
-                    MetricRow(
-                      hasRoute ? LucideIcons.map : LucideIcons.activity,
-                      C.orange,
-                      _workoutTitle(row),
-                      _workoutValue(row),
-                      unit: 'min',
-                      sub: _workoutSub(row, hasRoute),
-                    ),
-                  ],
+                  const SizedBox(height: S.x2),
                   if (_busy) ...[
                     const SizedBox(height: S.x6),
                     Center(
@@ -519,46 +355,8 @@ String _formatValue(Object? v) {
   return d == d.roundToDouble() ? '${d.round()}' : d.toStringAsFixed(1);
 }
 
-/// "RUNNING" → "Running". The health store's own enum name, title-cased and
-/// de-underscored. Not mapped through a lookup table on purpose: a map would
-/// need an entry for every one of ~80 activity types and would print a blank
-/// for whatever the next OS version adds.
-String _workoutTitle(Map<String, dynamic> row) {
-  final raw = (row['kind'] as String?)?.trim() ?? '';
-  if (raw.isEmpty) return 'Workout';
-  return raw
-      .split('_')
-      .where((w) => w.isNotEmpty)
-      .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
-      .join(' ');
-}
 
-/// Duration in whole minutes. The only figure shown large, because it is the
-/// one the source app cannot get wrong.
-String _workoutValue(Map<String, dynamic> row) {
-  final start = (row['start_ts'] as num?)?.toInt();
-  final end = (row['end_ts'] as num?)?.toInt();
-  if (start == null || end == null || end <= start) return '';
-  return '${((end - start) / 60).round()}';
-}
 
-/// "Strava · Thu 4 Sep, 07:12 · 8.2 km · route". Distance and energy appear
-/// only when the store recorded them — an absent distance is absent, and a
-/// "0.0 km" under a run is a wrong number, not a missing one.
-String _workoutSub(Map<String, dynamic> row, bool hasRoute) {
-  final src = (row['source'] as String?)?.trim();
-  final ts = (row['start_ts'] as num?)?.toInt();
-  final dist = (row['distance_m'] as num?)?.toDouble();
-  final kcal = (row['energy_kcal'] as num?)?.toDouble();
-  return [
-    if (src != null && src.isNotEmpty) src,
-    if (ts != null)
-      formatDayTime(DateTime.fromMillisecondsSinceEpoch(ts * 1000)),
-    if (dist != null && dist > 0) '${(dist / 1000).toStringAsFixed(1)} km',
-    if (kcal != null && kcal > 0) '${kcal.round()} kcal',
-    if (hasRoute) 'route',
-  ].join(' · ');
-}
 
 /// "Omron Connect · Thu 4 Sep, 07:12". The source is not optional decoration:
 /// a reading this app did not take, shown without saying who did, is a reading

@@ -20,6 +20,8 @@ import 'package:provider/provider.dart';
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
+import '../../health/health_import_state.dart';
+import '../../health/health_workout_import.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
@@ -496,8 +498,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           onFix: () => _openPicker(c, d),
           icon: LucideIcons.dumbbell,
         ),
+        const SizedBox(height: S.x5),
+        ..._importCard(c, d),
       ];
     }
+    final importedThisWeek = d.weekImported;
     return [
       Row(children: [
         Expanded(child: _sum(p, '${d.workoutsTracked ?? d.workouts.length}',
@@ -511,13 +516,149 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 d.weekLoad == null ? 'None' : d.weekLoad!.round().toString(),
                 'Weekly load')),
       ]),
+      // The seam, said where the two numbers sit next to each other. "This
+      // week" counts every session you did; "Weekly load" counts only the ones
+      // this band watched — and without this line the gap between them reads
+      // as a bug rather than as the limit it is.
+      if (importedThisWeek > 0) ...[
+        const SizedBox(height: S.x3),
+        Text(
+          '$importedThisWeek of this week’s sessions came from $storeName. '
+              'They count here, and they are left out of weekly load — an '
+              'imported workout arrives with no heart-rate trace, and a load '
+              'number without one would be invented.',
+          style: F.cap.copyWith(color: p.ink3, height: 1.5),
+        ),
+      ],
       ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
         _HistoryRow(w, weightKg: d.weightKg),
         const SizedBox(height: S.x3),
       ],
+      const SizedBox(height: S.x3),
+      ..._importCard(c, d),
     ];
+  }
+
+  /// Bring in what another app recorded. On History because that is the list
+  /// it joins — it used to live three taps deep under More settings, next to a
+  /// database export, which is not where anybody looks for their Sunday run.
+  List<Widget> _importCard(BuildContext c, _WorkoutData d) {
+    final p = P.of(c);
+    return [
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            'Runs, rides and sessions recorded by another app or watch'
+            '${isAppleHealth ? ', with their routes' : ''}. Each one is '
+            'listed above with the app or watch that recorded it named on it.',
+            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+          ),
+          if (!isAppleHealth) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              // Said before the button rather than discovered afterwards, when
+              // a map fails to appear and reads as a bug.
+              'Routes are not included on Android. Health Connect keeps them '
+              'behind a separate, restricted permission this app has not '
+              'applied for, so the workouts arrive without coordinates.',
+              style: F.cap.copyWith(color: p.ink3, height: 1.5),
+            ),
+          ],
+          const SizedBox(height: S.x4),
+          BigButton(
+            importLabel(d.importedLast),
+            icon: LucideIcons.smartphone,
+            color: C.domMove,
+            soft: true,
+            onTap: _importing ? null : _importWorkouts,
+          ),
+          if (_importNote != null) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              _importNote!,
+              style: F.cap.copyWith(
+                  color: _importFailed ? p.on(C.red) : p.ink2, height: 1.5),
+            ),
+          ],
+        ]),
+      ),
+    ];
+  }
+
+  bool _importing = false;
+  String? _importNote;
+  bool _importFailed = false;
+
+  /// Read the store, then reload the tab so the new rows are in the list the
+  /// user is looking at.
+  ///
+  /// Re-reading the WHOLE window every time rather than only what is new: the
+  /// table is keyed on the health store's own uuid and the write replaces, so
+  /// a second pass over the same run updates that one row instead of stacking
+  /// a copy. It also picks up a workout the source app edited or back-dated
+  /// after the fact, which a "since last time" cursor would miss forever.
+  Future<void> _importWorkouts() async {
+    if (_importing) return;
+    setState(() {
+      _importing = true;
+      _importNote = null;
+    });
+    final importer = HealthWorkoutImporter();
+    try {
+      // Asked HERE, on the tap, and for WORKOUT alone. Nothing at launch and
+      // nothing in onboarding — a sheet asking for data the user has not asked
+      // us to read is how the whole set gets denied in one go.
+      if (!await importer.requestPermission()) {
+        if (!mounted) return;
+        setState(() {
+          _importNote = '$storeName did not grant workouts. Nothing was read.';
+          _importFailed = true;
+        });
+        return;
+      }
+      final res = await importer.sync();
+      if (res.workouts == 0) {
+        if (!mounted) return;
+        setState(() {
+          _importNote = 'Nothing came back. $storeName holds no workouts '
+              'inside the window it will share.';
+          _importFailed = false;
+        });
+        return;
+      }
+      // Only now. A denied read on iOS comes back as an empty list rather than
+      // as an error, so marking a zero-row read as done would put "Refresh" on
+      // the button for someone who said no.
+      await markImported(HealthImport.workouts);
+      final route = !res.routesSupported
+          // Said with the result rather than near it: this is the moment the
+          // user is looking for their map.
+          ? ' $storeName will not share routes, so none have coordinates.'
+          : res.withRoutes == 0
+              ? ' None of them had a route recorded.'
+              : ' ${res.withRoutes} came with a route.';
+      if (!mounted) return;
+      setState(() {
+        _importNote = '${res.workouts} workout'
+            '${res.workouts == 1 ? '' : 's'} brought in.$route';
+        _importFailed = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _importNote = 'Failed: $e';
+        _importFailed = true;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _importing = false;
+          _load = _loadWorkoutData(context.read<AppState>());
+        });
+      }
+    }
   }
 
   /// TS-11 — what each session type actually cost you the next morning.
@@ -635,7 +776,13 @@ class _HistoryRow extends StatelessWidget {
     final a = w.activity;
     final stats = _stats;
     return Surface(
-      onTap: () => _open(c),
+      // An imported row does not open. The summary screen behind this tap is
+      // built to show a session THIS band measured — its rating control, its
+      // heart-rate trace, its zone split — and it has nowhere to say whose
+      // workout it is. A screen that presents an Apple Watch run exactly like
+      // one of ours is the fabrication this whole table exists to avoid, so
+      // the row stays a row until that screen can name its source.
+      onTap: w.importedFrom == null ? () => _open(c) : null,
       child: Column(children: [
         Row(children: [
           Container(
@@ -652,7 +799,10 @@ class _HistoryRow extends StatelessWidget {
                 children: [
                   Row(children: [
                     Flexible(
-                      child: Text(a.name,
+                      // The store's own word for it when it is not ours: the
+                      // catalogue knows the ~40 types this app can start, and
+                      // "Workout" over a surf loses the one thing we were told.
+                      child: Text(w.importedTitle ?? a.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: F.body.copyWith(
@@ -665,7 +815,15 @@ class _HistoryRow extends StatelessWidget {
                       Icon(LucideIcons.lock, size: 13, color: p.ink3),
                     ],
                   ]),
-                  Text(w.when, style: F.over.copyWith(color: p.ink3)),
+                  // "Apple Watch · Today, 07:12". The source is not decoration
+                  // and it is not the word "imported": a band-measured session
+                  // and an Apple Watch session are different measurements, and
+                  // the name of the thing that took it is the difference.
+                  Text(
+                      w.importedFrom == null
+                          ? w.when
+                          : '${w.importedFrom} · ${w.when}',
+                      style: F.over.copyWith(color: p.ink3)),
                 ]),
           ),
           if (w.strain != null) ...[
@@ -716,17 +874,31 @@ class _HistoryRow extends StatelessWidget {
   /// quietly loses its calorie line reads as a lighter session rather than an
   /// uncosted one. The unit is null in that case — 'Not costed kcal' is not a
   /// sentence.
-  List<(String, String, String?)> get _stats => [
-        ('Time', hms(w.duration), null),
-        if (w.calories == null)
-          ('Calories', 'Not costed', null)
-        else
-          ('Calories', grouped(w.calories!), 'kcal'),
-        if (w.maxHr == null)
-          ('Max HR', 'No reading', null)
-        else
-          ('Max HR', '${w.maxHr}', 'bpm'),
-      ];
+  List<(String, String, String?)> get _stats => w.importedFrom != null
+      ? [
+          // An imported row prints only what the recording app actually
+          // recorded, and drops the rest rather than saying "No reading": this
+          // band was not on the wrist, so there is no reading it could have
+          // taken and nothing was lost. The calories are the SOURCE's figure,
+          // shown under the source's name a line above — never added to ours,
+          // because two devices' calorie models summed is a number neither of
+          // them would stand behind.
+          ('Time', hms(w.duration), null),
+          if (w.distanceM != null && w.distanceM! > 0)
+            ('Distance', (w.distanceM! / 1000).toStringAsFixed(2), 'km'),
+          if (w.calories != null) ('Calories', grouped(w.calories!), 'kcal'),
+        ]
+      : [
+          ('Time', hms(w.duration), null),
+          if (w.calories == null)
+            ('Calories', 'Not costed', null)
+          else
+            ('Calories', grouped(w.calories!), 'kcal'),
+          if (w.maxHr == null)
+            ('Max HR', 'No reading', null)
+          else
+            ('Max HR', '${w.maxHr}', 'bpm'),
+        ];
 }
 
 /// One day's initial. Taken from the date the point carries — deriving it from
@@ -1260,6 +1432,23 @@ class _PastWorkout {
   /// `sessions.private`.
   final bool private;
 
+  /// The app or watch that recorded this, when it was not us — "Apple Watch",
+  /// "Strava". Null for a session this band measured, and that null is the ONE
+  /// test everything below reads: what a row may be counted in, whether it
+  /// opens, and what is printed under its name all come off this field.
+  final String? importedFrom;
+
+  /// The health store's own name for the activity, already prettified.
+  ///
+  /// Carried because `activityByName` only resolves the types this app's own
+  /// catalogue has, and printing "Workout" over a HealthKit `SURFING` throws
+  /// away the one thing the store did tell us.
+  final String? importedTitle;
+
+  /// Metres, from the recording app. Only imported rows carry it — a band
+  /// session's distance is read on open with its route.
+  final double? distanceM;
+
   const _PastWorkout(this.id, this.activity, this.start, this.duration,
       {this.strain,
       this.calories,
@@ -1268,7 +1457,10 @@ class _PastWorkout {
       this.hrr60,
       this.steps,
       this.zoneMinutes = const [],
-      this.private = false});
+      this.private = false,
+      this.importedFrom,
+      this.importedTitle,
+      this.distanceM});
 
   List<double> get zoneFractions {
     final total = zoneMinutes.fold<double>(0, (a, b) => a + b);
@@ -1334,6 +1526,11 @@ class _WorkoutData {
   final List<_PastWorkout> workouts;
   final Set<int> weekDays; // 0 = Monday
   final int weekCount;
+
+  /// How many of [weekCount] came from the phone's health store. Carried so
+  /// the gap between "This week" and "Weekly load" can be explained where the
+  /// two sit side by side, rather than left to look like a bug.
+  final int weekImported;
   final double? weekLoad;
   final int? workoutsTracked;
 
@@ -1351,6 +1548,11 @@ class _WorkoutData {
   /// which takes months, and that is the honest state until then.
   final List<MorningEffect> morningAfter;
 
+  /// When the phone's health store last handed us a workout, or null for
+  /// never. It is the whole difference between an Import button and a Refresh
+  /// one — see health_import_state.dart for why the store cannot be asked.
+  final DateTime? importedLast;
+
   const _WorkoutData({
     this.weightKg,
     this.load,
@@ -1362,12 +1564,14 @@ class _WorkoutData {
     this.workouts = const [],
     this.weekDays = const {},
     this.weekCount = 0,
+    this.weekImported = 0,
     this.weekLoad,
     this.workoutsTracked,
     this.recent = const [],
     this.setHistory = const {},
     this.overreach,
     this.morningAfter = const [],
+    this.importedLast,
   });
 
   const _WorkoutData.empty() : this();
@@ -1468,6 +1672,50 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     } catch (_) {
       // leave `past` as-is
     }
+    // Workouts another app recorded, on the SAME window the band's own list
+    // uses. The store is read 90 days back (30 on Android) because that is the
+    // most history worth carrying, but showing three months of imports beside
+    // one month of sessions would read as a band that stopped measuring.
+    try {
+      final since = end.subtract(Motion.tick * 86400 * 31);
+      for (final r in await LocalDb.importedWorkouts(limit: 200)) {
+        final ts = (r['start_ts'] as num?)?.toInt();
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        final src = (r['source'] as String?)?.trim();
+        // `source` is NOT NULL in the table for exactly this reason: a workout
+        // shown without the app that recorded it is a workout this app is
+        // implicitly claiming. No source, no row.
+        if (ts == null || endTs == null || endTs <= ts) continue;
+        if (src == null || src.isEmpty) continue;
+        final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+        if (at.isBefore(since)) continue;
+        final title = importedWorkoutTitle(r['kind']);
+        past.add(_PastWorkout(
+          (r['uuid'] as String?) ?? '',
+          // The icon and colour only, when the catalogue happens to know the
+          // type. The NAME always comes from the store — `activityByName`
+          // resolves the ~40 types this app can start, and the fallback would
+          // print "Workout" over a surf.
+          activityByName(title) ??
+              const Activity('Workout', LucideIcons.activity, C.purple,
+                  Track.duration, 5.0),
+          at,
+          Motion.tick * (endTs - ts),
+          // No strain, ever. It is not omitted pending a better idea — there
+          // is no heart-rate series behind this row to score one from, so
+          // every load surface reads null and leaves it out on its own.
+          calories: (r['energy_kcal'] as num?)?.round(),
+          steps: (r['steps'] as num?)?.toInt(),
+          importedFrom: src,
+          importedTitle: title,
+          distanceM: (r['distance_m'] as num?)?.toDouble(),
+        ));
+      }
+    } catch (_) {
+      // Nothing imported is the normal state, and an unreadable table must not
+      // take the band's own history down with it.
+    }
+
     past.sort((a, b) => b.start.compareTo(a.start));
 
     // TS-08 — mechanical load, on the same seven slots the TRIMP chart uses.
@@ -1482,7 +1730,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     final tonnageJobs = <Future<void>>[];
     for (final w in past) {
       final slot = _daySlot(w.start, end);
-      if (slot == null || w.id.isEmpty) continue;
+      if (slot == null || w.id.isEmpty || w.importedFrom != null) continue;
       tonnageJobs.add(LocalDb.strengthSets(w.id).then((rows) {
         if (rows.isEmpty) return;
         final log = _logFrom(rows);
@@ -1509,14 +1757,22 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       tracked = null;
     }
 
+    // Imported sessions fall out here on their own: they carry no strain,
+    // because there is no heart-rate series behind them to score one from.
+    // Nothing filters them — there is nothing to add.
     final weekLoad = thisWeek
         .where((w) => w.strain != null)
         .fold<double?>(null, (a, w) => (a ?? 0) + w.strain!);
 
     // Real recency, deduped, newest first — six tiles like the constant it
     // replaces, so the picker's row is the same shape either way.
+    //
+    // Band sessions only. These tiles START a session, and most imported types
+    // land on the generic fallback activity — a row of "Workout" tiles that
+    // begin a five-MET nothing is worse than the six real ones.
     final recent = <Activity>[];
     for (final w in past) {
+      if (w.importedFrom != null) continue;
       if (!recent.any((x) => x.name == w.activity.name)) {
         recent.add(w.activity);
       }
@@ -1537,13 +1793,18 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       tonnage7: tonnage7,
       tonnagePartial: tonnagePartial,
       workouts: past,
+      // Imported days light a dot too. This strip says "you trained", not
+      // "this band measured you", and a Sunday run left dark because the watch
+      // recorded it instead of the band is wrong in a way the user can see.
       weekDays: {for (final w in thisWeek) w.start.weekday - 1},
       weekCount: thisWeek.length,
+      weekImported: thisWeek.where((w) => w.importedFrom != null).length,
       weekLoad: weekLoad,
       workoutsTracked: tracked,
       recent: recent,
       setHistory: history,
       overreach: overreach,
       morningAfter: morningAfter,
+      importedLast: await lastImportAt(HealthImport.workouts),
     );
 }

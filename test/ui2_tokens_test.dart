@@ -227,6 +227,9 @@ const _notComponents = {
   // `what_changed` and their empty and calibrating states — along with the one
   // row component each is built out of.
   'DayTimelineScreen', 'WhatChangedScreen',
+  // `FindingsLog` is a Scaffold over a recomputed history; the ROW it is built
+  // out of — `finding_row`, `finding_row_plain` — is in the gallery.
+  'FindingsLog',
   // a live session — a stateful screen with a clock, per archetype
   'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
   'LiveFlow', 'LiveMatch', 'LiveInterval',

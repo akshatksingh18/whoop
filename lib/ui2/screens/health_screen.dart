@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../compute/findings.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/lab_catalogue.dart';
@@ -18,6 +19,7 @@ import '../../models/metric.dart';
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'circadian_detail.dart';
+import 'findings_log.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
@@ -46,6 +48,11 @@ class HealthData {
   /// disqualifies a gap from being the answer.
   final String? nightGap;
 
+  /// EVERYTHING THE APP HAS EVER NOTICED, newest first — see findings.dart.
+  /// Recomputed from the rollup on every load rather than logged, so the
+  /// history is there from the first run instead of starting empty today.
+  final List<Finding> findings;
+
   const HealthData({
     this.today = const {},
     this.insights = const {},
@@ -55,6 +62,7 @@ class HealthData {
     this.need = Metric.empty,
     this.insightsStale,
     this.nightGap,
+    this.findings = const [],
   });
 
   /// The stored points for [key].
@@ -142,6 +150,21 @@ class HealthData {
             toSec: dayStart + 10 * 3600,
           );
 
+    // The two inputs the rollup's `recent[]` does not carry. Both come off
+    // `metric_series`, which keeps one value per derived day for as long as the
+    // day exists — the same store the trend charts draw, so the log cannot
+    // disagree with the chart a tap away about which mornings were low.
+    String labelAt(int t) =>
+        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+    final ready = {
+      for (final p in pointsOf(await repo.getChart('recovery')))
+        labelAt(p.t): p.v,
+    };
+    final irregular = {
+      for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))
+        if (p.v == 1) labelAt(p.t),
+    };
+
     return HealthData(
       today: today,
       insights: cd,
@@ -152,6 +175,8 @@ class HealthData {
           unit: 'min'),
       insightsStale: staleReasonOf(cd),
       nightGap: gap,
+      findings:
+          findingsHistory(cd, readiness: ready, irregularDays: irregular),
     );
   }
 }
@@ -639,10 +664,31 @@ class _HealthScreenState extends State<HealthScreen> {
         ),
       for (final g in gaps) ...[const SizedBox(height: S.x3), g],
 
-      // Illness watch — computed every rollup, read by nothing until now.
-      if (illnessCard != null) ...[
+      // OBSERVATIONS — the illness watch, wrapped, plus a door to the other
+      // three detectors.
+      //
+      // The illness card is unchanged and stays first: it is the one finding
+      // with copy specific enough to be worth a card of its own. What it gains
+      // is a title over it and a way through to the anomaly, skin temperature
+      // and resting-HR findings, which fired for months and reached no screen
+      // at all. NOT a feed — see findings_log.dart. Nothing here is unread,
+      // badged or dismissible, and it does not appear on Home.
+      if (illnessCard != null || d.findings.isNotEmpty) ...[
         const SizedBox(height: S.x4),
-        illnessCard,
+        Section(
+          'Observations',
+          illnessCard ??
+              // No live illness, but the log is not empty: the newest entry in
+              // place and the rest one tap away. ONE row — a wall of findings
+              // on the tab you land on is the feed this is not.
+              Surface(
+                onTap: () => go(c, FindingsLog(d.findings)),
+                child: FindingRow(d.findings.first),
+              ),
+          action: d.findings.isEmpty ? null : 'See all',
+          onAction:
+              d.findings.isEmpty ? null : () => go(c, FindingsLog(d.findings)),
+        ),
       ],
 
       Section(

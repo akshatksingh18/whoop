@@ -37,6 +37,7 @@ import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../ai/nightly_sweep.dart' show SweepFinding;
+import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
@@ -617,6 +618,11 @@ Map<String, Widget> extraCases() => {
       'status_wear_gap': StatusCard.forMetric('No sleep', Metric.empty,
           why: 'No sleep period long enough to score was recorded.',
           gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.')!,
+      // A health watch in the log. Two accents across six detectors, not six:
+      // a colour per detector reads as a severity scale nobody calibrated.
+      'finding_row': const FindingRow(Finding(FindingKind.illness, '2026-08-16')),
+      'finding_row_plain':
+          const FindingRow(Finding(FindingKind.rhrShift, '2026-08-16', risen: true)),
       'status_wear_gap_after_pipeline': StatusCard.forMetric(
         'No respiratory rate',
         const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),

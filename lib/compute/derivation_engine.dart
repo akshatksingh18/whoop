@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'strain_backfill.dart' show backfillStrainScale;
 
 import 'package:flutter/foundation.dart';
+import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:firebase_core/firebase_core.dart';
@@ -4144,45 +4145,27 @@ class DerivationEngine {
       // `medical` marks the DETECTION-class findings — the ones the design
       // sanctions interrupting for. It only affects the dedupe key (below),
       // never the wording.
-      final findings = <({String title, String detail, bool medical})>[];
+      // The SENTENCES live in findings.dart, with the log that reads the same
+      // six. They were inline here, which is exactly how a second surface for
+      // the same detector ends up quietly differently worded.
+      final findings = <Finding>[];
       if (illness != null && illness['state'] == 'red') {
-        findings.add((
-          title: 'Possible illness onset',
-          detail: 'Elevated resting HR + suppressed HRV over recent nights.',
-          medical: true,
-        ));
+        findings.add(Finding(FindingKind.illness, date));
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        findings.add((
-          title: 'Unusual overnight physiology',
-          detail: 'Your nightly signals deviate from your personal baseline.',
-          medical: true,
-        ));
+        findings.add(Finding(FindingKind.anomaly, date));
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        findings.add((
-          title: 'Skin temperature elevated',
-          detail: 'Sustained rise vs your baseline — a possible illness signal.',
-          medical: true,
-        ));
+        findings.add(Finding(FindingKind.tempElevated, date));
       }
       // 24/7 irregular-rhythm SCREEN (not a diagnosis).
       final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
       if (irregFlag == 1.0) {
-        findings.add((
-          title: 'Irregular heart rhythm — screen',
-          detail: 'Your beat-to-beat pattern looked irregular today. This is a '
-              'screen, not a diagnosis — see a clinician if you have symptoms.',
-          medical: true,
-        ));
+        findings.add(Finding(FindingKind.irregularRhythm, date));
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
-      if (score is num && score < 34) {
-        findings.add((
-          title: 'Low readiness today',
-          detail: 'Your recovery markers are below your usual range — ease off.',
-          medical: false,
-        ));
+      if (score is num && score < kLowReadiness) {
+        findings.add(Finding(FindingKind.lowReadiness, date));
       }
 
       // "Something changed" — online CUSUM on the recent resting-HR series.
@@ -4216,13 +4199,8 @@ class DerivationEngine {
       if (!lastUnsettled && rhrSeries.length >= 10) {
         final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
         if (dets.isNotEmpty && rhrDates[dets.last.index] == date) {
-          final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
-          findings.add((
-            title: 'Your resting heart-rate trend shifted',
-            detail:
-                'Your resting HR has $dir noticeably versus your recent baseline.',
-            medical: false,
-          ));
+          findings.add(Finding(FindingKind.rhrShift, date,
+              risen: dets.last.direction > 0));
         }
       }
 

@@ -220,6 +220,13 @@ class ActivityResult {
 
   // measured by the band / phone
   final int? avgHr, maxHr, calories;
+
+  /// Heart-rate recovery: the bpm drop over the 60 s after the session ended.
+  /// Backfilled into `sessions.hrr_bpm` during derivation and served on every
+  /// session row — 11 of 14 sessions on the real export carry one, and nothing
+  /// read it. Null is UNMEASURED (no trace over the minute after, or a session
+  /// that ended into another one), never a zero drop.
+  final int? hrr60;
   final double? strain;
   // Per-MINUTE mean heart rate, live (`LiveWorkoutState.perMinuteHr`) and
   // stored (`getWorkout()['hr']`) alike. Nothing on this screen has ever been
@@ -291,6 +298,7 @@ class ActivityResult {
     this.rpe,
     this.avgHr,
     this.maxHr,
+    this.hrr60,
     this.calories,
     this.strain,
     this.hr = const [],
@@ -323,6 +331,7 @@ class ActivityResult {
     double? rpe,
     int? avgHr,
     int? maxHr,
+    int? hrr60,
     List<double?>? hr,
     List<double>? zoneMinutes,
     int? traceCoveragePct,
@@ -345,6 +354,7 @@ class ActivityResult {
         rpe: rpe ?? this.rpe,
         avgHr: avgHr ?? this.avgHr,
         maxHr: maxHr ?? this.maxHr,
+        hrr60: hrr60 ?? this.hrr60,
         calories: calories,
         strain: strain,
         hr: hr ?? this.hr,
@@ -545,6 +555,11 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   // back on the history path — and until now printed on the history ROW and
   // nowhere on the screen that row opens.
   add('Max HR', r.maxHr == null ? null : '${r.maxHr} bpm');
+  // How far it fell in the minute after. Computed at derive time, stored on the
+  // session, and until now read by nothing at all. The window is in the value
+  // rather than the label because 'HR recovery 24 bpm' is not a claim anybody
+  // can check — recovery over WHAT is the whole measurement.
+  add('HR recovery', r.hrr60 == null ? null : '${r.hrr60} bpm in 60 s');
   add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
   add('Strain', r.strain?.toStringAsFixed(1));
   // TS-09 — last, under the measurements, and named 'Your rating' rather than

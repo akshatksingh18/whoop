@@ -1245,6 +1245,10 @@ class _PastWorkout {
   final double? strain;
   final int? calories, avgHr, maxHr;
 
+  /// `sessions.hrr_bpm` — the bpm drop in the 60 s after the session. Carried
+  /// from the list row because that is where the repository already serves it.
+  final int? hrr60;
+
   /// `sessions.steps` — banked at finish from the live 100 Hz pedometer and
   /// never recomputed. It is a COLUMN, so unlike the trace it does not depend
   /// on the 1 Hz substrate and does not go blank when that is pruned; a session
@@ -1261,6 +1265,7 @@ class _PastWorkout {
       this.calories,
       this.avgHr,
       this.maxHr,
+      this.hrr60,
       this.steps,
       this.zoneMinutes = const [],
       this.private = false});
@@ -1298,6 +1303,7 @@ class _PastWorkout {
         calories: calories,
         avgHr: avgHr,
         maxHr: maxHr,
+        hrr60: hrr60,
         steps: steps,
         zoneMinutes: zoneMinutes,
       );
@@ -1449,6 +1455,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             // — not the last sample anybody happened to see.
             avgHr: (r['avg_hr'] as num?)?.round(),
             maxHr: (r['max_hr'] as num?)?.toInt(),
+            hrr60: (r['hrr60'] as num?)?.round(),
             steps: (r['steps'] as num?)?.toInt(),
             zoneMinutes: [
               for (final z in (r['zone_min'] as List? ?? const []))

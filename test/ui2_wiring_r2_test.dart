@@ -15,7 +15,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -23,6 +25,16 @@ import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
+
+/// A [CoachConfig] that just answers the one question Home asks it, without a
+/// keychain or a prefs store behind it.
+class _Coach extends CoachConfig {
+  _Coach(this._on);
+  final bool _on;
+  @override
+  bool get configured => _on;
+}
 
 /// Local noon of `today - back`, the stamp `getChart` puts on a stored point.
 int _noon(int back) {
@@ -608,6 +620,29 @@ void main() {
       await t.tap(find.text('30 days'));
       await t.pumpAndSettle();
       expect(find.textContaining('Daily average'), findsOneWidget);
+    });
+  });
+
+  // ── the sparkles button is not an advert for a feature you never set up ──
+  group('the AI button on Home', () {
+    Widget frame(bool configured) => MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ChangeNotifierProvider<CoachConfig>.value(
+          value: _Coach(configured),
+          child: const Scaffold(
+              body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
+        ));
+
+    testWidgets('no model, no button', (t) async {
+      await t.pumpWidget(frame(false));
+      expect(find.byIcon(LucideIcons.sparkles), findsNothing);
+      // The avatar beside it is untouched — this is one button, not the row.
+      expect(find.byIcon(LucideIcons.user), findsOneWidget);
+    });
+
+    testWidgets('a configured coach gets its button', (t) async {
+      await t.pumpWidget(frame(true));
+      expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
     });
   });
 

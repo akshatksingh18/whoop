@@ -300,9 +300,12 @@ void main() {
 
     final readiness = const Metric(value: 82, confidence: .8, tier: MetricTier.high);
 
-    testWidgets('a settled overnight still says Today', (t) async {
+    // The rings carry no date of their own — the page is dated once, under the
+    // greeting. So a settled night says nothing extra, and a held-over one is
+    // the exception that has to name itself.
+    testWidgets('a settled overnight claims no other night', (t) async {
       await t.pumpWidget(frame(HomeData(readiness: readiness, dayId: '2026-05-20')));
-      expect(find.text("Today's readiness"), findsOneWidget);
+      expect(find.textContaining('Recovery and sleep are from'), findsNothing);
     });
 
     testWidgets('a held-over night names its own date instead', (t) async {
@@ -310,8 +313,8 @@ void main() {
       // this is an ordinary morning before the first sync — not a rare case.
       await t.pumpWidget(frame(HomeData(
           readiness: readiness, dayId: '2026-05-20', heldOverNight: '2026-05-16')));
-      expect(find.text("Today's readiness"), findsNothing,
-          reason: 'the number is four days old; calling it today is the bug');
+      // Two of the three rings are four days old; letting them sit under the
+      // page's own date without a word is the bug.
       expect(find.textContaining('16 May'), findsOneWidget);
     });
   });

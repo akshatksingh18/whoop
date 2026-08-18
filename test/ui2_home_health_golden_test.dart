@@ -82,10 +82,9 @@ final _home = HomeData(
     confidence: .8,
     tier: MetricTier.estimate,
   ),
-  sleepEff: const Metric(
-    value: 91,
-    unit: '%',
-    confidence: .8,
+  strain: const Metric(
+    value: 14.2,
+    confidence: .6,
     tier: MetricTier.estimate,
   ),
   rhr: const Metric(

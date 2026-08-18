@@ -58,6 +58,59 @@ import 'profile.dart';
 final _series =
     List<double>.generate(24, (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0);
 
+// ── the three rings, in the four states a ring has ──
+//
+// Fed as HomeData through the SAME mapping the screen uses, so a state the
+// gallery shows is a state the screen can actually produce. Hand-built ring
+// objects would drift from it the first time the mapping changed.
+
+/// All three measured. Sleep has a computed need behind it, so its ring has a
+/// denominator that is the user's own rather than the hardcoded 480.
+const _ringsMeasured = HomeData(
+  dayId: '2026-08-16',
+  readiness: Metric(value: 72, confidence: .8, tier: MetricTier.high),
+  drivers: [
+    {'label': 'hrv'},
+    {'label': 'rhr'},
+    {'label': 'resp'},
+  ],
+  strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
+  sleepMin: Metric(
+      value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+  sleepNeedMin: Metric(
+      value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+);
+
+/// Recovery three nights into a fourteen-night baseline, and a real night with
+/// nothing to measure it against.
+const _ringsCalibrating = HomeData(
+  dayId: '2026-08-16',
+  readiness: Metric(note: 'need_baseline:have=3,need=14'),
+  strain: Metric(value: 9.8, confidence: .6, tier: MetricTier.estimate),
+  sleepMin: Metric(
+      value: 401, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+);
+
+/// Nothing measured, three different reasons: one the pipeline named, one it
+/// named differently, and one nothing said anything about at all.
+const _ringsAbsent = HomeData(
+  dayId: '2026-08-16',
+  readiness: Metric(note: 'need_input:name=nn_beats,have=0,need=1'),
+  strain: Metric(note: 'need_input:name=today_activity'),
+  sleepMin: Metric(),
+);
+
+/// The overnight block held over from an older night while strain describes
+/// today — one sentence under the rings rather than a date under two of them.
+const _ringsHeldOver = HomeData(
+  dayId: '2026-08-16',
+  heldOverNight: '2026-08-14',
+  readiness: Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
+  strain: Metric(value: 3.1, confidence: .6, tier: MetricTier.estimate),
+  sleepMin: Metric(
+      value: 322, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+);
+
 const _night = <SleepStage>[
   ...[SleepStage.awake, SleepStage.light, SleepStage.light, SleepStage.deep],
   ...[SleepStage.deep, SleepStage.light, SleepStage.rem, SleepStage.light],
@@ -76,20 +129,16 @@ Map<String, Widget> goldenCases() => {
       // leaves someone else's phone. Both are photographed rather than merely
       // swept: they are the two components a regression would be noticed in
       // last and cost the most.
-      'readiness_hero': const ReadinessHero(
-        readiness:
-            Metric(value: 72, confidence: .8, tier: MetricTier.high),
-        drivers: [
-          {'label': 'hrv'},
-          {'label': 'sleep_debt'},
-          {'label': 'rhr'},
-        ],
-      ),
-      'readiness_hero_held_over': const ReadinessHero(
-        readiness:
-            Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
-        heldOverNight: '2026-08-14',
-      ),
+      'rings': const RingTrio(d: _ringsMeasured),
+      // The two states that decide whether the trio is honest, in one picture:
+      // recovery still filling its baseline (progress, not a bad score), and a
+      // real duration with no computed need to draw it against.
+      'rings_calibrating': const RingTrio(d: _ringsCalibrating),
+      // All three empty. Each one says the absence in words where the number
+      // goes and carries the PIPELINE'S reason on the row that opens the
+      // screen which can say more — including the one absence nothing
+      // explained, which says exactly that.
+      'rings_absent': const RingTrio(d: _ringsAbsent),
       // The ONE card, both faces: the map as the background, and a photograph
       // as the background with the route dissolved into its corner.
       'share_card': _shareCard(photo: false),
@@ -508,6 +557,10 @@ final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
     .toDouble());
 
 Map<String, Widget> extraCases() => {
+      // Swept rather than photographed: it is the measured trio plus one
+      // sentence. Two of the three rings are last night's and the third is
+      // today's, and the morning before the first sync is not a rare case.
+      'rings_held_over': const RingTrio(d: _ringsHeldOver),
       'surface': Builder(
         builder: (c) => Surface(
           child: Text(

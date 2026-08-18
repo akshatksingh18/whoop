@@ -143,6 +143,22 @@ int? needMoreNightsFromNote(String? note) {
   return remaining < 1 ? 1 : remaining;
 }
 
+/// The two numbers behind the same note — nights banked and nights needed.
+///
+/// A baseline gate is the only absence that is PROGRESS rather than a gap, so
+/// it is the only one a ring can honestly draw: an arc at have/need is going
+/// somewhere, where an arc at zero would be a low score. Null for every other
+/// note, which is what keeps that arc off an absence that is not progress.
+({int have, int need})? baselineCountsFromNote(String? note) {
+  if (note == null || !note.contains('need_baseline:')) return null;
+  final m = RegExp(r'have=(\d+),need=(\d+)').firstMatch(note);
+  if (m == null) return null;
+  final have = int.tryParse(m.group(1)!);
+  final need = int.tryParse(m.group(2)!);
+  if (have == null || need == null || need <= 0) return null;
+  return (have: have, need: need);
+}
+
 /// A natural-language "need more data" message from a need_baseline note.
 /// [unit] picks the wording: 'nights' (sleep/recovery/HRV-baseline metrics) →
 /// "Need N more nights"; 'days' (activity/fitness) → "Wear N more days to

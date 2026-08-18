@@ -183,9 +183,11 @@ dependencies:
       # The pin also moved 391ede4 -> 21664f8 without the prose above following
       # it — the `git show` lines still read true against either.
       #
-      # Pushed (2026-08-19) on `fix/numerical-correctness`, so this resolves
-      # from a fresh checkout, not just from this machine.
-      ref: 21664f8cbb55449e2e274421aa4b02036dc682a4
+      # `fix/numerical-correctness` merged to main as PR #46 (bfea5e5); the pin
+      # moved 21664f8 -> bfea5e5 to track it. Diff between the two is two
+      # test-only deprecation-ignore annotations (analytics `lib/` untouched),
+      # so kAlgoVersion needs no bump for this move.
+      ref: bfea5e56e74f336c3e3d83743123e58da225617d
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

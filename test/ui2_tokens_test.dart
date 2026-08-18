@@ -213,6 +213,10 @@ const _notComponents = {
   'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',
+  // The coach chat and its BYOK setup: Scaffold routes that own an engine, a
+  // 120 s network call and the keychain. `CoachFigure` — the part a gallery can
+  // actually hold — IS in it.
+  'CoachScreen', 'CoachSetup', 'AiBriefingScreen',
   // a live session — a stateful screen with a clock, per archetype
   'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
   'LiveFlow', 'LiveMatch', 'LiveInterval',

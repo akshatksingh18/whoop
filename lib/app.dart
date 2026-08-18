@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
@@ -20,6 +21,7 @@ import 'ui2/onboarding/profile_setup.dart';
 import 'ui2/onboarding/splash.dart';
 import 'ui2/onboarding/welcome.dart';
 import 'ui2/profile/profile.dart';
+import 'ui2/screens/ai_briefing.dart';
 import 'ui2/screens/calm_breathing.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
@@ -331,14 +333,18 @@ ShellDomain domainForRoute(String route) => switch (route) {
 /// The focused screen a deep link pushes on top of its domain, when one
 /// exists. Null means the domain itself is the destination.
 ///
-/// Two routes resolve to null and should not: `/ai/*` (there is no briefing
-/// surface, and no BYOK settings screen to configure one — the feature is
-/// unreachable, so the reminder should be off rather than landing here) and
-/// `/workouts/suggestion` ("Tap to log it" has nothing to tap through to —
-/// nothing reads `workout_suggestions`). Both are recorded in the sweep; the
-/// fix for each is to stop making the promise, not to route it somewhere
-/// plausible.
+/// One route still resolves to null and should not: `/workouts/suggestion`
+/// ("Tap to log it" has nothing to tap through to — nothing reads
+/// `workout_suggestions`). It is recorded in the sweep; the fix is to stop
+/// making the promise, not to route it somewhere plausible.
+///
+/// `/ai/*` used to be in that list. It now lands on the briefing itself, which
+/// also carries the exact snapshot that was sent to produce it.
 Widget? screenForRoute(String route) => switch (route) {
+      kRouteAiMorning =>
+        const AiBriefingScreen(period: BriefingPeriod.morning),
+      kRouteAiEvening =>
+        const AiBriefingScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalCompose(),
       kRouteBreathing => const CalmBreathing(),
       // Battery, band and sources all live behind this one.

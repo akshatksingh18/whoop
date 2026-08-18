@@ -24,6 +24,7 @@ import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../profile/profile.dart';
 import '../ui2.dart';
+import 'coach.dart';
 import 'metric_detail.dart';
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -822,6 +823,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ]),
           ),
           const SizedBox(width: S.x3),
+          // The coach reads across all five domains, so it is not a tab and it
+          // is not any one domain's. It sits beside the avatar because that is
+          // where "things about you" already live.
+          Pressable(
+            semanticLabel: 'Ask the coach',
+            onTap: () => go(c, const CoachScreen()),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle, color: p.wash(kCoachAccent)),
+              child:
+                  Icon(LucideIcons.sparkles, size: 18, color: p.on(kCoachAccent)),
+            ),
+          ),
+          const SizedBox(width: S.x2),
           Pressable(
             semanticLabel: 'Profile and settings',
             onTap: () => go(c, const ProfileHome()),

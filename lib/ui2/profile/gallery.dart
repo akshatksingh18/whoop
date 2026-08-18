@@ -31,6 +31,7 @@ import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../coach/coach_config.dart';
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
@@ -177,8 +178,62 @@ Map<String, Widget> goldenCases() => {
           'The first sync of the day has not landed.'),
           action: 'History'),
       ..._chartCases(),
+      ..._coachFigureCases(),
       ..._nutritionAndWellnessCases(),
     };
+
+/// The AI coach's figures. The model authors these specs, so the cases that
+/// matter are the loose ones: a series with a hole in it, a table wider than the
+/// screen, and a figure type the app does not draw. All three are things a model
+/// will send, and all three used to be a grey JSON block in the transcript.
+Map<String, Widget> _coachFigureCases() => {
+  'coach_fig_line': const CoachFigure(spec: {
+    'type': 'line',
+    'title': 'HRV, last two weeks',
+    'unit': 'ms',
+    'x_labels': ['1 Aug', '7 Aug', '14 Aug'],
+    'series': [
+      {
+        'name': 'RMSSD',
+        'values': [62, 58, null, 71, 66, 69, 74],
+      },
+    ],
+  }),
+  'coach_fig_kpis': const CoachFigure(spec: {
+    'type': 'kpi_grid',
+    'title': 'Last night',
+    'cards': [
+      {'label': 'Time asleep', 'value': '7:12', 'unit': 'h'},
+      {'label': 'Resting HR', 'value': '54', 'unit': 'bpm', 'baseline': 'usual 52–58'},
+    ],
+  }),
+  'coach_fig_table': const CoachFigure(spec: {
+    'type': 'table',
+    'title': 'Sessions this week',
+    'columns': ['Day', 'Type', 'Minutes', 'Strain'],
+    'rows': [
+      ['Mon', 'Run', '42', '11.4'],
+      ['Thu', 'Strength', '55', '8.1'],
+    ],
+  }),
+  'coach_fig_unsupported': const CoachFigure(spec: {
+    'type': 'sankey',
+    'title': 'Where my day went',
+  }),
+  // The data boundary. `CoachConfig()` here is unloaded, so it reads as the
+  // default cloud endpoint — which is the case worth capturing: the local one
+  // is the reassuring half.
+  'coach_sent_payload': SentPayload(
+    config: CoachConfig(),
+    inputs: const {
+      'readiness': 62,
+      'rmssd_ms': 48,
+      'resting_hr': 54,
+      'sleep_min': 432,
+      'skin_temp_z': -0.4,
+    },
+  ),
+};
 
 /// Charts, framed. Every one of these is captured with the thing that was
 /// missing before: a unit in the header, numbers on the y axis, labels under

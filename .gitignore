@@ -104,3 +104,9 @@ test/failures/
 
 # xcodebuild output from a direct target build
 ios/build/
+
+# Working notes, not deliverables. These are sweep reports, audits and
+# measurement runs written against REAL exports — they quote dated personal
+# readings (a resting heart rate on a named day, an irregular-rhythm flag with
+# its date) and this repo is public. They stay on disk and out of git.
+docs/internal/

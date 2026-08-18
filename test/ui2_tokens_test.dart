@@ -221,6 +221,12 @@ const _notComponents = {
   // 120 s network call and the keychain. `CoachFigure` — the part a gallery can
   // actually hold — IS in it.
   'CoachScreen', 'CoachSetup', 'AiBriefingScreen',
+  // The two day-scoped Scaffold routes: each resolves a day, then reads the
+  // bundle plus three or four stores to fill it. Their BODIES are what a
+  // gallery can hold and both are in it as cases — `timeline_day`,
+  // `what_changed` and their empty and calibrating states — along with the one
+  // row component each is built out of.
+  'DayTimelineScreen', 'WhatChangedScreen',
   // a live session — a stateful screen with a clock, per archetype
   'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
   'LiveFlow', 'LiveMatch', 'LiveInterval',

@@ -19,4 +19,5 @@ export 'month_grid.dart';
 export 'readiness_detail.dart';
 export 'sleep_detail.dart';
 export 'wellness_screen.dart';
+export 'what_changed.dart';
 export 'workout_screen.dart';

@@ -36,6 +36,7 @@ import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
+import '../../ai/nightly_sweep.dart' show SweepFinding;
 import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
@@ -1247,6 +1248,218 @@ Map<String, Widget> _listCases() => {
       'investigate_row': Builder(builder: (c) => investigateRow(c, () {})),
       'no_data': const Surface(
           child: NoData(message: 'No nights recorded this week')),
+      ..._dayTimelineCases(),
+      ..._monthGridCases(),
+      ..._whatChangedCases(),
+    };
+
+// ── the day, in order ─────────────────────────────────────────────────────
+//
+// Built through the real `dayMoments` join rather than from hand-made rows:
+// the ordering, the off-wrist floor and the "this has no clock, so it is not
+// on the clock" split are the parts worth having a case for, and a list of
+// pre-sorted fixtures would exercise none of them.
+
+/// Local midnight of a fixed day, so the fixture reads the same every run.
+final int _tlDay =
+    DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000;
+int _tlAt(int h, [int m = 0]) => _tlDay + h * 3600 + m * 60;
+
+Map<String, dynamic> get _tlJoin => {
+      'day_start': _tlDay,
+      'sleep': [
+        {'onset_ts': _tlDay - 3600, 'wake_ts': _tlAt(6, 42)},
+      ],
+      'naps': [
+        {'start': _tlAt(14, 10), 'end': _tlAt(14, 48), 'duration_min': 38},
+      ],
+      'sessions': [
+        {
+          'start_ts': _tlAt(18, 5),
+          'end_ts': _tlAt(19, 20),
+          'type': 'football',
+          'duration_min': 75,
+          'avg_hr': 141,
+        },
+      ],
+      'events': [
+        // Delivered twice, which the strap really does — the row must appear
+        // once.
+        {'event_id': 7, 'ts': _tlAt(20, 5)},
+        {'event_id': 7, 'ts': _tlAt(20, 5)},
+        {'event_id': 8, 'ts': _tlAt(20, 55)},
+      ],
+      'highs': {
+        'peak_hr': {'v': 176, 't': _tlAt(18, 51)},
+        'low_hr': {'v': 44, 't': _tlAt(4, 12)},
+      },
+    };
+
+TimelineData get _tlFull => TimelineData(
+      day: '2026-08-14',
+      days: const ['2026-08-15', '2026-08-14', '2026-08-13'],
+      moments: dayMoments(
+        timeline: _tlJoin,
+        wear: {
+          'segments': [
+            {'on': false, 'start': _tlAt(20, 2), 'end': _tlAt(20, 58), 'len_min': 56},
+            // Under the floor: a three-minute dropout is not an event in a day.
+            {'on': false, 'start': _tlAt(11, 0), 'end': _tlAt(11, 3), 'len_min': 3},
+          ],
+        },
+        meals: [
+          FoodEntry(
+            id: 'm1',
+            date: '2026-08-14',
+            meal: 'Breakfast',
+            label: 'Porridge with blueberries and honey',
+            atTs: _tlAt(8, 20),
+            kcal: 412,
+          ),
+          // No time on it: it belongs under the axis, not on it.
+          const FoodEntry(
+              id: 'm2', date: '2026-08-14', meal: 'Snack', label: 'Flapjack'),
+        ],
+        doses: [(label: 'Vitamin D 1000 IU', at: _tlAt(8, 32))],
+        journal: const {
+          'caffeine': JournalMetricValue(3, atMinuteOfDay: 16 * 60 + 40),
+          'alcohol': JournalMetricValue(2),
+        },
+        fields: kJournalFields,
+      ),
+      notes: dayNotes(
+        meals: [
+          const FoodEntry(
+              id: 'm2', date: '2026-08-14', meal: 'Snack', label: 'Flapjack'),
+        ],
+        journal: const {'alcohol': JournalMetricValue(2)},
+        fields: kJournalFields,
+        journalRows: const [
+          {
+            'date': '2026-08-14',
+            'tags_json': '["late meal","travel"]',
+            'note': 'Long drive back, ate at the services around eleven.',
+          },
+        ],
+      ),
+    );
+
+Map<String, Widget> _dayTimelineCases() => {
+      'timeline_day': Builder(
+          builder: (c) =>
+              Column(children: timelineBody(c, _tlFull))),
+      // The common day on a new strap, and the one this page must not dress
+      // up: nothing was recorded, and the reason is usually the wrist.
+      'timeline_empty': Builder(
+          builder: (c) =>
+              Column(children: timelineBody(c, const TimelineData(day: '2026-08-14')))),
+      // Logged, but nothing carrying a time. The axis is empty and the block
+      // underneath is not — which is the distinction the whole file is built on.
+      'timeline_untimed_only': Builder(
+        builder: (c) => Column(
+          children: timelineBody(
+            c,
+            TimelineData(
+              day: '2026-08-14',
+              notes: dayNotes(
+                journal: const {'alcohol': JournalMetricValue(2)},
+                fields: kJournalFields,
+                journalRows: const [
+                  {'date': '2026-08-14', 'tags_json': '["travel"]', 'note': ''},
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    };
+
+// ── the month, as three strips ────────────────────────────────────────────
+
+final DateTime _now = DateTime.now();
+
+/// A month of a metric: enough history to shade against, and four days
+/// missing, so both cell states are in every picture.
+List<ChartPoint> _gridPoints(double base, double spread, {int days = 60}) => [
+      for (var i = days - 1; i >= 0; i--)
+        if (i % 9 != 3)
+          (
+            // `DateTime(y, m, d - i)` rather than a `Duration`: durations in
+            // lib/ui2 are motion, and the token test enforces it.
+            t: DateTime(_now.year, _now.month, _now.day - i)
+                    .millisecondsSinceEpoch ~/
+                1000,
+            v: base + (i * 37 % 23) / 23 * spread,
+          ),
+    ];
+
+Map<String, Widget> _monthGridCases() => {
+      'month_grid': MonthGrid([
+        gridRow('sleep', _gridPoints(360, 140)),
+        gridRow('readiness', _gridPoints(38, 55)),
+        gridRow('strain', _gridPoints(4, 12)),
+      ]),
+      // A fortnight in. One metric has a range to place a day inside and two
+      // do not, and the two that do not say so in words rather than in a
+      // paler version of the same claim.
+      'month_grid_calibrating': MonthGrid([
+        gridRow('sleep', _gridPoints(360, 140, days: 20)),
+        gridRow('readiness', _gridPoints(38, 55, days: 6)),
+        gridRow('strain', _gridPoints(4, 12, days: 2)),
+      ]),
+    };
+
+// ── what changed ──────────────────────────────────────────────────────────
+
+const _wcFindings = [
+  SweepFinding(
+      key: 'rhr',
+      text: 'resting heart rate 68 bpm — the highest in 45 days '
+          '(usually 53–55 bpm)',
+      z: 3.4,
+      high: true),
+  SweepFinding(
+      key: 'rmssd',
+      text: 'HVR 32 ms — below your usual range (usually 41–58 ms)',
+      z: -2.7,
+      high: false),
+];
+
+Map<String, Widget> _whatChangedCases() => {
+      'what_changed': Builder(
+        builder: (c) => Column(
+          children: whatChangedBody(
+            c,
+            WhatChangedData(
+              day: '2026-08-14',
+              findings: _wcFindings,
+              longestHistory: 45,
+              hadToday: true,
+              grid: [gridRow('readiness', _gridPoints(38, 55))],
+            ),
+          ),
+        ),
+      ),
+      // The normal night, and the one the screen is most likely to get wrong
+      // by padding it out with numbers to look like more.
+      'what_changed_quiet': Builder(
+        builder: (c) => Column(
+          children: whatChangedBody(
+            c,
+            const WhatChangedData(
+                day: '2026-08-14', longestHistory: 45, hadToday: true),
+          ),
+        ),
+      ),
+      'what_changed_calibrating': Builder(
+        builder: (c) => Column(
+          children: whatChangedBody(
+            c,
+            const WhatChangedData(
+                day: '2026-08-14', longestHistory: 6, hadToday: true),
+          ),
+        ),
+      ),
     };
 
 /// Onboarding and import — the two flows a user sees exactly once, which is

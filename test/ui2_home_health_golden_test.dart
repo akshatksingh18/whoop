@@ -869,6 +869,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // The screen opens on Today, which has no stored point here — the rank is
+    // a property of the history, so the sentence lives on a wider range.
+    await tester.tap(find.text('30 days'));
+    await tester.pumpAndSettle();
     expect(
       find.textContaining('Your reading from 4 days ago sits at the 22nd'),
       findsOneWidget,

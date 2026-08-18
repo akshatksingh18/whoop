@@ -40,10 +40,14 @@
 //   means nothing. See `_rhythm`.
 // * gen4 and gen5/MG nightly RMSSD are not comparable; nothing here presents
 //   two families as one series without saying so.
-// * `rr_ts_ms` is `rec_ts * 1000` — there is no true beat timestamp in this
-//   database. Nothing on this screen is drawn against a beat-level clock: the
-//   scatter is intervals against intervals, and the night curve is binned at
-//   half an hour.
+// * `rr_ts_ms` is still `rec_ts * 1000`, so it is not a beat clock. There now
+//   IS one beside it — `decoded_rr.beat_ts_ms`, anchored on the record's
+//   measured `tsSubsec` — but it is NULL for every row banked before that
+//   column existed, because nothing stored the sub-second and the frames are
+//   pruned. Nothing on this screen is drawn against a beat-level clock either
+//   way: the scatter is intervals against intervals, and the night curve is
+//   binned at half an hour. Anything that starts using `beat_ts_ms` has to
+//   carry the null era, which is most of this database.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';

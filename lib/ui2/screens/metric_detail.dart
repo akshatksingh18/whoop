@@ -419,7 +419,18 @@ class _MetricDetailState extends State<MetricDetail> {
   // and a range list that starts at 7 days made the first one unanswerable.
   static const _windows = [1, 7, 30, 182, 365];
   static const _labels = ['Today', '7 days', '30 days', '6 months', 'Year'];
-  int _range = 2;
+
+  /// TODAY. A tile on Home shows today's number, so the screen behind that tap
+  /// opens on today's number — anything else is a different question than the
+  /// one that was asked.
+  ///
+  /// It used to open on 30 days, and worse, on the WIDEST range the install had
+  /// data for: the clamp below meant three weeks of history landed you on 7
+  /// days and three months on 30, so the default moved as the install aged and
+  /// was never today. The range switcher is still here and still remembers
+  /// nothing between visits — a default is where a screen starts, not a
+  /// preference.
+  int _range = 0;
   MetricData? _d;
   bool _loading = true;
 
@@ -526,9 +537,16 @@ class _MetricDetailState extends State<MetricDetail> {
                 ? 'Nothing recorded today'
                 : 'No history for ${spec.title.toLowerCase()} yet',
             win == 1
-                ? 'Today has not produced a value yet.'
+                ? (all.isEmpty
+                    ? 'Today has not produced a value yet.'
+                    : 'Today has not produced a value yet. The wider ranges '
+                        'above hold the days that did.')
                 : 'No day in this window produced a value.',
-            fix: 'Wear the band overnight to start the series',
+            // Today opens first now, so this card is what someone with months
+            // of history sees on a morning before the derive lands. Telling
+            // them to wear the band is a promise that cannot change anything —
+            // they already did, and the days are one tab away.
+            fix: all.isEmpty ? 'Wear the band overnight to start the series' : '',
             icon: spec.icon,
           ),
         const SizedBox(height: S.x5),
@@ -559,13 +577,26 @@ class _MetricDetailState extends State<MetricDetail> {
         // It is a screen, not a fourth card here: one number's drill-down does
         // not become five pictures.
         if (widget.metricKey == 'hrv') ...[
+          // Wording, not a gate: this door opens the newest night and Beats
+          // carries its own day stepper, so it is honest under any range — but
+          // "behind this number" was not, with a 30-day average as the number.
           detailLinkRow(c, LucideIcons.heartPulse, 'Beats',
-              'The intervals behind this number, drawn',
+              'The intervals a night is made of, drawn',
               () => go(c, const Beats())),
           const SizedBox(height: S.x3),
         ],
-        if (widget.metricKey == 'steps') ...[
-          detailLinkRow(c, LucideIcons.footprints, 'Where today\'s came from',
+        // TODAY ONLY, and it is called Breakdown.
+        //
+        // It describes how TODAY's number was put together, and it rendered
+        // under the 7- and 30-day charts too, where it explained a day the
+        // picture was not showing. On a wider range the way into one day is
+        // the chart itself — touch a point and it opens that day.
+        //
+        // "Where today's came from" was the old name: accurate about the
+        // content, and it read as a phrase rather than a place. A doorway
+        // wants the plainest noun that is still true.
+        if (widget.metricKey == 'steps' && win == 1) ...[
+          detailLinkRow(c, LucideIcons.footprints, 'Breakdown',
               'Each stretch of today, and what counted it',
               () => go(c, const DayStepsDetail())),
           const SizedBox(height: S.x3),

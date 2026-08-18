@@ -452,9 +452,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
             'stretches you were actually still, over the last '
             '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
             'today\'s alone. $drawn of 24 hours had at least three stretches; '
-            'the rest are blank. This is not a stress score: posture, '
-            'digestion, a warm room, talking and caffeine move it as much as '
-            'anything psychological.',
+            'the rest are blank. Not a stress score — sitting up, a warm room '
+            'or a coffee move it just as much.',
         child: CustomPaint(
           size: Size.infinite,
           // Uncoloured. A hue here would be a verdict about an hour of your
@@ -498,8 +497,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
           ],
           // No `series:`. A shape has no reading; handing the frame one would
           // have it speak numbers off a curve that deliberately has none.
-          footnote: 'No scale, and there will not be one — the shape is the '
-              'whole output.',
+          footnote: 'No scale — the shape is the whole output.',
           child: CustomPaint(
             size: Size.infinite,
             // p.ink3, like every other mark on this screen that is not a
@@ -516,14 +514,10 @@ class _CircadianDetailState extends State<CircadianDetail> {
         ),
         const SizedBox(height: S.x3),
         Text(
-          'This is a prediction, not a reading. It comes from a published model '
-          'of how sleep timing and the body clock move alertness in the average '
-          'person, applied to your night — nothing on the band measures how '
-          'alert you are, and how much sleep you need and how strong your own '
-          'clock is are exactly what the model cannot see. It knows last night '
-          'and nothing else: a nap, coffee, or anything that happens today '
-          'never reaches it.'
-          '${assumedPhase ? ' Your own clock peak is not established yet, so this borrows the population’s.' : ''}',
+          'This is a prediction, not a reading. Nothing on the band measures '
+          'how alert you are, and it knows last night and nothing else — a '
+          'nap, coffee, or anything that happens today never reaches it.'
+          '${assumedPhase ? ' Your own clock peak is not worked out yet, so this uses an average one.' : ''}',
           style: F.cap.copyWith(color: p.ink2, height: 1.6),
         ),
         const SizedBox(height: S.x3),
@@ -588,11 +582,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
       _table(p, rows),
       const SizedBox(height: S.x3),
       Text(
-        'Arithmetic, not a judgement: the index is the average agreement '
-        'between each night and the one before it, and this is the pair that '
-        'agreed least out of ${d.sriPairs.length}. A weekend that runs late is '
-        'a different schedule, not a worse night. Pairs where too little of '
-        'either day was recorded are left out entirely.',
+        'The pair that matched least, out of ${d.sriPairs.length}. A weekend '
+        'that runs late is a different schedule, not a worse night. Pairs '
+        'where too little of either day was recorded are left out.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);
@@ -639,9 +631,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
       _table(p, rows),
       const SizedBox(height: S.x3),
       Text(
-        '${used == null ? 'A run of' : '$used'} fully-recorded '
-        'day${used == 1 ? '' : 's'}, HR-based. So these are your highest and '
-        'lowest HR hours, not your busiest.',
+        'From ${used == null ? 'a run of' : '$used'} fully-recorded '
+        'day${used == 1 ? '' : 's'} of heart rate. These are your highest and '
+        'lowest heart-rate hours, not your busiest.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

@@ -331,12 +331,9 @@ class _BeatsState extends State<Beats> {
             // "up 4 ms across 26 747 readings", which is a sentence about a
             // trend this picture does not draw. The footnote below carries the
             // meaning instead, and the frame speaks it.
-            footnote: 'Both axes are the same scale: the millisecond gridlines '
-                'down the left read across the bottom too. The diagonal is '
-                'where a beat came out exactly as long as the one before it. '
-                'How far the cloud spreads ACROSS that line is SD1 — how much '
-                'each beat differed from the last. How far it stretches ALONG '
-                'it is SD2 — the slower drift over the night.',
+            footnote: 'The diagonal is where a beat came out the same length '
+                'as the one before it. Spread across that line is SD1, beat '
+                'to beat; spread along it is SD2, the slower drift.',
             child: CustomPaint(
               size: Size.infinite,
               painter: Poincare(d.nn, p.on(C.green), axis: axis, grid: p.line),
@@ -355,9 +352,8 @@ class _BeatsState extends State<Beats> {
             '${thousands(d.nn.length)} intervals survived correction'
             '${dropped <= 0 ? '' : ' — $dropped were rejected as artifact and '
                 'are not in the cloud'}. '
-            'Pulse, not ECG: the band times a pressure wave arriving at your '
-            'wrist, so this is the shape of your PULSE intervals. Real, and '
-            'yours, but not the picture an ECG draws.'
+            'Pulse, not ECG — real and yours, but not the picture an ECG '
+            'draws.'
             '${d.deviceFamily == null ? '' : ' Measured on ${d.deviceFamily}; '
                 'straps do not read the same numbers as each other.'}',
           ),
@@ -415,9 +411,8 @@ class _BeatsState extends State<Beats> {
             xLabels: _nightHours(d),
             series: [for (final b in d.bins) b.v],
             footnote:
-                'The bar is how tightly a few hundred beats can pin RMSSD — '
-                'the sampling range of the estimate, not a range your body '
-                'passed through. The mark inside it is the bin\'s value.'
+                'The bar is how sure we are of the bin, not a range your body '
+                'passed through. The mark inside it is the value.'
                 '${holes == 0 ? '' : ' $holes ${holes == 1 ? 'bin holds' : 'bins hold'} '
                     'too few clean beats to publish one, and '
                     '${holes == 1 ? 'is' : 'are'} left empty rather than joined '
@@ -463,9 +458,9 @@ class _BeatsState extends State<Beats> {
         'Deceleration capacity',
         StatusCard.forMetric('Deceleration capacity', d.dc,
                 unit: 'nights',
-                why: 'No night in the stored series has published one yet.') ??
+                why: 'No stored night has produced one yet.') ??
             const StatusCard('Deceleration capacity',
-                'No night has published one yet.'),
+                'No night has produced one yet.'),
       );
     }
 
@@ -507,18 +502,13 @@ class _BeatsState extends State<Beats> {
           const SizedBox(height: S.x4),
           _note(
             p,
-            'Yours only. There is nothing to compare this to except your own '
-            'other nights, and this screen will never draw a reference band '
-            'behind it — the published thresholds come from 24-hour ECG in '
-            'patients after a heart attack, and every wrist night we have '
-            'measured sits below that entire table.\n\n'
-            'The method averages the beats around each moment your heart '
-            'slowed. Pulse timing jitter flattens that average by an amount '
-            'that changes with signal quality, so a rising line can be a '
-            'cleaner signal rather than a different heart. Read it beside the '
-            'anchor count and the clean-beat fraction, never on its own — and '
-            'if you changed straps inside this window, the two halves are not '
-            'comparable.',
+            'Yours only. Compare it against your own other nights and nothing '
+            'else — there is no reference band for a wrist.\n\n'
+            'It averages the beats around each moment your heart slowed. A '
+            'rising line can be a cleaner signal rather than a different '
+            'heart, so read it beside the anchor count and clean-beat share '
+            'above. If you changed straps inside this window, the two halves '
+            'do not compare.',
           ),
         ]),
       ),
@@ -578,13 +568,11 @@ class _BeatsState extends State<Beats> {
           const SizedBox(height: S.x4),
           _note(
             p,
-            'A screen, not a test. It looks at a whole day of beats for '
-            'scatter that is both wide and disorganised, and it runs only when '
-            'there are enough clean beats to look at.\n\n'
-            'A day the screen did not fire is not a day you were cleared. It '
-            'means this screen saw nothing it is able to see — it cannot rule '
-            'anything out, and it never could. Outlined days were not screened '
-            'at all: too few clean beats, or too much movement noise.\n\n'
+            'A screen, not a test.\n\n'
+            'A day the screen did not fire is not a day you were cleared — it '
+            'cannot rule anything out, and it never could. Outlined days were '
+            'not screened at all: too few clean beats, or too much '
+            'movement.\n\n'
             // "a clinician can test that properly" is the project's settled
             // termination for this whole surface — the same sentence the CVHR
             // card ends on. It ends in a person, never in a number. The

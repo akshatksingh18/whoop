@@ -1002,11 +1002,9 @@ class _SleepDetailState extends State<SleepDetail> {
         // The width is this night's own — better coverage, narrower range —
         // rather than one published figure applied to every night.
         Text(
-            'A wrist infers stages, so each one is a range rather than a count. '
-            'The better we saw the night, the narrower it is. Deep is widest: '
-            'telling it apart from light sleep is the weakest step we take. '
-            'Awake is a different call and stays one figure. Nerd stats has '
-            'the exact counts.',
+            'Each stage is a range, not a count — the better we saw the night, '
+            'the narrower it is. Deep is the widest. Awake stays one figure. '
+            'Nerd stats has the exact counts.',
             style: F.over.copyWith(color: p.ink3, height: 1.5)),
       ],
     ]);

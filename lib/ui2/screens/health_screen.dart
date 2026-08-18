@@ -684,10 +684,9 @@ class _HealthScreenState extends State<HealthScreen> {
             // below it".
             'Your nocturnal resting heart rate has been running above your own '
                 'baseline${illnessZ == null ? '' : '; that night sat '
-                    '${illnessZ.abs().toStringAsFixed(1)} standardised deviations '
-                    '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watch reads '
-                'that one signal; it names a pattern, and it does not name a '
-                'cause.',
+                    '${illnessZ.abs().toStringAsFixed(1)} standard deviations '
+                    '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watches '
+                'one signal only. It names a pattern, not a cause.',
             advice: 'Worth noting if it continues past a couple of days.',
           );
 
@@ -739,8 +738,8 @@ class _HealthScreenState extends State<HealthScreen> {
         d.napCount == null
             ? StatusCard(
                 'No nap reading for ${prettyDay(d.napDay)}',
-                'Naps come off the same 1 Hz recording the rest of the day '
-                    'does, and this day does not have enough of it.',
+                'Naps come off the same second-by-second recording as the rest '
+                    'of the day, and this day does not have enough of it.',
                 icon: LucideIcons.sun,
               )
             : Surface(
@@ -1127,8 +1126,7 @@ class _HealthScreenState extends State<HealthScreen> {
       // row below opens the same drill-down: the chart, your own range, the
       // method in full, and the paper it came from.
       Text(
-          'Each one opens its chart, how it is computed, and the published '
-          'method behind it.',
+          'Each one opens its chart, your own range, and how it is worked out.',
           style: F.over.copyWith(color: p.ink3, height: 1.6)),
       for (final f in _catalogue) _family(c, p, f, e.counts),
     ]);

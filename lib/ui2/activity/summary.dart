@@ -1280,12 +1280,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   String? get _thermalWhy => !thermal
       ? null
       : a.name == 'Cold plunge'
-          ? 'Cold constricts the blood vessels in your wrist, and those are '
-              'the vessels the optical sensor reads through. Finding nothing '
-              'here is the expected result, not a fault.'
+          ? 'Cold closes the blood vessels the sensor reads through. Finding '
+              'nothing here is expected, not a fault.'
           : 'Heat, sweat and a strap that loosens as you warm up all stop the '
-              'optical sensor seeing a pulse. Finding nothing here is '
-              'ordinary, not a fault.';
+              'sensor seeing a pulse. Finding nothing here is ordinary, not a '
+              'fault.';
 
   IconData get _thermalIcon =>
       a.name == 'Cold plunge' ? LucideIcons.snowflake : LucideIcons.thermometer;
@@ -1312,10 +1311,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           p,
           extra: have < total
               ? 'The band found a pulse in $have of $total minutes. The gaps '
-                  'are expected: ${a.name == 'Cold plunge' ? 'cold closes the '
-                      'vessels the optical sensor reads through' : 'heat and '
-                      'sweat break the optical contact'}, so what is drawn is '
-                  'the part it could see.'
+                  'are expected, so what is drawn is the part it could see.'
               : null,
         ),
       ),

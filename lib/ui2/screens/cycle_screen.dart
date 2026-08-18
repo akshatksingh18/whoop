@@ -940,10 +940,8 @@ class _CycleHistoryState extends State<_CycleHistory> {
           if (w != null) ...[w, const SizedBox(height: S.x3)],
         Text(
           'Your own past cycles, described. Days that only one cycle reached '
-          'are left empty rather than drawn — one night is not a middle. '
-          'Cycles of different lengths put the same part of the cycle on '
-          'different days, which flattens this; it describes what happened, it '
-          'does not predict what will.',
+          'are left empty rather than drawn — one night is not a middle. It '
+          'describes what happened, not what will.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
         const SizedBox(height: S.x4),
@@ -1143,9 +1141,9 @@ class _CycleHistoryState extends State<_CycleHistory> {
     if (gaps.length < kCycleLengthReviewMinGaps) {
       return StatusCard(
         'Not enough logged cycles yet',
-        'This reads a long run or it reads nothing: ${gaps.length} of '
-            '$kCycleLengthReviewMinGaps measured gaps so far, which is about a '
-            'year of logging every start.',
+        'This needs a long run: ${gaps.length} of '
+            '$kCycleLengthReviewMinGaps gaps so far, which is about a year of '
+            'logging every start.',
         icon: LucideIcons.ruler,
       );
     }
@@ -1154,9 +1152,9 @@ class _CycleHistoryState extends State<_CycleHistory> {
       return const StatusCard(
         'There is a gap in your logged starts',
         'One of them is more than $kCycleLengthUnloggableGapDays days after '
-            'the one before it. A start that was never logged and a cycle that '
-            'genuinely ran that long look identical from here, so nothing is '
-            'drawn rather than drawing the wrong one.',
+            'the one before it. A start you never logged and a cycle that '
+            'genuinely ran that long look the same from here, so nothing is '
+            'drawn.',
         icon: LucideIcons.ruler,
       );
     }

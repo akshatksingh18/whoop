@@ -1026,11 +1026,11 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('LAST caffeine of the day only'),
+        find.textContaining('last caffeine of the day only'),
         findsOneWidget,
       );
       // Nothing here may read as a cause or a recommendation.
-      expect(find.textContaining('never cause'), findsOneWidget);
+      expect(find.textContaining('never a cause'), findsOneWidget);
     },
   );
 

@@ -806,7 +806,7 @@ void main() {
         )),
       ));
       await t.pumpAndSettle();
-      expect(find.textContaining('This is not a stress score'), findsOneWidget);
+      expect(find.textContaining('Not a stress score'), findsOneWidget);
       // How deep each drawn hour is, not just a grand total.
       expect(find.textContaining('middle value of 5–5 five-minute stretches'),
           findsOneWidget);
@@ -865,7 +865,7 @@ void main() {
       expect(find.text('Today, predicted'), findsOneWidget);
       expect(find.textContaining('flattest stretch lands in'), findsOneWidget);
       // No score, and the chart says why there is no axis to read one off.
-      expect(find.textContaining('No scale, and there will not be one'),
+      expect(find.textContaining('No scale — the shape is the whole output'),
           findsOneWidget);
       // The safety refusal is COPY, on the card, in both directions.
       expect(find.textContaining('not a fitness-to-drive check'), findsOneWidget);
@@ -1060,7 +1060,7 @@ void main() {
       // not a ranking of the user's weeks.
       expect(find.textContaining('14 Aug'), findsNothing);
       // The guard the item is mostly made of.
-      expect(find.textContaining('Arithmetic, not a judgement'), findsOneWidget);
+      expect(find.textContaining('The pair that matched least'), findsOneWidget);
       expect(find.textContaining('not a worse night'), findsOneWidget);
     });
 

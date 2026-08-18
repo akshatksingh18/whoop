@@ -978,8 +978,8 @@ class _Result extends StatelessWidget {
       'No coherence score for this session',
       m,
       why: !rated
-          ? '${app.breathingPattern.label} is not scored. Resonance breathing '
-                'is the one paced at the rate the score is defined against.'
+          ? '${app.breathingPattern.label} is not scored. Resonance is the one '
+                'paced at the rate the score is built for.'
           : app.breathingError ??
                 'Too few clean beat timings across the session to score it.',
     );
@@ -1089,10 +1089,10 @@ class _SweepResult extends StatelessWidget {
         ),
         const SizedBox(height: S.x3),
         Text(
-          'A ranking over three paces, at the resolution tested, from one '
-          'sitting. The blocks run back to back, so each pace is measured '
-          'while you are still settling out of the one before. It says which '
-          'pace your heart rate followed most strongly and nothing else.',
+          'A ranking of three paces from one sitting. The blocks run back to '
+          'back, so each pace is measured while you are still settling out of '
+          'the one before. It says which pace your heart rate followed most '
+          'strongly, and nothing else.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
       ],

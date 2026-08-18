@@ -864,10 +864,10 @@ void main() {
 
     // ── MT-08 · heat and cold ────────────────────────────────────────────
     //
-    // The card is built AROUND its no-signal state. Cold water constricts the
-    // wrist's vessels, which is exactly what the optical sensor reads through,
-    // so "no pulse" is the expected content of a plunge and not a fault to
-    // offer a Check-band button for.
+    // The card is built AROUND its no-signal state. Cold water closes the
+    // wrist's vessels, which is exactly what the sensor reads through, so "no
+    // pulse" is the expected content of a plunge and not a fault to offer a
+    // Check-band button for.
     testWidgets('a cold plunge with no pulse says why, and offers no fix',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
@@ -884,7 +884,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('—'), findsNothing);
-      expect(find.textContaining('optical sensor reads through'),
+      expect(find.textContaining('vessels the sensor reads through'),
           findsOneWidget);
       expect(find.text('Check band connection'), findsNothing,
           reason: 'there is no connection to check — the blood moved');

@@ -229,7 +229,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
               // states what stress IS and stops there.
               ? const StatusCard(
                   'No stress reading last night',
-                  'Stress is read from beat timing over a resting stretch '
+                  'Stress is read from beat timing while you were resting '
                       'overnight, and last night produced no reading.',
                   icon: LucideIcons.activity,
                 )
@@ -1251,9 +1251,8 @@ class _JournalFindingsState extends State<JournalFindings> {
         const StatusCard(
           'Nothing separated itself yet',
           'Everything you log is tested against your recovery, HRV, resting '
-              'heart rate and sleep efficiency at once, and the bar is set so '
-              'that running that many comparisons cannot manufacture a result. '
-              'Nothing has cleared it.',
+              'heart rate and sleep efficiency. Nothing has cleared the bar '
+              'yet.',
           icon: LucideIcons.scatterChart,
         )
       else ...[
@@ -1262,10 +1261,8 @@ class _JournalFindingsState extends State<JournalFindings> {
           Section('How much, and what followed', _list(c, doses)),
         const SizedBox(height: S.x2),
         Text(
-          'Association on your own days — never cause. The days you do a thing '
-          'are days you were already that kind of day. Corrected together for '
-          'the number of comparisons; anything that did not survive is simply '
-          'not here.',
+          'A link on your own days — never a cause. The days you do a thing '
+          'are days you were already that kind of day.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
       ],
@@ -1359,7 +1356,7 @@ class _JournalFindingsState extends State<JournalFindings> {
     // occurrence, so timing cannot tell two coffees from five, and a late
     // stressful day produces both the late coffee and the bad night.
     if (r['field'] == 'caffeine_last_min') {
-      return '$base$when This is your LAST caffeine of the day only — two cups '
+      return '$base$when This is your last caffeine of the day only — two cups '
           'and five look identical here, so "later" can quietly mean "more". A '
           'long, stressful day produces both the late coffee and the poor '
           'night.';
@@ -1396,16 +1393,16 @@ class _JournalFindingsState extends State<JournalFindings> {
     if (_weekday['present'] != true) {
       return const StatusCard(
         'Not enough weeks yet',
-        'Testing seven weekdays against each other needs at least eight weeks '
-            'of derived days, with five of every weekday in them.',
+        'Comparing seven weekdays needs at least eight weeks of days, with '
+            'five of every weekday in them.',
         icon: LucideIcons.calendarDays,
       );
     }
     if (_weekday['meaningful'] != true) {
       return const StatusCard(
         'No day of the week stands out',
-        'Your seven weekdays are not separable from each other once looking at '
-            'all seven is paid for.',
+        'No day stands apart from the other six once we account for having '
+            'checked all seven.',
         icon: LucideIcons.calendarDays,
       );
     }
@@ -1420,8 +1417,8 @@ class _JournalFindingsState extends State<JournalFindings> {
             '${delta.abs().round()} ${delta > 0 ? 'higher' : 'lower'} than '
             'your overall median',
         detail:
-            'From $n of them. A weekday is a container for what you do on '
-            'it, not a cause — nothing here is advice.',
+            'From $n of them. A weekday is not a cause — it is a container '
+            'for what you do on it. Nothing here is advice.',
       ),
     );
   }

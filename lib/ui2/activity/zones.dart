@@ -239,10 +239,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
         'No measured ceiling yet',
         why != null
             ? '$why$tail'
-            : 'The highest heart rate we can stand behind is one the band HELD '
-                  'for at least 15 seconds while you were moving — a '
-                  'one-second spike is a sleeve dragging over the sensor, not a '
-                  'heart rate.$tail',
+            : 'We only count a high reading the band held for 15 seconds while '
+                  'you were moving. A one-second spike is not a heart '
+                  'rate.$tail',
         // The hard-session instruction belongs to the hold gate alone.
         fix: why == null ? 'Wear the band for your normal hard sessions' : '',
         icon: LucideIcons.heartPulse,
@@ -276,10 +275,8 @@ class _ZonesDetailState extends State<ZonesDetail> {
           ],
           const SizedBox(height: S.x3),
           Text(
-            'This is the highest we have measured, not a limit. If you have '
-            'never gone truly hard with the band on, it is lower than what '
-            'you can actually reach, and it will keep creeping up as it sees '
-            'harder efforts. Do not go and test it.',
+            'The highest we have measured, not a limit — it creeps up as the '
+            'band sees harder efforts. Do not go and test it.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -360,25 +357,21 @@ class _ZonesDetailState extends State<ZonesDetail> {
     final max = d.maxHr;
     switch (d.source) {
       case 'karvonen':
-        return 'Each edge is a percentage of the gap between your resting heart '
-            'rate (${d.restingHr}, the median of your last ${d.restingDays} '
-            'nights) and the highest we have seen ($max). Both are numbers the '
-            'band measured on you. A low resting heart rate makes zone 1 very '
-            'wide — that is the arithmetic, not a fault. These are still bands '
-            'by convention, not your thresholds: nothing here can measure where '
-            'your aerobic or lactate threshold actually sits.';
+        return 'Built from two numbers the band measured on you: your resting '
+            'rate (${d.restingHr}, the middle of your last ${d.restingDays} '
+            'nights) and the highest we have seen ($max). A low resting rate '
+            'makes zone 1 wide. These are the usual bands, not your own '
+            'measured thresholds.';
       case 'observed':
-        return 'Each edge is a percentage of the highest heart rate we have '
-            'seen ($max). Once ${d.restingMinDays} nights of resting heart rate '
-            'exist (you have ${d.restingDays}), the edges move to the gap '
-            'between that and your resting rate, which is the more personal of '
-            'the two. Bands are a convention, not your thresholds.';
+        return 'Built from the highest heart rate we have seen ($max). After '
+            '${d.restingMinDays} nights of resting rate (you have '
+            '${d.restingDays}) your resting rate joins it, which fits you '
+            'better. These are the usual bands, not your own measured '
+            'thresholds.';
       case 'tanaka':
-        return 'Each edge is a percentage of $max bpm — ESTIMATED FROM YOUR AGE '
-            'and your strap, not measured on you. The estimate is a population '
-            'average and can be 20 bpm out either way for one person, so treat '
-            'these edges as rough. They become measured edges on their own once '
-            'the band sees a hard enough session.';
+        return 'Built from $max bpm, estimated from your age rather than '
+            'measured on you — it can be 20 bpm out either way. The edges move '
+            'to a measured ceiling once the band sees a hard enough session.';
       default:
         return 'Zone edges are percentages of a maximum heart rate.';
     }
@@ -401,13 +394,11 @@ class _ZonesDetailState extends State<ZonesDetail> {
             // off `source` alone.
             whyFromNote(d.distNote, unit: 'days') ??
                 (d.measured
-                    ? 'It needs about a month of recorded sessions to describe '
-                          'a pattern rather than a fortnight of noise, each with '
-                          'the per-minute heart rate we keep for them.'
-                    : 'These bars would be a picture of the age estimate, not '
-                          'of your training. They appear once the zone edges '
-                          'above come from a measured ceiling and a measured '
-                          'resting rate.'),
+                    ? 'Needs about a month of recorded sessions, each with a '
+                          'minute-by-minute heart rate.'
+                    : 'The bars would be a picture of the age estimate, not of '
+                          'your training. They appear once the zone edges above '
+                          'are measured.'),
             icon: LucideIcons.chartColumn,
           ),
         ),
@@ -451,7 +442,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
             'fewest hard — a pyramid.',
       'polarised' =>
         'Most of your minutes are easy and the rest are hard, '
-            'with little in between — polarised.',
+            'with little in between.',
       'middle-heavy' =>
         'Most of your minutes sit in the middle rather than '
             'easy or hard.',
@@ -459,8 +450,6 @@ class _ZonesDetailState extends State<ZonesDetail> {
     };
     return '$shape ${d.distEasy} min easy, ${d.distModerate} moderate, '
         '${d.distHard} hard, over ${d.distSessions} recorded sessions. A '
-        'description, not a target — there is no share of these that is '
-        'correct, and the bands are a convention rather than your measured '
-        'thresholds.';
+        'description, not a target.';
   }
 }

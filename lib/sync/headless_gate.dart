@@ -16,6 +16,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'band_ownership.dart';
+
 class HeadlessSyncGate {
   HeadlessSyncGate._();
 
@@ -125,6 +127,18 @@ class HeadlessSyncGate {
         '[headless-gate] "$owner" exceeded ${(ceiling ?? runCeiling).inMinutes} '
         'min and was abandoned — gate released (timed_out_runs=$_timedOutRuns)',
       );
+      // The gate being handed back only lets the NEXT wake retry; it does not
+      // by itself free the band. The three iOS entry points call
+      // runHeadlessSync() with no lease, so it self-acquires one internally and
+      // only the now-orphaned call frame holds that token — nothing else can
+      // ever present it to BandOwnership.release(). Without this, one truly
+      // wedged run leaves BandOwnership headless-owned for the rest of the
+      // process: every later headless wake silently no-ops forever, and
+      // acquireForeground()'s wait loop spins on a `_released` completer that
+      // nothing left alive will ever complete. Force-clearing here mirrors
+      // what headless_boot.dart already does explicitly for its own
+      // caller-held lease on skip/timeout.
+      BandOwnership.forceReleaseHeadless();
       return null;
     } finally {
       _running = null;

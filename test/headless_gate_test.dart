@@ -129,6 +129,40 @@ void main() {
       );
     });
 
+    test(
+        'a timeout also frees the band, not just the gate — the orphaned '
+        'body never gets to run its own release', () async {
+      // Mirrors the three iOS entry points: runHeadlessSync() self-acquires
+      // its lease with no way for the caller to hand it back, so the ONLY
+      // thing that can free the band on a wedge is the gate's own timeout
+      // handler.
+      final wedged = Completer<void>();
+      final lease = BandOwnership.tryAcquireHeadless();
+      expect(lease, isNotNull, reason: 'nothing else owns the band yet');
+
+      final result = await HeadlessSyncGate.tryRun<int>(
+        'ios_bg_task',
+        () async {
+          await wedged.future; // never completes — the orphaned frame
+          BandOwnership.release(lease!); // never reached
+          return 1;
+        },
+        ceiling: const Duration(milliseconds: 20),
+      );
+
+      expect(result, isNull);
+      // Before this fix: BandOwnership stayed headless-owned forever here —
+      // every later headless wake would silently no-op, and a foreground
+      // connect attempt would spin in acquireForeground()'s wait loop with
+      // nothing left alive to ever complete it.
+      expect(BandOwnership.owner, isNull,
+          reason: 'a wedged run must not strand the band lease');
+
+      // A foreground connect attempt actually completes instead of hanging.
+      final fg = await BandOwnership.acquireForeground();
+      expect(fg.kind, BandOwnerKind.foreground);
+    });
+
     test('an owner that keeps losing is reported as starved', () async {
       final release = Completer<void>();
       final holder = HeadlessSyncGate.tryRun<void>('bg_task', () async {

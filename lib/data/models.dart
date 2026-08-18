@@ -112,6 +112,33 @@ class Sample {
   /// external sensor), never zero — 0 is a legitimate sub-second.
   final int? tsSubsec;
 
+  /// The band's own coarse wake/sleep state for this second — GEN5/MG ONLY.
+  /// Stored as protocol's raw 2-bit code: 0 wake, 1 still, 2 sleep, 3 up.
+  ///
+  /// CORROBORATION, NEVER A STAGE. protocol is explicit that it is an ENVELOPE:
+  /// deep, light and REM all read `sleep`, so it carries no in-sleep structure
+  /// and cannot improve a hypnogram. It also lags true onset by roughly ten
+  /// minutes — the band wants a sustained stretch of stillness before it
+  /// commits — so it must never be differenced against our own onset and read
+  /// as an error.
+  ///
+  /// WHAT IT IS FOR is the one thing this stack has never had: an OUTSIDE
+  /// OPINION on sleep. Staging here is single-source, and when our window and
+  /// the band's disagree there is currently no way to even see it.
+  ///
+  /// THE EVIDENCE THAT IT IS REAL. Decoded off 1,035 archived gen5 records: all
+  /// four codes occur (wake 1,003, sleep 20, up 8, still 4), so it is neither
+  /// constant nor a sentinel; median heart rate orders wake 119 > up 90 >
+  /// still 82 > sleep 70, which is the physiological ordering the codes claim
+  /// rather than an arbitrary one; and the transitions respect the documented
+  /// topology — `still` appears only between wake and sleep, `up` only after
+  /// sleep. (Those records are the ARCHIVE, a biased sample, so the counts are
+  /// not a population; the ordering is the claim.)
+  ///
+  /// Nothing reads it. Persisting it claims nothing — same contract as
+  /// [tempCh2C] and [dynAccelG].
+  final int? bandSleepState;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -136,6 +163,7 @@ class Sample {
     this.signalQualityLogVar,
     this.dynAccelG,
     this.tsSubsec,
+    this.bandSleepState,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -166,6 +194,7 @@ class Sample {
     signalQualityLogVar: signalQualityLogVar,
     dynAccelG: dynAccelG,
     tsSubsec: tsSubsec,
+    bandSleepState: bandSleepState,
   );
 
   bool get wristOn => hr > 0;
@@ -211,6 +240,7 @@ class Sample {
       signalQualityLogVar: (m['signal_quality_logvar'] as num?)?.toDouble(),
       dynAccelG: (m['dyn_accel_g'] as num?)?.toDouble(),
       tsSubsec: (m['ts_subsec'] as num?)?.toInt(),
+      bandSleepState: (m['band_sleep_state'] as num?)?.toInt(),
     );
   }
 }

@@ -113,6 +113,12 @@ void main() {
     expect(rows.first['temp_ch2_c'], 24.7);
     expect(rows.first['temp_ch3_c'], 26.5);
     expect(rows.first['signal_quality_logvar'], isNotNull);
+    // The record's own sub-second, and the band's own wake/sleep envelope
+    // (raw 2-bit code, 0 = wake here). Both were decoded and dropped by the
+    // mapper until now; both are stored and read by nothing. The envelope is
+    // CORROBORATION, never a stage — see Sample.bandSleepState.
+    expect(rows.first['ts_subsec'], 18022);
+    expect(rows.first['band_sleep_state'], 0);
 
     final rr = await db.query(
       'decoded_rr',

@@ -147,6 +147,12 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     // The record's own sub-second (1/32768 s), decoded on both generations
     // since forever and dropped here — see Sample.tsSubsec.
     tsSubsec: g.tsSubsec,
+    // The band's OWN wake/sleep envelope, bits 4-5 of the same byte
+    // `onWristRaw` above already comes out of — decoded, modelled, and the
+    // only field in this mapper that was never carried. Raw code, not the
+    // enum: a stored name freezes a meaning, a stored 2-bit code does not.
+    // Corroboration only, never a stage — see Sample.bandSleepState.
+    bandSleepState: g.sleepStateRawNibble,
   );
 }
 

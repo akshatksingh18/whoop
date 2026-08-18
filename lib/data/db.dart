@@ -951,6 +951,19 @@ class LocalDb {
       // ms: the conversion is lossy and the raw count is what the strap said.
       // See Sample.tsSubsec and beatTimesMs.
       'ts_subsec': 'INTEGER',
+      // The band's own coarse wake/sleep code (2 bits: 0 wake, 1 still,
+      // 2 sleep, 3 up) — GEN5/MG ONLY, null on gen4.
+      //
+      // AN ENVELOPE, NOT A STAGE, and the column may only ever be read as one:
+      // deep, light and REM all read `sleep`, and it lags true onset by ~10
+      // minutes. It cannot improve a hypnogram and must never be written into
+      // one. Its value is that it is an OUTSIDE OPINION on a staging pipeline
+      // that is otherwise single-source — the disagreement between our sleep
+      // window and the band's is a thing this app currently cannot even see.
+      // Stored as the raw code rather than a name: a name freezes a meaning.
+      // See Sample.bandSleepState for the evidence that it varies and means
+      // what it says.
+      'band_sleep_state': 'INTEGER',
     };
     final have = await _columnsOf(db, 'decoded_onehz');
     if (have.isEmpty) return; // table not created yet — the DDL carries them
@@ -3781,6 +3794,7 @@ class LocalDb {
             signalQualityLogVar: g.signalQualityLogVariance,
             dynAccelG: g.dynamicAccelerationG,
             tsSubsec: g.tsSubsec,
+            bandSleepState: g.sleepStateRawNibble,
           );
         }
       } catch (_) {}
@@ -3916,6 +3930,10 @@ class LocalDb {
       // The record's own sub-second. Omitted-when-null for the same
       // mid-ladder-backfill reason as `dyn_accel_g` directly above.
       'ts_subsec': ?decoded.tsSubsec,
+      // The band's own wake/sleep envelope. gen5/MG only, so it is null on
+      // everything the mid-ladder backfill can replay — but omitted-when-null
+      // regardless, for the same reason.
+      'band_sleep_state': ?decoded.bandSleepState,
       // 0 IS THE ABSENT SENTINEL, NOT A READING. records.dart:501 emits
       // `ambientRaw: optical ? u16@70 : 0`, so every unconfirmed record version
       // reports 0 — writing that through would turn "we did not read the

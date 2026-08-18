@@ -275,6 +275,15 @@ class MoodPicker extends StatelessWidget {
                     child: AnimatedContainer(
                       duration: motion(c, Motion.base),
                       height: S.tap,
+                      // A Container with a child and no alignment sizes itself
+                      // to that child, and the constraints coming down here are
+                      // LOOSE — so these rendered as narrow pills with even
+                      // gaps, the icon's width instead of the fifth of the row
+                      // the Expanded above had already paid for. A non-null
+                      // alignment makes a Container take the largest size its
+                      // constraints allow, which is the fix and also what
+                      // centres the face.
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
                         borderRadius: R.rMd,
                         color: value == i + 1

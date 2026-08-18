@@ -256,9 +256,22 @@ class Section extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(S.x1, S.x5, S.x1, S.x2),
           child: Row(
+            // spaceBetween owns the gap, so the action sits on the right edge
+            // however short the title is. Previously the title was Expanded
+            // and the action Flexible — both default to flex: 1, so they split
+            // the row 50/50 and the action started at the midpoint instead of
+            // being anchored. Making the action a plain child fixes the anchor
+            // but overflows on a long title, so the TITLE is the half that
+            // gives: Flexible, two lines, ellipsised.
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Text(title, style: F.head.copyWith(color: p.ink)),
+              Flexible(
+                child: Text(
+                  title,
+                  style: F.head.copyWith(color: p.ink),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               if (action != null)
                 Flexible(
@@ -562,9 +575,13 @@ class TrendCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: S.x1),
-                Expanded(
-                  child: Text(unit, style: F.cap.copyWith(color: p.ink3)),
-                ),
+                // `unit` used to be Expanded purely to shove the delta
+                // rightwards. That made it a flex PEER of the value, so the two
+                // split the row 50/50 and a long reading ellipsised at half
+                // width with empty space beside it. A Spacer does the shoving
+                // and the unit goes back to its own size.
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                const Spacer(),
                 if (j != null) ...[
                   Icon(
                     up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
@@ -1027,10 +1044,20 @@ class DeepDiveCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+                // Same 50/50 split as above: Expanded and Flexible are both
+                // flex: 1, so the reading started at the midpoint. Both
+                // shrinkable with spaceBetween owning the gap anchors it.
+                Flexible(
+                  child: Text(
+                    label,
+                    style: F.cap.copyWith(color: p.ink2),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+                const SizedBox(width: S.x2),
                 Flexible(
                   child: Text(
                     value,

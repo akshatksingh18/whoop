@@ -121,7 +121,7 @@ class InvestigateData {
     final win = lungs['sleep_window'];
     final series =
         spec.suppress != null ? const <double>[] : seriesOf(await repo.getChart(spec.chartKey));
-    final hrvish = key == 'hrv' || key == 'rmssd_whole';
+    final hrvish = key == 'hrv';
     final dc = hrvish
         ? pointsOf(await repo.getChart('prsa_dc'))
         : const <ChartPoint>[];
@@ -265,7 +265,7 @@ class _InvestigateState extends State<Investigate> {
   Widget build(BuildContext c) {
     final spec = specOf(widget.metricKey);
     final d = _d ?? const InvestigateData();
-    final hrvish = widget.metricKey == 'hrv' || widget.metricKey == 'rmssd_whole';
+    final hrvish = widget.metricKey == 'hrv';
 
     return detailScaffold(c, spec.title, sub: 'NERD STATS', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),

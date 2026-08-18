@@ -304,37 +304,16 @@ const _specs = <String, MetricSpec>{
   // `spo2`, `odi_per_hour` and `strain_effort` used to live here as cards that
   // existed only to explain that they were empty. A metric this app does not
   // produce has no entry, no card and no key. See docs/internal/UI_ROADMAP.md.
-  'rmssd_whole': MetricSpec(
-    chartKey: 'rmssd_whole',
-    title: 'RMSSD, whole night',
-    unit: 'ms',
-    color: C.green,
-    icon: LucideIcons.activity,
-    suppress: 'A single value for last night. It is never written to the daily '
-        'series, so there is no history to chart — only tonight.',
-    method: 'RMSSD across the entire sleep period rather than the cleanest '
-        'window inside it.',
-    citation: 'Task Force 1996',
-  ),
-  'stress_si': MetricSpec(
-    chartKey: 'stress_si',
-    title: 'Stress index',
-    color: C.purple,
-    icon: LucideIcons.brain,
-    higherBetter: false,
-    suppress: 'A single value for last night, with no stored history.',
-    method: 'Raw Baevsky stress index, before it is banded onto 0–100.',
-    citation: 'Baevsky 2008',
-  ),
-  'brv_slope': MetricSpec(
-    chartKey: 'brv_slope',
-    title: 'Breathing-rate drift',
-    color: C.teal,
-    icon: LucideIcons.wind,
-    suppress: 'A single value for last night, with no stored history.',
-    method: 'Slope of respiratory rate across the night.',
-    citation: 'Within-night trend',
-  ),
+  //
+  // `rmssd_whole`, `stress_si` and `brv_slope` used to live here too, on the
+  // same mistake in a quieter form: three fully written specs — title, unit,
+  // colour, method, citation — whose whole rendered content was a card saying
+  // they cannot be charted. Each is a bundle scalar and none of the three keys
+  // is ever written to `metric_series`, so the series behind them is 0 rows and
+  // always was. Nothing in the tree ever constructed them, the Explore
+  // catalogue excludes them by name, and a spec that can only ever explain its
+  // own emptiness is the absent-forever rule again. `stress` and `brv` are the
+  // charted forms of two of the three and they stay.
 };
 
 MetricSpec specOf(String key) =>
@@ -372,12 +351,22 @@ class MetricData {
   /// what decides which range buttons exist.
   final int daysAvailable;
 
+  /// Noon stamps on the days where the algorithm version CHANGED — the days
+  /// either side were not produced the same way.
+  ///
+  /// `getChart` has attached this to every result all along and the only thing
+  /// reading it was the briefing engine, so a trend drew straight through a
+  /// release boundary. This export holds three versions of the same days and
+  /// readiness moved across them: 2026-08-08 went 43.8 → 47.9.
+  final List<int> algoBreaks;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
     this.percentile,
     this.movers = const [],
     this.daysAvailable = 0,
+    this.algoBreaks = const [],
   });
 
   static Future<MetricData> load(LocalRepository repo, String key) async {
@@ -407,6 +396,10 @@ class MetricData {
       percentile: pct,
       movers: movers,
       daysAvailable: days.length,
+      algoBreaks: [
+        for (final b in (chart['algo_breaks'] as List? ?? const []))
+          if (b is Map && b['t'] is num) (b['t'] as num).round(),
+      ],
     );
   }
 }
@@ -543,7 +536,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals, win, d.wear),
+        _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
         // On Today the window holds one value, and its lowest, typical and
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
@@ -597,7 +590,7 @@ class _MetricDetailState extends State<MetricDetail> {
   // a bare figure looked like a bug.
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
       List<double?> series, List<double> vals, int win,
-      List<ChartPoint> wear) {
+      List<ChartPoint> wear, List<int> algoBreaks) {
     final p = P.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
     final latest = vals.last;
@@ -662,11 +655,37 @@ class _MetricDetailState extends State<MetricDetail> {
                           ? axisInt
                           : axisFixed)),
               floor: spec.unit == '%' ? 0 : null);
+          // WHERE A RELEASE SITS ON THE LINE.
+          //
+          // A break's stamp is the first day computed the NEW way, so the
+          // boundary is between two slots, not on one — half a slot left of it.
+          // A break at slot 0 is dropped: there is nothing before it in this
+          // window to be incomparable with.
+          final marks = <double>[
+            if (series.length > 1)
+              for (final t in algoBreaks)
+                if (daysBehind(t) case final b?
+                    when b >= 0 && b < series.length && series.length - 1 - b > 0)
+                  (series.length - 1 - b - .5) / (series.length - 1),
+          ];
           return ChartFrame(
             title: spec.title,
             unit: spec.unit.isEmpty ? 'score' : spec.unit,
             height: 150,
             yAxis: axis,
+            xMarks: marks,
+            // The mark's only screen-reader form, and the only thing that can
+            // say what it is. Deliberately flat: a version change is
+            // provenance, not an event that happened to the user.
+            footnote: marks.isEmpty
+                ? null
+                : marks.length == 1
+                    ? 'The dotted line is a change in how these days were '
+                        'computed. Readings either side of it came from '
+                        'different versions.'
+                    : 'The dotted lines are changes in how these days were '
+                        'computed. Readings either side of one came from '
+                        'different versions.',
             // The window IS the span now: `series` has one slot per calendar
             // day whether or not that day derived, so both edges are dates
             // rather than array positions. It used to read the length of a

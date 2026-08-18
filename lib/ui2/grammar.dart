@@ -1709,6 +1709,15 @@ class ChartFrame extends StatelessWidget {
   /// x-labels. `const NoData()` is the house form.
   final Widget? empty;
 
+  /// Vertical marks at 0…1 across the plot. NOT data — a mark says the days
+  /// either side of it are not strictly comparable, and the only thing that can
+  /// say WHY is [footnote], which is also the mark's only screen-reader form.
+  /// Pass one without the other and the picture gains a line nobody can read.
+  ///
+  /// Drawn dotted, in the axis's own muted ink, so it can never be mistaken for
+  /// a measured line. It does not take taps.
+  final List<double> xMarks;
+
   const ChartFrame({
     super.key,
     required this.title,
@@ -1721,6 +1730,7 @@ class ChartFrame extends StatelessWidget {
     this.footnote,
     this.empty,
     this.series = const [],
+    this.xMarks = const [],
   });
 
   /// Width and height of [s] as it will actually be laid out — including the
@@ -1930,6 +1940,15 @@ class ChartFrame extends StatelessWidget {
                             ),
                           ),
                         Positioned.fill(child: child),
+                        // Above the curve, because a fill would swallow it —
+                        // and it never absorbs a pointer, so the scrub
+                        // underneath still works.
+                        if (xMarks.isNotEmpty)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _XMarks(xMarks, p.ink3),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -2035,6 +2054,33 @@ class _Gridlines extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _Gridlines o) => o.n != n || o.color != color;
+}
+
+/// A break in the x direction — where the days on one side were not produced
+/// the same way as the days on the other. Dotted and hairline-thin: provenance
+/// is worth seeing and is not worth alarming anybody about.
+class _XMarks extends CustomPainter {
+  final List<double> at;
+  final Color color;
+  const _XMarks(this.at, this.color);
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    for (final f in at) {
+      final x = (f.clamp(0.0, 1.0) * s.width).clamp(.5, s.width - .5);
+      for (var y = 0.0; y < s.height; y += 6) {
+        final end = y + 3 > s.height ? s.height : y + 3;
+        cv.drawLine(Offset(x, y), Offset(x, end), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _XMarks o) => o.color != color || o.at != at;
 }
 
 /// The body of an empty [ChartFrame]. Says what is missing in words.

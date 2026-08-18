@@ -385,7 +385,11 @@ class _SleepDetailState extends State<SleepDetail> {
     final n = d.night;
     final unusual = _unusual(c, p, d, n);
 
-    return detailScaffold(c, 'Sleep', sub: (d.day ?? '').toUpperCase(), [
+    // The stepper names the night, so the nav bar does not say it twice. With
+    // one night on disk there is no stepper, and then the subtitle is the only
+    // thing that dates the screen.
+    return detailScaffold(c, 'Sleep',
+        sub: d.days.length < 2 ? (d.day ?? '').toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──

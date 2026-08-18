@@ -286,7 +286,10 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final d = _d ?? const DayStepsData();
-    return detailScaffold(c, 'Steps', [
+    // Same rule as Sleep: the stepper names the day, so the nav bar only does
+    // when there is no stepper.
+    return detailScaffold(c, 'Steps',
+        sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),

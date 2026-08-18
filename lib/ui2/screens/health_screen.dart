@@ -241,8 +241,9 @@ class _Cat {
 /// - Cycle. It is a Wellness tab with its own door and its own on/off switch;
 ///   a second entrance from Health would be a duplicate route, not a feature.
 /// - `rmssd_whole`, `stress_si`, `brv_slope`. Real numbers, but single-night
-///   with no series ever — a row here would open a screen whose only content is
-///   why it cannot be charted.
+///   with no series ever. They had written specs for a while and nothing could
+///   open them; the specs are gone now, so there is nothing to route to either.
+///   `stress` and `brv` below are the charted forms of two of the three.
 /// - Body clock, zones, Nerd stats. Each already has a door at the same depth
 ///   as this one; adding a second is navigation debt.
 const _catalogue = <_Cat>[

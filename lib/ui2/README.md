@@ -321,6 +321,7 @@ ChartFrame({
   String? footnote,             // 'Your usual range 52–64 bpm'
   Widget? empty,                // non-null MEANS NO DATA — `const NoData()`
   List<double?> series = const [],   // the SPOKEN version of the chart
+  List<double> xMarks = const [],    // 0…1 breaks — NOT data, see rule 5
 })
 
 NoData({String message = 'No data yet'})
@@ -331,7 +332,7 @@ form, so the frame turns the series into one sentence — latest, range,
 direction — and marks itself `excludeSemantics`, because what it read out
 before was the bare axis tick numbers and every header value twice.
 
-Four rules:
+Five rules:
 
 1. **Pass the same `AxisSpec` to the frame and to the painter.** The frame
    prints `format` at each gridline; the painter maps values through `t`. Give
@@ -351,7 +352,14 @@ Four rules:
 2. **`xLabels` must describe the range actually drawn.** A hardcoded
    `['30 days ago', '15', 'Today']` under a seven-day window is worse than no
    labels. With three labels they mark the start, middle and end of the data.
-3. **More than one colour means a `legend`.** Use the painters' own, never
+3. **`xMarks` is provenance, never a measurement.** A mark says the days
+   either side of it were not produced the same way — a release boundary, read
+   off `getChart`'s `algo_breaks`. It draws dotted, in `p.ink3`, above the
+   curve, and it does not take taps. **A mark without a `footnote` is a line
+   nobody can read**: the footnote is the mark's only screen-reader form and
+   the only thing that can say what it is. Keep the wording flat — a version
+   change is provenance, not something that happened to the user.
+4. **More than one colour means a `legend`.** Use the painters' own, never
    retyped: `Hypnogram.legend(p)`, `ZoneBar.legend(p)`, `Spectrum.legend`
    (instance), `IntervalLadder.legend` (instance). The swatch is the mark's
    *solved* colour, so the key and the plot can never disagree.
@@ -362,7 +370,7 @@ Four rules:
    `p.on(accent)`, never the pigment. `ZoneBar` also steps its bands up in
    height, because zone 4 against zone 5 is 1.34:1 *to each other* and a
    stacked bar has no lane position to separate them with.
-4. **Empty is `empty:`, not an empty axis.** `empty: const NoData(message: '…')` keeps
+5. **Empty is `empty:`, not an empty axis.** `empty: const NoData(message: '…')` keeps
    the title and the unit and drops the axis entirely. A whole metric with no
    value is still a `StatusCard` — `NoData` is the smaller case where the
    number exists but the series behind the picture doesn't.

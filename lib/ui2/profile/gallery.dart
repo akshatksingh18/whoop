@@ -336,6 +336,30 @@ Map<String, Widget> _chartCases() {
         ),
       );
     }),
+    // The same chart with a release boundary on it. `getChart` has carried
+    // `algo_breaks` all along and no screen read it, so a trend drew straight
+    // through the day the numbers either side stopped being comparable.
+    'chart_line_algo_break': Builder(builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Readiness',
+          unit: 'score',
+          yAxis: AxisSpec.of(rhr, floor: 40),
+          xLabels: const ['30 Jul', '14 Aug', 'Today'],
+          xMarks: const [.55],
+          footnote: 'The dotted line is a change in how these days were '
+              'computed. Readings either side of it came from different '
+              'versions.',
+          series: rhr,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: LineChart(rhr, p.on(C.green),
+                axis: AxisSpec.of(rhr, floor: 40), dots: true),
+          ),
+        ),
+      );
+    }),
     'chart_bars': Builder(builder: (c) {
       final p = P.of(c);
       return Surface(
@@ -1014,6 +1038,9 @@ final _sessions = <String, ActivityResult>{
     duration: Motion.tick * 2712,
     avgHr: 156,
     maxHr: 181,
+    // The drop in the minute after. Stored on every scored session and read by
+    // nothing until now.
+    hrr60: 27,
     calories: 604,
     hr: [for (var i = 0; i < 45; i++) 140 + (i * 23 % 37) * 1.0],
     zoneMinutes: const [2, 8, 19, 13, 3],

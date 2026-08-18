@@ -21,6 +21,7 @@ import 'package:provider/provider.dart';
 
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
+import '../../notify/battery_forecast.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
@@ -444,6 +445,12 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// every connection tick.
   Map<String, dynamic>? _health;
 
+  /// The same projection the overnight charge warning fires on, read here
+  /// rather than recomputed: this screen is where someone asks "how long have I
+  /// got", and the answer was already being calculated and only ever spent on a
+  /// notification they may have dismissed.
+  BatteryForecast? _forecast;
+
   @override
   void initState() {
     super.initState();
@@ -451,6 +458,33 @@ class _DeviceDetailState extends State<DeviceDetail> {
     LocalDb.batteryHealth().then((h) {
       if (mounted) setState(() => _health = h);
     }).catchError((_) {});
+    _loadForecast();
+  }
+
+  Future<void> _loadForecast() async {
+    try {
+      final rows = await LocalDb.recentBandBatterySamples(limit: 400);
+      final now = DateTime.now();
+      final f = const BatteryForecaster().forecast(
+        samples: [
+          for (final r in rows)
+            if (r['battery_pct'] != null && r['ts'] != null)
+              BatterySample(
+                tsSec: (r['ts'] as num).toInt(),
+                pct: (r['battery_pct'] as num).toDouble(),
+                charging: (r['charging'] as num?)?.toInt() == 1,
+              ),
+        ],
+        now: now,
+        // Only `predictedEmptyAt` is read below, and it does not depend on the
+        // wake time — the projection to a wake time is the notification's
+        // question, not this screen's.
+        wakeAt: now,
+      );
+      if (mounted) setState(() => _forecast = f);
+    } catch (_) {
+      // A projection is a nicety. The screen's real job is the band's state.
+    }
   }
 
   @override
@@ -461,6 +495,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       s,
       status: app?.engine.bandStatus,
       health: _health,
+      forecast: _forecast,
       onFind: app?.buzzBand,
       onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
@@ -510,8 +545,18 @@ class DeviceDetailView extends StatelessWidget {
   /// one table nothing prunes. Null until it loads, and on a non-band source.
   final Map<String, dynamic>? health;
 
+  /// `BatteryForecaster.forecast` over the same series. Null until it loads and
+  /// on a non-band source; an ABSTAINING forecast is a valid value and draws
+  /// nothing.
+  final BatteryForecast? forecast;
+
   const DeviceDetailView(this.s,
-      {super.key, this.onFind, this.onForget, this.status, this.health});
+      {super.key,
+      this.onFind,
+      this.onForget,
+      this.status,
+      this.health,
+      this.forecast});
 
   @override
   Widget build(BuildContext c) {
@@ -573,16 +618,21 @@ class DeviceDetailView extends StatelessWidget {
                           value: battery == null ? '' : '${battery.round()}%',
                           // L11 — the band's own charge history, on the row
                           // that already exists rather than a new one. Within
-                          // THIS band only: `charge_cycles` counts rising
-                          // charging edges, not full cycles, and the millivolts
+                          // THIS band only: `charge_cycles` counts times it went
+                          // on the charger, not full cycles, and the millivolts
                           // are the highest reading seen while charging — so
                           // neither is ever put against a cell spec, turned
                           // into a percentage of original capacity, or read as
                           // "replace the battery".
+                          //
+                          // Both were structurally blank until schema 45: the
+                          // voltage had no writer at all, so this line has shown
+                          // nothing on every install there has ever been.
                           sub: battery == null
                               ? 'Not reported since the last connection'
                               : [
                                   if (s.charging) 'Charging',
+                                  ?_timeLeft(forecast),
                                   ?_chargeHistory(health),
                                 ].join(' · '),
                           chevron: false),
@@ -622,9 +672,29 @@ class DeviceDetailView extends StatelessWidget {
   }
 }
 
+/// "about 2 days left" — or null on an abstention, which is most of the time
+/// and is meant to be: the forecaster refuses on the charger, on too few
+/// samples, on too short a span and on an implausible rate, and a battery
+/// number the user can read for themselves is better than a made-up deadline.
+///
+/// Deliberately coarse. The estimate is a median slope through a percentage
+/// that only moves in whole points, so it does not support a time of day, and
+/// printing one would claim a precision this cannot carry. "About" is doing
+/// real work in that sentence.
+String? _timeLeft(BatteryForecast? f) {
+  final empty = f?.predictedEmptyAt;
+  if (empty == null) return null;
+  final left = empty.difference(DateTime.now());
+  if (left.isNegative) return null;
+  if (left.inHours < 1) return 'under an hour left';
+  if (left.inHours < 36) return 'about ${left.inHours} h left';
+  return 'about ${(left.inHours / 24).round()} days left';
+}
+
 /// "12 charges logged, up to 4,180 mV" — or null when there is no history to
 /// report yet. Two facts about this band and nothing derived from them: nothing
-/// here knows the pack's design capacity, and a charging EDGE is not a cycle.
+/// here knows the pack's design capacity, and going on the charger is not a
+/// cycle.
 String? _chargeHistory(Map<String, dynamic>? h) {
   final cycles = (h?['charge_cycles'] as num?)?.toInt() ?? 0;
   if (cycles <= 0) return null;

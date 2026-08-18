@@ -250,7 +250,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 44;
+  static const int schemaVersion = 45;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -756,6 +756,16 @@ class LocalDb {
           // sitting beside them.
           await redriveArchivedRecords(db);
         }
+        if (oldV < 45) {
+          // `band_battery.charge_units` — ADD COLUMN, idempotent, a no-op on a
+          // table this ladder has not created yet — plus the one-time replay of
+          // stored band events into the series that had a reader, a widget and
+          // no writer. Both bounded; see _backfillBandBatteryFromEvents for why
+          // the replay is safe to run on the launch path and the v42 rung's
+          // rewrite was not.
+          await _ensureBandBatteryChargeUnits(db);
+          await _backfillBandBatteryFromEvents(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -775,6 +785,7 @@ class LocalDb {
     await _createEvents(db);
     await _createBandSignals(db);
     await _ensureBandBatteryMillivolts(db);
+    await _ensureBandBatteryChargeUnits(db);
     await _createRawArchive(db);
     await _createDerived(db);
     await _createDayResult(db);
@@ -4026,6 +4037,7 @@ class LocalDb {
         charging INTEGER,
         wrist_on INTEGER,
         millivolts INTEGER,
+        charge_units INTEGER,
         source TEXT NOT NULL,
         PRIMARY KEY (ts, source)
       )
@@ -4118,6 +4130,74 @@ class LocalDb {
   static Future<void> _ensureBandBatteryMillivolts(Database db) =>
       _addColumnIfMissing(db, 'band_battery', 'millivolts', 'INTEGER');
 
+  /// Additive: the strap's own charge counter. Same guard, same reason as
+  /// [_ensureBandBatteryMillivolts]. See [extendedChargeUnits] for what it is
+  /// and — more importantly — what it is not.
+  static Future<void> _ensureBandBatteryChargeUnits(Database db) =>
+      _addColumnIfMissing(db, 'band_battery', 'charge_units', 'INTEGER');
+
+  /// Replay stored band events into `band_battery`.
+  ///
+  /// The point of running this at all: the writer added alongside it only fills
+  /// the series from here forward, and `batteryHealth` reports a full-charge
+  /// voltage and a charge count that only mean anything ACROSS the life of the
+  /// pack. Everything needed to fill the past is already on disk — `band_events`
+  /// keeps the whole frame — so an existing install gets its history rather than
+  /// starting the series at this upgrade.
+  ///
+  /// BOUNDED, because this runs inside `openDatabase` under iOS's CPU watchdog
+  /// (invariant 11): the two ids together are ~2,400 rows over 9 days on the
+  /// largest real export, and non-charge/wear band events are pruned at the
+  /// retention edge anyway, so the cap is a backstop and not the normal case.
+  /// INSERT OR IGNORE, so it can never overwrite a row the live writer already
+  /// wrote.
+  static Future<void> _backfillBandBatteryFromEvents(DatabaseExecutor db) async {
+    // A DB whose ladder has not created these yet (or is mid-ladder) must
+    // NO-OP rather than throw. `redriveArchivedRecords` guards the same way and
+    // for the same reason: a throw in here rolls the WHOLE upgrade back and
+    // quarantines the database.
+    for (final t in const ['band_events', 'band_battery']) {
+      final present = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        [t],
+      );
+      if (present.isEmpty) return;
+    }
+    const cap = 20000;
+    final rows = await db.query(
+      'band_events',
+      columns: ['hex'],
+      where: 'event_id IN (?, ?)',
+      whereArgs: [proto.EventId.batteryLevel, kExtendedBatteryInfoEventId],
+      orderBy: 'ts DESC',
+      limit: cap,
+    );
+    if (rows.isEmpty) return;
+    final batch = db.batch();
+    var queued = 0;
+    for (final r in rows) {
+      final hex = r['hex'] as String?;
+      if (hex == null) continue;
+      Map<String, Object?>? row;
+      try {
+        final e = proto.parseEvent(proto.hexToBytes(hex));
+        row = e == null ? null : batteryRowFromEvent(e);
+      } catch (_) {
+        // A frame this build cannot parse is one battery row we do not get.
+        // It must never take the upgrade down with it.
+        continue;
+      }
+      if (row == null) continue;
+      batch.insert(
+        'band_battery',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      queued++;
+    }
+    if (queued > 0) await batch.commit(noResult: true);
+  }
+
   /// Durable archive for historical records we received but could not decode
   /// (unknown/unsupported version). Thinned to a stated SAMPLE RATE behind the
   /// retention edge and otherwise kept forever — the point is that a future
@@ -4161,6 +4241,7 @@ class LocalDb {
         return null;
       }
     }();
+    final battery = parsed == null ? null : batteryRowFromEvent(parsed);
     await _guardedWrite((db) async {
       await db.insert('events', {
         'hex': hex,
@@ -4178,7 +4259,128 @@ class LocalDb {
         ),
         'captured_at': capturedAt,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      if (battery != null) {
+        await db.insert(
+          'band_battery',
+          battery,
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
     }, bestEffort: true);
+  }
+
+  /// The `band_battery` row an incoming band event carries, or null when it
+  /// carries none.
+  ///
+  /// WHY THIS EXISTS. `band_battery.millivolts` has had a column, a reader
+  /// ([batteryHealth]) and a rendered widget since it was added, and NO WRITER:
+  /// the only insert was AppState's `DeviceState` tick, which has no voltage.
+  /// It was 0-filled on all four real exports (0 of 433 / 413 / 626 / 171 rows),
+  /// so the device screen's charge-history line has been blank on every install
+  /// there has ever been. The number was on the wire the whole time — the band
+  /// sends BATTERY_LEVEL every few minutes and the protocol already decodes
+  /// `battery_mv` out of it; nothing carried it the last four inches into the
+  /// series table. This is that write, on the funnel every event already goes
+  /// through (live AND headless — see AppState._onLiveEvent and
+  /// background_sync).
+  ///
+  /// Two events land here, under two SOURCES rather than one merged row: they
+  /// arrive 1:1 at the same strap second, and `band_battery` is keyed
+  /// `(ts, source)`, so one source would make each overwrite the other's
+  /// columns. Split, each row states only what its own event said.
+  ///
+  ///  * BATTERY_LEVEL — `battery_pct` / `millivolts` / `charging`, all three
+  ///    already decoded by the protocol. Source `band_event`.
+  ///  * EXTENDED_BATTERY_INFORMATION — [extendedChargeUnits]. Source
+  ///    `band_event_ext`.
+  ///
+  /// ON THE `charging` FLAG. It rides on the BATTERY_LEVEL row (the event's own
+  /// byte), NOT on a chargingOn/chargingOff transition, and the strap can
+  /// replay these out of its flash backlog hours late — which is exactly why
+  /// [batteryHealth] counts charge edges PER SOURCE and takes the max rather
+  /// than walking one interleaved series.
+  @visibleForTesting
+  static Map<String, Object?>? batteryRowFromEvent(proto.EventInfo e) {
+    if (e.tsEpoch <= 0) return null;
+    if (e.eventId == proto.EventId.batteryLevel) {
+      final pct = e.decoded['battery_pct'];
+      final mv = e.decoded['battery_mv'];
+      final charging = e.decoded['charging'];
+      if (pct == null && mv == null) return null;
+      return {
+        'ts': e.tsEpoch,
+        'battery_pct': pct is num ? pct.toDouble() : null,
+        'charging': charging is bool ? (charging ? 1 : 0) : null,
+        'wrist_on': null,
+        'millivolts': mv is num ? mv.toInt() : null,
+        'charge_units': null,
+        'source': 'band_event',
+      };
+    }
+    if (e.eventId == kExtendedBatteryInfoEventId) {
+      final units = extendedChargeUnits(e.body);
+      if (units == null) return null;
+      return {
+        'ts': e.tsEpoch,
+        'battery_pct': null,
+        'charging': null,
+        'wrist_on': null,
+        'millivolts': null,
+        'charge_units': units,
+        'source': 'band_event_ext',
+      };
+    }
+    return null;
+  }
+
+  /// EXTENDED_BATTERY_INFORMATION. Named here rather than taken from
+  /// `proto.EventId` because the sealed protocol has no constant for it.
+  static const int kExtendedBatteryInfoEventId = 63;
+
+  /// The strap's own charge counter out of an EXTENDED_BATTERY_INFORMATION
+  /// body, or null when the body is not one this reads.
+  ///
+  /// WHAT THE EVIDENCE IS. The event arrives paired 1:1 with BATTERY_LEVEL and
+  /// its body was dropped whole (`payload_json = '{}'` on 3,372 stored rows
+  /// across the four real exports). Decoding the stored bodies and joining each
+  /// to the BATTERY_LEVEL it arrived beside:
+  ///
+  ///   rev 3 (gen5/MG, 12-byte body), u16 LE @ [9]:
+  ///     r = +1.0000 against `battery_pct` over 263 pairs (whoop-mg) and 85
+  ///     (whoop-5); range 977-1915 against 50.9-99.7 %, i.e. 977/1915 = 0.5100
+  ///     against 0.5106 — the same quantity at ~19x the resolution of the
+  ///     deci-percent.
+  ///   rev 1 (gen4, 28-byte body), u16 LE @ [11]:
+  ///     r = +0.9992 against `battery_pct` over 273 pairs; range 790-1750.
+  ///     (That body ALSO carries the millivolts at [5], r = +1.0000 against
+  ///     BATTERY_LEVEL's own `battery_mv`. Not read here — it is the same
+  ///     number from the same second, and one source for it is enough.)
+  ///
+  /// WHAT IS NOT CLAIMED. THE UNIT IS UNPINNED. It is linear in state of
+  /// charge and that is the whole claim — it is not mAh, not coulombs, not a
+  /// capacity, and it must never be rendered with a unit or compared against a
+  /// cell spec. What a ratio of two of them supports (this reading over the
+  /// full-charge reading) is a fraction, which needs no unit; anything else
+  /// needs a unit nobody has established. The two signed words at [1] and [3]
+  /// are negative while discharging and look like instantaneous and averaged
+  /// current — deliberately NOT decoded, for the same reason: a current in
+  /// unknown units is a number that invites "mA" and cannot support it.
+  @visibleForTesting
+  static int? extendedChargeUnits(Uint8List body) {
+    if (body.isEmpty) return null;
+    // Offset is per BODY REVISION, never per length: a future revision that
+    // happens to be 12 or 28 bytes long would otherwise be read at an offset
+    // that was only ever verified for this one.
+    final at = switch (body[0]) {
+      3 => 9, // gen5 / MG
+      1 => 11, // gen4
+      _ => null,
+    };
+    if (at == null || body.length < at + 2) return null;
+    final units = body[at] | (body[at + 1] << 8);
+    // 0 is the absent/uninitialised read, not a flat pack — a strap reporting a
+    // real battery level in the same second has not measured zero charge.
+    return units > 0 ? units : null;
   }
 
   static Future<void> insertBandBatterySample({
@@ -4211,50 +4413,61 @@ class LocalDb {
     return db.query('band_battery', orderBy: 'ts DESC', limit: limit);
   }
 
-  /// A simple, honest battery-health readout derived from the recent series.
-  ///   - `full_charge_mv`: the rolling max millivolts seen while charging (a
-  ///     freshly-aged pack's full-charge voltage sags over its life);
-  ///   - `charge_cycles`: count of rising 0→1 charging-edge transitions (a
-  ///     coarse proxy — one "plugged in" event per cycle);
+  /// A simple, honest battery-health readout derived from the stored series.
+  ///   - `full_charge_mv`: the highest millivolts ever seen while charging (a
+  ///     pack's full-charge voltage sags over its life);
+  ///   - `charge_cycles`: how many times the band has been put on the charger
+  ///     (a coarse proxy — a top-up is not a cycle);
   ///   - `latest_pct` / `latest_mv`: the most recent sample.
   /// All fields are nullable (absent input → null, never fabricated).
+  ///
+  /// BOTH LIFETIME FACTS COME OUT OF SQL, NOT A ROW WINDOW. They only mean
+  /// anything across the life of the pack, and the row window they used to be
+  /// computed over was a `LIMIT` on a table that now takes a row every few
+  /// minutes rather than every few state changes — the same window that used to
+  /// span a month would span days, quietly shrinking "the highest ever seen"
+  /// into "the highest this week".
+  ///
+  /// `charge_cycles` counts CHARGING_ON events rather than rising edges in this
+  /// series, which is both cheaper and truer: the events are one of the four ids
+  /// `band_events` keeps forever, so the count is lifetime; and an edge walk
+  /// over a SAMPLED series misses any charge that began and ended between two
+  /// samples, while double-counting one that two sources disagree about at the
+  /// boundary — a real hazard now that the strap's own (replayable, possibly
+  /// hours-late) battery events land in the same table as the live device tick.
   static Future<Map<String, dynamic>> batteryHealth({
     int lookback = 2000,
   }) async {
+    final db = await instance;
     final rows = await recentBandBatterySamples(limit: lookback);
-    if (rows.isEmpty) {
-      return const {
-        'samples': 0,
-        'full_charge_mv': null,
-        'charge_cycles': 0,
-        'latest_pct': null,
-        'latest_mv': null,
-      };
-    }
-    int? fullChargeMv;
-    int cycles = 0;
-    int? prevCharging;
-    // rows are newest-first; walk oldest-first for edge counting.
-    for (final r in rows.reversed) {
-      final mv = (r['millivolts'] as num?)?.toInt();
-      final ch = (r['charging'] as num?)?.toInt();
-      if (ch == 1 &&
-          mv != null &&
-          (fullChargeMv == null || mv > fullChargeMv)) {
-        fullChargeMv = mv;
+    final fullCharge = await db.rawQuery(
+      'SELECT MAX(millivolts) AS mv FROM band_battery WHERE charging = 1',
+    );
+    final cycleRows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM band_events WHERE event_id = ?',
+      [proto.EventId.chargingOn],
+    );
+    final fullChargeMv = (fullCharge.first['mv'] as num?)?.toInt();
+    final cycles = (cycleRows.first['n'] as num?)?.toInt() ?? 0;
+    // The most recent reading of each — NOT of the newest row. The sources
+    // write different columns (the device tick has no voltage, the strap's
+    // extended event has no percentage), so the newest row is routinely missing
+    // one of the two and reading it alone reported "no voltage" on a series
+    // that had one a few seconds earlier.
+    T? newest<T>(String column, T? Function(Object?) read) {
+      for (final r in rows) {
+        final v = read(r[column]);
+        if (v != null) return v;
       }
-      if (ch != null) {
-        if (prevCharging == 0 && ch == 1) cycles++;
-        prevCharging = ch;
-      }
+      return null;
     }
-    final latest = rows.first;
+
     return {
       'samples': rows.length,
       'full_charge_mv': fullChargeMv,
       'charge_cycles': cycles,
-      'latest_pct': (latest['battery_pct'] as num?)?.toDouble(),
-      'latest_mv': (latest['millivolts'] as num?)?.toInt(),
+      'latest_pct': newest('battery_pct', (v) => (v as num?)?.toDouble()),
+      'latest_mv': newest('millivolts', (v) => (v as num?)?.toInt()),
     };
   }
 

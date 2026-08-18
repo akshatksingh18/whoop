@@ -605,6 +605,69 @@ final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
     .toDouble());
 
 Map<String, Widget> extraCases() => {
+      // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
+      // photographed because the interesting cases are the ones a golden
+      // cannot show: a driver that moved but stayed inside its own spread, and
+      // one that could not be used at all. Both have to render as neither
+      // helping nor holding you back — a row under "what helped" reading
+      // `+0.0` is a small lie, and skin temperature is a raw ADC so its
+      // NUMBERS are suppressed as well as its chart.
+      'driver_breakdown': DriverBreakdown(driverFacts(
+        breakdown: const [
+          {
+            'label': 'hrv',
+            'used': true,
+            'weight': 0.40,
+            'weighted_contribution': -6.2,
+            'past_mdc': true,
+          },
+          {
+            'label': 'rhr',
+            'used': true,
+            'weight': 0.30,
+            'weighted_contribution': 3.1,
+            'past_mdc': false,
+          },
+          {
+            'label': 'resp',
+            'used': false,
+            'weight': 0.15,
+            'note': 'need_baseline:have=2,need=7',
+          },
+          {
+            'label': 'temp',
+            'used': true,
+            'weight': 0.15,
+            'weighted_contribution': -1.4,
+            'past_mdc': true,
+          },
+        ],
+        baselines: const {
+          'hrv': {
+            'value': 41.2,
+            'baseline': 58.4,
+            'spread': 6.1,
+            'delta': -17.2,
+            'mdc_multiples': -2.3,
+          },
+          'resting_hr': {
+            'value': 54.0,
+            'baseline': 56.8,
+            'spread': 2.2,
+            'delta': -2.8,
+            'mdc_multiples': -0.7,
+          },
+          // Deliberately present and deliberately not printed — see
+          // DriverFacts.numeric.
+          'skin_temp': {
+            'value': 32411.0,
+            'baseline': 32380.0,
+            'spread': 12.0,
+            'delta': 31.0,
+            'mdc_multiples': 1.9,
+          },
+        },
+      )),
       // Swept rather than photographed: it is the measured trio plus one
       // sentence. Two of the three rings are last night's and the third is
       // today's, and the morning before the first sync is not a rare case.

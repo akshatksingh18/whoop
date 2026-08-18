@@ -28,7 +28,9 @@ import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'calm_breathing.dart';
+import 'driver_breakdown.dart';
 import 'cycle_screen.dart';
+import 'home_screen.dart' show envValue, metricOf;
 import 'journal_compose.dart';
 import 'metric_detail.dart' show detailScaffold;
 import 'sleep_detail.dart';
@@ -61,6 +63,11 @@ class _WellnessScreenState extends State<WellnessScreen> {
 
   Map<String, dynamic> _stress = const {};
   Map<String, dynamic> _insights = const {};
+
+  /// The four readiness inputs, each already carrying its reading, this user's
+  /// own centre and spread, the signed contribution and the MDC gate. Assembled
+  /// by [driverFacts] from three stored things; nothing here computes.
+  List<DriverFacts> _drivers = const [];
   Map<String, JournalMetricValue> _todayFields = {};
   List<JournalFieldSpec> _habits = const [];
   List<JournalFieldSpec> _fields = const [];
@@ -89,10 +96,35 @@ class _WellnessScreenState extends State<WellnessScreen> {
     var stress = const <String, dynamic>{};
     var insights = const <String, dynamic>{};
     var fields = <String, JournalMetricValue>{};
+    var driverRows = const <DriverFacts>[];
     var specs = const <JournalFieldSpec>[];
     if (repo != null) {
       stress = await repo.getDayStress(_date);
       insights = await repo.getInsights();
+      // `readiness_glassbox.breakdown`, NOT `.drivers` — drivers is already
+      // filtered to the inputs that cleared the smallest-worthwhile-change
+      // gate, so an input that sat inside its usual spread was never in it and
+      // the screen could not say "and this one did nothing". Same array
+      // ReadinessDetail renders, so the two agree by construction.
+      final gb = envValue(insights['readiness_glassbox']);
+      final bd = gb?['breakdown'];
+      // The baselines block: centre, spread, delta and MDC per input. Written
+      // on every derive since long before anything read it.
+      final heart = await repo.getDayHeart(_date);
+      final charts = <String, Object?>{};
+      for (final k in driverChartKeys) {
+        charts[k] = await repo.getChart(k);
+      }
+      driverRows = driverFacts(
+        breakdown: [
+          for (final r in (bd is List ? bd : const []))
+            if (r is Map) r.cast<String, dynamic>(),
+        ],
+        baselines: heart['baselines'] is Map
+            ? (heart['baselines'] as Map).cast<String, dynamic>()
+            : null,
+        charts: charts,
+      );
       fields = await repo.getJournalMetrics(_date);
       specs = await repo.getJournalFields();
     }
@@ -112,6 +144,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
       _breathing = breathing;
       _stress = stress;
       _insights = insights;
+      _drivers = driverRows;
       _todayFields = {...fields};
       // A habit is a custom field with a ceiling of one — a per-day yes/no.
       // That is exactly what journal_field_def already stores, which is why
@@ -251,7 +284,6 @@ class _WellnessScreenState extends State<WellnessScreen> {
   // ── RECOVERY ─────────────────────────────────────────────────────────────
 
   Widget _recovery(BuildContext c) {
-    final drivers = (_stress['drivers'] as List?) ?? const [];
     final coach = _insights['sleep_coach'];
     final coachMap = coach is Map ? coach.cast<String, dynamic>() : null;
     final needSec = _nested(coachMap, 'need', 'need_sec');
@@ -284,25 +316,19 @@ class _WellnessScreenState extends State<WellnessScreen> {
           ),
         Section(
           'What charged and drained you',
-          drivers.isEmpty
-              ? const StatusCard(
+          // Two words and a full stop, before: "hrv", "rhr". No reading, no
+          // usual, no direction, no size, and no way to tell a move that
+          // mattered from one inside the noise — all of which were already
+          // being written on every derive and read by nothing.
+          _drivers.isEmpty
+              ? StatusCard(
                   'No readiness drivers yet',
-                  'Needs enough nights to know what normal looks like for you.',
+                  whyFromNote(metricOf(_stress['readiness']).note) ??
+                      'Needs enough nights to know what normal looks like '
+                          'for you.',
                   icon: LucideIcons.sparkles,
                 )
-              : Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(
-                    children: [
-                      for (final d in drivers)
-                        if (d is Map)
-                          DriverRow(
-                            label: (d['label'] ?? '').toString(),
-                            detail: (d['detail'] ?? '').toString(),
-                          ),
-                    ],
-                  ),
-                ),
+              : DriverBreakdown(_drivers),
         ),
         Section(
           'Sleep need tonight',
@@ -805,8 +831,15 @@ String _hm(double minutes) {
   return t < 60 ? '$sign${t}m' : '$sign${t ~/ 60}h ${t % 60}m';
 }
 
-/// One readiness driver. Label and detail only — the glass box does not emit
-/// per-driver point contributions, so this row does not pretend to have them.
+/// A label and a sentence. Used by journal findings and habit effects, both of
+/// which genuinely have only those two things.
+///
+/// It is NOT the readiness driver row any more — that claim ("the glass box
+/// does not emit per-driver point contributions") was wrong, and it is what
+/// kept "What charged and drained you" printing two bare words. The breakdown
+/// carries a weight, a signed contribution and a spread gate per input, and
+/// the baselines block carries the reading, the centre, the spread and the MDC.
+/// See [DriverBreakdown].
 class DriverRow extends StatelessWidget {
   const DriverRow({super.key, required this.label, required this.detail});
 

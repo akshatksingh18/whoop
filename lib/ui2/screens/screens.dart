@@ -11,6 +11,7 @@ export 'calm_breathing.dart';
 export 'cycle_screen.dart';
 export 'day_steps.dart';
 export 'day_timeline.dart';
+export 'driver_breakdown.dart';
 export 'investigate.dart';
 export 'journal_compose.dart';
 export 'log_food.dart';

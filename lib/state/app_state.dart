@@ -26,6 +26,7 @@ import 'package:flutter/widgets.dart';
 import '../ai/ai_prefs.dart';
 import '../ai/briefing.dart';
 import '../ai/briefing_engine.dart';
+import '../ai/nightly_sweep.dart';
 import '../coach/coach_config.dart';
 import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
@@ -1584,7 +1585,14 @@ class AppState extends ChangeNotifier {
       final ai = await AiPrefs.load();
       final minOfDay = at.hour * 60 + at.minute;
       BriefingPeriod? want;
-      if (ai.eveningEnabled && minOfDay >= ai.eveningMin) {
+      // The SAME resolved time the sweep notification is armed for. Reading
+      // the raw `eveningMin` here would generate — and permanently cache —
+      // tonight's sweep at 20:00 for a user whose slot is 21:45, off a day
+      // that was not over yet.
+      final eveningMin = ai.resolvedEveningMin(
+        bedtimeMinOfDay: await _recommendedBedtimeMin(),
+      );
+      if (ai.eveningEnabled && minOfDay >= eveningMin) {
         want = BriefingPeriod.evening;
       } else if (ai.morningEnabled && at.hour >= 5) {
         want = BriefingPeriod.morning;
@@ -2138,27 +2146,14 @@ class AppState extends ChangeNotifier {
   Future<void> _ensureRemindersScheduled() async {
     try {
       final prefs = await NotificationPrefs.load();
-      // Fire the "time to sleep" nudge at the Sleep Coach's recommended bedtime
-      // when we have one (from the crossday rollup), else the fixed default.
-      double? bedtimeMin;
-      try {
-        final cd = await LocalDb.baseline('crossday');
-        final m = cd?['payload_json'];
-        if (m is String) {
-          final j = jsonDecode(m);
-          final bt = j is Map ? ((j['sleep_coach'] as Map?)?['bedtime']) : null;
-          final v = bt is Map ? bt['value'] : null;
-          final b = v is Map ? (v['bedtime_min_of_day'] as num?) : null;
-          bedtimeMin = b?.toDouble();
-        }
-      } catch (_) {
-        /* fall back to default bedtime */
-      }
+      final bedtimeMin = await _recommendedBedtimeMin();
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
         bedtimeMinOfDay: bedtimeMin,
       );
-      // AI nudges (morning/evening briefing prompts + pre-sleep journal).
+      // AI slots. The nightly sweep is armed only when today actually produced
+      // a finding — see [_sweepHeadlineNow], which is also where the body of
+      // that notification comes from.
       final ai = await AiPrefs.load();
       await NotificationCenter.instance.scheduleAiReminders(
         prefs,
@@ -2166,10 +2161,65 @@ class AppState extends ChangeNotifier {
         aiConfigured: coachConfig?.hasKey ?? false,
         bedtimeMinOfDay: bedtimeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
+        sweepHeadline: await _sweepHeadlineNow(),
       );
     } catch (e) {
       _log('[notify] schedule reminders skipped: $e');
     }
+  }
+
+  /// The Sleep Coach's recommended bedtime (local minutes past midnight) from
+  /// the crossday rollup, or null when it has not learned one. Read in one
+  /// place because two schedules hang off it — the nightly sweep an hour
+  /// before it, the journal prompt half an hour before it — and a second copy
+  /// of this parse is a second thing to get wrong.
+  Future<double?> _recommendedBedtimeMin() async {
+    try {
+      final cd = await LocalDb.baseline('crossday');
+      final m = cd?['payload_json'];
+      if (m is! String) return null;
+      final j = jsonDecode(m);
+      final bt = j is Map ? ((j['sleep_coach'] as Map?)?['bedtime']) : null;
+      final v = bt is Map ? bt['value'] : null;
+      return (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+    } catch (_) {
+      return null; // no recommendation → the fixed fallback times
+    }
+  }
+
+  String? _sweepHeadline;
+  String _sweepDay = '';
+  int _lastSweepScanMs = 0;
+
+  /// Today's strongest sweep finding, or null when nothing stands out — which
+  /// is most days, and is the answer that keeps tonight's notification silent.
+  ///
+  /// Pure-Dart and offline: no model is involved in DECIDING there is something
+  /// to say, only in phrasing it afterwards. Not run before midday (the day is
+  /// not in yet) and at most hourly, because this sits on the foreground
+  /// cadence path and it is seven trend queries.
+  Future<String?> _sweepHeadlineNow({DateTime? now}) async {
+    final r = repo;
+    final at = now ?? DateTime.now();
+    final day = todayLabel(at);
+    if (day != _sweepDay) {
+      _sweepDay = day;
+      _sweepHeadline = null;
+      _lastSweepScanMs = 0;
+    }
+    if (r == null || at.hour < 12) return null;
+    if (_lastSweepScanMs != 0 &&
+        at.millisecondsSinceEpoch - _lastSweepScanMs < 60 * 60 * 1000) {
+      return _sweepHeadline;
+    }
+    _lastSweepScanMs = at.millisecondsSinceEpoch;
+    try {
+      _sweepHeadline =
+          sweepHeadline(sweepFindings(await collectSweepSeries(r, at)));
+    } catch (e) {
+      _log('[ai] sweep scan skipped: $e');
+    }
+    return _sweepHeadline;
   }
 
   void _log(String line) {

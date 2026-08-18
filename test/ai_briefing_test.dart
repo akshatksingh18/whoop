@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:openstrap_edge/ai/briefing.dart';
 import 'package:openstrap_edge/ai/briefing_engine.dart';
+import 'package:openstrap_edge/ai/nightly_sweep.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -18,13 +19,22 @@ class _FakeRepo extends LocalRepository {
   Map<String, dynamic> daySleep;
   List<Map<String, dynamic>> sessions;
 
+  /// Trend series keyed by the name getChart speaks — the nightly sweep's
+  /// only source of history.
+  Map<String, Map<String, dynamic>> charts;
+  Map<String, dynamic> insights;
+
   _FakeRepo({
     Map<String, dynamic>? today,
     Map<String, dynamic>? daySleep,
     List<Map<String, dynamic>>? sessions,
+    Map<String, Map<String, dynamic>>? charts,
+    Map<String, dynamic>? insights,
   })  : today = today ?? {},
         daySleep = daySleep ?? {},
-        sessions = sessions ?? const [];
+        sessions = sessions ?? const [],
+        charts = charts ?? const {},
+        insights = insights ?? const {};
 
   @override
   Future<Map<String, dynamic>> getToday() async => today;
@@ -36,7 +46,35 @@ class _FakeRepo extends LocalRepository {
     int? to,
     bool includeDetected = true,
   }) async => sessions;
+  @override
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+  }) async => charts[metric] ?? const {'points': <Map<String, dynamic>>[]};
+  @override
+  Future<Map<String, dynamic>> getInsights() async => insights;
 }
+
+/// [history] values ending YESTERDAY, then today's — the shape getChart
+/// returns (local-noon epoch seconds per day, oldest first).
+Map<String, dynamic> _series(List<double> history, double todayValue) {
+  final now = DateTime.now();
+  int at(int daysAgo) =>
+      DateTime(now.year, now.month, now.day - daysAgo, 12)
+              .millisecondsSinceEpoch ~/
+          1000;
+  return {
+    'points': [
+      for (var i = 0; i < history.length; i++)
+        {'t': at(history.length - i), 'v': history[i]},
+      {'t': at(0), 'v': todayValue},
+    ],
+  };
+}
+
+List<double> _steady(double around, int n) =>
+    [for (var i = 0; i < n; i++) around + (i % 3) - 1];
 
 Map<String, dynamic> _sampleToday() => {
       'daily': {
@@ -84,26 +122,44 @@ void main() {
       expect(inp.containsKey('steps'), isFalse);
     });
 
-    test('evening pulls activity + workouts, not sleep', () async {
+    test('evening carries findings — never the day read back', () async {
       final repo = _FakeRepo(
         today: _sampleToday(),
-        sessions: [
-          {
-            'type': 'run',
-            'start_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            'duration_min': 42,
-          },
-        ],
+        charts: {'resting_hr': _series(_steady(54, 45), 68)},
+        insights: {
+          'sleep_coach': {
+            'bedtime': {
+              'value': {'bedtime_min_of_day': 1365}
+            }
+          }
+        },
       );
       final inp = await collectBriefingInputs(repo, BriefingPeriod.evening);
-      expect(inp['strain_0_21'], 12.4);
-      expect(inp['steps'], 8300);
-      expect(inp['calories_total_kcal'], 2450);
-      expect(inp['stress_0_100'], 33);
-      expect(inp['workouts'], isA<List>());
-      expect((inp['workouts'] as List).first, contains('run'));
-      expect(inp.containsKey('readiness'), isFalse);
-      expect(inp.containsKey('sleep_min'), isFalse);
+      expect((inp['unusual_for_you'] as List).single,
+          contains('resting heart rate 68 bpm'));
+      expect(inp['recommended_bedtime'], '22:45');
+      // The old evening snapshot, every entry of which is a number the user
+      // had just looked at. Handing those over is what produced a recap that
+      // restated the day back and was worth nothing.
+      for (final k in [
+        'strain_0_21',
+        'steps',
+        'calories_total_kcal',
+        'stress_0_100',
+        'workouts',
+        'readiness',
+        'sleep_min',
+      ]) {
+        expect(inp.containsKey(k), isFalse, reason: k);
+      }
+    });
+
+    test('an ordinary evening sends nothing at all', () async {
+      final repo = _FakeRepo(
+        today: _sampleToday(),
+        charts: {'resting_hr': _series(_steady(54, 45), 54)},
+      );
+      expect(await collectBriefingInputs(repo, BriefingPeriod.evening), isEmpty);
     });
 
     test('missing metrics produce an empty-ish snapshot, never fabricated',
@@ -120,8 +176,13 @@ void main() {
       final m = briefingSystemPrompt(BriefingPeriod.morning);
       expect(m, contains('ONLY the numbers provided'));
       expect(m.toLowerCase(), contains('sleep'));
-      final e = briefingSystemPrompt(BriefingPeriod.evening);
-      expect(e.toLowerCase(), contains('strain'));
+      // The evening prompt is the sweep's, and its rules are the anti-slop
+      // ones: findings only, no summary, no disclaimer, one action.
+      final e = briefingSystemPrompt(BriefingPeriod.evening).toLowerCase();
+      expect(e, contains('finding'));
+      expect(e, contains('do not summarise the day'));
+      expect(e, contains('no disclaimer'));
+      expect(e, contains('never assert a cause'));
     });
 
     test('greeting comes from the app at read time, never baked into the '
@@ -221,6 +282,47 @@ void main() {
       final cached = BriefingStore.read(BriefingPeriod.morning);
       expect(cached?.oneLiner, 'Recovered and ready.');
       expect(BriefingStore.read(BriefingPeriod.evening), isNull);
+    });
+
+    test('a boring evening calls nobody and says so in one line', () async {
+      var called = false;
+      final engine = BriefingEngine(
+        config: CoachConfig(),
+        repo: _FakeRepo(
+          today: _sampleToday(),
+          charts: {'resting_hr': _series(_steady(54, 45), 54)},
+        ),
+        complete: ({required system, required user}) async {
+          called = true;
+          return 'should never happen';
+        },
+      );
+      final b = await engine.generate(BriefingPeriod.evening);
+      expect(called, isFalse, reason: 'no finding is no question to ask');
+      expect(b.oneLiner, kNothingStoodOut);
+      expect(b.breakdownMd, isEmpty, reason: 'nothing may pad it out');
+      expect(b.inputs, isEmpty);
+      expect(b.calledModel, isFalse,
+          reason: 'the "what was sent" screen reads this');
+    });
+
+    test('a finding does reach the model, and only findings do', () async {
+      var seenUser = '';
+      final engine = BriefingEngine(
+        config: CoachConfig(),
+        repo: _FakeRepo(
+          today: _sampleToday(),
+          charts: {'resting_hr': _series(_steady(54, 45), 68)},
+        ),
+        complete: ({required system, required user}) async {
+          seenUser = user;
+          return 'Resting heart rate ran high today.\n---\n- Get to bed early';
+        },
+      );
+      final b = await engine.generate(BriefingPeriod.evening);
+      expect(seenUser, contains('resting heart rate 68 bpm'));
+      expect(seenUser, isNot(contains('strain')));
+      expect(b.calledModel, isTrue);
     });
 
     test('cache read is scoped to the day (stale day → null)', () {

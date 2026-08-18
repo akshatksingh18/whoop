@@ -166,8 +166,9 @@ class NotificationService {
   static bool isWaterSlot(int id) =>
       id >= idWaterBase && id < idWaterBase + maxWaterSlots;
 
-  /// The gate itself — see [schedulableIds].
-  @visibleForTesting
+  /// The gate itself — see [schedulableIds]. Public because
+  /// [NotificationCenter.scheduleAiReminders] filters its plan through it
+  /// rather than arming a slot and having it refused one line later.
   static bool maySchedule(int id) =>
       schedulableIds.contains(id) || isWaterSlot(id);
 
@@ -417,6 +418,13 @@ class NotificationService {
   /// re-firing the same week's finding every Sunday forever.
   DateTime nextWeeklyInstant(int weekday, int hour, int minute) =>
       _nextInstanceOf(hour, minute, weekday: weekday);
+
+  /// The next [hour]:[minute] in local wall-clock time — today if it is still
+  /// ahead, else tomorrow. For arming a slot whose BODY is about one specific
+  /// day (the nightly sweep) as a one-shot; the caller checks which day it
+  /// landed on.
+  DateTime nextDailyInstant(int hour, int minute) =>
+      _nextInstanceOf(hour, minute);
 
   /// Shared gate for every scheduled slot — see [schedulableIds].
   bool _maySchedule(int id) {

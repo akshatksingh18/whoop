@@ -143,7 +143,12 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                       icon: LucideIcons.triangleAlert,
                     ),
                   ],
-                  if (b != null) SentPayload(inputs: b.inputs, config: cfg),
+                  if (b != null)
+                    SentPayload(
+                      inputs: b.inputs,
+                      config: cfg,
+                      asked: b.calledModel,
+                    ),
                 ],
               ),
             ),
@@ -161,7 +166,18 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
 class SentPayload extends StatelessWidget {
   final Map<String, dynamic> inputs;
   final CoachConfig config;
-  const SentPayload({super.key, required this.inputs, required this.config});
+
+  /// Whether a model was called at all — [Briefing.calledModel]. False for a
+  /// nightly sweep that found nothing: there was no request, so the banner may
+  /// not describe one.
+  final bool asked;
+
+  const SentPayload({
+    super.key,
+    required this.inputs,
+    required this.config,
+    this.asked = true,
+  });
 
   /// True when the endpoint is on this machine, in which case nothing left it.
   static bool isLocal(String base) {
@@ -183,30 +199,39 @@ class SentPayload extends StatelessWidget {
     final host = Uri.tryParse(config.apiBase)?.host ?? config.apiBase;
     final local = isLocal(config.apiBase);
     final keys = inputs.keys.toList()..sort();
+    // An empty payload is not "we sent an empty payload". The nightly sweep
+    // calls no model at all on a day with no finding, so the banner must not go
+    // on describing a request that never happened.
+    final none = !asked;
     return Section(
-      local ? 'What was read' : 'What was sent',
+      none || !local ? 'What was sent' : 'What was read',
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Surface(
             elevation: 0,
-            color: p.wash(local ? C.green : C.orange),
+            color: p.wash(none || local ? C.green : C.orange),
             child: Row(
               children: [
                 Icon(
-                  local ? LucideIcons.house : LucideIcons.cloudUpload,
+                  none || local
+                      ? LucideIcons.house
+                      : LucideIcons.cloudUpload,
                   size: 17,
-                  color: p.on(local ? C.green : C.orange),
+                  color: p.on(none || local ? C.green : C.orange),
                 ),
                 const SizedBox(width: S.x3),
                 Expanded(
                   child: Text(
-                    local
-                        ? 'These numbers went to $host, on this machine. '
-                              'Nothing left it.'
-                        : 'These numbers, and nothing else, were sent to '
-                              '$host as ${config.model}. No raw recordings, no '
-                              'name, no identifier.',
+                    none
+                        ? 'Nothing. There was no request — the note above was '
+                              'written on this phone.'
+                        : local
+                            ? 'These numbers went to $host, on this machine. '
+                                  'Nothing left it.'
+                            : 'These numbers, and nothing else, were sent to '
+                                  '$host as ${config.model}. No raw '
+                                  'recordings, no name, no identifier.',
                     style: F.cap.copyWith(color: p.ink, height: 1.5),
                   ),
                 ),
@@ -214,7 +239,14 @@ class SentPayload extends StatelessWidget {
             ),
           ),
           const SizedBox(height: S.x3),
-          if (keys.isEmpty)
+          if (none)
+            const StatusCard(
+              'Nothing stood out, so nothing was asked',
+              'The sweep runs on this phone. It only calls a model when it has '
+                  'a finding to hand it, and today it had none.',
+              icon: LucideIcons.circleSlash,
+            )
+          else if (keys.isEmpty)
             const StatusCard(
               'Nothing was available to send',
               'No metric had a value when this was written, so the prompt '

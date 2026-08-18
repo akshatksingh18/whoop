@@ -29,6 +29,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ai/ai_prefs.dart';
+import '../ai/reminder_plan.dart';
 import '../data/day_label.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
@@ -311,27 +312,61 @@ class NotificationCenter {
     return slots;
   }
 
-  /// Clear the three AI slots (morning briefing, evening recap, pre-sleep
+  /// Re-assert the three AI slots (morning briefing, nightly sweep, pre-sleep
   /// journal prompt).
   ///
-  /// It used to schedule them from [aiReminderPlan]. All three were nudges, and
-  /// none of the three had anywhere to land after the UI rebuild — there is no
-  /// briefing surface and no BYOK settings screen in `lib/ui2`, so a tapped
-  /// briefing opened the home screen. The plan itself is untouched (and still
-  /// tested); this just stops arming it. The cancels stay so an upgrade clears
-  /// slots an older build left standing.
+  /// Only the nightly sweep is armed. It earns the interruption the same way
+  /// the weekly lookback does — [sweepHeadline] is a finding that already
+  /// exists, computed on-device before this is called, and it IS the
+  /// notification's body. The morning briefing and the journal prompt are
+  /// still nudges with no finding behind them; [aiReminderPlan] still describes
+  /// them (it is the plan, not the policy) and
+  /// [NotificationService.maySchedule] still refuses them, quietly, right here.
   ///
-  /// Arguments are kept so the existing caller compiles unchanged.
+  /// The cancels stay unconditional: they are what clears yesterday's slot when
+  /// today has nothing to say, and what clears whatever an older build left.
   Future<void> scheduleAiReminders(
     NotificationPrefs prefs,
     AiPrefs ai, {
     required bool aiConfigured,
     double? bedtimeMinOfDay,
     required bool journalDoneToday,
+    String? sweepHeadline,
   }) async {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idMorningBrief);
     await svc.cancel(NotificationService.idEveningBrief);
     await svc.cancel(NotificationService.idJournalLog);
+    final plan = aiReminderPlan(
+      ai,
+      remindersEnabled: prefs.remindersEnabled,
+      aiConfigured: aiConfigured,
+      bedtimeMinOfDay: bedtimeMinOfDay,
+      journalDoneToday: journalDoneToday,
+      sweepHeadline: sweepHeadline,
+    ).where((s) => NotificationService.maySchedule(s.id)).toList();
+    if (plan.isEmpty) return;
+    await svc.ensureTimezone();
+    final nowMin = DateTime.now().hour * 60 + DateTime.now().minute;
+    for (final s in plan) {
+      // ONE-SHOT, and only when the slot is still ahead TODAY.
+      //
+      // Both halves matter and both are the same bug the weekly lookback
+      // already carries a comment about. A daily REPEAT would re-announce
+      // tonight's finding every night for the life of the install, because the
+      // body is a fact about one specific day. And a one-shot that rolled over
+      // to tomorrow would announce today's finding about a day it did not
+      // happen on. Nothing is armed instead — this re-runs on the next
+      // foreground pass, which is where the finding is recomputed anyway.
+      if (s.hour * 60 + s.minute <= nowMin) continue;
+      await svc.scheduleOnce(
+        id: s.id,
+        category: NotifCategory.reminders,
+        title: s.title,
+        body: s.body,
+        at: svc.nextDailyInstant(s.hour, s.minute),
+        route: s.route,
+      );
+    }
   }
 }

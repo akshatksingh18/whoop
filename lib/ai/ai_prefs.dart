@@ -14,6 +14,10 @@ class AiPrefs {
   final bool journalEnabled;
 
   /// Fire times as minutes-from-midnight (local wall clock).
+  ///
+  /// [eveningMin] is a FALLBACK, not the time: the nightly sweep fires relative
+  /// to the user's own bedtime when the sleep coach has learned one — see
+  /// [resolvedEveningMin]. A fixed 20:00 is somebody else's evening.
   final int morningMin;
   final int eveningMin;
 
@@ -79,6 +83,24 @@ class AiPrefs {
         eveningMin: eveningMin ?? this.eveningMin,
         journalMin: journalMin ?? this.journalMin,
       );
+
+  /// An hour before bed. Long enough that "get to bed by 22:45" is still
+  /// actionable tonight; late enough that the day it sweeps is over.
+  static const int eveningBedtimeLeadMin = 60;
+
+  /// Resolved nightly-sweep time (minutes-from-midnight): an hour before the
+  /// sleep coach's recommended bedtime when it has one, else [eveningMin].
+  ///
+  /// The coach needs a couple of free-day nights before it recommends anything,
+  /// so a new install genuinely has no bedtime and gets the fallback — that is
+  /// the case the fallback exists for, not a fixed default with a bedtime
+  /// override bolted on.
+  int resolvedEveningMin({double? bedtimeMinOfDay}) {
+    if (bedtimeMinOfDay != null && bedtimeMinOfDay >= 0) {
+      return (bedtimeMinOfDay.round() - eveningBedtimeLeadMin) % 1440;
+    }
+    return eveningMin % 1440;
+  }
 
   /// Resolved journal-prompt time (minutes-from-midnight): explicit user time,
   /// else ~30 min before the recommended bedtime, else the 22:30 fallback.

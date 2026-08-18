@@ -3,9 +3,11 @@
 // plan; nothing here touches the plugin, so the whole surface is unit-testable.
 //
 // Design constraint (iOS): BYOK network can't run reliably in the background,
-// so the scheduled briefing notifications are LIGHT prompts ("ready — tap to
-// view") that deep-link into the breakdown screen, which generates-or-shows-
-// cached on open. Generation also happens opportunistically on foreground.
+// so a scheduled notification cannot carry model-written text. The nightly
+// sweep works anyway, because the FINDING is computed on-device in pure Dart
+// before the slot is armed: the notification body is the finding itself, and
+// the model's take on it is written when the deep link is opened (or
+// opportunistically on the next foreground).
 
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
@@ -37,12 +39,20 @@ class AiReminderSlot {
 /// The full desired schedule for the AI nudges. Briefing slots exist only when
 /// a BYOK key is configured (a notification into an "add your key" wall would
 /// be a nag, not a feature); the journal prompt needs no key (manual mode).
+///
+/// [sweepHeadline] is the nightly sweep's strongest finding for today, or null
+/// when it found nothing — which is most days. Null means the evening slot is
+/// not in the plan AT ALL: the sweep's whole contract is that it may say
+/// nothing, and a notification that fires to announce nothing is the loudest
+/// possible way to break it. When it is non-null it is also the notification's
+/// BODY, so the interruption carries the finding rather than a promise of one.
 List<AiReminderSlot> aiReminderPlan(
   AiPrefs prefs, {
   required bool remindersEnabled,
   required bool aiConfigured,
   double? bedtimeMinOfDay,
   required bool journalDoneToday,
+  String? sweepHeadline,
 }) {
   if (!remindersEnabled) return const [];
   final out = <AiReminderSlot>[];
@@ -58,12 +68,12 @@ List<AiReminderSlot> aiReminderPlan(
       minute: m % 60,
     ));
   }
-  if (aiConfigured && prefs.eveningEnabled) {
-    final m = prefs.eveningMin % 1440;
+  if (aiConfigured && prefs.eveningEnabled && sweepHeadline != null) {
+    final m = prefs.resolvedEveningMin(bedtimeMinOfDay: bedtimeMinOfDay);
     out.add(AiReminderSlot(
       id: NotificationService.idEveningBrief,
-      title: 'Your evening recap is ready',
-      body: 'Tap for today\'s strain, movement and how the day landed.',
+      title: 'Something stood out today',
+      body: sweepHeadline,
       route: kRouteAiEvening,
       hour: m ~/ 60,
       minute: m % 60,

@@ -1,7 +1,8 @@
 // briefing.dart — the daily AI briefing value type + its on-device cache.
 //
-// A Briefing is one generated summary for one local day + period (morning =
-// last night's sleep/recovery; evening = today's strain/activity). It carries
+// A Briefing is one generated note for one local day + period (morning = last
+// night's sleep/recovery; evening = the nightly sweep, which is findings about
+// today or nothing at all — see nightly_sweep.dart). It carries
 // BOTH the notification-length one-liner and the short structured breakdown,
 // plus the exact inputs snapshot it was generated from (so the breakdown screen
 // can show "based on" metrics without re-querying, and regeneration is honest
@@ -22,7 +23,7 @@ enum BriefingPeriod { morning, evening }
 extension BriefingPeriodLabel on BriefingPeriod {
   String get id => this == BriefingPeriod.morning ? 'morning' : 'evening';
   String get title =>
-      this == BriefingPeriod.morning ? 'Morning briefing' : 'Evening recap';
+      this == BriefingPeriod.morning ? 'Morning briefing' : 'Nightly sweep';
 }
 
 /// Which period the Today card should surface right now. Mornings through the
@@ -56,6 +57,16 @@ class Briefing {
     required this.generatedAtMs,
     required this.inputs,
   });
+
+  /// Whether producing this note involved a model at all.
+  ///
+  /// The nightly sweep with no findings is written on-device and asks nobody:
+  /// no request, no payload, nothing to disclose. THE one place that rule is
+  /// stated — the "what was sent" screen reads it rather than re-deriving it,
+  /// because a screen that guesses wrong about this is the worst bug this app
+  /// can ship.
+  bool get calledModel =>
+      period != BriefingPeriod.evening || inputs.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
         'day': day,

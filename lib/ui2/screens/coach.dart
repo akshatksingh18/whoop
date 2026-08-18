@@ -53,6 +53,24 @@ bool coachReady(BuildContext c) {
   }
 }
 
+/// What the Profile row should say under "AI coach", or null when there is no
+/// [CoachConfig] above this context at all.
+///
+/// Same try/catch as [coachReady] and for the same reason: the golden harness
+/// mounts screens without the app's providers, and a throw there is a red test
+/// about the harness rather than about the screen. Null and "Not set up" are
+/// deliberately the same sentence to the reader — from the row's point of view
+/// an unreadable config and an unset one both mean the setup form is what the
+/// tap should open.
+String? coachSubtitle(BuildContext c) {
+  try {
+    final cfg = c.watch<CoachConfig>();
+    return cfg.configured ? cfg.model : 'Not set up';
+  } catch (_) {
+    return null;
+  }
+}
+
 class CoachScreen extends StatefulWidget {
   const CoachScreen({super.key});
 

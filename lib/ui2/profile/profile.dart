@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../../health/health_import_state.dart' show storeName;
 import '../../state/app_state.dart';
 import '../ui2.dart';
+import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import 'devices.dart';
 import 'phone_import.dart';
 import 'settings.dart';
@@ -192,6 +193,7 @@ class _ProfileHomeState extends State<ProfileHome> {
           onSettings: () => _open(c, const MoreSettings()),
           onEdit: () => _open(c, const EditProfile()),
           onPhoneImport: () => _open(c, const PhoneImport()),
+          onCoach: () => _open(c, const CoachSetup()),
         ),
       );
 }
@@ -200,12 +202,13 @@ class ProfileHomeView extends StatelessWidget {
   /// Null while the counts are still being read — the numbers are absent, not
   /// zero, and a zero rendered during a load is a wrong number on screen.
   final ProfileStats? stats;
-  final VoidCallback? onDevices, onSettings, onEdit, onPhoneImport;
+  final VoidCallback? onDevices, onSettings, onEdit, onPhoneImport, onCoach;
 
   const ProfileHomeView(
       {super.key,
       this.stats,
       this.onDevices,
+      this.onCoach,
       this.onSettings,
       this.onEdit,
       this.onPhoneImport});
@@ -274,6 +277,19 @@ class ProfileHomeView extends StatelessWidget {
                       sub: 'Resting heart rate, and readings from instruments '
                           'this band does not have',
                       onTap: onPhoneImport),
+                  // THE ONLY DOOR TO THE COACH'S SETUP, and it has to be —
+                  // Home's sparkles button is now gated on `coachReady`, so on
+                  // a fresh install there is no icon to find it behind. It
+                  // belongs here anyway: a model, a base URL and a key are
+                  // settings, and the coach's own overflow menu offering the
+                  // same form was two doors onto one state.
+                  //
+                  // `watch` rather than `read` so the sub-line stops saying
+                  // "Not set up" the moment it is.
+                  Builder(builder: (c) => SetRow(
+                      LucideIcons.sparkles, C.purple, 'AI coach',
+                      sub: coachSubtitle(c) ?? 'Not set up',
+                      onTap: onCoach)),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.database, C.green, 'Storage',

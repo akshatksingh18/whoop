@@ -27,12 +27,15 @@ const String kRouteWorkoutSuggestion = '/workouts/suggestion';
 /// `screenForRoute` pushes the profile on top of it.
 const String kRouteProfile = '/profile';
 
-/// Emitted by the weekly recap. There is no recap SCREEN, so this resolves to
-/// the Health domain and pushes nothing — `screenForRoute` returns null for it
-/// deliberately. It still has to be listed here, because a route absent from
-/// this table produces no screen request at all and the shell then falls back
-/// to the tab index, which is Home. That is how both of these used to land on
-/// Home while `domainForRoute` claimed otherwise.
+/// Emitted by the weekly recap. It used to resolve to the Health domain and
+/// push nothing, because there was no recap screen to push — `screenForRoute`
+/// returned null for it deliberately. There is one now (`WhatChangedScreen`),
+/// so the notification finally lands on the findings it is about.
+///
+/// It still has to be listed here, because a route absent from this table
+/// produces no screen request at all and the shell then falls back to the tab
+/// index, which is Home. That is how both of these used to land on Home while
+/// `domainForRoute` claimed otherwise.
 const String kRouteRecap = '/recap';
 
 class TapTarget {

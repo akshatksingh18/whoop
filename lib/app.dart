@@ -23,6 +23,7 @@ import 'ui2/onboarding/welcome.dart';
 import 'ui2/profile/profile.dart';
 import 'ui2/screens/ai_briefing.dart';
 import 'ui2/screens/calm_breathing.dart';
+import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
@@ -356,6 +357,11 @@ Widget? screenForRoute(String route) => switch (route) {
       kRouteWater => const LogWaterScreen(),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
+      // The weekly recap used to land on the Health tab and push nothing,
+      // because there was no recap screen to push. There is now: the sweep's
+      // findings, which the app has been computing every night and delivering
+      // only as a notification you could dismiss into nothing.
+      kRouteRecap => const WhatChangedScreen(),
       _ => null,
     };
 

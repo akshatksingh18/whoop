@@ -368,6 +368,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/images/2.0x/
+    - assets/images/3.0x/
     - assets/splash/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user

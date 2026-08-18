@@ -130,58 +130,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   List<Widget> _forYou(BuildContext c, _WorkoutData d) {
     final p = P.of(c);
     return [
-      Pressable(
-        onTap: () => _openPicker(c, d),
-        semanticLabel: 'Start a workout',
-        child: Container(
-          height: 190,
-          decoration: BoxDecoration(
-            borderRadius: R.rLg,
-            gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.lerp(C.n900, C.purple, .35)!,
-                  p.fill(C.purple),
-                ]),
-            boxShadow: p.el(3),
-          ),
-          child: Stack(children: [
-            Positioned(
-              right: -20,
-              bottom: -20,
-              child: Icon(LucideIcons.dumbbell,
-                  size: 180, color: C.white.withValues(alpha: .10)),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(S.x5),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('START A SESSION',
-                        style: F.over
-                            .copyWith(color: C.white.withValues(alpha: .75))),
-                    const Spacer(),
-                    Text('${allActivities.length} activities',
-                        style: F.t2.copyWith(color: C.white)),
-                    const SizedBox(height: S.x1),
-                    Text('Each one with a published energy cost',
-                        style: F.cap
-                            .copyWith(color: C.white.withValues(alpha: .8))),
-                    const SizedBox(height: S.x4),
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                          color: C.white, shape: BoxShape.circle),
-                      child: Icon(LucideIcons.play,
-                          size: 22, color: p.fill(C.purple)),
-                    ),
-                  ]),
-            ),
-          ]),
-        ),
-      ),
+      StartSessionCard(count: allActivities.length, onTap: () => _openPicker(c, d)),
       const SizedBox(height: S.x3),
       Row(children: [
         for (var i = 0; i < 3; i++) ...[
@@ -1807,4 +1756,133 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       morningAfter: morningAfter,
       importedLast: await lastImportAt(HealthImport.workouts),
     );
+}
+
+
+/// The way in. Full-bleed, so it reads as the door rather than the first of
+/// several cards.
+///
+/// Extracted from `_forYou` so it can be rendered on its own — the first
+/// version of this was built blind inside a private method, with the mascot
+/// stacked UNDER the copy at 176 px in a 190 px card and no clip, and nothing
+/// in the repo could show that it was wrong. It is in the gallery now, which
+/// is also what puts it through the 3.1x overflow and 44 pt sweeps.
+class StartSessionCard extends StatelessWidget {
+  const StartSessionCard(
+      {super.key, required this.count, this.onTap, this.fullBleed = true});
+
+  final int count;
+  final VoidCallback? onTap;
+
+  /// Cancel the list's own S.x4 side padding so the card runs edge to edge.
+  ///
+  /// Done with [OverflowBox], NOT a negative margin: `Container` asserts
+  /// `margin.isNonNegative`, so the negative-margin version of this threw on
+  /// every build and rendered a 358x100000 overflow stripe the first time it
+  /// reached a golden. OverflowBox is the supported way for a child to be
+  /// wider than the constraint it was handed.
+  final bool fullBleed;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // No side radius when bleeding, for the same reason — a rounded corner
+    // against the screen edge reads as a card that failed to fit.
+    final card = Pressable(
+        onTap: onTap,
+        semanticLabel: 'Start a workout',
+        child: ClipRect(
+          child: Container(
+            // A FLOOR, not a fixed height. At 2x text the copy is taller than
+            // 190 and a fixed box clipped the play button off the bottom —
+            // the card grows instead, and the mascot stays on its base
+            // because the row is bottom-aligned.
+            constraints: const BoxConstraints(minHeight: 190),
+            decoration: BoxDecoration(
+              // Two grounds, not one purple for both. The mascot is cream, so
+              // a pale card swallows it: light mode goes DEEPER rather than
+              // lighter, and dark mode drops to an indigo that leaves the cream
+              // the brightest thing on the card.
+              gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: p.dark
+                      ? [
+                          Color.lerp(C.n900, C.indigo, .55)!,
+                          Color.lerp(C.n900, C.purple, .70)!,
+                        ]
+                      : [
+                          Color.lerp(C.purple, C.n900, .28)!,
+                          p.fill(C.purple),
+                        ]),
+              boxShadow: p.el(3),
+            ),
+            // A ROW, not a stack. Stacked, the mascot sat under the copy and
+            // the two fought for the same pixels; in a row the text gets the
+            // width that is left and the mascot cannot reach it.
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x2, S.x4),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('START A SESSION',
+                              style: F.over.copyWith(
+                                  color: C.white.withValues(alpha: .75))),
+                          const Spacer(),
+                          Text('$count activities',
+                              style: F.t2.copyWith(color: C.white),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: S.x1),
+                          // Was "Each one with a published energy cost" — the
+                          // app explaining its own MET table on the way in.
+                          Text('Pick one and go',
+                              style: F.cap.copyWith(
+                                  color: C.white.withValues(alpha: .8)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: S.x3),
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                                color: C.white, shape: BoxShape.circle),
+                            child: Icon(LucideIcons.play,
+                                size: 22, color: p.fill(C.purple)),
+                          ),
+                        ]),
+                  ),
+                ),
+                // Bottom right, standing on the base of the card. Decoration
+                // only: no semantics, no hit test, and the one thing here
+                // allowed to be cut off by the edge — which is what the
+                // ClipRect above is for.
+                ExcludeSemantics(
+                  child: IgnorePointer(
+                    child: Image.asset('assets/images/mascot_workout.png',
+                        height: 126, filterQuality: FilterQuality.medium),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+    if (!fullBleed) return card;
+    // The list hands this a width already 2 x S.x4 short. OverflowBox lets the
+    // child take the FULL screen width back and centres it, which is the whole
+    // trick — the parent's padding is untouched, so every other card keeps it.
+    final w = MediaQuery.sizeOf(c).width;
+    return OverflowBox(
+      minWidth: w,
+      maxWidth: w,
+      alignment: Alignment.center,
+      child: card,
+    );
+  }
 }

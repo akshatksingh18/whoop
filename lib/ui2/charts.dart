@@ -564,7 +564,15 @@ class Ring extends CustomPainter {
   final Color color, track;
   final double stroke, t;
 
-  Ring(this.v, this.color, this.track, {this.stroke = 10, this.t = 1});
+  /// SOLID draws the arc in one flat colour. The fade is deliberately kept for
+  /// the states that are not a finished measurement: a ring that is still
+  /// filling reads as filling partly BECAUSE its arc is softer than a measured
+  /// one. Brightening everything would collapse "this is real", "this is still
+  /// calibrating" and "this is missing" into one look.
+  final bool solid;
+
+  Ring(this.v, this.color, this.track,
+      {this.stroke = 10, this.t = 1, this.solid = false});
 
   @override
   void paint(Canvas cv, Size s) {
@@ -590,17 +598,21 @@ class Ring extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round
-        ..shader = SweepGradient(
-          startAngle: -pi / 2,
-          endAngle: 3 * pi / 2,
-          colors: [color.withValues(alpha: .55), color],
-          transform: const GradientRotation(-pi / 2),
-        ).createShader(Rect.fromCircle(center: c, radius: r)),
+        ..color = solid ? color : const Color(0x00000000)
+        ..shader = solid
+            ? null
+            : SweepGradient(
+                startAngle: -pi / 2,
+                endAngle: 3 * pi / 2,
+                colors: [color.withValues(alpha: .55), color],
+                transform: const GradientRotation(-pi / 2),
+              ).createShader(Rect.fromCircle(center: c, radius: r)),
     );
   }
 
   @override
-  bool shouldRepaint(covariant Ring o) => o.v != v || o.t != t;
+  bool shouldRepaint(covariant Ring o) =>
+      o.v != v || o.t != t || o.solid != solid || o.color != color;
 }
 
 /// The small flat ring used in macro/nutrient clusters.

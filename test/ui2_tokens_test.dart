@@ -202,6 +202,14 @@ const _notComponents = {
   // permission on tap — a gallery case would either mock all of that or
   // trigger a real health-store prompt from a screenshot sweep.
   'PhoneImport', 'AutomationSettings',
+  // FULL-BLEED, so it is a screen element rather than a component: it takes
+  // the whole window width back off its parent's padding via OverflowBox. The
+  // gallery lays every case out in a ~179 logical-px cell, which is narrower
+  // than the card's own copy needs — a golden of it there photographs the
+  // fixture squeezing it, not the card. Covered instead by
+  // `start_session_card_test.dart`, which renders it at a real phone width and
+  // asserts the copy is not truncated and nothing overflows.
+  'StartSessionCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

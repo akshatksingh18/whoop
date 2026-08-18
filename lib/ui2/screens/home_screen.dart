@@ -741,7 +741,11 @@ class _Dial extends StatelessWidget {
       CustomPaint(
         size: Size.infinite,
         painter: Ring(r.frac ?? 0, r.arc(p), p.track,
-            stroke: stroke, t: animate(c, 1)),
+            stroke: stroke,
+            t: animate(c, 1),
+            // A measured ring draws solid; calibrating keeps the fade so the
+            // two do not read as the same thing at a glance.
+            solid: r.measured),
       ),
       Icon(r.icon, size: icon, color: r.ink(p)),
     ]);

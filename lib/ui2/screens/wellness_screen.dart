@@ -541,11 +541,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
                   MedRow(
                     slot: s,
                     onTap: () => _markDose(s),
-                    // Same exit the habits list got. A course you finished, or
-                    // a name you mistyped, used to keep coming due every day
-                    // and dragging adherence down with nothing but "Delete
+                    // Everything that is not "I took it" lives behind here:
+                    // skipping a dose on purpose, fixing the days it is due,
+                    // and the exit for a course you finished — which used to
+                    // keep coming due every day with nothing but "Delete
                     // everything" to stop it.
-                    onRemove: () => _confirmRemoveMed(s.def),
+                    onMore: () => _medActions(c, s),
                   ),
               ],
             ),
@@ -599,6 +600,124 @@ class _WellnessScreenState extends State<WellnessScreen> {
     await _load();
   }
 
+  /// A dose deliberately NOT taken.
+  ///
+  /// `DoseState.skipped` has been in the enum, the schema and the row label
+  /// since the store was written and nothing could ever enter it: `mark`'s only
+  /// caller never passed `skipped`, so every untaken dose read back as
+  /// `missed`. The count does not change — `adherence()` counts by decided, and
+  /// both are decided-and-not-taken — but "I chose not to" and "I forgot" are
+  /// not the same fact about a medication, and the user could not record the
+  /// difference or correct it afterwards.
+  Future<void> _skipDose(MedSlot s) async {
+    final db = await LocalDb.instance;
+    await MedDb.mark(
+      db,
+      medKey: s.def.key,
+      date: s.date,
+      slotMin: s.slotMin,
+      taken: false,
+      skipped: s.state != DoseState.skipped,
+    );
+    await _load();
+  }
+
+  Future<void> _medActions(BuildContext c, MedSlot s) async {
+    final p = P.of(c);
+    final skipped = s.state == DoseState.skipped;
+    await showModalBottomSheet<void>(
+      context: c,
+      backgroundColor: p.card,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x3),
+              child: Text(
+                '${s.def.label} · ${s.timeLabel}',
+                style: F.head.copyWith(color: p.ink),
+              ),
+            ),
+            _SheetAction(
+              LucideIcons.circleSlash,
+              skipped ? 'Undo skipped' : 'Skipped on purpose',
+              sub: skipped
+                  ? 'Back to not taken.'
+                  : 'Recorded as a decision, not a miss.',
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _skipDose(s);
+              },
+            ),
+            _SheetAction(
+              LucideIcons.calendarDays,
+              'Which days it is due',
+              sub: _daysLabel(_daysFor(s)),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _editSchedule(c, s);
+              },
+            ),
+            _SheetAction(
+              LucideIcons.trash2,
+              'Remove ${s.def.label}',
+              sub: 'It stops being scheduled. Marked doses stay.',
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _confirmRemoveMed(s.def);
+              },
+            ),
+            const SizedBox(height: S.x4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The weekdays THIS slot is due on. An empty list means every day — that is
+  /// `MedSchedule.onDay`'s own rule, not a guess made here.
+  List<int> _daysFor(MedSlot s) {
+    for (final sch in s.def.schedule) {
+      if (sch.minuteOfDay == s.slotMin) {
+        return sch.days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : sch.days;
+      }
+    }
+    return const [1, 2, 3, 4, 5, 6, 7];
+  }
+
+  Future<void> _editSchedule(BuildContext c, MedSlot s) async {
+    final picked = await pickMedSchedule(
+      c,
+      minuteOfDay: s.slotMin,
+      days: _daysFor(s),
+    );
+    if (picked == null || !mounted) return;
+    // Only THIS slot is rewritten. A medication with a morning and an evening
+    // dose keeps the other one exactly as it was.
+    final rest = [
+      for (final sch in s.def.schedule)
+        if (sch.minuteOfDay != s.slotMin) sch,
+    ];
+    await MedDb.putDef(
+      await LocalDb.instance,
+      MedDef(
+        key: s.def.key,
+        label: s.def.label,
+        doseValue: s.def.doseValue,
+        doseUnit: s.def.doseUnit,
+        kind: s.def.kind,
+        note: s.def.note,
+        active: s.def.active,
+        createdAt: s.def.createdAt,
+        schedule: [...rest, MedSchedule(picked.minuteOfDay, picked.days)],
+      ),
+    );
+    await _load();
+  }
+
   /// Remove the medication, keep the doses.
   ///
   /// `MedDb.deleteDef` keeps `med_dose` on purpose (see its note): those doses
@@ -622,23 +741,20 @@ class _WellnessScreenState extends State<WellnessScreen> {
     final name = await _askName(c, 'Add a medication', 'Vitamin D');
     if (name == null || name.isEmpty) return;
     if (!c.mounted) return;
-    final at = await showTimePicker(
-      context: c,
-      initialTime: const TimeOfDay(hour: 8, minute: 0),
-      helpText: 'When do you take it?',
-    );
-    if (at == null) return;
-    final db = await LocalDb.instance;
+    // The weekdays used to be hardcoded to all seven with no way back in, so a
+    // Monday-and-Thursday drug generated five phantom slots a week that
+    // resolved as missed and went into adherence's denominator — a wrong number
+    // on screen, produced by the app rather than by the person.
+    final picked = await pickMedSchedule(c);
+    if (picked == null || !mounted) return;
     await MedDb.putDef(
-      db,
+      await LocalDb.instance,
       MedDef(
         key: MedDb.keyFor(name),
         label: name,
         // Dose is left null — "as directed" is a real answer, and demanding a
         // number to get a reminder is how a checklist stops being used.
-        schedule: [
-          MedSchedule(at.hour * 60 + at.minute, const [1, 2, 3, 4, 5, 6, 7]),
-        ],
+        schedule: [MedSchedule(picked.minuteOfDay, picked.days)],
       ),
     );
     await _load();
@@ -725,16 +841,199 @@ class DriverRow extends StatelessWidget {
   }
 }
 
+const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/// The days a dose is due, in the words a person would use. `DateTime.weekday`
+/// values, 1 = Monday; empty means every day.
+String _daysLabel(List<int> days) {
+  final set = days.toSet();
+  if (set.isEmpty || set.length == 7) return 'Every day';
+  if (set.length == 5 && !set.contains(6) && !set.contains(7)) {
+    return 'Weekdays';
+  }
+  if (set.length == 2 && set.contains(6) && set.contains(7)) return 'Weekends';
+  final sorted = set.toList()..sort();
+  return [for (final d in sorted) _weekdayNames[(d - 1) % 7]].join(', ');
+}
+
+/// Pick a time and the weekdays it repeats on. Returns null if dismissed.
+///
+/// One sheet for BOTH the add flow and the edit path, because a schedule the
+/// user can enter but not correct is the shape of bug this replaced: the app
+/// wrote seven days a week whatever the drug was, and then counted the days it
+/// invented against the person taking it.
+Future<MedSchedule?> pickMedSchedule(
+  BuildContext c, {
+  int minuteOfDay = 8 * 60,
+  List<int> days = const [1, 2, 3, 4, 5, 6, 7],
+}) async {
+  var minute = minuteOfDay;
+  var picked = days.toSet();
+  final p = P.of(c);
+  return showModalBottomSheet<MedSchedule>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheet) => SafeArea(
+      child: StatefulBuilder(
+        builder: (sheet, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('When you take it', style: F.head.copyWith(color: p.ink)),
+              const SizedBox(height: S.x4),
+              Pressable(
+                semanticLabel: 'Change the time',
+                onTap: () async {
+                  final at = await showTimePicker(
+                    context: sheet,
+                    initialTime: TimeOfDay(
+                      hour: (minute ~/ 60) % 24,
+                      minute: minute % 60,
+                    ),
+                  );
+                  if (at != null) {
+                    setSheet(() => minute = at.hour * 60 + at.minute);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(S.x4),
+                  decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+                  child: Row(
+                    children: [
+                      Icon(LucideIcons.clock, size: 17, color: p.ink3),
+                      const SizedBox(width: S.x3),
+                      Expanded(
+                        child: Text(
+                          '${(minute ~/ 60).toString().padLeft(2, '0')}:'
+                          '${(minute % 60).toString().padLeft(2, '0')}',
+                          style: F.n17.copyWith(color: p.ink),
+                        ),
+                      ),
+                      Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: S.x4),
+              Text('WHICH DAYS', style: F.over.copyWith(color: p.ink3)),
+              const SizedBox(height: S.x2),
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                children: [
+                  for (var d = 1; d <= 7; d++)
+                    Pressable(
+                      semanticLabel: _weekdayNames[d - 1],
+                      onTap: () => setSheet(() {
+                        picked.contains(d) ? picked.remove(d) : picked.add(d);
+                      }),
+                      child: Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: S.x4,
+                          vertical: S.x2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: picked.contains(d)
+                              ? p.wash(C.domMind)
+                              : p.card2,
+                          borderRadius: R.rPill,
+                          border: Border.all(
+                            color: picked.contains(d)
+                                ? p.on(C.domMind)
+                                : p.line,
+                          ),
+                        ),
+                        child: Text(
+                          _weekdayNames[d - 1],
+                          style: F.cap.copyWith(
+                            color: picked.contains(d)
+                                ? p.on(C.domMind)
+                                : p.ink2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: S.x3),
+              // A schedule with no days is not a schedule. Saying so beats
+              // saving one that can never come due.
+              Text(
+                picked.isEmpty
+                    ? 'Pick at least one day.'
+                    : 'Due ${_daysLabel(picked.toList()).toLowerCase()}.',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              const SizedBox(height: S.x4),
+              BigButton(
+                'Save',
+                color: C.domMind,
+                onTap: picked.isEmpty
+                    ? null
+                    : () => Navigator.of(sheet).pop(
+                        MedSchedule(minute, picked.toList()..sort()),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _SheetAction extends StatelessWidget {
+  const _SheetAction(this.icon, this.title, {this.sub = '', this.onTap});
+  final IconData icon;
+  final String title;
+  final String sub;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Pressable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: S.x5, vertical: S.x3),
+        child: Row(
+          children: [
+            Icon(icon, size: 17, color: p.ink3),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: F.body.copyWith(color: p.ink)),
+                  if (sub.isNotEmpty)
+                    Text(sub, style: F.cap.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// One scheduled dose. A slot still ahead of you reads as upcoming, never as a
 /// miss — that distinction is the whole reason `taken_ts` is nullable.
 class MedRow extends StatelessWidget {
-  const MedRow({super.key, required this.slot, this.onTap, this.onRemove});
+  const MedRow({super.key, required this.slot, this.onTap, this.onMore});
 
   final MedSlot slot;
   final VoidCallback? onTap;
 
-  /// Removes the whole medication, not this one dose. Null hides the control.
-  final VoidCallback? onRemove;
+  /// Everything that is not "I took it": skip, reschedule, remove. Null hides
+  /// the control. There is no long-press or swipe here on purpose — `Pressable`
+  /// is the app's only gesture, so a second action needs a second target.
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext c) {
@@ -773,13 +1072,13 @@ class MedRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (onRemove != null)
+            if (onMore != null)
               Pressable(
-                semanticLabel: 'Remove ${slot.def.label}',
-                onTap: onRemove,
+                semanticLabel: 'More for ${slot.def.label}',
+                onTap: onMore,
                 child: Padding(
                   padding: const EdgeInsets.only(right: S.x3),
-                  child: Icon(LucideIcons.trash2, size: 18, color: p.ink3),
+                  child: Icon(LucideIcons.ellipsis, size: 18, color: p.ink3),
                 ),
               ),
             _Check(on: taken, onTap: null),

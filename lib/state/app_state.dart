@@ -1142,7 +1142,10 @@ class AppState extends ChangeNotifier {
     // otherwise only flips on a transition, so a headless start paced its very
     // first sweep as if the app were on screen.
     _deriveScheduler.setBackground(_background);
-    repo = LocalRepositoryImpl(getProfileMap: () => user);
+    repo = LocalRepositoryImpl(
+      getProfileMap: () => user,
+      saveProfileFields: updateProfile,
+    );
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
     // them to a catch-up pull over the existing live connection instead.

@@ -34,10 +34,21 @@ import '../gps/route_models.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
-  LocalRepositoryImpl({required this.getProfileMap});
+  LocalRepositoryImpl({required this.getProfileMap, this.saveProfileFields});
 
   /// Reads the live AppState profile map (age/weight/height/sex/step_goal…).
   final Map<String, dynamic>? Function() getProfileMap;
+
+  /// Merges a patch into the stored profile and returns the new map — i.e.
+  /// `AppState.updateProfile`, which is the only writer of that map.
+  ///
+  /// NULL in a process that has no AppState (the iOS background task), and a
+  /// write there FAILS rather than returning a map nobody stored. That is the
+  /// whole P2 bug: [setStepGoal] used to build the merged map, return it, and
+  /// persist nothing — so the coach's `set_step_goal` reported success to the
+  /// user on every call and the goal never moved off 8 000.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
+  saveProfileFields;
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -231,11 +242,27 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  /// Persist the daily step goal.
+  ///
+  /// [goal] arrives from a caller that may be an LLM, so it is bounded here
+  /// rather than trusted: a step goal is a target a person walks to, and a
+  /// four-digit typo would sit on Home forever with no screen to correct it.
+  ///
+  // ponytail: no UI writes this yet — the coach is the only caller, and the
+  // Home tile still prints "Goal 8,000" as if the user had chosen it. The field
+  // belongs beside the other profile numbers in EditProfile; one more key in
+  // that form's unconditional write is the whole fix.
   @override
-  Future<Map<String, dynamic>> setStepGoal(int goal) async => {
-    ...?getProfileMap(),
-    'step_goal': goal,
-  };
+  Future<Map<String, dynamic>> setStepGoal(int goal) async {
+    if (goal < 500 || goal > 100000) {
+      throw RepositoryException(400, 'A step goal of $goal is not a real one.');
+    }
+    final save = saveProfileFields;
+    if (save == null) {
+      throw RepositoryException(500, 'This process cannot change the profile.');
+    }
+    return save({'step_goal': goal});
+  }
 
   // ── today ─────────────────────────────────────────────────────────────────
   // Shape per lib/models/payloads.dart TodayData: {daily:{…}, sleep:{…},

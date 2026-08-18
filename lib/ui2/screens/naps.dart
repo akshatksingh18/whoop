@@ -369,9 +369,13 @@ class _NapsScreenState extends State<NapsScreen> {
             Text(
               // A logged nap has no measured asleep/in-bed split, so it says
               // what it is instead of borrowing the detector's language.
-              mine
-                  ? '${hm(mins)} · you logged this'
-                  : '${hm(mins)} asleep · detected',
+              // `hm(null)` is the empty string, and a row whose only caption
+              // is ' · detected' is the silent nothing this app does not do.
+              mins == null
+                  ? (mine ? 'You logged this' : 'Detected')
+                  : (mine
+                      ? '${hm(mins)} · you logged this'
+                      : '${hm(mins)} asleep · detected'),
               style: F.cap.copyWith(color: p.ink3),
             ),
           ]),

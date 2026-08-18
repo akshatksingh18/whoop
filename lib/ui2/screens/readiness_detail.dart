@@ -32,13 +32,8 @@ class ReadinessData {
   /// Null when readiness scored, which is the same fact as the number existing.
   final Map<String, dynamic>? absentDiag;
 
-  /// The last night that scored, when that is NOT today's.
-  ///
-  /// It is no longer the source of the number above — [overnightMetric]
-  /// refuses an older night, so the headline is today's or it is absent, and
-  /// the screen no longer wears a date in its nav bar claiming otherwise. What
-  /// is left is coverage: naming the night the data stops at, inside the
-  /// absence.
+  /// The night this score describes, when it is NOT last night — the same
+  /// resolution Home's hero uses. The screen used to carry no date anywhere.
   final String? heldOverNight;
 
   /// DENSE — one slot per calendar day, `null` where no score was stored. The
@@ -80,10 +75,8 @@ class ReadinessData {
     final v = envValue(gb) ?? const <String, dynamic>{};
     final bd = v['breakdown'];
 
-    final readiness = overnightMetric(today, daily is Map ? daily['readiness'] : null);
-
     return ReadinessData(
-      readiness: readiness,
+      readiness: metricOf(daily is Map ? daily['readiness'] : null),
       // `narrative` and the glass-box `score` are DELIBERATELY not read. Both
       // belong to the deprecated percentile score, which bands at 70/40 while
       // the headline composite bands at 80/60/40 — printing its verdict under
@@ -99,15 +92,9 @@ class ReadinessData {
       series: denseDays(pointsOf(chart), 90),
       // Only read when there is nothing to explain away — a scored day has no
       // diag in its bundle anyway, and this is one more day_result decode.
-      //
-      // TODAY'S DAY, never the held-over one. The held-over night usually
-      // scored fine, so its diagnostic explains an absence that is not the one
-      // on screen: it would list four measured inputs under a card saying the
-      // number is missing. A day with no bundle has no diag and this comes back
-      // null, which is correct — the note on the metric is the reason then.
-      absentDiag: readiness.value != null
+      absentDiag: metricOf(daily is Map ? daily['readiness'] : null).value != null
           ? null
-          : await _absentDiag(
+          : await _absentDiag(heldOverNightOf(today) ??
               (today['status'] as Map?)?['today_day']?.toString()),
     );
   }
@@ -157,10 +144,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final v = d.readiness.value;
     final band = readinessBand(v);
 
-    // No date in the nav bar. It named the held-over night, and the headline
-    // can no longer BE that night — a date up here now would be labelling
-    // today's number with somebody else's day.
-    return detailScaffold(c, 'Readiness', [
+    return detailScaffold(c, 'Readiness',
+        sub: d.heldOverNight == null
+            ? ''
+            : prettyDay(d.heldOverNight).toUpperCase(), [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -170,14 +157,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           // day it does, and the "What was missing" section directly below is
           // built from that record — a sentence written here was competing
           // with the real answer one line down and winning.
-          StatusCard.forMetric('Readiness is not scored', d.readiness,
-                  // Where the data stops, appended to whatever the pipeline
-                  // said. Not a substitute for the reason and not a reading —
-                  // "the last one was Saturday" is a fact about coverage.
-                  gap: d.heldOverNight == null
-                      ? null
-                      : 'The last night scored was '
-                          '${prettyDay(d.heldOverNight)}.') ??
+          StatusCard.forMetric('Readiness is not scored', d.readiness) ??
               const SizedBox.shrink(),
           if (d.absentDiag != null)
             Section('What was missing', _absence(c, p, d.absentDiag!)),

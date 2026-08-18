@@ -15,9 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -25,16 +23,6 @@ import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
-import 'package:provider/provider.dart';
-
-/// A [CoachConfig] that just answers the one question Home asks it, without a
-/// keychain or a prefs store behind it.
-class _Coach extends CoachConfig {
-  _Coach(this._on);
-  final bool _on;
-  @override
-  bool get configured => _on;
-}
 
 /// Local noon of `today - back`, the stamp `getChart` puts on a stored point.
 int _noon(int back) {
@@ -51,7 +39,6 @@ String _day(int back) {
 class _FakeRepo extends LocalRepository {
   final Map<String, dynamic> insights;
   final List<String> days;
-  final Map<String, dynamic> today;
 
   /// day id -> the `daytime_hrv` block `getDayHeart` serves for it.
   final Map<String, Map<String, dynamic>> daytimeHrv;
@@ -59,7 +46,6 @@ class _FakeRepo extends LocalRepository {
   _FakeRepo(
       {this.insights = const {},
       this.days = const [],
-      this.today = const {},
       this.daytimeHrv = const {}});
 
   @override
@@ -69,7 +55,7 @@ class _FakeRepo extends LocalRepository {
   Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
 
   @override
-  Future<Map<String, dynamic>> getToday() async => today;
+  Future<Map<String, dynamic>> getToday() async => const {};
   @override
   Future<Map<String, dynamic>> getInsights() async => insights;
   @override
@@ -79,13 +65,6 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) async =>
       const {'points': []};
-  // Health reads the wear block for the night's off-wrist stretches and the
-  // day's naps. Absent here on purpose: an empty map is "we never looked",
-  // which is what a fake with no fixture is.
-  @override
-  Future<Map<String, dynamic>> getDayWear(String date) async => const {};
-  @override
-  Future<Map<String, dynamic>> getDayNaps(String date) async => const {};
 }
 
 void main() {
@@ -314,75 +293,29 @@ void main() {
     });
   });
 
-  // ── an older night is not today's number ──
-  //
-  // This used to say the opposite: getToday holds the last scored night over
-  // until today's settles, and Home printed it with one sentence naming the
-  // night. On a phone the sentence loses — a figure in the today slot reads as
-  // today's, so a morning the strap was never worn showed last week's sleep as
-  // this morning's. The numbers stop at the loader now and the reason travels
-  // in their place.
+  // ── the headline number must not claim a day it did not come from ──
   group('held-over overnight', () {
-    Map<String, dynamic> bundle(String state, {bool prior = true}) => {
-          'status': {
-            'today_day': '2026-05-20',
-            'overnight_state': state,
-            'overnight_day': '2026-05-16',
-            'showing_prior_overnight': prior,
-          },
-          'daily': {
-            'readiness': {'value': 82, 'confidence': .8, 'tier': 'HIGH'},
-            'resting_hr': {'value': 51, 'confidence': .8, 'tier': 'HIGH'},
-          },
-          'sleep': {
-            'duration_min': {'value': 430, 'confidence': .8, 'tier': 'HIGH'},
-          },
-        };
-
-    test('the three overnight figures are refused', () async {
-      final d = await HomeData.load(_FakeRepo(today: bundle('missing')));
-      expect(d.readiness.value, isNull);
-      expect(d.sleepMin.value, isNull);
-      expect(d.rhr.value, isNull);
-      // The night is still resolvable — it is just no longer a reading.
-      expect(d.heldOverNight, '2026-05-16');
-    });
-
-    // A night still computing and a night that never happened are different
-    // absences: one resolves itself, the other wants a sync.
-    test('the absence says which of the two it is', () async {
-      final building = await HomeData.load(_FakeRepo(today: bundle('building')));
-      expect(building.readiness.note, contains('still being worked out'));
-
-      final missing = await HomeData.load(_FakeRepo(today: bundle('missing')));
-      expect(missing.readiness.note, contains('reached the app'));
-    });
-
-    test("today's own night is served as itself", () async {
-      final d = await HomeData.load(
-          _FakeRepo(today: bundle('ready', prior: false)));
-      expect(d.readiness.value, 82);
-      expect(d.rhr.value, 51);
-      expect(d.heldOverNight, isNull);
-    });
-
     Widget frame(HomeData d) => MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: Scaffold(body: HomeScreen(data: d, hour: 20)));
+        theme: buildTheme(Brightness.light), home: Scaffold(body: HomeScreen(data: d, hour: 20)));
 
-    testWidgets('a day with nothing of its own says where the data stops',
-        (t) async {
-      await t.pumpWidget(frame(
-          const HomeData(dayId: '2026-05-20', heldOverNight: '2026-05-16')));
-      expect(find.text('Nothing recorded for today'), findsOneWidget);
-      expect(find.textContaining('16 May'), findsOneWidget);
+    final readiness = const Metric(value: 82, confidence: .8, tier: MetricTier.high);
+
+    // The rings carry no date of their own — the page is dated once, under the
+    // greeting. So a settled night says nothing extra, and a held-over one is
+    // the exception that has to name itself.
+    testWidgets('a settled overnight claims no other night', (t) async {
+      await t.pumpWidget(frame(HomeData(readiness: readiness, dayId: '2026-05-20')));
+      expect(find.textContaining('Recovery and sleep are from'), findsNothing);
     });
 
-    // The same empty screen, on an install that has never scored anything, is
-    // a first run and gets the first-run words.
-    testWidgets('a genuine first run keeps its own card', (t) async {
-      await t.pumpWidget(frame(const HomeData(dayId: '2026-05-20')));
-      expect(find.text('Nothing derived yet'), findsOneWidget);
+    testWidgets('a held-over night names its own date instead', (t) async {
+      // getToday holds the last scored night over until today's settles, so
+      // this is an ordinary morning before the first sync — not a rare case.
+      await t.pumpWidget(frame(HomeData(
+          readiness: readiness, dayId: '2026-05-20', heldOverNight: '2026-05-16')));
+      // Two of the three rings are four days old; letting them sit under the
+      // page's own date without a word is the bug.
+      expect(find.textContaining('16 May'), findsOneWidget);
     });
   });
 
@@ -558,9 +491,6 @@ void main() {
             series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
             wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
           ));
-      // The screen opens on Today; the denominator is a long-range thing.
-      await t.tap(find.text('30 days'));
-      await t.pumpAndSettle();
       expect(find.text('Worn'), findsOneWidget);
       expect(find.textContaining('12 of these 30 days have a wear record'),
           findsOneWidget);
@@ -578,105 +508,6 @@ void main() {
       await t.tap(find.text('7 days'));
       await t.pumpAndSettle();
       expect(find.text('Worn'), findsNothing);
-    });
-  });
-
-  // ── a tile opens today, not the widest range the install can fill ──
-  group('MetricDetail default range', () {
-    Future<void> pump(WidgetTester t, String key, MetricData d) async {
-      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: Scaffold(body: MetricDetail(key, data: d))));
-      await t.pumpAndSettle();
-    }
-
-    // The old default was index 2, clamped to whatever the install could fill
-    // — so it landed on 30 days, or on 7 for a young install, and moved as the
-    // install aged. It was never today.
-    testWidgets('opens on today however much history there is', (t) async {
-      await pump(
-          t,
-          'resting_hr',
-          MetricData(
-            daysAvailable: 400,
-            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          ));
-      expect(find.text('Today'), findsWidgets);
-      // Today's headline is today's reading, not a window average.
-      expect(find.textContaining('Daily average'), findsNothing);
-    });
-
-    testWidgets('the range switcher still goes wide', (t) async {
-      await pump(
-          t,
-          'resting_hr',
-          MetricData(
-            daysAvailable: 400,
-            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          ));
-      await t.tap(find.text('30 days'));
-      await t.pumpAndSettle();
-      expect(find.textContaining('Daily average'), findsOneWidget);
-    });
-  });
-
-  // ── the sparkles button is not an advert for a feature you never set up ──
-  group('the AI button on Home', () {
-    Widget frame(bool configured) => MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: ChangeNotifierProvider<CoachConfig>.value(
-          value: _Coach(configured),
-          child: const Scaffold(
-              body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
-        ));
-
-    testWidgets('no model, no button', (t) async {
-      await t.pumpWidget(frame(false));
-      expect(find.byIcon(LucideIcons.sparkles), findsNothing);
-      // The avatar beside it is untouched — this is one button, not the row.
-      expect(find.byIcon(LucideIcons.user), findsOneWidget);
-    });
-
-    testWidgets('a configured coach gets its button', (t) async {
-      await t.pumpWidget(frame(true));
-      expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
-    });
-  });
-
-  // ── the breakdown describes today, so it only shows on today ──
-  group('steps breakdown', () {
-    Future<void> pump(WidgetTester t) async {
-      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: Scaffold(
-              body: MetricDetail('steps',
-                  data: MetricData(
-                    daysAvailable: 400,
-                    series: [
-                      for (var i = 60; i >= 0; i--) (t: _noon(i), v: 8000.0),
-                    ],
-                  )))));
-      await t.pumpAndSettle();
-    }
-
-    testWidgets('it is there on today, and it is called Breakdown', (t) async {
-      await pump(t);
-      expect(find.text('Breakdown'), findsOneWidget);
-      // The old name said "today's" while sitting under a month of days.
-      expect(find.textContaining("Where today's came from"), findsNothing);
-    });
-
-    testWidgets('it is gone on a wider range', (t) async {
-      await pump(t);
-      await t.tap(find.text('30 days'));
-      await t.pumpAndSettle();
-      expect(find.text('Breakdown'), findsNothing);
     });
   });
 

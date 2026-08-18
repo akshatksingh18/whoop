@@ -35,24 +35,6 @@ import 'journal_compose.dart' show OsTextField;
 /// The coach's accent. Not a domain colour: the coach reads across all five.
 const Color kCoachAccent = C.purple;
 
-/// Whether the coach has a model behind it — false when there is no
-/// [CoachConfig] above us, which is every golden.
-///
-/// Home shows its sparkles button only when this is true. An icon that opens a
-/// setup form nobody asked for is clutter on a screen built around three rings,
-/// and the place to go and set the thing up is Profile, with the other
-/// settings. [keyUnreadable] counts as configured: the key IS saved, this
-/// process just could not read it through a locked keychain, and hiding the
-/// button there would tell a configured user their coach had vanished.
-bool coachReady(BuildContext c) {
-  try {
-    final cfg = c.watch<CoachConfig>();
-    return cfg.configured || cfg.keyUnreadable;
-  } catch (_) {
-    return false;
-  }
-}
-
 class CoachScreen extends StatefulWidget {
   const CoachScreen({super.key});
 
@@ -260,13 +242,14 @@ class _CoachScreenState extends State<CoachScreen> {
                   _newChat();
                 },
               ),
-              // NO "AI settings" ROW. Choosing the model is a setting and
-              // settings live in Profile — [CoachSetup] is pushed from there
-              // now. Two doors onto one form is how a setting ends up with two
-              // different states in a user's head, and this screen is where
-              // you talk to the thing, not where you configure it. The only
-              // way into the form from here is the not-set-up card in [_body],
-              // which is a recovery state rather than a settings entry.
+              _MenuRow(
+                LucideIcons.settings,
+                'AI settings',
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  go(context, const CoachSetup());
+                },
+              ),
               _MenuRow(
                 LucideIcons.fileText,
                 'Briefing, and what was sent',

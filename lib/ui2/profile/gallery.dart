@@ -618,6 +618,22 @@ Map<String, Widget> extraCases() => {
       'status_wear_gap': StatusCard.forMetric('No sleep', Metric.empty,
           why: 'No sleep period long enough to score was recorded.',
           gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.')!,
+      // The three nap states, which are three different answers and must not
+      // read as one: a day with naps, a judged day that had none (a MEASURED
+      // zero, so it says None rather than a dash), and a day nothing could be
+      // said about at all.
+      'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
+          '1h 12m',
+          sub: '2 naps · Sunday, 16 August'),
+      'nap_row_none': const MetricRow(
+          LucideIcons.sun, C.indigo, 'Daytime sleep', 'None',
+          sub: 'None detected · Sunday, 16 August'),
+      'nap_unjudged': const StatusCard(
+        'No nap reading for Sunday, 16 August',
+        'Naps come off the same 1 Hz recording the rest of the day does, and '
+            'this day does not have enough of it.',
+        icon: LucideIcons.sun,
+      ),
       // A health watch in the log. Two accents across six detectors, not six:
       // a colour per detector reads as a severity scale nobody calibrated.
       'finding_row': const FindingRow(Finding(FindingKind.illness, '2026-08-16')),

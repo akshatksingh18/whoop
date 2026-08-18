@@ -103,6 +103,15 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getDayLungs');
   Future<Map<String, dynamic>> getDayWear(String date) =>
       throw UnimplementedError('re-layer: getDayWear');
+
+  /// [date]'s naps, AFTER the user's own edits have been replayed over the
+  /// detector's proposal — the same merged list `nap_min` is summed from, so
+  /// the screen and the sleep-need credit cannot disagree about which naps
+  /// happened. `{naps: [{start, end, duration_min, source?}], nap_min, note}`,
+  /// and an EMPTY map when the day could not be judged at all (which is not
+  /// the same as a day with no naps, and reads differently).
+  Future<Map<String, dynamic>> getDayNaps(String date) =>
+      throw UnimplementedError('re-layer: getDayNaps');
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
 

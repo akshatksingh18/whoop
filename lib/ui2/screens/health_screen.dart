@@ -23,6 +23,7 @@ import 'findings_log.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
+import 'naps.dart';
 
 class HealthData {
   final Map<String, dynamic> today, insights, profile;
@@ -48,6 +49,13 @@ class HealthData {
   /// disqualifies a gap from being the answer.
   final String? nightGap;
 
+  /// The newest derived day's naps — minutes, how many, and whether the day
+  /// produced a nap answer at all. `nap_min` has been written on every judged
+  /// day and read by nothing; the `naps` block behind it had no reader either.
+  final int? napMin;
+  final int? napCount;
+  final String napDay;
+
   /// EVERYTHING THE APP HAS EVER NOTICED, newest first — see findings.dart.
   /// Recomputed from the rollup on every load rather than logged, so the
   /// history is there from the first run instead of starting empty today.
@@ -62,6 +70,9 @@ class HealthData {
     this.need = Metric.empty,
     this.insightsStale,
     this.nightGap,
+    this.napMin,
+    this.napCount,
+    this.napDay = '',
     this.findings = const [],
   });
 
@@ -165,6 +176,12 @@ class HealthData {
         if (p.v == 1) labelAt(p.t),
     };
 
+    // The newest DERIVED day, not today: `getDayNaps` reads the exact day it is
+    // asked for (an editable list must not be served off another day), and
+    // today has usually not derived yet.
+    final napDay = days.isEmpty ? todayLabel() : days.first;
+    final naps = await repo.getDayNaps(napDay);
+
     return HealthData(
       today: today,
       insights: cd,
@@ -175,6 +192,9 @@ class HealthData {
           unit: 'min'),
       insightsStale: staleReasonOf(cd),
       nightGap: gap,
+      napMin: (naps['nap_min'] as num?)?.round(),
+      napCount: (naps['naps'] as List?)?.length,
+      napDay: napDay,
       findings:
           findingsHistory(cd, readiness: ready, irregularDays: irregular),
     );
@@ -690,6 +710,38 @@ class _HealthScreenState extends State<HealthScreen> {
               d.findings.isEmpty ? null : () => go(c, FindingsLog(d.findings)),
         ),
       ],
+
+      // NAPS — the display and the correction, which are one feature. The
+      // section is here on a day with no naps too, because the door to logging
+      // one has to exist on exactly the day the detector found nothing.
+      Section(
+        'Naps',
+        d.napCount == null
+            ? StatusCard(
+                'No nap reading for ${prettyDay(d.napDay)}',
+                'Naps come off the same 1 Hz recording the rest of the day '
+                    'does, and this day does not have enough of it.',
+                icon: LucideIcons.sun,
+              )
+            : Surface(
+                pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: MetricRow(
+                  LucideIcons.sun,
+                  C.indigo,
+                  'Daytime sleep',
+                  // A MEASURED zero, not a dash: the day was judged and held
+                  // no nap. The two are different answers and read as two.
+                  d.napCount == 0 ? 'None' : hm(d.napMin),
+                  sub: d.napCount == 0
+                      ? 'None detected · ${prettyDay(d.napDay)}'
+                      : '${d.napCount} nap${d.napCount == 1 ? '' : 's'} · '
+                          '${prettyDay(d.napDay)}',
+                  onTap: () => go(c, NapsScreen(day: d.napDay)),
+                ),
+              ),
+        action: 'Add or correct',
+        onAction: () => go(c, NapsScreen(day: d.napDay)),
+      ),
 
       Section(
         'Body composition',

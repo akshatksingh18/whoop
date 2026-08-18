@@ -1281,6 +1281,37 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> getDayNaps(String date) async {
+    // THE EXACT DAY, never the latest-complete fallback: this list is editable,
+    // and offering "not a nap" against another day's naps would write an edit
+    // onto a day the user was not looking at.
+    final b = await _bundle(date);
+    final block = _sub(b, 'naps');
+    if (block == null) return const {};
+    final v = block['value'];
+    return {
+      // ABSENT ≠ NONE. `value: null` is "this day could not be judged" — too
+      // little 1 Hz data, or detection failed — and it carries its own note.
+      // An empty list is the measured "no qualifying naps", which is a real
+      // answer and reads as one.
+      if (v is List)
+        'naps': [
+          for (final n in v)
+            if (n is Map && n['start'] is num && n['end'] is num)
+              {
+                'start': (n['start'] as num).toInt(),
+                'end': (n['end'] as num).toInt(),
+                'duration_min': (n['duration_min'] as num?)?.round(),
+                // 'manual' on a nap the user logged; absent on a detected one.
+                if (n['source'] != null) 'source': n['source'].toString(),
+              },
+        ],
+      'nap_min': (_sub(b, 'scalars')?['nap_min'] as num?)?.round(),
+      'note': block['note']?.toString(),
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> getDaySteps(String date) async {
     final r = await LocalDb.resolvedStepsForDay(date);
     // Only for naming: a span that sits inside a session gets that session's

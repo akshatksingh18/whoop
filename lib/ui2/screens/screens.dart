@@ -14,6 +14,7 @@ export 'day_timeline.dart';
 export 'investigate.dart';
 export 'journal_compose.dart';
 export 'log_food.dart';
+export 'naps.dart';
 export 'nutrition_screen.dart';
 export 'metric_detail.dart';
 export 'month_grid.dart';

@@ -734,8 +734,14 @@ class _HealthScreenState extends State<HealthScreen> {
       Section(
         'Naps',
         d.napCount == null
+            // `napDay` defaults to '' and `prettyDay` returns '' for anything
+            // it cannot parse, so this printed "No nap reading for" with the
+            // sentence hanging off the end of the word "for". Name the day only
+            // when there is one to name.
             ? StatusCard(
-                'No nap reading for ${prettyDay(d.napDay)}',
+                prettyDay(d.napDay).isEmpty
+                    ? 'No nap reading'
+                    : 'No nap reading for ${prettyDay(d.napDay)}',
                 'Naps come off the same second-by-second recording as the rest '
                     'of the day, and this day does not have enough of it.',
                 icon: LucideIcons.sun,

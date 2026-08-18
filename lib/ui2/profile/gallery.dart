@@ -608,6 +608,20 @@ Map<String, Widget> extraCases() => {
       // sentence. Two of the three rings are last night's and the third is
       // today's, and the morning before the first sync is not a rare case.
       'rings_held_over': const RingTrio(d: _ringsHeldOver),
+      // THE ABSENCE THAT KNOWS WHY. `wearGapWhy` reads the day's off-wrist
+      // stretches — written on every derive, read by nothing until now — and
+      // hands the card the reason as a measurement. Both rankings, because the
+      // rule is the whole feature: a sentence the screen made up is REPLACED
+      // by the one that was measured, and a reason the pipeline gave keeps its
+      // place with the gap added after it.
+      'status_wear_gap': StatusCard.forMetric('No sleep', Metric.empty,
+          why: 'No sleep period long enough to score was recorded.',
+          gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.')!,
+      'status_wear_gap_after_pipeline': StatusCard.forMetric(
+        'No respiratory rate',
+        const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),
+        gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
+      )!,
       'surface': Builder(
         builder: (c) => Surface(
           child: Text(
@@ -1310,6 +1324,24 @@ Map<String, Widget> _listCases() => {
       'investigate_row': Builder(builder: (c) => investigateRow(c, () {})),
       'no_data': const Surface(
           child: NoData(message: 'No nights recorded this week')),
+      'moment_row': Builder(
+        builder: (c) => Surface(
+          child: Column(children: [
+            // The longest realistic line, and the muted one: a fact about the
+            // band rather than about the person takes no domain colour.
+            for (final m in dayMoments(timeline: _tlJoin).take(2)) MomentRow(m),
+            MomentRow(Moment(
+                at: _tlAt(20, 2),
+                title: 'Band off your wrist',
+                detail: '8:02 PM – 8:58 PM · 56m',
+                icon: LucideIcons.watch)),
+          ]),
+        ),
+      ),
+      'sweep_finding_row': Surface(
+        child: Column(
+            children: [for (final f in _wcFindings) SweepFindingRow(f)]),
+      ),
       ..._dayTimelineCases(),
       ..._monthGridCases(),
       ..._whatChangedCases(),

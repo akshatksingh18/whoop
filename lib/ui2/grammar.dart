@@ -29,9 +29,12 @@
 //     and the golden sweep measures every Pressable in every case rather than
 //     the five tabs of the shell.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../data/journal_fields.dart' show formatMinuteOfDay;
 import '../models/metric.dart';
 import 'charts.dart';
 import 'theme.dart';
@@ -786,6 +789,87 @@ class ActionCard extends StatelessWidget {
 }
 
 // ══════════════════ F · STATUS ══════════════════
+
+/// How much of the window a gap has to swallow before it is allowed to be the
+/// reason. An hour: a radio hiccup or a shower is not why a night went
+/// unscored, and offering one as the cause is the false diagnosis with an
+/// unactionable fix that costs more trust than the bare absence did.
+///
+/// The WINDOW does the rest of the work — it decides WHERE a gap has to fall,
+/// which is the part that separates "on the charger all night" from "took it
+/// off at lunch". A proportional gate on top of it reads well and is wrong:
+/// the night window is deliberately wide enough to hold any bedtime, so a
+/// third of it is nearly five hours, and the ordinary three-hour charge that
+/// really did cost the night would be thrown away for being too short.
+const int _kGapMinSec = 60 * 60;
+
+/// THE MEASURED REASON A METRIC IS MISSING, when the wear record holds one.
+///
+/// [wear] is one or two `getDayWear` maps — two when the window crosses
+/// midnight, because a night's gap starts on the evening BEFORE the day it is
+/// filed under. Touching off-stretches are joined across that seam first, or a
+/// band off from 11:20 PM to 2:14 AM would be two sub-threshold gaps meeting at
+/// midnight instead of the one three-hour hole it was.
+///
+/// Each map's `segments` are `{on, start, end, len_min}`
+/// over the OBSERVABLE day, so the leading and trailing holes are on the list
+/// too — a night whose records begin at 9 am really does carry its 00:00–09:00
+/// gap. Reads as a wear MEASUREMENT only when the key is there: an ABSENT
+/// `segments` is "we never looked", and `[]` from an older bundle is not
+/// "the band was never off your wrist" either, so both return null.
+///
+/// [fromSec]/[toSec] are the window the missing metric was read from. The gap
+/// has to be the one that plausibly explains THAT window — a hole at 3 pm says
+/// nothing about a night — and when none does, this returns null and the caller
+/// says nothing extra rather than reaching for the nearest gap it can find.
+String? wearGapWhy(
+  List<Map<String, dynamic>?> wear, {
+  required int fromSec,
+  required int toSec,
+}) {
+  if (toSec <= fromSec) return null;
+  final off = <List<int>>[];
+  for (final w in wear) {
+    final segs = w?['segments'];
+    if (segs is! List) continue;
+    for (final s in segs) {
+      if (s is! Map || s['on'] != false) continue;
+      final a = (s['start'] as num?)?.toInt(), b = (s['end'] as num?)?.toInt();
+      if (a != null && b != null && b > a) off.add([a, b]);
+    }
+  }
+  if (off.isEmpty) return null;
+  off.sort((x, y) => x[0].compareTo(y[0]));
+  final joined = <List<int>>[off.first];
+  for (final o in off.skip(1)) {
+    if (o[0] <= joined.last[1]) {
+      joined.last[1] = math.max(joined.last[1], o[1]);
+    } else {
+      joined.add(o);
+    }
+  }
+  int? bestStart, bestEnd;
+  var best = 0;
+  for (final o in joined) {
+    final overlap = math.min<int>(o[1], toSec) - math.max<int>(o[0], fromSec);
+    if (overlap < _kGapMinSec || overlap <= best) continue;
+    best = overlap;
+    bestStart = o[0];
+    bestEnd = o[1];
+  }
+  if (bestStart == null || bestEnd == null) return null;
+  // The stretch's OWN bounds, not the part of it inside the window: the gap is
+  // a thing that happened, and clipping it to the question would report a
+  // shorter absence than the one that was measured.
+  return 'Your band was off your wrist ${_clock(bestStart)} – '
+      '${_clock(bestEnd)}.';
+}
+
+String _clock(int epochSec) {
+  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  return formatMinuteOfDay(d.hour * 60 + d.minute);
+}
+
 /// Something unavailable or uncertain. WHAT is missing → WHY → WHAT FIXES IT.
 ///
 /// This is the only correct rendering of an absent metric anywhere in the app.
@@ -815,11 +899,18 @@ class StatusCard extends StatelessWidget {
   /// [why] — the card says it does not know. It used to say "No measurement
   /// covering this period", which is a cause, and it was printed on days with
   /// 89 % wear and a scored night.
+  /// [gap] is a MEASURED reason from the wear record — see [wearGapWhy]. It
+  /// ranks between the two existing sources, which is the only place it can
+  /// honestly sit: the pipeline saw the day and keeps the first sentence, so a
+  /// gap is ADDED to it, while a [why] written into a widget by someone who
+  /// never saw the day is replaced by the thing that was measured. Null gap
+  /// leaves every existing card byte-identical.
   static StatusCard? forMetric(
     String what,
     Metric? m, {
     String unit = 'nights',
     String why = '',
+    String? gap,
     VoidCallback? onFix,
   }) {
     if (m != null && !m.isEmpty) return null;
@@ -829,12 +920,14 @@ class StatusCard extends StatelessWidget {
     final told = need == null ? whyFromNote(m?.note) : null;
     return StatusCard(
       what,
-      told ??
-          (why.isNotEmpty
-              ? why
-              : need != null
-                  ? 'Not enough history yet to know what normal looks like for you.'
-                  : 'Nothing recorded says why this is missing.'),
+      told != null
+          ? (gap == null ? told : '$told $gap')
+          : gap ??
+              (why.isNotEmpty
+                  ? why
+                  : need != null
+                      ? 'Not enough history yet to know what normal looks like for you.'
+                      : 'Nothing recorded says why this is missing.'),
       fix: need ?? '',
       onFix: onFix,
     );

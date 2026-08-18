@@ -37,6 +37,15 @@ class HealthData {
   /// Non-null when the cross-day rollup was withheld — see [staleInsightsCard].
   final Map<String, dynamic>? insightsStale;
 
+  /// THE MEASURED REASON THE OVERNIGHT ROWS ARE EMPTY, or null.
+  ///
+  /// Five of the rows below are read from the night, and when the band was on a
+  /// charger through it they are all absent for one reason that is already on
+  /// disk. `_wearBlock` has written the off-wrist stretches on every derive
+  /// since it existed and nothing has ever read them. See [wearGapWhy] for what
+  /// disqualifies a gap from being the answer.
+  final String? nightGap;
+
   const HealthData({
     this.today = const {},
     this.insights = const {},
@@ -45,6 +54,7 @@ class HealthData {
     this.daysWithData = 0,
     this.need = Metric.empty,
     this.insightsStale,
+    this.nightGap,
   });
 
   /// The stored points for [key].
@@ -109,6 +119,29 @@ class HealthData {
     final n = DateTime.now();
     final from = dayLabelOf(DateTime(n.year, n.month, n.day - 29));
 
+    // The night the overnight rows describe, and the evening before it: a gap
+    // that starts at 11:20 PM is filed under the previous calendar day's wear
+    // block, and asking only about the night's own day would report it as
+    // beginning at midnight. The window is 8 PM → 10 AM, which is wide enough
+    // to hold any bedtime this app would score and narrow enough that an
+    // afternoon on the charger is not offered as the reason a night is missing.
+    final nightDay = heldOverNightOf(today) ?? todayLabel();
+    final nd = DateTime.tryParse(nightDay);
+    // `day - 1`, not a subtracted duration: calendar arithmetic, which lands
+    // on the right date across a DST boundary where 24 h does not.
+    final prevDay = nd == null
+        ? nightDay
+        : dayLabelOf(DateTime(nd.year, nd.month, nd.day - 1));
+    final nightStart = localDayStartSec(prevDay);
+    final dayStart = localDayStartSec(nightDay);
+    final gap = (nightStart == null || dayStart == null)
+        ? null
+        : wearGapWhy(
+            [await repo.getDayWear(prevDay), await repo.getDayWear(nightDay)],
+            fromSec: nightStart + 20 * 3600,
+            toSec: dayStart + 10 * 3600,
+          );
+
     return HealthData(
       today: today,
       insights: cd,
@@ -118,6 +151,7 @@ class HealthData {
       need: envMetric(needEnv, needSec == null ? null : needSec / 60,
           unit: 'min'),
       insightsStale: staleReasonOf(cd),
+      nightGap: gap,
     );
   }
 }
@@ -456,12 +490,16 @@ class _HealthScreenState extends State<HealthScreen> {
     final rows = <Widget>[];
     final gaps = <Widget>[];
 
+    // ALL FIVE ROWS ARE READ FROM THE NIGHT, so all five take the same
+    // measured gap. `overnight: false` is for a row that is not — a hole at
+    // 2 AM says nothing about a daytime number, and offering it as the reason
+    // would be the invented cause the whole absence layer refuses.
     void row(Metric m, IconData icon, Color col, String name, String sub,
         String value, String unit, List<double?> spark, String metricKey,
-        {String? whyAbsent}) {
+        {String? whyAbsent, bool overnight = true}) {
       if (m.isEmpty) {
         final s = StatusCard.forMetric('No ${name.toLowerCase()}', m,
-            why: whyAbsent ?? '');
+            why: whyAbsent ?? '', gap: overnight ? d.nightGap : null);
         if (s != null) gaps.add(s);
         return;
       }
@@ -564,6 +602,30 @@ class _HealthScreenState extends State<HealthScreen> {
     final illnessBehind = _behind(illnessDay);
     final weight = (d.profile['weight_kg'] as num?);
 
+    // Hoisted out of the tree so the section that now wraps it does not push
+    // its copy two levels deeper. The card itself is untouched.
+    final illnessCard = state == null || state == 'green'
+        ? null
+        : Observation(
+            state == 'red'
+                ? 'Several nights in a row are away from your normal'
+                : (illnessBehind == null || illnessBehind <= 0
+                    ? 'Last night sat outside your normal range'
+                    : '${prettyDay(illnessDay)} sat outside your normal range'),
+            // The RUN is what is above baseline — the accumulator only clears
+            // after two nights back under. The stored z is the LATEST night's
+            // own deviation and can be negative while the run is still up,
+            // which read as "tracking above your own baseline, 1.3 deviations
+            // below it".
+            'Your nocturnal resting heart rate has been running above your own '
+                'baseline${illnessZ == null ? '' : '; that night sat '
+                    '${illnessZ.abs().toStringAsFixed(1)} standardised deviations '
+                    '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watch reads '
+                'that one signal; it names a pattern, and it does not name a '
+                'cause.',
+            advice: 'Worth noting if it continues past a couple of days.',
+          );
+
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (rows.isNotEmpty)
         Surface(
@@ -578,26 +640,9 @@ class _HealthScreenState extends State<HealthScreen> {
       for (final g in gaps) ...[const SizedBox(height: S.x3), g],
 
       // Illness watch — computed every rollup, read by nothing until now.
-      if (state != null && state != 'green') ...[
+      if (illnessCard != null) ...[
         const SizedBox(height: S.x4),
-        Observation(
-          state == 'red'
-              ? 'Several nights in a row are away from your normal'
-              : (illnessBehind == null || illnessBehind <= 0
-                  ? 'Last night sat outside your normal range'
-                  : '${prettyDay(illnessDay)} sat outside your normal range'),
-          // The RUN is what is above baseline — the accumulator only clears
-          // after two nights back under. The stored z is the LATEST night's own
-          // deviation and can be negative while the run is still up, which read
-          // as "tracking above your own baseline, 1.3 deviations below it".
-          'Your nocturnal resting heart rate has been running above your own '
-              'baseline${illnessZ == null ? '' : '; that night sat '
-                  '${illnessZ.abs().toStringAsFixed(1)} standardised deviations '
-                  '${illnessZ >= 0 ? 'above' : 'below'} it'}. This watch reads '
-              'that one signal; it names a pattern, and it does not name a '
-              'cause.',
-          advice: 'Worth noting if it continues past a couple of days.',
-        ),
+        illnessCard,
       ],
 
       Section(

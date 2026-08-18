@@ -709,8 +709,11 @@ class _MetricDetailState extends State<MetricDetail> {
             // a non-null slot is by construction a day this install can open —
             // no membership check, and a null slot offers no door.
             child: Scrubber(
-              value: _pick == null ? null : (_pick! + .5) / series.length,
-              step: 1 / series.length,
+              // Slot i sits at i/(len-1) — exactly where `minMaxRuns` plots it,
+              // so the readout names the day under the finger rather than the
+              // bucket the finger is in.
+              value: _pick == null ? null : _slotAt01(_pick!, series.length),
+              step: 1 / (series.length - 1),
               label: spec.title,
               describe: (v) => _slotSays(spec, series, _slotAt(v, series.length)),
               onChanged: (v) =>
@@ -776,9 +779,13 @@ class _MetricDetailState extends State<MetricDetail> {
 
   // ── a point on the chart is a day you can open ──────────────────────────
 
-  /// A 0…1 position along the plot as a slot index into the dense window.
+  /// A 0…1 position along the plot as a slot index into the dense window, and
+  /// back. Point i is drawn at `i / (len - 1)` — see `minMaxRuns` — so that is
+  /// what both directions use.
   int _slotAt(double v, int len) =>
-      len <= 0 ? 0 : (v * len).floor().clamp(0, len - 1);
+      len < 2 ? 0 : (v * (len - 1)).round().clamp(0, len - 1);
+
+  double _slotAt01(int i, int len) => len < 2 ? 0 : i / (len - 1);
 
   /// The calendar day a dense slot stands for. Slot `len - 1` is today and
   /// slot 0 is `len - 1` days behind it — the same arithmetic [denseDays] fills

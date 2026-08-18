@@ -155,15 +155,61 @@ Map<String, dynamic>? envValue(Object? raw) {
 /// `getToday` holds the last scored night over until today's settles, which is
 /// every morning before the first sync and the whole of any gap after one.
 /// Readiness, sleep, resting HR, HRV and skin temperature then all describe
-/// that night while steps and active energy describe today. Every screen that
-/// shows one of those five resolves the night HERE, so Home, Readiness, Sleep
-/// and Health cannot each answer "which night is this?" differently.
+/// that night while steps and active energy describe today.
+///
+/// WHAT THIS IS STILL FOR, now that no screen prints its numbers as today's
+/// (see [overnightMetric]): naming WHICH NIGHT, and opening it. A screen that
+/// is explicitly about a dated night — Sleep, with a day stepper over it —
+/// wants this, because the night it should open is the last one that scored,
+/// not a calendar day with no sleep in it. Every screen resolves that night
+/// HERE so Home, Readiness, Sleep and Health cannot each answer "which night?"
+/// differently.
 String? heldOverNightOf(Map<String, dynamic> today) {
   final st = today['status'];
   if (st is! Map) return null;
   return st['showing_prior_overnight'] == true
       ? st['overnight_day']?.toString()
       : null;
+}
+
+/// Why today has no overnight figures, or null when it has its own.
+///
+/// Two absences that are not interchangeable, both read straight off
+/// `status.overnight_state`:
+///
+///   * `building` — today's records HAVE reached the app and the night has not
+///     finished being worked out. It resolves on its own and there is nothing
+///     to ask anyone to do.
+///   * anything else — nothing from last night has arrived. Syncing is the
+///     thing that changes it.
+///
+/// Prose, not a `key:arg` token, so `whyFromNote` passes it through as the
+/// sentence it already is.
+String? staleOvernightNote(Map<String, dynamic> today) {
+  if (heldOverNightOf(today) == null) return null;
+  final st = today['status'];
+  return (st is Map ? st['overnight_state']?.toString() : null) == 'building'
+      ? 'Last night is still being worked out.'
+      : 'Nothing from last night has reached the app yet.';
+}
+
+/// An overnight envelope, REFUSED when the night behind it is not today's.
+///
+/// This reverses a decision that was made deliberately and was wrong on a
+/// phone. `getToday` serves the last scored night whenever today's has not
+/// settled, and the old argument for printing it was that the number is real
+/// and the most recent one there is, so naming its night is enough. It is not:
+/// a figure in the today slot is read as today's before anything under it is,
+/// so a morning the strap was never worn showed last week's sleep as this
+/// morning's, and the caption saying otherwise sat below three rings nobody
+/// reads past. A stale number is a worse answer than an honest gap.
+///
+/// So the numbers stop here and the reason travels in their place. The night
+/// itself is not lost — [heldOverNightOf] still names it, and the screens that
+/// are ABOUT a dated night still open it.
+Metric overnightMetric(Map<String, dynamic> today, Object? raw) {
+  final why = staleOvernightNote(today);
+  return why == null ? metricOf(raw) : Metric(note: why);
 }
 
 /// A scalar lifted out of an object-valued envelope, wearing that envelope's
@@ -504,14 +550,14 @@ class RingTrio extends StatelessWidget {
     final p = P.of(c);
     final rings = [for (final k in HomeRingKind.values) _ringOf(k, d)];
     final gaps = rings.where((r) => r.why != null).toList();
-    // Recovery and sleep come off the overnight block, which is held over
-    // until today's settles — so before the first sync of the morning, and for
-    // the whole of any gap after one, two of these three rings describe an
-    // older night and the third describes today. One sentence, once, rather
-    // than a date repeated under two rings.
-    final held = d.heldOverNight;
-    final namesNight = held != null &&
-        (d.readiness.value != null || d.sleepMin.value != null);
+    // THERE IS NO "THESE TWO ARE FROM SATURDAY" LINE ANY MORE, and there is
+    // nothing left for one to explain. Recovery and sleep used to be served
+    // from the last scored night whenever today's had not settled, and this
+    // card carried one sentence naming that night. Read on a phone, the
+    // sentence lost: a number inside a ring is today's, and a caption under
+    // three rings does not undo it. The loader refuses the older night now
+    // ([overnightMetric]), so a ring with no night behind it is a gap row with
+    // the reason in it — same place every other absence on this screen goes.
 
     return Surface(
       elevation: 2,
@@ -535,16 +581,6 @@ class RingTrio extends StatelessWidget {
               ],
             ],
           ),
-        if (namesNight) ...[
-          const SizedBox(height: S.x4),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Recovery and sleep are from ${prettyDay(held)}.',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          ),
-        ],
         for (final r in gaps) ...[
           const SizedBox(height: S.x2),
           Divider(color: p.line, height: 1),
@@ -858,18 +894,15 @@ class HomeData {
   /// case, and the screen owes the user the reason.
   final Map<String, dynamic>? insightsStale;
 
-  /// The night the overnight block actually came from, when it is NOT today's.
+  /// The last night that scored, when that is NOT today's — so the screen can
+  /// say WHERE THE DATA STOPS on a day it has nothing of its own.
   ///
-  /// `getToday` holds the last scored night over whenever today's has not
-  /// settled — which is every morning before the first sync, and the whole of
-  /// any gap after one. Readiness, sleep, resting HR, HRV and skin temperature
-  /// then all describe that night while steps and active energy describe
-  /// today, so one screen shows two different days. The old UI withheld the
-  /// score outright (`TodayData.settledReadinessScore`, still pinned by
-  /// `test/readiness_flash_test.dart`); ui2 never consulted the gate.
-  ///
-  /// Withholding is the wrong answer here — the number is real and it is the
-  /// most recent one there is. Naming its night is the right one.
+  /// It is no longer where readiness, sleep or resting heart rate come from:
+  /// [overnightMetric] refuses those at the loader, and this is what is left
+  /// of the held-over night once its numbers are gone. Its one job on this
+  /// screen is the sentence in the nothing-today card — "the last night this
+  /// app scored was Saturday" is a fact about coverage, not a reading dressed
+  /// as one.
   final String? heldOverNight;
 
   /// The illness watch's own state — 'green' / 'amber' / 'red', or null before
@@ -965,14 +998,18 @@ class HomeData {
       illnessState: illness is Map ? illness['state']?.toString() : null,
       illnessDay: illness is Map ? illness['date']?.toString() : null,
       illnessZ: illness is Map ? (illness['z'] as num?)?.toDouble() : null,
-      readiness: metricOf(d('readiness')),
+      // The three that come off the OVERNIGHT block. Gated, so a night that
+      // is not today's cannot arrive wearing today's clothes — see
+      // [overnightMetric]. Steps, active energy and strain are today's own and
+      // are read straight.
+      readiness: overnightMetric(today, d('readiness')),
       drivers: [
         for (final e in (gbDrivers is List ? gbDrivers : const []))
           if (e is Map) e.cast<String, dynamic>(),
       ],
       strain: metricOf(d('strain')),
-      sleepMin: metricOf(s('duration_min')),
-      rhr: metricOf(d('resting_hr')),
+      sleepMin: overnightMetric(today, s('duration_min')),
+      rhr: overnightMetric(today, d('resting_hr')),
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
       caloriesTotal: metricOf(d('calories_total')),
@@ -1128,9 +1165,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ]));
     }
 
-    // Nothing measured at all. This is the genuine first run, and it used to be
-    // reachable ONLY by a load throwing — a real first-run user got four
-    // stacked absence cards instead of the one card written for this state.
+    // Nothing measured at all. It used to be reachable ONLY by a load throwing
+    // — a real first-run user got four stacked absence cards instead of the one
+    // card written for this state.
+    //
+    // It is now also where a day of NO WEAR lands, because the overnight block
+    // no longer borrows an older night to fill the rings with. Those are two
+    // different days and the copy below splits them on the one fact that tells
+    // them apart: whether this install has ever scored a night. "No band
+    // recordings processed yet" said to someone with three months of history is
+    // the first-run answer to a gap, and it is wrong.
     final bare = d.readiness.isEmpty &&
         d.sleepMin.isEmpty &&
         d.strain.isEmpty &&
@@ -1212,8 +1256,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (bare)
         StatusCard(
-          'Nothing derived yet',
-          'No band recordings processed yet.',
+          d.heldOverNight == null
+              ? 'Nothing derived yet'
+              : 'Nothing recorded for today',
+          d.heldOverNight == null
+              ? 'No band recordings processed yet.'
+              : 'The last night this app scored was '
+                  '${prettyDay(d.heldOverNight)}. Nothing has reached it since.',
           fix: syncOf(c) == null ? '' : 'Sync the band',
           icon: LucideIcons.watch,
           onFix: syncOf(c),
@@ -1329,14 +1378,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // Resting heart rate comes off the SAME overnight block readiness does, so
-    // when that block is held over it describes an older night — and it sits
-    // beside steps and active energy, which are today's, with no date at all.
-    // Naming the night is what the trio above already does for the two rings
-    // that come off the same block.
-    final night = d.heldOverNight;
-    String ofNight(String s) =>
-        night == null ? s : '$s · ${prettyDay(night)}';
+    // Resting heart rate comes off the SAME overnight block readiness does,
+    // and it used to carry a date on its own line for the mornings that block
+    // was held over from an older night. It cannot be an older night any more
+    // — the loader refuses those — so every tile in this row is today's and
+    // none of them needs a date.
 
     // Sleep is a RING now, duration and all — the card here was the same
     // number twice on one screen, and the ring is the one that says what the
@@ -1346,7 +1392,7 @@ class _HomeScreenState extends State<HomeScreen> {
       () => SignalCard(LucideIcons.heart, C.red, 'Heart rate',
           '${d.rhr.value!.round()}',
           unit: 'bpm',
-          sub: ofNight('Resting'),
+          sub: 'Resting',
           onTap: () => go(c, const MetricDetail('resting_hr'))),
       // "no sleep was recorded" was stated as fact, unconditionally — and it
       // was rendered directly beside a Sleep card showing that night's

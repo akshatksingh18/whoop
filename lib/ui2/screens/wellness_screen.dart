@@ -46,6 +46,9 @@ class WellnessScreen extends StatefulWidget {
 
 class _WellnessScreenState extends State<WellnessScreen> {
   int _tab = 0;
+  /// Cycle is LAST on purpose: it is the one tab that can be switched off
+  /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
+  /// trailing tab leaves every other tab's index where it was.
   static const _tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
 
   /// Habit consistency is read over a fortnight: long enough that one bad week
@@ -164,6 +167,15 @@ class _WellnessScreenState extends State<WellnessScreen> {
   @override
   Widget build(BuildContext c) {
     final last = _breathing.isEmpty ? null : _breathing.first;
+    // `select`, not `watch`: this screen lives in the shell's IndexedStack and
+    // stays mounted, so a plain watch would rebuild it on every unrelated
+    // AppState notification for the life of the app.
+    final showCycle =
+        c.select<AppState, bool>((a) => a.cycleTrackingEnabled);
+    final tabs = showCycle ? _tabs : _tabs.take(_tabs.length - 1).toList();
+    // Clamped rather than reset: switching Cycle off while standing on it
+    // lands on Medication, not back at Mind.
+    final tab = _tab.clamp(0, tabs.length - 1);
     // Same rule as Workout: the LIST drops its side padding and hands it to
     // every child except the hero, which is how that one runs edge to edge.
     // The card cannot escape its own parent — a negative margin asserts and an
@@ -174,7 +186,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
       children: [
         for (final w in <Widget>[
           const ScreenTitle('Wellness'),
-          SubTabs(_tabs, _tab, (i) => setState(() => _tab = i),
+          SubTabs(tabs, tab, (i) => setState(() => _tab = i),
               color: C.domMind),
           const SizedBox(height: S.x5),
           if (_loading)
@@ -183,7 +195,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
             // Mind is the only tab here with something to START. The other
             // four are logs and reviews, and a "begin" card over a medication
             // list would be an invitation to nothing.
-            if (_tab == 0) ...[
+            if (tab == 0) ...[
               StartCard(
                 label: 'START A SITTING',
                 // What the picker actually offers. Three, not the number of
@@ -209,7 +221,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
               ),
               const SizedBox(height: S.x4),
             ],
-            [_mind, _recovery, _habitsTab, _medication, _cycle][_tab](c),
+            [_mind, _recovery, _habitsTab, _medication, _cycle][tab](c),
           ],
         ])
           if (w is StartCard)

@@ -134,6 +134,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
       appearance: theme.choice.label,
+      cycleTracking: app.cycleTrackingEnabled,
       appIcon: _icon,
       onPickIcon: _pickIcon,
       phoneSteps: app.phoneStepsEnabled,
@@ -162,6 +163,8 @@ class _MoreSettingsState extends State<MoreSettings> {
           : UnitSystem.imperial),
       onCycleAppearance: () => theme.setChoice(AppThemeChoice.values[
           (theme.choice.index + 1) % AppThemeChoice.values.length]),
+      onToggleCycleTracking: () =>
+          app.setCycleTrackingEnabled(!app.cycleTrackingEnabled),
       onTogglePhoneSteps: () => app.phoneStepsEnabled
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
@@ -430,7 +433,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
-  final bool phoneSteps, telemetry, barcodeLookup;
+  final bool phoneSteps, telemetry, barcodeLookup, cycleTracking;
 
   /// The home-screen icon, or null where the OS will not change it — Android,
   /// and the managed iOS configurations that refuse. Null means the row is not
@@ -477,6 +480,7 @@ class MoreSettingsView extends StatelessWidget {
       onTogglePhoneSteps,
       onToggleTelemetry,
       onToggleBarcodeLookup,
+      onToggleCycleTracking,
       onToggleHealthShare,
       onToggleHealthSync,
       onToggleUpdateChecks,
@@ -494,6 +498,7 @@ class MoreSettingsView extends StatelessWidget {
     this.healthStore = 'Apple Health',
     this.telemetry = false,
     this.barcodeLookup = false,
+    this.cycleTracking = false,
     this.showHealthShare = false,
     this.healthShare = false,
     this.showUpdateChecks = false,
@@ -515,6 +520,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onTogglePhoneSteps,
     this.onToggleTelemetry,
     this.onToggleBarcodeLookup,
+    this.onToggleCycleTracking,
     this.onToggleHealthShare,
     this.onToggleHealthSync,
     this.onToggleUpdateChecks,
@@ -570,6 +576,14 @@ class MoreSettingsView extends StatelessWidget {
                       value: appearance, onTap: onCycleAppearance),
                   if (appIcon != null)
                     _IconRow(chosen: appIcon!, onPick: onPickIcon),
+                  // Opt-in, and it says what it does rather than what it is
+                  // about — "Cycle tracking" alone leaves you guessing whether
+                  // switching it off throws the entries away.
+                  SetRow(LucideIcons.droplet, C.pink, 'Cycle tracking',
+                      sub: 'Adds the Cycle tab to Wellness. Off hides it and '
+                          'keeps everything already logged',
+                      value: cycleTracking ? 'On' : 'Off',
+                      onTap: onToggleCycleTracking),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.download, C.green, 'Export, backup, import',

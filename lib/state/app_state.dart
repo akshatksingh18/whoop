@@ -1021,6 +1021,25 @@ class AppState extends ChangeNotifier {
     await refreshAppStatus();
   }
 
+  /// Whether the Cycle tab exists at all.
+  ///
+  /// OFF by default and opt-in, which is the opposite of every other sub-tab.
+  /// Cycle is the one surface that is irrelevant — not merely empty — for most
+  /// of the people who open this app, and an empty tab that can never fill is
+  /// worse than no tab: it reads as a feature you failed to use. Nothing about
+  /// the switch is inferred from anything; it is asked for or it is absent.
+  ///
+  /// Turning it off hides the tab and stops its query running. It deletes
+  /// NOTHING — cycle entries already logged stay on disk and come back intact
+  /// if it is switched on again.
+  static const String _kCycleTracking = 'cycle_tracking_enabled';
+  bool get cycleTrackingEnabled => Prefs.getBool(_kCycleTracking, false);
+
+  Future<void> setCycleTrackingEnabled(bool on) async {
+    Prefs.setBool(_kCycleTracking, on);
+    notifyListeners();
+  }
+
   /// Whether this install checks for updates. Only meaningful on a sideload
   /// build ([kSideloadOtaEnabled]) — that is the only build whose binary can
   /// contact the endpoint at all. Defaults ON there, because a sideloaded app

@@ -16,7 +16,6 @@ import '../../data/db.dart';
 import '../../data/lab_catalogue.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart';
-import '../profile/profile.dart';
 import '../ui2.dart';
 import 'circadian_detail.dart';
 import 'findings_log.dart';
@@ -665,7 +664,6 @@ class _HealthScreenState extends State<HealthScreen> {
     // band for.
     final illnessDay = illness is Map ? illness['date']?.toString() : null;
     final illnessBehind = _behind(illnessDay);
-    final weight = (d.profile['weight_kg'] as num?);
 
     // Hoisted out of the tree so the section that now wraps it does not push
     // its copy two levels deeper. The card itself is untouched.
@@ -762,39 +760,43 @@ class _HealthScreenState extends State<HealthScreen> {
         onAction: () => go(c, NapsScreen(day: d.napDay)),
       ),
 
-      Section(
-        'Body composition',
-        weight == null
-            ? StatusCard(
-                'No weight recorded',
-                'Energy estimates need it.',
-                fix: 'Add it in Profile',
-                icon: LucideIcons.scale,
-                onFix: () => go(c, const ProfileHome()),
-              )
-            : Column(children: [
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Builder(builder: (c) {
-                    // Whatever the user chose two screens away in Settings —
-                    // this row used to print kg regardless.
-                    final u = unitsOf(c);
-                    final (v, unit) = u == null
-                        ? (weight.toStringAsFixed(1), 'kg')
-                        : splitUnit(u.weight(weight));
-                    return MetricRow(LucideIcons.scale, C.teal, 'Weight', v,
-                        unit: unit,
-                        sub: 'From your profile');
-                  }),
-                ),
-                const SizedBox(height: S.x3),
-                const StatusCard(
-                  'No weight history',
-                  'Only the current value is stored.',
-                  icon: LucideIcons.chartLine,
-                ),
-              ]),
-      ),
+      // THERE IS NO "BODY COMPOSITION" SECTION, AND THE NEXT PERSON SHOULD NOT
+      // BUILD ONE. It used to print the onboarding weight scalar, and the ask
+      // that replaced it was "is their weight normal for the intake and the
+      // burn" — a bar like the against-your-usual ones. Three measurements
+      // killed it, in order of how hard they kill it:
+      //
+      //   1. INTAKE. `food_entry` (nutrition_store.dart) does not exist in any
+      //      real database on hand, and `journal_metric` exists in one with
+      //      zero rows. So the honest fill rate for logged days is 0, and
+      //      `DayLogState.partial` is the state a real log lands in most of the
+      //      time by design — an occasion with no kcal is a VALID log and makes
+      //      the day's energy a floor, not a total. Self-report is also under
+      //      by 20-30% in free-living adults, which is the same size as the
+      //      deficits anyone would be looking for. A balance computed off that
+      //      is not a small error, it is the wrong sign about half the time.
+      //
+      //   2. BURN. `calories_total` is tier ESTIMATE, confidence 0.5: a Mifflin
+      //      floor over the covered day plus a Keytel surplus over the wake
+      //      span. On the real export it swings 2 454 - 4 545 kcal across a
+      //      fortnight, and a barely-worn day still publishes a confident
+      //      1 715 with 0 active. That daily swing alone is bigger than the
+      //      imbalance a verdict would be claiming to see.
+      //
+      //   3. WEIGHT. It is one profile scalar here, not a series, so it can
+      //      never be an against-your-usual bar. The trend that IS honest
+      //      already exists somewhere better: `weightTrendEwma` drawn by the
+      //      Journal weight screen, gaps left as gaps. Read the ceiling written
+      //      above it in journal_fields.dart before reopening this — weekly
+      //      scale noise is +/-1 kg and a 2 400 kcal weekly imbalance moves
+      //      ~0.3 kg, so the residual is several times smaller than the noise
+      //      it would have to be read out of. The 7 700 kcal/kg rule is a
+      //      population approximation, never a personal constant.
+      //
+      // A bar drawn from any two of those three is arithmetic on a floor
+      // wearing the costume of a measurement, and this screen exists to not do
+      // that. If someone logs food completely for months AND weighs in
+      // repeatedly, the thing to build is still not a verdict on the person.
     ]);
   }
 

@@ -97,6 +97,11 @@ import CoreMotion
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
     }
+    // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
+    // the workouts themselves. See lib/health/health_workout_import.dart.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
+      HealthRouteBridge.register(messenger: registrar.messenger())
+    }
     // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
       BackgroundTaskManager.wireChannel(messenger: registrar.messenger())

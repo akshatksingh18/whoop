@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'devices.dart';
+import 'phone_import.dart';
 import 'settings.dart';
 
 // ══════════════════ shared list furniture ══════════════════
@@ -189,6 +190,7 @@ class _ProfileHomeState extends State<ProfileHome> {
           onDevices: () => _open(c, const MyDevices()),
           onSettings: () => _open(c, const MoreSettings()),
           onEdit: () => _open(c, const EditProfile()),
+          onPhoneImport: () => _open(c, const PhoneImport()),
         ),
       );
 }
@@ -197,10 +199,15 @@ class ProfileHomeView extends StatelessWidget {
   /// Null while the counts are still being read — the numbers are absent, not
   /// zero, and a zero rendered during a load is a wrong number on screen.
   final ProfileStats? stats;
-  final VoidCallback? onDevices, onSettings, onEdit;
+  final VoidCallback? onDevices, onSettings, onEdit, onPhoneImport;
 
   const ProfileHomeView(
-      {super.key, this.stats, this.onDevices, this.onSettings, this.onEdit});
+      {super.key,
+      this.stats,
+      this.onDevices,
+      this.onSettings,
+      this.onEdit,
+      this.onPhoneImport});
 
   @override
   Widget build(BuildContext c) {
@@ -257,6 +264,14 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onDevices),
                   SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
                       sub: 'Sex, age, height, weight', onTap: onEdit),
+                  // Next to Edit profile because it fills the same four fields.
+                  // There is a second door to this screen under More settings ›
+                  // Your data, where the rest of the import lives — this one is
+                  // here because the profile is what most people come to fill.
+                  SetRow(LucideIcons.smartphone, C.blue, 'Import from $storeName',
+                      sub: 'Height and weight for your profile, and workouts '
+                          'other apps recorded',
+                      onTap: onPhoneImport),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.database, C.green, 'Storage',

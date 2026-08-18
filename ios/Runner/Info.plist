@@ -78,7 +78,7 @@
 	     step clause back into this string — it is review-visible, and it would
 	     be describing something the app no longer does. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>OpenStrap reads your height, weight, date of birth and sex to set up your profile; your resting heart rate so it has a starting baseline; and any blood pressure, blood glucose or body temperature readings, so a device that is cleared to measure those can sit beside your own data with that device's name on it — never blended into an OpenStrap number. It also reads back its own recent samples so it never writes duplicates.</string>
+	<string>OpenStrap reads your height, weight, date of birth and sex to set up your profile; your resting heart rate so it has a starting baseline; any blood pressure, blood glucose or body temperature readings, so a device that is cleared to measure those can sit beside your own data with that device's name on it — never blended into an OpenStrap number; and your workouts and their routes, so a run recorded by another app can be listed and drawn on a map here, named with the app that recorded it and never counted as one OpenStrap measured. It also reads back its own recent samples so it never writes duplicates.</string>
 	<!-- REQUIRED, not optional: Apple documents that calling CoreMotion without
 	     this key CRASHES the app. See ios/Runner/AppDelegate.swift
 	     (PedometerBridge). -->

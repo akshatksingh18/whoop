@@ -20,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auto_backup.dart';
 import '../../data/off_lookup.dart';
+import '../../health/health_export.dart' show HealthLinkState;
 import '../../notify/notification_center.dart';
 import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
@@ -117,6 +118,9 @@ class _MoreSettingsState extends State<MoreSettings> {
       // the pref — and the daily whole-database upload it authorises — did not.
       showHealthShare: kHealthDataContributionEnabled || app.healthShareConsent,
       healthShare: app.healthShareConsent,
+      healthStore: app.healthStoreName,
+      healthSync: app.healthSyncEnabled,
+      healthState: app.healthState,
       showUpdateChecks: app.updateChecksAvailable,
       updateChecks: app.updateChecksEnabled,
       updateAvailable: app.updateAvailable,
@@ -140,11 +144,61 @@ class _MoreSettingsState extends State<MoreSettings> {
         setState(() => _barcode = !_barcode);
       },
       onToggleHealthShare: () => _toggleHealthShare(c, app),
+      onToggleHealthSync: () => _toggleHealthSync(app),
       onToggleUpdateChecks: () =>
           app.setUpdateChecksEnabled(!app.updateChecksEnabled),
       onReset: () => _confirmReset(c, app),
     );
   }
+}
+
+/// Turn the Apple Health / Health Connect EXPORT on or off.
+///
+/// `setHealthSync` already requests the OS permission and kicks a first sync;
+/// this row is the only thing that was ever missing. Until it existed the app
+/// shipped a write entitlement, a usage string and ten Android WRITE_*
+/// permissions for a code path that could not run — see
+/// docs/internal/UNREACHABLE.md P1.
+///
+/// Health Connect has two failure modes that are not refusals and must not be
+/// reported as one: it may not be installed, or it may be too old. Both are
+/// answered with the action that fixes them rather than an error.
+Future<void> _toggleHealthSync(AppState app) async {
+  if (app.healthSyncEnabled) {
+    await app.setHealthSync(false);
+    return;
+  }
+  await app.setHealthSync(true);
+  switch (app.healthState) {
+    case HealthLinkState.notInstalled:
+    case HealthLinkState.needsUpdate:
+      await app.installHealthConnect();
+    case HealthLinkState.needsPermission:
+      // Android only sends the user to Health Connect's own screen; on iOS
+      // there is nothing to open, and `openSettings` is a no-op there.
+      await app.openHealthConnect();
+    case HealthLinkState.ready:
+    case HealthLinkState.unsupported:
+    case HealthLinkState.unknown:
+      break;
+  }
+}
+
+/// One line saying what the export is actually doing right now.
+String healthSyncSub(bool on, HealthLinkState state, String store) {
+  if (!on) return 'Off. Nothing is written to $store';
+  return switch (state) {
+    HealthLinkState.ready => 'Writes each day’s sleep, resting heart rate, '
+        'HRV, respiratory rate, energy and workouts to $store once it is final',
+    HealthLinkState.needsPermission =>
+      '$store has not granted write access. Tap to open it',
+    HealthLinkState.notInstalled => 'Health Connect is not installed. Tap to '
+        'get it',
+    HealthLinkState.needsUpdate =>
+      'Health Connect is too old to write to. Tap to update it',
+    HealthLinkState.unsupported => 'This device has no health store to write to',
+    HealthLinkState.unknown => 'Checking $store…',
+  };
 }
 
 /// Grant or withdraw the whole-database health contribution.
@@ -269,6 +323,13 @@ class MoreSettingsView extends StatelessWidget {
   /// build that has the feature, or an install that already said yes to it.
   final bool showHealthShare, healthShare;
 
+  /// The platform health EXPORT. `healthStore` names it — "Apple Health" or
+  /// "Health Connect" — because "your health app" is not something a user can
+  /// go and grant a permission in.
+  final bool healthSync;
+  final HealthLinkState healthState;
+  final String healthStore;
+
   /// The update-check row appears only on a build that can check.
   final bool showUpdateChecks, updateChecks;
 
@@ -298,6 +359,7 @@ class MoreSettingsView extends StatelessWidget {
       onToggleTelemetry,
       onToggleBarcodeLookup,
       onToggleHealthShare,
+      onToggleHealthSync,
       onToggleUpdateChecks,
       onReset;
 
@@ -306,6 +368,9 @@ class MoreSettingsView extends StatelessWidget {
     this.units = 'Metric',
     this.appearance = 'System',
     this.phoneSteps = false,
+    this.healthSync = false,
+    this.healthState = HealthLinkState.unknown,
+    this.healthStore = 'Apple Health',
     this.telemetry = false,
     this.barcodeLookup = false,
     this.showHealthShare = false,
@@ -330,6 +395,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onToggleTelemetry,
     this.onToggleBarcodeLookup,
     this.onToggleHealthShare,
+    this.onToggleHealthSync,
     this.onToggleUpdateChecks,
     this.onReset,
   });
@@ -386,6 +452,15 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.download, C.green, 'Export, backup, import',
                       sub: 'Spreadsheets, a full copy, and bringing history in',
                       onTap: onData),
+                  // The row P1 was missing. Everything behind it — the
+                  // permission request, the retry/backoff, the four gates —
+                  // was already written and simply had no way to be switched
+                  // on, so the write entitlement and usage strings described a
+                  // path that could not run.
+                  SetRow(LucideIcons.heartPulse, C.red, 'Write to $healthStore',
+                      sub: healthSyncSub(healthSync, healthState, healthStore),
+                      value: healthSync ? 'On' : 'Off',
+                      onTap: onToggleHealthSync),
                 ]),
                 settingsGroup(c, 'Automation', [
                   SetRow(LucideIcons.workflow, C.indigo, 'Tasker and Shortcuts',

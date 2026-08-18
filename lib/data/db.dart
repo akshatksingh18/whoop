@@ -807,6 +807,12 @@ class LocalDb {
     await _ensureLiveCoverageSource(db);
     await _createExternalHr(db);
     await _createImportedMeasurement(db);
+    // CREATE TABLE IF NOT EXISTS on the every-open repair path, and NO schema
+    // version bump: this table is additive with no backfill, so the repair pass
+    // creates it on a fresh install and on an existing one alike. Spending a
+    // version number here would collide with the other branches reaching for
+    // the next one, and buy nothing a no-op CREATE does not already do.
+    await _createImportedWorkout(db);
     await _createCycleSymptom(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
@@ -1341,6 +1347,93 @@ class LocalDb {
       whereArgs: [kind],
       orderBy: 'ts DESC',
       limit: limit,
+    );
+  }
+
+  // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────
+  /// A workout some OTHER app recorded, held in its own table for the same
+  /// reason `imported_measurement` is: so that it CANNOT become one of ours.
+  ///
+  /// It is deliberately NOT a row in `sessions`. Everything that reads
+  /// `sessions` treats what it finds as measured — strain, the day rollup, the
+  /// workout list, the personal records — and a table this app does not own is
+  /// the wrong input to every one of them. A separate table makes that
+  /// structural instead of a flag someone has to remember to check: there is no
+  /// WHERE clause to forget, because the rows are not there.
+  ///
+  /// DISPLAY ONLY, and `source` is NOT NULL for it — a workout shown without
+  /// the app that recorded it is a workout this app is implicitly claiming.
+  ///
+  /// `uuid` is the health store's own identifier, so a re-import updates in
+  /// place rather than stacking duplicates of the same run.
+  ///
+  /// ROUTES REUSE `workout_route`, keyed by this uuid as its `session_id`. That
+  /// table is an opaque-id → lat/lng store with no notion of who measured it,
+  /// and a coordinate is not an input to any metric, so there is nothing to
+  /// keep apart. What it buys is the existing map: no second route table, no
+  /// second reader, no second renderer. [deleteImportedWorkout] cascades, since
+  /// [deleteSession] never sees these ids.
+  static Future<void> _createImportedWorkout(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS imported_workout (
+        uuid TEXT PRIMARY KEY,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        energy_kcal REAL,
+        distance_m REAL,
+        steps INTEGER,
+        source TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_imported_workout_start '
+      'ON imported_workout(start_ts)',
+    );
+  }
+
+  /// Upsert imported workouts. Idempotent on the health store's uuid.
+  static Future<int> putImportedWorkouts(
+    List<Map<String, Object?>> rows,
+  ) async {
+    if (rows.isEmpty) return 0;
+    final db = await instance;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final r in rows) {
+        batch.insert(
+          'imported_workout',
+          r,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    return rows.length;
+  }
+
+  /// Imported workouts, newest first.
+  static Future<List<Map<String, dynamic>>> importedWorkouts({
+    int limit = 200,
+  }) async {
+    final db = await instance;
+    return db.query(
+      'imported_workout',
+      orderBy: 'start_ts DESC',
+      limit: limit,
+    );
+  }
+
+  /// Drop one imported workout AND its route. `deleteSession` cannot do this —
+  /// these ids are never in `sessions` — so without the cascade here every
+  /// lat/lng point of a removed import would stay on disk unreachable.
+  static Future<void> deleteImportedWorkout(String uuid) async {
+    final db = await instance;
+    await db.delete('imported_workout', where: 'uuid = ?', whereArgs: [uuid]);
+    await db.delete(
+      'workout_route',
+      where: 'session_id = ?',
+      whereArgs: [uuid],
     );
   }
 
@@ -5754,6 +5847,10 @@ class LocalDb {
       // Re-readable from the health store, but only for as long as that app is
       // installed and that permission is granted — cheaper to carry.
       'imported_measurement',
+      // Same reasoning, and more so: a route is thousands of points that the
+      // source app may have deleted since. `workout_route` is already in this
+      // list above and carries the imported routes too.
+      'imported_workout',
       // The never-pruned archive of frames we could not decode. exportCopy()
       // is a whole-database VACUUM INTO, so these rows DO leave the device —
       // leaving the table out here meant a backup/restore round trip silently
@@ -6184,6 +6281,7 @@ class LocalDb {
       'band_backlog',
       'external_hr',
       'imported_measurement',
+      'imported_workout',
     ];
 
     final missingTables = <String>[];

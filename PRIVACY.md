@@ -136,7 +136,12 @@ configure:
   requires your own API key.
 - **Health app integration** — if you enable it, the App can write derived
   daily metrics to Apple Health or Google Health Connect, which are controlled
-  by your device's own OS-level health app, not by us.
+  by your device's own OS-level health app, not by us. The App can also *read*
+  from that same health app when you tap an import — your height, weight, date
+  of birth and sex, your resting heart rate, blood pressure, blood glucose and
+  body temperature readings, and your workouts and their routes. Every import
+  is something you start by hand, never a background sync, and what it reads
+  stays on your device: reading from your health app sends nothing anywhere.
 
 **What we don't do**
 We do not sell your data. We do not send your health data to WHOOP, Inc. or

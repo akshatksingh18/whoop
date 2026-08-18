@@ -26,12 +26,14 @@ import '../../data/journal_fields.dart';
 import '../../data/med_store.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
+import '../../stress/breath_phases.dart';
 import '../ui2.dart';
 import 'calm_breathing.dart';
 import 'driver_breakdown.dart';
 import 'cycle_screen.dart';
 import 'home_screen.dart' show envValue, metricOf;
 import 'journal_compose.dart';
+import 'start_card.dart';
 import 'metric_detail.dart' show detailScaffold;
 import 'sleep_detail.dart';
 
@@ -161,16 +163,61 @@ class _WellnessScreenState extends State<WellnessScreen> {
 
   @override
   Widget build(BuildContext c) {
+    final last = _breathing.isEmpty ? null : _breathing.first;
+    // Same rule as Workout: the LIST drops its side padding and hands it to
+    // every child except the hero, which is how that one runs edge to edge.
+    // The card cannot escape its own parent — a negative margin asserts and an
+    // OverflowBox takes an unbounded height in a scroll view and blanks the
+    // whole tab. Padding the siblings is ordinary layout and does neither.
     return ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+      padding: const EdgeInsets.fromLTRB(0, S.x4, 0, S.x16),
       children: [
-        const ScreenTitle('Wellness'),
-        SubTabs(_tabs, _tab, (i) => setState(() => _tab = i), color: C.domMind),
-        const SizedBox(height: S.x5),
-        if (_loading)
-          const Center(child: CircularProgressIndicator())
-        else
-          [_mind, _recovery, _habitsTab, _medication, _cycle][_tab](c),
+        for (final w in <Widget>[
+          const ScreenTitle('Wellness'),
+          SubTabs(_tabs, _tab, (i) => setState(() => _tab = i),
+              color: C.domMind),
+          const SizedBox(height: S.x5),
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            // Mind is the only tab here with something to START. The other
+            // four are logs and reviews, and a "begin" card over a medication
+            // list would be an invitation to nothing.
+            if (_tab == 0) ...[
+              StartCard(
+                label: 'START A SITTING',
+                // What the picker actually offers. Three, not the number of
+                // things on this tab.
+                count: kBreathPatterns.length,
+                noun: 'exercises',
+                sub: last == null
+                    ? 'Pick one and go'
+                    : 'Last: ${((last['seconds'] as num?) ?? 0) ~/ 60} min',
+                asset: 'mascot_wellness.png',
+                accent: C.domMind,
+                deep: C.teal,
+                // This mascot is WIDER than it is tall — at the workout one's
+                // height it took enough width to squeeze the copy.
+                mascotHeight: 118,
+                onTap: () async {
+                  await Navigator.of(c).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => const CalmBreathing()),
+                  );
+                  await _load();
+                },
+              ),
+              const SizedBox(height: S.x4),
+            ],
+            [_mind, _recovery, _habitsTab, _medication, _cycle][_tab](c),
+          ],
+        ])
+          if (w is StartCard)
+            w
+          else
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: w),
       ],
     );
   }
@@ -178,28 +225,14 @@ class _WellnessScreenState extends State<WellnessScreen> {
   // ── MIND ─────────────────────────────────────────────────────────────────
 
   Widget _mind(BuildContext c) {
-    final last = _breathing.isEmpty ? null : _breathing.first;
     final score = (_stress['stress'] as Map?)?['score'] as num?;
     final level = (_stress['stress'] as Map?)?['level'] as String?;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ActionCard(
-          'Paced breathing',
-          last == null
-              ? 'Nothing yet'
-              : 'Last: ${((last['seconds'] as num?) ?? 0) ~/ 60} min',
-          'Begin',
-          LucideIcons.wind,
-          C.domMind,
-          onTap: () async {
-            await Navigator.of(c).push(
-              MaterialPageRoute<void>(builder: (_) => const CalmBreathing()),
-            );
-            await _load();
-          },
-        ),
-        const SizedBox(height: S.x4),
+        // The "Paced breathing / Begin" ActionCard used to sit here. It is the
+        // hero card above now — same destination, same last-sitting line, one
+        // door instead of two.
         MoodPicker(
           value: _todayFields['mood']?.value.round(),
           onChanged: (v) => _setField('mood', v.toDouble()),

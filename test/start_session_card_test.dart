@@ -83,4 +83,29 @@ void main() {
     await pump(t, scale: 2.0);
     expect(t.takeException(), isNull);
   });
+
+  testWidgets('the wellness card is the same component, its own colour',
+      (t) async {
+    t.view.physicalSize = const Size(390 * 2, 300 * 2);
+    t.view.devicePixelRatio = 2;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: const Scaffold(
+        body: StartCard(
+          label: 'START A SITTING',
+          count: 3,
+          noun: 'exercises',
+          asset: 'mascot_wellness.png',
+          accent: C.domMind,
+          deep: C.teal,
+          mascotHeight: 118,
+        ),
+      ),
+    ));
+    expect(t.takeException(), isNull);
+    // The count is what the picker offers, not what the tab contains.
+    expect(find.text('3 exercises'), findsOneWidget);
+    expect(find.text('START A SITTING'), findsOneWidget);
+  });
 }

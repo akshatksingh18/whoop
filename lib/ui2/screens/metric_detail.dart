@@ -577,13 +577,26 @@ class _MetricDetailState extends State<MetricDetail> {
         // It is a screen, not a fourth card here: one number's drill-down does
         // not become five pictures.
         if (widget.metricKey == 'hrv') ...[
+          // Wording, not a gate: this door opens the newest night and Beats
+          // carries its own day stepper, so it is honest under any range — but
+          // "behind this number" was not, with a 30-day average as the number.
           detailLinkRow(c, LucideIcons.heartPulse, 'Beats',
-              'The intervals behind this number, drawn',
+              'The intervals a night is made of, drawn',
               () => go(c, const Beats())),
           const SizedBox(height: S.x3),
         ],
-        if (widget.metricKey == 'steps') ...[
-          detailLinkRow(c, LucideIcons.footprints, 'Where today\'s came from',
+        // TODAY ONLY, and it is called Breakdown.
+        //
+        // It describes how TODAY's number was put together, and it rendered
+        // under the 7- and 30-day charts too, where it explained a day the
+        // picture was not showing. On a wider range the way into one day is
+        // the chart itself — touch a point and it opens that day.
+        //
+        // "Where today's came from" was the old name: accurate about the
+        // content, and it read as a phrase rather than a place. A doorway
+        // wants the plainest noun that is still true.
+        if (widget.metricKey == 'steps' && win == 1) ...[
+          detailLinkRow(c, LucideIcons.footprints, 'Breakdown',
               'Each stretch of today, and what counted it',
               () => go(c, const DayStepsDetail())),
           const SizedBox(height: S.x3),

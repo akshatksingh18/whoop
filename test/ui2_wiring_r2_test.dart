@@ -611,6 +611,40 @@ void main() {
     });
   });
 
+  // ── the breakdown describes today, so it only shows on today ──
+  group('steps breakdown', () {
+    Future<void> pump(WidgetTester t) async {
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(
+              body: MetricDetail('steps',
+                  data: MetricData(
+                    daysAvailable: 400,
+                    series: [
+                      for (var i = 60; i >= 0; i--) (t: _noon(i), v: 8000.0),
+                    ],
+                  )))));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('it is there on today, and it is called Breakdown', (t) async {
+      await pump(t);
+      expect(find.text('Breakdown'), findsOneWidget);
+      // The old name said "today's" while sitting under a month of days.
+      expect(find.textContaining("Where today's came from"), findsNothing);
+    });
+
+    testWidgets('it is gone on a wider range', (t) async {
+      await pump(t);
+      await t.tap(find.text('30 days'));
+      await t.pumpAndSettle();
+      expect(find.text('Breakdown'), findsNothing);
+    });
+  });
+
   // ── the screen is called "Nerd stats" everywhere the user can read it ──
   //
   // The file, the class and the gallery keys still say `investigate`; that is

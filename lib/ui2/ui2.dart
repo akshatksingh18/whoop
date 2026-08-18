@@ -9,4 +9,5 @@ export 'app_shell.dart';
 export 'charts.dart';
 export 'grammar.dart';
 export 'paint_activity.dart';
+export 'scroll_hint.dart';
 export 'theme.dart';

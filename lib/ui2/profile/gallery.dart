@@ -605,6 +605,32 @@ final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
     .toDouble());
 
 Map<String, Widget> extraCases() => {
+      // The edge treatment that tells a horizontal row it continues. Swept
+      // rather than photographed because the state worth seeing is the one a
+      // still cannot hold: it is ABSENT when the content fits, present when it
+      // does not, and gone again at the end of the scroll. Both halves are
+      // asserted in ui2_scroll_hint_test.
+      'scroll_hint': Builder(
+        builder: (c) => SizedBox(
+          height: MediaQuery.textScalerOf(c).scale(S.tap),
+          child: ScrollHint(
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: const [
+                Pill('Mind', C.domMind),
+                SizedBox(width: S.x2),
+                Pill('Recovery', C.domMind),
+                SizedBox(width: S.x2),
+                Pill('Habits', C.domMind),
+                SizedBox(width: S.x2),
+                Pill('Medication', C.domMind),
+                SizedBox(width: S.x2),
+                Pill('Cycle', C.domMind),
+              ],
+            ),
+          ),
+        ),
+      ),
       // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
       // photographed because the interesting cases are the ones a golden
       // cannot show: a driver that moved but stayed inside its own spread, and

@@ -26,6 +26,7 @@ import 'ui2/screens/calm_breathing.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
+import 'ui2/screens/log_water.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
@@ -311,6 +312,9 @@ ShellDomain domainForTab(int tab) => switch (tab) {
 ShellDomain domainForRoute(String route) => switch (route) {
       kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
       kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
+      // Water is a journal field that lives on Nutrition — that is the tab
+      // behind the log screen, and where a "back" from it should land.
+      kRouteWater => ShellDomain.nutrition,
       kRouteWorkoutSuggestion => ShellDomain.workout,
       // Emitted by the battery forecast (`app_state.dart`) and the weekly
       // recap (`notification_center.dart`), and declared in `tap_router`
@@ -347,6 +351,9 @@ Widget? screenForRoute(String route) => switch (route) {
         const AiBriefingScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalCompose(),
       kRouteBreathing => const CalmBreathing(),
+      // The hydration reminder promises that one more tap logs a glass, so it
+      // opens the control itself rather than the tab the control is on.
+      kRouteWater => const LogWaterScreen(),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
       _ => null,

@@ -16,8 +16,13 @@ enum NotifCategory { health, recovery, reminders, device }
 
 enum NotifPriority { critical, normal, low }
 
-/// The three — and only three — things this app may put in the notification
+/// The three — and only three — things this app may EMIT into the notification
 /// shade. Everything else is an in-app card.
+///
+/// This governs the present path only. A standing schedule (the weekly
+/// lookback, the hydration slots, the nightly sweep) is fired by the OS with no
+/// Dart running, never reaches [classOf], and is allow-listed separately — see
+/// NotificationService.schedulableIds.
 ///
 /// The app used to be able to emit ~22 distinct kinds across four channels:
 /// hydration slots, step goals, posture nudges, "your recovery is ready", AI

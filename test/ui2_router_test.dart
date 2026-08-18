@@ -29,6 +29,7 @@ import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
+import 'package:openstrap_edge/ui2/screens/log_water.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A viewport tall enough that nothing under test is below the fold. The
@@ -140,10 +141,14 @@ void main() {
         kRouteJournalCompose: ShellDomain.wellness,
         kRouteBreathing: ShellDomain.wellness,
         kRouteWorkoutSuggestion: ShellDomain.workout,
+        kRouteWater: ShellDomain.nutrition,
       };
       routes.forEach((route, domain) {
         expect(domainForRoute(route), domain, reason: route);
       });
+      // The hydration reminder says "tap to log a glass": it has to open the
+      // control, not the tab the control is buried on.
+      expect(screenForRoute(kRouteWater), isA<LogWaterScreen>());
       // Payload routes that predate the five-tab shell, and that
       // `resolveTapRoute` does not carry yet — the destinations exist here so
       // they stop landing on Home the moment it does.

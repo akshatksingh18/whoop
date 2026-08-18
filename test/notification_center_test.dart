@@ -9,6 +9,7 @@ import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_ids.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 
 NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
@@ -58,6 +59,39 @@ void main() {
       expect(classOf(_ev(NotifCategory.reminders, NotifPriority.low)), isNull);
       expect(
           classOf(_ev(NotifCategory.reminders, NotifPriority.normal)), isNull);
+    });
+  });
+
+  group('the scheduler allow-list', () {
+    // The OS fires a zonedSchedule with no Dart running, so shouldFireOs never
+    // sees one. What may be SCHEDULED is a separate, narrower list: a slot the
+    // user asked for by name, at a time or interval they picked.
+    test('allows the lookback, the hydration band and the nightly sweep', () {
+      expect(NotificationService.maySchedule(NotificationService.idWeeklyRecap),
+          isTrue);
+      expect(NotificationService.maySchedule(NotificationService.idEveningBrief),
+          isTrue);
+      for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
+        expect(
+            NotificationService.maySchedule(NotificationService.idWaterBase + i),
+            isTrue,
+            reason: 'water slot $i');
+      }
+    });
+
+    test('refuses everything else, including the ids either side of the band',
+        () {
+      for (final id in [
+        NotificationService.idWindDown,
+        NotificationService.idJournalLog,
+        NotificationService.idMorningBrief,
+        NotificationService.idStillness,
+        NotificationService.idLowBattery,
+        NotificationService.idWaterBase - 1,
+        NotificationService.idWaterBase + NotificationService.maxWaterSlots,
+      ]) {
+        expect(NotificationService.maySchedule(id), isFalse, reason: '$id');
+      }
     });
   });
 

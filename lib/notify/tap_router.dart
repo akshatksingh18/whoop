@@ -11,6 +11,11 @@ const String kRouteAiEvening = '/ai/evening';
 const String kRouteJournalCompose = '/journal/compose';
 const String kRouteBreathing = '/breathing';
 
+/// The hydration reminder. It lands on the one-tap water log rather than the
+/// Nutrition tab: the notification asks you to log a glass, and a destination
+/// that still needs a scroll to find the control is a different promise.
+const String kRouteWater = '/water';
+
 /// "Did you work out?" auto-detect notification. Lands on the Workouts tab and
 /// pushes a focused review of the detected activity (log or adjust) — the plain
 /// `/workouts` route only selected the tab, leaving the suggestion buried in the
@@ -62,6 +67,7 @@ const Map<String, int> _screenRoutes = {
   kRouteAiEvening: 0,
   kRouteJournalCompose: 0,
   kRouteBreathing: 0,
+  kRouteWater: 0,
   kRouteWorkoutSuggestion: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab

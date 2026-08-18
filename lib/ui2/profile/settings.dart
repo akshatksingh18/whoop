@@ -438,8 +438,8 @@ class MoreSettingsView extends StatelessWidget {
                 ]),
                 settingsGroup(c, 'Notifications', [
                   SetRow(LucideIcons.bell, C.blue, 'Manage notifications',
-                      sub: 'Three kinds, quiet hours, and off switches for all '
-                          'of them',
+                      sub: 'What may interrupt you, quiet hours, and off '
+                          'switches for all of them',
                       onTap: onNotifications),
                 ]),
                 settingsGroup(c, 'Preferences', [
@@ -557,9 +557,11 @@ class MoreSettingsView extends StatelessWidget {
 // the alarm, and burying a second one in settings is how an alarm silently
 // fails to wake someone.
 //
-// The water reminder is on this screen but not in that count: it's a strap
-// buzz, not a shade entry. It reminds you to LOG a drink — the app measures no
-// hydration and this screen may never imply it does. See MT-14 in IDEAS.md.
+// The water reminder is on this screen and IS a shade entry — a strap buzz and
+// a phone notification at the same minute, because a buzz alone needs a live
+// link and a live isolate and so is not a reminder. It reminds you to LOG a
+// drink — the app measures no hydration and this screen may never imply it
+// does. See MT-14 in IDEAS.md.
 
 class NotificationSettings extends StatefulWidget {
   const NotificationSettings({super.key});
@@ -645,7 +647,7 @@ class NotificationSettingsView extends StatelessWidget {
         child: Column(children: [
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Notifications', sub: 'Three kinds'),
+            child: NavBar('Notifications', sub: 'WHAT MAY INTERRUPT YOU'),
           ),
           Expanded(
             child: ListView(
@@ -692,9 +694,9 @@ class NotificationSettingsView extends StatelessWidget {
                     // A prompt to log, not a reading. The app measures no
                     // hydration and this row may never imply it does.
                     SetRow(LucideIcons.glassWater, C.teal, 'Water reminder',
-                        sub: 'A buzz on the strap through your waking hours, '
-                            'to remind you to log a drink. Nothing is measured '
-                            'either way',
+                        sub: 'A buzz on the strap and a notification on your '
+                            'phone through your waking hours, to remind you to '
+                            'log a drink. Nothing is measured either way',
                         value: prefs.waterEnabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(
@@ -702,7 +704,7 @@ class NotificationSettingsView extends StatelessWidget {
                     // only while it's on — the group is dense enough, and an
                     // interval for a reminder nobody armed is furniture.
                     if (prefs.waterEnabled)
-                      SetRow(LucideIcons.timer, C.teal, 'Buzz every',
+                      SetRow(LucideIcons.timer, C.teal, 'Remind me every',
                           value: _everyLabel(prefs.waterIntervalMin),
                           chevron: false,
                           onTap: () => set(prefs.copyWith(

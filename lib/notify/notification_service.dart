@@ -6,10 +6,12 @@
 // purely the OS presentation + scheduling layer.
 //
 // Design guarantees:
-//   • Two gates, one rule. NotificationPrefs.shouldFireOs decides what may be
-//     PRESENTED; [schedulableIds] decides what may be SCHEDULED. The OS fires a
-//     zonedSchedule with no Dart running, so the presentation gate cannot see
-//     it — both are needed to hold "exactly three notification classes".
+//   • Two gates, two rules. NotificationPrefs.shouldFireOs decides what may be
+//     PRESENTED, and holds the three-class rule there. [schedulableIds] decides
+//     what may be SCHEDULED — the OS fires a zonedSchedule with no Dart
+//     running, so the presentation gate never sees one, and a scheduled slot is
+//     allowed on a different test: the user asked for it by name, at a time or
+//     interval they picked, and it has something to say when it fires.
 //   • One channel per category (NotifCategory) so Android users mute each kind
 //     independently. The `health` channel is max-importance (illness alerts).
 //   • Notification ids are partitioned by NotificationEvent.osId; fixed device +
@@ -125,11 +127,13 @@ class NotificationService {
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
 
-  /// Slot band [idWaterBase .. idWaterBase + maxWaterSlots) — #28 shipped the
-  /// water reminder as up to 24 daily-repeating OS notifications here. It is a
-  /// strap buzz now (WaterBuzzer), so nothing arms these; the cancel loop in
-  /// [NotificationCenter.scheduleStandingReminders] tears down whatever that
-  /// build left standing on an upgrading phone. Do not reuse these ids.
+  /// Slot band [idWaterBase .. idWaterBase + maxWaterSlots) — one daily-repeating
+  /// OS notification per hydration slot, armed by
+  /// [NotificationCenter.scheduleStandingReminders] from the SAME slot list the
+  /// strap buzz uses, so the two land together. The buzz alone was not a
+  /// reminder: it needs a live BLE link and a live isolate, so a band in a
+  /// drawer or an app the OS killed meant nothing happened at all. Do not reuse
+  /// these ids for anything else.
   static const int idWaterBase = 2100;
   static const int maxWaterSlots = 24;
 
@@ -138,16 +142,34 @@ class NotificationService {
 
   /// The OS scheduler's allow-list.
   ///
-  /// [NotificationPrefs.shouldFireOs] enforces the three-class rule for events
-  /// that go through [presentEvent], but a `zonedSchedule` never passes through
-  /// it — the OS fires those with no Dart running. So the same rule needs a
-  /// second gate here, and this is it: [NotifClass.lookback] is the only class
-  /// that is scheduled ahead of time, so [idWeeklyRecap] is the only id that
-  /// may be. Wind-down, the 24 hydration slots, the two AI briefings, the
-  /// journal prompt and the "time to move" one-shot all still CANCEL (their
-  /// callers keep doing that, which is how an upgrade cleans out whatever an
-  /// older build left standing) — they just never arm again.
-  static const Set<int> schedulableIds = {idWeeklyRecap};
+  /// [NotificationPrefs.shouldFireOs] gates what may be PRESENTED; a
+  /// `zonedSchedule` never passes through it (the OS fires those with no Dart
+  /// running), so what may be SCHEDULED is gated here instead.
+  ///
+  /// The rule this enforces is not "three classes" — it is that a scheduled
+  /// slot must be one the user ASKED FOR by name, with a time or an interval
+  /// they chose, and must have something to say when it fires:
+  ///   • [idWeeklyRecap] — armed only for a week that actually contained a
+  ///     finding.
+  ///   • the hydration band ([isWaterSlot]) — armed only while the water
+  ///     reminder is switched on, at the interval the user picked.
+  ///   • [idEveningBrief] — armed only when the nightly sweep found something
+  ///     unusual for this user, and its body IS the finding.
+  /// Wind-down, the morning briefing, the journal prompt and the "time to move"
+  /// one-shot are none of those, and are still refused. Their callers keep
+  /// CANCELLING, which is how an upgrade cleans out whatever an older build
+  /// left standing.
+  static const Set<int> schedulableIds = {idWeeklyRecap, idEveningBrief};
+
+  /// Whether [id] is one of the hydration slots. A band rather than a set
+  /// member, which is the only reason [maySchedule] exists as a function.
+  static bool isWaterSlot(int id) =>
+      id >= idWaterBase && id < idWaterBase + maxWaterSlots;
+
+  /// The gate itself — see [schedulableIds].
+  @visibleForTesting
+  static bool maySchedule(int id) =>
+      schedulableIds.contains(id) || isWaterSlot(id);
 
   AndroidNotificationChannel _channelFor(NotifCategory c) => switch (c) {
         NotifCategory.health => _healthChannel,
@@ -398,9 +420,9 @@ class NotificationService {
 
   /// Shared gate for every scheduled slot — see [schedulableIds].
   bool _maySchedule(int id) {
-    if (schedulableIds.contains(id)) return true;
-    debugPrint('[notify] schedule refused for id $id — not one of the three '
-        'notification classes');
+    if (maySchedule(id)) return true;
+    debugPrint('[notify] schedule refused for id $id — not an allow-listed '
+        'scheduled slot');
     return false;
   }
 

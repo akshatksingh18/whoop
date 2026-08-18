@@ -1,9 +1,16 @@
 // notification_center.dart — the single emitter.
 //
-// Every insight, alert and nudge goes through emit(). OS-level notifications
-// are the ONLY surface now — the in-app notifications feed/screen was
-// removed (it duplicated the OS notification with no independent value).
-// Whether an event fires an OS notification is decided by NotificationPrefs:
+// Every insight and alert goes through emit(). OS-level notifications are the
+// ONLY surface now — the in-app notifications feed/screen was removed (it
+// duplicated the OS notification with no independent value).
+//
+// emit() is the PRESENT path. The standing schedules further down
+// (scheduleStandingReminders, scheduleAiReminders) are the SCHEDULE path, which
+// never passes through emit at all: the OS fires those with no Dart running.
+// They are gated by NotificationService.schedulableIds instead.
+//
+// Whether an emitted event fires an OS notification is decided by
+// NotificationPrefs:
 //   • it must be one of the three sanctioned NotifClasses (see classOf), AND
 //   • its category must be enabled, AND
 //   • either we're outside quiet hours, or the event is critical and the user
@@ -173,18 +180,18 @@ class NotificationCenter {
   static const int recapHour = 18; // Sunday 18:00
   static const int recapMinute = 0;
 
-  /// Bring the OS scheduler in line with the three-class rule.
+  /// Bring the OS scheduler in line with the user's prefs.
   ///
-  /// This used to arm a wind-down nudge, an UNCONDITIONAL weekly recap and up
-  /// to 24 hydration slots on every foreground resume. Under the three-class
-  /// rule only [NotifClass.lookback] may be scheduled, and only for a week that
-  /// actually contained something — so [weeklyFinding] is the whole condition:
-  /// null (which is every caller today) means nothing is armed at all.
+  /// This used to arm a wind-down nudge and an UNCONDITIONAL weekly recap on
+  /// every foreground resume. What is armed now is only what the user asked for
+  /// by name: the weekly lookback for a week that actually contained something
+  /// ([weeklyFinding] is the whole condition — null means it isn't armed), and
+  /// the hydration slots while the water reminder is on.
   ///
   /// The cancels are not conditional and must stay that way: they are what
-  /// clears whatever an older build left standing on a phone that upgrades.
-  /// They also run BEFORE the permission check, deliberately — see the note in
-  /// [_armWeeklyLookback] for why the check moved down there.
+  /// clears whatever an older build — or the user's own switch, a moment ago —
+  /// left standing. They also run BEFORE the permission check, deliberately —
+  /// see the note in [_armWeeklyLookback] for why the check moved down there.
   ///
   /// [bedtimeMinOfDay] is no longer read: it timed the wind-down nudge. Kept so
   /// the existing caller compiles unchanged; drop both together.
@@ -197,19 +204,43 @@ class NotificationCenter {
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
     await svc.cancel(NotificationService.idStillness);
-    // the water reminder is a strap buzz, not an OS notification — nothing here
-    // arms these slots. the cancel stays because #28 did ship them as real
-    // daily-repeating slots, and a phone upgrading from that build has up to 24
-    // standing in the OS that nothing else will ever clear.
     for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
       await svc.cancel(NotificationService.idWaterBase + i);
     }
-    if (!prefs.remindersEnabled || weeklyFinding == null) return;
+    final water = waterSlotMinutes(prefs);
+    final wantWeekly = prefs.remindersEnabled && weeklyFinding != null;
+    if (water.isEmpty && !wantWeekly) return;
     // Re-resolve the zone first: this runs on every foreground resume, and the
-    // instant below is wall-clock. A phone that flew somewhere would otherwise
+    // instants below are wall-clock. A phone that flew somewhere would otherwise
     // keep arming Sunday 18:00 in the zone the app first launched in.
     await svc.ensureTimezone();
-    await _armWeeklyLookback(svc, weeklyFinding);
+    await _armWaterSlots(svc, water);
+    if (wantWeekly) await _armWeeklyLookback(svc, weeklyFinding);
+  }
+
+  /// One daily-repeating notification per hydration slot.
+  ///
+  /// The strap buzz (WaterBuzzer) fires off the SAME [slots] list, so the two
+  /// land at the same wall-clock minute — but the buzz needs a live BLE link
+  /// and a live isolate, and a reminder that only arrives when the app happens
+  /// to be running is not a reminder. Both fire. There is deliberately no
+  /// "only notify if the strap didn't buzz" preference: nobody has felt the
+  /// double yet.
+  ///
+  /// Copy rule: this may nudge you to LOG a drink and nothing more. The app
+  /// measures no hydration, scores none, and this text may never imply either.
+  Future<void> _armWaterSlots(NotificationService svc, List<int> slots) async {
+    for (var i = 0; i < slots.length; i++) {
+      await svc.scheduleDaily(
+        id: NotificationService.idWaterBase + i,
+        category: NotifCategory.reminders,
+        title: 'Water',
+        body: 'Tap to log a glass.',
+        hour: slots[i] ~/ 60,
+        minute: slots[i] % 60,
+        route: kRouteWater,
+      );
+    }
   }
 
   /// Arm the lookback as a ONE-SHOT at the next Sunday 18:00.
@@ -243,7 +274,9 @@ class NotificationCenter {
   /// The wall-clock fire times (minutes-from-midnight, ascending) for the water
   /// reminder — one per slot across the waking window, spaced by the (clamped)
   /// interval, capped at [NotificationService.maxWaterSlots]. Empty when the
-  /// reminder is off. PURE; the consumer is the strap-buzz timer in AppState.
+  /// reminder is off. PURE, and the ONE source both consumers read: the
+  /// strap-buzz timer in AppState and [_armWaterSlots] above. That is the whole
+  /// reason the buzz and the notification cannot drift apart.
   ///
   /// Gated on `waterEnabled` alone, not on `remindersEnabled` — that switch is
   /// the weekly lookback's off switch, and hanging the buzz off it is how this

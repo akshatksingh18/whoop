@@ -1234,7 +1234,33 @@ import 'substrate.dart';
 //      deliberately so — it is gen5/MG-only, so gating on it makes the same
 //      night answer differently on two straps. The refusal's construct argument
 //      is untouched and is the one that carries it.
-const int kAlgoVersion = 74;
+// v75 — THE ISSUE AUDIT. Every issue and discussion ever filed was re-checked
+// against the shipped tree; these are the ones that were still true. Four
+// numbers move, and each moved because it was wrong, not because it was tuned:
+//   1. READINESS carries its fourth driver. `tempInput` refused on every night
+//      ever shipped, because `settledFraction` was never passed from this side
+//      — the driver was documented, weighted 0.10, and unreachable. The other
+//      three renormalised over 0.90 and quietly absorbed it. Nights the strap
+//      cannot vouch for (device_family NULL, pre-schema-41, imports, gen5) are
+//      refused BY NAME now instead of silently.
+//   2. READINESS BANDS are the score's own quantiles. The composite is a
+//      logistic with no scale parameter, so its centre is 50 — and 50 was
+//      labelled "Take it easy". Half of every user's nights read as a warning
+//      by construction, and "Good to go" needed every input ~1.4 SD above
+//      personal median at once. The score did not change; the verdict did.
+//   3. PEAK HR stopped contradicting itself. The workout producers smoothed
+//      through hr_max.dart, the day peak still did reduce(math.max) over raw
+//      1 Hz — so the strain card and the timeline printed different numbers off
+//      the same beats (#127, closed once already). Manual saves and the
+//      below-coverage reconcile fed it unsmoothed too.
+//   4. CALORIES and STRAIN follow the analytics gates above, and both abstain
+//      rather than guess: a day with no resting HR now has no calorie figure
+//      instead of billing every waking minute as active.
+// Also here, changing nothing derived: a night never re-stages shorter than the
+// one already banked (#242 — the guard only fired on a FAILED pass and never
+// compared tst_sec, which is why a fixed night came back wrong a few syncs
+// later), and absent accel stays absent instead of coalescing to zero.
+const int kAlgoVersion = 75;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1245,14 +1271,15 @@ const int kAlgoVersion = 74;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-// Both siblings are on MAIN now (protocol #29, analytics #46, merged
-// 2026-08-19). kAlgoVersion is deliberately NOT bumped with this repin: the
-// analytics hop is two comment lines in tests and touches no lib/ file at all,
-// and the protocol hop only adds `rr_ms` to decodeFrame's R10 branch, which
-// nothing in edge reads. No derived number moves, so forcing every install to
-// recompute would be churn with nothing on the other side of it.
-const String kAnalyticsPin = 'bfea5e56e74f336c3e3d83743123e58da225617d';
-const String kProtocolPin = 'fe3b681a3e9ca76f8a0865339035f949f36f6000';
+// Both siblings move with this bump, and both move NUMBERS this time — which
+// is the whole reason the version goes up. analytics: one active-energy gate
+// on heart-rate reserve instead of %HRmax (the day and the bout used to
+// disagree by 8-35 bpm depending on age and rest), and a measured quiet-waking
+// level under strain instead of a population constant that scored a day with
+// no activity at all somewhere between 6.9 and 12.1 out of 21. protocol: v25
+// stops emitting a gravity vector from offsets that were refuted on real data.
+const String kAnalyticsPin = '0a303151e0d22ceeb3a1cf92f820baea0a73098d';
+const String kProtocolPin = '60676cfb37fe7650e949d53b7f2faef2bed74f09';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

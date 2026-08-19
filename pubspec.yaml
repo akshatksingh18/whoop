@@ -70,7 +70,7 @@ dependencies:
       # emits R10 beat intervals) — deliberately NOT repinned: edge never reads
       # `rr_ms` off decodeFrame, so the hop changes no number here and a repin
       # would drag kAlgoVersion with it for nothing.
-      ref: fe3b681a3e9ca76f8a0865339035f949f36f6000
+      ref: 60676cfb37fe7650e949d53b7f2faef2bed74f09
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -187,7 +187,7 @@ dependencies:
       # moved 21664f8 -> bfea5e5 to track it. Diff between the two is two
       # test-only deprecation-ignore annotations (analytics `lib/` untouched),
       # so kAlgoVersion needs no bump for this move.
-      ref: bfea5e56e74f336c3e3d83743123e58da225617d
+      ref: 0a303151e0d22ceeb3a1cf92f820baea0a73098d
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

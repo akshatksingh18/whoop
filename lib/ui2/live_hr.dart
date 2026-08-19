@@ -56,16 +56,26 @@ class LiveHrCard extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final hr = _preview ? _hr : c.select<AppState, int?>((a) => a.liveHr);
-    if (hr == null) return _absent(c);
+    if (hr == null) {
+      if (_preview) return _absent(paired: true, connected: true);
+      // SELECTED, not read: with no reading the only thing this widget watched
+      // was `liveHr`, which stays null through both pairing and connecting — so
+      // the card went on saying "No band is paired" after the band was paired
+      // and connected. These are what change in that state.
+      return _absent(
+        paired: c.select<AppState, bool>((a) => a.isPaired),
+        connected: c.select<AppState, bool>((a) => a.isConnected),
+      );
+    }
 
-    // Length, not contents: the list is rebuilt on every reading and comparing
-    // it element-wise on each notification would cost more than the repaint.
+    // A REVISION, not the length. Length is pinned at the cap once the buffer
+    // is full, so watching it drew the first 90 readings and then froze.
     final List<int> trace;
     if (_preview) {
       trace = _trace ?? const [];
     } else {
-      final n = c.select<AppState, int>((a) => a.liveHrTrace.length);
-      trace = n > 2 ? c.read<AppState>().liveHrTrace : const <int>[];
+      c.select<AppState, int>((a) => a.liveHrTraceRev);
+      trace = c.read<AppState>().liveHrTrace;
     }
 
     return Surface(
@@ -122,11 +132,10 @@ class LiveHrCard extends StatelessWidget {
 
   /// No live reading. Three different facts, and only the one the app can
   /// actually see is stated.
-  Widget _absent(BuildContext c) {
-    final app = c.read<AppState>();
-    final (String why, String fix) = !app.isPaired
+  Widget _absent({required bool paired, required bool connected}) {
+    final (String why, String fix) = !paired
         ? ('No band is paired.', 'Pair one from Profile to read live beats.')
-        : !app.isConnected
+        : !connected
             ? (
                 'Your band is not connected.',
                 'Live beats need an open link — the app connects when you open '

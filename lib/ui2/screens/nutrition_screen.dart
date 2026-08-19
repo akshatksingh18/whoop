@@ -107,9 +107,17 @@ class _NutritionScreenState extends State<NutritionScreen> {
   /// step down off the last glass lands on a logged ZERO ("none today"), and a
   /// step down from zero clears the field, because absence and zero are
   /// different answers.
+  /// One write at a time. `_stepWater` reads the day, then awaits, then writes
+  /// it back — and `postJournalMetrics` replaces the whole day — so two taps
+  /// during that await both read the same map and the second write silently
+  /// eats the first tap. Same guard the wellness screen already uses for its
+  /// journal fields.
+  bool _writingWater = false;
+
   Future<void> _stepWater(int dir) async {
     final repo = context.read<AppState>().repo;
-    if (repo == null) return;
+    if (repo == null || _writingWater) return;
+    _writingWater = true;
     final spec = _waterSpec;
     final v = _waterMl;
     double? next;
@@ -126,8 +134,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
     // map back in is exactly what made this un-clearable.
     final fields = {...await repo.getJournalMetrics(_date)}..remove('water_ml');
     if (next != null) fields['water_ml'] = JournalMetricValue(next);
-    await repo.postJournalMetrics(_date, fields);
-    await _load();
+    try {
+      await repo.postJournalMetrics(_date, fields);
+      await _load();
+    } finally {
+      if (mounted) setState(() => _writingWater = false);
+    }
   }
 
   /// Removing a log is destructive and there is no undo, so the entry is named
@@ -222,13 +234,20 @@ class _NutritionScreenState extends State<NutritionScreen> {
           onAction: _logFood,
         ),
         const SizedBox(height: S.x4),
-        _WaterRow(
-          ml: _waterMl,
-          onDown: _waterMl == null ? null : () => _stepWater(-1),
-          onUp: (_waterMl ?? 0) >= _waterSpec.max
-              ? null
-              : () => _stepWater(1),
-        ),
+        // Gated on the repository too: with no repo `_stepWater` returns at
+        // its first line, so an enabled + button was a control that did
+        // nothing — worse than a disabled one, which at least says so.
+        Builder(builder: (bc) {
+          final live = bc.select<AppState, bool>((a) => a.repo != null) &&
+              !_writingWater;
+          return _WaterRow(
+            ml: _waterMl,
+            onDown: (!live || _waterMl == null) ? null : () => _stepWater(-1),
+            onUp: (!live || (_waterMl ?? 0) >= _waterSpec.max)
+                ? null
+                : () => _stepWater(1),
+          );
+        }),
         if (day != null && day.logged && day.kcal.isFloor) ...[
           const SizedBox(height: S.x4),
           StatusCard(

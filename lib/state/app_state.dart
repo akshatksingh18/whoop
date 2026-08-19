@@ -3052,6 +3052,13 @@ class AppState extends ChangeNotifier {
   List<int> get liveHrTrace => List.unmodifiable(_liveHrTrace);
   int? _liveHrTraceAt;
 
+  /// Bumped on every appended sample. A `select` on the trace's LENGTH stops
+  /// firing the moment the buffer is full — length is pinned at
+  /// [liveHrTraceMax] from then on — so a card watching length would draw the
+  /// first 90 readings and then freeze while the numbers kept arriving. This is
+  /// the thing that actually changes.
+  int liveHrTraceRev = 0;
+
   void _onEngineState(DeviceState s) {
     // One sample per DELIVERED reading. Keyed on the stamp, not the value, or a
     // steady 60 bpm would record a single point and the trace would flatline
@@ -3061,6 +3068,7 @@ class AppState extends ChangeNotifier {
       _liveHrTraceAt = at;
       _liveHrTrace.add(hr);
       if (_liveHrTrace.length > liveHrTraceMax) _liveHrTrace.removeAt(0);
+      liveHrTraceRev++;
     }
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the

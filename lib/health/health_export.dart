@@ -23,6 +23,7 @@ import 'dart:io' show Platform;
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/series_codec.dart';
@@ -38,6 +39,12 @@ enum HealthLinkState {
   needsUpdate, // Android: Health Connect needs a Play update
   unsupported, // no health store on this device (iPad / simulator)
 }
+
+/// The user's "sync to Apple Health / Health Connect" switch. `AppState` owns
+/// the toggle; the key lives here so an export seam reached without an
+/// AppState can honour the same answer instead of keeping a second copy of the
+/// string.
+const String kHealthSyncPref = 'health_sync';
 
 const _sleepHealthTypes = <HealthDataType>{
   HealthDataType.SLEEP_DEEP,
@@ -190,6 +197,38 @@ class HealthExporter {
   HealthExporter({HealthConnectHeartRateWriter? androidHeartRate})
     : _androidHeartRate =
           androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter();
+
+  /// The process-wide exporter. `AppState` holds this one, and so does every
+  /// seam that lands a session without a widget tree to read AppState from —
+  /// the coach's `add_completed_workout` tool has only a [LocalRepository].
+  /// Lazily built, so importing this file starts no platform channels.
+  static final HealthExporter shared = HealthExporter();
+
+  /// [exportWorkout] for a caller that holds the ID it just wrote rather than
+  /// the row: `logManualWorkout` returns `workout_id`, not the session. This
+  /// is the seam issue #130 is actually about — a workout logged from the
+  /// coach (or any non-UI path) otherwise reaches the health store only if a
+  /// full-day export happens to run afterwards, which needs a `day_result`
+  /// row AND a derive pass, so a hand-logged session can sit unexported for
+  /// hours.
+  ///
+  /// GATED ON [kHealthSyncPref], because unlike `AppState.stopWorkout` these
+  /// callers have no `healthSyncEnabled` to check first — and writing to the
+  /// platform store with the switch off is exactly the thing the switch is
+  /// for. Best-effort: never throws, false when nothing was written.
+  static Future<bool> exportWorkoutId(String? id) async {
+    if (id == null || id.isEmpty) return false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(kHealthSyncPref) != true) return false;
+      final row = await LocalDb.session(id);
+      if (row == null) return false;
+      return await shared.exportWorkout(row);
+    } catch (e) {
+      debugPrint('[health] exportWorkoutId $id: $e');
+      return false;
+    }
+  }
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
   static bool get isApple => Platform.isIOS || Platform.isMacOS;

@@ -465,7 +465,9 @@ class AppState extends ChangeNotifier {
       HealthExportSingleFlight();
   HealthLinkState healthState = HealthLinkState.unknown;
   bool healthSyncEnabled = false;
-  static const String _kHealthSync = 'health_sync';
+  // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
+  // switch from callers that never see this class.
+  static const String _kHealthSync = kHealthSyncPref;
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;

@@ -146,7 +146,7 @@ class _JournalComposeState extends State<JournalCompose> {
                       children: [
                         MoodPicker(
                           value: _values['mood']?.value.round(),
-                          onChanged: (v) => _set('mood', v.toDouble()),
+                          onChanged: (v) => _set('mood', v?.toDouble()),
                         ),
                         Section(
                           'Today',
@@ -237,7 +237,13 @@ class MoodPicker extends StatelessWidget {
   const MoodPicker({super.key, this.value, required this.onChanged});
 
   final int? value;
-  final ValueChanged<int> onChanged;
+
+  /// Null means "clear it". A mis-tap used to be permanent: every face wrote a
+  /// mood and none of them could write absence back, so the only way out of a
+  /// mood you never meant to log was to pick a different wrong one. Tapping
+  /// the selected face again takes it back to not-answered — the same rule the
+  /// [FieldStepper] uses when it steps down off zero.
+  final ValueChanged<int?> onChanged;
 
   static const _faces = [
     LucideIcons.frown,
@@ -261,7 +267,9 @@ class MoodPicker extends StatelessWidget {
           ),
           const SizedBox(height: S.x1),
           Text(
-            value == null ? 'Not answered yet' : 'Mood $value of 5',
+            value == null
+                ? 'Not answered yet'
+                : 'Mood $value of 5 · tap it again to clear',
             style: F.cap.copyWith(color: p.ink3),
           ),
           const SizedBox(height: S.x4),
@@ -270,8 +278,10 @@ class MoodPicker extends StatelessWidget {
               for (var i = 0; i < 5; i++) ...[
                 Expanded(
                   child: Pressable(
-                    semanticLabel: 'Mood ${i + 1} of 5',
-                    onTap: () => onChanged(i + 1),
+                    semanticLabel: value == i + 1
+                        ? 'Mood ${i + 1} of 5, selected. Activate to clear.'
+                        : 'Mood ${i + 1} of 5',
+                    onTap: () => onChanged(value == i + 1 ? null : i + 1),
                     child: AnimatedContainer(
                       duration: motion(c, Motion.base),
                       height: S.tap,

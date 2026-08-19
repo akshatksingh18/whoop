@@ -247,7 +247,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
         // door instead of two.
         MoodPicker(
           value: _todayFields['mood']?.value.round(),
-          onChanged: (v) => _setField('mood', v.toDouble()),
+          onChanged: (v) => _setField('mood', v?.toDouble()),
         ),
         const SizedBox(height: S.x4),
         ActionCard(

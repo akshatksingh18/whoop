@@ -71,16 +71,13 @@ object NativeChannels {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> {
-                        val intent = Intent(app, EdgeTrackingService::class.java)
                         // Route workout live → the FGS also claims the location type
-                        // (see EdgeTrackingService.EXTRA_LOCATION).
-                        val location = call.argument<Boolean>("location") == true
-                        intent.putExtra(EdgeTrackingService.EXTRA_LOCATION, location)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            app.startForegroundService(intent)
-                        } else {
-                            app.startService(intent)
-                        }
+                        // (see EdgeTrackingService.EXTRA_LOCATION). Dart always sends
+                        // the flag, so the extra is always set (authoritative).
+                        EdgeTrackingService.start(
+                            app,
+                            call.argument<Boolean>("location") == true,
+                        )
                         result.success(null)
                     }
                     "stop" -> {

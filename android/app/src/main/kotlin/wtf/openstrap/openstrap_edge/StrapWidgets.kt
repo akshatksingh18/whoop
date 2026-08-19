@@ -186,7 +186,10 @@ internal object StrapWidgets {
     fun hm(min: Int): String {
         if (min < 0) return ""
         if (min < 60) return "${min}m"
-        return String.format("%dh %02dm", min / 60, min % 60)
+        // Locale.ROOT: default-locale %d emits localized digit shapes (ar/fa/bn),
+        // diverging from the plain "$x" templates beside it — two digit systems
+        // on one widget. The iOS sibling formats invariantly.
+        return String.format(java.util.Locale.ROOT, "%dh %02dm", min / 60, min % 60)
     }
 
     // ── ring renderer ────────────────────────────────────────────────────────

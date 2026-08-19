@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 /**
  * Foreground service that keeps the app process alive while backgrounded so the live
@@ -77,15 +78,19 @@ class EdgeTrackingService : Service() {
         var running: Boolean = false
             private set
 
-        /** Start the foreground service (idempotent). */
+        /**
+         * Start the foreground service (idempotent). The ONE entry point —
+         * BootReceiver / TaskerReceiver / NativeChannels route through here
+         * instead of hand-rolling the SDK_INT >= O branch (ContextCompat owns
+         * that check). [location] non-null sets EXTRA_LOCATION (authoritative,
+         * see its tri-state doc); null omits the extra so a live session's
+         * mode is inherited.
+         */
         @JvmStatic
-        fun start(context: Context) {
+        fun start(context: Context, location: Boolean? = null) {
             val intent = Intent(context, EdgeTrackingService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            if (location != null) intent.putExtra(EXTRA_LOCATION, location)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -148,6 +153,23 @@ class EdgeTrackingService : Service() {
             // crash the process over a keep-alive notification.
             Log.w(TAG, "startForeground failed: $e")
         }
+        // AFTER startForeground, so the 5 s foreground-service deadline is met
+        // before any heavier work runs on the main thread:
+        //
+        // Engine warm-up — the tracking service is the one headless path that
+        // genuinely needs Dart (the BLE session lives there); moved here from
+        // EdgeApplication.onCreate so widget alarms / worker runs / CDM binds in
+        // a dead process stay lightweight broadcasts instead of each cold-booting
+        // a full FlutterEngine + Dart main(). Idempotent.
+        EdgeApplication.ensureEngine(this)
+        // Watchdog (re-)schedule. In onStartCommand, not onCreate, deliberately:
+        // it must also run when a start lands on an ALREADY-RUNNING service —
+        // e.g. re-pairing after an unpair whose EdgeTracking.stop() silently
+        // failed, where the worker has already cancelled its own chain and a
+        // fresh onCreate never fires. KEEP policy makes the repeat free.
+        // (EdgeApplication gates its own schedule on the paired flag; the worker
+        // cancels itself when unpaired.)
+        KeepAliveWorker.schedule(applicationContext)
         // STICKY: recreate after an OS kill so the headless engine reconnects the
         // band without waiting for the user to reopen the app.
         return START_STICKY

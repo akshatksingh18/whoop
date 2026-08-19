@@ -1000,7 +1000,39 @@ class DeriveDebouncer {
     // tier. This tier takes priority over fresh/stale whenever foreground.
     this.foregroundQuietPeriod = const Duration(seconds: 5),
     this.foregroundMaxWait = const Duration(seconds: 15),
+    // A FOURTH tier: explicitly backgrounded (Android — the foreground service
+    // keeps capture running with no OS deferral, see DeriveScheduler). Nobody
+    // can see a fresh number while backgrounded, the queued jobs are durable,
+    // and the foreground flip re-evaluates immediately (the engine pokes the
+    // timer in setBackground) — so the only thing a fast background cadence
+    // buys is widget/Health-Connect freshness, which tolerates ~45 min. This
+    // is what caps the all-night light-derive churn (one pass per maxWait
+    // instead of one per 5-min fresh window).
+    this.backgroundQuietPeriod = const Duration(minutes: 20),
+    this.backgroundMaxWait = const Duration(minutes: 45),
   });
+
+  final Duration backgroundQuietPeriod;
+  final Duration backgroundMaxWait;
+
+  /// The (quietPeriod, maxWait) pair for the current tier. One copy of the
+  /// tier priority: foreground > backgrounded > stale/fresh.
+  ({Duration quietPeriod, Duration maxWait}) _tierFor({
+    required Duration dataStaleness,
+    required bool isForeground,
+    required bool isBackgrounded,
+  }) {
+    if (isForeground) {
+      return (quietPeriod: foregroundQuietPeriod, maxWait: foregroundMaxWait);
+    }
+    if (isBackgrounded) {
+      return (quietPeriod: backgroundQuietPeriod, maxWait: backgroundMaxWait);
+    }
+    final staleMode = dataStaleness >= staleThreshold;
+    return staleMode
+        ? (quietPeriod: staleQuietPeriod, maxWait: staleMaxWait)
+        : (quietPeriod: freshQuietPeriod, maxWait: freshMaxWait);
+  }
 
   /// Should we derive now, given the pending-record bookkeeping?
   ///   [hasPending]       — records persisted since the last derive
@@ -1009,27 +1041,51 @@ class DeriveDebouncer {
   ///   [isForeground]     — the app is actively in the foreground right now;
   ///                        takes priority over the fresh/stale staleness
   ///                        tiers when true (see foregroundQuietPeriod doc)
+  ///   [isBackgrounded]   — the app is explicitly backgrounded (engine
+  ///                        setBackground); slowest tier, second in priority
   bool shouldDerive({
     required bool hasPending,
     required Duration sinceLastRecord,
     required Duration sinceFirstPending,
     required Duration dataStaleness,
     bool isForeground = false,
+    bool isBackgrounded = false,
   }) {
     if (!hasPending) return false;
-    Duration quietPeriod;
-    Duration maxWait;
-    if (isForeground) {
-      quietPeriod = foregroundQuietPeriod;
-      maxWait = foregroundMaxWait;
-    } else {
-      final staleMode = dataStaleness >= staleThreshold;
-      quietPeriod = staleMode ? staleQuietPeriod : freshQuietPeriod;
-      maxWait = staleMode ? staleMaxWait : freshMaxWait;
-    }
-    if (sinceLastRecord >= quietPeriod) return true; // stream went quiet
-    if (sinceFirstPending >= maxWait) return true; // never-quiet floor
+    final tier = _tierFor(
+      dataStaleness: dataStaleness,
+      isForeground: isForeground,
+      isBackgrounded: isBackgrounded,
+    );
+    if (sinceLastRecord >= tier.quietPeriod) return true; // stream went quiet
+    if (sinceFirstPending >= tier.maxWait) return true; // never-quiet floor
     return false;
+  }
+
+  /// How long until [shouldDerive] could next flip true, given the same
+  /// inputs — lets the engine arm ONE one-shot timer at the exact boundary
+  /// instead of polling every 2 s for the whole pending window (which, with a
+  /// continuous background stream, was a permanent 0.5 Hz CPU wake). Clamped
+  /// to ≥1 s. Tier flips (foreground/background transitions) are handled by
+  /// the engine re-arming, not by this estimate.
+  Duration nextCheckDelay({
+    required Duration sinceLastRecord,
+    required Duration sinceFirstPending,
+    required Duration dataStaleness,
+    bool isForeground = false,
+    bool isBackgrounded = false,
+  }) {
+    final tier = _tierFor(
+      dataStaleness: dataStaleness,
+      isForeground: isForeground,
+      isBackgrounded: isBackgrounded,
+    );
+    final untilQuiet = tier.quietPeriod - sinceLastRecord;
+    final untilMax = tier.maxWait - sinceFirstPending;
+    final next = untilQuiet < untilMax ? untilQuiet : untilMax;
+    return next < const Duration(seconds: 1)
+        ? const Duration(seconds: 1)
+        : next;
   }
 }
 

@@ -48,8 +48,13 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, para
             }
         }
 
-        private fun hasPairedDevice(context: Context): Boolean {
-            // Flutter SharedPreferences file name + key prefix (see BootReceiver).
+        /**
+         * Whether Dart has a band paired. Flutter SharedPreferences writes to
+         * "FlutterSharedPreferences.xml" with keys prefixed "flutter.".
+         * Internal: EdgeApplication and BootReceiver gate on the same check.
+         */
+        @JvmStatic
+        internal fun hasPairedDevice(context: Context): Boolean {
             val prefs = context.getSharedPreferences(
                 "FlutterSharedPreferences",
                 Context.MODE_PRIVATE,
@@ -60,7 +65,17 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, para
 
     override fun doWork(): Result {
         val ctx = applicationContext
-        if (!hasPairedDevice(ctx)) return Result.success() // nothing to keep alive
+        if (!hasPairedDevice(ctx)) {
+            // Unpaired: there is nothing to keep alive, ever — cancel the chain
+            // rather than waking a dead process every ~15 min for the life of the
+            // install. Pairing re-schedules via EdgeTrackingService.onCreate.
+            try {
+                WorkManager.getInstance(ctx).cancelUniqueWork(WORK_NAME)
+            } catch (e: Exception) {
+                Log.w(TAG, "cancel failed: $e")
+            }
+            return Result.success()
+        }
         if (EdgeTrackingService.running) return Result.success() // healthy
         return try {
             Log.i(TAG, "paired but service not running — restarting EdgeTrackingService")

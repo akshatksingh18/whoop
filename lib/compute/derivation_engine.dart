@@ -1812,7 +1812,11 @@ class DerivationEngine {
       
     Trace? runTrace;
     try {
-      if (Firebase.apps.isNotEmpty) {
+      // Heavy/force passes only. Light passes run many times a day (including
+      // all night in the background), and each trace is buffered + eventually
+      // uploaded — periodic radio wakeups from a local-first app, for timings
+      // the _diag map already captures locally.
+      if (Firebase.apps.isNotEmpty && (heavy || force)) {
         runTrace = FirebasePerformance.instance.newTrace('derivation_engine_run');
         await runTrace.start();
         runTrace.putAttribute('mode', force ? 'force' : (heavy ? 'heavy' : 'light'));

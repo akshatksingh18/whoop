@@ -32,6 +32,10 @@ class MainActivity : FlutterFragmentActivity() {
     override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The shared engine is created lazily now (EdgeApplication.ensureEngine).
+        // getCachedEngineId() is consulted during super.onCreate, so the cache
+        // entry must exist before it runs.
+        EdgeApplication.ensureEngine(applicationContext)
         activityAttached = true
         clearPendingHeadlessBoot()
         super.onCreate(savedInstanceState)

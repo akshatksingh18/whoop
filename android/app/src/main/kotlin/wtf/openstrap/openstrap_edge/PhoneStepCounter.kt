@@ -186,11 +186,13 @@ object PhoneStepCounter : SensorEventListener {
         if (registered || !permitted(app)) return
         val sm = app.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val s = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return
-        // BATCHED. The 60 s is maxReportLatency, not a sampling rate: the sensor hub
-        // accumulates while the application processor sleeps and delivers in one go,
-        // so this costs approximately nothing. Today's count therefore trails real
-        // life by up to a minute, which no screen can tell.
-        registered = sm.registerListener(this, s, SensorManager.SENSOR_DELAY_NORMAL, 60_000_000)
+        // BATCHED. The 5 min is maxReportLatency, not a sampling rate: the sensor hub
+        // accumulates while the application processor sleeps and delivers in one go.
+        // Attribution granularity is already the 5-min bucket (BUCKET_MS), so a 5-min
+        // latency loses nothing over the old 60 s — and each delivery rewrites the
+        // whole prefs XML (thousands of bucket keys at steady state), so 5× fewer AP
+        // wakes is also 5× fewer full-file flash writes, 24/7.
+        registered = sm.registerListener(this, s, SensorManager.SENSOR_DELAY_NORMAL, 300_000_000)
     }
 
     /**

@@ -26,7 +26,11 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // unbinds the NotificationListenerService (it does this routinely over time).
   static const MethodChannel _pluginChannel =
       MethodChannel('x-slayer/notifications_channel');
-  static const Duration _healEvery = Duration(seconds: 120);
+  // 15 min, not 120 s: the heal is a belt-and-braces rebind for a listener
+  // Android rarely unbinds, foreground resume already heals eagerly, and a
+  // missed buzz during the window costs nothing — while the timer itself ran
+  // a platform-channel round trip forever in an always-alive process.
+  static const Duration _healEvery = Duration(minutes: 15);
   Timer? _healTimer;
 
   /// Fire the strap haptic. Wired by AppState to `engine.buzz()`. Best-effort.
@@ -176,7 +180,14 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // stream down so we're not holding a system callback for nothing. Also runs a
   // periodic heal so a system-unbound listener gets re-armed while we're alive.
   void _resync() {
-    final shouldListen = supported && _enabled && _granted;
+    // [active] (which includes `_packages.isNotEmpty`), not just
+    // enabled+granted: with ZERO apps selected the feature can never produce a
+    // buzz, yet it used to hold the stream subscription (every phone
+    // notification crossing the platform channel into Dart just to be
+    // discarded) and the heal timer, forever, in a process the FGS keeps
+    // alive. setAppEnabled calls back in here, so selecting the first app
+    // arms everything again.
+    final shouldListen = active;
     if (shouldListen) {
       _startListening();
       _healTimer ??= Timer.periodic(_healEvery, (_) => _heal());

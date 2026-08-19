@@ -117,6 +117,9 @@ void main() {
       sink: (_) async {},
       batchSize: 100,
       zoneNow: () => 3,
+      // Fixes land within one wall-clock second here — disable the ~1/s path
+      // throttle so per-fix vertices can be asserted.
+      pathEmitEvery: Duration.zero,
     );
     t.start(ctrl.stream);
 
@@ -143,6 +146,7 @@ void main() {
       batchSize: 100,
       maxJumpM: 200,
       rejectStreakLimit: 3,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
     );
     t.start(ctrl.stream);
 
@@ -176,7 +180,12 @@ void main() {
   test('speed-based allowance: a far fix after a LONG gap is plausible travel '
       '(distance counted, no segment break)', () async {
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(sink: (_) async {}, batchSize: 100, maxJumpM: 200);
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      maxJumpM: 200,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
+    );
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0));
@@ -415,6 +424,7 @@ void main() {
       sink: (_) async {},
       batchSize: 100,
       minMovementM: 5,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
     );
     t.start(ctrl.stream);
 
@@ -444,7 +454,12 @@ void main() {
     // movement starts contributes exactly ONE vertex (the anchor), not one
     // per fix.
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(sink: (_) async {}, batchSize: 100, minMovementM: 5);
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      minMovementM: 5,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
+    );
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0, stepMeters: 0));

@@ -269,7 +269,7 @@ void main() {
       addTo(app.screenRequest.addListener);
       addTo(app.insightsRevision.addListener);
       addTo(app.gestureSettings.addListener);
-      // NotificationRelay holds a WidgetsBindingObserver, a 120 s
+      // NotificationRelay holds a WidgetsBindingObserver, a 15-min heal
       // Timer.periodic and a StreamSubscription — its observer accumulated on
       // the binding across every hot restart.
       addTo(app.notificationRelay.addListener);

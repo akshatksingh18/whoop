@@ -5421,6 +5421,20 @@ class LiveWorkoutState {
       calories = 0.0;
       return;
     }
+    // THE gate, from the one place that defines it. This used to be the
+    // arithmetic inlined below, which is the third copy of it — and
+    // `Calories`' own docstring says a second copy is how the day and the bout
+    // came to disagree in the first place. It also got none of the anchor
+    // validation: a non-finite resting HR makes the gate NaN, every
+    // `bpm < gate` is then false, and EVERY sample bills at the active rate.
+    // Null means the anchors cannot define a gate, and the live gauge abstains
+    // exactly as the re-score does.
+    final gate = ana.Calories.activeGateHr(maxHr, rhr);
+    if (gate == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
     if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
       _caloriesScored = false;
       calories = 0.0;
@@ -5434,7 +5448,6 @@ class LiveWorkoutState {
     // floor. Defaulted to match `computeManualSessionStats`, so the two paths
     // cannot disagree for a profile that carries no height.
     final heightCm = profile.heightCm ?? 170.0;
-    final gate = rhr + ana.Calories.activeHRRFraction * (maxHr - rhr);
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
 

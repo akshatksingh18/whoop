@@ -1278,8 +1278,13 @@ const int kAlgoVersion = 75;
 // level under strain instead of a population constant that scored a day with
 // no activity at all somewhere between 6.9 and 12.1 out of 21. protocol: v25
 // stops emitting a gravity vector from offsets that were refuted on real data.
-const String kAnalyticsPin = '0a303151e0d22ceeb3a1cf92f820baea0a73098d';
-const String kProtocolPin = '60676cfb37fe7650e949d53b7f2faef2bed74f09';
+// Both siblings moved again after their own review passes, and kAlgoVersion
+// deliberately did NOT: those fixes reject NaN and ±inf, which no sensor ever
+// produced and no baseline ever held. For a user whose data is valid, every
+// number out of both packages is byte-identical, so a bump would invalidate
+// every stored day to recompute the same answers.
+const String kAnalyticsPin = '3174a493472a5e6280b11a0ab11fec82483507e1';
+const String kProtocolPin = 'c761f29bcbed73886b1b059dcd9e92e4333574f5';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -4734,6 +4739,10 @@ class DerivationEngine {
       restingHr: restingHr,
       dayMinutes: dayMinutes ?? 1440,
     );
+    // Anchors that cannot define an active gate are an ABSENT day's energy,
+    // not a day billed entirely as active. `dailyEnergy` abstains; so does the
+    // day, which is what every other caller of this method already expects.
+    if (e == null) return null;
     return (active: e.active, basal: e.basal, total: e.total);
   }
 

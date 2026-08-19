@@ -221,7 +221,9 @@ void main() {
     // HRmax and is now a fraction of heart-rate reserve, and this test failed
     // the day that changed — it was still straddling a boundary that had moved
     // 13 bpm away, which is a test pinning arithmetic instead of behaviour.
-    final gate = ana.Calories.activeGateHr(_hrMax, _restingHr);
+    // `!` — the fixture's anchors are a real pair, so a null here would mean
+    // the gate stopped being definable for ordinary numbers.
+    final gate = ana.Calories.activeGateHr(_hrMax, _restingHr)!;
     final above = gate.ceil() + 1;
     final below = gate.floor() - 1;
     final sawtooth = <int>[

@@ -744,7 +744,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         ),
         hrmax: hrMax,
         restingHr: rhrForTrimp,
-      ).active; // active-energy component (Keytel surplus over basal)
+        // `?.` — `dailyEnergy` abstains outright when the anchors cannot
+        // define a gate, rather than billing every waking minute as active.
+        // Absent stays absent here, same as every other input on this seam.
+      )?.active; // active-energy component (Keytel surplus over basal)
     }
   }
 

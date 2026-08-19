@@ -490,4 +490,60 @@ void main() {
       }
     });
   });
+
+  // The other half of #160/#199: the file was classified correctly here and
+  // then handed to the wrong importer anyway, because the router read the
+  // extension. What a file HOLDS decides now.
+  group('isNoopExport ignores the extension', () {
+    test('a NOOP raw-sensor CSV is claimed whatever it is called', () async {
+      final path = await write(
+        'export (1).csv',
+        utf8.encode('unix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n'),
+      );
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('a WHOOP My Data ZIP is NOT a NOOP export', () async {
+      final path = await write(
+        'my_whoop_data.zip',
+        _zipOf({
+          'physiological_cycles.csv': 'Cycle start time,Recovery score %\n',
+          'sleeps.csv': 'Cycle start time,Sleep performance %\n',
+          'workouts.csv': 'Workout start time,Activity name\n',
+        }),
+      );
+      expect(await isNoopExport(path), isFalse);
+    });
+
+    test('a WHOOP CSV on its own is NOT a NOOP export', () async {
+      final path = await write('sleeps.csv',
+          utf8.encode('Cycle start time,Sleep performance %\n2026-08-01,88\n'));
+      expect(await isNoopExport(path), isFalse);
+    });
+
+    test('a .noopbak is claimed by its database member', () async {
+      final path = await write(
+        'backup.noopbak',
+        _zipOf({'noop-backup.sqlite': 'SQLite format 3\x00 rows'}),
+      );
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('a loose database is claimed by its magic', () async {
+      final path =
+          await write('unnamed', utf8.encode('SQLite format 3\x00 rows'));
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('a single CSV zipped by hand is still a NOOP export', () async {
+      final path = await write('archive.zip',
+          _zipOf({'raw_sensor.csv': 'unix_s,iso_utc,stream\n1,x,hr\n'}));
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('junk is claimed by nobody here', () async {
+      final path = await write('junk.bin', [0x00, 0x01, 0x02, 0x03]);
+      expect(await isNoopExport(path), isFalse);
+    });
+  });
 }

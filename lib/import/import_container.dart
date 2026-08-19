@@ -111,6 +111,70 @@ Future<ImportContainer> sniffFile(String path) async {
   }
 }
 
+/// The header row every NOOP raw-sensor CSV starts with. Same signature the
+/// reader itself matches on (noop_import.dart), so the router and the parser
+/// cannot disagree about what a NOOP CSV is.
+const String kNoopCsvHeader = 'unix_s,';
+
+/// True when [path] is a NOOP export — judged by CONTENT, not by name.
+///
+/// The onboarding router used to switch on the extension: `.noopbak`/`.zip`
+/// meant NOOP, anything else meant the vendor importer. Both halves were wrong
+/// in opposite directions (#160, #199). NOOP's Android "raw sensor CSV" export
+/// is a plain `.csv`, so it went to the vendor importer and the user was told
+/// to re-download it with WHOOP set to English. A WHOOP "My Data" export is a
+/// ZIP of CSVs — the shape WHOOP actually hands you — so it went to the NOOP
+/// importer and was refused for holding too many files. Two confident, wrong
+/// messages for two correct files.
+///
+/// The signatures: a raw-sensor CSV starts with [kNoopCsvHeader]; a `.noopbak`
+/// (or a backup someone unpacked by hand) is a SQLite database; a WHOOP export
+/// is an archive of several named CSVs and matches neither.
+Future<bool> isNoopExport(String path) async {
+  final List<int> head;
+  final raf = await File(path).open();
+  try {
+    head = await raf.read(64);
+  } finally {
+    await raf.close();
+  }
+  switch (sniffImportContainer(head)) {
+    case ImportContainer.text:
+      return String.fromCharCodes(head).startsWith(kNoopCsvHeader);
+    case ImportContainer.sqlite:
+      return true;
+    case ImportContainer.zip:
+      return _zipHoldsNoopExport(path);
+    default:
+      // gzip, UTF-16, binary: not something the NOOP path claims. Whatever
+      // picks them up owns the message.
+      return false;
+  }
+}
+
+Future<bool> _zipHoldsNoopExport(String path) async {
+  final input = InputFileStream(path);
+  try {
+    final files =
+        ZipDecoder().decodeStream(input).files.where((f) => f.isFile);
+    // A `.noopbak` is a ZIP around NOOP's SQLite database.
+    if (files.any((f) => _isDbMember(f.name))) return true;
+    // ponytail: member COUNT, not member content. A ZIP member is deflated and
+    // this package can only inflate it whole, so reading one header line off a
+    // hundreds-of-megabyte raw export would materialise the entire thing just
+    // to classify it. A WHOOP export always ships several named CSVs; the only
+    // NOOP CSV-in-a-ZIP is one a user zipped by hand. If a single-file vendor
+    // export ever turns up, this needs a bounded member read instead.
+    return files.where((f) => _isCsvMember(f.name)).length == 1;
+  } catch (_) {
+    // Unreadable as an archive. Not a NOOP export as far as routing goes; the
+    // importer that takes it produces the message.
+    return false;
+  } finally {
+    await input.close();
+  }
+}
+
 /// True for a ZIP member we can actually parse as an export.
 bool _isCsvMember(String name) {
   final base = p.basename(name).toLowerCase();

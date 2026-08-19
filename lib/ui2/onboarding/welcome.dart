@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../import/backup_crypto.dart';
+import '../../import/import_container.dart';
 import '../../import/journal_csv_import.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -321,9 +322,16 @@ Future<ImportOutcome> runImport(
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
   final db = [...plain.where(_isDbBackup), ...decrypted];
-  final raw = plain.where(_isRawExport).toList();
-  final csv =
-      plain.where((p) => !_isDbBackup(p) && !_isRawExport(p)).toList();
+  // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
+  // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
+  // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
+  // fine, both refused, both with advice for the other file.
+  final raw = <String>[];
+  final csv = <String>[];
+  for (final p in plain) {
+    if (_isDbBackup(p)) continue;
+    (await isNoopExport(p) ? raw : csv).add(p);
+  }
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
   if (plain.any(_isDbBackup)) sources.add('OpenStrap backup');
@@ -369,6 +377,11 @@ Future<ImportOutcome> runImport(
       rejected.addAll(r.rejected.map((x) => x.toString()));
       if (!sources.contains('Journal CSV')) sources.add('Journal CSV');
     } on JournalCsvFormatException {
+      vendor.add(p);
+    } on FormatException {
+      // `readAsString` on an archive — #199's "Unexpected extension byte (at
+      // offset 10)". Vendor exports arrive as ZIPs now that routing is by
+      // content, and that path unwraps them properly.
       vendor.add(p);
     }
   }
@@ -458,11 +471,6 @@ bool _isDbBackup(String path) {
   return p.endsWith('.db') ||
       p.endsWith('.db.gz') ||
       p.contains('.db.unopenable-');
-}
-
-bool _isRawExport(String path) {
-  final p = path.toLowerCase();
-  return p.endsWith('.noopbak') || p.endsWith('.zip');
 }
 
 class WelcomeView extends StatelessWidget {

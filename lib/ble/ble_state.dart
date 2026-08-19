@@ -1296,6 +1296,60 @@ class HelloIdentity {
       '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
 }
 
+/// The bootstrap clock gate from doc 01 §"Clock contract".
+///
+/// The official client compares the timestamp hello already returned (or, as a
+/// fallback, a `GET_CLOCK` reply) against host time and writes NOTHING below
+/// two whole seconds of absolute drift: "Below 2 whole seconds, succeed with no
+/// BLE write. At 2 or more, send one `SET_CLOCK(10)`". This app used to send
+/// SET_CLOCK unconditionally on every connect, i.e. one guaranteed write per
+/// connection that the band never needed.
+///
+/// Deliberately NOT part of [ClockPolicy] (sync_policy.dart): that class owns
+/// the *repair* rules — a drift over a day, an unset RTC, a phone we do not
+/// trust — which are a different question with a different threshold. This is
+/// only the bootstrap sequence's "is a correction needed at all" step, and it
+/// sits with the rest of the doc-01 bootstrap logic ([HelloIdentity]).
+class BootstrapClockGate {
+  /// Absolute whole-second drift at or above which exactly one SET_CLOCK goes
+  /// out. Below it the bootstrap makes no BLE write at all.
+  static const int toleranceSeconds = 2;
+
+  /// [driftSec] is `wall - strapRtc` ([ClockRef.driftSec]); the sign does not
+  /// matter, only the magnitude.
+  ///
+  /// A null drift means no correlation exists at this point — hello carried no
+  /// timestamp AND the GET_CLOCK fallback went unanswered, or the reading was
+  /// rejected as implausible (an unset band RTC reads decades low and is never
+  /// correlated). That must WRITE: an unset RTC left uncorrected stamps every
+  /// record and every alarm against a clock that was never set, which is the
+  /// one outcome worse than a redundant write.
+  static bool needsCorrection(int? driftSec) =>
+      driftSec == null || driftSec.abs() >= toleranceSeconds;
+}
+
+/// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack
+/// (doc 01 §"Charging follow-up", doc 03 §`GET_BATTERY_PACK_INFO`).
+///
+/// "A response is usable only if its pack address/name field is non-empty and
+/// is not `00:00:00:00:00:00`" — the band answers the command while it is still
+/// working out what it is sitting on, so an early reply carries the all-zero
+/// address, which is why the follow-up retries at all.
+///
+/// `attached` is deliberately not part of the gate: the doc names only the
+/// address/name field, and the flag is recorded alongside the reading rather
+/// than deciding whether the reading counts.
+class BatteryPackInfoGate {
+  /// The "no pack yet" address the band answers with before it knows.
+  static const String unsetAddress = '00:00:00:00:00:00';
+
+  static bool usable({required String identifier, required String name}) {
+    final id = identifier.trim().toLowerCase();
+    if (id == unsetAddress) return false;
+    return id.isNotEmpty || name.trim().isNotEmpty;
+  }
+}
+
 /// The last `STRAP_CONDITION_REPORT(29)` event the band volunteered
 /// (doc 04 §"Type 48 — events").
 ///

@@ -96,7 +96,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 34;
+  static const int schemaVersion = 35;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -483,6 +483,12 @@ class LocalDb {
           // rebuilds decoded_onehz from an explicit column list.
           await _ensureDecodedOneHzBandFields(db);
         }
+        if (oldV < 35) {
+          // Clear the two disproven gen5 columns v34 banked, plus the -50 °C
+          // skin-temp sentinel. Data-only: the DDL is untouched, so this does
+          // NOT diverge an upgraded install's schema from a fresh one.
+          await _retireDisprovenOneHzColumns(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -606,6 +612,39 @@ class LocalDb {
       if (have.contains(e.key)) continue;
       await _addColumnIfMissing(db, 'decoded_onehz', e.key, e.value);
     }
+  }
+
+  /// v35: retire what v34 banked into `on_wrist` / `hr_valid`, and any
+  /// `skin_temp_c` that is really the sensor's unavailable sentinel.
+  ///
+  /// v34 filled `on_wrist` from gen5 v18 body 60 bits 0-1 and `hr_valid` from
+  /// body 15 bit7. Both readings are disproven: bits 0-1 are the primary-flags
+  /// bit-8 snapshot (not wear), and bit7 toggles ~50/50 independently of HR
+  /// presence across 1,587,671 retained records (not validity). `skin_temp_c`
+  /// could likewise hold the AS6221 -50.00 °C unavailable/error code, which is
+  /// not a temperature. The writer stopped emitting all three
+  /// (`sampleFromGen5Historical`); this clears what it already stored, so no
+  /// future reader can pick up a confident answer the data never supported.
+  ///
+  /// DDL-NEUTRAL on purpose: the columns stay, nullable, exactly as v34 created
+  /// them, so a fresh install and an upgraded one still end at the same schema
+  /// (the fields remain the right shape should an honest source ever appear).
+  /// Idempotent — a second run matches no rows. Cheap enough for the iOS
+  /// open-database watchdog: `decoded_onehz` is bounded by `rawRetentionDays`,
+  /// this is one scan, and it writes only the rows that carry a value.
+  static Future<void> _retireDisprovenOneHzColumns(Database db) async {
+    final have = await _columnsOf(db, 'decoded_onehz');
+    // Pre-v34 tables never had the columns; nothing to retire.
+    if (!have.contains('on_wrist')) return;
+    await db.execute(
+      'UPDATE decoded_onehz SET '
+      'on_wrist = NULL, '
+      'hr_valid = NULL, '
+      'skin_temp_c = CASE WHEN skin_temp_c <= -49.995 THEN NULL '
+      'ELSE skin_temp_c END '
+      'WHERE on_wrist IS NOT NULL OR hr_valid IS NOT NULL '
+      'OR skin_temp_c <= -49.995',
+    );
   }
 
   static Future<void> _ensureDayResultSkippedColumn(Database db) =>
@@ -2255,6 +2294,13 @@ class LocalDb {
     // Every band-computed column above is NULLABLE ON PURPOSE: only a gen5 band
     // sends them, and a gen4 row must read back as "not reported", not as zero
     // steps / 0 °C / "off wrist". No DEFAULT, ever.
+    //
+    // `on_wrist` and `hr_valid` currently have NO honest writer at all — the
+    // gen5 v18 bits once mapped onto them are disproven (see
+    // `sampleFromGen5Historical` and _retireDisprovenOneHzColumns), so every
+    // row written from v35 on stores NULL. The columns are kept, nullable and
+    // correctly shaped, for a source that can actually supply them; they are
+    // NOT a place to park a plausible-looking bit.
     await _ensureDecodedOneHzBandFields(db);
     // Forensic-only lookup by the raw counter; not on any read path.
     await db.execute(

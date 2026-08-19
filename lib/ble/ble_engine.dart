@@ -118,9 +118,26 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     stepCount: g.stepMotionCounter,
     stepCadence: g.stepCadence,
     activityClass: g.activityClassKnown, // null for the unclassified code
-    skinTempC: g.skinTempC,
-    onWrist: g.onWristRaw,
-    hrValid: g.hrRrValidThisSecond,
+    // -50.00 °C is the AS6221 unavailable/error SENTINEL, not a reading, so the
+    // honest accessor abstains on it and the column stores NULL. Persisting the
+    // sentinel verbatim would put a number 70 °C below any wrist into a
+    // temperature column, where nothing downstream could tell it from data.
+    skinTempC: g.skinTempCOrNull,
+    // `onWrist` and `hrValid` are DELIBERATELY LEFT UNSET. v18 carries no
+    // honest source for either, and both readings we once used are disproven
+    // (see Gen5HistorySample's deprecation notices in protocol):
+    //   • body 60 bits 0-1 (`onWristRaw`) are the primary-flags bit-8 snapshot,
+    //     not wear. Wear truth comes from the HELLO body, the wrist on/off
+    //     events, and the streams being wear-gated — none of it per-second.
+    //   • body 15 bit7 (`hrRrValidThisSecond`) is not HR/RR validity: across
+    //     1,587,671 retained records it toggles ~50/50 independently of HR
+    //     presence, and 752,820 records carried a valid HR with the bit CLEAR.
+    //     HR presence is `heartRate` in 25..230 — which the decoder already
+    //     enforces on `hr`, and which every reader derives from `hr` itself;
+    //     per-second signal quality is `signalQualityLogVariance`.
+    // NULL here means "the band never told us", which is the truth. Setting
+    // them from those bits is what turned a coin-flip into a confident wear /
+    // validity answer downstream.
     hrAlt: g.heartRateAlt,
   );
 }
@@ -407,6 +424,10 @@ class _Session {
   // initial `disconnected` that flutter_blue_plus replays on listen.
   bool sawConnected = false;
   bool intentionalClose = false;
+  /// Whether the doc-01 charging follow-up (GET_BATTERY_PACK_INFO) has already
+  /// been launched for THIS session. Session-scoped so a second bootstrap on
+  /// the same link cannot start a second retry loop against the same band.
+  bool batteryPackFollowUpStarted = false;
 
   _Session(this.device);
 
@@ -856,6 +877,20 @@ class BleEngine {
   @visibleForTesting
   Future<bool> debugReadGen5Hello() => _readGen5Hello();
 
+  /// Drive the real doc-01 bootstrap that follows notification registration:
+  /// the observed 500 ms delay, HELLO, the clock decision, the final
+  /// advertising-name read and the charging follow-up.
+  ///
+  /// The ORDER of those steps, and which of them make a BLE write at all, is
+  /// the whole contract of doc 01 §"Phase sequence" — and it lives behind a
+  /// radio otherwise, because the only caller is the connect path.
+  @visibleForTesting
+  Future<bool> debugBootstrapAfterRegistration() {
+    final session = _session;
+    if (session == null) return Future.value(false);
+    return _bootstrapAfterRegistration(session);
+  }
+
   /// Feed one inbound historical frame through the real ingest path (decode →
   /// plausibility gate → store or archive).
   ///
@@ -1128,9 +1163,34 @@ class BleEngine {
   int _helloFailures = 0;
   static const int kHelloFailuresBeforeBondReset = 5;
 
+  /// doc 01 §"The two delays": the official client waits **600 ms** after the
+  /// bond, before notification registration, and **500 ms** after the last
+  /// registration before running the higher-level state machine — on a captured
+  /// link GET_HELLO went out 585 ms after the final CCC write. These are
+  /// OBSERVED client delays; the doc says outright that "the firmware rationale
+  /// is not documented", so they are applied on gen5 only rather than
+  /// perturbing the proven gen4 flow for a reason nobody can state.
+  static const Duration kGen5PreRegistrationDelay = Duration(milliseconds: 600);
+  static const Duration kGen5PostRegistrationDelay =
+      Duration(milliseconds: 500);
+
+  /// doc 01 §"Charging follow-up": while the band reports charging, ask it what
+  /// battery pack it is on — "five attempts, 5,000 ms between attempts", and
+  /// "every unusable attempt is followed by the 5-second delay, including the
+  /// fifth". Purely advisory: a missing or invalid result "must not move the
+  /// band out of READY".
+  static const int kBatteryPackInfoAttempts = 5;
+  static const Duration kBatteryPackInfoRetryDelay = Duration(seconds: 5);
+
   /// The identity verdict from the last successful hello (doc 01 "What gates
   /// READY") — observable, never a disconnect. Null until a hello lands.
   HelloIdentity? _helloIdentity;
+
+  /// The last USABLE `GET_BATTERY_PACK_INFO(151)` reply (doc 01 §"Charging
+  /// follow-up") and when it landed. Diagnostics only — surfaced in
+  /// [offloadSnapshot], never gating READY or anything else.
+  BatteryPackInfoResponse? _batteryPack;
+  int? _batteryPackTs;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   // Run-state for a chain of auto-continued offload rounds: how many
@@ -1387,6 +1447,16 @@ class BleEngine {
     'hello_failures': _helloFailures,
     'hello_identity_ok': _helloIdentity?.ok,
     'hello_serial_eeprom_failure': _helloIdentity?.eepromFailureSignal,
+    // doc 01 §"Charging follow-up": what the band answered about the puck it
+    // was sitting on. Absent until a USABLE reply lands (see
+    // [BatteryPackInfoGate]); never a readiness input.
+    'battery_pack_attached': _batteryPack?.attached,
+    'battery_pack_address': _batteryPack?.identifier,
+    'battery_pack_name': _batteryPack?.name,
+    'battery_pack_type': _batteryPack?.batteryPackType?.name,
+    'battery_pack_type_raw': _batteryPack?.batteryPackTypeRaw,
+    'battery_pack_status': _batteryPack?.statusRaw,
+    'battery_pack_ts': _batteryPackTs,
     'pending_commands': _awaiter.pendingKeys,
   };
 
@@ -1661,83 +1731,24 @@ class BleEngine {
         return false;
       }
 
+      // doc 01 §"The two delays" (gen5 only — see [kGen5PreRegistrationDelay]):
+      // the bond is complete by here, so this is the 600 ms that precedes
+      // notification registration.
+      if (band.isGen5 &&
+          !await _bootstrapPause(
+            session,
+            kGen5PreRegistrationDelay,
+            'the pre-registration delay',
+          )) {
+        return false;
+      }
       _setPhase(BleConnState.subscribing);
       await _subscribe(session, cmdFrom, 'cmd_from');
       await _subscribe(session, events, 'events');
       await _subscribe(session, data, 'data');
 
-      _setPhase(BleConnState.settingUp);
-      // Set the strap RTC to real wall-clock time. The band ships with an unset
-      // clock; SET_CLOCK is non-destructive (it's what the official app does each
-      // connect). Records stamped after this carry real unix time.
-      _clockCorrectTries = 0; // fresh retry budget for this connection
-      // Drop the previous session's clock correlation so an alarm armed before
-      // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
-      // (drift 0) instead of the stale strap-RTC frame. The reads below
-      // repopulate it for this connection.
-      _clockRef = null;
-      _gen5Hello = null;
-      // HELLO FIRST on gen5 — the official bootstrap order (doc 01). Hello
-      // carries the strap's own timestamp, so it answers the "what time does
-      // the band think it is" question that the GET_CLOCK below exists to ask,
-      // and it carries identity/battery/charge/on-body state that everything
-      // after this wants. The app used to send it late, inside INIT, so none of
-      // that was available here and gen5 had no serial or battery at connect.
-      //
-      // Best effort: a failed or unanswered hello falls through to the ordinary
-      // clock read, which is what the official client does when hello supplies
-      // no timestamp. Nothing below is gated on it.
-      if (session.band.isGen5) {
-        await _readGen5Hello();
-        if (_session != session || !session.connected) {
-          _log('link dropped during gen5 HELLO — abandoning setup.');
-          if (identical(_session, session)) await _failConnect();
-          return false;
-        }
-      }
-      // READ BEFORE WRITE. This used to be an unconditional SET_CLOCK, which is
-      // precisely the write [ClockPolicy.phoneClockSuspect] says we must never
-      // make: on a phone running >1 day slow it stamps that slow time onto a
-      // CORRECT strap RTC — and worse, it destroys the evidence, because the
-      // read-back then "agrees" and every later suspect-clock gate sees a
-      // healthy pair. Read first; skip the write while the PHONE is the suspect
-      // one. Unset/behind/garbage-low RTCs are unaffected (not suspect) and are
-      // still corrected here and by the clock_epoch handler's bounded re-issue.
-      // _readClock waits on a real reply now — up to _clockReadTimeout, where
-      // this used to be a 120 ms sleep. That is a much wider window for the
-      // link to drop underneath us, and setClock() absorbs failed writes, so
-      // without these checks setup would carry on past a teardown, rebuild the
-      // drain state and hand back `true` for a dead connection.
-      // Hello already answered this on gen5, so skip the round trip — the
-      // official client only falls back to GET_CLOCK when hello carried no
-      // timestamp. Feed hello's clock through the same handler the GET_CLOCK
-      // reply uses, so the suspect-phone and unset-RTC verdicts are computed
-      // from one place regardless of which command supplied the epoch.
-      final helloClock = _gen5Hello?.tsSeconds;
-      if (helloClock != null && helloClock > 0) {
-        _absorbClockEpoch(helloClock);
-      } else {
-        await _readClock();
-      }
-      if (_session != session || !session.connected) {
-        _log('link dropped during the clock read — abandoning setup.');
-        // Tear down ONLY if we are still the live session. `_failConnect`
-        // teardown+band-release act on whatever `_session` currently points
-        // at, so a newer `_doConnect` that already took over would have its
-        // link killed and its band claim dropped by this stale invocation.
-        if (identical(_session, session)) await _failConnect();
-        return false;
-      }
-      if (!_deferForClock) await setClock();
-      if (_session != session || !session.connected) {
-        _log('link dropped during SET_CLOCK — abandoning setup.');
-        // Tear down ONLY if we are still the live session. `_failConnect`
-        // teardown+band-release act on whatever `_session` currently points
-        // at, so a newer `_doConnect` that already took over would have its
-        // link killed and its band claim dropped by this stale invocation.
-        if (identical(_session, session)) await _failConnect();
-        return false;
-      }
+      if (!await _bootstrapAfterRegistration(session)) return false;
+      // Fresh clock verification stamp — see kRtcReverifyIntervalSeconds.
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
@@ -1854,6 +1865,247 @@ class BleEngine {
       await _failConnect();
       return false;
     }
+  }
+
+  // ── bootstrap (doc 01 §"Phase sequence") ────────────────────────────────────
+
+  /// One of doc 01's two observed bootstrap delays, with the same stale-session
+  /// check every neighbouring step carries: a link that drops during the sleep
+  /// aborts setup instead of letting it run on against a dead connection.
+  ///
+  /// Returns false when the session is gone (the caller must return false too;
+  /// teardown has already happened here).
+  Future<bool> _bootstrapPause(
+    _Session session,
+    Duration delay,
+    String what,
+  ) async {
+    await Future.delayed(delay);
+    if (_session != session || !session.connected) {
+      _log('link dropped during $what — abandoning setup.');
+      // Tear down ONLY if we are still the live session — a newer _doConnect
+      // that already took over must not have its link killed by this one.
+      if (identical(_session, session)) await _failConnect();
+      return false;
+    }
+    return true;
+  }
+
+  /// Everything doc 01's phase sequence puts between the last CCC write and
+  /// READY: the 500 ms post-registration delay, GET_HELLO, the clock decision,
+  /// the final advertising-name read and the charging follow-up.
+  ///
+  /// Lifted out of [_doConnect] because this ORDER is the contract doc 01
+  /// specifies — and as inline statements inside a 400-line connect the only
+  /// way to check it was against a radio.
+  ///
+  /// Returns false when the link died under one of the steps; the session has
+  /// already been torn down in that case.
+  Future<bool> _bootstrapAfterRegistration(_Session session) async {
+    // doc 01 §"The two delays": 500 ms after the last registration, before the
+    // higher-level state machine runs. gen5 only — see the constant.
+    if (session.band.isGen5 &&
+        !await _bootstrapPause(
+          session,
+          kGen5PostRegistrationDelay,
+          'the post-registration delay',
+        )) {
+      return false;
+    }
+    _setPhase(BleConnState.settingUp);
+    // Set the strap RTC to real wall-clock time. The band ships with an unset
+    // clock; SET_CLOCK is non-destructive (it's what the official app does each
+    // connect). Records stamped after this carry real unix time.
+    _clockCorrectTries = 0; // fresh retry budget for this connection
+    // Drop the previous session's clock correlation so an alarm armed before
+    // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
+    // (drift 0) instead of the stale strap-RTC frame. The reads below
+    // repopulate it for this connection.
+    _clockRef = null;
+    _gen5Hello = null;
+    // HELLO FIRST on gen5 — the official bootstrap order (doc 01). Hello
+    // carries the strap's own timestamp, so it answers the "what time does
+    // the band think it is" question that the GET_CLOCK below exists to ask,
+    // and it carries identity/battery/charge/on-body state that everything
+    // after this wants. The app used to send it late, inside INIT, so none of
+    // that was available here and gen5 had no serial or battery at connect.
+    //
+    // Best effort: a failed or unanswered hello falls through to the ordinary
+    // clock read, which is what the official client does when hello supplies
+    // no timestamp. Nothing below is gated on it.
+    if (session.band.isGen5) {
+      await _readGen5Hello();
+      if (_session != session || !session.connected) {
+        _log('link dropped during gen5 HELLO — abandoning setup.');
+        if (identical(_session, session)) await _failConnect();
+        return false;
+      }
+    }
+    // READ BEFORE WRITE. This used to be an unconditional SET_CLOCK, which is
+    // precisely the write [ClockPolicy.phoneClockSuspect] says we must never
+    // make: on a phone running >1 day slow it stamps that slow time onto a
+    // CORRECT strap RTC — and worse, it destroys the evidence, because the
+    // read-back then "agrees" and every later suspect-clock gate sees a
+    // healthy pair. Read first; skip the write while the PHONE is the suspect
+    // one. Unset/behind/garbage-low RTCs are unaffected (not suspect) and are
+    // still corrected here and by the clock_epoch handler's bounded re-issue.
+    // _readClock waits on a real reply now — up to _clockReadTimeout, where
+    // this used to be a 120 ms sleep. That is a much wider window for the
+    // link to drop underneath us, and setClock() absorbs failed writes, so
+    // without these checks setup would carry on past a teardown, rebuild the
+    // drain state and hand back `true` for a dead connection.
+    // Hello already answered this on gen5, so skip the round trip — the
+    // official client only falls back to GET_CLOCK when hello carried no
+    // timestamp. Feed hello's clock through the same handler the GET_CLOCK
+    // reply uses, so the suspect-phone and unset-RTC verdicts are computed
+    // from one place regardless of which command supplied the epoch.
+    final helloClock = _gen5Hello?.tsSeconds;
+    if (helloClock != null && helloClock > 0) {
+      _absorbClockEpoch(helloClock);
+    } else {
+      await _readClock();
+    }
+    if (_session != session || !session.connected) {
+      _log('link dropped during the clock read — abandoning setup.');
+      // Tear down ONLY if we are still the live session. `_failConnect`
+      // teardown+band-release act on whatever `_session` currently points
+      // at, so a newer `_doConnect` that already took over would have its
+      // link killed and its band claim dropped by this stale invocation.
+      if (identical(_session, session)) await _failConnect();
+      return false;
+    }
+    await _bootstrapSetClock(session);
+    if (_session != session || !session.connected) {
+      _log('link dropped during SET_CLOCK — abandoning setup.');
+      // Tear down ONLY if we are still the live session. `_failConnect`
+      // teardown+band-release act on whatever `_session` currently points
+      // at, so a newer `_doConnect` that already took over would have its
+      // link killed and its band claim dropped by this stale invocation.
+      if (identical(_session, session)) await _failConnect();
+      return false;
+    }
+    // doc 01: the advertising-name read is the last command before READY, and
+    // the charging follow-up is launched after it. Neither can fail setup.
+    await _readAdvertisingNameGen5(session);
+    _maybeStartBatteryPackFollowUp(session);
+    return true;
+  }
+
+  /// The bootstrap SET_CLOCK decision (doc 01 §"Clock contract").
+  ///
+  /// Three rules, in this order:
+  ///  1. the phone-clock deferral still wins — while THIS phone is the suspect
+  ///     party, writing its wall clock onto a possibly-correct strap RTC
+  ///     corrupts the RTC and destroys the evidence (unchanged behaviour);
+  ///  2. on gen5, below [BootstrapClockGate.toleranceSeconds] of absolute drift
+  ///     the official client makes NO BLE write at all. This app used to send
+  ///     SET_CLOCK unconditionally on every single connect;
+  ///  3. everything else writes once — including a band with no usable clock
+  ///     correlation (unset/implausible RTC), where the drift is null and
+  ///     leaving the RTC uncorrected is the one genuinely bad outcome.
+  ///
+  /// gen4 keeps the unconditional write it has today: its flow is proven, and
+  /// doc 01 describes the WHOOP 5 bootstrap.
+  Future<void> _bootstrapSetClock(_Session session) async {
+    if (_deferForClock) return;
+    if (session.band.isGen5) {
+      final drift = _clockRef?.driftSec;
+      if (!BootstrapClockGate.needsCorrection(drift)) {
+        _log('[CLOCK] in sync (drift ${drift}s, tolerance '
+            '${BootstrapClockGate.toleranceSeconds}s) — no correction needed '
+            '(doc 01 "Clock contract"); no SET_CLOCK written.');
+        return;
+      }
+    }
+    await setClock();
+  }
+
+  /// doc 01 §"Final advertising-name read": `GET_ADVERTISING_NAME(141)` with
+  /// body `01` and a 5 s timeout is part of the exact bootstrap sequence, sent
+  /// after the clock step and before READY.
+  ///
+  /// "The readiness path does not inspect the returned object or result before
+  /// transitioning to READY, so this command is part of the exact sequence but
+  /// is **not** a readiness gate" — so the WRITE is ordered here, and the reply
+  /// is consumed in the background (same shape as the battery poll): a timeout
+  /// logs and changes nothing. The name itself lands the way it always has,
+  /// through the `strap_name` branch of the state absorber.
+  Future<void> _readAdvertisingNameGen5(_Session session) async {
+    if (!session.band.isGen5) return;
+    final out = await _sendAwaited(
+      Cmd.getCustomAdvertisingName,
+      const <int>[revision1],
+    );
+    if (!out.written) {
+      _log('[NAME] GET_ADVERTISING_NAME was never written — not a readiness '
+          'gate (doc 01); setup continues.');
+      return;
+    }
+    // Consumed, never awaited: leaving the pending entry unarmed would hold a
+    // registry slot for the full timeout with nobody listening.
+    unawaited(out.response.then((r) {
+      if (r == null) {
+        _log('[NAME] GET_ADVERTISING_NAME went unanswered — not a readiness '
+            'gate (doc 01).');
+      }
+    }));
+  }
+
+  /// doc 01 §"Charging follow-up": when hello says the band is charging, look
+  /// up the battery pack it is sitting on, asynchronously, after setup.
+  ///
+  /// Never runs off-charger, never runs twice for one session, and is not
+  /// awaited by anything: "a missing or invalid response must be logged and
+  /// must **not** move the band out of READY".
+  void _maybeStartBatteryPackFollowUp(_Session session) {
+    if (!session.band.isGen5) return;
+    if (_gen5Hello?.charging != true) return;
+    if (session.batteryPackFollowUpStarted) return;
+    session.batteryPackFollowUpStarted = true;
+    unawaited(_runBatteryPackFollowUp(session));
+  }
+
+  /// The follow-up task itself: up to [kBatteryPackInfoAttempts] correlated
+  /// `GET_BATTERY_PACK_INFO(151)` reads, [kBatteryPackInfoRetryDelay] apart.
+  ///
+  /// Session-owned like every other background task here — it checks
+  /// [_sessionIsStale] before each attempt and after each wait, so a link that
+  /// drops halfway through stops the loop rather than writing into a dead
+  /// characteristic for another twenty seconds.
+  Future<void> _runBatteryPackFollowUp(_Session session) async {
+    for (var attempt = 1; attempt <= kBatteryPackInfoAttempts; attempt++) {
+      if (_sessionIsStale(session)) return;
+      final out = await _sendAwaited(
+        Cmd.getBatteryPackInfo,
+        const <int>[],
+        frameBuilder: (seq) =>
+            cmdGetBatteryPackInfo(seq, profile: session.band),
+      );
+      final info = out.written
+          ? (await out.response)?.fields['battery_pack_info']
+              as BatteryPackInfoResponse?
+          : null;
+      if (info != null &&
+          BatteryPackInfoGate.usable(
+            identifier: info.identifier,
+            name: info.name,
+          )) {
+        _batteryPack = info;
+        _batteryPackTs = _wallSecs().round();
+        _log('[PACK] battery pack identified on attempt $attempt/'
+            '$kBatteryPackInfoAttempts: address=${info.identifier} '
+            'name="${info.name}" attached=${info.attached} '
+            'type=${info.batteryPackType?.name ?? info.batteryPackTypeRaw}.');
+        return;
+      }
+      // doc 01: "every unusable attempt is followed by the 5-second delay,
+      // including the fifth". The band answers before it knows what it is
+      // sitting on, so an early all-zero address is the expected reply.
+      await Future.delayed(kBatteryPackInfoRetryDelay);
+    }
+    _log('[PACK] no usable GET_BATTERY_PACK_INFO reply after '
+        '$kBatteryPackInfoAttempts attempts — nothing changes; the band stays '
+        'READY (doc 01 "Charging follow-up").');
   }
 
   // ── keep-alive + periodic backfill ──────────────────────────────────────────

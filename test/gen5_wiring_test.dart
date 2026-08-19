@@ -13,6 +13,7 @@
 
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
@@ -446,6 +447,7 @@ void main() {
   });
 
   _events();
+  _bootstrap();
 }
 
 /// A type-48 EVENT inner:
@@ -550,6 +552,422 @@ void _events() {
         true,
       ));
       expect(r.engine.offloadSnapshot['last_haptics_termination'], 'expired');
+    });
+  });
+}
+
+// ── T11: the doc-01 bootstrap sequence ──────────────────────────────────────
+//
+// doc 01 §"Phase sequence" specifies the exact order — and the exact silences —
+// between the bond and READY. Four of its steps were missing here:
+//   - the two observed client delays (600 ms before notification registration,
+//     500 ms after the last CCC write);
+//   - the ≥2 s clock gate: this app wrote SET_CLOCK on EVERY connect, where the
+//     official client makes no BLE write at all below two whole seconds of
+//     drift;
+//   - GET_ADVERTISING_NAME(141) as the final pre-READY command (sent, never a
+//     readiness gate);
+//   - the charging follow-up, GET_BATTERY_PACK_INFO(151) ×5, 5 s apart, which
+//     must never touch READY and must never run off the charger.
+// All four are gen5-only: doc 01 describes the WHOOP 5 bootstrap, and gen4's
+// flow is hardware-proven, so these tests also pin gen4's *absence* of them.
+
+/// A gen4/gen5 link with no radio behind it that records every command written
+/// and can answer selected opcodes from inside the write itself.
+class _BootstrapLink {
+  final logs = <String>[];
+  final commands = <({int seq, int opcode, List<int> body})>[];
+  final afterSupersede = <int>[];
+  final BandProfile band;
+
+  /// Answers to inject as the reply to a written command. Injected from INSIDE
+  /// the write, i.e. before `_sendAwaited` has even returned — the ordering
+  /// doc 02 demands.
+  Decoded? Function(int seq, int opcode)? replyTo;
+
+  late final BleEngine engine;
+
+  _BootstrapLink({this.band = BandProfile.gen5}) {
+    engine = BleEngine(
+      onRecord: (_, _) async {},
+      onState: (_) {},
+      log: logs.add,
+    );
+    engine.debugInstallFakeLink(
+      band: band,
+      onWrite: (frame) async {
+        final inner = parseFrame(frame, profile: band)!.inner;
+        commands.add((seq: inner[1], opcode: inner[2], body: inner.sublist(3)));
+        final reply = replyTo?.call(inner[1], inner[2]);
+        if (reply != null) engine.debugAbsorbDecoded(reply);
+        return true;
+      },
+    );
+  }
+
+  List<int> get opcodes => commands.map((c) => c.opcode).toList();
+  int count(int opcode) => opcodes.where((o) => o == opcode).length;
+  bool logged(String needle) => logs.any((l) => l.contains(needle));
+
+  /// Replace the live session. A task that captured the old session now sees
+  /// `_session != session` — exactly what a dropped-and-reconnected link looks
+  /// like from inside a background loop.
+  void supersedeSession() {
+    engine.debugInstallFakeLink(
+      band: band,
+      onWrite: (frame) async {
+        afterSupersede.add(parseFrame(frame, profile: band)!.inner[2]);
+        return true;
+      },
+    );
+  }
+}
+
+/// A revision-1 gen5 hello body (doc 01 §"Revision-1 hello body"), parsed by
+/// the real protocol decoder so the timestamp and charge bit under test are the
+/// ones a band would actually produce.
+Uint8List _gen5HelloBody({required int tsSeconds, bool charging = false}) {
+  final body = Uint8List(Gen5HelloInfo.semanticBodyLen);
+  final v = ByteData.sublistView(body);
+  body[0] = 1; // hello revision
+  v.setUint32(1, 730, Endian.little); // 73.0% → 73
+  body[5] = charging ? 1 : 0; // charge-status bitfield, bit 0 = charging
+  v.setUint32(6, tsSeconds, Endian.little);
+  const serial = 'W5AB12CD34';
+  for (var i = 0; i < serial.length; i++) {
+    body[14 + i] = serial.codeUnitAt(i);
+  }
+  v.setUint32(87, 82, Endian.little); // optical discriminator ⇒ WHOOP 5
+  body[91] = 50;
+  body[92] = 40;
+  body[93] = 1; // firmware 50.40.1
+  body[102] = 1; // on wrist
+  return body;
+}
+
+Decoded _helloReply(int seq, {required int tsSeconds, bool charging = false}) =>
+    Decoded('cmd_response', {
+      'opcode': Cmd.getHello,
+      'req_seq': seq,
+      'cmd_status': CommandAwaiter.statusSuccess,
+      'gen5_hello': Gen5HelloInfo.parse(
+        _gen5HelloBody(tsSeconds: tsSeconds, charging: charging),
+      )!,
+    });
+
+Decoded _packReply(int seq, {required String address, String name = ''}) =>
+    Decoded('cmd_response', {
+      'opcode': Cmd.getBatteryPackInfo,
+      'req_seq': seq,
+      'cmd_status': CommandAwaiter.statusSuccess,
+      'battery_pack_info': BatteryPackInfoResponse(
+        revision: 1,
+        attached: true,
+        identifier: address,
+        name: name,
+        batteryPackTypeRaw: 12, // puffin
+        statusRaw: 0,
+      ),
+    });
+
+/// Run the real post-registration bootstrap to completion under [async].
+/// Returns whether it reported success.
+bool _runBootstrap(_BootstrapLink link, FakeAsync async) {
+  bool? ok;
+  link.engine.debugBootstrapAfterRegistration().then((v) => ok = v);
+  // Long enough for the 500 ms delay plus every awaited step's own timeout
+  // (the 3 s clock read on gen4, the 5 s command timeout on gen5), but short
+  // of the charging follow-up's first 5 s retry gap.
+  async.elapse(const Duration(seconds: 4));
+  return ok ?? false;
+}
+
+void _bootstrap() {
+  group('T11 — the two delays (doc 01)', () {
+    test('gen5 writes nothing for 500 ms after the last CCC write', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow())
+            : null;
+        link.engine.debugBootstrapAfterRegistration();
+
+        async.elapse(const Duration(milliseconds: 499));
+        expect(link.commands, isEmpty,
+            reason: 'doc 01: 500 ms after registration, before the '
+                'higher-level state machine runs');
+        async.elapse(const Duration(milliseconds: 2));
+        expect(link.opcodes.first, Cmd.getHello,
+            reason: 'and GET_HELLO is the first thing out after it');
+      });
+    });
+
+    test('the delays are the observed 600/500 ms and gen5-only', () {
+      expect(BleEngine.kGen5PreRegistrationDelay,
+          const Duration(milliseconds: 600));
+      expect(BleEngine.kGen5PostRegistrationDelay,
+          const Duration(milliseconds: 500));
+      fakeAsync((async) {
+        final link = _BootstrapLink(band: BandProfile.gen4);
+        link.engine.debugBootstrapAfterRegistration();
+        async.flushMicrotasks();
+        expect(link.opcodes, [Cmd.getClock],
+            reason: 'gen4 keeps its proven flow: no delay, straight to the '
+                'clock read');
+      });
+    });
+
+    test('a link that dies during the delay abandons setup', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        bool? ok;
+        link.engine.debugBootstrapAfterRegistration().then((v) => ok = v);
+        // The link is replaced (reconnected) while the bootstrap sleeps.
+        link.supersedeSession();
+        async.elapse(const Duration(seconds: 1));
+
+        expect(ok, isFalse);
+        expect(link.commands, isEmpty,
+            reason: 'nothing may go out on a session that is gone');
+        expect(link.logged('link dropped during the post-registration delay'),
+            isTrue);
+      });
+    });
+  });
+
+  group('T11 — the ≥2 s SET_CLOCK gate (doc 01 "Clock contract")', () {
+    test('BootstrapClockGate: below two whole seconds, no correction', () {
+      expect(BootstrapClockGate.toleranceSeconds, 2);
+      expect(BootstrapClockGate.needsCorrection(0), isFalse);
+      expect(BootstrapClockGate.needsCorrection(1), isFalse);
+      expect(BootstrapClockGate.needsCorrection(-1), isFalse);
+      expect(BootstrapClockGate.needsCorrection(2), isTrue,
+          reason: 'the threshold is inclusive: "at 2 or more, send one"');
+      expect(BootstrapClockGate.needsCorrection(-2), isTrue,
+          reason: 'the doc compares the ABSOLUTE delta');
+      expect(BootstrapClockGate.needsCorrection(null), isTrue,
+          reason: 'no correlation at all — an unset band RTC must never be '
+              'left uncorrected');
+    });
+
+    test('a band whose clock agrees is not written to at all', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow())
+            : null;
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(link.count(Cmd.setClock), 0,
+            reason: 'doc 01: below 2 s, succeed with NO BLE write');
+        expect(link.count(Cmd.getClock), 0,
+            reason: 'and no read-back either — nothing was written');
+        expect(link.logged('no correction needed'), isTrue);
+      });
+    });
+
+    test('a band 3 s out gets exactly one SET_CLOCK', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow() - 3)
+            : null;
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(link.count(Cmd.setClock), 1,
+            reason: 'doc 01: at 2 or more, send ONE SET_CLOCK');
+        expect(link.opcodes.indexOf(Cmd.setClock),
+            greaterThan(link.opcodes.indexOf(Cmd.getHello)),
+            reason: 'the clock decision comes after hello supplies the time');
+      });
+    });
+
+    test('the phone-clock deferral still beats the drift gate', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        // A plausible strap RTC two days AHEAD of us: the phone is the suspect
+        // party, and the read is too far out to be correlated — so the drift is
+        // null and the gate alone would write. The deferral must win.
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow() + 2 * 86400)
+            : null;
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(BootstrapClockGate.needsCorrection(null), isTrue,
+            reason: 'the gate would have written…');
+        expect(link.count(Cmd.setClock), 0, reason: '…and must not have');
+        expect(link.engine.historyPausedForClock, isTrue);
+      });
+    });
+
+    test('gen4 keeps its unconditional SET_CLOCK', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink(band: BandProfile.gen4);
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(link.opcodes, [Cmd.getClock, Cmd.setClock, Cmd.getClock],
+            reason: 'read → unconditional write → read-back, unchanged');
+      });
+    });
+  });
+
+  group('T11 — GET_ADVERTISING_NAME is the final pre-READY step (doc 01)', () {
+    test('gen5 sends it last, after the clock step', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow() - 3)
+            : null;
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(link.opcodes.last, Cmd.getCustomAdvertisingName);
+        expect(link.commands.last.body.first, revision1,
+            reason: 'doc 01: body 01');
+      });
+    });
+
+    test('an unanswered name read does not fail setup', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: _wallNow())
+            : null;
+        // Nothing ever answers opcode 141 here.
+        expect(_runBootstrap(link, async), isTrue,
+            reason: 'doc 01: the response content and result are NOT a '
+                'readiness gate');
+        async.elapse(const Duration(seconds: 6));
+        expect(link.logged('GET_ADVERTISING_NAME went unanswered'), isTrue);
+        expect(link.engine.pendingCommandCount, 0,
+            reason: 'the unawaited response is still consumed');
+      });
+    });
+
+    test('gen4 sends no advertising-name read during setup', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink(band: BandProfile.gen4);
+        expect(_runBootstrap(link, async), isTrue);
+        expect(link.opcodes, isNot(contains(Cmd.getCustomAdvertisingName)));
+        expect(link.opcodes, isNot(contains(Cmd.getAdvertisingNameHarvard)));
+      });
+    });
+  });
+
+  group('T11 — the charging follow-up, opcode 151 (doc 01)', () {
+    /// Bootstrap a gen5 link whose hello reports [charging], answering
+    /// GET_BATTERY_PACK_INFO with [packAddress] when one is given.
+    _BootstrapLink chargingRig(
+      FakeAsync async, {
+      required bool charging,
+      String? packAddress,
+      String packName = '',
+    }) {
+      final link = _BootstrapLink();
+      link.replyTo = (seq, op) {
+        if (op == Cmd.getHello) {
+          return _helloReply(seq, tsSeconds: _wallNow(), charging: charging);
+        }
+        if (op == Cmd.getBatteryPackInfo && packAddress != null) {
+          return _packReply(seq, address: packAddress, name: packName);
+        }
+        return null;
+      };
+      expect(_runBootstrap(link, async), isTrue,
+          reason: 'the follow-up never blocks READY');
+      return link;
+    }
+
+    test('BatteryPackInfoGate: only a real address/name is usable', () {
+      expect(
+          BatteryPackInfoGate.usable(
+              identifier: '00:00:00:00:00:00', name: 'Puffin'),
+          isFalse,
+          reason: 'the all-zero address identifies nothing');
+      expect(BatteryPackInfoGate.usable(identifier: '', name: ''), isFalse);
+      expect(BatteryPackInfoGate.usable(identifier: '   ', name: '  '), isFalse);
+      expect(
+          BatteryPackInfoGate.usable(
+              identifier: 'aa:bb:cc:dd:ee:ff', name: ''),
+          isTrue);
+      expect(BatteryPackInfoGate.usable(identifier: '', name: 'Puffin'), isTrue);
+    });
+
+    test('it never runs when the band is not charging', () {
+      fakeAsync((async) {
+        final link = chargingRig(async, charging: false);
+        async.elapse(const Duration(seconds: 40));
+        expect(link.count(Cmd.getBatteryPackInfo), 0,
+            reason: 'doc 01: this lookup does not run on a non-charging '
+                'READY transition');
+      });
+    });
+
+    test('a charging band is asked five times, five seconds apart', () {
+      fakeAsync((async) {
+        final link =
+            chargingRig(async, charging: true, packAddress: '00:00:00:00:00:00');
+        expect(link.count(Cmd.getBatteryPackInfo), 1);
+        expect(link.commands.last.body.first, revision1,
+            reason: 'doc 01/03: body 01');
+
+        for (var expected = 2; expected <= 5; expected++) {
+          async.elapse(const Duration(seconds: 5));
+          expect(link.count(Cmd.getBatteryPackInfo), expected);
+        }
+        // doc 01: the fifth unusable attempt is followed by the delay too.
+        async.elapse(const Duration(seconds: 5));
+        expect(link.count(Cmd.getBatteryPackInfo), BleEngine.kBatteryPackInfoAttempts,
+            reason: 'five attempts, and no sixth');
+        expect(link.logged('no usable GET_BATTERY_PACK_INFO reply'), isTrue);
+        expect(link.engine.offloadSnapshot['battery_pack_address'], isNull,
+            reason: 'an all-zero address is never stored as a reading');
+      });
+    });
+
+    test('a usable reply stops the retries and reaches the snapshot', () {
+      fakeAsync((async) {
+        final link = chargingRig(
+          async,
+          charging: true,
+          packAddress: 'aa:bb:cc:dd:ee:ff',
+          packName: 'Puffin',
+        );
+        async.elapse(const Duration(seconds: 40));
+
+        expect(link.count(Cmd.getBatteryPackInfo), 1,
+            reason: 'the first usable answer ends the task');
+        final snap = link.engine.offloadSnapshot;
+        expect(snap['battery_pack_address'], 'aa:bb:cc:dd:ee:ff');
+        expect(snap['battery_pack_name'], 'Puffin');
+        expect(snap['battery_pack_attached'], isTrue);
+        expect(snap['battery_pack_type'], 'puffin');
+        expect(snap['battery_pack_ts'], isNotNull);
+      });
+    });
+
+    test('it dies with the session', () {
+      fakeAsync((async) {
+        final link =
+            chargingRig(async, charging: true, packAddress: '00:00:00:00:00:00');
+        expect(link.count(Cmd.getBatteryPackInfo), 1);
+
+        link.supersedeSession();
+        async.elapse(const Duration(seconds: 40));
+
+        expect(link.count(Cmd.getBatteryPackInfo), 1,
+            reason: 'the loop checks the session before every attempt');
+        expect(link.afterSupersede, isEmpty,
+            reason: 'and never writes onto the new link either');
+      });
+    });
+
+    test('gen4 never starts the follow-up', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink(band: BandProfile.gen4);
+        expect(_runBootstrap(link, async), isTrue);
+        async.elapse(const Duration(seconds: 40));
+        expect(link.opcodes, isNot(contains(Cmd.getBatteryPackInfo)));
+      });
     });
   });
 }

@@ -19,7 +19,11 @@ BLE link is billed to the app. The audit's target was the avoidable part.
   `BackgroundDerivation.init()` had no callers and main.dart cancels the old
   persisted registrations by name on every cold start.
 
-## Confirmed drains, all fixed in this change set
+## Confirmed drains fixed in this change set
+
+Each row's drain path is fixed here; where a residual remains (row 6: the native
+plugin still processes every notification even with the relay off), it is listed
+under Follow-ups, not claimed fixed.
 
 | # | Finding | Fix |
 |---|---------|-----|
@@ -99,6 +103,9 @@ BLE link is billed to the app. The audit's target was the avoidable part.
 - The two entries under *Deliberate semantic changes* (widget `updated_at`
   meaning, realtime `wristOn` in background) are judgment calls that deserve
   explicit maintainer sign-off, not silent acceptance.
+  **Sign-off status: PENDING** — owner: the repo maintainer, via review of
+  PR #262. This audit is not "complete" until that review records accept/revert
+  on each; update this line with the decision (and PR link) when it lands.
 
 ## Verification status
 

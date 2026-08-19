@@ -228,12 +228,20 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   /// Persisted only when the package is NEW: the in-memory order changes on
   /// every ping and a SharedPreferences write per notification would be a
   /// disk write per notification.
-  void _noteSeen(String pkg, Uint8List? icon) {
+  @visibleForTesting
+  void noteSeen(String pkg, Uint8List? icon) {
     if (icon != null && icon.isNotEmpty) _icons[pkg] = icon;
     final known = _seen.remove(pkg);
     _seen.insert(0, pkg);
     if (_seen.length > maxSeen) {
-      _seen.removeRange(maxSeen, _seen.length);
+      // Oldest first, but an ARMED app is never evicted. The picker is built
+      // from this list, so dropping one you turned ON leaves it buzzing the
+      // strap with no row to turn it off from — a thing that keeps acting on
+      // you with no way to stop it. The bound survives: the overflow is at most
+      // the apps you chose yourself.
+      for (var i = _seen.length - 1; i >= 0 && _seen.length > maxSeen; i--) {
+        if (!_packages.contains(_seen[i])) _seen.removeAt(i);
+      }
       // The icons go with them. `_seen` is bounded, `_icons` was not — an
       // evicted package left its bitmap resident for the life of the process,
       // and on a phone with a lot of chatty apps that is the picker's whole
@@ -257,7 +265,7 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     if (pkg.isEmpty) return;
     // BEFORE the allow-list check: an app you have not chosen yet is exactly
     // the one the picker needs to be able to offer you.
-    _noteSeen(pkg, e.appIcon);
+    noteSeen(pkg, e.appIcon);
     if (!_packages.contains(pkg)) return;
     if (!isConnected()) return;
 

@@ -24,6 +24,7 @@ class _FakeKeychain {
   bool throwOnRead = false;
   bool throwOnWrite = false;
   bool hangReads = false;
+  bool hangWrites = false;
   final List<Completer<void>> _hung = [];
 
   void releaseHung() {
@@ -49,6 +50,11 @@ class _FakeKeychain {
         return items[args['key'] as String];
       case 'write':
         if (throwOnWrite) throw PlatformException(code: 'keychain');
+        if (hangWrites) {
+          final c = Completer<void>();
+          _hung.add(c);
+          await c.future;
+        }
         items[args['key'] as String] = args['value'] as String;
         writeOptions.add((args['options'] as Map?) ?? const {});
         return null;
@@ -257,6 +263,54 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(cfg.apiKey, 'sk-new',
         reason: 'a read that predates the save must not apply its result');
+  });
+
+  // #241 reported `PlatformException(-25299)` and blamed the plugin for adding
+  // without checking. It does check (check → update → delete + add). What was
+  // ours is this: `load` writes the key back to upgrade its accessibility, and
+  // an unawaited startup `load` could have that write in flight while the user
+  // saved a new one.
+  test('an in-flight upgrade write never puts the old key back', () async {
+    // A legacy item: a key in the keychain with no marker beside it, so the
+    // next load takes the accessibility-upgrade branch — the WRITE inside
+    // `load` that this is about.
+    keychain.items['coach_api_key'] = 'sk-old';
+    SharedPreferences.setMockInitialValues({'coach_model': 'gpt-4o'});
+
+    final cfg = CoachConfig();
+    // The read returns, the generation check passes, and the upgrade write is
+    // then in flight — which is the window the generation counter cannot close.
+    keychain.hangWrites = true;
+    unawaited(cfg.load());
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    // The user pastes a new key right there.
+    keychain.hangWrites = false;
+    final saving = cfg.save(apiKey: 'sk-new', model: 'gpt-4o');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    keychain.releaseHung();
+    await saving;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(keychain.items['coach_api_key'], 'sk-new',
+        reason: 'the upgrade write must not resurrect the superseded key');
+    expect(cfg.apiKey, 'sk-new');
+  });
+
+  test('a hung keychain read does not block a save', () async {
+    final cfg = CoachConfig();
+    keychain.hangReads = true;
+    unawaited(cfg.load());
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    // A keystore read can hang outright. Save has to get through anyway — this
+    // is why only the writes are serialized and not the whole of `load`.
+    await cfg.save(apiKey: 'sk-new', model: 'gpt-4o').timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => fail('save blocked behind a hung read'),
+        );
+    expect(cfg.apiKey, 'sk-new');
+    keychain.releaseHung();
   });
 
   test('a keychain that refuses the write does not report success', () async {

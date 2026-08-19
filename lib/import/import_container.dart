@@ -116,6 +116,37 @@ Future<ImportContainer> sniffFile(String path) async {
 /// cannot disagree about what a NOOP CSV is.
 const String kNoopCsvHeader = 'unix_s,';
 
+/// How much of a text file the router reads to find its first record.
+const int _headBytes = 4096;
+
+/// True when the first RECORD of [text] is one the NOOP reader accepts.
+///
+/// The router used to ask whether byte zero began the header. The reader does
+/// not: it skips blank and `#` lines first, and it falls back to the
+/// documented positional layout when a file carries no header at all. So a
+/// NOOP export with a preamble, or a legacy headerless one, was handed to the
+/// vendor importer and refused with a confident wrong message — the same class
+/// of misroute (#160, #199) this function exists to end.
+///
+/// [truncated] says the buffer stopped mid-file, in which case the trailing
+/// fragment is not a whole line and is not judged.
+bool noopCsvFirstRecordMatches(String text, {bool truncated = false}) {
+  final lines = text.split('\n');
+  if (truncated && !text.endsWith('\n')) lines.removeLast();
+  for (var line in lines) {
+    line = line.trimRight(); // a CRLF export's \r
+    if (line.isEmpty || line.startsWith('#')) continue;
+    if (line.startsWith(kNoopCsvHeader)) return true;
+    // Headerless, i.e. [NoopImporter._defaultCols]: unix seconds in column 0
+    // and the full documented column count behind it. Deliberately structural
+    // — a vendor CSV's first field is a formatted date, never an epoch.
+    final f = line.split(',');
+    final ts = f.isEmpty ? null : int.tryParse(f.first.trim());
+    return f.length >= 15 && ts != null && ts > 1000000000 && ts < 4100000000;
+  }
+  return false;
+}
+
 /// True when [path] is a NOOP export — judged by CONTENT, not by name.
 ///
 /// The onboarding router used to switch on the extension: `.noopbak`/`.zip`
@@ -127,20 +158,25 @@ const String kNoopCsvHeader = 'unix_s,';
 /// importer and was refused for holding too many files. Two confident, wrong
 /// messages for two correct files.
 ///
-/// The signatures: a raw-sensor CSV starts with [kNoopCsvHeader]; a `.noopbak`
+/// The signatures: a raw-sensor CSV's FIRST RECORD is [kNoopCsvHeader] or the
+/// documented positional layout ([noopCsvFirstRecordMatches]); a `.noopbak`
 /// (or a backup someone unpacked by hand) is a SQLite database; a WHOOP export
 /// is an archive of several named CSVs and matches neither.
 Future<bool> isNoopExport(String path) async {
   final List<int> head;
   final raf = await File(path).open();
   try {
-    head = await raf.read(64);
+    // Enough to reach the first RECORD, not just the first byte — see
+    // [noopCsvFirstRecordMatches]. The container sniff still only reads the
+    // magic at the front.
+    head = await raf.read(_headBytes);
   } finally {
     await raf.close();
   }
-  switch (sniffImportContainer(head)) {
+  switch (sniffImportContainer(head.take(64).toList())) {
     case ImportContainer.text:
-      return String.fromCharCodes(head).startsWith(kNoopCsvHeader);
+      return noopCsvFirstRecordMatches(String.fromCharCodes(head),
+          truncated: head.length == _headBytes);
     case ImportContainer.sqlite:
       return true;
     case ImportContainer.zip:

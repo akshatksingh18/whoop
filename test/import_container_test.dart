@@ -546,4 +546,72 @@ void main() {
       expect(await isNoopExport(path), isFalse);
     });
   });
+
+  // The router judged byte ZERO; the reader skips blank and `#` lines first and
+  // falls back to the documented positional layout when there is no header at
+  // all. Anything the reader would take, the router has to route — otherwise a
+  // valid export goes to the vendor importer and is refused with a confident
+  // wrong message, which is #160/#199 all over again.
+  group('the router uses the reader\'s own first-record rule', () {
+    test('a leading comment does not lose the file', () async {
+      final path = await write(
+        'export.csv',
+        utf8.encode('# noop raw sensor export\n# v3\n'
+            'unix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n'),
+      );
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('leading blank lines do not lose the file', () async {
+      final path = await write(
+        'export.csv',
+        utf8.encode('\n\r\n\nunix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n'),
+      );
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('a headerless export is claimed, as the reader claims it', () async {
+      // The positional layout in `NoopImporter._defaultCols`, no header row.
+      final path = await write(
+        'raw.csv',
+        utf8.encode('1754000000,2026-08-01T00:00:00Z,hr,61,,,,,,,,,,,,,\n'
+            '1754000001,2026-08-01T00:00:01Z,hr,62,,,,,,,,,,,,,\n'),
+      );
+      expect(await isNoopExport(path), isTrue);
+    });
+
+    test('a vendor CSV behind a comment is still not ours', () async {
+      final path = await write(
+        'sleeps.csv',
+        utf8.encode('# exported 2026-08-01\n'
+            'Cycle start time,Sleep performance %\n2026-08-01,88\n'),
+      );
+      expect(await isNoopExport(path), isFalse);
+    });
+
+    test('a comma-heavy row that is not an epoch is not ours', () async {
+      // The headerless signature is structural on purpose: 17 columns is not
+      // enough, column zero has to be unix seconds.
+      final path = await write(
+        'other.csv',
+        utf8.encode('${List.filled(17, 'x').join(',')}\n'),
+      );
+      expect(await isNoopExport(path), isFalse);
+    });
+
+    test('an all-comment file claims nothing', () async {
+      final path = await write('notes.csv', utf8.encode('# nothing\n# here\n'));
+      expect(await isNoopExport(path), isFalse);
+    });
+
+    test('a header past the read ceiling is not guessed at', () async {
+      // 4 KB of comments, then the header. Bounded read means bounded answer:
+      // it declines rather than materialising the file to be sure.
+      final path = await write(
+        'export.csv',
+        utf8.encode('${'# pad\n' * 1200}unix_s,iso_utc,stream\n1754000000,x,hr\n'),
+      );
+      expect(await isNoopExport(path), isFalse);
+    });
+  });
 }

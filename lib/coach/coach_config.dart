@@ -66,10 +66,23 @@ class CoachConfig extends ChangeNotifier {
   bool _keyUndetermined = false;
   bool get keyUndetermined => _keyUndetermined;
 
-  /// Bumped by every [save]. A [load] that started before a save must not apply
-  /// its stale result afterwards: the startup load is unawaited and a slow
-  /// keystore read can still be in flight when the user pastes a key, and its
-  /// late `_key = null` would wipe the key they just saved out of the session.
+  /// Bumped TWICE by every [save] — once on the way in, once on the way out.
+  ///
+  /// A [load] that started before a save must not apply its stale result
+  /// afterwards: the startup load is unawaited and a slow keystore read can
+  /// still be in flight when the user pastes a key, and its late `_key = null`
+  /// would wipe the key they just saved out of the session.
+  ///
+  /// One bump only caught the load that started BEFORE the save. A load that
+  /// starts DURING one captured the already-incremented value, so its check
+  /// passed, and its read — taken while the write was still inside the plugin —
+  /// came back empty. Trusted, that empty read is treated as proof there is no
+  /// key: it cleared `_key` and wrote the `_kKeyPresent` marker to false over
+  /// the true the save had just set. A later background read then reports the
+  /// stored key as ABSENT rather than unreadable, which also puts
+  /// [refreshKeyOnResume] to sleep — the retry that would have recovered it.
+  /// Bumping again on the way out invalidates any read that straddled the
+  /// write, which is the only kind that can be wrong about it.
   int _generation = 0;
 
   /// ONE keychain MUTATION at a time.
@@ -277,6 +290,12 @@ class CoachConfig extends ChangeNotifier {
           } catch (_) {/* re-established by the next load */}
         }
       });
+      // The second bump: see [_generation]. Anything that read the keychain
+      // while that write was in flight now fails its check and drops its
+      // answer, instead of clearing the key and filing the marker false.
+      // Skipped when the write threw, on purpose — nothing landed, so a
+      // straddling read's "no key" is the truth.
+      _generation++;
       _key = k.isEmpty ? null : k;
       _keyUnreadable = false;
       _keyUndetermined = false;

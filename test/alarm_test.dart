@@ -233,4 +233,90 @@ void main() {
       expect(a.targetEpoch, 1750000000);
     });
   });
+
+  group('ConditionalWakePolicy — wake early, never later', () {
+    const deadline = 1750000000; // the armed stored alarm
+    const opensAt = deadline - 2 * 3600; // official 2-hour window
+
+    ConditionalWakeAction run(
+      ConditionalWakePolicy p, {
+      required int now,
+      bool met = false,
+      bool enabled = true,
+      int? dl = deadline,
+    }) =>
+        p.tick(
+          nowEpoch: now,
+          deadlineEpoch: dl,
+          conditionMet: met,
+          enabled: enabled,
+        );
+
+    test('does nothing before the window, opens it on entry', () {
+      final p = ConditionalWakePolicy();
+      expect(run(p, now: opensAt - 60, met: true), ConditionalWakeAction.none,
+          reason: 'a met condition before the window must NOT wake anyone');
+      expect(run(p, now: opensAt + 1), ConditionalWakeAction.openWindow);
+      expect(run(p, now: opensAt + 2), ConditionalWakeAction.none,
+          reason: 'window already open — no repeat command');
+    });
+
+    test('fires once, and only once, when the condition is met inside it', () {
+      final p = ConditionalWakePolicy();
+      run(p, now: opensAt + 1); // opens
+      expect(run(p, now: opensAt + 600, met: true),
+          ConditionalWakeAction.fireNow);
+      // Every later tick — including more met ticks — must stay silent.
+      expect(
+          run(p, now: opensAt + 601, met: true), ConditionalWakeAction.none);
+      expect(
+          run(p, now: opensAt + 900, met: true), ConditionalWakeAction.none);
+      expect(p.fired, isTrue);
+    });
+
+    test('past the deadline the strap RTC owns the wake — never a late fire',
+        () {
+      final p = ConditionalWakePolicy();
+      run(p, now: opensAt + 1);
+      // The single most important negative: this policy may only move a wake
+      // EARLIER. After the deadline it must go quiet and let the band fire.
+      expect(run(p, now: deadline, met: true), ConditionalWakeAction.closeWindow);
+      expect(run(p, now: deadline + 60, met: true), ConditionalWakeAction.none);
+      expect(p.fired, isFalse);
+    });
+
+    test('opt-out and a cleared alarm both close the window', () {
+      final p = ConditionalWakePolicy();
+      run(p, now: opensAt + 1);
+      expect(run(p, now: opensAt + 2, enabled: false),
+          ConditionalWakeAction.closeWindow);
+
+      final q = ConditionalWakePolicy();
+      run(q, now: opensAt + 1);
+      expect(run(q, now: opensAt + 2, dl: null),
+          ConditionalWakeAction.closeWindow);
+    });
+
+    test('a rescheduled alarm is a new night: the latch resets', () {
+      final p = ConditionalWakePolicy();
+      run(p, now: opensAt + 1);
+      expect(run(p, now: opensAt + 60, met: true), ConditionalWakeAction.fireNow);
+
+      const tomorrow = deadline + 86400;
+      // Same policy object, new deadline — the previous night's latch must not
+      // suppress tomorrow's early wake.
+      expect(
+        run(p, now: tomorrow - 3600, met: true, dl: tomorrow),
+        ConditionalWakeAction.fireNow,
+      );
+    });
+
+    test('a restored latch survives a restart and cannot re-wake', () {
+      final p = ConditionalWakePolicy()
+        ..restore(deadlineEpoch: deadline, alreadyFired: true);
+      expect(run(p, now: opensAt + 600, met: true), ConditionalWakeAction.openWindow,
+          reason: 'window may reopen, but the wake must not repeat');
+      expect(run(p, now: opensAt + 700, met: true), ConditionalWakeAction.none);
+    });
+  });
 }

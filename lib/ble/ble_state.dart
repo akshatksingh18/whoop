@@ -8,6 +8,7 @@
 // Keeping this layer pure makes the race-prone transitions unit-testable
 // without a real WHOOP band.
 
+import 'dart:async';
 import 'dart:math';
 
 import '../sync/sync_policy.dart' show isPlausibleUnix;
@@ -933,4 +934,364 @@ class AlarmConfirmation {
         return null;
     }
   }
+}
+
+/// What a [ConditionalWakePolicy] tick wants the caller to do.
+enum ConditionalWakeAction {
+  /// Nothing to do — outside the window, or already handled.
+  none,
+
+  /// Open the wake window: ask the strap for more frequent sync prompts.
+  openWindow,
+
+  /// Close it again (window passed, alarm cleared, or feature turned off).
+  closeWindow,
+
+  /// The condition is met — fire the STORED alarm NOW, once.
+  fireNow,
+}
+
+/// The "wake me when I'm recovered, but no later than X" decision, as a pure
+/// function of time and inputs. The engine/app owns the I/O; this owns the
+/// rules.
+///
+/// The band does NOT decide this. It holds one absolute deadline and can be
+/// told to run that alarm early — that is the whole mechanism (reversing-whoop
+/// doc 14 "The implementation boundary" / "Wake in green"). WHOOP's own client
+/// asks its server whether the condition is met; an on-device app that already
+/// computes recovery locally can answer the same question itself, with no
+/// network at all — and unlike the official flow, it still works offline.
+///
+/// Two properties matter more than cleverness here, because the failure mode is
+/// waking a person at the wrong time:
+///
+///  * **The deadline is the safety net.** The stored alarm is programmed first
+///    and left armed. Everything below only ever moves the wake EARLIER, inside
+///    the window. If this policy never fires — app killed, band out of range,
+///    condition never met — the strap still wakes them from its own RTC.
+///  * **Fire exactly once.** [fired] latches, so a second qualifying tick (or a
+///    replayed/duplicated input) cannot wake someone twice. The caller must
+///    persist the latch before doing anything retryable, per the same doc.
+class ConditionalWakePolicy {
+  /// How long before the deadline the window opens. The official client uses
+  /// two hours, and the high-frequency sync duration (7200 s) matches it.
+  static const Duration window = Duration(hours: 2);
+
+  /// Latched once the early wake has been sent, so it can never repeat.
+  bool fired = false;
+
+  /// True while the strap has been asked for frequent prompts.
+  bool windowOpen = false;
+
+  /// The deadline this policy is currently tracking, so a rescheduled alarm
+  /// resets the latch instead of inheriting the previous night's.
+  int? trackedDeadlineEpoch;
+
+  /// Decide what to do at [nowEpoch].
+  ///
+  /// [deadlineEpoch] is the armed stored alarm (null = no alarm). [conditionMet]
+  /// is the caller's own answer to "is the user recovered?" — deliberately a
+  /// plain bool, because this class must not know or care how that was computed.
+  /// [enabled] is the user's opt-in.
+  ConditionalWakeAction tick({
+    required int nowEpoch,
+    required int? deadlineEpoch,
+    required bool conditionMet,
+    required bool enabled,
+  }) {
+    // A new/changed/cleared deadline is a new night: forget the old latch.
+    if (deadlineEpoch != trackedDeadlineEpoch) {
+      trackedDeadlineEpoch = deadlineEpoch;
+      fired = false;
+    }
+    if (!enabled || deadlineEpoch == null) {
+      return _close();
+    }
+    // Past the deadline the strap's own RTC owns the wake; nothing to add.
+    if (nowEpoch >= deadlineEpoch) return _close();
+
+    final opensAt = deadlineEpoch - window.inSeconds;
+    if (nowEpoch < opensAt) return _close();
+
+    // Inside the window.
+    if (conditionMet && !fired) {
+      fired = true;
+      // Leave the window open: the caller still wants the strap reachable, and
+      // closing it is a separate decision once the wake is acknowledged.
+      return ConditionalWakeAction.fireNow;
+    }
+    if (!windowOpen) {
+      windowOpen = true;
+      return ConditionalWakeAction.openWindow;
+    }
+    return ConditionalWakeAction.none;
+  }
+
+  ConditionalWakeAction _close() {
+    if (!windowOpen) return ConditionalWakeAction.none;
+    windowOpen = false;
+    return ConditionalWakeAction.closeWindow;
+  }
+
+  /// Restore the fire-once latch from storage (call before the first [tick] of
+  /// a process, so a restart cannot re-wake the user).
+  void restore({required int? deadlineEpoch, required bool alreadyFired}) {
+    trackedDeadlineEpoch = deadlineEpoch;
+    fired = alreadyFired;
+  }
+}
+
+// ── command/response correlation (doc 02) ────────────────────────────────────
+
+/// A command response that was matched to a request we actually made.
+///
+/// Wire layout (doc 02 "Command response"):
+/// `[36][response seq][echoed opcode][originating seq][result][body…]`.
+class CorrelatedResponse {
+  /// The echoed opcode — equal to the opcode of the request by construction.
+  final int opcode;
+
+  /// The sequence WE allocated for the request (not necessarily the byte on
+  /// the wire: see [viaSeqZeroFallback]).
+  final int seq;
+
+  /// `result`: 0 FAILURE, 1 SUCCESS, 2 PENDING, 3 UNSUPPORTED. `-1` when the
+  /// response was too short to carry one.
+  final int status;
+
+  /// The decoded response field map (whatever the protocol decoder produced).
+  final Map<String, dynamic> fields;
+
+  /// True when this reply carried originating sequence 0 and was matched by
+  /// opcode alone — the doc-02 compatibility path.
+  final bool viaSeqZeroFallback;
+
+  const CorrelatedResponse({
+    required this.opcode,
+    required this.seq,
+    required this.status,
+    this.fields = const {},
+    this.viaSeqZeroFallback = false,
+  });
+
+  bool get success => status == CommandAwaiter.statusSuccess;
+  bool get failed => status == CommandAwaiter.statusFailure;
+  bool get unsupported => status == CommandAwaiter.statusUnsupported;
+}
+
+/// What [CommandAwaiter.deliver] did with a response.
+enum CommandDelivery {
+  /// It satisfied a pending request, which is now complete.
+  completed,
+
+  /// It matched a pending request whose PENDING is non-terminal (doc 02's
+  /// per-command table) — the await stays open for the terminal result.
+  pendingHeld,
+
+  /// Nothing was waiting for it, or it failed the match rules (wrong opcode
+  /// for that sequence, or an ambiguous sequence-zero fallback).
+  unmatched,
+}
+
+/// One outstanding command transaction. Created by [CommandAwaiter.register]
+/// BEFORE the write goes out (doc 02 "Ordering").
+class PendingCommand {
+  final int seq;
+  final int opcode;
+  final Duration timeout;
+  final CommandAwaiter _owner;
+  final Completer<CorrelatedResponse?> _completer =
+      Completer<CorrelatedResponse?>();
+
+  PendingCommand._(this._owner, this.seq, this.opcode, this.timeout);
+
+  /// The correlated reply, or null once [timeout] expires.
+  ///
+  /// The timeout is applied EXACTLY ONCE and there is no automatic resend
+  /// (doc 02 "Timeouts and retries") — retry, disconnect and abort belong to
+  /// the calling state machine. Lazily built, so registering a command that is
+  /// never awaited never arms a timer.
+  late final Future<CorrelatedResponse?> response = _completer.future.timeout(
+    timeout,
+    onTimeout: () {
+      _owner._forget(this);
+      return null;
+    },
+  );
+
+  bool get isCompleted => _completer.isCompleted;
+
+  /// Give up without waiting out the timeout — the write never went out, or
+  /// the link died under it.
+  void cancel() {
+    _owner._forget(this);
+    if (!_completer.isCompleted) _completer.complete(null);
+  }
+
+  void _complete(CorrelatedResponse r) {
+    _owner._forget(this);
+    if (!_completer.isCompleted) _completer.complete(r);
+  }
+}
+
+/// The registry that turns fire-and-forget writes into real request/response
+/// transactions (doc 02 "Sequence allocation and response correlation").
+///
+/// Match rule — a response is accepted only when **both** fields agree:
+/// ```text
+/// response.originating_sequence == request.sequence
+/// response.echoed_opcode        == request.opcode
+/// ```
+/// A sequence match with the wrong opcode is NOT a success: it is rejected and
+/// the surrounding await is left to time out. That is the whole point — the
+/// old ad-hoc completers in the engine keyed off "a reply of roughly the right
+/// shape arrived", so an unrelated command's answer could satisfy a read the
+/// app then acted on.
+///
+/// This class is deliberately transport-free: the engine allocates the
+/// sequence, frames and writes; this only says which reply belongs to which
+/// request.
+class CommandAwaiter {
+  /// doc 02 "Timeouts and retries" — the generic command await.
+  static const Duration defaultTimeout = Duration(milliseconds: 5000);
+
+  static const int statusFailure = 0;
+  static const int statusSuccess = 1;
+  static const int statusPending = 2;
+  static const int statusUnsupported = 3;
+
+  /// The only commands whose `PENDING` is NON-terminal (doc 02 "`PENDING` is
+  /// per-command"): GET_HELLO(145) and GET_DATA_RANGE(34) keep waiting for a
+  /// terminal failure/success/unsupported. Every other command completes on
+  /// the first matching response, PENDING included.
+  static const Set<int> pendingIsNonTerminal = <int>{0x91, 0x22};
+
+  /// Whether to honour doc 02's optional "Sequence-zero compatibility path":
+  /// a response whose originating sequence is 0 may match a nonzero request by
+  /// opcode. The doc's own caveat is that two outstanding requests with the
+  /// same opcode then become ambiguous — so a fallback match is only taken
+  /// when EXACTLY ONE pending request carries that opcode, and refused
+  /// otherwise rather than guessing.
+  final bool seqZeroFallback;
+
+  CommandAwaiter({this.seqZeroFallback = true});
+
+  final List<PendingCommand> _pending = <PendingCommand>[];
+
+  int get pendingCount => _pending.length;
+
+  /// The (seq, opcode) pairs currently outstanding — diagnostics/tests.
+  List<String> get pendingKeys =>
+      _pending.map((p) => '${p.seq}/${p.opcode}').toList(growable: false);
+
+  bool hasPendingOpcode(int opcode) => _pending.any((p) => p.opcode == opcode);
+
+  bool hasPendingSeq(int seq) => _pending.any((p) => p.seq == seq);
+
+  /// Install an observer for a command about to be written. Call this BEFORE
+  /// the write (doc 02 "Ordering") so a fast response cannot arrive before its
+  /// observer exists.
+  PendingCommand register(
+    int seq,
+    int opcode, {
+    Duration timeout = defaultTimeout,
+  }) {
+    final p = PendingCommand._(this, seq, opcode, timeout);
+    _pending.add(p);
+    return p;
+  }
+
+  /// Offer a decoded command response to the registry.
+  CommandDelivery deliver({
+    required int? opcode,
+    required int? reqSeq,
+    int? status,
+    Map<String, dynamic> fields = const {},
+  }) {
+    // Without an echoed opcode or an originating sequence there is nothing to
+    // correlate on, so nothing may be satisfied.
+    if (opcode == null || reqSeq == null) return CommandDelivery.unmatched;
+    PendingCommand? match;
+    var viaFallback = false;
+    for (final p in _pending) {
+      if (p.seq == reqSeq && p.opcode == opcode) {
+        match = p;
+        break;
+      }
+    }
+    if (match == null && seqZeroFallback && reqSeq == 0) {
+      final sameOpcode = _pending.where((p) => p.opcode == opcode).toList();
+      if (sameOpcode.length != 1) return CommandDelivery.unmatched;
+      match = sameOpcode.single;
+      viaFallback = true;
+    }
+    if (match == null) return CommandDelivery.unmatched;
+    final result = status ?? -1;
+    if (result == statusPending && pendingIsNonTerminal.contains(opcode)) {
+      return CommandDelivery.pendingHeld;
+    }
+    match._complete(CorrelatedResponse(
+      opcode: opcode,
+      seq: match.seq,
+      status: result,
+      fields: fields,
+      viaSeqZeroFallback: viaFallback,
+    ));
+    return CommandDelivery.completed;
+  }
+
+  /// Abandon every outstanding command (the link went down). Each await
+  /// resolves null immediately instead of holding its caller for the full
+  /// timeout on a connection that no longer exists.
+  void failAll() {
+    for (final p in List<PendingCommand>.of(_pending)) {
+      p.cancel();
+    }
+    _pending.clear();
+  }
+
+  void _forget(PendingCommand p) => _pending.remove(p);
+}
+
+/// The identity half of doc 01 §"What gates READY", as an OBSERVATION.
+///
+/// The official client requires the serial and CPU strings to match
+/// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
+/// verdict and logs it rather than dropping the link: a hard disconnect on an
+/// identity read we have far less hardware evidence for would turn a cosmetic
+/// mismatch into an unreachable band, and the CPU string is lowercase hex by
+/// construction so it can only fail if it is empty.
+///
+/// An all-zero serial is an EEPROM-failure signal, NOT a rejection — it passes
+/// the alphanumeric gate, and the doc says so explicitly.
+class HelloIdentity {
+  static final RegExp alphanumeric = RegExp(r'^[a-zA-Z0-9]+$');
+
+  final bool serialOk;
+  final bool cpuOk;
+  final bool eepromFailureSignal;
+
+  const HelloIdentity({
+    required this.serialOk,
+    required this.cpuOk,
+    required this.eepromFailureSignal,
+  });
+
+  bool get ok => serialOk && cpuOk;
+
+  static HelloIdentity evaluate({
+    required String serial,
+    required String cpuHex,
+    bool eepromFailureSignal = false,
+  }) =>
+      HelloIdentity(
+        serialOk: alphanumeric.hasMatch(serial),
+        cpuOk: alphanumeric.hasMatch(cpuHex),
+        eepromFailureSignal: eepromFailureSignal,
+      );
+
+  @override
+  String toString() => 'serial=${serialOk ? 'ok' : 'BAD'} '
+      'cpu=${cpuOk ? 'ok' : 'BAD'}'
+      '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
 }

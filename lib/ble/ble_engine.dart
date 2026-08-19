@@ -193,13 +193,41 @@ bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
 /// gate-rejected record can never validate — which discards its OTHER,
 /// perfectly good buffered records and re-requests the same stuck block
 /// forever (zero sync progress).
+/// The official rule is ONE-SIDED with a failure-dependent slack, not equality
+/// (reversing-whoop doc 05, "Collector and count gate"):
+///
+/// ```text
+///   slack = consecutiveFailedValidations >= 3 ? 2 : 0
+///   pass  = expected - slack <= actual
+/// ```
+///
+/// Two consequences worth stating, because equality got both wrong:
+///   * SURPLUS PASSES. There is no upper bound. The strap re-offers an
+///     unacknowledged burst and can re-deliver frames, so tallying MORE than
+///     expected is normal and must not fail — under equality it did.
+///   * The first three attempts demand every frame; from the fourth, up to two
+///     missing are tolerated so a burst with a persistently unreadable frame
+///     can still make progress instead of looping to the 15-attempt abort.
+/// The official Sensor-HPS boundary: attempts 1..14 send a failure result and
+/// wait for the strap to re-offer; the 15th is terminal and aborts instead of
+/// sending a fifteenth failure (reversing-whoop doc 05, "Exact Sensor-HPS retry
+/// boundary"). Bounding it is what stops a permanently-short burst becoming an
+/// infinite re-request loop.
+const int kBurstValidationAttemptLimit = 15;
+
+@visibleForTesting
+int burstCountSlack(int consecutiveFailedValidations) =>
+    consecutiveFailedValidations >= 3 ? 2 : 0;
+
 @visibleForTesting
 bool burstPacketCountMatches({
   required int expectedPacketCount,
   required int actualBurstPacketCount,
   required int droppedThisBurst,
+  int consecutiveFailedValidations = 0,
 }) =>
-    expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
+    expectedPacketCount - burstCountSlack(consecutiveFailedValidations) <=
+    actualBurstPacketCount + droppedThisBurst;
 
 /// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
 /// commit/ACK decision (see the log-only call site).
@@ -808,6 +836,26 @@ class BleEngine {
     );
   }
 
+  /// Commands currently waiting for a correlated response (doc 02). Zero at
+  /// rest; a wrong-opcode reply must leave the count unchanged.
+  @visibleForTesting
+  int get pendingCommandCount => _awaiter.pendingCount;
+
+  /// Hello failures counted across reconnect attempts (doc 01).
+  @visibleForTesting
+  int get helloFailureCount => _helloFailures;
+
+  /// The identity verdict from the last successful hello (doc 01).
+  @visibleForTesting
+  HelloIdentity? get helloIdentity => _helloIdentity;
+
+  /// Drive the real gen5 hello exchange (write → correlated await → identity
+  /// gate / failure counter). Everything it decides sits behind a radio
+  /// otherwise, and it is the one path where a mis-correlated reply would be
+  /// acted on as a real identity.
+  @visibleForTesting
+  Future<bool> debugReadGen5Hello() => _readGen5Hello();
+
   /// Feed one inbound historical frame through the real ingest path (decode →
   /// plausibility gate → store or archive).
   ///
@@ -932,6 +980,12 @@ class BleEngine {
   int? _strapHistoryOldestTs;
   int? _strapHistoryNewestTs;
 
+  /// Last GET_ALARM_TIME readback: what the STRAP says it holds, as opposed to
+  /// what the app believes it set. Diagnostics only — a disagreement means the
+  /// user's alarm may not actually be armed. Never used for display.
+  int? _strapAlarmEpoch;
+  bool? _strapAlarmActive;
+
   // ── reconnect/offload policy ────────────────────────────────────────────────
   // Marginal-radio + post-bond-loop persist ACROSS reconnects (they count
   // consecutive bad cycles), so they live for the engine's lifetime and self-reset
@@ -1022,10 +1076,30 @@ class BleEngine {
       !ClockPolicy.suspectGraceExpired(
           _phoneClockSuspectSince, _monotonicSecs());
   int _clockPausedOffloads = 0; // diagnostics: offloads deferred for this reason
-  /// Completes when the `clock_epoch` for the GET_CLOCK issued by [_readClock]
-  /// has been absorbed, so the clock gates read THIS session's verdict instead
-  /// of whatever the last connection left behind.
-  Completer<void>? _clockReadPending;
+  /// Request/response correlation for every command this engine awaits
+  /// (doc 02). Replaces the two ad-hoc one-shot completers this file used to
+  /// carry for HELLO and GET_CLOCK, which keyed off "a reply of roughly the
+  /// right shape arrived" and could therefore be satisfied by an unrelated
+  /// command's answer. Emptied on teardown so a dropped link never leaves a
+  /// caller waiting out a full timeout on a connection that is gone.
+  final CommandAwaiter _awaiter = CommandAwaiter();
+
+  /// The most recent gen5 HELLO. Its timestamp is the official input to the
+  /// clock decision (doc 01: the normal gen5 path compares hello's time to the
+  /// phone and never sends GET_CLOCK unless hello supplied none).
+  Gen5HelloInfo? _gen5Hello;
+
+  /// doc 01 §"Hello failure handling": failures are counted ACROSS reconnect
+  /// attempts (like `_marginalRadio`/`_postBondLoop`, and deliberately NOT
+  /// reset in the per-connection block in `_doConnect`); at
+  /// [kHelloFailuresBeforeBondReset] the counter resets and the platform bond
+  /// is removed before starting over. A successful hello clears it.
+  int _helloFailures = 0;
+  static const int kHelloFailuresBeforeBondReset = 5;
+
+  /// The identity verdict from the last successful hello (doc 01 "What gates
+  /// READY") — observable, never a disconnect. Null until a hello lands.
+  HelloIdentity? _helloIdentity;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   // Run-state for a chain of auto-continued offload rounds: how many
@@ -1259,6 +1333,16 @@ class BleEngine {
     'high_freq_requested': _highFreqModeRequested,
     'high_freq_reason': _highFreqReason,
     'high_freq_until_ms': _highFreqUntil?.millisecondsSinceEpoch,
+    // What the STRAP reports it holds (GET_ALARM_TIME), not what we set.
+    'strap_alarm_epoch': _strapAlarmEpoch,
+    'strap_alarm_active': _strapAlarmActive,
+    // doc 01/02: hello health and the identity gate, both observable rather
+    // than enforced. `hello_failures` counts ACROSS reconnects and resets
+    // itself at the bond-reset threshold.
+    'hello_failures': _helloFailures,
+    'hello_identity_ok': _helloIdentity?.ok,
+    'hello_serial_eeprom_failure': _helloIdentity?.eepromFailureSignal,
+    'pending_commands': _awaiter.pendingKeys,
   };
 
   int? get strapHistoryNewestTs => _strapHistoryNewestTs;
@@ -1547,6 +1631,25 @@ class BleEngine {
       // (drift 0) instead of the stale strap-RTC frame. The reads below
       // repopulate it for this connection.
       _clockRef = null;
+      _gen5Hello = null;
+      // HELLO FIRST on gen5 — the official bootstrap order (doc 01). Hello
+      // carries the strap's own timestamp, so it answers the "what time does
+      // the band think it is" question that the GET_CLOCK below exists to ask,
+      // and it carries identity/battery/charge/on-body state that everything
+      // after this wants. The app used to send it late, inside INIT, so none of
+      // that was available here and gen5 had no serial or battery at connect.
+      //
+      // Best effort: a failed or unanswered hello falls through to the ordinary
+      // clock read, which is what the official client does when hello supplies
+      // no timestamp. Nothing below is gated on it.
+      if (session.band.isGen5) {
+        await _readGen5Hello();
+        if (_session != session || !session.connected) {
+          _log('link dropped during gen5 HELLO — abandoning setup.');
+          if (identical(_session, session)) await _failConnect();
+          return false;
+        }
+      }
       // READ BEFORE WRITE. This used to be an unconditional SET_CLOCK, which is
       // precisely the write [ClockPolicy.phoneClockSuspect] says we must never
       // make: on a phone running >1 day slow it stamps that slow time onto a
@@ -1560,7 +1663,17 @@ class BleEngine {
       // link to drop underneath us, and setClock() absorbs failed writes, so
       // without these checks setup would carry on past a teardown, rebuild the
       // drain state and hand back `true` for a dead connection.
-      await _readClock();
+      // Hello already answered this on gen5, so skip the round trip — the
+      // official client only falls back to GET_CLOCK when hello carried no
+      // timestamp. Feed hello's clock through the same handler the GET_CLOCK
+      // reply uses, so the suspect-phone and unset-RTC verdicts are computed
+      // from one place regardless of which command supplied the epoch.
+      final helloClock = _gen5Hello?.tsSeconds;
+      if (helloClock != null && helloClock > 0) {
+        _absorbClockEpoch(helloClock);
+      } else {
+        await _readClock();
+      }
       if (_session != session || !session.connected) {
         _log('link dropped during the clock read — abandoning setup.');
         // Tear down ONLY if we are still the live session. `_failConnect`
@@ -1784,12 +1897,28 @@ class BleEngine {
             kBatteryPollIntervalSeconds) {
       return;
     }
-    // `_send` swallows write failures and reports them as false. Stamping
-    // regardless would buy five minutes of silence off a write that never left
-    // the phone.
-    if (await _send(Cmd.getBatteryLevel, const [])) {
-      _lastBatteryPollAt = DateTime.now();
-    }
+    // Correlated (doc 02) but deliberately NOT awaited by this caller: the
+    // battery level is a display value, and both call sites — the keep-alive
+    // tick and `getBattery()` on the session-open path — only ever needed the
+    // write to have gone out. Blocking either for up to five seconds on a
+    // strap that ignores the poll would trade a cosmetic value for a slower
+    // connect. What the correlation buys is the log line below: an unanswered
+    // poll on the link whose ONLY inbound traffic is this reply is exactly the
+    // liveness signal the keep-alive cares about.
+    //
+    // Write failures are swallowed and reported as false. Stamping regardless
+    // would buy five minutes of silence off a write that never left the phone.
+    final out = await _sendAwaited(Cmd.getBatteryLevel, const []);
+    if (!out.written) return;
+    // The stamp belongs to the WRITE, so a strap that never answers does not
+    // turn the poll into a five-second-per-tick retry loop.
+    _lastBatteryPollAt = DateTime.now();
+    unawaited(out.response.then((r) {
+      if (r == null) {
+        _log('[BATTERY] GET_BATTERY_LEVEL went unanswered — the link produced '
+            'no inbound traffic for this poll.');
+      }
+    }));
   }
 
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /
@@ -2138,7 +2267,9 @@ class BleEngine {
     }
   }
 
-  Future<bool> _send(int opcode, List<int> payload) async {
+  /// The dangerous-opcode hard block, shared by [_send] and [_sendAwaited] so
+  /// an awaited command can never take a route around it.
+  bool _refuseDangerousOpcode(int opcode) {
     // `dangerousCmds` is this codebase's own gen4-curated hard-block list
     // (FORCE_TRIM/REBOOT/POWER_CYCLE/TOGGLE_PERSISTENT_R21/firmware-load).
     // `OpcodeSafety.destructive` is whoop-rs's independently-curated list of
@@ -2151,8 +2282,13 @@ class BleEngine {
     // blanket block on `forbidden` would be wrong here.
     if (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode)) {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)}');
-      return false;
+      return true;
     }
+    return false;
+  }
+
+  Future<bool> _send(int opcode, List<int> payload) async {
+    if (_refuseDangerousOpcode(opcode)) return false;
     final frame = buildCommand(
         _seq.nextLive(), opcode, payload, _session?.band ?? BandProfile.gen4);
     final ok = await _write(frame);
@@ -2161,6 +2297,49 @@ class BleEngine {
           'command not delivered.');
     }
     return ok;
+  }
+
+  /// Send a command and wait for ITS reply (doc 02).
+  ///
+  /// The observer is installed BEFORE the write ("Ordering"), so a response
+  /// that beats the write's own completion still finds a waiter. Correlation is
+  /// strict: only a reply echoing this exact sequence AND opcode satisfies the
+  /// await; anything else leaves it to expire. The timeout is applied exactly
+  /// once and NOTHING is resent — retry belongs to the calling state machine
+  /// ("Timeouts and retries"), because several commands mutate persistent state
+  /// and a duplicate write after a slow-but-successful response is a real
+  /// hazard.
+  ///
+  /// Awaits the WRITE and hands back whether it went out plus the still-pending
+  /// response, so a caller can distinguish "we never asked" from "we asked and
+  /// heard nothing" — different failures with different remedies — and so a
+  /// caller that only needs the request to have left the phone (the battery
+  /// poll) does not have to block on the reply. `response` completes null on a
+  /// failed write and on timeout.
+  ///
+  /// [frameBuilder] is for commands whose frame comes from a protocol helper
+  /// rather than a bare opcode+payload (the gen5 hello); it receives the
+  /// allocated sequence so the correlation still holds.
+  Future<({bool written, Future<CorrelatedResponse?> response})> _sendAwaited(
+    int opcode,
+    List<int> payload, {
+    Duration timeout = CommandAwaiter.defaultTimeout,
+    Uint8List Function(int seq)? frameBuilder,
+  }) async {
+    if (_refuseDangerousOpcode(opcode)) {
+      return (written: false, response: Future<CorrelatedResponse?>.value());
+    }
+    final seq = _seq.nextLive();
+    final pending = _awaiter.register(seq, opcode, timeout: timeout);
+    final frame = frameBuilder?.call(seq) ??
+        buildCommand(seq, opcode, payload, _session?.band ?? BandProfile.gen4);
+    if (!await _write(frame)) {
+      pending.cancel();
+      _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
+          'command not delivered.');
+      return (written: false, response: pending.response);
+    }
+    return (written: true, response: pending.response);
   }
 
   // Offload commands whose PAYLOAD (not just the frame envelope) is
@@ -2184,13 +2363,23 @@ class BleEngine {
   Future<bool> _sendHistoricalData() =>
       _send(Cmd.sendHistoricalData, _offloadPayload);
 
+  /// Ask the strap to prompt more frequent history syncs around a wake time.
+  ///
+  /// Defaults are the OFFICIAL Smart Alarm values recovered from WHOOP's own
+  /// client: interval **180 s**, duration **7200 s** (2 h), i.e. the wire body
+  /// `02 b4 00 20 1c` (reversing-whoop doc 14 "High-frequency command", doc 05
+  /// "High-frequency mode is a scheduler mode"). The window officially opens at
+  /// `latest wake time - 2 hours`, which is why the duration matches it.
+  ///
+  /// The previous default was 61 s / 90 min — chosen only because gen5 refuses
+  /// an interval of 60 or less, not because anything established it. A shorter
+  /// interval means more wake/connect cycles for the same result; the official
+  /// cadence is the one with evidence behind it.
   Future<void> applyHighFreqWakeWindow({
     required bool enabled,
     required DateTime? targetWake,
-    Duration duration = const Duration(minutes: 90),
-    // 61, not 60: gen5 refuses an interval of 60 or less outright, so the
-    // round number is the one value that guarantees the mode never engages.
-    int intervalSeconds = 61,
+    Duration duration = const Duration(seconds: 7200),
+    int intervalSeconds = 180,
     String reason = 'wake_window',
   }) async {
     if (_session?.connected != true) return;
@@ -2358,6 +2547,21 @@ class BleEngine {
       }
     } else if (pt == PacketType.consoleLogs && _offloadActive) {
       _drain?.onBurstConsole();
+    } else if (_offloadActive &&
+        (pt == PacketType.relativePuffinEvents ||
+            pt == PacketType.puffinEventsFromStrap ||
+            pt == PacketType.relativeBatteryPackConsoleLogs)) {
+      // Battery-pack ("puffin") event/log wrappers, types 53/54/55. The strap
+      // COUNTS these in the burst total it reports at HISTORY_END, and they
+      // were counted nowhere here — so any burst carrying one looked short by
+      // exactly that many frames. That is not hypothetical: a retained capture
+      // has a checkpoint of 24 ordinary packets plus three type-54 wrappers
+      // reported as `expected = 27`, which fails 27/24 forever until the
+      // wrappers are counted (reversing-whoop doc 05, "History count
+      // membership" — each complete 47/48/50/53/54/55 frame counts once, and
+      // type 49 metadata never does).
+      _drain?.onBurstEvent();
+      _log('[SYNC] puffin wrapper type=$pt counted as a burst member');
     }
     final band = _session?.band ?? BandProfile.gen4;
     final decoded = _maybeAugmentClockEpoch(
@@ -2642,16 +2846,29 @@ class BleEngine {
         ),
       );
     }
-    // GET_ALARM_TIME readback is PARKED: the response byte layout isn't confirmed
-    // (the decode assumed a leading revision byte before the epoch that the band
-    // doesn't send → it returned a plausible-but-wrong epoch, e.g. showing 21:49
-    // for an alarm set to 11:14). The band has no independent alarm source — its
-    // alarm is always exactly what the app last wrote (SET_ALARM is HW-verified) —
-    // so the locally-set/persisted value in AppState is authoritative for display.
-    // Do NOT clobber it with the unconfirmed readback. If the response format is
-    // ever captured, decode it in parseCommandResponse and re-enable here.
+    // GET_ALARM_TIME readback, re-enabled as a VERIFICATION signal.
     //
-    // if (f.containsKey('alarm_epoch')) { ... }
+    // It was parked because the response layout was unconfirmed and the decode
+    // returned a plausible-but-wrong epoch (21:49 for an alarm set to 11:14).
+    // The revision-4 response is now pinned from the official client:
+    //   body[0] revision 04 · body[1] active flag (exactly 1) ·
+    //   body[2:6] epoch u32 LE · body[6:8] subsec u16
+    // and protocol reads the epoch at that offset, so the old wrong-offset
+    // failure mode is gone.
+    //
+    // Deliberately still NOT authoritative for display: AppState's persisted
+    // value is what the user set, and this reply is only meaningful when it
+    // DISAGREES — which is exactly the case worth surfacing, because it means
+    // the alarm the user believes is armed is not armed on the band. Log the
+    // disagreement and expose it for diagnostics; never silently overwrite the
+    // user's alarm with a value read off the wire.
+    if (f.containsKey('alarm_epoch')) {
+      final strapEpoch = (f['alarm_epoch'] as num).toInt();
+      final active = f['alarm_active'] as bool?;
+      _strapAlarmEpoch = strapEpoch;
+      _strapAlarmActive = active;
+      _log('[ALARM] strap readback: epoch=$strapEpoch active=$active');
+    }
     if (f.containsKey('strap_name')) {
       // Guard with cleanDeviceLabel: a garbled name read never overwrites the
       // last good one (keeps "?*" off the UI).
@@ -2690,132 +2907,8 @@ class BleEngine {
       state.wristOn = f['on_wrist'] as bool;
       onState(state);
     }
-    // A GET_CLOCK reply releases the read gate whether or not a usable epoch
-    // came out of it — "the read completed" and "the read produced a plausible
-    // clock" are different questions. A revision byte we do not recognise, or a
-    // corrupt above-ceiling value, yields no `clock_epoch` at all; leaving the
-    // gate to time out would then cost 3 s on EVERY clock read, stalling both
-    // the connect-path SET_CLOCK decision and the drain gate.
-    if (d.kind == 'cmd_response' &&
-        (f['opcode'] == Cmd.getClock || f['opcode'] == Cmd.getClockGen5)) {
-      final pendingRead = _clockReadPending;
-      if (pendingRead != null && !pendingRead.isCompleted) {
-        pendingRead.complete();
-      }
-    }
     if (f.containsKey('clock_epoch')) {
-      final dev = f['clock_epoch'] as int;
-      final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      // Assess phone-clock trust from the RAW read, before the alarm-safety gate
-      // below diverts a future reading. A plausible strap RTC that reads > 1 day
-      // ahead of the phone means the phone clock is likely slow — history offload
-      // then DEFERS (see _startHistoricalRefresh) instead of dropping the strap's
-      // real records as "future" and trimming them off the band. Cleared the
-      // moment a read agrees (the phone almost always self-corrects via NTP).
-      final wasSuspect = _phoneClockSuspect;
-      _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
-      if (_phoneClockSuspect && !wasSuspect) {
-        _phoneClockSuspectSince = _monotonicSecs();
-      } else if (!_phoneClockSuspect) {
-        _phoneClockSuspectSince = null;
-      }
-      // The read gate is released above, on the reply itself, not here.
-      //
-      // UNCORRELATED either way: any GET_CLOCK reply releases the waiter,
-      // including one answering setClock()'s read-back or the keep-alive poll.
-      // Telling them apart needs the echoed request seq, which the pinned
-      // protocol does not surface — see the pin note in pubspec.yaml and
-      // OpenStrap/protocol#28. The reply that lands is still a real strap read
-      // from this session, so the verdict is fresh; it may just answer a
-      // request a few hundred ms older than ours.
-      if (_phoneClockSuspect != wasSuspect) {
-        _log(_phoneClockSuspect
-            ? '[SYNC] Phone clock appears wrong: strap RTC=$dev is > 1 day ahead '
-                'of phone wall=$wall — DEFERRING history offload until they agree.'
-            : '[SYNC] Phone/strap clocks agree again (strap=$dev wall=$wall) — '
-                'history offload may resume.');
-      }
-      // SANITY GATE, mirroring the one `range_newest` gets below. An
-      // implausibly far-future `clock_epoch` yields a large NEGATIVE driftSec,
-      // and setAlarm arms at `when - driftSec` — years out, where the alarm
-      // silently never fires — while the bounded SET_CLOCK retry budget is
-      // spent chasing a value that was never real. Reject the read: with no
-      // correlation the alarm falls back to the raw wall epoch. connect()
-      // already issues an unconditional SET_CLOCK, and the periodic re-verify
-      // re-reads, so a genuinely-wrong RTC still gets corrected.
-      if (dev < kMinPlausibleUnix) {
-        // UNSET RTC. This read is now surfaced instead of swallowed by the
-        // decoder (see [_maybeAugmentClockEpoch]) so the SET_CLOCK correction
-        // below can finally fire for it — but it must NOT become a ClockRef:
-        // correlating a factory-epoch clock yields a drift of decades, and
-        // `AlarmPayloads.toStrapFrame` would arm every alarm that far in the
-        // past.
-        _log(
-          '[SYNC] GET_CLOCK clock_epoch=$dev is below the plausible floor — '
-          'the strap RTC was never set. NOT correlating; SET_CLOCK below is '
-          'the fix.',
-        );
-      } else if (!ClockPolicy.acceptsClockRead(dev, wall)) {
-        _corruptClockReadCount++;
-        _log(
-          '[SYNC] GET_CLOCK clock_epoch=$dev is implausibly far in the future '
-          '— treating as a corrupt strap RTC read; NOT correlating the strap '
-          'clock (alarms fall back to the raw wall epoch) '
-          '(corrupt_clock_reads_total=$_corruptClockReadCount).',
-        );
-      } else {
-        _clockRef = ClockRef(device: dev, wall: wall);
-        _log('Clock correlated: device=$dev wall=$wall (drift=${wall - dev}s).');
-      }
-      // CORRECTION RUNS ON THE RAW READ, outside the correlation gate above.
-      //
-      // It used to be nested inside the accepted-read branch, which quietly
-      // made a fast strap RTC unfixable: `acceptsClockRead` rejects anything
-      // past `wall + kFutureMargin` and `phoneClockSuspect` trips past that
-      // SAME margin, so the one reading that means "the strap clock is ahead"
-      // could never reach the one code path that fixes it. History would
-      // un-defer at grace expiry — having concluded the STRAP is the fast one —
-      // straight back onto an uncorrected fast RTC, where the record gate
-      // rejects every future-stamped record and the offload can never bank
-      // anything.
-      //
-      // Rejecting the read for CORRELATION is still right (a junk value would
-      // arm alarms years out). Rejecting it for CORRECTION never was: SET_CLOCK
-      // writes real wall time, which is the correct outcome whether the read
-      // was junk or the RTC is genuinely ahead, and the retry budget is bounded
-      // at 3 either way.
-      if (ClockPolicy.shouldSetClock(dev, wall)) {
-        if (_deferForClock) {
-          // While the phone is still the suspect party, writing our wall clock
-          // onto a strap that may well be RIGHT corrupts a correct RTC and
-          // destroys the evidence — the read-back then "agrees" forever. Hold
-          // off until the phone corrects (gate clears) or the grace expires
-          // (the strap is the fast one, and the branch below fixes it).
-          _log(
-            'Clock drift over policy but the PHONE clock is the suspect one '
-            '(strap=$dev wall=$wall) — NOT writing SET_CLOCK yet.',
-          );
-        } else if (_clockCorrectTries < 3) {
-          // BOUND the retries: setClock() reads the clock back and this handler
-          // re-issues on drift, so an unbounded loop would spin
-          // SET_CLOCK/GET_CLOCK forever on firmware that never latches.
-          // Historical records carry their own embedded unix time regardless,
-          // so giving up after a few tries is safe.
-          _clockCorrectTries++;
-          _log(
-            'Clock drift over policy — re-issuing SET_CLOCK '
-            '(attempt $_clockCorrectTries/3).',
-          );
-          unawaited(setClock());
-        } else {
-          _log(
-            'Clock still off after 3 SET_CLOCK attempts — giving up; '
-            'firmware may not accept our payload length.',
-          );
-        }
-      } else {
-        _clockCorrectTries = 0; // latched — reset for the next drift episode
-      }
+      _absorbClockEpoch(f['clock_epoch'] as int);
     }
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {
       final oldest = f['range_oldest'] as int;
@@ -2854,15 +2947,23 @@ class BleEngine {
       state.wristOn = h.wristOn ?? state.wristOn;
       onState(state);
     }
-    // gen5's GET_HELLO (opcode 145) response shape is unrelated to gen4's
-    // HelloInfo — it carries a device_name + a gated fw_version instead
-    // (parseCommandResponse's gen5 GET_HELLO branch). No confirmed serial/
-    // battery/wrist-on offsets for it yet, so — unlike gen4's HELLO above —
-    // this is diagnostics-only for now (confirms the untested gen5 handshake
-    // actually got a byte-parseable reply) rather than wired into `state`.
-    if (d.kind == 'cmd_response' && f.containsKey('device_name')) {
-      _log('[HELLO gen5] device_name=${f['device_name']} '
-          'fw_version=${f['fw_version']}');
+    // gen5's GET_HELLO (opcode 145) has its own layout, now decoded in full
+    // against the official revision-1 body map — battery, charge state, the
+    // strap's own timestamp, serial, firmware and on-body state all come from
+    // here (doc 01 "Revision-1 hello body"). It used to be diagnostics-only
+    // because those offsets were unconfirmed, which left gen5 with no serial,
+    // no battery-at-connect and no wrist state.
+    if (d.kind == 'cmd_response' && f['gen5_hello'] is Gen5HelloInfo) {
+      final h = f['gen5_hello'] as Gen5HelloInfo;
+      _gen5Hello = h;
+      state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
+      if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
+      state.charging = h.charging;
+      state.wristOn = h.wristOn;
+      onState(state);
+      _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
+          'battery=${h.batteryPct}% charging=${h.charging} '
+          'wrist=${h.wristOn} whoop5=${h.isWhoop5}');
     }
     if (d.kind == 'realtime_hr') {
       final hr = f['hr'] as int;
@@ -2871,6 +2972,35 @@ class BleEngine {
         state.liveHrAt = DateTime.now().millisecondsSinceEpoch;
         state.wristOn = (f['wearing'] as bool?) ?? state.wristOn;
         onState(state);
+      }
+    }
+    // Correlation LAST, so everything a reply carries is already applied to
+    // the engine's state by the time whoever awaited it resumes.
+    //
+    // A reply satisfies its await whether or not the body made sense — "the
+    // read completed" and "the read produced a usable value" are different
+    // questions, and conflating them cost a full timeout on every clock read
+    // whose revision byte we did not recognise.
+    if (d.kind == 'cmd_response') {
+      final opcode = (f['opcode'] as num?)?.toInt();
+      final reqSeq = (f['req_seq'] as num?)?.toInt();
+      final outcome = _awaiter.deliver(
+        opcode: opcode,
+        reqSeq: reqSeq,
+        status: (f['cmd_status'] as num?)?.toInt(),
+        fields: f,
+      );
+      // A near-miss — right opcode but a sequence we never sent, or the right
+      // sequence carrying a different opcode — is the one symptom worth
+      // shouting about. It is what a strap that does not echo the originating
+      // sequence the way doc 02 describes would look like, and it is doc 02's
+      // own "a sequence match with the wrong opcode is not a success" case.
+      // Either way the await it belongs to just expires, silently, without it.
+      final nearMiss = (opcode != null && _awaiter.hasPendingOpcode(opcode)) ||
+          (reqSeq != null && _awaiter.hasPendingSeq(reqSeq));
+      if (outcome == CommandDelivery.unmatched && nearMiss) {
+        _log('[CMD] response opcode=$opcode req_seq=$reqSeq matched no pending '
+            'command (waiting on ${_awaiter.pendingKeys}) — ignored.');
       }
     }
   }
@@ -2967,6 +3097,96 @@ class BleEngine {
   /// blocked reasons. The band keeps the chunk and re-delivers it on the next
   /// offload; re-delivery is dedup-safe (decoded rows REPLACE by rec_ts, raw
   /// rows key on the record hex).
+  /// The count gate refused this burst: persist what arrived, tell the strap
+  /// the burst FAILED, and let it re-offer the same checkpoint unchanged.
+  ///
+  /// Three properties, all load-bearing:
+  ///  1. `commit(null)` — the records and raws are stored durably, but WITHOUT
+  ///     the trim token, so the cursor does not advance and nothing is deleted
+  ///     from the band. Re-delivery is dedup-safe (`decoded_onehz` REPLACEs by
+  ///     `rec_ts`), so storing now costs nothing and means a burst we keep
+  ///     failing still yields its readable records.
+  ///  2. The 2-byte `00 00` failure result, which is what makes the strap
+  ///     re-offer rather than sit waiting for a result that never comes.
+  ///  3. A bounded end: the 15th consecutive failure sends ONE abort and
+  ///     terminates the session — and deliberately does NOT send a 15th failure
+  ///     result, matching the official client.
+  Future<void> _refuseHistoryEndOnShortCount({
+    required DrainController d,
+    required _Session session,
+    required String tokenHex,
+    required int? batchId,
+    required int? expected,
+    required int droppedThisBurst,
+  }) async {
+    // Store what did arrive, without the token.
+    final durable = await d.commit(null);
+    if (!durable) {
+      _log('[SYNC] short-count burst ALSO failed to commit — bouncing the '
+          'link so the next session retries from a clean batch.');
+      if (!_sessionIsStale(session)) {
+        unawaited(
+          _teardownSession(intentional: false).then((_) {
+            _setPhase(BleConnState.idle);
+          }),
+        );
+      }
+      return;
+    }
+    if (_sessionIsStale(session)) return;
+
+    if (d.consecutiveValidationFailures >= kBurstValidationAttemptLimit) {
+      // Terminal. One abort, no 15th failure result, and NO same-session
+      // auto-retry: the strap keeps the uncommitted checkpoint and a later
+      // connection resumes from it.
+      _log(
+        '[SYNC] burst still short after '
+        '${d.consecutiveValidationFailures} attempts — aborting history for '
+        'this session (records are stored; the band keeps the checkpoint).',
+      );
+      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+            chunkId: 'batch:$tokenHex',
+            kind: 'historical_batch',
+            status: 'stuck',
+            lastError: 'burst_short_count_attempts_exhausted',
+            metaPatch: {
+              'batch_id': batchId,
+              'expected_burst_packets': expected,
+              'actual_burst_packets': d.currentBurstPacketCount,
+              'dropped_this_burst': droppedThisBurst,
+              'attempts': d.consecutiveValidationFailures,
+            },
+          ));
+      await _send(Cmd.abortHistoricalTransmits, const [0x00]);
+      _setOffloadActive(false);
+      return;
+    }
+
+    final ok = await _write(
+      buildHistoryResultFail(_seq.nextSync(),
+          profile: _session?.band ?? BandProfile.gen4),
+    );
+    _log(
+      '[SYNC] sent FAILURE result for token=$tokenHex '
+      '(attempt ${d.consecutiveValidationFailures}/'
+      '$kBurstValidationAttemptLimit, write_ok=$ok) — the band re-offers this '
+      'burst; nothing was trimmed.',
+    );
+    await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'burst_short_count',
+          metaPatch: {
+            'batch_id': batchId,
+            'expected_burst_packets': expected,
+            'actual_burst_packets': d.currentBurstPacketCount,
+            'dropped_this_burst': droppedThisBurst,
+            'attempts': d.consecutiveValidationFailures,
+          },
+        ));
+  }
+
   Future<void> _refuseHistoryEndTrim(
     TrimAckVerdict verdict, {
     required DrainController d,
@@ -3184,26 +3404,31 @@ class BleEngine {
               receivedTrafficCount: d.currentBurstTrafficCount,
               droppedThisBurst: droppedThisBurst,
             );
-      // ADVISORY ONLY, never a gate: `expectedPacketCount`'s exact semantics
-      // (which transport packet types the band itself counts — command
-      // responses interleaved with the burst? retried/duplicate frames?) are
-      // not fully reverse-engineered, and field data shows the gap between
-      // expected and actual varies run to run with no fixed offset. What IS
-      // fully verified is frame-level CRC32 (framing.dart) and the RecordGate
-      // plausibility check — both already ran on every buffered record before
-      // we ever get here. So a count mismatch is NOT evidence of corrupt or
-      // missing data; treating it as fatal was actively harmful: on mismatch
-      // the OLD behavior discarded the entire buffered chunk (throwing away
-      // perfectly good, already-CRC-verified, already-gate-passed records),
-      // told the band FAIL, and re-requested the same block — forever, since
-      // nothing about a retry changes the count relationship. Zero sync
-      // progress, "last data" frozen indefinitely. Log the mismatch (still
-      // useful signal — see the sync-diagnostics screen) and commit anyway.
+      // THE COUNT GATE. A short burst must NOT be acknowledged.
+      //
+      // This was advisory-only because the band's count semantics were unknown,
+      // and the previous attempt at a gate caused a "fail forever" loop. Both
+      // problems are now solved rather than avoided:
+      //
+      //  * SEMANTICS. The strap reports `data_pkt_cnt + event_pkt_cnt`, and each
+      //    complete type-47/48/50/53/54/55 frame counts exactly once (type 49
+      //    metadata never does). Types 53/54/55 were counted NOWHERE here until
+      //    now, which alone made any burst carrying them look short.
+      //  * NO INFINITE LOOP. A failure is not a discard: the records stay
+      //    buffered and durable, the strap re-offers the SAME burst unchanged,
+      //    and the sequence is bounded — the 15th consecutive failure aborts the
+      //    session instead of retrying forever. The strap also drops its own
+      //    burst size from 50 to 10 after five negative results.
+      //
+      // Why refusing is the safe direction: an ACK makes the band TRIM the
+      // acknowledged pages from flash. Acknowledging a burst we only partly
+      // received deletes the missing records from the only place they exist.
+      // Refusing costs a re-delivery; acknowledging costs the data permanently.
       if (!validated) {
         _burstMismatchTotal++;
         _burstMismatchStreak++;
         _log(
-          '[SYNC] Burst packet-count mismatch (advisory, NOT blocking commit) '
+          '[SYNC] Burst packet-count SHORT — refusing the trim ACK '
           '(attempt ${d.consecutiveValidationFailures}, '
           'streak=$_burstMismatchStreak): expected=$expected, '
           'actual=${d.currentBurstPacketCount}, '
@@ -3226,6 +3451,15 @@ class BleEngine {
             'burst_shortfall': shortfall,
           },
         ));
+        await _refuseHistoryEndOnShortCount(
+          d: d,
+          session: session,
+          tokenHex: tokenHex,
+          batchId: m.batchId,
+          expected: expected,
+          droppedThisBurst: droppedThisBurst,
+        );
+        return;
       } else {
         _burstMismatchStreak = 0;
       }
@@ -3623,15 +3857,18 @@ class BleEngine {
       // [drain] is honoured here for the same reason it exists on gen4: the
       // drain must not start while the phone clock is suspect, or the records
       // it pulls get stamped against a clock we do not trust.
-      _log('Sending gen5 CLIENT_HELLO + offload…');
+      // No CLIENT_HELLO here any more: the connect path sends and AWAITS it
+      // during setup, before the clock decision, which is the official order
+      // (doc 01). Re-sending it at INIT would be a second identity exchange
+      // after the point every consumer of it has already run.
+      _log('Sending gen5 offload…');
       var ok = false;
       // try/finally for the same reason the gen4 loop below has one: other
       // paths rely on `_connectSetup` being cleared here, and a throw anywhere
       // above the clear leaves the link pinned at setup priority for the whole
       // connection with `_applyLinkPriority` early-returning forever.
       try {
-        ok = await _write(gen5ClientHello());
-        await Future.delayed(const Duration(milliseconds: 120));
+        ok = true; // hello already completed during connect setup
         // Opt-in deep-buffer sequence, BEFORE the offload trigger (SET_CONFIG
         // flags must land before SEND_HISTORICAL_DATA to take effect for this
         // drain). Default OFF — see [gen5DeepBuffersEnabled].
@@ -3784,41 +4021,161 @@ class BleEngine {
     final ms = now.millisecondsSinceEpoch;
     final sec = ms ~/ 1000;
     final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
-    // gen5 ("Maverick") uses a DIFFERENT opcode for SET_CLOCK than gen4 and a
-    // body that leads with a revision byte; protocol owns both — see
-    // `cmdSetClockGen5`. Gen4 keeps the hardware-verified 8-byte body.
+    // SET_CLOCK(10) with the 8-byte <u32 sec><u32 subsec> body is the OFFICIAL
+    // command on BOTH generations. It used to send opcode 146 ("Maverick
+    // clock") on gen5 — a number that appears nowhere in the official 75-opcode
+    // enum recovered from WHOOP's own client, and which nothing has ever
+    // watched latch an RTC. The real gen5 contract is opcode 10, physically
+    // confirmed: a probe read the clock with GET_CLOCK(11), measured ~2410 ms
+    // of drift and received SUCCESS for this exact 8-byte form from a WHOOP 5.
+    //
+    // This matters beyond tidiness: a rejected clock write is SILENT. The RTC
+    // simply never latches, and every absolute timestamp afterwards — alarms
+    // above all — is armed against a clock that was never set.
     final isGen5 = _session?.band.isGen5 ?? false;
-    if (isGen5) {
-      await _write(cmdSetClockGen5(_seq.nextLive(), now: now));
-    } else {
-      await _send(Cmd.setClock, <int>[
-        sec & 0xff,
-        (sec >> 8) & 0xff,
-        (sec >> 16) & 0xff,
-        (sec >> 24) & 0xff,
-        subsec & 0xff,
-        (subsec >> 8) & 0xff,
-        0,
-        0,
-      ]);
-    }
-    _log('SET_CLOCK${isGen5 ? " (gen5 Maverick)" : ""} → sec=$sec '
-        'subsec=$subsec.');
+    await _send(Cmd.setClock, <int>[
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+      0,
+      0,
+    ]);
+    _log('SET_CLOCK${isGen5 ? " (gen5)" : ""} → sec=$sec subsec=$subsec.');
     // Read the RTC back so the GET_CLOCK response handler can confirm it latched
     // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
     await getClock();
   }
 
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
-  /// verify drift and re-correlate the strap-RTC ↔ wall clock. gen5 uses its
-  /// own GET_CLOCK opcode and needs a leading revision byte — protocol's
-  /// `cmdGetClockGen5` owns both.
-  Future<void> getClock() {
-    if (_session?.band.isGen5 ?? false) {
-      return _write(cmdGetClockGen5(_seq.nextLive()));
-    }
-    return _send(Cmd.getClock, const <int>[]);
+  /// verify drift and re-correlate the strap-RTC ↔ wall clock.
+  ///
+  /// GET_CLOCK(11) with an EMPTY body on both generations — physically
+  /// confirmed on a WHOOP 5 (see [setClock] for the evidence and for why the
+  /// gen5-exclusive opcode 147 was dropped). The reply body is the same
+  /// `[u32 sec][u32 subsec]` shape on both.
+  Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
+  /// Apply a strap clock reading: phone-suspect verdict, correlation, and the
+  /// bounded SET_CLOCK correction. Extracted so the gen5 HELLO timestamp and a
+  /// GET_CLOCK reply reach IDENTICAL logic — the official gen5 path takes its
+  /// clock from hello and never sends GET_CLOCK, so without this the two
+  /// sources would drift apart in behaviour.
+  void _absorbClockEpoch(int dev) {
+      final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Assess phone-clock trust from the RAW read, before the alarm-safety gate
+      // below diverts a future reading. A plausible strap RTC that reads > 1 day
+      // ahead of the phone means the phone clock is likely slow — history offload
+      // then DEFERS (see _startHistoricalRefresh) instead of dropping the strap's
+      // real records as "future" and trimming them off the band. Cleared the
+      // moment a read agrees (the phone almost always self-corrects via NTP).
+      final wasSuspect = _phoneClockSuspect;
+      _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
+      if (_phoneClockSuspect && !wasSuspect) {
+        _phoneClockSuspectSince = _monotonicSecs();
+      } else if (!_phoneClockSuspect) {
+        _phoneClockSuspectSince = null;
+      }
+      // The read gate is released above, on the reply itself, not here.
+      //
+      // UNCORRELATED either way: any GET_CLOCK reply releases the waiter,
+      // including one answering setClock()'s read-back or the keep-alive poll.
+      // Telling them apart needs the echoed request seq, which the pinned
+      // protocol does not surface — see the pin note in pubspec.yaml and
+      // OpenStrap/protocol#28. The reply that lands is still a real strap read
+      // from this session, so the verdict is fresh; it may just answer a
+      // request a few hundred ms older than ours.
+      if (_phoneClockSuspect != wasSuspect) {
+        _log(_phoneClockSuspect
+            ? '[SYNC] Phone clock appears wrong: strap RTC=$dev is > 1 day ahead '
+                'of phone wall=$wall — DEFERRING history offload until they agree.'
+            : '[SYNC] Phone/strap clocks agree again (strap=$dev wall=$wall) — '
+                'history offload may resume.');
+      }
+      // SANITY GATE, mirroring the one `range_newest` gets below. An
+      // implausibly far-future `clock_epoch` yields a large NEGATIVE driftSec,
+      // and setAlarm arms at `when - driftSec` — years out, where the alarm
+      // silently never fires — while the bounded SET_CLOCK retry budget is
+      // spent chasing a value that was never real. Reject the read: with no
+      // correlation the alarm falls back to the raw wall epoch. connect()
+      // already issues an unconditional SET_CLOCK, and the periodic re-verify
+      // re-reads, so a genuinely-wrong RTC still gets corrected.
+      if (dev < kMinPlausibleUnix) {
+        // UNSET RTC. This read is now surfaced instead of swallowed by the
+        // decoder (see [_maybeAugmentClockEpoch]) so the SET_CLOCK correction
+        // below can finally fire for it — but it must NOT become a ClockRef:
+        // correlating a factory-epoch clock yields a drift of decades, and
+        // `AlarmPayloads.toStrapFrame` would arm every alarm that far in the
+        // past.
+        _log(
+          '[SYNC] GET_CLOCK clock_epoch=$dev is below the plausible floor — '
+          'the strap RTC was never set. NOT correlating; SET_CLOCK below is '
+          'the fix.',
+        );
+      } else if (!ClockPolicy.acceptsClockRead(dev, wall)) {
+        _corruptClockReadCount++;
+        _log(
+          '[SYNC] GET_CLOCK clock_epoch=$dev is implausibly far in the future '
+          '— treating as a corrupt strap RTC read; NOT correlating the strap '
+          'clock (alarms fall back to the raw wall epoch) '
+          '(corrupt_clock_reads_total=$_corruptClockReadCount).',
+        );
+      } else {
+        _clockRef = ClockRef(device: dev, wall: wall);
+        _log('Clock correlated: device=$dev wall=$wall (drift=${wall - dev}s).');
+      }
+      // CORRECTION RUNS ON THE RAW READ, outside the correlation gate above.
+      //
+      // It used to be nested inside the accepted-read branch, which quietly
+      // made a fast strap RTC unfixable: `acceptsClockRead` rejects anything
+      // past `wall + kFutureMargin` and `phoneClockSuspect` trips past that
+      // SAME margin, so the one reading that means "the strap clock is ahead"
+      // could never reach the one code path that fixes it. History would
+      // un-defer at grace expiry — having concluded the STRAP is the fast one —
+      // straight back onto an uncorrected fast RTC, where the record gate
+      // rejects every future-stamped record and the offload can never bank
+      // anything.
+      //
+      // Rejecting the read for CORRELATION is still right (a junk value would
+      // arm alarms years out). Rejecting it for CORRECTION never was: SET_CLOCK
+      // writes real wall time, which is the correct outcome whether the read
+      // was junk or the RTC is genuinely ahead, and the retry budget is bounded
+      // at 3 either way.
+      if (ClockPolicy.shouldSetClock(dev, wall)) {
+        if (_deferForClock) {
+          // While the phone is still the suspect party, writing our wall clock
+          // onto a strap that may well be RIGHT corrupts a correct RTC and
+          // destroys the evidence — the read-back then "agrees" forever. Hold
+          // off until the phone corrects (gate clears) or the grace expires
+          // (the strap is the fast one, and the branch below fixes it).
+          _log(
+            'Clock drift over policy but the PHONE clock is the suspect one '
+            '(strap=$dev wall=$wall) — NOT writing SET_CLOCK yet.',
+          );
+        } else if (_clockCorrectTries < 3) {
+          // BOUND the retries: setClock() reads the clock back and this handler
+          // re-issues on drift, so an unbounded loop would spin
+          // SET_CLOCK/GET_CLOCK forever on firmware that never latches.
+          // Historical records carry their own embedded unix time regardless,
+          // so giving up after a few tries is safe.
+          _clockCorrectTries++;
+          _log(
+            'Clock drift over policy — re-issuing SET_CLOCK '
+            '(attempt $_clockCorrectTries/3).',
+          );
+          unawaited(setClock());
+        } else {
+          _log(
+            'Clock still off after 3 SET_CLOCK attempts — giving up; '
+            'firmware may not accept our payload length.',
+          );
+        }
+      } else {
+        _clockCorrectTries = 0; // latched — reset for the next drift episode
+      }
   }
+
 
   /// GET_CLOCK, awaited to the *response* rather than to the write.
   ///
@@ -3837,25 +4194,148 @@ class BleEngine {
   /// never see is a strap we never SET_CLOCK (it ships RTC-unset) and never
   /// sync. Callers proceed on the last known verdict; the log line is the
   /// signal that the read never landed.
-  Future<bool> _readClock() async {
-    final pending = _clockReadPending = Completer<void>();
-    await getClock(); // band-correct opcode + body; gen4 sent to a gen5 strap is silence
-    try {
-      await pending.future.timeout(_clockReadTimeout);
-      return true;
-    } on TimeoutException {
-      _log(
-        '[SYNC] GET_CLOCK went unanswered for ${_clockReadTimeout.inSeconds}s '
-        '— clock verdict is UNVERIFIED for this read; proceeding on the last '
-        'known state (phone_clock_suspect=$_phoneClockSuspect).',
-      );
+  /// Send the gen5 `GET_HELLO(0x91)` and wait for its reply.
+  ///
+  /// This runs BEFORE any clock work, which is the official order (doc 01):
+  /// hello carries the strap's own timestamp, identity, battery, charge and
+  /// on-body state, and the official client feeds that timestamp straight into
+  /// the clock decision rather than spending a GET_CLOCK round trip. Sending it
+  /// late — as this app used to, inside INIT — meant the clock had already been
+  /// read and written by then, so hello's timestamp could never be used and its
+  /// identity fields arrived after everything that wanted them.
+  ///
+  /// Returns whether a reply landed. A timeout is NOT fatal: the caller falls
+  /// back to the GET_CLOCK path, which is exactly what the official client does
+  /// when hello supplies no timestamp.
+  /// Correlated through the [CommandAwaiter]: the reply must echo THIS hello's
+  /// sequence and opcode 145. GET_HELLO is also one of the two commands whose
+  /// `PENDING` is not terminal (doc 02), so a deferred reply keeps the await
+  /// open for the real result instead of reporting the strap as answered.
+  Future<bool> _readGen5Hello() async {
+    final out = await _sendAwaited(
+      Cmd.getHello,
+      const [0x01],
+      timeout: _helloTimeout,
+      frameBuilder: (seq) => gen5ClientHello(seq: seq),
+    );
+    if (!out.written) {
+      _log('[HELLO gen5] write failed — falling back to the clock read.');
+      await _noteHelloFailure('write failed');
       return false;
-    } finally {
-      if (identical(_clockReadPending, pending)) _clockReadPending = null;
+    }
+    final resp = await out.response;
+    if (resp == null) {
+      _log('[HELLO gen5] no reply in ${_helloTimeout.inSeconds}s — falling '
+          'back to GET_CLOCK for the clock decision.');
+      await _noteHelloFailure('no reply');
+      return false;
+    }
+    // A non-success result leaves the body unpopulated, and an unparseable
+    // body leaves `_gen5Hello` null — either way there is no identity, no
+    // timestamp and nothing for the clock decision, which is doc 01's
+    // "missing or failed hello".
+    final hello = _gen5Hello;
+    if (!resp.success || hello == null) {
+      _log('[HELLO gen5] reply status=${resp.status} '
+          'body=${hello == null ? 'unparsed' : 'parsed'} — treating as a '
+          'failed hello.');
+      await _noteHelloFailure('status=${resp.status}');
+      return false;
+    }
+    _noteHelloSuccess(hello);
+    return true;
+  }
+
+  /// Matches the official 5-second command timeout (doc 02).
+  static const Duration _helloTimeout = Duration(seconds: 5);
+
+  /// doc 01 §"What gates READY" (identity half) — recorded and logged, never a
+  /// disconnect. See [HelloIdentity] for why this stays observable.
+  void _noteHelloSuccess(Gen5HelloInfo h) {
+    _helloFailures = 0;
+    final id = HelloIdentity.evaluate(
+      serial: h.serial,
+      cpuHex: h.cpuHex,
+      eepromFailureSignal: h.serialLooksEepromFailure,
+    );
+    _helloIdentity = id;
+    if (!id.ok) {
+      _log('[HELLO gen5] identity gate FAILED ($id) — the official client '
+          'requires serial and CPU to be alphanumeric; logged, not enforced.');
+    }
+    if (id.eepromFailureSignal) {
+      _log('[HELLO gen5] serial is all zeros — the strap is reporting an '
+          'EEPROM failure. Not a reject (doc 01); the band stays usable.');
     }
   }
 
-  /// How long [_readClock] waits for `clock_epoch`. A connected-link round trip
+  /// doc 01 §"Hello failure handling": record the failure, and at the fifth
+  /// one reset the counter and remove the platform bond before starting over.
+  Future<void> _noteHelloFailure(String why) async {
+    _helloFailures++;
+    _log('[HELLO gen5] failure $_helloFailures/$kHelloFailuresBeforeBondReset '
+        '($why) — counted across reconnect attempts.');
+    if (_helloFailures < kHelloFailuresBeforeBondReset) return;
+    _helloFailures = 0;
+    await _removePlatformBond();
+  }
+
+  /// Drop the OS-level bond so the next attempt re-pairs from scratch.
+  ///
+  /// Android only: iOS gives no API for removing a pairing, so there the user
+  /// has to forget the device in Settings — say so in the log rather than
+  /// pretending the reset happened.
+  Future<void> _removePlatformBond() async {
+    final device = _session?.device;
+    if (!Platform.isAndroid) {
+      _log('[HELLO gen5] $kHelloFailuresBeforeBondReset failed hellos — a bond '
+          'reset is due, but this platform cannot remove a bond '
+          'programmatically; the user must forget the device manually.');
+      return;
+    }
+    if (device == null) {
+      _log('[HELLO gen5] bond reset due but there is no device to unbond.');
+      return;
+    }
+    try {
+      await device.removeBond();
+      _log('[HELLO gen5] $kHelloFailuresBeforeBondReset failed hellos — '
+          'platform bond removed; the next attempt re-pairs.');
+    } catch (e) {
+      _log('[HELLO gen5] bond removal failed: $e');
+    }
+  }
+
+  Future<bool> _readClock() async {
+    // Correlated on (sequence, opcode 11): the periodic RTC re-verify and the
+    // read-back inside setClock() both put GET_CLOCK replies on this link, and
+    // before correlation any of them could release this gate — including one
+    // belonging to the PREVIOUS request.
+    //
+    // The 3 s ceiling is kept rather than doc 02's generic 5 s: this read sits
+    // in the connect path and in the drain gate, and its timeout is a
+    // proceed-on-the-last-verdict fallback, not a failure.
+    final out = await _sendAwaited(
+      Cmd.getClock, // band-correct opcode + body; gen4 sent to gen5 is silence
+      const <int>[],
+      timeout: _clockReadTimeout,
+    );
+    if (await out.response != null) return true;
+    _log(
+      out.written
+          ? '[SYNC] GET_CLOCK went unanswered for '
+              '${_clockReadTimeout.inSeconds}s — clock verdict is UNVERIFIED '
+              'for this read; proceeding on the last known state '
+              '(phone_clock_suspect=$_phoneClockSuspect).'
+          : '[SYNC] GET_CLOCK was never written — clock verdict is UNVERIFIED '
+              'for this read; proceeding on the last known state '
+              '(phone_clock_suspect=$_phoneClockSuspect).',
+    );
+    return false;
+  }
+
+  /// How long [_readClock] waits for its correlated reply. A connected-link
+  /// round trip
   /// is tens of milliseconds; this is sized to survive a burst of historical
   /// frames queued ahead of the response, not to be a plausible steady state.
   static const Duration _clockReadTimeout = Duration(seconds: 3);
@@ -3956,6 +4436,32 @@ class BleEngine {
       return;
     }
     await _send(Cmd.runAlarm, AlarmPayloads.runNow);
+  }
+
+  /// Fire the STORED alarm now — the real wake, not a test pulse.
+  ///
+  /// This is a different thing from [runAlarm]. That one plays a short buzz so
+  /// the user can feel that the strap works; this one tells the firmware to
+  /// enter its ALARM state for the alarm already programmed in [slot], which is
+  /// the full stored waveform with its loop count, 30 s cap and 50%→100%
+  /// strength progression, terminated by timeout, error or a user double-tap.
+  /// A short test pulse does not wake a sleeping person; this does.
+  ///
+  /// It is also the ONLY band command needed to wake someone early: the band
+  /// holds an absolute deadline and can be told to run it ahead of time
+  /// (reversing-whoop doc 14 "Run alarm now — opcode 68" / "Wake in green").
+  ///
+  /// Body per that doc: revision 2 plus the alarm ID, i.e. `02 01` for the ID 1
+  /// the official client uses. NOTE the existing gen5 note on [runAlarm] — that
+  /// "RUN_ALARM does not buzz" on gen5 — was very likely observed with the
+  /// gen4 revision-1 body `[0x01]`, which protocol documents as doing nothing
+  /// on gen5. The rev-2 form has not been re-tested on hardware yet, so callers
+  /// must treat a wake driven by this as unconfirmed until it has (tracked in
+  /// reversing-whoop doc 15 G6).
+  Future<bool> runStoredAlarm({int? slot}) async {
+    final band = _session?.band ?? BandProfile.gen4;
+    final id = slot ?? (band.isGen5 ? AlarmPayloads.gen5Slot : null);
+    return _write(cmdRunAlarm(_seq.nextLive(), mode: id, profile: band));
   }
 
   /// Cancel the on-device alarm (DISABLE_ALARM = 0x45). gen4 body `[0x01]`
@@ -4195,6 +4701,10 @@ class BleEngine {
     // skips the clear in sendInit's finally, which would leave the target
     // pinned at `high` for the life of the process.
     _connectSetup = false;
+    // Nothing outstanding can be answered by a link that is going away, and a
+    // caller parked on a 5 s await through a teardown delays whatever the
+    // reconnect wants to do next. Resolve them all as unanswered now.
+    _awaiter.failAll();
     _linkGeneration++;
     _drain?.onLinkDown();
     _drain = null;
@@ -4548,6 +5058,7 @@ class DrainController {
       expectedPacketCount: expectedPacketCount,
       actualBurstPacketCount: currentBurstPacketCount,
       droppedThisBurst: droppedThisBurst,
+      consecutiveFailedValidations: consecutiveValidationFailures,
     )) {
       consecutiveValidationFailures = 0;
       return true;

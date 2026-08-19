@@ -121,6 +121,56 @@ void main() {
         isFalse,
       );
     });
+
+    // The official rule is one-sided with a failure-dependent slack, NOT
+    // equality (doc 05 "Collector and count gate").
+    test('SURPLUS passes — there is no upper bound', () {
+      // The strap re-offers an unacknowledged burst and may re-deliver frames,
+      // so tallying more than expected is normal. Equality failed this.
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 50,
+          actualBurstPacketCount: 53,
+          droppedThisBurst: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test('slack is 0 for the first three attempts, then 2', () {
+      expect(burstCountSlack(0), 0);
+      expect(burstCountSlack(1), 0);
+      expect(burstCountSlack(2), 0);
+      expect(burstCountSlack(3), 2);
+      expect(burstCountSlack(14), 2);
+
+      bool shortByTwo(int failures) => burstPacketCountMatches(
+            expectedPacketCount: 50,
+            actualBurstPacketCount: 48,
+            droppedThisBurst: 0,
+            consecutiveFailedValidations: failures,
+          );
+      expect(shortByTwo(0), isFalse, reason: 'early attempts demand them all');
+      expect(shortByTwo(3), isTrue, reason: 'from the 4th, 2 missing is ok');
+
+      // Slack never stretches to three.
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 50,
+          actualBurstPacketCount: 47,
+          droppedThisBurst: 0,
+          consecutiveFailedValidations: 9,
+        ),
+        isFalse,
+      );
+    });
+
+    test('the retry boundary is bounded, so a short burst cannot loop forever',
+        () {
+      // The whole reason a real gate is safe: attempts 1..14 fail and the strap
+      // re-offers; the 15th is terminal and aborts instead of re-requesting.
+      expect(kBurstValidationAttemptLimit, 15);
+    });
   });
 
   group('burst completeness shortfall (log-only would-flag signal)', () {
@@ -204,7 +254,7 @@ void main() {
       );
     });
 
-    test('shortfall==0 is exactly burstPacketCountMatches', () {
+    test('a zero shortfall passes the count gate', () {
       const expected = 50, received = 26, dropped = 24;
       final matches = burstPacketCountMatches(
         expectedPacketCount: expected,
@@ -216,7 +266,32 @@ void main() {
         receivedTrafficCount: received,
         droppedThisBurst: dropped,
       );
-      expect(matches, (shortfall == 0));
+      expect(shortfall, 0);
+      expect(matches, isTrue);
+    });
+
+    test('a NEGATIVE shortfall (surplus) also passes — they are not equivalent',
+        () {
+      // shortfall < 0 means we tallied more than the band reported, which is
+      // not loss. The gate is one-sided, so this passes even though the two
+      // values are not equal.
+      const expected = 50, received = 55, dropped = 0;
+      expect(
+        burstPacketShortfall(
+          expectedPacketCount: expected,
+          receivedTrafficCount: received,
+          droppedThisBurst: dropped,
+        ),
+        lessThan(0),
+      );
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: expected,
+          actualBurstPacketCount: received,
+          droppedThisBurst: dropped,
+        ),
+        isTrue,
+      );
     });
   });
 

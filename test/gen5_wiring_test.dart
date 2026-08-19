@@ -345,10 +345,82 @@ void main() {
       expect(engine.offloadSnapshot['high_freq_requested'], isFalse);
     });
 
-    test('the gen5 clock commands carry the revision byte', () async {
+    test('INIT no longer re-sends the hello — it belongs to connect setup',
+        () async {
+      // The official order is hello FIRST, during setup, so its timestamp can
+      // drive the clock decision and its identity fields are available to
+      // everything after. Sending it again at INIT would be a second identity
+      // exchange after every consumer has already run.
+      final w = _Wire(band: BandProfile.gen5);
+      await w.engine.sendInit();
+      final opcodes = w.frames
+          .map((f) => parseFrame(f, profile: BandProfile.gen5))
+          .where((p) => p != null && p.valid)
+          .map((p) => p!.inner[2])
+          .toList();
+      expect(opcodes, isNot(contains(Cmd.getHello)));
+      expect(opcodes, contains(Cmd.sendHistoricalData));
+    });
+
+    test('the wake window uses the official 180 s / 7200 s Smart Alarm values',
+        () async {
+      // doc 14: ENTER_HIGH_FREQ_SYNC(96) body `02 b4 00 20 1c` — rev 2, then
+      // interval 180 s and duration 7200 s as u16 LE. The old 61 s/90 min
+      // defaults were picked only to clear gen5's "> 60" floor.
+      final w = _Wire(band: BandProfile.gen5);
+      await w.engine.applyHighFreqWakeWindow(
+        enabled: true,
+        targetWake: DateTime.now().add(const Duration(hours: 2)),
+      );
+      expect(w.lastCommandOf(6), <int>[
+        Cmd.enterHighFreqSync,
+        0x02, // revision
+        0xb4, 0x00, // interval 180 s, u16 LE
+        0x20, 0x1c, // duration 7200 s, u16 LE
+      ]);
+    });
+
+    test('runStoredAlarm sends the official rev-2 body with the alarm id',
+        () async {
+      // doc 14 "Run alarm now — opcode 68": body `02 01`. This is the early-wake
+      // mechanism; the rev-1 gen4 body does nothing on gen5.
+      final w = _Wire(band: BandProfile.gen5);
+      await w.engine.runStoredAlarm();
+      expect(w.lastCommandOf(3),
+          <int>[Cmd.runAlarm, 0x02, AlarmPayloads.gen5Slot]);
+      expect(AlarmPayloads.gen5Slot, 1);
+    });
+
+    test('gen5 reads the clock with the OFFICIAL GET_CLOCK(11), empty body',
+        () async {
+      // Opcode 147 ("GET_CLOCK_GEN5") appears nowhere in the official 75-opcode
+      // enum. The confirmed gen5 contract is the shared opcode 11 with an EMPTY
+      // body — physically exercised on a real WHOOP 5 (the probe read the clock
+      // this way and measured ~2410 ms drift before setting it).
       final w = _Wire(band: BandProfile.gen5);
       await w.engine.getClock();
-      expect(w.lastCommandOf(2), <int>[Cmd.getClockGen5, 0x01]);
+      expect(w.lastCommandOf(1), <int>[Cmd.getClock]);
+      expect(Cmd.getClock, 11);
+    });
+
+    test('gen5 sets the clock with the OFFICIAL SET_CLOCK(10), 8-byte body',
+        () async {
+      // <u32 whole seconds><u32 subseconds>, no revision byte — the form that
+      // returned SUCCESS from a real WHOOP 5. A wrong clock write is silent:
+      // the RTC never latches and every alarm is then armed against it.
+      final w = _Wire(band: BandProfile.gen5);
+      await w.engine.setClock();
+      // setClock() reads the RTC back afterwards, so SET is not the last frame.
+      final set = w.frames
+          .map((f) => parseFrame(f, profile: BandProfile.gen5))
+          .where((p) => p != null && p.valid)
+          .map((p) => p!.inner.sublist(2))
+          .firstWhere((c) => c.first == Cmd.setClock);
+      expect(Cmd.setClock, 10);
+      // opcode + 8 body bytes (the frame is 4-byte padded beyond that).
+      expect(set.sublist(0, 9).length, 9);
+      // Subseconds are a u16 in the low half of the second u32; top 2 bytes 0.
+      expect(set.sublist(7, 9), <int>[0, 0]);
     });
   });
 

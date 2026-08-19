@@ -131,11 +131,17 @@ void main() {
 /// see.
 void _transportTests() {
   /// Opcode of an outgoing command frame: inner starts at byte 4 and is
-  /// `[pktType, seq, opcode, ...]`, so the opcode is at 6.
+  /// `[pktType, seq, opcode, ...]`, so the opcode is at 6 and the sequence at 5.
   int opcodeOf(Uint8List frame) => frame[6];
+  int seqOf(Uint8List frame) => frame[5];
 
-  Decoded clockReply(int strapEpoch) => Decoded('cmd_response', {
+  /// A GET_CLOCK reply CORRELATED to the request that asked for it: the read
+  /// only accepts a reply echoing both its sequence and its opcode (doc 02), so
+  /// a test reply without the sequence proves nothing about the gate.
+  Decoded clockReply(int strapEpoch, int reqSeq) => Decoded('cmd_response', {
         'opcode': Cmd.getClock,
+        'req_seq': reqSeq,
+        'cmd_status': 1,
         'clock_epoch': strapEpoch,
       });
 
@@ -147,6 +153,7 @@ void _transportTests() {
       'the drain',
       () async {
         final sent = <int>[];
+        var clockSeq = 0;
         final clockAsked = Completer<void>();
         final engine = BleEngine(
           onRecord: (sample, raw) async {},
@@ -155,6 +162,7 @@ void _transportTests() {
         engine.debugInstallFakeLink(onWrite: (frame) async {
           sent.add(opcodeOf(frame));
           if (opcodeOf(frame) == Cmd.getClock && !clockAsked.isCompleted) {
+            clockSeq = seqOf(frame);
             clockAsked.complete();
           }
           return true;
@@ -177,7 +185,7 @@ void _transportTests() {
               'false, and history drained before the strap had answered',
         );
 
-        engine.debugAbsorbDecoded(clockReply(wallNow() + 2 * 86400));
+        engine.debugAbsorbDecoded(clockReply(wallNow() + 2 * 86400, clockSeq));
 
         expect(await refresh, isFalse);
         expect(sent, isNot(contains(Cmd.sendHistoricalData)),
@@ -188,11 +196,13 @@ void _transportTests() {
 
     test('a healthy clock reply lets the drain through', () async {
       final sent = <int>[];
+      var clockSeq = 0;
       final clockAsked = Completer<void>();
       final engine = BleEngine(onRecord: (s, r) async {}, onState: (_) {});
       engine.debugInstallFakeLink(onWrite: (frame) async {
         sent.add(opcodeOf(frame));
         if (opcodeOf(frame) == Cmd.getClock && !clockAsked.isCompleted) {
+          clockSeq = seqOf(frame);
           clockAsked.complete();
         }
         return true;
@@ -200,7 +210,7 @@ void _transportTests() {
 
       final refresh = engine.debugStartHistoricalRefresh();
       await clockAsked.future;
-      engine.debugAbsorbDecoded(clockReply(wallNow()));
+      engine.debugAbsorbDecoded(clockReply(wallNow(), clockSeq));
 
       expect(await refresh, isTrue);
       expect(sent, contains(Cmd.sendHistoricalData));
@@ -208,11 +218,15 @@ void _transportTests() {
 
     test('a failed SEND_HISTORICAL_DATA write is reported as not sent',
         () async {
+      var clockSeq = 0;
       final clockAsked = Completer<void>();
       final engine = BleEngine(onRecord: (s, r) async {}, onState: (_) {});
       engine.debugInstallFakeLink(onWrite: (frame) async {
         if (opcodeOf(frame) == Cmd.getClock) {
-          if (!clockAsked.isCompleted) clockAsked.complete();
+          if (!clockAsked.isCompleted) {
+            clockSeq = seqOf(frame);
+            clockAsked.complete();
+          }
           return true;
         }
         // The radio drops exactly the command that matters.
@@ -221,7 +235,7 @@ void _transportTests() {
 
       final refresh = engine.debugStartHistoricalRefresh();
       await clockAsked.future;
-      engine.debugAbsorbDecoded(clockReply(wallNow()));
+      engine.debugAbsorbDecoded(clockReply(wallNow(), clockSeq));
 
       expect(await refresh, isFalse,
           reason: 'claiming success wedges _offloadActive on a strap that was '

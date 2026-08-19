@@ -3040,7 +3040,44 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The last readings the live stream delivered, newest last.
+  ///
+  /// Lives here rather than in the widget that draws it: `lib/ui2` is
+  /// presentation, and a `Timer.periodic` inside a card is both a design-system
+  /// violation (see the ungated-Duration rule) and a trace that resets every
+  /// time the screen is opened. The engine already pushes state at about 1 Hz
+  /// while streaming, so appending here is the natural sampling point.
+  static const int liveHrTraceMax = 90;
+  final List<int> _liveHrTrace = [];
+  List<int> get liveHrTrace => List.unmodifiable(_liveHrTrace);
+  int? _liveHrTraceAt;
+
+  /// Bumped on every appended sample. A `select` on the trace's LENGTH stops
+  /// firing the moment the buffer is full — length is pinned at
+  /// [liveHrTraceMax] from then on — so a card watching length would draw the
+  /// first 90 readings and then freeze while the numbers kept arriving. This is
+  /// the thing that actually changes.
+  int liveHrTraceRev = 0;
+
   void _onEngineState(DeviceState s) {
+    // One sample per DELIVERED reading. Keyed on the stamp, not the value, or a
+    // steady 60 bpm would record a single point and the trace would flatline
+    // for reasons that have nothing to do with the heart.
+    final hr = s.liveHr, at = s.liveHrAt;
+    if (hr != null && hr > 0 && at != null && at != _liveHrTraceAt) {
+      _liveHrTraceAt = at;
+      _liveHrTrace.add(hr);
+      if (_liveHrTrace.length > liveHrTraceMax) _liveHrTrace.removeAt(0);
+      liveHrTraceRev++;
+    }
+    // Bank the name the moment the band says it, so it survives the
+    // disconnect. Written through `cleanDeviceLabel` for the same reason the
+    // BLE side reads through it: a garbled response must never become the
+    // remembered name.
+    final nm = cleanDeviceLabel(s.strapName);
+    if (nm != null && nm != Prefs.getString(_kStrapName, '')) {
+      Prefs.setString(_kStrapName, nm);
+    }
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(
       batteryPct: s.batteryPct,
@@ -3497,7 +3534,20 @@ class AppState extends ChangeNotifier {
   // clobbering the display (see the parked block in ble_engine._onDecoded).
   // device.alarmEpoch = this-session optimistic set; _savedAlarm = persisted.
   int? get alarmEpoch => device.alarmEpoch ?? _savedAlarm;
-  String? get strapName => device.strapName;
+  /// The band's advertising name, LAST KNOWN when the link has not answered.
+  ///
+  /// `DeviceState.strapName` only exists after a connect and a GET round-trip,
+  /// and [PairedDevice] persists the remote id and serial but never this — so
+  /// every cold start, and every minute spent disconnected, showed the generic
+  /// "WHOOP band" instead of whatever the user named their strap. A name the
+  /// band told us once does not stop being true while the radio is off.
+  static const String _kStrapName = 'band.strap_name';
+  String? get strapName {
+    final live = device.strapName;
+    if (live != null && live.isNotEmpty) return live;
+    final saved = Prefs.getString(_kStrapName, '');
+    return saved.isEmpty ? null : saved;
+  }
   int? _savedAlarm;
 
   // ── alarm confirmation state machine ────────────────────────────────────────

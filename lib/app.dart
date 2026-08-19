@@ -27,7 +27,6 @@ import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
-import 'ui2/screens/log_water.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
@@ -352,9 +351,12 @@ Widget? screenForRoute(String route) => switch (route) {
         const AiBriefingScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalCompose(),
       kRouteBreathing => const CalmBreathing(),
-      // The hydration reminder promises that one more tap logs a glass, so it
-      // opens the control itself rather than the tab the control is on.
-      kRouteWater => const LogWaterScreen(),
+      // The hydration reminder lands on Nutrition, where the water tile carries
+      // its own − / + and is beside the food it belongs with. There used to be
+      // a whole screen for this one field; it was reachable ONLY from here,
+      // which is how the tile that everybody actually used stayed add-only for
+      // so long — the thing that could clear a value was behind a notification.
+      kRouteWater => const NutritionScreen(),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
       // The weekly recap used to land on the Health tab and push nothing,

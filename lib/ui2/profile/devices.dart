@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
 import '../../notify/battery_forecast.dart';
+import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
@@ -497,8 +498,80 @@ class _DeviceDetailState extends State<DeviceDetail> {
       health: _health,
       forecast: _forecast,
       onFind: app?.buzzBand,
+      liveHr: s.isBand ? app?.liveHr : null,
+      onRename: (app != null && app.isConnected)
+          ? () => _renameBand(c, app, s.name)
+          : null,
       onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
+  }
+}
+
+/// Rename the strap.
+///
+/// This was in the old UI and did not survive the rebuild, which left the
+/// advertising name readable and not writable — and it is the one label a user
+/// with two straps needs, since both otherwise read "WHOOP band".
+///
+/// The band's own limits are the field's limits, checked here so a refusal is
+/// immediate instead of a silent truncation 20 characters in: 20 ASCII
+/// characters, the charset `cleanDeviceLabel` accepts on the way back, and at
+/// least one letter or digit. Anything the strap would reject or mangle is
+/// rejected in the sheet, where the user can still fix it.
+Future<void> _renameBand(BuildContext c, AppState app, String current) async {
+  // Captured before the dialog: `c` is not safe to touch after the await.
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  final ctl = TextEditingController(text: current);
+  final err = ValueNotifier<String?>(null);
+  final name = await showDialog<String>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: const Text('Name this band'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        ValueListenableBuilder<String?>(
+          valueListenable: err,
+          builder: (_, e, _) => TextField(
+            controller: ctl,
+            autofocus: true,
+            maxLength: 20,
+            decoration: InputDecoration(
+              hintText: 'WHOOP band',
+              errorText: e,
+              helperText: "Letters, numbers, space, and ' . _ -",
+            ),
+          ),
+        ),
+      ]),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            final v = ctl.text.trim();
+            if (v.isEmpty) {
+              err.value = 'Give it a name';
+            } else if (cleanDeviceLabel(v) == null) {
+              err.value = "Only letters, numbers, space, and ' . _ -";
+            } else {
+              Navigator.of(d).pop(v);
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+  ctl.dispose();
+  err.dispose();
+  if (name == null) return;
+  try {
+    await app.renameStrap(name);
+    messenger?.showSnackBar(SnackBar(content: Text('Renamed to $name')));
+  } catch (e) {
+    // The write goes to the strap, so a dropped link loses it. Say that,
+    // rather than leaving the old name on screen with no explanation.
+    messenger?.showSnackBar(
+        SnackBar(content: Text('Could not rename the band: $e')));
   }
 }
 
@@ -538,6 +611,16 @@ class DeviceDetailView extends StatelessWidget {
   final HealthSource s;
   final VoidCallback? onFind, onForget;
 
+  /// The beat arriving right now, or null when nothing fresh is streaming.
+  /// Passed IN rather than read from a provider here: this view is rendered in
+  /// tests with no Provider above it, which is the point of it being a view.
+  final int? liveHr;
+
+  /// Rename the band. Null when there is nothing to rename (the phone) or no
+  /// link to carry the write — the name lives on the strap, not on the phone,
+  /// so an offline rename would be a lie the next connect quietly undoes.
+  final VoidCallback? onRename;
+
   /// The band's own state, from `bandStatusFor`. Null for a non-band source.
   final BandStatus? status;
 
@@ -554,6 +637,8 @@ class DeviceDetailView extends StatelessWidget {
       {super.key,
       this.onFind,
       this.onForget,
+      this.onRename,
+      this.liveHr,
       this.status,
       this.health,
       this.forecast});
@@ -614,6 +699,18 @@ class DeviceDetailView extends StatelessWidget {
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: Column(children: [
+                      // The name is the band's own advertising name, written
+                      // to the strap — not a phone-side label. So it is only
+                      // editable on a live link, and the row says so rather
+                      // than opening an editor whose save cannot land.
+                      SetRow(LucideIcons.tag, C.blue, 'Name',
+                          value: s.name,
+                          sub: onRename == null
+                              ? 'Connect to the band to change it'
+                              : '',
+                          chevron: onRename != null,
+                          onTap: onRename),
+                      Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.batteryMedium, C.green, 'Battery',
                           value: battery == null ? '' : '${battery.round()}%',
                           // L11 — the band's own charge history, on the row
@@ -637,6 +734,16 @@ class DeviceDetailView extends StatelessWidget {
                                 ].join(' · '),
                           chevron: false),
                       Divider(color: p.line, height: 1),
+                      // Live, not a stored reading: present only while the
+                      // band is actually streaming, and gone the moment it
+                      // stops.
+                      if (liveHr != null) ...[
+                        SetRow(LucideIcons.heartPulse, C.red, 'Heart rate',
+                            value: '$liveHr bpm',
+                            sub: 'Right now',
+                            chevron: false),
+                        Divider(color: p.line, height: 1),
+                      ],
                       SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
                           value: last == null ? '' : formatDayTime(last),
                           sub: last == null ? 'Nothing banked yet' : '',

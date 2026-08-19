@@ -8,6 +8,7 @@
 export 'app_shell.dart';
 export 'charts.dart';
 export 'grammar.dart';
+export 'live_hr.dart';
 export 'paint_activity.dart';
 export 'scroll_hint.dart';
 export 'theme.dart';

@@ -20,9 +20,9 @@ import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
-import '../../data/journal_fields.dart';
 import '../../data/nutrition_store.dart';
 import '../../models/metric.dart';
+import '../../data/journal_fields.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
@@ -98,19 +98,57 @@ class _NutritionScreenState extends State<NutritionScreen> {
   }
 
   /// One tap's worth of water, from the field spec that performs the tap.
-  static double get _waterStep => kJournalFieldsByKey['water_ml']!.step;
+  static JournalFieldSpec get _waterSpec => kJournalFieldsByKey['water_ml']!;
 
-  Future<void> _addWater() async {
+  /// Step the day's water up or down, in place.
+  ///
+  /// This row used to be add-only: every tap wrote `+250 ml` and nothing on the
+  /// screen could take one back. Same ladder as the journal's own stepper — a
+  /// step down off the last glass lands on a logged ZERO ("none today"), and a
+  /// step down from zero clears the field, because absence and zero are
+  /// different answers.
+  /// One write at a time. `_stepWater` reads the day, then awaits, then writes
+  /// it back — and `postJournalMetrics` replaces the whole day — so two taps
+  /// during that await both read the same map and the second write silently
+  /// eats the first tap. Same guard the wellness screen already uses for its
+  /// journal fields.
+  bool _writingWater = false;
+
+  Future<void> _stepWater(int dir) async {
     final repo = context.read<AppState>().repo;
-    if (repo == null) return;
-    final spec = kJournalFieldsByKey['water_ml']!;
-    final next = ((_waterMl ?? 0) + spec.step).clamp(0, spec.max).toDouble();
-    final all = await repo.getJournalMetrics(_date);
-    await repo.postJournalMetrics(_date, {
-      ...all,
-      'water_ml': JournalMetricValue(next),
-    });
-    await _load();
+    if (repo == null || _writingWater) return;
+    _writingWater = true;
+    final spec = _waterSpec;
+    final v = _waterMl;
+    double? next;
+    if (dir > 0) {
+      next = ((v ?? 0) + spec.step).clamp(0, spec.max).toDouble();
+    } else {
+      final down = (v ?? 0) - spec.step;
+      next = down <= 0 ? (v == 0 ? null : 0.0) : down;
+    }
+    setState(() => _waterMl = next);
+    try {
+      // Inside the try, not before it: the READ can throw too, and with the
+      // guard already set that left both buttons dead until the screen was
+      // rebuilt — the flag outliving the operation it was protecting.
+      //
+      // Drop the key rather than omitting it from a spread: `putJournalMetrics`
+      // clears the day and re-inserts what it is handed, so leaving `water_ml`
+      // out is what "no answer today" looks like on disk — and spreading the
+      // old map back in is exactly what made this un-clearable.
+      final fields =
+          {...await repo.getJournalMetrics(_date)}..remove('water_ml');
+      if (next != null) fields['water_ml'] = JournalMetricValue(next);
+      await repo.postJournalMetrics(_date, fields);
+      await _load();
+    } finally {
+      // Cleared unconditionally; the setState is only for the repaint. Gating
+      // the assignment on `mounted` would strand it again on the path where
+      // the screen goes away mid-write.
+      _writingWater = false;
+      if (mounted) setState(() {});
+    }
   }
 
   /// Removing a log is destructive and there is no undo, so the entry is named
@@ -205,17 +243,20 @@ class _NutritionScreenState extends State<NutritionScreen> {
           onAction: _logFood,
         ),
         const SizedBox(height: S.x4),
-        MetricRow(
-          LucideIcons.glassWater,
-          C.blue,
-          'Water',
-          _waterMl == null ? 'Not logged' : (_waterMl! / 1000).toStringAsFixed(1),
-          unit: _waterMl == null ? '' : 'L',
-          // The step is the spec's, and `_addWater` already reads it from
-          // there. Two copies of one constant is one copy too many.
-          sub: 'TAP TO ADD ${_waterStep.round()} ML',
-          onTap: _addWater,
-        ),
+        // Gated on the repository too: with no repo `_stepWater` returns at
+        // its first line, so an enabled + button was a control that did
+        // nothing — worse than a disabled one, which at least says so.
+        Builder(builder: (bc) {
+          final live = bc.select<AppState, bool>((a) => a.repo != null) &&
+              !_writingWater;
+          return _WaterRow(
+            ml: _waterMl,
+            onDown: (!live || _waterMl == null) ? null : () => _stepWater(-1),
+            onUp: (!live || (_waterMl ?? 0) >= _waterSpec.max)
+                ? null
+                : () => _stepWater(1),
+          );
+        }),
         if (day != null && day.logged && day.kcal.isFloor) ...[
           const SizedBox(height: S.x4),
           StatusCard(
@@ -777,6 +818,85 @@ class _Mean extends StatelessWidget {
                 : 'NO COMPLETE DAY RECORDED ${label.toUpperCase()}')
           : 'MEAN OF $n COMPLETE DAY${n == 1 ? '' : 'S'}'
                 '${floors == 0 ? '' : ' · $floors LEFT OUT AS A FLOOR'}',
+    );
+  }
+}
+
+/// Water, with the plus and minus ON the tile — `− 1.8 L +`.
+///
+/// A separate widget only because the shared [MetricRow] carries one tap for
+/// the whole row, and water needs two targets pointing opposite ways. Nothing
+/// else about it departs from that row's shape.
+class _WaterRow extends StatelessWidget {
+  const _WaterRow({required this.ml, this.onDown, this.onUp});
+
+  /// Null is NOT logged, which is a different answer from a logged zero and
+  /// reads differently here: "Not logged" against "0.0 L".
+  final double? ml;
+  final VoidCallback? onDown, onUp;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      child: Row(children: [
+        Icon(LucideIcons.glassWater, size: 18, color: p.on(C.blue)),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Water', style: F.body.copyWith(color: p.ink)),
+            Text(
+              ml == null ? 'Not logged' : 'Tap − or + to change',
+              style: F.over.copyWith(color: p.ink3),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ]),
+        ),
+        _WaterStep(LucideIcons.minus, onDown),
+        // Fixed width so the number does not shove the buttons sideways as it
+        // steps through 0.8 → 1.0 → 1.2.
+        SizedBox(
+          width: 78,
+          child: Text(
+            // NEVER a bare em-dash. An absent value says the word; a dash is a
+            // shrug the reader has to interpret, and the suite pins this.
+            ml == null ? 'None yet' : '${(ml! / 1000).toStringAsFixed(1)} L',
+            textAlign: TextAlign.center,
+            style: ml == null
+                ? F.cap.copyWith(color: p.ink3)
+                : F.n24.copyWith(color: p.ink),
+            maxLines: 1,
+          ),
+        ),
+        _WaterStep(LucideIcons.plus, onUp),
+      ]),
+    );
+  }
+}
+
+class _WaterStep extends StatelessWidget {
+  const _WaterStep(this.icon, this.onTap);
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final on = onTap != null;
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: icon == LucideIcons.plus ? 'Add water' : 'Remove water',
+      child: Container(
+        width: S.tap,
+        height: S.tap,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: on ? p.wash(C.blue) : p.card2,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 18, color: on ? p.on(C.blue) : p.ink3),
+      ),
     );
   }
 }

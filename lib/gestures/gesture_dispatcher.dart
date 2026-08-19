@@ -21,12 +21,14 @@ class GestureDispatcher {
   /// platform channel instead.
   final Future<void> Function()? onMarkMoment;
   final Future<void> Function()? onWorkoutToggle;
+  final Future<void> Function()? onLogWater;
 
   GestureDispatcher({
     required this.settings,
     this.log,
     this.onMarkMoment,
     this.onWorkoutToggle,
+    this.onLogWater,
   });
 
   static const int _doubleTapEventId = 14; // EventId.doubleTap
@@ -66,7 +68,14 @@ class GestureDispatcher {
         case DeviceAction.workoutToggle:
           onWorkoutToggle?.call();
           break;
+        case DeviceAction.logWater:
+          onLogWater?.call();
+          break;
         default:
+          // isInApp said yes and there is no case for it — an action that is
+          // offered in the picker and then does nothing, which is the exact
+          // failure the picker exists to end. Say so rather than return quietly.
+          log?.call('[gesture] ${action.id} is in-app with no handler');
           break;
       }
       return;

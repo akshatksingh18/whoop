@@ -2,14 +2,18 @@
 // (today: double-tap) can trigger. The enum is the single source of truth shared by
 // the settings UI, the persisted mapping, and the native dispatch channel.
 //
-// Adding a new action is one entry here + one `case` in the native handlers
-// (ActionHandler.kt / ActionBridge.swift). Whether a platform actually SUPPORTS an
-// action is reported at runtime by DeviceActions.capabilities() — the UI only offers
-// what the current OS can do, so e.g. volume control simply doesn't appear on iOS.
+// Adding a new NATIVE action is one entry here + one `case` in the native handlers:
+// NativeChannels.kt on Android, the ActionBridge enum in AppDelegate.swift on iOS.
+// An IN-APP action needs neither — one `case` in GestureDispatcher and a handler
+// wired from AppState, and it works on every platform.
+//
+// Whether a platform actually SUPPORTS a native action is reported at runtime by
+// DeviceActions.capabilities() — the UI only offers what the current OS can do, so
+// e.g. volume control simply doesn't appear on iOS.
 //
 // FUTURE (deliberately not wired yet — each needs more than a no-risk API or a
 // product decision): answer/reject call (Android ANSWER_PHONE_CALLS; impossible on
-// iOS), "mark a moment" journal tag, workout lap/stop, torch (camera permission).
+// iOS), workout lap.
 
 enum DeviceAction {
   none,
@@ -24,6 +28,7 @@ enum DeviceAction {
   // (iOS can't reach other apps, but it can always do these).
   markMoment,
   workoutToggle,
+  logWater,
   // Native broadcast — sends an Android broadcast intent for Tasker to subscribe
   // to (see NativeChannels.kt). Only offered on Android.
   broadcastToTasker,
@@ -54,6 +59,8 @@ extension DeviceActionX on DeviceAction {
         return 'mark_moment';
       case DeviceAction.workoutToggle:
         return 'workout_toggle';
+      case DeviceAction.logWater:
+        return 'log_water';
       case DeviceAction.broadcastToTasker:
         return 'broadcast_to_tasker';
     }
@@ -82,6 +89,8 @@ extension DeviceActionX on DeviceAction {
         return 'Mark a moment';
       case DeviceAction.workoutToggle:
         return 'Start / stop workout';
+      case DeviceAction.logWater:
+        return 'Log water';
       case DeviceAction.broadcastToTasker:
         return 'Broadcast to Tasker';
     }
@@ -110,6 +119,9 @@ extension DeviceActionX on DeviceAction {
         return 'Tag the current moment in your journal.';
       case DeviceAction.workoutToggle:
         return 'Begin or end a workout from your wrist.';
+      case DeviceAction.logWater:
+        return 'Add a glass to today\'s water, same step as the + on the '
+            'nutrition screen.';
       case DeviceAction.broadcastToTasker:
         return 'Fire a broadcast intent so Tasker can trigger any automation.';
     }
@@ -118,7 +130,9 @@ extension DeviceActionX on DeviceAction {
   /// In-app actions act on our own app/backend (handled in Dart, no native call,
   /// available on every platform). Everything else (except `none`) is native.
   bool get isInApp =>
-      this == DeviceAction.markMoment || this == DeviceAction.workoutToggle;
+      this == DeviceAction.markMoment ||
+      this == DeviceAction.workoutToggle ||
+      this == DeviceAction.logWater;
 
   bool get isNative => this != DeviceAction.none && !isInApp;
 

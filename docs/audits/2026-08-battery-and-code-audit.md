@@ -33,7 +33,7 @@ under Follow-ups, not claimed fixed.
 | 4 | Full FlutterEngine + Dart `main()` on EVERY process start, and four background triggers start the process (15-min KeepAliveWorker even when unpaired, two 30-min widget alarms serving a 24–26 h staleness bit, CDM binds on routine dropouts, Tasker) | Engine is lazy (`EdgeApplication.ensureEngine`) — created from MainActivity and the tracking service (after `startForeground`); widget/worker/CDM/Tasker wakes run zero Dart. KeepAliveWorker paired-gated + self-cancels when unpaired + re-scheduled from `onStartCommand`. Widget alarms 30 min → 6 h. CDM start guarded on `EdgeTrackingService.running` |
 | 5 | Bluetooth-off nights: failing `connect(autoConnect:true)` arm every ~5 s, forever | Adapter-off parks on the native `adapterState` stream (event-driven); arm failures get `ReconnectPolicy` backoff; the OS-autoConnect cancellation poll went 5 s → 60 s |
 | 6 | Notification relay held the stream + a 120 s heal timer even with zero apps selected (every phone notification crossed into Dart before filtering) | Gate on `active` (includes non-empty package list); heal 120 s → 15 min. Native-side filtering needs the vendored listener (follow-up below) |
-| 7 | Sustained small wakers: 10 s LINK_VALID writes all night; per-line fsync unbounded sync log; ~15 binder calls + Watch sync per unchanged derive; 10-min wake-window DB re-plan; 1-min reconnect supervisor; per-tick RegExp/prefs work in `_onEngineState`; step-sensor prefs-file rewrite per minute | Heartbeat 60 s in background; FileLog 2 MB rotation, no per-line fsync; widget push fingerprint-gated; wake-window re-plan 25 min in background; supervisor 5 min; strap-name change-gated + hoisted regexes + minute-gate on the battery forecast; step sensor batches at 5 min (matches its 5-min bins) |
+| 7 | Sustained small wakers: 10 s LINK_VALID writes all night; per-line fsync unbounded sync log; ~15 binder calls + Watch sync per unchanged derive; 10-min wake-window DB re-plan; 1-min reconnect supervisor; per-tick RegExp/prefs work in `_onEngineState`; step-sensor prefs-file rewrite per minute | Heartbeat 60 s in background; FileLog 2 MB rotation, no per-line fsync; widget push fingerprint-gated; wake-window re-plan 25 min in background; supervisor 5 min; strap-name change-gated + hoisted regexes + minute-gate on the battery forecast. (Step-sensor batching was NOT raised past 60 s — see Follow-ups #5: delivery-time attribution makes a longer batch misattribute pre-midnight steps; the real cost is the per-delivery prefs rewrite, fixed by the SQLite move.) |
 
 ## Replace-with-native / correctness (ponytail rungs 2–5)
 
@@ -56,9 +56,11 @@ under Follow-ups, not claimed fixed.
 
 ## Deliberate semantic changes
 
-- Widget `updated_at` now means "last **value** change", not "last push" —
-  natives may flip to no-data up to ~half a day earlier when data genuinely
-  stops. Arguably more honest; noted in OpenStrapWidget.swift.
+- Widget `updated_at` now means "last **value** change within a day", not
+  "last push" — but the snapshot's day leads the change-gate fingerprint, so a
+  new day's sync always advances `updated_at`; staleness can only appear when
+  data genuinely stops (never from unchanged values across days). Noted in
+  OpenStrapWidget.swift.
 - An engine-less process start can delay relay buzzes ≤15 min (CDM presence or
   the KeepAliveWorker recovers it). Documented in EdgeApplication.
 - On Android in background, `state.wristOn`/`liveHr` stop updating in realtime;

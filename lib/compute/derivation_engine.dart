@@ -1244,8 +1244,14 @@ const int kAlgoVersion = 74;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-const String kAnalyticsPin = '21664f8cbb55449e2e274421aa4b02036dc682a4';
-const String kProtocolPin = 'e33e53a9b6a5ac016b5422f2c571e0007ba4421f';
+// Both siblings are on MAIN now (protocol #29, analytics #46, merged
+// 2026-08-19). kAlgoVersion is deliberately NOT bumped with this repin: the
+// analytics hop is two comment lines in tests and touches no lib/ file at all,
+// and the protocol hop only adds `rr_ms` to decodeFrame's R10 branch, which
+// nothing in edge reads. No derived number moves, so forcing every install to
+// recompute would be churn with nothing on the other side of it.
+const String kAnalyticsPin = 'bfea5e56e74f336c3e3d83743123e58da225617d';
+const String kProtocolPin = 'fe3b681a3e9ca76f8a0865339035f949f36f6000';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

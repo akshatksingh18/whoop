@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.26+57
+version: 0.9.27+58
 
 environment:
   sdk: ^3.11.4
@@ -70,7 +70,7 @@ dependencies:
       # emits R10 beat intervals) — deliberately NOT repinned: edge never reads
       # `rr_ms` off decodeFrame, so the hop changes no number here and a repin
       # would drag kAlgoVersion with it for nothing.
-      ref: e33e53a9b6a5ac016b5422f2c571e0007ba4421f
+      ref: fe3b681a3e9ca76f8a0865339035f949f36f6000
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

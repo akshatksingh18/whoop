@@ -178,9 +178,9 @@ void main() {
     test('the tier and its label are published for the native surfaces',
         () async {
       await WidgetService.push(TodayData.fromJson({
-        'daily': {'readiness': 65},
+        'daily': {'readiness': 50},
       }));
-      expect(written['readiness'], 65);
+      expect(written['readiness'], 50);
       expect(written['readiness_tier'], 2);
       expect(written['readiness_band'], 'Steady');
     });

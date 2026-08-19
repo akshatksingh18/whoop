@@ -284,6 +284,28 @@
                 android:resource="@xml/widget_openstrap_info" />
         </receiver>
         <receiver
+            android:name=".SleepWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_sleep_picker_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_sleep_info" />
+        </receiver>
+        <receiver
+            android:name=".OvernightWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_overnight_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_overnight_info" />
+        </receiver>
+        <receiver
             android:name=".OpenStrapBatteryWidgetProvider"
             android:exported="true"
             android:label="@string/widget_battery_label">

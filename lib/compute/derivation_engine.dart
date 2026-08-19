@@ -5284,6 +5284,9 @@ class DerivationEngine {
           final score = ana.strainScoreMetric(
             trimp.value,
             wakeMinutes: perMin.length.toDouble(),
+            // Reference level, not this user's — see onehz_pipeline's
+            // `strainMetric` for why, and edge#226 for the fix.
+            quietHrr: ana.quietWakingHrr,
             female: _workoutSex(sex) == 'female',
           );
           if (score.present) strain = score.value;

@@ -715,6 +715,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final strainMetric = strainScoreMetric(
     rawTrimp,
     wakeMinutes: perMin.isEmpty ? null : perMin.length.toDouble(),
+    // THE REFERENCE LEVEL, NOT THIS USER'S (edge#226 is still open). analytics
+    // stopped defaulting the quiet-waking level so every caller has to state
+    // which one it means; `quietWakingHrr` is the constant the anchor table was
+    // generated at, so passing it reproduces the strain this app ships today
+    // and nobody's number moves on this commit. The real level is
+    // `dailyQuietWakingHrr` fed through a rolling personal median — a trait,
+    // not a day, and the workout scorers need the same one the day uses or a
+    // bout subtracts its own effort away. That plumbing is edge#226.
+    // ponytail: population constant, swap for the rolling personal median when
+    // edge#226 lands — see the same comment at the other four call sites.
+    quietHrr: quietWakingHrr,
     female: workoutSex(sex) == 'female',
   );
 
@@ -1526,7 +1537,14 @@ List<Map<String, num>> _strainCurve(
     out.add({
       't': p.tsSec,
       'v': _round(
-        strainScore(trimp, wakeMinutes: wakeMin, female: female),
+        strainScore(
+          trimp,
+          wakeMinutes: wakeMin,
+          // Reference level, not this user's — see onehz_pipeline's
+          // `strainMetric` for why, and edge#226 for the fix.
+          quietHrr: quietWakingHrr,
+          female: female,
+        ),
         2,
       ),
     });

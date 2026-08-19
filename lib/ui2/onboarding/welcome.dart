@@ -371,6 +371,16 @@ Future<ImportOutcome> runImport(
   // through to the vendor importer below.
   final vendor = <String>[];
   for (final p in csv) {
+    // Only a TEXT file can be a journal export, and `importJournalCsvFile`
+    // reads it as a string. Vendor exports arrive here as ZIPs now that routing
+    // is by content, and reading one as a string is #199 all over again — it
+    // comes back as `FileSystemException: Failed to decode data using encoding
+    // 'utf-8'`, which no catch below was going to turn into advice. The vendor
+    // path unwraps archives (and gzip) properly, so hand them straight over.
+    if (await sniffFile(p) != ImportContainer.text) {
+      vendor.add(p);
+      continue;
+    }
     try {
       final r = await importJournalCsvFile(p);
       journalRows += r.imported;
@@ -379,9 +389,8 @@ Future<ImportOutcome> runImport(
     } on JournalCsvFormatException {
       vendor.add(p);
     } on FormatException {
-      // `readAsString` on an archive — #199's "Unexpected extension byte (at
-      // offset 10)". Vendor exports arrive as ZIPs now that routing is by
-      // content, and that path unwraps them properly.
+      // Text, but not UTF-8 — a latin1/cp1252 CSV out of a spreadsheet. The
+      // sniff above cannot see that, and the vendor importer decodes leniently.
       vendor.add(p);
     }
   }

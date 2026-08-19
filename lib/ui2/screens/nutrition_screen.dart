@@ -128,17 +128,26 @@ class _NutritionScreenState extends State<NutritionScreen> {
       next = down <= 0 ? (v == 0 ? null : 0.0) : down;
     }
     setState(() => _waterMl = next);
-    // Drop the key rather than omitting it from a spread: `putJournalMetrics`
-    // clears the day and re-inserts what it is handed, so leaving `water_ml`
-    // out is what "no answer today" looks like on disk — and spreading the old
-    // map back in is exactly what made this un-clearable.
-    final fields = {...await repo.getJournalMetrics(_date)}..remove('water_ml');
-    if (next != null) fields['water_ml'] = JournalMetricValue(next);
     try {
+      // Inside the try, not before it: the READ can throw too, and with the
+      // guard already set that left both buttons dead until the screen was
+      // rebuilt — the flag outliving the operation it was protecting.
+      //
+      // Drop the key rather than omitting it from a spread: `putJournalMetrics`
+      // clears the day and re-inserts what it is handed, so leaving `water_ml`
+      // out is what "no answer today" looks like on disk — and spreading the
+      // old map back in is exactly what made this un-clearable.
+      final fields =
+          {...await repo.getJournalMetrics(_date)}..remove('water_ml');
+      if (next != null) fields['water_ml'] = JournalMetricValue(next);
       await repo.postJournalMetrics(_date, fields);
       await _load();
     } finally {
-      if (mounted) setState(() => _writingWater = false);
+      // Cleared unconditionally; the setState is only for the repaint. Gating
+      // the assignment on `mounted` would strand it again on the path where
+      // the screen goes away mid-write.
+      _writingWater = false;
+      if (mounted) setState(() {});
     }
   }
 

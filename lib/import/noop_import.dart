@@ -182,7 +182,7 @@ class NoopImporter {
     await for (final line in lines) {
       if (line.isEmpty || line.startsWith('#')) continue;
       firstLine ??= line;
-      if (line.startsWith('unix_s,')) {
+      if (line.startsWith(kNoopCsvHeader)) {
         sawHeader = true;
         // Header → (re)build the name→index map and skip.
         final h = line.split(',');

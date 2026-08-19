@@ -783,6 +783,26 @@ void _bootstrap() {
       });
     });
 
+    test('an UNSET RTC gets exactly one SET_CLOCK, not two', () {
+      fakeAsync((async) {
+        // Factory-epoch hello timestamp: below the plausible floor, so it is
+        // never correlated (drift == null) and needsCorrection(null) is true.
+        // Before the bootstrap-window fix, BOTH writers fired — the absorb
+        // handler's own re-correction on the hello reply AND the bootstrap
+        // clock step — sending a fresh band two SET_CLOCKs back to back,
+        // against doc 01's "send one SET_CLOCK(10)".
+        final link = _BootstrapLink();
+        link.replyTo = (seq, op) => op == Cmd.getHello
+            ? _helloReply(seq, tsSeconds: 1000)
+            : null;
+        expect(_runBootstrap(link, async), isTrue);
+
+        expect(link.count(Cmd.setClock), 1,
+            reason: 'doc 01: ONE SET_CLOCK per bootstrap — the absorb '
+                'handler must stand down inside the bootstrap window');
+      });
+    });
+
     test('the phone-clock deferral still beats the drift gate', () {
       fakeAsync((async) {
         final link = _BootstrapLink();

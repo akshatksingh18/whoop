@@ -1159,6 +1159,18 @@ class BleEngine {
   /// back, and the GET_CLOCK handler re-issues on drift — so cap the retries or
   /// a firmware that never latches either payload form would loop forever.
   int _clockCorrectTries = 0;
+
+  /// True while the bootstrap's clock step owns the SET_CLOCK decision.
+  ///
+  /// doc 01 sends **one** `SET_CLOCK(10)` per bootstrap. Without this window,
+  /// an unset/far-off RTC got TWO: [_absorbClockEpoch]'s own bounded
+  /// re-correction fired on the hello/GET_CLOCK reply, and
+  /// [_bootstrapSetClock] then wrote again because no correlation existed.
+  /// doc 02 calls a duplicate persistent-state write "a real hazard". While
+  /// this is set, the absorb handler leaves the write to the bootstrap step;
+  /// outside it (RTC-lost events, the periodic re-verify) it corrects itself
+  /// exactly as before.
+  bool _bootstrapClockWrite = false;
   // Proactive RTC recheck timestamp for long-lived connections — see
   // kRtcReverifyIntervalSeconds. Every other clock recheck is symptom-driven.
   DateTime? _lastClockVerifyAt;
@@ -2020,22 +2032,30 @@ class BleEngine {
     // timestamp. Feed hello's clock through the same handler the GET_CLOCK
     // reply uses, so the suspect-phone and unset-RTC verdicts are computed
     // from one place regardless of which command supplied the epoch.
-    final helloClock = _gen5Hello?.tsSeconds;
-    if (helloClock != null && helloClock > 0) {
-      _absorbClockEpoch(helloClock);
-    } else {
-      await _readClock();
+    // One SET_CLOCK per bootstrap (doc 01): the reads below run inside the
+    // window so the absorb handler's own re-correction stands down and
+    // _bootstrapSetClock is the single writer.
+    _bootstrapClockWrite = true;
+    try {
+      final helloClock = _gen5Hello?.tsSeconds;
+      if (helloClock != null && helloClock > 0) {
+        _absorbClockEpoch(helloClock);
+      } else {
+        await _readClock();
+      }
+      if (_session != session || !session.connected) {
+        _log('link dropped during the clock read — abandoning setup.');
+        // Tear down ONLY if we are still the live session. `_failConnect`
+        // teardown+band-release act on whatever `_session` currently points
+        // at, so a newer `_doConnect` that already took over would have its
+        // link killed and its band claim dropped by this stale invocation.
+        if (identical(_session, session)) await _failConnect();
+        return false;
+      }
+      await _bootstrapSetClock(session);
+    } finally {
+      _bootstrapClockWrite = false;
     }
-    if (_session != session || !session.connected) {
-      _log('link dropped during the clock read — abandoning setup.');
-      // Tear down ONLY if we are still the live session. `_failConnect`
-      // teardown+band-release act on whatever `_session` currently points
-      // at, so a newer `_doConnect` that already took over would have its
-      // link killed and its band claim dropped by this stale invocation.
-      if (identical(_session, session)) await _failConnect();
-      return false;
-    }
-    await _bootstrapSetClock(session);
     if (_session != session || !session.connected) {
       _log('link dropped during SET_CLOCK — abandoning setup.');
       // Tear down ONLY if we are still the live session. `_failConnect`
@@ -2255,6 +2275,13 @@ class BleEngine {
             kBatteryPollIntervalSeconds) {
       return;
     }
+    // KNOWN DEVIATION from doc 06 ("no idle polling loop" — battery updates
+    // come from band events): this poll and the 6 h clock re-verify are kept
+    // deliberately, as LIVENESS probes on stacks that silently drop
+    // notifications, not as data sources — hello + BATTERY_LEVEL events are
+    // the data path. Revisiting both is tracked as an open conformance task;
+    // removing them changes dead-link detection, so it is not done as a
+    // drive-by here.
     // Correlated (doc 02) but deliberately NOT awaited by this caller: the
     // battery level is a display value, and both call sites — the keep-alive
     // tick and `getBattery()` on the session-open path — only ever needed the
@@ -4633,6 +4660,15 @@ class BleEngine {
             'Clock drift over policy but the PHONE clock is the suspect one '
             '(strap=$dev wall=$wall) — NOT writing SET_CLOCK yet.',
           );
+        } else if (_bootstrapClockWrite) {
+          // The bootstrap's own clock step is the single writer for this
+          // connect (doc 01: "send one SET_CLOCK"). Writing here too sent a
+          // factory-fresh band TWO corrections back to back — doc 02's
+          // duplicate-persistent-write hazard. The retry budget is untouched:
+          // the read-back after the bootstrap write lands once this window is
+          // closed, and a still-wrong RTC re-corrects here as before.
+          _log('Clock drift over policy — leaving the write to the bootstrap '
+              'clock step (one SET_CLOCK per connect, doc 01).');
         } else if (_clockCorrectTries < 3) {
           // BOUND the retries: setClock() reads the clock back and this handler
           // re-issues on drift, so an unbounded loop would spin

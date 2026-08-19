@@ -190,8 +190,13 @@ class SentPayload extends StatelessWidget {
     return s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
   }
 
-  static String _value(dynamic v) =>
-      v is List ? v.join(', ') : v?.toString() ?? '—';
+  /// Verbatim, because this is a preview of a payload and not a metric card.
+  /// [buildBriefingUserPrompt] writes `$v` for every entry, so a null reaches
+  /// the model as the word `null` and this has to say the same — an em dash
+  /// here would read as "withheld" for a value that was in fact sent, empty.
+  /// (`_put` drops absent metrics before they get this far, so this is the
+  /// belt and not the trousers.)
+  static String _value(dynamic v) => v is List ? v.join(', ') : '$v';
 
   @override
   Widget build(BuildContext c) {

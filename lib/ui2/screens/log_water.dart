@@ -63,10 +63,14 @@ class _LogWaterScreenState extends State<LogWaterScreen> {
     if (repo == null) return;
     setState(() => _ml = next);
     final all = await repo.getJournalMetrics(_date);
-    await repo.postJournalMetrics(_date, {
-      ...all,
-      if (next != null) 'water_ml': JournalMetricValue(next),
-    });
+    // Drop the key rather than just not adding it: `...all` still carries the
+    // OLD water_ml, so stepping back to blank re-wrote the number it was meant
+    // to erase. putJournalMetrics clears the day and re-inserts the map it is
+    // given, so leaving the key out is what "no answer today" looks like on
+    // disk — same rule the rest of the journal uses.
+    final fields = {...all}..remove('water_ml');
+    if (next != null) fields['water_ml'] = JournalMetricValue(next);
+    await repo.postJournalMetrics(_date, fields);
   }
 
   @override

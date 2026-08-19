@@ -293,7 +293,20 @@ Future<ImportOutcome> runImport(
       continue;
     }
     final pass = await askPassphrase();
-    if (pass == null) throw PassphraseCancelled();
+    if (pass == null) {
+      // Shred here, not in the `finally` below. The picker is multi-select, so
+      // an EARLIER encrypted file in the same selection may already be sitting
+      // in the temp directory as the whole health record in plaintext — and
+      // this throw jumps past the try/finally that would normally delete it,
+      // because that try has not been entered yet. Cancelling the second
+      // passphrase prompt used to leave the first backup decrypted on disk.
+      for (final d in decrypted) {
+        try {
+          await File(d).delete();
+        } catch (_) {}
+      }
+      throw PassphraseCancelled();
+    }
     try {
       decrypted.add(await decryptToTemp(p, pass));
     } on BackupFormatException catch (e) {
@@ -439,7 +452,12 @@ bool _isDbBackup(String path) {
   // `.db.unopenable-<ms>` is what a corrupt-database rebuild quarantines the
   // old file as, and the rebuilt card points the user straight at it. Matching
   // only the `.db` suffix handed that SQLite file to the vendor-CSV importer.
-  return p.endsWith('.db') || p.contains('.db.unopenable-');
+  // `.db.gz` is what the app's own automatic backup writes (auto_backup.dart's
+  // kBackupExtension). Leaving it out sent a user restoring their own backup
+  // down the vendor-CSV path, which is the one import that has to work.
+  return p.endsWith('.db') ||
+      p.endsWith('.db.gz') ||
+      p.contains('.db.unopenable-');
 }
 
 bool _isRawExport(String path) {

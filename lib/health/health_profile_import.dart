@@ -201,8 +201,15 @@ class HealthProfileImporter {
     int? age;
     final dob = newest(HealthDataType.BIRTH_DATE)?.value;
     if (dob is NumericHealthValue) {
+      // SECONDS, not milliseconds. The plugin's iOS side sends
+      // `dateOfBirth?.timeIntervalSince1970` (SwiftHealthPlugin.swift), which is
+      // a Foundation TimeInterval — seconds since the epoch, as a double. Read
+      // as milliseconds it put every birth date within a few weeks of
+      // 1970-01-01, so every imported age came out around 56 regardless of who
+      // imported it. Health Connect has no date-of-birth record at all, so this
+      // path is iOS-only and there is no second unit to reconcile.
       final born = DateTime.fromMillisecondsSinceEpoch(
-        dob.numericValue.toInt(),
+        (dob.numericValue.toDouble() * 1000).round(),
       );
       var years = now.year - born.year;
       // Not yet had this year's birthday.

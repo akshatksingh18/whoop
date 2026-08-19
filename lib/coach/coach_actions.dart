@@ -325,20 +325,42 @@ class CoachActions {
         if (num_(d) != null) num_(d)!.round(),
     }..removeWhere((d) => d < 1 || d > 7);
     final dose = num_(a['dose_value']);
+    final key = MedDb.keyFor(name);
+    // ADD, not replace. `putDef` writes the whole row, so building a fresh
+    // MedDef here meant a second "add paracetamol at 22:00" silently deleted
+    // the 08:00 and 14:00 doses already on it — and blanked the dose, unit,
+    // kind and note whenever the model did not resend them. An assistant that
+    // destroys a medication schedule as a side effect of adding to it is worse
+    // than one with no tool at all.
+    final existing = (await MedDb.defs(db, activeOnly: false))
+        .where((d) => d.key == key)
+        .firstOrNull;
+    final slot = MedSchedule(
+      minute,
+      days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort()),
+    );
+    // Same time of day twice is one entry, with the newer day-set winning —
+    // that is how a person edits which days a dose falls on.
+    final schedule = [
+      ...?existing?.schedule.where((e) => e.minuteOfDay != minute),
+      slot,
+    ]..sort((x, y) => x.minuteOfDay.compareTo(y.minuteOfDay));
     await MedDb.putDef(
       db,
       MedDef(
-        key: MedDb.keyFor(name),
+        key: key,
         label: name,
-        doseValue: dose,
-        doseUnit: str(a['dose_unit']),
-        kind: str(a['kind']) == 'supplement' ? 'supplement' : 'medication',
-        schedule: [
-          MedSchedule(
-            minute,
-            days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort()),
-          ),
-        ],
+        doseValue: dose ?? existing?.doseValue,
+        doseUnit: str(a['dose_unit']).isEmpty
+            ? (existing?.doseUnit ?? '')
+            : str(a['dose_unit']),
+        kind: str(a['kind']).isEmpty
+            ? (existing?.kind ?? 'medication')
+            : (str(a['kind']) == 'supplement' ? 'supplement' : 'medication'),
+        schedule: schedule,
+        note: existing?.note ?? '',
+        active: existing?.active ?? true,
+        createdAt: existing?.createdAt,
       ),
     );
     return jsonEncode({

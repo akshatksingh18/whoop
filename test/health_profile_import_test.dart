@@ -136,7 +136,7 @@ void main() {
       final beforeBirthday = importer.snapshotFrom([
         _point(
           HealthDataType.BIRTH_DATE,
-          DateTime(1990, 12, 25).millisecondsSinceEpoch,
+          DateTime(1990, 12, 25).millisecondsSinceEpoch / 1000,
           DateTime(2026, 1, 1),
         ),
       ], now: now);
@@ -145,7 +145,7 @@ void main() {
       final afterBirthday = importer.snapshotFrom([
         _point(
           HealthDataType.BIRTH_DATE,
-          DateTime(1990, 1, 5).millisecondsSinceEpoch,
+          DateTime(1990, 1, 5).millisecondsSinceEpoch / 1000,
           DateTime(2026, 1, 1),
         ),
       ], now: now);

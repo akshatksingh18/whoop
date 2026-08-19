@@ -192,6 +192,21 @@ int countBurstTrafficPackets({
       unknownCount;
 }
 
+/// Whether a NON-data frame is a burst count member (doc 05 §"Count
+/// membership"): each complete type-48 event, type-50 console log and the
+/// three battery-pack ("puffin") wrappers 53/54/55 counts exactly once toward
+/// `HISTORY_END.expected_count`. Type 47 is counted on the data path instead
+/// (it is what `dataPacketCountsByRevision` tallies); type 49 metadata NEVER
+/// counts — it defines the burst boundaries; the 51/52 IMU streams are not
+/// members of this count path at all.
+@visibleForTesting
+bool isBurstCountMemberType(int packetType) =>
+    packetType == PacketType.event ||
+    packetType == PacketType.consoleLogs ||
+    packetType == PacketType.relativePuffinEvents ||
+    packetType == PacketType.puffinEventsFromStrap ||
+    packetType == PacketType.relativeBatteryPackConsoleLogs;
+
 @visibleForTesting
 bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
     offloadActive;
@@ -428,6 +443,23 @@ class _Session {
   /// been launched for THIS session. Session-scoped so a second bootstrap on
   /// the same link cannot start a second retry loop against the same band.
   bool batteryPackFollowUpStarted = false;
+
+  /// Terminal `Stuck` latch (doc 05 §"Retry boundary"): set when a burst has
+  /// failed validation [kBurstValidationAttemptLimit] times and the abort went
+  /// out. From then on this session's history is OVER — no further drain
+  /// trigger, and no re-validating a burst the band keeps re-offering.
+  /// "Failed validation 15 → terminal Stuck, no same-session retry;
+  /// continuation comes from a later connection or scheduler event." Being
+  /// session-scoped is the whole mechanism: a reconnect builds a new [_Session]
+  /// and the next connection drains normally from the band's checkpoint.
+  bool historyStuck = false;
+
+  /// Markers dropped, and drain triggers refused, by [historyStuck]
+  /// (diagnostics). Each kind logs its FIRST occurrence and then stays silent:
+  /// the band re-offers roughly every 2.5 s, and the whole point of the latch
+  /// is to stop that from generating traffic and log noise.
+  int stuckMarkersDropped = 0;
+  int stuckRefreshesRefused = 0;
 
   _Session(this.device);
 
@@ -909,6 +941,23 @@ class BleEngine {
   @visibleForTesting
   void debugProcessImmediateFrame(Frame frame) => _processImmediateFrame(frame);
 
+  /// Feed one inbound frame through the REAL receive path, including
+  /// [FrameRoutePolicy] and the serialized offload queue — i.e. the thing that
+  /// decides which burst window a frame's count lands in.
+  ///
+  /// [debugProcessImmediateFrame] and [debugIngestHistoricalFrame] both start
+  /// past that decision, so neither can express the one property that matters
+  /// here: that a burst's data frames, its event/console members and its
+  /// HISTORY_END are all handled in the order the band put them on the wire.
+  /// [role] is the characteristic the frame was reassembled on ('data',
+  /// 'events', 'cmd_from'), which is exactly what the ordering hazard is about.
+  @visibleForTesting
+  void debugReceiveFrame(Frame frame, {String role = 'data'}) {
+    final session = _session;
+    if (session == null) return;
+    _onFrame(role, frame, session);
+  }
+
   /// Drive the canonical historical-refresh path. Returns whether
   /// SEND_HISTORICAL_DATA actually went out.
   @visibleForTesting
@@ -1368,6 +1417,13 @@ class BleEngine {
 
   bool get offloadActive => _offloadActive;
 
+  /// True once this connection's history hit the terminal `Stuck` boundary
+  /// (doc 05 §"Retry boundary"): a burst failed validation
+  /// [kBurstValidationAttemptLimit] times and the abort went out. Nothing may
+  /// start another drain on this link; continuation belongs to a later
+  /// connection. Callers that loop over sync sessions must stop on it.
+  bool get historyStuckThisSession => _session?.historyStuck ?? false;
+
   Map<String, dynamic> get offloadSnapshot => {
     'active': _offloadActive,
     'queued_frames': _offloadFrames.length,
@@ -1391,6 +1447,11 @@ class BleEngine {
     // a *streak* of mismatches is a real signal worth watching over time.
     'burst_mismatch_total': _burstMismatchTotal,
     'burst_mismatch_streak': _burstMismatchStreak,
+    // Terminal `Stuck` for this connection (doc 05 §"Retry boundary") and how
+    // much re-offer/re-trigger traffic the latch has since absorbed.
+    'history_stuck': _session?.historyStuck ?? false,
+    'stuck_markers_dropped': _session?.stuckMarkersDropped ?? 0,
+    'stuck_refreshes_refused': _session?.stuckRefreshesRefused ?? 0,
     // Band-reboot signal — see CounterRegressionDetector. Observability only;
     // recovery already happens automatically at the DB layer.
     'counter_regressions_total': _counterRegression.regressions,
@@ -2290,7 +2351,25 @@ class BleEngine {
     bool refreshRange = true,
   }) async {
     final d = _drain;
-    if (_session?.connected != true || d == null) return false;
+    final session = _session;
+    if (session?.connected != true || d == null) return false;
+    // Terminal `Stuck` (doc 05 §"Retry boundary"): "no same-session retry —
+    // continuation comes from a later connection, scheduler tick or explicit
+    // trigger." Every in-session trigger routes through here — periodic
+    // backfill, foreground/manual resync, auto-continue and the backfill
+    // continuation loop — so refusing here closes all of them at once. The
+    // FIRST drain of a fresh session is untouched: the latch lives on the
+    // session object, so a reconnect clears it.
+    if (session!.historyStuck) {
+      session.stuckRefreshesRefused++;
+      if (session.stuckRefreshesRefused == 1) {
+        _log(
+          '[SYNC] refresh($reason) refused — history is terminal (Stuck) for '
+          'this connection; the band keeps its checkpoint until the next one.',
+        );
+      }
+      return false;
+    }
     if (_offloadActive && !d._complete) {
       _log(
         '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
@@ -2777,12 +2856,22 @@ class BleEngine {
       isMetadata: pt == PacketType.metadata,
       isHistorical: pt == PacketType.historicalData,
       isDataRole: role == 'data',
+      isBurstCountMember: isBurstCountMemberType(pt),
+      offloadActive: _offloadActive,
     );
-    if (route == FrameRoute.serializedQueue) {
-      _enqueueOffloadFrame(frame, session);
-      return;
+    switch (route) {
+      case FrameRoute.serializedQueue:
+        _enqueueOffloadFrame(frame, session);
+      case FrameRoute.immediateAndCount:
+        // Process inline first (unchanged behaviour: wrist/battery/alarm and
+        // console text must not wait behind an offload commit), then enqueue
+        // the SAME frame so only its burst COUNT is applied in arrival order,
+        // in the burst window the band sent it in. See [FrameRoute].
+        _processImmediateFrame(frame);
+        _enqueueOffloadFrame(frame, session);
+      case FrameRoute.immediate:
+        _processImmediateFrame(frame);
     }
-    _processImmediateFrame(frame);
   }
 
   void _processImmediateFrame(Frame frame) {
@@ -2833,32 +2922,21 @@ class BleEngine {
         'inner=${_innerHex(frame.inner)}',
       );
     } else if (pt == PacketType.event) {
-      if (_offloadActive) {
-        _drain?.onBurstEvent();
-      }
+      // NOTE: the burst COUNT for this frame is NOT applied here. Events,
+      // console logs and puffin wrappers are count members (doc 05 §"Count
+      // membership") but they arrive on a different characteristic than the
+      // data frames, so counting them at notification time put them in
+      // whichever burst window happened to be open rather than the one the
+      // band sent them in. The count now rides the serialized queue at this
+      // frame's arrival position — see [FrameRoute.immediateAndCount] and
+      // [_countQueuedBurstMember]. Event PROCESSING stays right here: nothing
+      // about wrist/battery/alarm handling may wait on an offload commit.
       _log('[EVENT] ${_innerHex(frame.inner)}');
       final e = parseEvent(frame.inner);
       if (e != null) {
         _handleEventInfo(e);
         onEvent?.call(e.eventId, e.tsEpoch, _innerHex(frame.inner));
       }
-    } else if (pt == PacketType.consoleLogs && _offloadActive) {
-      _drain?.onBurstConsole();
-    } else if (_offloadActive &&
-        (pt == PacketType.relativePuffinEvents ||
-            pt == PacketType.puffinEventsFromStrap ||
-            pt == PacketType.relativeBatteryPackConsoleLogs)) {
-      // Battery-pack ("puffin") event/log wrappers, types 53/54/55. The strap
-      // COUNTS these in the burst total it reports at HISTORY_END, and they
-      // were counted nowhere here — so any burst carrying one looked short by
-      // exactly that many frames. That is not hypothetical: a retained capture
-      // has a checkpoint of 24 ordinary packets plus three type-54 wrappers
-      // reported as `expected = 27`, which fails 27/24 forever until the
-      // wrappers are counted (reversing-whoop doc 05, "History count
-      // membership" — each complete 47/48/50/53/54/55 frame counts once, and
-      // type 49 metadata never does).
-      _drain?.onBurstEvent();
-      _log('[SYNC] puffin wrapper type=$pt counted as a burst member');
     }
     final band = _session?.band ?? BandProfile.gen4;
     final decoded = _maybeAugmentClockEpoch(
@@ -2917,8 +2995,13 @@ class BleEngine {
           if (_sessionIsStale(session)) return;
           if (frame.packetType == PacketType.metadata) {
             await _handleSyncMarker(frame, session);
-          } else {
+          } else if (frame.packetType == PacketType.historicalData) {
             _ingestHistoricalFrame(frame);
+          } else {
+            // A count member that was already processed inline
+            // ([FrameRoute.immediateAndCount]) and is here only to have its
+            // burst count applied in arrival order.
+            _countQueuedBurstMember(frame);
           }
         }
         if (_offloadFrames.isNotEmpty) {
@@ -2930,6 +3013,40 @@ class BleEngine {
       // unwinding after the new session's drainer already started would
       // otherwise re-open the door to a second concurrent drainer.
       if (_session == session) _drainingOffloadFrames = false;
+    }
+  }
+
+  /// Apply the burst count for one non-data count member (type 48/50/53/54/55)
+  /// that has already been processed inline, now that the serialized queue has
+  /// reached its arrival position.
+  ///
+  /// This is the ONLY place these families increment the burst count. The band
+  /// reports `expected_count = data_pkt_cnt + event_pkt_cnt` for the frames it
+  /// transmitted between HISTORY_START and HISTORY_END; counting here — behind
+  /// the same queue that carries the data frames and both markers — is what
+  /// makes our tally cover the same window. A member counted at notification
+  /// time instead could land before its burst's HISTORY_START (where `rearm()`
+  /// wipes it) or after its HISTORY_END had already validated, which is how a
+  /// burst carrying several of them went permanently short by ~4 frames
+  /// against `expected=16, actual=12, breakdown={V18=12}` (field capture,
+  /// 2026-08-19, fw 50.40.1.0).
+  void _countQueuedBurstMember(Frame frame) {
+    final d = _drain;
+    if (d == null) return;
+    final pt = frame.packetType;
+    if (pt == PacketType.consoleLogs) {
+      d.onBurstConsole();
+      return;
+    }
+    // Type 48 events and the battery-pack ("puffin") wrappers 53/54/55 all
+    // count once each, on the band's event counter. The wrappers were counted
+    // nowhere at all before the count gate landed: a retained capture has a
+    // checkpoint of 24 ordinary packets plus three type-54 wrappers reported as
+    // `expected = 27`, which fails 27/24 forever until they are counted (doc 05
+    // §"Count membership").
+    d.onBurstEvent();
+    if (pt != PacketType.event) {
+      _log('[SYNC] puffin wrapper type=$pt counted as a burst member');
     }
   }
 
@@ -3463,6 +3580,15 @@ class BleEngine {
       // Terminal. One abort, no 15th failure result, and NO same-session
       // auto-retry: the strap keeps the uncommitted checkpoint and a later
       // connection resumes from it.
+      //
+      // LATCH IT. Sending the abort is not by itself terminal: the band goes on
+      // re-offering the same HISTORY_END about every 2.5 s until it gets a
+      // result, and every re-offer used to re-enter validation — which was
+      // already past the limit, so it aborted again. A field capture shows that
+      // loop running 14+ times in 12 s, and the 60 s idle timeout then handing
+      // the whole 15-failure cycle to the backfill continuation. Terminal has
+      // to mean terminal for the session (doc 05 §"Retry boundary").
+      session.historyStuck = true;
       _log(
         '[SYNC] burst still short after '
         '${d.consecutiveValidationFailures} attempts — aborting history for '
@@ -3651,6 +3777,23 @@ class BleEngine {
     if (_sessionIsStale(session)) return;
     final m = parseMetadata(frame.inner);
     if (m == null) return;
+    // Terminal `Stuck` (doc 05 §"Retry boundary"): this session's history ended
+    // with the abort. The band does not know that yet and re-offers the burst
+    // every ~2.5 s; each re-offer must be dropped, NOT re-validated and
+    // re-aborted. The idle watchdog is deliberately not re-armed either — there
+    // is nothing left to wait for on this link.
+    if (session.historyStuck) {
+      session.stuckMarkersDropped++;
+      if (session.stuckMarkersDropped == 1) {
+        _log(
+          '[SYNC] history is terminal (Stuck) for this connection — dropping '
+          'the re-offered marker without validating or aborting again. '
+          'Further re-offers are silent; the band keeps its checkpoint and a '
+          'later connection resumes from it.',
+        );
+      }
+      return;
+    }
     _armIdleWatchdog();
     _log(
       '[SYNC] META sub=${m.sub} inner='
@@ -3706,21 +3849,26 @@ class BleEngine {
       final expected = m.expectedPacketCount;
       // Records the plausibility gate silently rejected THIS burst (stale/
       // wandering-clock block — by design, "neither stored nor counted",
-      // see RecordGate.admit) never reach onHistoricalRecord/
-      // onUndecodableRecord, so they never entered currentBurstPacketCount.
+      // see RecordGate.admit) DO reach onUndecodableRecord as
+      // kGateDroppedReason archives, but that path deliberately skips the
+      // burst count for them, so they never entered currentBurstPacketCount.
       final droppedThisBurst = _recordGate.dropped - _burstDroppedAtStart;
+      // Read before validateBurst, which zeroes the counter on a pass — this is
+      // the attempt number, and the slack, the gate actually judged this burst
+      // under.
+      final failuresBefore = d.consecutiveValidationFailures;
       final validated = expected == null ||
           d.validateBurst(
             expectedPacketCount: expected,
             droppedThisBurst: droppedThisBurst,
           );
-      // Honest, LOG-ONLY completeness signal (never gates the ACK). Compares
-      // num_packets against the ALL-TYPES received total (currentBurstTrafficCount),
-      // not the banked R24 subset — see burstPacketShortfall. Only a POSITIVE
-      // shortfall means frames the band counted that we did not count as valid
-      // received traffic (missing OR CRC-corrupted — potential loss); this is
-      // the signal we want visible in telemetry BEFORE ever wiring a FAIL gate
-      // (which needs its own design + field validation to avoid re-flood).
+      // How far short of the band's count this burst is, on the SAME all-types
+      // tally the gate above just used (`currentBurstTrafficCount` and
+      // `currentBurstPacketCount` are one number, not two counters). The gate
+      // is one-sided WITH slack; this is the raw gap without it, so the only
+      // case where the two differ is a burst that passed on slack — which is
+      // exactly what the log below reports. Positive means member frames the
+      // band counted and we did not.
       final shortfall = expected == null
           ? 0
           : burstPacketShortfall(
@@ -3787,19 +3935,27 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      // Would-flag: the correct-signal completeness diagnostic. LOG-ONLY — the
-      // commit + verbatim-token ACK below are unchanged. A positive shortfall
-      // is the honest missing/corrupted-traffic telemetry we want to watch
-      // before a later, field-validated FAIL gate ever acts on it.
+      // Reaching here means the gate PASSED. A positive shortfall therefore
+      // means it passed on the doc-05 slack (2 from the 4th attempt) rather
+      // than on a complete burst — worth one line, because the ACK below trims
+      // flash for frames we never tallied.
+      //
+      // This used to be logged as a separate "burst completeness would-flag"
+      // with its own missing/CRC-loss story, which read like a SECOND
+      // completeness counter disagreeing with the gate. It never was one: both
+      // lines have always come from the same all-types tally, and the only
+      // difference is the slack. In the field capture that produced this
+      // change, its "potential loss" reading was wrong too — the missing frames
+      // were the burst's own event/console members, counted into a different
+      // burst window by the ordering bug this commit fixes, not lost on air.
       if (shortfall > 0) {
         _log(
-          '[SYNC] burst completeness would-flag (LOG-ONLY, commit+ACK '
-          'unchanged): expected=$expected '
-          'received=${d.currentBurstTrafficCount} '
-          'dropped_this_burst=$droppedThisBurst shortfall=$shortfall '
-          '(all-types received total — frames the band counted that we did '
-          'not; missing or CRC-corrupted, potential loss; groundwork for a '
-          'future FAIL gate, NOT gating today)',
+          '[SYNC] burst passed the count gate ON SLACK: expected=$expected '
+          'counted=${d.currentBurstTrafficCount} '
+          'dropped_this_burst=$droppedThisBurst short_by=$shortfall '
+          '(attempt ${failuresBefore + 1}, slack '
+          '${burstCountSlack(failuresBefore)}) — committing '
+          'and ACKing; the band will trim frames we did not count.',
         );
       }
       final r = d.bufferedRecTsRange;
@@ -5419,6 +5575,18 @@ class DrainController {
     if (a.reason != kGateDroppedReason) {
       records++;
       recordsThisOffload++;
+      // The band's expected count tallies every type-47 frame it TRANSMITTED,
+      // decodable or not (doc 05: "unknown revisions still count"). The gen5
+      // deep buffers (v20/v21/v26/v22) and any future firmware's revisions all
+      // arrive through this path, so leaving them uncounted makes every burst
+      // that carries one permanently short at the count gate. Same counter the
+      // decoded path uses, so the breakdown line stays truthful (V22=…,
+      // unknown=…). Gate-dropped archives stay excluded: validateBurst adds
+      // them back via droppedThisBurst, and counting them here too would
+      // double-count.
+      if (a.packetType == PacketType.historicalData) {
+        burstStats.onHistoricalData(a.packetType, a.counter, null, a.hex);
+      }
     }
     _lastProgressAt = DateTime.now();
     if (_buffering) {

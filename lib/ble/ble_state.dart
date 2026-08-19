@@ -495,6 +495,23 @@ enum FrameRoute {
 
   /// Handled inline (command responses, events, live high-rate frames).
   immediate,
+
+  /// Handled inline AND enqueued on the serialized queue at its true arrival
+  /// position, where the burst COUNT for it is applied.
+  ///
+  /// Burst count members that are not type-47 data (events 48, console 50,
+  /// puffin wrappers 53/54/55 — doc 05 §"Count membership") arrive on a
+  /// different characteristic than the data frames but over the SAME ACL link,
+  /// so the band's transmit order is the arrival order. Counting them inline
+  /// while the data frames and their HISTORY_END queue up REORDERS the count:
+  /// a member could be tallied into the burst before its HISTORY_START opened
+  /// the window (where the next rearm wipes it) or after its HISTORY_END had
+  /// already validated — which is exactly how a burst goes permanently short
+  /// by its event/console members. Enqueueing the count at the arrival
+  /// position restores the band's ordering; the frame is still PROCESSED
+  /// inline, so wrist/battery/alarm handling is never delayed behind an
+  /// offload commit.
+  immediateAndCount,
 }
 
 /// Pure routing decision for [FrameRoute].
@@ -509,13 +526,21 @@ enum FrameRoute {
 class FrameRoutePolicy {
   const FrameRoutePolicy._();
 
+  /// [isBurstCountMember] is doc 05 §"Count membership" for the non-data
+  /// families (48/50/53/54/55); [offloadActive] is whether a history session is
+  /// running at all, since outside one there is no burst to count into.
   static FrameRoute route({
     required bool isMetadata,
     required bool isHistorical,
     required bool isDataRole,
+    bool isBurstCountMember = false,
+    bool offloadActive = false,
   }) {
     if (isMetadata) return FrameRoute.serializedQueue;
     if (isHistorical && isDataRole) return FrameRoute.serializedQueue;
+    if (isBurstCountMember && offloadActive) {
+      return FrameRoute.immediateAndCount;
+    }
     return FrameRoute.immediate;
   }
 }

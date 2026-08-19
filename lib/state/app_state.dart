@@ -2818,6 +2818,18 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
+      // Terminal `Stuck` (doc 05 §"Retry boundary"): a burst failed validation
+      // 15 times and the abort went out, so this connection's history is over.
+      // The engine refuses every further drain trigger, but stopping here too
+      // keeps the loop from spending its remaining sessions waiting out an idle
+      // timeout apiece against a link that will never answer.
+      if (engine.historyStuckThisSession) {
+        _log(
+          'Backfill stop — history is terminal (Stuck) for this connection; '
+          'the band keeps its checkpoint until the next one.',
+        );
+        break;
+      }
       // rec_ts_hw, not lastDecodedRecTs() — see the boot-time seed above for
       // why: an R10-lite-heavy backlog can genuinely advance without ever
       // touching decoded_onehz, and this "did we make progress" check must

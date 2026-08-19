@@ -448,6 +448,7 @@ void main() {
 
   _events();
   _bootstrap();
+  _burstOrdering();
 }
 
 /// A type-48 EVENT inner:
@@ -968,6 +969,324 @@ void _bootstrap() {
         async.elapse(const Duration(seconds: 40));
         expect(link.opcodes, isNot(contains(Cmd.getBatteryPackInfo)));
       });
+    });
+  });
+}
+
+// ── T14: burst count membership must follow the band's arrival order ─────────
+//
+// doc 05 §"Count membership": every complete type-47/48/50/53/54/55 frame the
+// band sends between HISTORY_START and HISTORY_END counts exactly once toward
+// `HISTORY_END.expected_count` (= its own data_pkt_cnt + event_pkt_cnt).
+//
+// Data frames arrive on the data characteristic and are handled by the ONE
+// serialized offload queue, together with both markers. Events and console
+// logs arrive on the events characteristic — over the SAME ACL link, so their
+// true position in the stream is their arrival order — and used to have their
+// burst count applied at notification time instead. That reorders the count
+// relative to the markers: a member could be tallied while the queue still had
+// the PREVIOUS burst open (where the next HISTORY_START's rearm wipes it), so
+// its own burst came up short by exactly those frames, every single retry.
+//
+// Field capture 2026-08-19 (WHOOP 5, fw 50.40.1.0): earlier bursts carried a
+// growing console surplus (console=5, 7, 9 …) while the burst behind them went
+// `expected=52, actual=48, breakdown={V18=42, events=1, console=5}` and then,
+// after the strap's adaptive burst-size drop, `expected=16, actual=12,
+// breakdown={V18=12}` on every one of 15 attempts.
+
+/// A gen5 v18 inner `Gen5V18Decoder` accepts: HR inside 25..230, dynamic
+/// acceleration inside 0..8 g and a 1 g gravity vector.
+Uint8List _gen5V18Inner({required int ts, required int counter}) {
+  final inner = Uint8List(kGen5V18InnerLen);
+  final v = ByteData.sublistView(inner);
+  inner[0] = PacketType.historicalData;
+  inner[1] = 18;
+  inner[2] = 0x80;
+  v.setUint32(3, counter, Endian.little);
+  v.setUint32(7, ts, Endian.little);
+  inner[14] = 64; // heart rate
+  v.setFloat32(33, 0.5, Endian.little); // dynamic acceleration
+  v.setFloat32(45, 1.0, Endian.little); // gravity z → |g| = 1.0
+  return inner;
+}
+
+/// A type-50 CONSOLE_LOGS inner (protocol's `parseConsoleLog` envelope).
+/// A type-47 inner that will NOT decode to a 1 Hz sample: a valid shared
+/// header (counter + unix) under a revision edge has no Sample mapping for.
+Uint8List _rawHistInner({required int rev, required int counter}) {
+  final inner = Uint8List(24);
+  inner[0] = PacketType.historicalData;
+  inner[1] = rev;
+  final v = ByteData.sublistView(inner);
+  v.setUint32(3, counter, Endian.little);
+  v.setUint32(7, 1786000000, Endian.little);
+  return inner;
+}
+
+Uint8List _consoleInner(int index, {int ts = 1786000000}) {
+  const text = 'BLE_CMD: Command Link Valid';
+  final inner = Uint8List(12 + text.length);
+  inner[0] = PacketType.consoleLogs;
+  inner[1] = index;
+  final v = ByteData.sublistView(inner);
+  v.setUint16(2, 2, Endian.little); // console logs ride event id 2
+  v.setUint32(4, ts, Endian.little);
+  v.setUint16(10, text.length, Endian.little);
+  inner.setRange(12, inner.length, text.codeUnits);
+  return inner;
+}
+
+/// A type-49 METADATA HISTORY_START inner.
+Uint8List _historyStart() =>
+    Uint8List.fromList(<int>[PacketType.metadata, 0x01, SyncMeta.historyStart]);
+
+/// A type-49 METADATA HISTORY_END inner: `expected_count` u32 @9 and the
+/// 8-byte trim token @13:21 the result echoes verbatim.
+Uint8List _historyEnd({required int expected, required int token}) {
+  final inner = Uint8List(24);
+  inner[0] = PacketType.metadata;
+  inner[1] = 0x02;
+  inner[2] = SyncMeta.historyEnd;
+  final v = ByteData.sublistView(inner);
+  v.setUint32(3, 1786000000, Endian.little); // strap clock
+  v.setUint32(9, expected, Endian.little);
+  v.setUint32(13, token, Endian.little); // marker A
+  v.setUint32(17, 0x18, Endian.little); // marker B / batch id
+  return inner;
+}
+
+/// A gen5 link that feeds inbound frames through the REAL receive path —
+/// [FrameRoutePolicy] and the serialized offload queue included — and captures
+/// every outgoing command.
+class _Burst {
+  final logs = <String>[];
+  final frames = <Uint8List>[];
+  late final BleEngine engine;
+
+  _Burst() {
+    engine = BleEngine(
+      onRecord: (_, _) async {},
+      onState: (_) {},
+      log: logs.add,
+    );
+    connect();
+  }
+
+  /// Stand up a fresh session on the same engine (a reconnect, as far as
+  /// everything session-scoped is concerned).
+  void connect() => engine.debugInstallFakeLink(
+        onWrite: (f) async {
+          frames.add(f);
+          return true;
+        },
+        band: BandProfile.gen5,
+      );
+
+  void rx(Uint8List inner, {String role = 'data'}) =>
+      engine.debugReceiveFrame(Frame(inner, true, true), role: role);
+
+  /// Opcodes of every command written to the link so far.
+  List<int> get opcodes => frames
+      .map((f) => parseFrame(f, profile: BandProfile.gen5))
+      .where((p) => p != null && p.valid)
+      .map((p) => p!.inner[2])
+      .toList();
+
+  /// The `actual=` field of each HistoryEnd line, in order — i.e. what the
+  /// count gate tallied for each burst that passed it.
+  List<int> get acceptedCounts => logs
+      .where((l) => l.contains('[SYNC] HistoryEnd batch='))
+      .map((l) => int.parse(
+          RegExp(r'actual=(\d+)').firstMatch(l)!.group(1)!))
+      .toList();
+
+  List<String> get shortLines =>
+      logs.where((l) => l.contains('Burst packet-count SHORT')).toList();
+}
+
+void _burstOrdering() {
+  group('T14 — burst count members are counted in ARRIVAL order', () {
+    final ts = _wallNow() - 3600;
+
+    test(
+      'event and console members delivered between the last data frame and '
+      'HISTORY_END are counted — the gate passes',
+      () async {
+        final b = _Burst();
+        b.rx(_historyStart());
+        for (var i = 0; i < 12; i++) {
+          b.rx(_gen5V18Inner(ts: ts + i, counter: 1000 + i));
+        }
+        // The two members the band counted in the same burst, on the OTHER
+        // characteristic, after the last data frame and before the terminal.
+        b.rx(_eventInner(29, <int>[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            role: 'events');
+        b.rx(_consoleInner(1), role: 'events');
+        b.rx(_historyEnd(expected: 14, token: 0x8601));
+        await pumpEventQueue();
+
+        expect(b.shortLines, isEmpty,
+            reason: '12 data + 1 event + 1 console IS the band\'s 14');
+        expect(b.acceptedCounts, <int>[14]);
+      },
+    );
+
+    test(
+      'THE FIELD SCENARIO: members that arrive while the queue still has the '
+      'previous burst open count into THEIR burst, not the open one',
+      () async {
+        // One synchronous GATT flurry — the queue has processed nothing past
+        // burst A's HISTORY_START when burst B's members land. Counting them at
+        // notification time (the old path) credited them to A, and B then went
+        // permanently short by exactly those four frames: the 16/12 signature
+        // from the field log.
+        final b = _Burst();
+        b.rx(_historyStart());
+        for (var i = 0; i < 2; i++) {
+          b.rx(_gen5V18Inner(ts: ts + i, counter: 2000 + i));
+        }
+        b.rx(_historyEnd(expected: 2, token: 0x8601));
+        b.rx(_historyStart());
+        for (var i = 0; i < 12; i++) {
+          b.rx(_gen5V18Inner(ts: ts + 100 + i, counter: 2100 + i));
+        }
+        b.rx(_eventInner(29, <int>[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            role: 'events');
+        b.rx(_eventInner(123, <int>[1, 6, 0]), role: 'events');
+        b.rx(_consoleInner(1), role: 'events');
+        b.rx(_consoleInner(2), role: 'events');
+        b.rx(_historyEnd(expected: 16, token: 0x8602));
+        await pumpEventQueue();
+
+        expect(b.shortLines, isEmpty,
+            reason: 'burst B counted 12 data + 2 events + 2 console = 16/16; '
+                'the old immediate path counted 12 and failed forever');
+        expect(b.acceptedCounts, <int>[2, 16],
+            reason: 'burst A must NOT be inflated by B\'s members either — '
+                'that surplus is what the field log showed growing (console='
+                '5, 7, 9 …) while the burst behind it starved');
+      },
+    );
+
+    test('a straggler arriving after the result does not contaminate the NEXT '
+        'burst', () async {
+      final b = _Burst();
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 3000));
+      b.rx(_historyEnd(expected: 1, token: 0x8601));
+      // Late: the band put this on the wire after the burst's terminal.
+      b.rx(_consoleInner(9), role: 'events');
+      await pumpEventQueue();
+
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts + 1, counter: 3001));
+      b.rx(_historyEnd(expected: 1, token: 0x8602));
+      await pumpEventQueue();
+
+      expect(b.shortLines, isEmpty);
+      expect(b.acceptedCounts, <int>[1, 1],
+          reason: 'the straggler belongs to the burst that was open when it '
+              'arrived; HISTORY_START rearms the stats, so it can never be '
+              'spent on the next burst\'s gate');
+    });
+
+    test(
+        'a type-47 frame we cannot decode still counts — deep buffers and '
+        'unknown revisions are burst members (doc 05)', () async {
+      final b = _Burst();
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 4000));
+      // A gen5 deep buffer (v22 research telemetry: identified, archived, not
+      // a 1 Hz sample) and a future firmware's unknown revision. The band
+      // counted both when it wrote expected=3 — "unknown revisions still
+      // count" is doc 05's rule 4, and an R22-enabled strap puts one of these
+      // in most bursts, so leaving them uncounted starves the gate exactly
+      // like the mis-binned event frames did.
+      b.rx(_rawHistInner(rev: 22, counter: 4001));
+      b.rx(_rawHistInner(rev: 99, counter: 4002));
+      b.rx(_historyEnd(expected: 3, token: 0x8601));
+      await pumpEventQueue();
+
+      expect(b.shortLines, isEmpty,
+          reason: '1 decoded + 2 archived type-47 frames ARE the band\'s 3');
+      expect(b.acceptedCounts, <int>[3]);
+    });
+  });
+
+  group('T14 — the 15th failed validation is terminal for the session', () {
+    final ts = _wallNow() - 3600;
+
+    /// Deliver one burst the band says is longer than it is.
+    Future<void> shortBurst(_Burst b, int token) async {
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 4000 + token));
+      b.rx(_historyEnd(expected: 5, token: token));
+      await pumpEventQueue();
+    }
+
+    test('15 failures abort ONCE, then the re-offered burst is dropped without '
+        'validating or aborting again', () async {
+      final b = _Burst();
+      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
+        await shortBurst(b, 0x8600 + i);
+      }
+
+      expect(b.shortLines, hasLength(kBurstValidationAttemptLimit));
+      expect(
+        b.opcodes.where((o) => o == Cmd.abortHistoricalTransmits).length,
+        1,
+        reason: 'ONE abort at the boundary — doc 05 §"Retry boundary"',
+      );
+      // Attempts 1..14 send a failure result; the 15th deliberately does not.
+      expect(
+        b.opcodes.where((o) => o == Cmd.historicalDataResult).length,
+        kBurstValidationAttemptLimit - 1,
+      );
+      expect(b.engine.historyStuckThisSession, isTrue);
+
+      // The band does not know the session is over and re-offers the burst
+      // roughly every 2.5 s. Each re-offer used to re-enter validation — which
+      // was already past the limit — and abort again: 14+ aborts in 12 s in the
+      // field capture.
+      final before = b.opcodes.length;
+      for (var i = 0; i < 4; i++) {
+        await shortBurst(b, 0x8700 + i);
+      }
+      expect(b.shortLines, hasLength(kBurstValidationAttemptLimit),
+          reason: 'no further validation at all');
+      expect(b.opcodes.length, before, reason: 'and no further link traffic');
+      expect(
+        b.logs.where((l) => l.contains('terminal (Stuck)')).length,
+        1,
+        reason: 'logged once, quietly — the re-offers are silent after that',
+      );
+      expect(b.engine.offloadSnapshot['stuck_markers_dropped'], greaterThan(0));
+    });
+
+    test('a same-session drain trigger is refused; a new session drains',
+        () async {
+      final b = _Burst();
+      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
+        await shortBurst(b, 0x8600 + i);
+      }
+
+      expect(await b.engine.debugStartHistoricalRefresh(), isFalse,
+          reason: 'continuation belongs to a later connection, not to a '
+              'retry on this one (doc 05 §"Retry boundary")');
+      expect(b.engine.offloadSnapshot['stuck_refreshes_refused'], 1);
+
+      // A reconnect is the remedy: the latch is session-scoped, so the next
+      // connection drains normally from the band\'s own checkpoint.
+      b.connect();
+      expect(b.engine.historyStuckThisSession, isFalse);
+      final shortBefore = b.shortLines.length;
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 5000));
+      b.rx(_historyEnd(expected: 1, token: 0x8800));
+      await pumpEventQueue();
+      expect(b.shortLines, hasLength(shortBefore),
+          reason: 'the fresh session validated its burst normally');
+      expect(b.acceptedCounts.last, 1);
     });
   });
 }

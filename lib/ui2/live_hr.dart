@@ -1,0 +1,144 @@
+// The heart rate arriving RIGHT NOW.
+//
+// Live HR is not a workout-only quantity: `openSession()` calls
+// `enableLiveStreams()` whenever the app is foregrounded with the band
+// connected, so a beat is usually a second old while someone is looking at the
+// app. It was simply never surfaced outside the workout screen.
+//
+// THE RULES THIS FILE HOLDS:
+//
+//   · It OWNS NO TIME. The first version ran a `Timer.periodic` and a heart
+//     that pulsed at the measured rate off a repeating controller — which the
+//     design-system tests correctly rejected: an endless loop cannot be stopped
+//     by the reduced-motion gate, and raw `Duration`s bypass `motion()`. The
+//     deeper problem was architectural: the trace also died every time the
+//     screen closed. The buffer lives on [AppState] now and this is a pure
+//     renderer.
+//   · The trace is READINGS, not seconds, and says so. Samples arrive when the
+//     band delivers them, so calling it "the last 90 seconds" would be a claim
+//     about spacing nothing here guarantees.
+//   · Absence states its reason and never a number. `AppState.liveHr` returns
+//     null past [AppState.liveHrMaxAge], so an unworn band, a dropped link and
+//     a backgrounded HR-only downgrade all arrive as null — and each gets the
+//     sentence that is true for it.
+//   · It repaints ALONE. A 1 Hz stream hung off a `watch` in a parent would
+//     rebuild that whole tree once a second for the life of the connection.
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+
+import '../state/app_state.dart';
+import 'ui2.dart';
+
+/// The live reading as a card: the number, and the recent readings behind it.
+class LiveHrCard extends StatelessWidget {
+  /// The real one: reads the live stream off [AppState].
+  const LiveHrCard({super.key})
+      : _hr = null,
+        _trace = null,
+        _preview = false;
+
+  /// A fixed reading, for the gallery. The gallery has no band, no stream and
+  /// no Provider above it, and a card that reached for one would either throw
+  /// there or force every caller to thread state through. This is the same
+  /// widget with its inputs handed to it.
+  const LiveHrCard.preview({super.key, required int hr, required List<int> trace})
+      : _hr = hr,
+        _trace = trace,
+        _preview = true;
+
+  final int? _hr;
+  final List<int>? _trace;
+  final bool _preview;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final hr = _preview ? _hr : c.select<AppState, int?>((a) => a.liveHr);
+    if (hr == null) return _absent(c);
+
+    // Length, not contents: the list is rebuilt on every reading and comparing
+    // it element-wise on each notification would cost more than the repaint.
+    final List<int> trace;
+    if (_preview) {
+      trace = _trace ?? const [];
+    } else {
+      final n = c.select<AppState, int>((a) => a.liveHrTrace.length);
+      trace = n > 2 ? c.read<AppState>().liveHrTrace : const <int>[];
+    }
+
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // At 3.1x text an n48 number plus a pill does not fit a phone width, so
+        // the number is allowed to scale down inside the space that is left
+        // rather than the row overflowing. The pill keeps its size: it is two
+        // short words and shrinking it is how a label becomes unreadable.
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Icon(LucideIcons.heart, size: 26, color: p.on(C.red)),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text('$hr', style: F.n48.copyWith(color: p.ink)),
+                  const SizedBox(width: S.x2),
+                  Text('bpm', style: F.body.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          const Pill('LIVE', C.red, icon: LucideIcons.radio),
+        ]),
+        if (trace.length > 2) ...[
+          const SizedBox(height: S.x3),
+          SizedBox(
+            height: 56,
+            child: CustomPaint(
+              painter: LineChart(
+                [for (final v in trace) v.toDouble()],
+                C.red,
+                fill: false,
+              ),
+              size: Size.infinite,
+            ),
+          ),
+          const SizedBox(height: S.x2),
+          Text(
+            'The last ${trace.length} readings — ${trace.reduce((a, b) => a < b ? a : b)}'
+            '–${trace.reduce((a, b) => a > b ? a : b)} bpm. Not stored; this is '
+            'the live stream, not a record of your day.',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  /// No live reading. Three different facts, and only the one the app can
+  /// actually see is stated.
+  Widget _absent(BuildContext c) {
+    final app = c.read<AppState>();
+    final (String why, String fix) = !app.isPaired
+        ? ('No band is paired.', 'Pair one from Profile to read live beats.')
+        : !app.isConnected
+            ? (
+                'Your band is not connected.',
+                'Live beats need an open link — the app connects when you open '
+                    'it with the band in range.'
+              )
+            : (
+                'No beat in the last ${AppState.liveHrMaxAge.inSeconds} '
+                    'seconds.',
+                'The band streams while it is on your wrist and the app is '
+                    'open.'
+              );
+    return StatusCard('No live reading', why,
+        fix: fix, icon: LucideIcons.heartOff);
+  }
+}

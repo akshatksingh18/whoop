@@ -208,9 +208,23 @@ class _WellnessScreenState extends State<WellnessScreen> {
                 asset: 'mascot_wellness.png',
                 accent: C.domMind,
                 deep: C.teal,
-                // This mascot is WIDER than it is tall — at the workout one's
-                // height it took enough width to squeeze the copy.
-                mascotHeight: 118,
+                // Sized so the CHARACTER matches Workout's, not the frame.
+                // Two corrections got us here: the asset carried ~30%
+                // transparent padding (cropped away), and what is left still
+                // has a soft halo above the head, so the figure is 87% of the
+                // frame height where the workout mascot is 100% of its own.
+                // 145 x 0.87 puts the character at ~126, the same as Workout.
+                // Not cropped tighter than this on purpose — the halo is nearly
+                // opaque, so trimming it slices a hard arc through the artwork.
+                // The 118 here was originally compensating for
+                // ~30% transparent padding baked into the asset, which made
+                // the art render a third smaller than the workout one at the
+                // same height. The asset is cropped to its own alpha bounds,
+                // so the height is the art's height and the two mascots read
+                // as the same size. Still slightly wider than tall (1.03 vs
+                // 0.93), and at 126 that is 130 px — narrower than the padded
+                // asset was, so the copy has more room than before, not less.
+                mascotHeight: 145,
                 onTap: () async {
                   await Navigator.of(c).push(
                     MaterialPageRoute<void>(

@@ -516,6 +516,18 @@ class _MetricDetailState extends State<MetricDetail> {
     final vals = [for (final v in series) ?v];
 
     return detailScaffold(c, spec.title, [
+      // Resting heart rate is the NIGHT's number; this is what the chest is
+      // doing this second. Two different quantities, so the live one gets its
+      // own card above the trend rather than a second figure on the same card,
+      // where it would read as a correction to the headline.
+      // `data == null` is the LIVE path: every fixture and golden injects its
+      // own MetricData, and those render with no Provider above them by design.
+      // The live card reads AppState, so it belongs only on the real one.
+      if (widget.metricKey == 'resting_hr' && widget.data == null) ...[
+        const SizedBox(height: S.x2),
+        const LiveHrCard(),
+        const SizedBox(height: S.x5),
+      ],
       if (spec.suppress != null) ...[
         const SizedBox(height: S.x2),
         StatusCard(

@@ -455,6 +455,12 @@ Map<String, Widget> _nutritionAndWellnessCases() {
           FoodRow(entry: known, trailing: LucideIcons.circlePlus),
           FoodRow(entry: bare),
         ])),
+    // `.preview`, because the gallery has no band and no Provider. The numbers
+    // are a fixture and are shaped like one — a resting wobble, not a workout.
+    'live_hr_card': const LiveHrCard.preview(hr: 68, trace: [
+      64, 65, 65, 66, 67, 66, 65, 66, 68, 69, 70, 69, 68, 67, 66, 66, 67, 68,
+      69, 68, 67, 67, 68, 69, 70, 71, 70, 69, 68, 68,
+    ]),
     'mood_picker': MoodPicker(value: 4, onChanged: (_) {}),
     'mood_picker_blank': MoodPicker(onChanged: (_) {}),
     'field_stepper': Surface(

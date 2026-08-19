@@ -27,9 +27,9 @@ import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
+import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
-import 'package:openstrap_edge/ui2/screens/log_water.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A viewport tall enough that nothing under test is below the fold. The
@@ -148,7 +148,10 @@ void main() {
       });
       // The hydration reminder says "tap to log a glass": it has to open the
       // control, not the tab the control is buried on.
-      expect(screenForRoute(kRouteWater), isA<LogWaterScreen>());
+      // The water reminder lands on Nutrition now — the water tile there
+      // steps and clears in place, and the single-field screen it used to
+      // open was reachable from nowhere else.
+      expect(screenForRoute(kRouteWater), isA<NutritionScreen>());
       // Payload routes that predate the five-tab shell, and that
       // `resolveTapRoute` does not carry yet — the destinations exist here so
       // they stop landing on Home the moment it does.

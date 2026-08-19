@@ -73,8 +73,11 @@ class StartCard extends StatelessWidget {
 
   final String sub;
 
-  /// Tuned per mascot. The wellness one is wider than it is tall, so at the
-  /// workout one's height it took enough width to squeeze the copy.
+  /// The height of the ART, which is only true while the assets are cropped to
+  /// their own alpha bounds. A mascot exported with transparent padding renders
+  /// smaller than its sibling at the same value here, and the temptation is to
+  /// fix that with a bigger number — which scales the padding too and takes the
+  /// extra width out of the copy. Crop the asset instead.
   final double mascotHeight;
 
   final VoidCallback? onTap;

@@ -248,6 +248,31 @@ void main() {
       );
     });
 
+    test('the sleep delete covers the pre-midnight half of the night', () {
+      final dayStart = DateTime(2026, 8, 5);
+      final dayEnd = DateTime(2026, 8, 6);
+      final night = normalizeHealthSleepSession(_overnightBundle())!;
+
+      // Onset is 2026-08-04 23:55 — OUTSIDE the day that owns this night. A
+      // day-scoped delete leaves it behind and every retry appends another
+      // copy, which is the truncation and the duplicate bars both.
+      expect(night.start.isBefore(dayStart), isTrue);
+
+      final window = sleepCleanupWindow(
+        dayStart: dayStart,
+        dayEnd: dayEnd,
+        night: night,
+      );
+      expect(window.start, night.start);
+      expect(window.end, dayEnd, reason: 'the night ends well inside the day');
+
+      // No night to write — nothing to widen for, and the day window still has
+      // to be swept so stale samples from an earlier export go.
+      final none = sleepCleanupWindow(dayStart: dayStart, dayEnd: dayEnd);
+      expect(none.start, dayStart);
+      expect(none.end, dayEnd);
+    });
+
     test('Apple and Android share one hypnogram stage vocabulary', () {
       expect(healthSleepStageOf('wake'), HealthSleepStage.awake);
       expect(healthSleepStageOf('awake'), HealthSleepStage.awake);

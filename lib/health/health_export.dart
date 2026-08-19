@@ -72,6 +72,24 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
             .toList();
 }
 
+/// The span a day's SLEEP-type delete has to cover.
+///
+/// The calendar day is not it. Stage samples are written at TRUE epoch, so a
+/// night that began at 23:10 sits in the PREVIOUS day — deleting only
+/// `[dayStart, dayEnd)` leaves that half behind and every re-export appends
+/// another copy of it. Widen to the union of the day and the night; with no
+/// night to write, the day window is already right.
+({DateTime start, DateTime end}) sleepCleanupWindow({
+  required DateTime dayStart,
+  required DateTime dayEnd,
+  HealthSleepSession? night,
+}) => (
+  start: (night != null && night.start.isBefore(dayStart))
+      ? night.start
+      : dayStart,
+  end: (night != null && night.end.isAfter(dayEnd)) ? night.end : dayEnd,
+);
+
 bool shouldAttemptHealthExport({
   required int attempts,
   required int maxAttempts,
@@ -679,14 +697,30 @@ class HealthExporter {
     // Outside the success accounting on purpose — see the method doc.
     await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
 
+    // The night this day owns, normalized ONCE: stages clipped to the sleep
+    // window, sorted, de-overlapped. Shared by the delete window below and the
+    // Apple write further down so both cover exactly the same span. Android
+    // gets this from its native writer instead (see [_androidSleep] above).
+    final night = isApple ? normalizeHealthSleepSession(b) : null;
+
+    // Sleep deletes are night-scoped, everything else stays day-scoped —
+    // `HealthConnectSleepWriter.sleepCleanupRange` already does the equivalent
+    // on Android.
+    final sleepWindow = sleepCleanupWindow(
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+      night: night,
+    );
+
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
     for (final t in _rewriteTypes) {
+      final isSleep = _sleepHealthTypes.contains(t);
       try {
         final deleted = await _health.delete(
           type: t,
-          startTime: dayStart,
-          endTime: dayEnd,
+          startTime: isSleep ? sleepWindow.start : dayStart,
+          endTime: isSleep ? sleepWindow.end : dayEnd,
         );
         if (!deleted) {
           debugPrint('[health] delete ${t.name} returned false');
@@ -898,21 +932,19 @@ class HealthExporter {
     // health 11.1.1 generic SLEEP_* writer instead creates one parent record
     // per call, fragmenting a night. Android therefore uses our typed native
     // replace API; Apple Health keeps its existing per-stage samples.
-    if (isApple) {
-      final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
-      for (final s in segs) {
-        if (s is! Map) continue;
-        final st = (s['start'] as num?)?.toInt();
-        final en = (s['end'] as num?)?.toInt();
-        final stage = healthSleepStageOf(s['stage']?.toString());
-        if (st == null || en == null || en <= st || stage == null) continue;
-        final type = _sleepType(stage);
+    if (isApple && night != null) {
+      // Stages come from the SAME normalization Android uses, so they are
+      // clipped to the sleep window instead of spilling past either end of it
+      // — which is what let a pre-midnight segment survive the day-scoped
+      // delete and pile up a fresh copy on every retry.
+      for (final seg in night.stages) {
+        final type = _sleepType(seg.stage);
         try {
           final wrote = await _health.writeHealthData(
             value: 0,
             type: type,
-            startTime: DateTime.fromMillisecondsSinceEpoch(st * 1000),
-            endTime: DateTime.fromMillisecondsSinceEpoch(en * 1000),
+            startTime: seg.start,
+            endTime: seg.end,
           );
           if (!wrote) success = false;
         } catch (e) {

@@ -147,14 +147,21 @@ void main() {
   group('readiness banding', () {
     test('tiers at the boundaries', () {
       expect(readinessBand(100).tier, 3);
-      expect(readinessBand(80).tier, 3);
-      expect(readinessBand(79.9).tier, 2);
-      expect(readinessBand(65).tier, 2);
-      expect(readinessBand(60).tier, 2);
-      expect(readinessBand(59.9).tier, 1);
-      expect(readinessBand(40).tier, 1);
-      expect(readinessBand(38).tier, 0);
+      expect(readinessBand(61).tier, 3);
+      expect(readinessBand(60.9).tier, 2);
+      expect(readinessBand(50).tier, 2);
+      expect(readinessBand(37).tier, 2);
+      expect(readinessBand(36.9).tier, 1);
+      expect(readinessBand(26).tier, 1);
+      expect(readinessBand(25.9).tier, 0);
       expect(readinessBand(0).tier, 0);
+    });
+
+    // The bug the cut-offs above exist to fix (#250): the score's centre is 50
+    // by construction, so whatever band contains 50 is the one a typical night
+    // gets. It must not be a warning.
+    test('a night at personal median is the neutral band, not a warning', () {
+      expect(readinessBand(50).label, 'Steady');
     });
 
     test('an unscored day is tier -1, which every native reader paints grey',

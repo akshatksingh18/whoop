@@ -73,6 +73,26 @@ class NotificationPrefs {
   /// it was refused, which is why it has never fired for anyone (issue #123).
   final bool movementEnabled;
 
+  /// The medication reminder: one notification per scheduled dose the user
+  /// entered themselves, and ONLY for a dose that is still upcoming — a slot
+  /// already marked taken or deliberately skipped is not armed at all.
+  ///
+  /// This is the one prompt in the app whose time is not a guess: it is the
+  /// schedule in `med_def.schedule_json`, which the user typed. Opt-in and off
+  /// by default like every other outbound path, because someone who wants a
+  /// water reminder has not thereby asked to be told about their pills.
+  final bool medsEnabled;
+
+  /// The daily check-in: one prompt, once, to write the day's self-report
+  /// (mood, energy, stress, soreness, sleep quality — the whole journal, not
+  /// one field at a time).
+  ///
+  /// Suppressed for the day the moment any rating is written, so it can never
+  /// ask for something already answered. It is NOT armed for a day that was
+  /// missed — there is no catching up on a self-report, and a prompt that
+  /// fires because yesterday is blank is a streak wearing a different hat.
+  final bool checkInEnabled;
+
   const NotificationPrefs({
     this.healthEnabled = true,
     this.recoveryEnabled = true,
@@ -86,6 +106,8 @@ class NotificationPrefs {
     this.waterIntervalMin = 120, // every 2 hours
     this.autoDetectEnabled = true,
     this.movementEnabled = false,
+    this.medsEnabled = false,
+    this.checkInEnabled = false,
   });
 
   static const _kHealth = 'notif_health';
@@ -100,6 +122,8 @@ class NotificationPrefs {
   static const _kWaterInterval = 'notif_water_interval';
   static const _kAutoDetect = 'notif_auto_detect';
   static const _kMovement = 'notif_movement';
+  static const _kMeds = 'notif_meds';
+  static const _kCheckIn = 'notif_checkin';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -116,6 +140,8 @@ class NotificationPrefs {
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
       movementEnabled: p.getBool(_kMovement) ?? false,
+      medsEnabled: p.getBool(_kMeds) ?? false,
+      checkInEnabled: p.getBool(_kCheckIn) ?? false,
     );
   }
 
@@ -133,6 +159,8 @@ class NotificationPrefs {
     await p.setInt(_kWaterInterval, waterIntervalMin);
     await p.setBool(_kAutoDetect, autoDetectEnabled);
     await p.setBool(_kMovement, movementEnabled);
+    await p.setBool(_kMeds, medsEnabled);
+    await p.setBool(_kCheckIn, checkInEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -148,6 +176,8 @@ class NotificationPrefs {
     int? waterIntervalMin,
     bool? autoDetectEnabled,
     bool? movementEnabled,
+    bool? medsEnabled,
+    bool? checkInEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -163,6 +193,8 @@ class NotificationPrefs {
         waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
         autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
         movementEnabled: movementEnabled ?? this.movementEnabled,
+        medsEnabled: medsEnabled ?? this.medsEnabled,
+        checkInEnabled: checkInEnabled ?? this.checkInEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {

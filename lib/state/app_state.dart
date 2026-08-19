@@ -47,6 +47,7 @@ import '../compute/profile.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
+import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart'
     show BackupCadence, BackupOutcome, runBackup;
 import '../stress/breath_phases.dart';
@@ -2220,9 +2221,13 @@ class AppState extends ChangeNotifier {
     try {
       final prefs = await NotificationPrefs.load();
       final bedtimeMin = await _recommendedBedtimeMin();
+      final meds = await _medScheduleToday(prefs);
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
         bedtimeMinOfDay: bedtimeMin,
+        checkInDoneToday: await _checkInDoneToday(),
+        medDefs: meds.defs,
+        medDosesToday: meds.doses,
       );
       // AI slots. The nightly sweep is armed only when today actually produced
       // a finding — see [_sweepHeadlineNow], which is also where the body of
@@ -2257,6 +2262,40 @@ class AppState extends ChangeNotifier {
       return (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
     } catch (_) {
       return null; // no recommendation → the fixed fallback times
+    }
+  }
+
+  /// Whether today's self-report is already written — the check-in prompt's
+  /// "do not ask for something already logged" gate.
+  ///
+  /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
+  /// `markJournalDone` would set and nothing anywhere calls: it is false for
+  /// every user on every day. The journal rows are the truth.
+  Future<bool> _checkInDoneToday() async {
+    try {
+      return NotificationCenter.checkInDone(
+          await LocalDb.journalMetricsForDay(todayLabel()));
+    } catch (_) {
+      // Unknown → treat the day as unanswered. Nothing is armed anyway unless
+      // the user switched the check-in on.
+      return false;
+    }
+  }
+
+  /// The medication schedule + today's recorded doses, or empty when the
+  /// reminder is off. Two indexed reads, only on the path that will use them.
+  Future<({List<MedDef> defs, Map<String, Map<int, Map<String, Object?>>> doses})>
+      _medScheduleToday(NotificationPrefs prefs) async {
+    const empty = <String, Map<int, Map<String, Object?>>>{};
+    if (!prefs.medsEnabled) return (defs: const <MedDef>[], doses: empty);
+    try {
+      final db = await LocalDb.instance;
+      return (
+        defs: await MedDb.defs(db),
+        doses: await MedDb.dosesForDay(db, todayLabel()),
+      );
+    } catch (_) {
+      return (defs: const <MedDef>[], doses: empty);
     }
   }
 

@@ -22,6 +22,16 @@ const String kRouteWater = '/water';
 /// history list (issue #113).
 const String kRouteWorkoutSuggestion = '/workouts/suggestion';
 
+/// The medication reminder. Lands on Wellness, where the Medication tab's
+/// checklist is the thing that records the dose.
+///
+/// CEILING, and it is a real one: `WellnessScreen` holds its sub-tab in
+/// private state with no constructor argument, so this lands on Wellness with
+/// Medication one tap away in the sub-tab row rather than on the checklist
+/// itself. Adding `initialTab` to that screen is the whole fix — see the note
+/// on `screenForRoute` in app.dart.
+const String kRouteMeds = '/meds';
+
 /// Emitted by the battery forecast and the device alerts. Profile is reached
 /// from the Home avatar rather than a tab of its own, so the base is Home and
 /// `screenForRoute` pushes the profile on top of it.
@@ -71,6 +81,11 @@ const Map<String, int> _screenRoutes = {
   kRouteJournalCompose: 0,
   kRouteBreathing: 0,
   kRouteWater: 0,
+  // Wellness has no index in the old five-tab vocabulary, so the base is Today
+  // and `domainForRoute` is what actually decides where it lands. The entry
+  // still has to exist: a route absent from this table produces no screen
+  // request at all, and the shell then falls back to the tab index.
+  kRouteMeds: 0,
   kRouteWorkoutSuggestion: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab

@@ -31,6 +31,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ai/ai_prefs.dart';
 import '../ai/reminder_plan.dart';
 import '../data/day_label.dart';
+import '../data/journal_fields.dart';
+import '../data/med_store.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
@@ -196,14 +198,52 @@ class NotificationCenter {
   ///
   /// [bedtimeMinOfDay] is no longer read: it timed the wind-down nudge. Kept so
   /// the existing caller compiles unchanged; drop both together.
+  /// [checkInDoneToday] — whether the day's self-report is already written
+  /// (see [checkInDone]). The prompt is not armed for a day that is already
+  /// answered, which is the whole reason the caller reads it. NULL means the
+  /// caller could not tell, and the check-in is then left exactly as it is.
+  ///
+  /// [medDefs] / [medDosesToday] come straight from `MedDb` and are only read
+  /// when `prefs.medsEnabled` is on. They stay parameters rather than a query
+  /// in here for the same reason [weeklyFinding] does: this method is the
+  /// policy, and a policy that opens the database cannot be tested without
+  /// one.
   Future<void> scheduleStandingReminders(
     NotificationPrefs prefs, {
     double? bedtimeMinOfDay,
     String? weeklyFinding,
+    bool? checkInDoneToday,
+    List<MedDef> medDefs = const [],
+    Map<String, Map<int, Map<String, Object?>>> medDosesToday = const {},
   }) async {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
+    // The check-in and the medication band follow the same rule as the
+    // movement nudge below: cancel what the user just switched off, and
+    // otherwise only what THIS call can put back.
+    //
+    // `checkInDoneToday` null means the caller does not know whether today is
+    // already written — the notifications screen re-asserting after an
+    // unrelated toggle. Cancelling then would drop tonight's prompt, and
+    // re-arming would risk asking for a day already answered, so neither
+    // happens and the next foreground pass (which does know) decides.
+    if (!prefs.checkInEnabled || checkInDoneToday != null) {
+      await svc.cancel(NotificationService.idCheckIn);
+    }
+    // The medication band is cancelled when the switch is OFF — that is where
+    // a reminder the user just turned off actually goes away — or when we were
+    // handed the schedule and can therefore re-arm from it a few lines down.
+    //
+    // NOT unconditionally. This method also runs from the notifications screen
+    // after any unrelated toggle, with no schedule passed, and an unconditional
+    // cancel there would bin every armed dose for a user who came in to change
+    // their quiet hours. Cancel only what this call can put back.
+    if (!prefs.medsEnabled || medDefs.isNotEmpty) {
+      for (var i = 0; i < NotificationService.maxMedSlots; i++) {
+        await svc.cancel(NotificationService.idMedsBase + i);
+      }
+    }
     // idStillness is NOT a standing schedule and must not be cancelled with
     // them. It is a one-shot armed by live movement
     // (`AppState._rescheduleStillnessNudge`), nothing in this method re-arms
@@ -223,13 +263,75 @@ class NotificationCenter {
     }
     final water = waterSlotMinutes(prefs);
     final wantWeekly = prefs.remindersEnabled && weeklyFinding != null;
-    if (water.isEmpty && !wantWeekly) return;
+    final now = DateTime.now();
+    final checkIn = checkInDoneToday == null
+        ? null
+        : checkInSlot(prefs, bedtimeMinOfDay,
+            doneToday: checkInDoneToday, nowMin: now.hour * 60 + now.minute);
+    final meds = medPromptSlots(prefs, medDefs, medDosesToday, now: now);
+    if (water.isEmpty && !wantWeekly && checkIn == null && meds.isEmpty) return;
     // Re-resolve the zone first: this runs on every foreground resume, and the
     // instants below are wall-clock. A phone that flew somewhere would otherwise
     // keep arming Sunday 18:00 in the zone the app first launched in.
     await svc.ensureTimezone();
     await _armWaterSlots(svc, water);
     if (wantWeekly) await _armWeeklyLookback(svc, weeklyFinding);
+    if (checkIn != null) await _armCheckIn(svc, checkIn);
+    await _armMedSlots(svc, meds);
+  }
+
+  /// One notification per dose still due — never one per day, never a summary.
+  ///
+  /// ONE-SHOT per slot, at the minute the user entered. A daily repeat cannot
+  /// know whether today's dose was already taken, and a reminder for a pill
+  /// already swallowed is exactly the notification people turn everything off
+  /// over. The cost of the one-shot is that cover only reaches as far as
+  /// [medPromptSlots]' horizon from the last foreground pass; the reminder
+  /// re-arms on every resume, which for anyone who opens the app daily is
+  /// always ahead of the doses.
+  ///
+  /// Quiet hours are deliberately NOT applied: this is the user's own entered
+  /// time, the same reasoning that exempts the alarm. Someone who takes a pill
+  /// at 23:00 typed 23:00.
+  Future<void> _armMedSlots(NotificationService svc, List<MedSlot> slots) async {
+    for (var i = 0; i < slots.length; i++) {
+      final s = slots[i];
+      final at = medSlotInstant(s);
+      if (at == null) continue;
+      await svc.scheduleOnce(
+        id: NotificationService.idMedsBase + i,
+        category: NotifCategory.reminders,
+        // NO MEDICATION NAME, deliberately. This lands on a lock screen, in
+        // front of whoever is in the room, and "which drug" is the most
+        // sensitive fact in the app. The checklist behind the tap says which —
+        // one unlock away, which is where that belongs. It is also why the
+        // body is not a dose or a count.
+        title: 'Medication',
+        // Not an adherence score, not a streak, and nothing about a dose that
+        // was missed: this is the reminder, not the report.
+        body: 'A dose is due.',
+        at: at,
+        route: kRouteMeds,
+      );
+    }
+  }
+
+  /// The daily check-in, as a ONE-SHOT at the next [minuteOfDay].
+  ///
+  /// One-shot for the same reason the meds slots are: whether the day is
+  /// already written changes daily, and a repeat would go on asking after the
+  /// journal was filled in. Re-armed on every foreground pass, and the caller
+  /// suppresses it outright once the day has any rating in it.
+  Future<void> _armCheckIn(NotificationService svc, int minuteOfDay) async {
+    await svc.scheduleOnce(
+      id: NotificationService.idCheckIn,
+      category: NotifCategory.reminders,
+      title: 'How was today?',
+      // No guilt, no count, no reference to a day that was missed.
+      body: 'Mood, energy, stress — a minute of it.',
+      at: svc.nextDailyInstant(minuteOfDay ~/ 60, minuteOfDay % 60),
+      route: kRouteJournalCompose,
+    );
   }
 
   /// One daily-repeating notification per hydration slot.
@@ -323,6 +425,139 @@ class NotificationCenter {
       slots.add(t);
     }
     return slots;
+  }
+
+  // ── the daily check-in ──────────────────────────────────────────────────
+  //
+  // ONE prompt for the whole self-report, not one per field. Mood, energy,
+  // stress, soreness and sleep quality are all written on the same screen, so
+  // five prompts would be five interruptions for one minute of typing.
+
+  /// Fixed fallback time when nothing has learned a bedtime yet: 20:30. Late
+  /// enough that the day is over, early enough to be well clear of the default
+  /// quiet window.
+  static const int checkInFallbackMin = 20 * 60 + 30;
+
+  /// How long before the recommended bedtime the check-in lands.
+  static const int checkInBeforeBedMin = 60;
+
+  /// Never before this — a "how was today?" at teatime is asking about a day
+  /// that has not happened.
+  static const int checkInEarliestMin = 17 * 60;
+
+  /// Whether the day's self-report is already written, from
+  /// `journal_metric` for that day.
+  ///
+  /// RATINGS only. Water and caffeine are logged as they happen and say
+  /// nothing about whether the day has been reflected on; mood, energy, stress,
+  /// soreness and sleep quality are the answer the prompt is asking for. A
+  /// single one of them is enough — the screen is one screen, and someone who
+  /// filled in mood and stopped has been asked.
+  static bool checkInDone(Map<String, JournalMetricValue> todayMetrics) {
+    for (final f in kJournalFields) {
+      if (f.isRating && todayMetrics.containsKey(f.key)) return true;
+    }
+    return false;
+  }
+
+  /// The check-in's wall-clock minute, or null when it must not be armed.
+  ///
+  /// TIMED OFF THE PERSON where the data supports it: an hour before the
+  /// bedtime the Sleep Coach learned from their own nights, so a late
+  /// chronotype is not asked about their day at what is, for them, mid-evening.
+  /// [bedtimeMinOfDay] null (no recommendation yet) falls back to a fixed
+  /// [checkInFallbackMin], stated rather than pretended.
+  ///
+  /// The window is then bounded on both sides. Quiet hours do not gate an OS
+  /// schedule — the OS fires it with no Dart running — so the ceiling is
+  /// applied HERE instead: half an hour before the quiet window opens, and
+  /// never after it. A 01:00 bedtime must not produce a midnight prompt.
+  static int? checkInMinute(NotificationPrefs prefs, double? bedtimeMinOfDay) {
+    if (!prefs.checkInEnabled) return null;
+    var t = bedtimeMinOfDay == null
+        ? checkInFallbackMin
+        : bedtimeMinOfDay.round() - checkInBeforeBedMin;
+    if (prefs.quietEnabled && prefs.quietStartMin > prefs.quietEndMin) {
+      final cap = prefs.quietStartMin - 30;
+      if (t > cap) t = cap;
+    }
+    if (t < checkInEarliestMin) t = checkInEarliestMin;
+    // A degenerate quiet window (one that swallows the whole evening) leaves
+    // nowhere honest to put this. Nothing is armed rather than something at
+    // a time the user has already said not to interrupt.
+    if (prefs.inQuietHours(t) || t >= 24 * 60) return null;
+    return t;
+  }
+
+  /// [checkInMinute], with the "already answered" rule applied.
+  ///
+  /// Suppressed only when the slot would land TODAY and today is already
+  /// written. A day that is done at 21:00 still arms tomorrow's — the prompt
+  /// is re-armed on every foreground pass, but a user who does not open the
+  /// app tomorrow would otherwise never be asked again.
+  static int? checkInSlot(
+    NotificationPrefs prefs,
+    double? bedtimeMinOfDay, {
+    required bool doneToday,
+    required int nowMin,
+  }) {
+    final t = checkInMinute(prefs, bedtimeMinOfDay);
+    if (t == null) return null;
+    if (doneToday && t > nowMin) return null; // would land today, already asked
+    return t;
+  }
+
+  // ── medication ──────────────────────────────────────────────────────────
+
+  /// How far ahead doses are armed. Three days rather than one because these
+  /// are one-shots: nothing re-arms them while the app is closed, and a
+  /// weekend without opening the app should not silently drop a prescription.
+  /// Not more, because a slot armed days out cannot know it was taken early.
+  static const int medHorizonDays = 3;
+
+  /// The doses to arm: every slot still UPCOMING across [medHorizonDays],
+  /// soonest first, capped at [NotificationService.maxMedSlots].
+  ///
+  /// `DoseState.upcoming` is the whole rule-4 answer and it is already
+  /// computed by [slotsForDay]: a dose marked taken, a dose deliberately
+  /// skipped, and a slot that has already passed are all something other than
+  /// upcoming, and none of them is armed. [dosesToday] only covers today
+  /// because that is the only day a dose can already have been recorded for.
+  static List<MedSlot> medPromptSlots(
+    NotificationPrefs prefs,
+    List<MedDef> defs,
+    Map<String, Map<int, Map<String, Object?>>> dosesToday, {
+    DateTime? now,
+  }) {
+    if (!prefs.medsEnabled || defs.isEmpty) return const [];
+    final at = now ?? DateTime.now();
+    final out = <MedSlot>[];
+    for (var d = 0; d < medHorizonDays; d++) {
+      final day = dayLabelOf(DateTime(at.year, at.month, at.day + d));
+      for (final s in slotsForDay(defs, day, d == 0 ? dosesToday : const {},
+          now: at)) {
+        if (s.state != DoseState.upcoming) continue;
+        // Two pills at 08:00 are ONE interruption. The list is in time order,
+        // so an instant equal to the last kept one is the same moment — and
+        // the notification names nothing anyway, so a second copy of it would
+        // carry no extra information and burn an id from the band.
+        if (out.isNotEmpty &&
+            out.last.date == s.date &&
+            out.last.slotMin == s.slotMin) {
+          continue;
+        }
+        out.add(s);
+        if (out.length >= NotificationService.maxMedSlots) return out;
+      }
+    }
+    return out;
+  }
+
+  /// The absolute instant [s] is due, or null when its day cannot be resolved.
+  static DateTime? medSlotInstant(MedSlot s) {
+    final start = localDayStartSec(s.date);
+    if (start == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch((start + s.slotMin * 60) * 1000);
   }
 
   /// Re-assert the three AI slots (morning briefing, nightly sweep, pre-sleep

@@ -316,6 +316,9 @@ ShellDomain domainForRoute(String route) => switch (route) {
       // Water is a journal field that lives on Nutrition — that is the tab
       // behind the log screen, and where a "back" from it should land.
       kRouteWater => ShellDomain.nutrition,
+      // The medication reminder. Wellness owns the Medication tab and its
+      // checklist, which is where a dose is actually recorded.
+      kRouteMeds => ShellDomain.wellness,
       kRouteWorkoutSuggestion => ShellDomain.workout,
       // Emitted by the battery forecast (`app_state.dart`) and the weekly
       // recap (`notification_center.dart`), and declared in `tap_router`
@@ -361,6 +364,14 @@ Widget? screenForRoute(String route) => switch (route) {
       kRouteWater => const NutritionScreen(),
       // The detected bout, with the three answers to it: log it, adjust the
       // times first, or say it never happened.
+      // The medication reminder pushes nothing: the checklist it is about is a
+      // SUB-TAB of Wellness, and `WellnessScreen` keeps that index in private
+      // state with no constructor argument, so there is nothing to hand it.
+      // `domainForRoute` still lands the tap on Wellness, one tap from the
+      // Medication tab — deliberately null rather than pushing a second copy
+      // of a shell tab over the shell. Give `WellnessScreen` an `initialTab`
+      // and this becomes `WellnessScreen(initialTab: 3)`.
+      kRouteMeds => null,
       kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),

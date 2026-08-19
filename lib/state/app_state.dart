@@ -371,6 +371,11 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastNoopImport = res;
+    // The rows are durable — tell the screens that read them. Without this an
+    // import landed days, sessions and journal rows into a database every live
+    // tab had already finished reading, and the only way to see them was to
+    // relaunch the app.
+    bumpInsights();
     notifyListeners();
     return res.days;
   }
@@ -399,6 +404,7 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastWhoopImport = res;
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     return res.days;
   }
@@ -450,6 +456,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       importRollupError = '$e';
     }
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     // DAYS, not rows. `_days` is a distinct day_id count taken from the source
     // file; the caller reports "N days imported" and a row total is not that.
@@ -2372,7 +2379,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _bumpInsightsRevision() {
+  void _bumpInsightsRevision() => bumpInsights();
+
+  /// Say that the DURABLE data changed, so every screen reading it re-reads.
+  ///
+  /// Public because the writers are not all in here: the log-workout sheet
+  /// writes a session, and an import writes days, sessions and journal rows.
+  /// `notifyListeners` is NOT that signal — it also ticks at ~1 Hz with live
+  /// HR, so screens listen to this instead and re-read only when something
+  /// actually landed.
+  void bumpInsights() {
     insightsRevision.value = insightsRevision.value + 1;
   }
 

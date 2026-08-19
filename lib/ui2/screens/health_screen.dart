@@ -418,7 +418,7 @@ class HealthScreen extends StatefulWidget {
   State<HealthScreen> createState() => _HealthScreenState();
 }
 
-class _HealthScreenState extends State<HealthScreen> {
+class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   // EXPLORE SITS SECOND, not last. Five chips do not fit a 390 pt frame at 1×:
   // the fifth is clipped by the edge, and a half-visible chip is exactly the
   // discoverability failure this tab exists to fix. Labs takes the clip instead
@@ -445,6 +445,29 @@ class _HealthScreenState extends State<HealthScreen> {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  /// Handed its data (golden, gallery) — nothing behind it to re-read.
+  @override
+  bool get revisionReloads => widget.data == null;
+
+  /// A tab kept alive by the IndexedStack for the life of the process: it read
+  /// the database once at launch, so an import or a derive that landed after
+  /// that was invisible here until the app was relaunched. The already-loaded
+  /// sub-tabs are re-read too — they cache on `!= null`, which is the same
+  /// load-once bug one level down.
+  @override
+  void reload() {
+    _load();
+    if (_v != null) _loadVitals(force: true);
+    if (_l != null) {
+      _l = null;
+      _loadLabs();
+    }
+    if (_e != null) {
+      _e = null;
+      _loadExplore();
+    }
   }
 
   Future<void> _load() async {
@@ -558,9 +581,16 @@ class _HealthScreenState extends State<HealthScreen> {
     // measured gap. `overnight: false` is for a row that is not — a hole at
     // 2 AM says nothing about a daytime number, and offering it as the reason
     // would be the invented cause the whole absence layer refuses.
+    // `rising` is the ONE value judgement a row makes, and it is per metric:
+    // resting heart rate falling is good news, HRV rising is. A metric this
+    // project makes no directional claim about takes [Rising.neither] and
+    // draws its arrow in ink — the direction is stated, the verdict is not
+    // invented.
     void row(Metric m, IconData icon, Color col, String name, String sub,
-        String value, String unit, List<double?> spark, String metricKey,
-        {String? whyAbsent, bool overnight = true}) {
+        String value, String unit, List<double?> series, String metricKey,
+        {String? whyAbsent,
+        bool overnight = true,
+        Rising rising = Rising.neither}) {
       if (m.isEmpty) {
         final s = StatusCard.forMetric('No ${name.toLowerCase()}', m,
             why: whyAbsent ?? '', gap: overnight ? d.nightGap : null);
@@ -570,7 +600,8 @@ class _HealthScreenState extends State<HealthScreen> {
       rows.add(MetricRow(icon, col, name, value,
           sub: sub,
           unit: unit,
-          spark: spark,
+          series: series,
+          rising: rising,
           onTap: () => go(c, MetricDetail(metricKey))));
     }
 
@@ -592,6 +623,10 @@ class _HealthScreenState extends State<HealthScreen> {
         // was scored" is often the wrong reason and contradicts the Sleep row
         // sitting two lines down. Only the branch this screen can SEE is
         // stated — the other named a beat-quality gate it never read.
+        // Nocturnal resting heart rate: lower is the direction every part of
+        // this app already treats as better — it is what the illness CUSUM
+        // watches for a RISE, and what readiness scores as `lowerIsBetter`.
+        rising: Rising.bad,
         whyAbsent: sleepMin.isEmpty
             ? 'Read from sleep, and no night was scored.'
             : '');
@@ -601,6 +636,7 @@ class _HealthScreenState extends State<HealthScreen> {
         ofNight('RMSSD, asleep'),
         hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
         d.spark('hrv', 24), 'hrv',
+        rising: Rising.good,
         // Blaming signal quality unconditionally told a day-one user their
         // sensor produced dirty data on a night that never happened.
         whyAbsent: sleepMin.isEmpty
@@ -610,6 +646,9 @@ class _HealthScreenState extends State<HealthScreen> {
     row(sleepMin, LucideIcons.moon, C.blue, 'Sleep',
         night == null ? 'Last night' : prettyDay(night),
         hm(sleepMin.value), '', d.spark('sleep', 24), 'sleep',
+        // More sleep is the direction this app coaches towards — `sleepNeed`
+        // exists to say you are short of it, never over it.
+        rising: Rising.good,
         whyAbsent: 'No sleep period long enough to score was recorded.');
 
     final stressBlock = d.today['stress'];
@@ -628,6 +667,7 @@ class _HealthScreenState extends State<HealthScreen> {
         '/100',
         d.spark('stress', 24),
         'stress',
+        rising: Rising.bad,
         // Was 'No resting stretch long enough last night.' — one of several
         // gates stress abstains on, asserted for all of them.
         whyAbsent: sleepMin.isEmpty
@@ -640,6 +680,10 @@ class _HealthScreenState extends State<HealthScreen> {
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
         d.spark('resp_rate', 24), 'resp_rate',
+        // DELIBERATELY UNJUDGED. Readiness scores a rise as a cost, but that
+        // is a deviation from your own baseline, not a claim that breathing
+        // slower is better health — nobody here would tell you a falling
+        // respiratory rate is good news. Direction, no verdict.
         // THE ESTIMATOR'S OWN REASON when it left one, not a guess written
         // here. `respiration.rsa` records which gate it failed — too few beats,
         // artifact fraction over the gate, no stable HF peak, or a peak that

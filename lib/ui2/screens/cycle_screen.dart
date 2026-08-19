@@ -191,7 +191,7 @@ class CycleTab extends StatefulWidget {
   State<CycleTab> createState() => _CycleTabState();
 }
 
-class _CycleTabState extends State<CycleTab> {
+class _CycleTabState extends State<CycleTab> with RevisionReload {
   CycleData? _d;
 
   /// The symptom look-back is folded away by default — the chips above it are
@@ -212,6 +212,14 @@ class _CycleTabState extends State<CycleTab> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
+
+  @override
+  bool get revisionReloads => widget.data == null;
+
+  /// Cycle logs and symptoms arrive by import as well as by tap, and this tab
+  /// lives inside Wellness — same IndexedStack, same never-disposed lifetime.
+  @override
+  void reload() => _load();
 
   Future<void> _load() async {
     try {

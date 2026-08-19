@@ -36,7 +36,7 @@ class NutritionScreen extends StatefulWidget {
   State<NutritionScreen> createState() => _NutritionScreenState();
 }
 
-class _NutritionScreenState extends State<NutritionScreen> {
+class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   int _tab = 0;
   static const _tabs = ['Today', 'Week', 'Goals'];
 
@@ -59,6 +59,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
     super.initState();
     _load();
   }
+
+  /// Burned calories and water come from the derived store and the journal,
+  /// both of which are written from elsewhere in the app — an import, a derive
+  /// after a sync, water logged on Wellness. This tab is never disposed, so
+  /// without this it showed launch-time figures all day.
+  @override
+  void reload() => _load();
 
   Future<void> _load() async {
     final app = context.read<AppState>();

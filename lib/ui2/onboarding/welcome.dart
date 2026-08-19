@@ -384,6 +384,10 @@ Future<ImportOutcome> runImport(
     try {
       final r = await importJournalCsvFile(p);
       journalRows += r.imported;
+      // This one writes straight to the journal store rather than through
+      // AppState, so it has to raise the signal itself — every other importer
+      // here does it from its AppState method.
+      if (r.imported > 0) app.bumpInsights();
       rejected.addAll(r.rejected.map((x) => x.toString()));
       if (!sources.contains('Journal CSV')) sources.add('Journal CSV');
     } on JournalCsvFormatException {

@@ -44,7 +44,7 @@ class WellnessScreen extends StatefulWidget {
   State<WellnessScreen> createState() => _WellnessScreenState();
 }
 
-class _WellnessScreenState extends State<WellnessScreen> {
+class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   int _tab = 0;
   /// Cycle is LAST on purpose: it is the one tab that can be switched off
   /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
@@ -87,6 +87,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
     super.initState();
     _load();
   }
+
+  /// Readiness drivers, insights and journal metrics all move under this tab
+  /// when a derive or an import runs — and it is one of the three the shell
+  /// keeps alive forever, so it read them once and stopped.
+  @override
+  void reload() => _load();
 
   Future<void> _load() async {
     final app = context.read<AppState>();

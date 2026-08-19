@@ -61,6 +61,12 @@ import 'profile.dart';
 final _series =
     List<double>.generate(24, (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0);
 
+/// The three answers [trendOf] can give: a move clear of its own noise, a move
+/// inside it, and a series too short to compare at all.
+const _rising = <double?>[50, 51, 50, 52, 51, 53, 58, 59, 60];
+const _flat = <double?>[50, 51, 50, 51, 50, 51, 50, 51, 50];
+const _tooShort = <double?>[50, 51, 50];
+
 // ── the three rings, in the four states a ring has ──
 //
 // Fed as HomeData through the SAME mapping the screen uses, so a state the
@@ -196,8 +202,20 @@ Map<String, Widget> goldenCases() => {
                 size: Size.infinite, painter: LineChart(_series, C.purple)),
           )),
       'metric_row': const Column(children: [
+        // The four trailing states, in order: good news, bad news, a move
+        // inside its own noise, and a series with no basis for a direction
+        // (which draws nothing rather than a flat arrow that would read as a
+        // measured "no change").
+        MetricRow(LucideIcons.activity, C.green, 'HRV', '64',
+            unit: 'ms', series: _rising, rising: Rising.good),
+        MetricRow(LucideIcons.heart, C.red, 'Resting heart rate', '58',
+            unit: 'bpm', series: _rising, rising: Rising.bad),
         MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature', '+0.3',
-            sub: 'RELATIVE TO BASELINE', unit: '°'),
+            sub: 'RELATIVE TO BASELINE', unit: '°', series: _rising),
+        MetricRow(LucideIcons.brain, C.purple, 'Stress', '31',
+            unit: '/100', series: _flat, rising: Rising.bad),
+        MetricRow(LucideIcons.wind, C.teal, 'Respiratory rate', '14.2',
+            unit: 'br/min', series: _tooShort),
         // A long name, a thousands-separated value and a word in the trailing
         // slot — 'ON TRACK' needs 92 pt at 1.0x and was clipped inside a fixed
         // 52 pt box before any scaling at all.

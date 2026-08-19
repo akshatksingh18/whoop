@@ -1081,6 +1081,75 @@ class DeepDiveCard extends StatelessWidget {
 }
 
 // ══════════════════ ROWS — for lists, not cards ══════════════════
+
+/// Which way is good news for THIS metric.
+///
+/// Resting heart rate falling is good, HRV rising is good, and skin
+/// temperature moving is neither — it is a deviation signal, and calling a
+/// rise "worse" would be a claim this project does not make. Metrics with no
+/// settled direction get [neither] and an arrow with no hue: the direction is
+/// still stated, the judgement is not invented.
+enum Rising { good, bad, neither }
+
+/// Which way a series is going, or null when there is no basis for saying.
+enum Trend { rising, falling, steady }
+
+/// The direction of the newest few days against the ones before them.
+///
+/// THE RULE, so it is one rule and not a feeling: the mean of the newest 3
+/// recorded values against the mean of up to 14 before them, and the move
+/// only counts as a direction if it clears HALF A STANDARD DEVIATION of that
+/// baseline (Cohen's small effect, 1988). Inside that, a day-to-day wobble
+/// and a trend look identical, and an arrow would be pointing at a coin flip
+/// — so it reads [Trend.steady].
+///
+/// Null is a different answer from steady: fewer than 3 + 4 recorded values
+/// is not a weak comparison, it is no comparison, and the row draws nothing
+/// rather than a flat arrow that would read as a measured "no change".
+///
+/// A baseline with zero spread (a quantized series that really did sit still)
+/// does NOT abstain — any move off it is a real move. Abstaining on a zero
+/// spread is the readiness bug this codebase has already paid for once.
+Trend? trendOf(List<double?> series) {
+  final v = [
+    for (final x in series)
+      if (x != null && x.isFinite) x,
+  ];
+  const recentN = 3, baseMax = 14, baseMin = 4;
+  if (v.length < recentN + baseMin) return null;
+  double mean(Iterable<double> l) =>
+      l.fold<double>(0, (a, b) => a + b) / l.length;
+  final recent = v.sublist(v.length - recentN);
+  final base = v.sublist(
+      math.max(0, v.length - recentN - baseMax), v.length - recentN);
+  final mb = mean(base);
+  final delta = mean(recent) - mb;
+  final sd = math.sqrt(
+      base.map((x) => (x - mb) * (x - mb)).fold<double>(0, (a, b) => a + b) /
+          (base.length - 1));
+  if (delta.abs() <= 0.5 * sd) return Trend.steady;
+  return delta > 0 ? Trend.rising : Trend.falling;
+}
+
+/// Whether this move is good news — hue only, never direction.
+///
+/// Steady is not good or bad news, and a metric with no settled direction has
+/// no news at all: both draw in ink.
+Color _trendHue(P p, Trend trend, Rising rising) {
+  if (trend == Trend.steady || rising == Rising.neither) return p.ink3;
+  final good = (trend == Trend.rising) == (rising == Rising.good);
+  return good ? p.on(C.green) : p.on(C.orange);
+}
+
+/// What the arrow says, in words, for the screen reader — including the case
+/// where there is no arrow, so an empty slot is not a silent hole.
+String _trendWord(Trend? t) => switch (t) {
+      Trend.rising => 'trending up',
+      Trend.falling => 'trending down',
+      Trend.steady => 'steady',
+      null => 'no trend yet, not enough days recorded',
+    };
+
 /// A metric in a list: name → value → trend.
 class MetricRow extends StatelessWidget {
   final IconData icon;
@@ -1089,7 +1158,15 @@ class MetricRow extends StatelessWidget {
 
   /// DENSE — one slot per calendar day, `null` for a day with no record. A
   /// compacted list draws a gap as continuity.
-  final List<double?> spark;
+  ///
+  /// Read for a DIRECTION, not drawn: the trailing slot used to hold a 52 pt
+  /// sparkline, which at that size showed a shape nobody could read a number
+  /// off. See [trendOf] for what counts as a direction.
+  final List<double?> series;
+
+  /// Which way is good news here. Defaults to [Rising.neither] — a caller that
+  /// has not said gets a direction and no judgement, never a guess.
+  final Rising rising;
 
   final String? status;
   final VoidCallback? onTap;
@@ -1102,7 +1179,8 @@ class MetricRow extends StatelessWidget {
     super.key,
     this.sub = '',
     this.unit = '',
-    this.spark = const [],
+    this.series = const [],
+    this.rising = Rising.neither,
     this.status,
     this.onTap,
   });
@@ -1143,28 +1221,41 @@ class MetricRow extends StatelessWidget {
         ],
       ],
     );
-    // The trailing slot is fixed only for the spark, which genuinely has a
-    // fixed size. `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was
-    // being silently clipped inside a 52 pt box before any scaling at all — so
-    // it gets measured space instead.
+    // `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was being
+    // silently clipped inside a 52 pt box before any scaling at all — so it
+    // gets measured space rather than the arrow's fixed slot.
+    final trend = trendOf(series);
+    // NO ARROW AND NO EXPLANATION IN THE ROW: a metric with too little history
+    // has nothing to say here, and a horizontal arrow would say "no change",
+    // which is a measurement it has not made. The reason goes to the screen
+    // reader and the row stays quiet — see [_trendWord].
     final trailing = status != null
         ? Text(
             status!,
             style: F.over.copyWith(color: p.on(C.green)),
             textAlign: TextAlign.end,
           )
-        : spark.isEmpty
+        : trend == null
         ? const SizedBox.shrink()
-        : SizedBox(
-            width: 52,
-            height: 22,
-            child: CustomPaint(
-              painter: LineChart(spark, p.on(color), fill: false),
-            ),
+        : Icon(
+            switch (trend) {
+              Trend.rising => LucideIcons.arrowUpRight,
+              Trend.falling => LucideIcons.arrowDownRight,
+              Trend.steady => LucideIcons.arrowRight,
+            },
+            size: 18,
+            // THE GLYPH CARRIES THE DIRECTION and the hue only carries the
+            // judgement, because roughly one man in twelve cannot read the
+            // hue at all. Green/orange is the pair TrendCard already spends on
+            // this judgement — red in this system is the heart's category
+            // colour, not a verdict.
+            color: _trendHue(p, trend, rising),
           );
     return Pressable(
       onTap: onTap,
-      semanticLabel: '$name, $value $unit'.trim(),
+      semanticLabel: '$name, $value $unit ${_trendWord(trend)}'
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
         child: bigText(c)

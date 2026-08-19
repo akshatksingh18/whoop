@@ -1260,7 +1260,34 @@ import 'substrate.dart';
 // one already banked (#242 — the guard only fired on a FAILED pass and never
 // compared tst_sec, which is why a fixed night came back wrong a few syncs
 // later), and absent accel stays absent instead of coalescing to zero.
-const int kAlgoVersion = 75;
+// v76 — IMPORTED DAYS WERE SETTING THE BASELINE THEY ARE SUPPOSED TO STAY OUT
+// OF. The rule that a vendor export never feeds a personal baseline was enforced
+// on the WRITE path only — three call sites check `isMeasuredDay`, while
+// `_BaselineHistoryCache.load()` read `metric_series` with no source filter at
+// all. Both importers write real series rows through `putDayResult`, so four of
+// the eight baselines (`rhr`, `rmssd`, `readiness`, `resp_rate`) were being set
+// partly by somebody else's algorithm. The other four escaped by accident, not
+// design — the importers happen to write `skin_temp_z` rather than
+// `skin_temp_adc`.
+//
+// NOOP is NOT foreign, which is the part worth remembering: `NoopIngest` holds a
+// DerivationEngine and feeds it reconstructed 1 Hz substrate, so those days are
+// our own maths and are stamped `source: 'band'`. Only `whoop_export` and
+// `cloud_v2` are somebody else's.
+//
+// `source` is NULL for every day written before schema 43 and the backfill
+// deliberately never fills it, so filtering on `source = 'band'` would have
+// deleted genuine early history — a pollution bug traded for a data-loss one.
+// It is decidable anyway: both importers put `imported: true` in the day
+// bundle, which is what the write path has always tested. `importedDates()` is
+// the union of both eras and the seam everything else reads through.
+//
+// Readiness, the illness CUSUM, and the training-zone and live-strain RHR
+// anchors all move for anyone with an import in range. For a user who never
+// imported this is a strict no-op: the set is empty and every read is unchanged.
+// Days already finalized keep the score they were derived with — raw is pruned,
+// so no bump can heal them.
+const int kAlgoVersion = 76;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

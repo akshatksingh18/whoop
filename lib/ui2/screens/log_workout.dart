@@ -121,6 +121,15 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
 
   Future<void> _load() async {
     setState(() => _failed = false);
+    // The switch, before the table. This screen is reachable by tapping the
+    // notification (`kRouteWorkoutSuggestion`), which does not come through
+    // the Workouts tab's already-gated read — so "auto-detect off" has to be
+    // answered here too or the one surface the user actually taps is the one
+    // the switch never reached.
+    if (!await autoDetectOn()) {
+      if (mounted) setState(() => _items = const []);
+      return;
+    }
     try {
       final rows = await LocalDb.activeWorkoutSuggestions();
       if (!mounted) return;
@@ -490,7 +499,16 @@ class _LogWorkoutState extends State<LogWorkout> {
         // Past midnight. A late run that finishes at 00:20 is an ordinary
         // session, not an invalid window — the alternative is asking the user
         // for a second date to express it.
-        if (!e.isAfter(_start)) e = e.add(Motion.tick * 86400);
+        //
+        // The NEXT CALENDAR DAY at the picked wall time, built from date
+        // fields — not +24h of absolute Duration, which lands at 23:20 or
+        // 01:20 on the two transition nights a year and saves a window an
+        // hour off the one the user picked. Same trap as `_exportDay`'s
+        // `dayEnd` in health_export.dart.
+        if (!e.isAfter(_start)) {
+          e = DateTime(_start.year, _start.month, _start.day + 1, picked.hour,
+              picked.minute);
+        }
         _end = e;
       }
     });
@@ -709,12 +727,24 @@ AppState? appOf(BuildContext c) {
   }
 }
 
-/// Active suggestions for the History tab, or empty when the user has switched
-/// auto-detection off. Read here rather than in the screen so the switch is
-/// honoured at ONE place for both surfaces it has.
-Future<List<Suggestion>> activeSuggestions() async {
+/// The auto-detect switch, read once for every surface that shows a bout.
+///
+/// FAILS CLOSED. Unreadable prefs are not permission to render cards the user
+/// may have switched off — and hiding them costs nothing, since the rows stay
+/// in `workout_suggestions` and reappear the moment the switch can be read.
+Future<bool> autoDetectOn() async {
   try {
-    if (!(await NotificationPrefs.load()).autoDetectEnabled) return const [];
+    return (await NotificationPrefs.load()).autoDetectEnabled;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Active suggestions for the History tab, or empty when the user has switched
+/// auto-detection off.
+Future<List<Suggestion>> activeSuggestions() async {
+  if (!await autoDetectOn()) return const [];
+  try {
     return [
       for (final r in await LocalDb.activeWorkoutSuggestions())
         ?Suggestion.from(r),

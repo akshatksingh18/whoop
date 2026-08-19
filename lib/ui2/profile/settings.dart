@@ -35,6 +35,7 @@ import '../../telemetry/health_uploader.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import 'alarm.dart';
+import 'band_notifications.dart';
 import 'data.dart';
 import 'gallery.dart';
 import 'profile.dart';
@@ -727,6 +728,12 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     });
   }
 
+  /// Whether the strap-buzz relay exists on this platform. Android only —
+  /// iOS gives no app access to another app's notifications — and the row is
+  /// absent rather than disabled there, so there is nothing to explain.
+  bool get _relaySupported =>
+      defaultTargetPlatform == TargetPlatform.android;
+
   Future<void> _apply(NotificationPrefs next) async {
     setState(() => _prefs = next);
     await next.save();
@@ -753,6 +760,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
       prefs: p ?? const NotificationPrefs(),
       loaded: p != null,
       granted: _granted,
+      relaySupported: _relaySupported,
       onChanged: _apply,
       onRequestPermission: _requestPermission,
     );
@@ -762,6 +770,11 @@ class _NotificationSettingsState extends State<NotificationSettings> {
 class NotificationSettingsView extends StatelessWidget {
   final NotificationPrefs prefs;
   final bool loaded, granted;
+
+  /// Android only. False hides the strap-buzz relay row entirely rather than
+  /// showing a control that cannot work.
+  final bool relaySupported;
+
   final Future<void> Function(NotificationPrefs next)? onChanged;
   final VoidCallback? onRequestPermission;
 
@@ -770,6 +783,7 @@ class NotificationSettingsView extends StatelessWidget {
     this.prefs = const NotificationPrefs(),
     this.loaded = true,
     this.granted = true,
+    this.relaySupported = false,
     this.onChanged,
     this.onRequestPermission,
   });
@@ -828,6 +842,31 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             remindersEnabled: !prefs.remindersEnabled))),
+                    // The auto-detector's off switch, asked for twice (#102,
+                    // #149) and never built: the bouts were written, the
+                    // prompt was emitted, and nothing anywhere could stop
+                    // either. The sub-line says exactly what it stops,
+                    // because it does NOT stop the detection itself.
+                    SetRow(LucideIcons.radar, C.green, 'Detected workouts',
+                        sub: 'Ask about efforts the band spotted that you did '
+                            'not start. Off hides the prompt and the review '
+                            'cards; the band goes on measuring either way',
+                        value: prefs.autoDetectEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            autoDetectEnabled: !prefs.autoDetectEnabled))),
+                    // Off by default, and it is the switch that lets the nudge
+                    // be scheduled at all — see
+                    // NotificationService.schedulableIds. It had none, so it
+                    // was refused there and had never once fired.
+                    SetRow(LucideIcons.footprints, C.orange, 'Movement nudge',
+                        sub: 'One notification after two hours with no '
+                            'movement at all, and only while the band is on '
+                            'and connected. Never inside 21:00–09:00',
+                        value: prefs.movementEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            movementEnabled: !prefs.movementEnabled))),
                     // A prompt to log, not a reading. The app measures no
                     // hydration and this row may never imply it does.
                     SetRow(LucideIcons.glassWater, C.teal, 'Water reminder',
@@ -848,6 +887,17 @@ class NotificationSettingsView extends StatelessWidget {
                               waterIntervalMin:
                                   _nextEvery(prefs.waterIntervalMin)))),
                   ]),
+                  if (relaySupported)
+                    settingsGroup(c, 'The strap', [
+                      // The other direction: not what this app sends you, but
+                      // what your phone's apps make the band do. The permission
+                      // for it has been in the manifest all along with nothing
+                      // in the app that could reach it.
+                      SetRow(LucideIcons.bellRing, C.purple,
+                          'Buzz on app notifications',
+                          sub: 'Pick which phone apps make the strap buzz',
+                          onTap: () => goto(c, const BandNotifications())),
+                    ]),
                   settingsGroup(c, 'Quiet hours', [
                     SetRow(LucideIcons.moon, C.indigo, 'Quiet hours',
                         sub: 'Nothing buzzes inside this window',

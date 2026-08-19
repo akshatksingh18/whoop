@@ -480,6 +480,33 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final double? skinTempCoverage = (inBedSec == null || inBedSec <= 0)
       ? null
       : (tempValid.length / inBedSec).clamp(0.0, 1.0);
+  // HOW MUCH OF THE NIGHT THE STRAP SPENT AT SKIN TEMPERATURE (#250).
+  //
+  // `tempInput` refuses readiness's temp driver outright when this is null, and
+  // nothing in this app has ever passed it — so the documented FOURTH DRIVER
+  // has never contributed on any night, the other three renormalised over 0.90,
+  // and "Skin temperature" could not appear in a breakdown. This is the number
+  // it wants: the share of the night's valid samples sitting within the
+  // family's settle band of the night's OWN median (warm-up and off-body read
+  // low; a fever reads high and passes through).
+  //
+  // MEASURED HERE, GATED IN `tempInput` — hence `minSettledFraction: 0`.
+  // `nightlySkinTemp` would otherwise go absent on an unsettled night and the
+  // fraction would be lost, which lands on the "nobody measured it" refusal
+  // instead of the true "the strap was cold for two hours" one. It still goes
+  // absent for a family whose settle band nobody has measured (gen5 has none)
+  // and for a night under sixty samples, and those genuinely ARE "no fraction
+  // measured".
+  //
+  // Ts is not read by `nightlySkinTemp` (it is a median + a mean over the
+  // night's samples), and `tempValid` has no parallel timestamp series, so 0
+  // is passed rather than a fabricated clock.
+  final settledTemp = nightlySkinTemp(
+    [for (final v in tempValid) AdcSample(0, v)],
+    deviceFamily: d.deviceFamily,
+    minSettledFraction: 0.0,
+  );
+  final double? skinTempSettledFrac = settledTemp.value?.settledFraction;
   // STEP 2 — z-score today's RAW mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
@@ -509,7 +536,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // Feed the RAW ADC mean + the RAW-ADC baseline so the composite computes its
     // own oriented robust-z internally (consistent with the other inputs, which
     // pass raw values + their raw baselines).
-    tempInput(skinTempAdc, d.skinTempAdcHistory),
+    //
+    // The mean stays RAW — value and baseline have to be the same quantity, and
+    // the stored history is a series of raw nightly means. The settled fraction
+    // is the GATE on using it at all: below 0.80 the driver is refused for this
+    // night, by name, and readiness renormalises over the three that are left.
+    tempInput(
+      skinTempAdc,
+      d.skinTempAdcHistory,
+      settledFraction: skinTempSettledFrac,
+    ),
   ]);
   // Diagnostic only — populated when readiness comes back absent, so the main
   // isolate can log WHY to Crashlytics instead of a bare null (this runs
@@ -545,6 +581,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         'value': skinTempAdc != null,
         'baseline_n': d.skinTempAdcHistory.length,
         'baseline_sd': _stddev(d.skinTempAdcHistory),
+        // The gate, not the value: a temp driver can be refused with a perfectly
+        // good mean and a full baseline. Null = the fraction was unmeasurable.
+        'settled_frac': skinTempSettledFrac,
       },
       'note': composite.note,
     };
@@ -1254,6 +1293,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'skin_temp_coverage_frac': skinTempCoverage == null
           ? null
           : _round(skinTempCoverage, 4),
+      // RD-15 — the settled fraction readiness's temp driver is gated on, so a
+      // night whose driver was refused can be told apart from one where the
+      // gate never ran. NULL means the fraction itself is unmeasurable (no
+      // settle band for this band's family, or under sixty samples).
+      'skin_temp_settled_frac': skinTempSettledFrac == null
+          ? null
+          : _round(skinTempSettledFrac, 4),
       'sdnn': hrvT.present ? hrvT.value!.sdnn : null,
       // CV-03 — deceleration capacity (ms). Personal trend only: PRSA anchors on
       // decelerations and pulse-arrival jitter attenuates DC by an amount that

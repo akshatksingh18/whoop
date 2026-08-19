@@ -21,9 +21,13 @@ fallback_models = [
     "openai/gpt-oss-120b-medium",
 ]
 # Required: an `openai/`-prefixed name is not in PR-Agent's MAX_TOKENS map, and
-# get_max_tokens (algo/utils.py:1008) raises rather than defaulting. Effective
-# input is still min(this, max_model_tokens=32000).
+# get_max_tokens (algo/utils.py:1008) raises rather than defaulting.
 custom_model_max_tokens = 200000
+# The effective input is min(custom_model_max_tokens, max_model_tokens), and
+# max_model_tokens defaults to 32000 - so the 200k above bought nothing and a
+# large diff was silently clipped to a third of the review it looked like it
+# got. Raise the ceiling to match.
+max_model_tokens = 200000
 
 # Inject AGENTS.md as repository context into /review, /improve, /describe, /ask.
 # NOTE: read from the DEFAULT BRANCH by default, so AGENTS.md only takes effect

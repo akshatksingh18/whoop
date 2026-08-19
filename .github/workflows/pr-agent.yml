@@ -13,9 +13,19 @@ jobs:
       issues: write
       pull-requests: write
       contents: write
+    # Job-level so the step `if` below can see it: the `secrets` context is not
+    # available in an `if` expression, but `env` is.
+    env:
+      PR_AGENT_API_KEY: ${{ secrets.PR_AGENT_API_KEY }}
     steps:
       - name: PR Agent action step
-        uses: the-pr-agent/pr-agent@main
+        # A PR from a fork gets no secrets, so this ran with an empty key,
+        # reviewed nothing, and still went green - a check that says "reviewed"
+        # when it did not is worse than no check. Skip instead.
+        if: env.PR_AGENT_API_KEY != ''
+        # Pinned, not @main: this action runs with `contents: write` and a token
+        # on every PR, and a floating ref means whatever landed upstream today.
+        uses: the-pr-agent/pr-agent@f6af7d77554ff8d26adffded077e6461329e92fa # v0.42.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Credentials only. The model chain lives in .pr_agent.toml so it is

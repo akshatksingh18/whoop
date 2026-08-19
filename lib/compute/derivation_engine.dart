@@ -44,7 +44,8 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
-import 'hr_max.dart' show estimatedMaxHr, kHrFloorBpm;
+import 'hr_max.dart'
+    show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -5352,11 +5353,19 @@ class DerivationEngine {
         caloriesBasal = energy.basal;
       }
     }
+    // Same peak, same smoothing as the pipeline's copy and as every workout
+    // producer — see `hr_max.dart` and the note beside the pipeline's `hrStats`.
+    // A bare max over raw 1 Hz let one PPG transient be the day's "Peak HR"
+    // (#127).
+    final dayHrInt = [for (final h in dayHrValid) h.round()];
+    final age = profile.ageYears?.round();
     final hrStats = dayHrValid.isEmpty
         ? null
         : {
-            'max': dayHrValid.reduce(math.max).round(),
-            'min': dayHrValid.reduce(math.min).round(),
+            'max': smoothedMaxHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.max).round(),
+            'min': smoothedMinHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.min).round(),
             'avg': _meanWake(dayHrValid)?.round(),
           };
     return {

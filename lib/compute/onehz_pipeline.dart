@@ -29,7 +29,8 @@ import 'package:openstrap_analytics/onehz.dart';
 // does not compromise this file's isolate safety. It is here so the sex
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
-import 'hr_max.dart' show estimatedMaxHr, trainingZones;
+import 'hr_max.dart'
+    show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
 import 'profile.dart' show workoutSex;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
@@ -1065,11 +1066,23 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   }
 
   // ── HR stats over the day's valid HR (for the strain detail hr {max,avg,min}).
+  //
+  // THE DAY PEAK GOES THROUGH THE SAME SMOOTHING AS EVERY WORKOUT PEAK (#127).
+  // This used to be a bare `reduce(math.max)` over raw 1 Hz, so one PPG motion
+  // transient WAS the day's "Peak HR" on the strain card while the Heart page —
+  // reading per-minute means — showed the real peak: the 160-vs-143 pair the
+  // issue reported, moved to a different screen rather than fixed. `hr_max.dart`
+  // is the one definition (physiological reject + 5 s rolling median, which
+  // steps over a 1-2 s spike but keeps a genuine brief effort peak). Min is the
+  // symmetric case: a 1 s dropout must not define the day's low either.
+  final dayHrInt = [for (final h in dayHrValid) h.round()];
   final hrStats = dayHrValid.isEmpty
       ? null
       : {
-          'max': dayHrValid.reduce(math.max).round(),
-          'min': dayHrValid.reduce(math.min).round(),
+          'max': smoothedMaxHr(dayHrInt, age: age?.round()) ??
+              dayHrValid.reduce(math.max).round(),
+          'min': smoothedMinHr(dayHrInt, age: age?.round()) ??
+              dayHrValid.reduce(math.min).round(),
           'avg': _mean(dayHrValid)!.round(),
         };
 

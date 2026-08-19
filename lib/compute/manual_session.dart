@@ -31,6 +31,7 @@ import 'dart:convert';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import 'hr_max.dart' show smoothedMaxHr;
 import 'profile.dart';
 
 /// Shortest window we accept. Below a minute the 1 Hz substrate cannot say
@@ -325,10 +326,17 @@ ManualSessionStats computeManualSessionStats({
   if (worn.isEmpty) return const ManualSessionStats();
 
   final avg = worn.reduce((a, b) => a + b) / worn.length;
-  final peak = worn.reduce((a, b) => a > b ? a : b);
   final perMin = hrPerMinute(wornTs, worn);
 
   final age = profile.ageYears?.toDouble();
+  // THE peak, spike-suppressed, at the point every save goes through (#127).
+  // This was a raw `reduce(max)` and one caller re-smoothed it afterwards, so a
+  // manually logged or retimed session banked the transient — and once the raw
+  // window is pruned there is nothing left to correct it from. Smoothing here
+  // means the stored value is the same quantity the re-score and the Heart page
+  // report, rather than three producers agreeing by convention.
+  final peak = smoothedMaxHr(worn, age: age?.round()) ??
+      worn.reduce((a, b) => a > b ? a : b);
   final weightKg = profile.weightKg;
   final sex = profile.sex?.toLowerCase();
 
@@ -565,7 +573,26 @@ ReconciledSessionScore reconcileSessionScore({
 
   final strain = better<double>(liveStrain, substrate.strain);
   final calories = better<double>(liveCalories, substrate.calories);
-  final maxHr = better<int>(liveMaxHr, substrate.maxHr);
+  // MAX HR IS NOT A LOWER BOUND, so `better` is the wrong rule for it (#127).
+  // Strain and calories accumulate: over a subset of the window each is a floor,
+  // and the larger of two floors is the better estimate. A maximum moves the
+  // other way — an artefact only ever makes it BIGGER, so `max(live, substrate)`
+  // is a ratchet that a single PPG transient wins forever. It did: a session
+  // saved before the peak was smoothed carries a spike in `max_hr`, the
+  // substrate re-scores it to the real figure, and the ratchet put the spike
+  // straight back on every pass under 90 % coverage.
+  //
+  // The substrate is the same band's record of the same window with artefact
+  // rejection applied, and it is what the Heart page and the day's Peak HR are
+  // read from — so when it has a peak, that is the peak, and every surface says
+  // the same number. The live value survives only where the substrate has none.
+  //
+  // THE COST, accepted: a window the band never fully hands over can report a
+  // peak lower than the live tally saw. That is not a new understatement — it
+  // is the same one the session's HR trace and the day's Peak HR already show
+  // for those minutes, and #127 is a complaint about two screens disagreeing,
+  // not about the peak being low.
+  final maxHr = substrate.maxHr ?? liveMaxHr;
 
   // Zone minutes are a vector of the same lower-bound quantity, so take the
   // side with more total measured minutes rather than mixing two partial

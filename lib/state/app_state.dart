@@ -3519,6 +3519,12 @@ class AppState extends ChangeNotifier {
     await engine.disconnect();
     _releaseForegroundLease();
     await PairedDevice.clear();
+    // Everything the old band told us about itself. The engine's DeviceState
+    // lives as long as the process and the persisted strap name outlives even
+    // that, so without both of these a re-pair — with a DIFFERENT band —
+    // inherits the forgotten one's name, serial, generation and bond verdicts.
+    device.reset();
+    Prefs.setString(_kStrapName, '');
     paired = null;
     notifyListeners();
   }

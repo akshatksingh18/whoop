@@ -253,6 +253,11 @@ class MyDevicesView extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final fault = status?.isFault == true ? status : null;
+    // A BAND, not "a source". The phone is a source and it is not a substitute
+    // for one: gating this on `sources.isEmpty` meant a phone counting steps
+    // hid the only route back to pairing, and forgetting a band left the user
+    // stranded with a steps row and no way to add another.
+    final hasBand = sources.any((s) => s.isBand);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -265,6 +270,28 @@ class MyDevicesView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
+                // FIRST, in the tier-2 slot the missing band would occupy —
+                // not appended under the phone. Someone who has just forgotten
+                // a band is here to add one, and the row they can see is not
+                // the one they came for.
+                if (!hasBand) ...[
+                  StatusCard(
+                    sources.isEmpty
+                        ? 'Nothing is measuring yet'
+                        : 'No band is paired',
+                    sources.isEmpty
+                        ? 'No band is paired and phone steps are off, so every '
+                            'metric in the app will abstain rather than '
+                            'estimate.'
+                        : 'The phone counts steps and nothing else. Heart '
+                            'rate, sleep, recovery and temperature all abstain '
+                            'until a band is paired.',
+                    fix: 'Pair a band',
+                    icon: LucideIcons.watch,
+                    onFix: onPair,
+                  ),
+                  if (sources.isNotEmpty) const SizedBox(height: S.x3),
+                ],
                 for (final s in sources) ...[
                   SourceRow(s, onTap: () => goto(c, DeviceDetail(s))),
                   if (s.isBand && fault != null) ...[
@@ -275,15 +302,6 @@ class MyDevicesView extends StatelessWidget {
                   ],
                   const SizedBox(height: S.x3),
                 ],
-                if (sources.isEmpty)
-                  StatusCard(
-                    'Nothing is measuring yet',
-                    'No band is paired and phone steps are off, so every '
-                        'metric in the app will abstain rather than estimate.',
-                    fix: 'Pair a band',
-                    icon: LucideIcons.watch,
-                    onFix: onPair,
-                  ),
                 const SizedBox(height: S.x5),
                 Text('THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),

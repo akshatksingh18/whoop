@@ -3165,7 +3165,12 @@ class LocalRepositoryImpl extends LocalRepository {
     for (final od in outcomeDefs) {
       final key = od['key'] as String;
       final m = <String, double>{};
-      for (final r in await LocalDb.metricSeries(key)) {
+      // MEASURED DAYS ONLY. This is a comparison of the user against
+      // themselves; an imported day is another vendor's derived score on a
+      // different scale, and it lands in the window mean every tagged day is
+      // priced against (see LocalDb.importedDates). The chart underneath still
+      // shows those days — a picture may be spliced, a statistic may not.
+      for (final r in await LocalDb.metricSeries(key, measuredOnly: true)) {
         final v = (r['value'] as num?)?.toDouble();
         if (v != null) m[r['date'] as String] = v;
       }
@@ -3380,7 +3385,10 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getWeekdayEffect({
     String key = 'readiness',
   }) async {
-    final rows = await LocalDb.metricSeries(key);
+    // MEASURED DAYS ONLY — a permutation test over a series spliced from two
+    // different algorithms reports the splice, not the weekday (same reasoning
+    // as the journal outcomes above).
+    final rows = await LocalDb.metricSeries(key, measuredOnly: true);
     if (rows.isEmpty) return const {};
     final dates = <String>[];
     final values = <double?>[];

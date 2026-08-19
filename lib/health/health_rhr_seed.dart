@@ -272,7 +272,10 @@ class RhrSeedImporter {
   static Future<SeedComparison?> compareAgainstBand() async {
     final seed = await storedSeedBaseline();
     if (seed == null) return null;
-    final rows = await LocalDb.metricSeries('rhr');
+    // THE BAND'S OWN nightly values — an imported day is another vendor's
+    // resting HR, and comparing a phone seed against that answers a different
+    // question than the one this gate asks (see LocalDb.importedDates).
+    final rows = await LocalDb.metricSeries('rhr', measuredOnly: true);
     final band = <double?>[
       for (final r in rows) (r['value'] as num?)?.toDouble(),
     ];

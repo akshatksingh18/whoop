@@ -1463,7 +1463,21 @@ class _BaselineHistoryCache {
   /// window possible at all. It must NOT be given a `limit` (that is `date ASC
   /// LIMIT n`, i.e. the OLDEST n — the opposite of a trailing window); the
   /// trailing window is taken here, in Dart, per target day.
+  ///
+  /// IMPORTED DAYS ARE EXCLUDED. `LocalDb.isMeasuredDay` kept another vendor's
+  /// export from OVERWRITING a measured day, but nothing kept it out of the
+  /// window on the way back in: a WHOOP or cloud import writes real
+  /// `metric_series` rows for `rhr`, `rmssd`, `readiness` and `resp_rate`, and
+  /// this load read them like any other day. Their scores are a different
+  /// algorithm's output over a different (or no) substrate, so blending them in
+  /// moves the median every personal z-score is taken against — silently, for
+  /// as long as the window is, and worst exactly when someone imports their
+  /// history on day one and has nothing else in the window at all.
+  ///
+  /// The mask is taken ONCE per load and applied to every key, because the
+  /// query behind it scans day bundles (see [LocalDb.importedDates]).
   static Future<_BaselineHistoryCache> load() async {
+    final imported = await LocalDb.importedDates();
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key);
       final out = <_DatedValue>[];
@@ -1471,6 +1485,7 @@ class _BaselineHistoryCache {
         final date = row['date'];
         final value = row['value'];
         if (date is! String || date.isEmpty || value is! num) continue;
+        if (imported.contains(date)) continue;
         out.add((date: date, value: value.toDouble()));
       }
       return out;

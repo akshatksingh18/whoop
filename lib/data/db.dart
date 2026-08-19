@@ -6092,6 +6092,61 @@ class LocalDb {
     return true;
   }
 
+  /// SQL selecting the `date` of every day whose scalars were IMPORTED.
+  /// A fragment so the mask and the filters that apply it cannot drift apart.
+  ///
+  /// TWO SIGNALS, because the exact one is younger than the data:
+  ///
+  ///  * `metric_series_version.source` — precise, but the column only exists
+  ///    from schema v43 and is deliberately NEVER retro-filled (a guessed
+  ///    provenance is worse than none). Every day written before v43 reads
+  ///    NULL, which is most of any real user's history.
+  ///  * `day_result.payload_json`'s `"imported": true` — the marker BOTH
+  ///    importers have written since they existed, and the same flag
+  ///    [isMeasuredDayRow] tests on the write path.
+  ///
+  /// The second is what makes a NULL `source` DECIDABLE rather than ambiguous:
+  /// NULL means "the column did not exist yet", not "unknown vendor", and the
+  /// bundle behind that day still says who wrote it. So NULL is resolved
+  /// against the payload rather than treated as suspect — dropping every
+  /// NULL-source day would delete the user's genuine pre-v43 history from
+  /// their own baselines, i.e. fabricate a baseline out of a short recent
+  /// window, which is the worse fault of the two.
+  ///
+  /// A substring match, not `json_extract`: `jsonEncode` emits no spaces and
+  /// this app is the only writer of the flag, so the literal is exact, and it
+  /// does not assume a JSON1-enabled sqlite on every platform we ship to.
+  ///
+  /// The `IS NOT NULL` guards are not decoration. SQLite does not enforce NOT
+  /// NULL on a declared PRIMARY KEY column of a legacy rowid table, and a
+  /// single NULL inside a `NOT IN (…)` list makes the whole predicate NULL for
+  /// EVERY row — one stray row would silently empty every baseline in the app
+  /// rather than filter one day out of it.
+  static const String _importedDatesSql =
+      'SELECT date FROM metric_series_version '
+      "WHERE date IS NOT NULL AND source IS NOT NULL AND source <> 'band' "
+      'UNION '
+      'SELECT day_id FROM day_result '
+      "WHERE day_id IS NOT NULL AND payload_json LIKE '%\"imported\":true%'";
+
+  /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
+  ///
+  /// THE MASK for every baseline read, and the inverse of [isMeasuredDay]:
+  /// that one guards the WRITE path (an import must not clobber a measured
+  /// day), and nothing guarded the read path — so imported days were feeding
+  /// the readiness and illness baselines the user's own scores are measured
+  /// against. A window that mixes them is not a baseline of this person.
+  ///
+  /// Returned as a set rather than applied inside each query on purpose: the
+  /// scan behind it is over `day_result.payload_json` (whole day bundles), so
+  /// a caller reading several series takes it ONCE and filters in Dart.
+  static Future<Set<String>> importedDates() async {
+    final db = await instance;
+    return {
+      for (final r in await db.rawQuery(_importedDatesSql)) r['date'] as String,
+    };
+  }
+
   /// Import another device's exported OpenStrap DB ([path], from [exportCopy] +
   /// share) by MERGING its rows into this one (INSERT-OR-REPLACE). Covers derived
   /// results, the metric series, user data, and the raw ledger so the receiving
@@ -6860,14 +6915,23 @@ class LocalDb {
   }
 
   /// A long-format metric series (oldest first) for trends/sparklines.
+  ///
+  /// [measuredOnly] drops days another vendor's export wrote (see
+  /// [importedDates]). OFF by default: a trend line is a picture of the user's
+  /// history and imported days belong in it. Turn it ON for anything that
+  /// COMPUTES against the series — a baseline, a personal percentile, a
+  /// seed-versus-band comparison — where a foreign algorithm's output is not
+  /// the same measurement.
   static Future<List<Map<String, dynamic>>> metricSeries(
     String key, {
     int? limit,
+    bool measuredOnly = false,
   }) async {
     final db = await instance;
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL',
+      where: 'key = ? AND value IS NOT NULL'
+          '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
@@ -6879,11 +6943,20 @@ class LocalDb {
   /// OLDEST n days), this is the right window for a rolling baseline. Because
   /// metric_series is keyed `(date, key)` with REPLACE, there is exactly one row
   /// per day, so the result is inherently de-duplicated.
-  static Future<List<double>> trailingSeriesValues(String key, int n) async {
+  ///
+  /// [measuredOnly] defaults ON here, unlike [metricSeries]: this helper exists
+  /// to build a rolling baseline, and a baseline blended with another vendor's
+  /// derived numbers is not a baseline of this person (see [importedDates]).
+  static Future<List<double>> trailingSeriesValues(
+    String key,
+    int n, {
+    bool measuredOnly = true,
+  }) async {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
+      '${measuredOnly ? 'AND date NOT IN ($_importedDatesSql) ' : ''}'
       'ORDER BY date DESC LIMIT ?',
       [key, n],
     );

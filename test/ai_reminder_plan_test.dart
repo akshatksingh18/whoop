@@ -9,12 +9,13 @@ import 'package:openstrap_edge/notify/tap_router.dart';
 
 void main() {
   group('aiReminderPlan', () {
-    test('all three slots when configured + reminders on', () {
+    test('all three slots when configured, reminders on, sweep found one', () {
       final plan = aiReminderPlan(
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
         journalDoneToday: false,
+        sweepHeadline: 'Resting heart rate 62 bpm — the highest in 41 days',
       );
       final ids = plan.map((s) => s.id).toSet();
       expect(ids, contains(NotificationService.idMorningBrief));
@@ -28,6 +29,7 @@ void main() {
         remindersEnabled: true,
         aiConfigured: false,
         journalDoneToday: false,
+        sweepHeadline: 'Steps 21,400 — the highest in 60 days',
       );
       final ids = plan.map((s) => s.id).toSet();
       expect(ids, isNot(contains(NotificationService.idMorningBrief)));
@@ -51,6 +53,7 @@ void main() {
         remindersEnabled: true,
         aiConfigured: true,
         journalDoneToday: false,
+        sweepHeadline: 'HRV 28 ms — the lowest in 34 days',
       );
       final ids = plan.map((s) => s.id).toSet();
       expect(ids, {NotificationService.idEveningBrief});
@@ -97,11 +100,63 @@ void main() {
         remindersEnabled: true,
         aiConfigured: true,
         journalDoneToday: false,
+        sweepHeadline: 'Readiness 31 — below your usual range',
       );
       expect(plan.firstWhere((s) => s.id == NotificationService.idMorningBrief).route,
           kRouteAiMorning);
       expect(plan.firstWhere((s) => s.id == NotificationService.idEveningBrief).route,
           kRouteAiEvening);
+    });
+  });
+
+  group('the nightly sweep only interrupts when it has something', () {
+    // The whole contract: a boring day is silent. A notification that fires to
+    // announce that nothing happened is the loudest possible way to break it.
+    test('no finding, no slot', () {
+      final plan = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        journalDoneToday: false,
+      );
+      expect(plan.map((s) => s.id),
+          isNot(contains(NotificationService.idEveningBrief)));
+    });
+
+    test('the finding IS the body — the notification is not a promise', () {
+      const headline = 'Resting heart rate 62 bpm — the highest in 41 days';
+      final slot = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        journalDoneToday: false,
+        sweepHeadline: headline,
+      ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
+      expect(slot.body, headline);
+    });
+
+    test('fires an hour before HIS bedtime, not at a fixed hour', () {
+      final slot = aiReminderPlan(
+        const AiPrefs(), // eveningMin default 20:00 — the fallback, not the time
+        remindersEnabled: true,
+        aiConfigured: true,
+        bedtimeMinOfDay: 23 * 60 + 15, // 23:15
+        journalDoneToday: false,
+        sweepHeadline: 'x',
+      ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
+      expect(slot.hour, 22);
+      expect(slot.minute, 15);
+    });
+
+    test('a new install has no learned bedtime and gets the fallback', () {
+      final slot = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        journalDoneToday: false,
+        sweepHeadline: 'x',
+      ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
+      expect(slot.hour * 60 + slot.minute, const AiPrefs().eveningMin);
     });
   });
 
@@ -121,7 +176,9 @@ void main() {
     });
 
     test('unknown routes fall back to Today, no crash', () {
-      final r = resolveTapRoute('/recap');
+      // '/recap' used to be the example here. It is a known route now — see
+      // tap_router_test — so this needs one that genuinely isn't.
+      final r = resolveTapRoute('/nope/from/an/older/build');
       expect(r.tab, 0);
       expect(r.screen, isNull);
     });
@@ -135,6 +192,15 @@ void main() {
               .resolvedJournalMin(bedtimeMinOfDay: 22 * 60), // 22:00
           21 * 60 + 30); // 30 min before
       expect(const AiPrefs().resolvedJournalMin(), AiPrefs.journalFallbackMin);
+    });
+
+    test('resolvedEveningMin: an hour before bedtime, else the fallback', () {
+      expect(
+          const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 22 * 60 + 30),
+          21 * 60 + 30);
+      expect(const AiPrefs().resolvedEveningMin(), 20 * 60);
+      // A bedtime just after midnight must not wrap to a negative minute.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 20), 1400);
     });
   });
 }

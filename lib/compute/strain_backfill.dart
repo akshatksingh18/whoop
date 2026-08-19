@@ -14,11 +14,19 @@
 // kAlgoVersion bump alone can only ever fix the last few days.
 //
 // It does not need raw. Strain is a pure function of (TRIMP, wake minutes,
-// sex), and `metric_series` already stores `trimp`, `worn_min` and `tst_min`
-// for every derived day, so the headline can be rebuilt exactly from what is
-// on disk. (`series.strain_curve` carries one point per wake minute, and on a
-// real bundle its length equals `worn_min − tst_min` — the reconstruction of
-// the wake window used here is the same one the pipeline fed the scorer.)
+// sex); `metric_series` stores `trimp` and the stored bundle carries
+// `series.strain_curve`, which is ONE POINT PER WAKE MINUTE — literally the
+// series the pipeline handed the scorer.
+//
+// THE WAKE WINDOW IS READ, NOT RECONSTRUCTED. This used to derive it as
+// `worn_min − tst_min`, which is a different quantity in both directions: the
+// pipeline's wake series skips minutes with no HR and skips the whole sleep
+// span, `worn_min` counts any minute with a record and applies no HR gate, and
+// `tst_min` excludes WASO. Measured against `strain_curve` on six real days it
+// was off by −15 to +22 minutes on all six, so the header's old claim that the
+// two are equal "on a real bundle" was false every time it was checkable. A day
+// whose bundle cannot supply the curve now ABSTAINS — the point of this file is
+// to remove a step artifact, not to introduce a smaller one.
 
 import 'dart:convert';
 
@@ -50,7 +58,8 @@ class StrainBackfillResult {
   bool get didWork => seriesDays > 0 || bundleDays > 0;
 }
 
-/// Rebuild one day's headline strain from its stored scalars.
+/// Rebuild one day's headline strain from its stored TRIMP and the wake window
+/// the pipeline actually priced it over ([wakeMinutes] = `strain_curve.length`).
 ///
 /// Returns null when the day cannot be rescaled — no TRIMP to rescale from, or
 /// no wake window to price the baseline over. A day that cannot be rescaled is
@@ -58,14 +67,11 @@ class StrainBackfillResult {
 /// number, not an absence.
 double? rescaledStrain({
   required double? trimp,
-  required double? wornMin,
-  required double? tstMin,
+  required double? wakeMinutes,
   required bool female,
 }) {
-  if (trimp == null || wornMin == null) return null;
-  final wake = wornMin - (tstMin ?? 0);
-  if (wake <= 0) return null;
-  return ana.strainScore(trimp, wakeMinutes: wake, female: female);
+  if (trimp == null || wakeMinutes == null || wakeMinutes <= 0) return null;
+  return ana.strainScore(trimp, wakeMinutes: wakeMinutes, female: female);
 }
 
 /// Rescale every stored day that can no longer be re-derived from raw.
@@ -89,8 +95,6 @@ Future<StrainBackfillResult> backfillStrainScale({
   }
 
   final trimpBy = await _byDate('trimp');
-  final wornBy = await _byDate('worn_min');
-  final tstBy = await _byDate('tst_min');
 
   // The DATA EDGE is the newest day on disk, matching how the pruner measures
   // retention (never the wall clock — a multi-day flash backfill received in
@@ -108,31 +112,39 @@ Future<StrainBackfillResult> backfillStrainScale({
   var bundleDays = 0;
   var skipped = 0;
 
+  // Days already complete at the current version were rescaled on a prior
+  // pass. Read as ONE query so the loop below does not open a `day_result` row
+  // just to close it again: this runs once per install-history, and the day
+  // this fires is the launch right after an update.
+  final alreadyCurrent = await LocalDb.dayResultIds(kAlgoVersion);
+
   for (final day in days) {
     if (day.compareTo(cutoff) >= 0) continue;
+    if (alreadyCurrent.contains(day)) continue;
+
+    // Cheapest gate first: a day with no stored TRIMP cannot be rescaled at
+    // all, and finding that out by opening its bundle was a round trip plus a
+    // payload materialisation per unrescalable day. The wake window itself has
+    // to come out of the bundle (`strain_curve`), so everything else waits for
+    // the row.
+    if (trimpBy[day] == null) {
+      skipped++;
+      continue;
+    }
 
     final row = await LocalDb.dayResult(day);
-    // Already carries a row at the current version — rescaled on a prior pass.
+    // A partial/skipped row at the current version is not in `alreadyCurrent`
+    // but is still rescaled — same check as before, just reached less often.
     if (row != null &&
         ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
       continue;
     }
 
-    final next = rescaledStrain(
-      trimp: trimpBy[day],
-      wornMin: wornBy[day],
-      tstMin: tstBy[day],
-      female: female,
-    );
-    if (next == null) {
-      skipped++;
-      continue;
-    }
-
     if (row == null) {
-      // A series row with no bundle behind it: still worth fixing the trend.
-      await LocalDb.putMetricSeriesValue(day, 'strain', next);
-      seriesDays++;
+      // A series row with no bundle behind it. The wake window lives in the
+      // bundle, so there is nothing to price the baseline over — leave the old
+      // value alone rather than rescale it against a window we guessed.
+      skipped++;
       continue;
     }
 
@@ -146,13 +158,29 @@ Future<StrainBackfillResult> backfillStrainScale({
       skipped++;
       continue;
     }
+    final series = payload['series'];
+    final next = rescaledStrain(
+      trimp: trimpBy[day],
+      // THE window the pipeline scored over: `strain_curve` emits exactly one
+      // point per wake minute (`_strainCurve` in onehz_pipeline.dart). Stored
+      // either as a legacy list or as SeriesCodec's columnar form, hence
+      // `_curveLength`.
+      wakeMinutes: _curveLength(
+        series is Map ? series['strain_curve'] : null,
+      )?.toDouble(),
+      female: female,
+    );
+    if (next == null) {
+      skipped++;
+      continue;
+    }
     scalars['strain'] = next;
 
     // The intraday curve is cumulative strain, one point per wake minute, built
     // from per-sample HR that no longer exists — it cannot be rescaled, and its
     // last point IS the old headline. A curve ending at 12.79 under a headline
     // of 9.03 contradicts itself, so it is DROPPED rather than left to disagree.
-    final series = payload['series'];
+    // (Its LENGTH was read above, before this removes it.)
     if (series is Map) series.remove('strain_curve');
 
     final partial = (row['partial'] as num?)?.toInt() == 1;
@@ -167,6 +195,9 @@ Future<StrainBackfillResult> backfillStrainScale({
       rhr: (row['rhr'] as num?)?.toDouble(),
       rmssd: (row['rmssd'] as num?)?.toDouble(),
       readiness: (row['readiness'] as num?)?.toDouble(),
+      // Rewriting a band-derived day's strain from its own stored payload —
+      // same provenance it already had (see export-provenance).
+      source: 'band',
       // `putDayResult` skips the series write for a partial row, so only count
       // the trend as rewritten when it actually was.
       series: {'strain': next},
@@ -194,6 +225,18 @@ Future<Map<String, double>> _byDate(String key) async {
     if (d != null && v != null) out[d] = v;
   }
   return out;
+}
+
+/// Number of samples in a stored curve, in either shape SeriesCodec can write:
+/// the legacy `[{t,v}, …]` list or the columnar `{t0, dt|to, v:[…]}` map.
+/// Null when there is no curve to count.
+int? _curveLength(Object? curve) {
+  if (curve is List) return curve.isEmpty ? null : curve.length;
+  if (curve is Map) {
+    final v = curve['v'];
+    if (v is List && v.isNotEmpty) return v.length;
+  }
+  return null;
 }
 
 Map<String, dynamic>? _decode(Object? json) {

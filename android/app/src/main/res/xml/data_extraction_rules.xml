@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  Nothing leaves the device, including via Google's plumbing.
+
+  This is a local-first health app: the sqflite database holds raw 1 Hz heart
+  rate, RR intervals and sleep. Without this file (and android:allowBackup) both
+  defaults are ON, so that database was eligible for Google auto-backup and for
+  device-to-device transfer — a silent copy of the most sensitive data the app
+  holds, to a place the user never agreed to. iOS's comparable exposure
+  (UIFileSharingEnabled) is a deliberate, visible export feature; this was not.
+
+  cloud-backup covers Auto Backup / Backup & Restore. device-transfer covers the
+  D2D copy during new-phone setup on Android 12+. Both are excluded whole.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

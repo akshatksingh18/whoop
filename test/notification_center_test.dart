@@ -5,9 +5,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_ids.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
+import 'package:openstrap_edge/ui2/profile/settings.dart';
 
 NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
       dedupeKey: '2026-06-27:${c.name}',
@@ -41,17 +44,80 @@ void main() {
     });
   });
 
+  group('the three classes', () {
+    test('classOf recognises exactly three, and nothing else', () {
+      // The exception: health findings and the band's own failures.
+      expect(classOf(_ev(NotifCategory.health, NotifPriority.critical)),
+          NotifClass.exception);
+      expect(classOf(_ev(NotifCategory.device, NotifPriority.normal)),
+          NotifClass.exception);
+      // The alarm, and only the alarm, claims reminders+critical.
+      expect(classOf(_ev(NotifCategory.reminders, NotifPriority.critical)),
+          NotifClass.alarm);
+      // Everything that used to make up the other nineteen kinds.
+      expect(classOf(_ev(NotifCategory.recovery, NotifPriority.normal)), isNull);
+      expect(classOf(_ev(NotifCategory.reminders, NotifPriority.low)), isNull);
+      expect(
+          classOf(_ev(NotifCategory.reminders, NotifPriority.normal)), isNull);
+    });
+  });
+
+  group('the scheduler allow-list', () {
+    // The OS fires a zonedSchedule with no Dart running, so shouldFireOs never
+    // sees one. What may be SCHEDULED is a separate, narrower list: a slot the
+    // user asked for by name, at a time or interval they picked.
+    test('allows the lookback, the hydration band and the nightly sweep', () {
+      expect(NotificationService.maySchedule(NotificationService.idWeeklyRecap),
+          isTrue);
+      expect(NotificationService.maySchedule(NotificationService.idEveningBrief),
+          isTrue);
+      for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
+        expect(
+            NotificationService.maySchedule(NotificationService.idWaterBase + i),
+            isTrue,
+            reason: 'water slot $i');
+      }
+    });
+
+    test('refuses everything else, including the ids either side of the band',
+        () {
+      for (final id in [
+        NotificationService.idWindDown,
+        NotificationService.idJournalLog,
+        NotificationService.idMorningBrief,
+        NotificationService.idStillness,
+        NotificationService.idLowBattery,
+        NotificationService.idWaterBase - 1,
+        NotificationService.idWaterBase + NotificationService.maxWaterSlots,
+      ]) {
+        expect(NotificationService.maySchedule(id), isFalse, reason: '$id');
+      }
+    });
+  });
+
   group('shouldFireOs', () {
     const p = NotificationPrefs(); // defaults: all on, quiet 22–07, override on
     test('fires outside quiet hours', () {
-      expect(p.shouldFireOs(_ev(NotifCategory.recovery, NotifPriority.normal),
+      expect(p.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
           12 * 60), isTrue);
     });
     test('suppresses non-critical inside quiet hours', () {
-      expect(p.shouldFireOs(_ev(NotifCategory.recovery, NotifPriority.normal),
+      // The 23:30 "band is on the charger" buzz — the reason device alerts had
+      // to stop writing straight to the plugin.
+      expect(p.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
           2 * 60), isFalse);
-      expect(p.shouldFireOs(_ev(NotifCategory.reminders, NotifPriority.low),
-          2 * 60), isFalse);
+    });
+    test('a kind that is not one of the three never fires, quiet or not', () {
+      for (final minute in [2 * 60, 12 * 60]) {
+        expect(
+            p.shouldFireOs(
+                _ev(NotifCategory.recovery, NotifPriority.normal), minute),
+            isFalse);
+        expect(
+            p.shouldFireOs(
+                _ev(NotifCategory.reminders, NotifPriority.low), minute),
+            isFalse);
+      }
     });
     test('critical overrides quiet hours when allowed', () {
       expect(p.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),
@@ -66,6 +132,21 @@ void main() {
       const d = NotificationPrefs(healthEnabled: false);
       expect(d.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),
           12 * 60), isFalse);
+      const e = NotificationPrefs(deviceEnabled: false);
+      expect(e.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
+          12 * 60), isFalse);
+    });
+    test('the alarm is never silenced by quiet hours or a category switch', () {
+      // It is armed FOR a time inside the quiet window, and its off switch is
+      // cancelling it — not a preference the user can trip by accident.
+      const off = NotificationPrefs(
+        remindersEnabled: false,
+        criticalOverridesQuiet: false,
+      );
+      expect(
+          off.shouldFireOs(
+              _ev(NotifCategory.reminders, NotifPriority.critical), 6 * 60),
+          isTrue);
     });
   });
 
@@ -102,6 +183,39 @@ void main() {
           date: '2026-06-27');
       expect(await NotificationIds.instance.idFor(a),
           equals(await NotificationIds.instance.idFor(b)));
+    });
+  });
+
+  group('water interval is pickable', () {
+    // 08:00–22:00 waking window, quiet hours off.
+    const base = NotificationPrefs(waterEnabled: true, quietEnabled: false);
+    test('every offered choice reaches the slots and changes the count', () {
+      final counts = {
+        for (final (min, _) in NotificationSettingsView.waterEvery)
+          min: NotificationCenter.waterSlotMinutes(
+                  base.copyWith(waterIntervalMin: min))
+              .length,
+      };
+      // in bounds, and a shorter interval is never fewer slots
+      for (final (min, _) in NotificationSettingsView.waterEvery) {
+        expect(min, greaterThanOrEqualTo(NotificationPrefs.waterIntervalMinAllowed));
+        expect(min, lessThanOrEqualTo(NotificationPrefs.waterIntervalMaxAllowed));
+      }
+      expect(counts[30], greaterThan(counts[120]!)); // 30m vs the 2h default
+      expect(counts[120], greaterThan(counts[240]!));
+      expect(counts.values.toSet().length, greaterThan(1));
+    });
+    test('spacing is the picked interval', () {
+      final s = NotificationCenter.waterSlotMinutes(
+          base.copyWith(waterIntervalMin: 90));
+      expect(s.first, equals(8 * 60));
+      expect(s[1] - s[0], equals(90));
+    });
+    test('off means no slots whatever the interval', () {
+      expect(
+          NotificationCenter.waterSlotMinutes(
+              const NotificationPrefs(waterIntervalMin: 30)),
+          isEmpty);
     });
   });
 }

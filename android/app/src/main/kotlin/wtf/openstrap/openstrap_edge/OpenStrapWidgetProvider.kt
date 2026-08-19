@@ -69,6 +69,12 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         val w = StrapWidgets
         val pal = w.pal(prefs)
 
+        // `has_data` alone was never enough: it is frozen when the app pushes,
+        // so a phone that stops syncing keeps a week-old readiness on the home
+        // screen looking exactly like this morning's. StrapWidgets.fresh() ages
+        // `updated_at` here, on every render.
+        if (!w.fresh(prefs)) return buildNoData(context, pal)
+
         // Snapshot (sentinels: -1 = no data — mirrors OpenStrapEntry).
         val readiness = w.readInt(prefs, "readiness", -1)
         val strain = w.readDouble(prefs, "strain", -1.0)
@@ -80,36 +86,41 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         val hrv = w.readInt(prefs, "hrv", -1)
         val hrvBaseline = w.readInt(prefs, "hrv_baseline", -1)
 
-        // Ring fractions + colours — same rules as OpenStrapEntry in Swift.
-        val readinessT = if (readiness >= 0) readiness / 100.0 else 0.0
-        val readinessColor = when {
-            readiness < 0 -> pal.inkMuted
-            readiness >= 66 -> w.GOOD
-            readiness >= 40 -> w.CORAL
-            else -> w.CORAL_DEEP
-        }
-        val strainT = if (strain >= 0) (strain / 21.0).coerceAtMost(1.0) else 0.0
+        // Ring fractions — negative means "nothing measured", so ringBitmap
+        // draws the track alone rather than an arc pinned at empty (which reads
+        // as a real value of zero).
+        val readinessT = if (readiness >= 0) readiness / 100.0 else -1.0
+        val tier = w.readInt(prefs, "readiness_tier", -1)
+        val readinessArc = w.readinessArc(tier)
+        val readinessColor = w.readinessColor(tier, pal)
+        // 0-21 is the headline scale strainScore maps TRIMP onto
+        // (analytics/lib/src/onehz/clinical/load_trimp.dart:104-122).
+        val strainT = if (strain >= 0) (strain / 21.0).coerceAtMost(1.0) else -1.0
         val sleepT = if (sleepMin >= 0 && needMin > 0) {
             (sleepMin.toDouble() / needMin).coerceAtMost(1.0)
         } else {
-            0.0
+            -1.0
         }
-        val hrvT = when {
-            hrv < 0 -> 0.0
-            hrvBaseline > 0 -> (hrv / (1.5 * hrvBaseline)).coerceAtMost(1.0)
-            else -> (hrv / 100.0).coerceAtMost(1.0)
+        // HRV against YOUR OWN baseline: a full ring is at or above it. There
+        // is no population scale for RMSSD, so with no baseline there is no
+        // denominator and the arc is not drawn. This used to divide by a
+        // hard-coded 100 (and by 1.5 x baseline), neither of which exists
+        // anywhere in the pipeline.
+        val hrvT = if (hrv >= 0 && hrvBaseline > 0) {
+            (hrv.toDouble() / hrvBaseline).coerceAtMost(1.0)
+        } else {
+            -1.0
         }
-        // HRV reads green at/above your baseline, warmer as it drops below it.
-        val hrvColor = when {
-            hrv < 0 || hrvBaseline <= 0 -> w.GOOD
-            hrv >= hrvBaseline -> w.GOOD
-            hrv >= (0.8 * hrvBaseline).toInt() -> w.CORAL
-            else -> w.CORAL_DEEP
-        }
+        // HRV carries its domain accent and no colour judgement: a "0.8 x
+        // baseline is amber" cut-off was invented here and appears in no
+        // analytics output.
+        val hrvColor = if (hrv >= 0) w.GREEN else w.N400
 
-        val strainText = if (strain >= 0) String.format("%.1f", strain) else "—"
-        val readinessText = if (readiness >= 0) "$readiness" else "—"
-        val hrvText = if (hrv >= 0) "$hrv" else "—"
+        // "" = no measurement. A bare dash is the one rendering the phone's
+        // grammar forbids outright.
+        val strainText = if (strain >= 0) String.format("%.1f", strain) else ""
+        val readinessText = if (readiness >= 0) "$readiness" else ""
+        val hrvText = if (hrv >= 0) "$hrv" else ""
 
         val layout = if (small) R.layout.widget_openstrap_small else R.layout.widget_openstrap
         val ringDp = if (small) 40 else 56
@@ -123,7 +134,7 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
         // iOS headline treatment, compressed into a cell).
         views.setImageViewBitmap(
             R.id.ring_readiness,
-            w.ringBitmap(context, ringDp, strokeDp, pal.track, readinessColor, readinessT),
+            w.ringBitmap(context, ringDp, strokeDp, pal.track, readinessArc, readinessT),
         )
         views.setTextViewText(R.id.val_readiness, readinessText)
         views.setTextColor(R.id.val_readiness, readinessColor)
@@ -138,9 +149,18 @@ class OpenStrapWidgetProvider : HomeWidgetProvider() {
             views.setTextColor(value, pal.ink)
             views.setTextColor(cap, pal.inkMuted)
         }
-        metric(R.id.ring_strain, R.id.val_strain, R.id.cap_strain, w.CORAL, strainT, strainText)
-        metric(R.id.ring_sleep, R.id.val_sleep, R.id.cap_sleep, w.SLEEP_BLUE, sleepT, w.hm(sleepMin))
+        metric(R.id.ring_strain, R.id.val_strain, R.id.cap_strain, w.PURPLE, strainT, strainText)
+        metric(R.id.ring_sleep, R.id.val_sleep, R.id.cap_sleep, w.BLUE, sleepT, w.hm(sleepMin))
         metric(R.id.ring_hrv, R.id.val_hrv, R.id.cap_hrv, hrvColor, hrvT, hrvText)
+        return views
+    }
+
+    private fun buildNoData(context: Context, pal: StrapWidgets.Pal): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_openstrap_nodata)
+        views.setInt(R.id.widget_root, "setBackgroundResource", pal.bgRes)
+        views.setOnClickPendingIntent(R.id.widget_root, StrapWidgets.openAppIntent(context))
+        views.setTextColor(R.id.nodata_title, pal.ink)
+        views.setTextColor(R.id.nodata_body, pal.inkMuted)
         return views
     }
 }

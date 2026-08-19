@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:health/health.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
@@ -7,7 +8,15 @@ import '../data/day_label.dart';
 /// Reads steps in `[from, to)`. Null means the READ FAILED — see [syncDay].
 typedef StepIntervalReader = Future<int?> Function(DateTime from, DateTime to);
 
-/// REAL step counts, read from the phone's own pedometer.
+/// OUR OWN pedometer, on our own channel: `CMPedometer` on iOS,
+/// `Sensor.TYPE_STEP_COUNTER` on Android.
+///
+/// Implementations: `ios/Runner/AppDelegate.swift` (PedometerBridge) and
+/// `android/app/src/main/kotlin/.../PhoneStepCounter.kt`.
+@visibleForTesting
+const MethodChannel phoneStepsChannel = MethodChannel('openstrap/phone_steps');
+
+/// REAL step counts, read from the phone's own step sensor.
 ///
 /// WHY THIS EXISTS
 ///
@@ -26,74 +35,122 @@ typedef StepIntervalReader = Future<int?> Function(DateTime from, DateTime to);
 ///
 /// The phone rides in a pocket or bag, observes trunk motion, and runs a
 /// vendor pedometer that is continuously validated against exactly this
-/// problem. It is simply a better sensor for this one quantity, and it costs us
-/// nothing: iOS already writes its CMPedometer counts into HealthKit and
-/// Android writes to Health Connect, both on-device.
+/// problem. It is simply a better sensor for this one quantity.
 ///
-/// PRIVACY / LOCAL-FIRST: this is a local read from the on-device health store.
-/// Nothing leaves the phone, and nothing here is written back — see
-/// [HealthExport] for why we deliberately stopped writing STEPS out.
+/// WHY NOT THE HEALTH STORE. This used to read `HealthDataType.STEPS`, which on
+/// iOS is an `HKStatisticsQuery` cumulative sum over EVERY source in the store
+/// and on Android an aggregate of `StepsRecord.COUNT_TOTAL` that any app
+/// holding WRITE_STEPS contributes to. That number is the sum of an unbounded
+/// set of writers, at least one of which may itself be estimating — so it could
+/// not honour `_writeSteps`'s promise of "real pedometer count over measured
+/// windows only". The motion coprocessor / step-counter sensor is the one
+/// writer we actually want, and going direct removes every other one.
+///
+/// PRIVACY / LOCAL-FIRST: the sensor is on this device and its counts never
+/// leave it. Nothing is written back — see [HealthExport] for why we
+/// deliberately stopped writing STEPS out.
 class PhonePedometer {
-  /// [stepReader] exists so the hour walk is testable. `Health` has a private
-  /// constructor and is a singleton factory, so it cannot be subclassed or
-  /// faked from a test library — and the walk is where the DST and partial-read
-  /// bugs live, so it needs coverage that does not touch a real health store.
-  PhonePedometer({Health? health, StepIntervalReader? stepReader})
-      : _health = health ?? Health(),
-        _stepReader = stepReader;
+  /// [stepReader] exists so the hour walk is testable without a device sensor —
+  /// the walk is where the DST and partial-read bugs live, so it needs coverage
+  /// that does not touch a platform channel.
+  PhonePedometer({StepIntervalReader? stepReader}) : _stepReader = stepReader;
 
-  final Health _health;
   final StepIntervalReader? _stepReader;
 
-  Future<int?> _readSteps(DateTime from, DateTime to) =>
-      _stepReader?.call(from, to) ??
-      _health.getTotalStepsInInterval(from, to);
+  /// The native side returns this for an interval it holds NO RECORD of: the
+  /// sensor was not counting yet (fresh install, or the stretch lost across an
+  /// Android reboot), or the interval predates iOS's seven-day pedometer cache.
+  ///
+  /// It is neither a failure nor a zero. That hour is simply uncovered, so it
+  /// banks no window and the walk carries on — which is the whole point of a
+  /// per-window coverage table. `null` still means the read FAILED.
+  static const int intervalNotCovered = -1;
 
-  static const List<HealthDataType> _types = [HealthDataType.STEPS];
+  Future<int?> _readSteps(DateTime from, DateTime to) async {
+    final reader = _stepReader;
+    if (reader != null) return reader(from, to);
+    try {
+      return await phoneStepsChannel.invokeMethod<int>('stepsInInterval', {
+        'fromMs': from.millisecondsSinceEpoch,
+        'toMs': to.millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      debugPrint('[phone_pedometer] read: $e');
+      return null; // read FAILED — the day is abandoned, not zeroed
+    }
+  }
 
-  /// Ask for READ access to steps. Safe to call repeatedly.
+  /// Ask for access to the phone's step sensor. Safe to call repeatedly.
+  ///
+  /// THIS IS THE ONLY THING THAT MAKES THE PERMISSION EXIST. On iOS a
+  /// permission the app never asks for is not listed in Settings at all —
+  /// CoreMotion has no explicit request API, so the native side raises the
+  /// prompt by issuing a one-minute query. On Android this is the runtime
+  /// ACTIVITY_RECOGNITION request and it also arms the sensor listener. If this
+  /// method stops being reached, the feature looks broken with nothing for the
+  /// user to fix; `arming reaches the platform` in the tests pins that.
   Future<bool> requestPermission() async {
     try {
-      await _health.configure();
-      final already = await _health.hasPermissions(
-        _types,
-        permissions: const [HealthDataAccess.READ],
-      );
-      if (already == true) return true;
-      return await _health.requestAuthorization(
-        _types,
-        permissions: const [HealthDataAccess.READ],
-      );
+      return await phoneStepsChannel.invokeMethod<bool>('requestPermission') ??
+          false;
     } catch (e) {
       debugPrint('[phone_pedometer] permission: $e');
       return false;
     }
   }
 
-  /// Best-effort permission probe. `null` is treated as MAYBE, not NO.
+  /// Whether the sensor is readable right now.
   ///
-  /// Health Connect's `hasPermissions` frequently returns null/false even after
-  /// the user has granted everything — `HealthExport` documents this exact
-  /// behaviour and deliberately attempts every write rather than gating on the
-  /// check. Gating a READ on it here would reintroduce that failure: on Android
-  /// phone steps could silently never sync after a successful grant, and the
-  /// user would see only a missing step count with nothing to act on.
-  ///
-  /// So this returns false ONLY on an explicit `false`. A null (unknown) result
-  /// lets the read proceed and lets the platform enforce — an ungranted read
-  /// simply returns no data, which `syncDay` already treats as "unknown", not
-  /// as zero.
+  /// Unlike the health plugin's `hasPermissions` — which returns null/false
+  /// even after a grant, and which this class used to deliberately ignore for
+  /// that reason — our own channel answers honestly: iOS reports a real
+  /// `CMAuthorizationStatus` and Android a real permission check. `notDetermined`
+  /// counts as yes, because the first read is what raises the prompt.
   Future<bool> hasPermission() async {
     try {
-      await _health.configure();
-      final r = await _health.hasPermissions(
-        _types,
-        permissions: const [HealthDataAccess.READ],
-      );
-      return r != false; // null => attempt anyway
+      return await phoneStepsChannel.invokeMethod<bool>('authorized') ?? false;
     } catch (e) {
       debugPrint('[phone_pedometer] hasPermission: $e');
-      return true; // probe failed; let the read attempt decide
+      return false; // no channel, no sensor — 48 doomed round trips help nobody
+    }
+  }
+
+  /// Stop counting and forget what was counted.
+  ///
+  /// Dropping the `live_coverage` rows is not enough on Android: the sensor
+  /// listener keeps accumulating into its own on-device store, so a user who
+  /// switched the feature off would still have this app counting their steps.
+  /// Nothing here can revoke the platform permission — that is the user's to do
+  /// in Settings — but we can stop reading and discard what we read. iOS keeps
+  /// no store of its own (CMPedometer is query-only), so there it is a no-op.
+  Future<void> stop() async {
+    try {
+      await phoneStepsChannel.invokeMethod<void>('stop');
+    } catch (e) {
+      debugPrint('[phone_pedometer] stop: $e');
+    }
+  }
+
+  /// One-time drop of the rows the OLD health-store read banked.
+  ///
+  /// Those rows are labelled `phone`, exactly like the ones our own sensor
+  /// writes now, but they are health-store AGGREGATES — the sum of every app
+  /// that writes steps on that device. Leaving them means every historical day
+  /// keeps serving a number whose source we cannot name, under a label that
+  /// says we can. The days the sensor can still cover refill on the sync that
+  /// immediately follows; older days go ABSENT rather than keep a number of
+  /// unknown provenance, which is the same law every other input obeys.
+  static const String _kImportedPurged = 'phone_steps_healthstore_purged';
+
+  Future<void> _purgeImportedHealthStoreRows() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kImportedPurged) == true) return;
+      final n = await LocalDb.clearPhoneCoverage();
+      await prefs.setBool(_kImportedPurged, true);
+      debugPrint('[phone_pedometer] dropped $n health-store step rows');
+    } catch (e) {
+      debugPrint('[phone_pedometer] purge: $e');
     }
   }
 
@@ -103,26 +160,23 @@ class PhonePedometer {
   /// of WHEN the steps happened, and so a partially-elapsed today still banks
   /// what has happened so far.
   ///
-  /// Uses `getTotalStepsInInterval`, which on iOS is an HKStatisticsQuery
-  /// cumulative sum — HealthKit de-duplicates overlapping samples from multiple
-  /// sources (iPhone + Watch) itself, which a raw sample read would not.
+  /// This is a SINGLE-SOURCE count — the iPhone's motion coprocessor, or the
+  /// Android step-counter sensor. It is deliberately not the health store's
+  /// multi-writer aggregate (see the class doc), so an Apple Watch worn while
+  /// the phone sits on a desk contributes nothing to these hours.
   ///
   /// Returns the day's total, or null if the read failed or was not permitted
   /// (null means "unknown", NOT zero — the caller must not persist a zero).
   ///
-  /// A null from ANY hour aborts the whole day. `null` from this plugin means
-  /// the query FAILED, not that the hour was empty — verified in both native
-  /// implementations at health 11.1.1:
+  /// A null from ANY hour aborts the whole day. Our native contract is exact
+  /// about which is which:
   ///
-  ///   * iOS `SwiftHealthPlugin.swift`: `HKStatisticsQuery` returns `nil` only
-  ///     via `guard let queryResult else { result(nil) }`. An hour with no
-  ///     samples has a nil `sumQuantity()` but still falls through to
-  ///     `steps = 0.0` and returns `0`.
-  ///   * Android `HealthPlugin.kt`: `response[StepsRecord.COUNT_TOTAL] ?: 0L`
-  ///     returns `0` for an empty range; `result.success(null)` happens only in
-  ///     the `catch`.
+  ///   * a count (0 included) — that interval is covered and that is the answer;
+  ///   * [intervalNotCovered] — no record of that interval, so no window is
+  ///     banked and the walk carries on;
+  ///   * `null` — the sensor is unavailable, denied, or the query itself failed.
   ///
-  /// So a partial read is a real failure, and it must not be persisted:
+  /// So a null read is a real failure, and it must not be persisted:
   /// [LocalDb.replacePhoneCoverageForDay] is delete-then-insert, so banking a
   /// short read would LOWER a previously complete day. And because
   /// [LocalDb.liveStepsForDay] prefers phone rows outright, the truncated total
@@ -130,8 +184,6 @@ class PhonePedometer {
   Future<int?> syncDay(DateTime dayStartLocal) async {
     final dayId = dayLabelOf(dayStartLocal);
     try {
-      // Only touch the platform when we are actually going through it.
-      if (_stepReader == null) await _health.configure();
       final windows = <({int startTs, int endTs, int steps})>[];
       var total = 0;
       var anyRead = false;
@@ -180,6 +232,10 @@ class PhonePedometer {
         // Read failure (see the doc above) — abandon the day rather than
         // persist a partial one over a good previous sync.
         if (n == null) return null;
+        // UNCOVERED, not failed and not zero: the sensor holds no record of
+        // this hour. It banks nothing and it does not count as read, so a day
+        // that is entirely uncovered still comes back "unknown" below.
+        if (n == intervalNotCovered) continue;
         anyRead = true;
         if (n <= 0) continue;
         windows.add((
@@ -227,15 +283,24 @@ class PhonePedometer {
   /// Days pulled on a routine (launch / post-export) sync.
   ///
   /// One platform round trip PER HOUR PER DAY, so the window is the whole cost:
-  /// the original 7-day default was up to 168 sequential `getTotalStepsInInterval`
-  /// calls, fired on every launch and again after every health export. Only
-  /// today can still change, and yesterday only if the app did not run then, so
-  /// two days covers the routine case at ~48 calls.
+  /// the original 7-day default was up to 168 sequential platform calls, fired
+  /// on every launch and again after every health export. Only today can still
+  /// change, and yesterday only if the app did not run then, so two days covers
+  /// the routine case at ~48 calls.
   static const int routineSyncDays = 2;
 
   /// Days pulled on an EXPLICIT sync (the user enabling the toggle, or a manual
   /// health sync) — the backfill window, worth its cost because the user asked.
-  static const int fullSyncDays = 7;
+  ///
+  /// SIX, NOT SEVEN, and the difference is not cosmetic. Apple: "Only the past
+  /// seven days worth of data is stored... Specifying a start date that is more
+  /// than seven days in the past returns only the available data." The walk
+  /// below starts at LOCAL MIDNIGHT `days - 1` days back, which for 7 is up to
+  /// 168 h old — right on (or past) that edge. The native side refuses an
+  /// out-of-cache range outright, so nothing wrong is ever banked; six simply
+  /// stops us manufacturing a day that is permanently half-covered because its
+  /// early hours fell off the back of the cache the moment we asked.
+  static const int fullSyncDays = 6;
 
   /// Sync the last [days] days (including today).
   ///
@@ -246,8 +311,9 @@ class PhonePedometer {
   Future<({int daysRead, int totalSteps})> syncRecent({
     int days = routineSyncDays,
   }) async {
-    if (_stepReader == null && !await hasPermission()) {
-      return (daysRead: 0, totalSteps: 0);
+    if (_stepReader == null) {
+      await _purgeImportedHealthStoreRows();
+      if (!await hasPermission()) return (daysRead: 0, totalSteps: 0);
     }
     final now = DateTime.now();
     var ok = 0;

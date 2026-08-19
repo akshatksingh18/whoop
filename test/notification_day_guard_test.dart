@@ -12,6 +12,12 @@
 // NotificationCenter.emitOncePerDay is the fixed sequencing (claim the guard
 // only on a real present) and emit now REPORTS whether it presented.
 //
+// The event used here is the day's aggregated health EXCEPTION rather than the
+// old "your recovery is ready", which is no longer one of the three sanctioned
+// notification classes and is now dropped by shouldFireOs. The sequencing under
+// test is the same: a non-critical event, suppressible by quiet hours, guarded
+// once per day.
+//
 // NOTE — no sqlite factory is registered here, so FiredKeyStore runs in its
 // degraded shared_preferences mode. That's fine: this suite is about the DAY
 // guard, not the cross-isolate claim (see notification_claim_atomic_test.dart).
@@ -28,17 +34,19 @@ import 'package:openstrap_edge/notify/notification_service.dart';
 const String kGuardKey = 'last_recovery_notif_day';
 final String kDay = todayLabel();
 final String kTomorrow = dayLabelOf(DateTime.now().add(const Duration(days: 1)));
+final String kYesterday =
+    dayLabelOf(DateTime.now().subtract(const Duration(days: 1)));
 
-NotificationEvent _recoveryReady({String? day}) {
+NotificationEvent _dayException({String? day}) {
   final d = day ?? kDay;
   return NotificationEvent(
-    dedupeKey: '$d:recovery_ready',
-    category: NotifCategory.recovery,
+    dedupeKey: '$d:exception',
+    category: NotifCategory.health,
     priority: NotifPriority.normal,
-    title: 'Your recovery is ready',
-    body: 'Recovery 71. Tap to see today.',
+    title: 'Low readiness today',
+    body: 'Your recovery markers are below your usual range — ease off.',
     date: d,
-    route: '/today',
+    route: '/heart',
   );
 }
 
@@ -87,7 +95,7 @@ void main() {
       SharedPreferences.setMockInitialValues(_quietAllDay());
       final sink = _Sink();
       NotificationCenter.instance.presentSink = sink.call;
-      expect(await NotificationCenter.instance.emit(_recoveryReady()), isFalse);
+      expect(await NotificationCenter.instance.emit(_dayException()), isFalse);
       expect(sink.shown, isEmpty);
     });
 
@@ -96,15 +104,15 @@ void main() {
       SharedPreferences.setMockInitialValues(_quietNever());
       final sink = _Sink(grant: false);
       NotificationCenter.instance.presentSink = sink.call;
-      expect(await NotificationCenter.instance.emit(_recoveryReady()), isFalse);
+      expect(await NotificationCenter.instance.emit(_dayException()), isFalse);
     });
 
     test('returns true on a real present', () async {
       SharedPreferences.setMockInitialValues(_quietNever());
       final sink = _Sink();
       NotificationCenter.instance.presentSink = sink.call;
-      expect(await NotificationCenter.instance.emit(_recoveryReady()), isTrue);
-      expect(sink.shown, ['$kDay:recovery_ready']);
+      expect(await NotificationCenter.instance.emit(_dayException()), isTrue);
+      expect(sink.shown, ['$kDay:exception']);
     });
   });
 
@@ -119,7 +127,7 @@ void main() {
       final firstTry = await NotificationCenter.instance.emitOncePerDay(
         prefsKey: kGuardKey,
         dayId: kDay,
-        e: _recoveryReady(),
+        e: _dayException(),
       );
       expect(firstTry, isFalse);
       final prefs = await SharedPreferences.getInstance();
@@ -132,10 +140,10 @@ void main() {
       final retry = await NotificationCenter.instance.emitOncePerDay(
         prefsKey: kGuardKey,
         dayId: kDay,
-        e: _recoveryReady(),
+        e: _dayException(),
       );
       expect(retry, isTrue);
-      expect(sink.shown, ['$kDay:recovery_ready']);
+      expect(sink.shown, ['$kDay:exception']);
       expect(prefs.getString(kGuardKey), kDay);
     });
 
@@ -147,7 +155,7 @@ void main() {
 
       expect(
         await NotificationCenter.instance.emitOncePerDay(
-            prefsKey: kGuardKey, dayId: kDay, e: _recoveryReady()),
+            prefsKey: kGuardKey, dayId: kDay, e: _dayException()),
         isFalse,
       );
       final prefs = await SharedPreferences.getInstance();
@@ -156,7 +164,7 @@ void main() {
       sink.grant = true;
       expect(
         await NotificationCenter.instance.emitOncePerDay(
-            prefsKey: kGuardKey, dayId: kDay, e: _recoveryReady()),
+            prefsKey: kGuardKey, dayId: kDay, e: _dayException()),
         isTrue,
       );
       expect(prefs.getString(kGuardKey), kDay);
@@ -170,12 +178,12 @@ void main() {
 
       expect(
         await NotificationCenter.instance.emitOncePerDay(
-            prefsKey: kGuardKey, dayId: kDay, e: _recoveryReady()),
+            prefsKey: kGuardKey, dayId: kDay, e: _dayException()),
         isTrue,
       );
       expect(
         await NotificationCenter.instance.emitOncePerDay(
-            prefsKey: kGuardKey, dayId: kDay, e: _recoveryReady()),
+            prefsKey: kGuardKey, dayId: kDay, e: _dayException()),
         isFalse,
       );
       expect(sink.shown.length, 1);
@@ -191,18 +199,38 @@ void main() {
 
       expect(
         await NotificationCenter.instance.emitOncePerDay(
-            prefsKey: kGuardKey, dayId: kDay, e: _recoveryReady()),
+            prefsKey: kGuardKey, dayId: kDay, e: _dayException()),
         isFalse,
       );
       expect(
         await NotificationCenter.instance.emitOncePerDay(
             prefsKey: kGuardKey,
             dayId: kTomorrow,
-            e: _recoveryReady(day: kTomorrow)),
+            e: _dayException(day: kTomorrow)),
         isTrue,
       );
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(kGuardKey), kTomorrow);
+    });
+
+    test('a day that has already passed never fires, however unspent its guard',
+        () async {
+      // Notifications denied on the 10th → the guard is deliberately NOT
+      // burned. Band goes in a drawer. Notifications re-enabled on the 16th:
+      // the callers still read the same last row, so without a recency gate
+      // "step goal reached" fires about a day the user wore nothing.
+      SharedPreferences.setMockInitialValues(_quietNever());
+      final sink = _Sink();
+      NotificationCenter.instance.presentSink = sink.call;
+
+      expect(
+        await NotificationCenter.instance.emitOncePerDay(
+            prefsKey: kGuardKey, dayId: kYesterday, e: _dayException(day: kYesterday)),
+        isFalse,
+      );
+      expect(sink.shown, isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kGuardKey), isNull);
     });
   });
 

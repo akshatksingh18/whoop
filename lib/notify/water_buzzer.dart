@@ -1,13 +1,16 @@
 // water_buzzer.dart — fires a strap haptic alongside the hydration reminder.
 //
-// The OS-scheduled water notification (see NotificationCenter) fires even when
-// the app is dead, but a strap buzz needs a live BLE link AND a live Dart
-// isolate — you can't buzz a band that isn't connected. So this is BEST-EFFORT:
-// an in-memory timer (re-armed every app launch, since timers don't persist)
-// that fires at each hydration slot and buzzes ONLY if the band is connected.
+// The reminder is TWO things and this is the weaker half. The OS-scheduled
+// notification (armed in NotificationCenter._armWaterSlots) fires even when the
+// app is dead; a strap buzz needs a live BLE link AND a live Dart isolate — you
+// can't buzz a band that isn't connected. So this is BEST-EFFORT: an in-memory
+// timer (re-armed every app launch, since timers don't persist) that fires at
+// each hydration slot and buzzes ONLY if the band is connected. A missed buzz
+// costs nothing, because the notification is what actually reminds.
 //
-// Slot times come verbatim from NotificationCenter.waterSlotMinutes() so the
-// buzz and the OS notification land at the same wall-clock moment.
+// Slot times come verbatim from NotificationCenter.waterSlotMinutes(), the same
+// list the notification is armed from, so the two land at the same wall-clock
+// minute.
 
 import 'dart:async';
 

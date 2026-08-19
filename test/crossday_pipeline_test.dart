@@ -245,6 +245,28 @@ void main() {
       expect(rhrSeries.length, greaterThanOrEqualTo(10));
     });
 
+    test('every row carries its date, so the CUSUM can align index → day', () {
+      // `DerivationEngine._runNotifications` compacts the null-rhr days out of
+      // this feed and used to fire when the detected change sat at the LAST
+      // INDEX of the compacted series — which is "the most recent day that
+      // happened to have an rhr", not today. It now reads the date at that
+      // index and requires it to equal the day the notification is stamped
+      // with; that is only possible because every row here carries `date`.
+      final days = _synthDays(30);
+      for (var i = 25; i < 30; i++) {
+        days[i]['rhr'] = null; // five days with no nocturnal RHR
+      }
+      final recent = (buildCrossDayBundle(days, const {})['recent'] as List)
+          .cast<Map>();
+      final compactedDates = <String>[
+        for (final r in recent)
+          if (r['rhr'] is num) r['date'] as String,
+      ];
+      expect(compactedDates, isNotEmpty);
+      expect(compactedDates.last, isNot(recent.last['date']),
+          reason: 'the hazard: the last compacted index is five days stale');
+    });
+
     test('a day with no rhr keeps a null rhr (never a fabricated number)', () {
       final days = _synthDays(3);
       days[1]['rhr'] = null;
@@ -324,6 +346,10 @@ void main() {
       expect((recent.last as Map)['date'], lastDate);
       // The resting-HR trend-shift CUSUM reads `rhr` back off these rows.
       expect((recent.last as Map)['rhr'], isNotNull);
+      // ...and the flag rides along with it, so that ALERT consumer can stand
+      // down on a half-drained night while the trend keeps the raw value.
+      expect((recent.last as Map)['unsettled'], isTrue);
+      expect((recent.first as Map)['unsettled'], isFalse);
     });
 
     test('does not drive the illness/anomaly alert', () {
@@ -346,6 +372,233 @@ void main() {
       final bundle = buildCrossDayBundle(_synthDays(30), const {});
       expect((bundle['recent'] as List).length, 30);
       expect(bundle['n_days'], 30);
+    });
+  });
+
+  group("today's readiness is read from the stamp, not the last row", () {
+    // `days` only contains rows that EXIST. On a day whose derive has not run
+    // yet the most recent row is yesterday, so a positional `readyList.last`
+    // built today's strain target out of yesterday's recovery — the exact
+    // imputation `_todayNum`'s doc describes and the comment above the line
+    // already promised not to make.
+    test('no is_today stamp → the strain target is absent', () {
+      final bundle = buildCrossDayBundle(_synthDays(30), const {});
+      expect((bundle['strain_coach'] as Map)['value'], '—');
+    });
+
+    test('with the stamp → the target is built from TODAY', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      final bundle = buildCrossDayBundle(days, const {});
+      expect((bundle['strain_coach'] as Map)['value'], isA<Map>());
+    });
+  });
+
+  group('percentile-of-you is oriented', () {
+    test('a low resting HR reads as good, not as "among your worst"', () {
+      // rhr is LOWER-is-better. Unoriented, the user's lowest resting HR in a
+      // month came back labelled by its raw rank — the wrong end of the scale.
+      final days = _synthDays(30);
+      days.last['rhr'] = 40.0; // well below every other day in the series
+      final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
+          ['rhr'] as Map)['value'] as Map;
+      expect(pct['label'], anyOf('among your best', 'better than usual'));
+    });
+
+    test('a high RMSSD still reads as good (higher-is-better is unchanged)', () {
+      final days = _synthDays(30);
+      days.last['rmssd'] = 120.0;
+      final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
+          ['rmssd'] as Map)['value'] as Map;
+      expect(pct['label'], anyOf('among your best', 'better than usual'));
+    });
+  });
+
+  group('bedtime needs a measured efficiency', () {
+    test('no efficiency history → bedtime and wake are absent, not 88 %', () {
+      // The old `_median(effs) ?? 88.0` was an invented baseline: bedtime is
+      // "wake − need ÷ efficiency", so the substitution moved the recommended
+      // bedtime by real minutes for a user who had never had one measured.
+      final days = _synthDays(30);
+      final coach =
+          (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['bedtime'] as Map)['value'], '—');
+      expect((coach['wake'] as Map)['value'], '—');
+
+      // …and the SAME series with a measured efficiency does produce one, so
+      // the assertion above is about the efficiency and not about `need`.
+      final withEff = _synthDays(30);
+      for (final d in withEff) {
+        d['efficiency'] = 92.0;
+      }
+      final coach2 =
+          (buildCrossDayBundle(withEff, const {})['sleep_coach'] as Map);
+      expect((coach2['bedtime'] as Map)['value'], isA<Map>());
+      expect((coach2['wake'] as Map)['value'], isA<Map>());
+    });
+  });
+
+  // CV-02. VO2max was exactly k/RHR — the resting-HR chart with the wrong
+  // unit on the axis — and fitness age counted the same variable twice, in
+  // the same direction. Both are deleted, not hidden.
+  test('publishes no VO2max and no fitness age', () {
+    final out = buildCrossDayBundle(_synthDays(30), const {
+      'age': 34,
+      'sex': 'm',
+    });
+    expect(out.containsKey('vo2max'), isFalse);
+    expect(out.containsKey('fitness_age'), isFalse);
+  });
+
+  // WH-01. The `luteal` argument was written, typed and never passed, so the
+  // confound branch had never once executed and the flag cried wolf for two
+  // weeks a month.
+  group('the luteal argument reaches the temperature flag', () {
+    // The published row is the LATEST day, which for _synthDays(30) anchored
+    // on 2024-01-01 is 2024-01-30.
+    bool lutealOn(List<String> starts) {
+      final out = buildCrossDayBundle(
+        _synthDays(30),
+        const {},
+        cycleStartDates: starts,
+      );
+      return ((out['temp_illness'] as Map)['luteal'] as bool?) ?? false;
+    }
+
+    test('a day in the second half of its own cycle is marked', () {
+      // Two starts 28 days apart, so the open cycle inherits her median
+      // length; 2024-01-30 is day 30 of a 28-day cycle.
+      expect(lutealOn(const ['2023-12-04', '2024-01-01']), isTrue);
+    });
+
+    test('a day just after a start is not', () {
+      expect(lutealOn(const ['2024-01-01', '2024-01-29']), isFalse);
+    });
+
+    test('with no cycle log nothing is marked — we do not guess', () {
+      expect(lutealOn(const []), isFalse);
+      // One start alone gives no measured length either.
+      expect(lutealOn(const ['2024-01-01']), isFalse);
+    });
+  });
+
+  _wiredFamilies();
+}
+
+// ── the three cross-day families wired in this pass ──────────────────────────
+
+void _wiredFamilies() {
+  group('SLP-08 — the SRI pairs name their two nights', () {
+    test('every emitted pair resolves to the day before and the day itself',
+        () {
+      final days = _synthDays(30);
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      final pairs = (reg['value'] as Map)['pairs'] as List;
+      expect(pairs, isNotEmpty);
+      for (final p in pairs.cast<Map>()) {
+        final i = p['day_index'] as int;
+        // `day_index` indexes the day list and nothing else — the whole reason
+        // it has to be resolved here rather than in the analytics.
+        expect(p['date'], days[i]['date']);
+        expect(p['prev_date'], days[i - 1]['date']);
+      }
+      // A pair's SRI is on the same 200p−100 scale as the headline.
+      expect((pairs.first as Map)['sri'], isA<num>());
+    });
+  });
+
+  group('TS-12 — overreaching as two facts', () {
+    test('the two facts coincide only when BOTH hold', () {
+      // Baseline RHR ~55 for 40 days, then five nights well above it, and a
+      // final week of load far above the 42-day chronic.
+      final days = _synthDays(45);
+      for (var i = 40; i < 45; i++) {
+        days[i]['rhr'] = 70.0;
+        days[i]['trimp'] = 600.0;
+      }
+      final v = ((buildCrossDayBundle(days, const {})['overreaching'] as Map)
+          ['value'] as Map);
+      expect(v['nights_elevated'], 5);
+      expect(v['load_ratio'], greaterThan(1.5));
+      expect(v['both_point_same_way'], isTrue);
+
+      // Same load, ordinary nights: silence, which is the normal state.
+      final quiet = _synthDays(45);
+      for (var i = 40; i < 45; i++) {
+        quiet[i]['trimp'] = 600.0;
+      }
+      final qv = ((buildCrossDayBundle(quiet, const {})['overreaching'] as Map)
+          ['value'] as Map);
+      expect(qv['both_point_same_way'], isFalse);
+    });
+
+    test('it is not a notification: no alert family reads it', () {
+      // _runNotifications collects illness/anomaly/temp_illness only. This is
+      // the structural half of the "no new notification class" rule.
+      final out = buildCrossDayBundle(_synthDays(30), const {});
+      expect(out.containsKey('overreaching'), isTrue);
+      expect((out['illness'] as Map?)?.containsKey('overreaching') ?? false,
+          isFalse);
+    });
+  });
+
+  group('TS-11 — what each session type cost the next morning', () {
+    List<Map<String, dynamic>> covered(int n) {
+      final days = _synthDays(n);
+      for (final d in days) {
+        d['sleep_coverage'] = 0.95;
+      }
+      return days;
+    }
+
+    test('no sessions logged → absent, never an empty-but-confident table', () {
+      final sc = (buildCrossDayBundle(covered(45), const {})['session_cost']
+          as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
+      expect(sc['confidence'], 0);
+    });
+
+    test('a type with ten clean mornings reports a signed median and its n',
+        () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      // Twelve football days, each followed by a morning 6 bpm above baseline.
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football'];
+        days[i + 1]['rhr'] = (days[i + 1]['rhr'] as double) + 6.0;
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      final rows = sc['value'] as List;
+      expect(rows.length, 1);
+      final row = rows.first as Map;
+      expect(row['session_type'], 'football');
+      expect(row['n'], greaterThanOrEqualTo(10));
+      expect(row['median_delta'], greaterThan(4.0));
+    });
+
+    test('a night we barely watched is dropped, not averaged in', () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football'];
+        days[i + 1]['sleep_coverage'] = 0.1;
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
+    });
+
+    test('a day with two sessions belongs to neither type', () {
+      final days = covered(60);
+      final types = <String, List<String>>{};
+      for (var i = 30; i < 54; i += 2) {
+        types[days[i]['date'] as String] = ['football', 'run'];
+      }
+      final sc = (buildCrossDayBundle(days, const {},
+          sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
+      expect(sc['value'], '—');
     });
   });
 }

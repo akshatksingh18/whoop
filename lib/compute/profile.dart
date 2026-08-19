@@ -42,10 +42,17 @@ class Profile {
         if (restingHrManual != null) 'resting_hr': restingHrManual,
       };
 
-  /// Tanaka (2001): HRmax = 208 − 0.7·age. Null when age is unknown — the caller
-  /// must NOT substitute 220−age or any default (that would fabricate a ceiling).
-  double? get hrMaxTanaka =>
-      ageYears == null ? null : 208 - 0.7 * (ageYears!.toDouble());
+  // NO `hrMaxTanaka` HERE. It was `208 − 0.7·age` inlined on the profile, which
+  // made the HR ceiling a property of the ATHLETE alone — and the app then
+  // carried four of them (this one, `220−age` twice, and `(220−age)+25`), so
+  // one user's zone timeline and that same day's session zone bands were banded
+  // off different ceilings with nothing on screen saying so.
+  //
+  // The one definition is `compute/hr_max.dart`'s `estimatedMaxHr(age, family)`
+  // and it takes the STRAP as well: what a band can read at intensity is a
+  // property of its sensor, so an uncalibrated or unstamped strap gets no
+  // ceiling rather than gen4's. Callers resolve it at the layer that knows
+  // which device measured the window and pass it down. (TS-03a)
 
   bool get isComplete =>
       ageYears != null && weightKg != null && heightCm != null && sex != null;

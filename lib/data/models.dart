@@ -62,6 +62,94 @@ class Sample {
   /// never be displayed as one.
   final int? hrAlt;
 
+  /// Ambient-light ADC count — GEN4 ONLY (gen5 sends no per-second equivalent).
+  ///
+  /// Relative, on the user's own scale, forever: never lux, never a daylight
+  /// goal. It measures what the WRIST saw, so the signal is one-sided — bright
+  /// means bright, dark means nothing (a sleeve, a duvet or an arm under the
+  /// pillow reads dark in a floodlit room).
+  ///
+  /// 0 means ABSENT, not dark: the decoder emits 0 for any record version it
+  /// has not confirmed the optical block on. The DB write maps 0 → NULL so an
+  /// unconfirmed record never lands as a real reading of total darkness.
+  final int? ambientRaw;
+
+  /// The gen5 record's SECOND and THIRD temperature channels, °C — GEN5 ONLY.
+  ///
+  /// NOT NAMED AFTER A BODY PART, on purpose and permanently. protocol calls
+  /// their semantics loose; they may be ambient, board, die or battery. Naming
+  /// one of them "core" or "ambient" before anyone has checked is exactly how
+  /// gen4's `skinTempRaw` ended up feeding readiness as a skin temperature.
+  /// Nothing reads these yet — persisting them claims nothing, which is the
+  /// point: it is what makes it possible to find out later whether they mean
+  /// anything at all. Dual-heat-flux core temperature is assumed UNAVAILABLE.
+  final double? tempCh2C;
+  final double? tempCh3C;
+
+  /// The band's own per-second signal-quality figure (log-variance) — GEN5 ONLY.
+  ///
+  /// The band's own scale, so it can only ever be a within-night RANK or a
+  /// weight. Never a percentage, never a bar, never "HRV confidence: 82%".
+  final double? signalQualityLogVar;
+
+  /// Gravity-removed motion magnitude for this second, in g — GEN5 ONLY.
+  ///
+  /// The band's own scalar (protocol: `dynamicAccelerationG`, f32, null when
+  /// the bytes are not a finite in-full-scale value). It is NOT our ENMO and
+  /// must not be substituted for one: we do not know the band's window, its
+  /// filter, or whether it is a mean, an RMS or a peak, so the two are on
+  /// different scales and a swap would move every motion number silently.
+  ///
+  /// Persisting it claims nothing — same contract as [tempCh2C]. It is stored
+  /// so that a later comparison against our own ENMO on the same seconds is
+  /// possible at all; nothing reads it today.
+  final double? dynAccelG;
+
+  /// The record's SUB-SECOND, in units of 1/32768 s — the strap's 32 kHz RTC
+  /// crystal. BOTH GENERATIONS SEND IT (gen4 R24 at inner[11], gen5 v18 at the
+  /// same offset), both decoders have always read it, and until now nothing in
+  /// this app carried it past the decoder: every record was pinned to a whole
+  /// second and every beat inside one shared a millisecond.
+  ///
+  /// It is a real, live field, not padding — measured on the only gen4 frames
+  /// this app still keeps the bytes of (28,395 archived v25 records, which
+  /// share the header): uniformly spread over its whole range, and stepping by
+  /// a stable ~1,268 ticks from one record to the next rather than wandering.
+  /// A coherent clock. NOTE the scope of that measurement: it says the FIELD is
+  /// live and monotone, and it says nothing about any particular record
+  /// version's cadence — a v25 burst record's period is its own.
+  ///
+  /// Null means the record carried none (the gen4 R10-lite path, and any
+  /// external sensor), never zero — 0 is a legitimate sub-second.
+  final int? tsSubsec;
+
+  /// The band's own coarse wake/sleep state for this second — GEN5/MG ONLY.
+  /// Stored as protocol's raw 2-bit code: 0 wake, 1 still, 2 sleep, 3 up.
+  ///
+  /// CORROBORATION, NEVER A STAGE. protocol is explicit that it is an ENVELOPE:
+  /// deep, light and REM all read `sleep`, so it carries no in-sleep structure
+  /// and cannot improve a hypnogram. It also lags true onset by roughly ten
+  /// minutes — the band wants a sustained stretch of stillness before it
+  /// commits — so it must never be differenced against our own onset and read
+  /// as an error.
+  ///
+  /// WHAT IT IS FOR is the one thing this stack has never had: an OUTSIDE
+  /// OPINION on sleep. Staging here is single-source, and when our window and
+  /// the band's disagree there is currently no way to even see it.
+  ///
+  /// THE EVIDENCE THAT IT IS REAL. Decoded off 1,035 archived gen5 records: all
+  /// four codes occur (wake 1,003, sleep 20, up 8, still 4), so it is neither
+  /// constant nor a sentinel; median heart rate orders wake 119 > up 90 >
+  /// still 82 > sleep 70, which is the physiological ordering the codes claim
+  /// rather than an arbitrary one; and the transitions respect the documented
+  /// topology — `still` appears only between wake and sleep, `up` only after
+  /// sleep. (Those records are the ARCHIVE, a biased sample, so the counts are
+  /// not a population; the ordering is the claim.)
+  ///
+  /// Nothing reads it. Persisting it claims nothing — same contract as
+  /// [tempCh2C] and [dynAccelG].
+  final int? bandSleepState;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -80,6 +168,13 @@ class Sample {
     this.onWrist,
     this.hrValid,
     this.hrAlt,
+    this.ambientRaw,
+    this.tempCh2C,
+    this.tempCh3C,
+    this.signalQualityLogVar,
+    this.dynAccelG,
+    this.tsSubsec,
+    this.bandSleepState,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -104,6 +199,13 @@ class Sample {
     onWrist: onWrist,
     hrValid: hrValid,
     hrAlt: hrAlt,
+    ambientRaw: ambientRaw,
+    tempCh2C: tempCh2C,
+    tempCh3C: tempCh3C,
+    signalQualityLogVar: signalQualityLogVar,
+    dynAccelG: dynAccelG,
+    tsSubsec: tsSubsec,
+    bandSleepState: bandSleepState,
   );
 
   bool get wristOn => hr > 0;
@@ -142,6 +244,14 @@ class Sample {
       onWrist: (m['on_wrist'] as num?)?.toInt(),
       hrValid: valid == null ? null : valid != 0,
       hrAlt: (m['hr_alt'] as num?)?.toInt(),
+      // Already 0-mapped-to-NULL on the way in, so a stored value is a reading.
+      ambientRaw: (m['ambient_raw'] as num?)?.toInt(),
+      tempCh2C: (m['temp_ch2_c'] as num?)?.toDouble(),
+      tempCh3C: (m['temp_ch3_c'] as num?)?.toDouble(),
+      signalQualityLogVar: (m['signal_quality_logvar'] as num?)?.toDouble(),
+      dynAccelG: (m['dyn_accel_g'] as num?)?.toDouble(),
+      tsSubsec: (m['ts_subsec'] as num?)?.toInt(),
+      bandSleepState: (m['band_sleep_state'] as num?)?.toInt(),
     );
   }
 }
@@ -238,8 +348,13 @@ class DeviceState {
   /// MarginalRadioDetector tripped: the BT radio can't sustain the R10/R11 raw
   /// stream — next connect should stick to standard HR only.
   bool standardHrFallback = false;
-  /// PostBondTimeoutLoopDetector tripped (#617): bond-then-instant-timeout loop —
-  /// surface the re-pair guide to the user.
+  /// PostBondTimeoutLoopDetector tripped (#617), or a createBond() refusal:
+  /// surface the re-pair guide to the user. Cleared by the first command the
+  /// band actually answers — the direct contradiction of "encryption is
+  /// blocking traffic". It used to be clearable only inside
+  /// refreshAutoReconnectPause, i.e. only when the bond refusals had ALSO
+  /// paused auto-reconnect, so in every other case a working band kept telling
+  /// the user to forget the bond for the rest of the process.
   bool needsRepairGuide = false;
   /// Monotonic count of bond REFUSALS this process (the createBond call the band
   /// rejects — link reachable but encryption denied). AppState feeds the delta
@@ -257,6 +372,14 @@ class DeviceState {
   /// StuckStrapDetector tripped: frontier frozen while the strap is ahead — a
   /// defensive reboot/clock-reset was attempted.
   bool strapNeedsReboot = false;
+  /// A HISTORY_END batch token has failed its ACK write enough times ACROSS
+  /// reconnects to be quarantined. The data is safe (committed before the ACK
+  /// was ever attempted); what this means is that the band has not been told it
+  /// may trim, so it re-delivers the same batch. The link is no longer bounced
+  /// on that token — bouncing forever was the "Groundhog Day" signature: the
+  /// band re-delivers, the app reconnects, the battery drains, and the user saw
+  /// a sync that never finished with no explanation.
+  bool syncChunkQuarantined = false;
   /// Strap's own banked-data window from GET_DATA_RANGE (unix sec), for the
   /// session-relative plausibility gate + the UI's "history available" readout.
   int? dataRangeOldest;

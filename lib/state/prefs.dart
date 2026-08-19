@@ -53,6 +53,11 @@ class Prefs {
   static const String backupCadence = 'backup.cadence';
   static const String backupLastRunMs = 'backup.last_run_ms';
 
+  /// Developer mode. Off unless somebody deliberately turned it on — it is a
+  /// tool for us, not a feature, so it has no switch in the normal settings
+  /// list and nothing reads it except the surfaces it reveals.
+  static const String devMode = 'dev.mode';
+
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.
   static String metricTab(String metric) => 'ui.metric_tab.$metric';

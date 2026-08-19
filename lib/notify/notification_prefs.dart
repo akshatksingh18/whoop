@@ -12,9 +12,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_event.dart';
 
 class NotificationPrefs {
+  /// The day's aggregated health exception (illness, unusual physiology,
+  /// elevated temperature, an irregular-rhythm screen, low readiness, a shifted
+  /// resting-HR trend — one notification, not six).
   final bool healthEnabled;
+
+  /// Retained for storage compatibility. Nothing on the `recovery` channel is
+  /// one of the three sanctioned classes any more — see [classOf].
   final bool recoveryEnabled;
+
+  /// The weekly lookback.
   final bool remindersEnabled;
+
+  /// The band's own failures: flat battery, on the charger, gone quiet. This
+  /// used to be hard-coded enabled with no switch anywhere.
+  final bool deviceEnabled;
 
   /// Quiet window as minutes-from-midnight. Wraps midnight when start > end
   /// (e.g. 22:00–07:00 → start=1320, end=420).
@@ -25,17 +37,16 @@ class NotificationPrefs {
   /// When true, NotifPriority.critical events fire even inside quiet hours.
   final bool criticalOverridesQuiet;
 
-  /// Hydration reminder: a recurring "drink water" nudge fired every
-  /// [waterIntervalMin] minutes across the user's waking window (i.e. outside
-  /// quiet hours). Opt-in; lives under the Reminders category, so it also obeys
-  /// the master reminders toggle.
+  /// Water reminder: a recurring strap buzz across the waking window, every
+  /// [waterIntervalMin] minutes. It is a nudge to LOG a drink and nothing more
+  /// — the app measures no hydration and claims none. Opt-in, off by default.
   final bool waterEnabled;
 
-  /// How often the water reminder fires, in minutes. User-modifiable; clamped to
+  /// How often the water buzz fires, in minutes. Clamped to
   /// [waterIntervalMinAllowed]..[waterIntervalMaxAllowed] when scheduling.
   final int waterIntervalMin;
 
-  /// Allowed bounds for the hydration interval (30 min .. 6 h).
+  /// Allowed bounds for the water interval (30 min .. 6 h).
   static const int waterIntervalMinAllowed = 30;
   static const int waterIntervalMaxAllowed = 360;
 
@@ -43,6 +54,7 @@ class NotificationPrefs {
     this.healthEnabled = true,
     this.recoveryEnabled = true,
     this.remindersEnabled = true,
+    this.deviceEnabled = true,
     this.quietEnabled = true,
     this.quietStartMin = 22 * 60, // 22:00
     this.quietEndMin = 7 * 60, // 07:00
@@ -54,6 +66,7 @@ class NotificationPrefs {
   static const _kHealth = 'notif_health';
   static const _kRecovery = 'notif_recovery';
   static const _kReminders = 'notif_reminders';
+  static const _kDevice = 'notif_device';
   static const _kQuietEnabled = 'notif_quiet_enabled';
   static const _kQuietStart = 'notif_quiet_start';
   static const _kQuietEnd = 'notif_quiet_end';
@@ -67,6 +80,7 @@ class NotificationPrefs {
       healthEnabled: p.getBool(_kHealth) ?? true,
       recoveryEnabled: p.getBool(_kRecovery) ?? true,
       remindersEnabled: p.getBool(_kReminders) ?? true,
+      deviceEnabled: p.getBool(_kDevice) ?? true,
       quietEnabled: p.getBool(_kQuietEnabled) ?? true,
       quietStartMin: p.getInt(_kQuietStart) ?? 22 * 60,
       quietEndMin: p.getInt(_kQuietEnd) ?? 7 * 60,
@@ -81,6 +95,7 @@ class NotificationPrefs {
     await p.setBool(_kHealth, healthEnabled);
     await p.setBool(_kRecovery, recoveryEnabled);
     await p.setBool(_kReminders, remindersEnabled);
+    await p.setBool(_kDevice, deviceEnabled);
     await p.setBool(_kQuietEnabled, quietEnabled);
     await p.setInt(_kQuietStart, quietStartMin);
     await p.setInt(_kQuietEnd, quietEndMin);
@@ -93,6 +108,7 @@ class NotificationPrefs {
     bool? healthEnabled,
     bool? recoveryEnabled,
     bool? remindersEnabled,
+    bool? deviceEnabled,
     bool? quietEnabled,
     int? quietStartMin,
     int? quietEndMin,
@@ -104,6 +120,7 @@ class NotificationPrefs {
         healthEnabled: healthEnabled ?? this.healthEnabled,
         recoveryEnabled: recoveryEnabled ?? this.recoveryEnabled,
         remindersEnabled: remindersEnabled ?? this.remindersEnabled,
+        deviceEnabled: deviceEnabled ?? this.deviceEnabled,
         quietEnabled: quietEnabled ?? this.quietEnabled,
         quietStartMin: quietStartMin ?? this.quietStartMin,
         quietEndMin: quietEndMin ?? this.quietEndMin,
@@ -117,7 +134,7 @@ class NotificationPrefs {
         NotifCategory.health => healthEnabled,
         NotifCategory.recovery => recoveryEnabled,
         NotifCategory.reminders => remindersEnabled,
-        NotifCategory.device => true, // device alerts aren't user-gated here
+        NotifCategory.device => deviceEnabled,
       };
 
   /// True if [minuteOfDay] falls inside the quiet window (inclusive start,
@@ -133,7 +150,17 @@ class NotificationPrefs {
   }
 
   /// The central gate: should this event be presented to the OS right now?
+  ///
+  /// This is also where the three-class rule is enforced — one gate rather than
+  /// a check at each of the emit sites, which is how twenty-two kinds accreted
+  /// in the first place.
   bool shouldFireOs(NotifEvent event, int minuteOfDay) {
+    final klass = classOf(event);
+    if (klass == null) return false; // not one of the three — never fires
+    // The alarm is the one thing quiet hours must not silence: the user armed
+    // it FOR a time, usually inside the quiet window, and its off switch is
+    // cancelling the alarm rather than a preference buried in settings.
+    if (klass == NotifClass.alarm) return true;
     if (!categoryEnabled(event.category)) return false;
     if (inQuietHours(minuteOfDay)) {
       return event.priority == NotifPriority.critical && criticalOverridesQuiet;

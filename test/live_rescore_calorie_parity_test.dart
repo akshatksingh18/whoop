@@ -68,6 +68,7 @@ LiveWorkoutState _run(
     startTime: _startedAt,
     targetKcal: 300,
     profile: _profile,
+    hrMax: _hrMax,
     restingHr: restingHr,
   );
   for (var i = 0; i < hr.length; i++) {
@@ -90,7 +91,7 @@ double _rescore(List<int> hr, {int stepSec = 1}) {
     hrTs: [for (var i = 0; i < hr.length; i++) base + i * stepSec],
     hrBpm: hr,
     profile: _profile,
-    zoneMaxHr: _hrMax,
+    hrMax: _hrMax,
     restingHr: _restingHr,
   );
   return s.calories!;
@@ -155,6 +156,7 @@ void main() {
       startTime: _startedAt,
       targetKcal: 300,
       profile: _profile,
+      hrMax: _hrMax,
       restingHr: null,
     );
     for (var i = 0; i < 300; i++) {
@@ -308,6 +310,7 @@ void main() {
       startTime: _startedAt,
       targetKcal: 300,
       profile: _profile,
+      hrMax: _hrMax,
       restingHr: _restingHr,
     );
     for (var i = 0; i < 60; i++) {
@@ -327,6 +330,7 @@ void main() {
       startTime: _startedAt,
       targetKcal: 300,
       profile: const Profile(weightKg: 72, sex: 'm'), // no age
+      hrMax: null, // no age ⇒ no ceiling (TS-03a)
       restingHr: _restingHr,
     );
     for (var i = 0; i < 60; i++) {

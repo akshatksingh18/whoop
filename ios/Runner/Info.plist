@@ -71,8 +71,21 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<!-- Steps are NOT read from Apple Health any more: that number is the sum of
+	     every app that writes steps, and OpenStrap will not put a figure it
+	     cannot attribute into one of its own. Steps come from this iPhone's
+	     motion chip instead (NSMotionUsageDescription below). Do not put the
+	     step clause back into this string — it is review-visible, and it would
+	     be describing something the app no longer does. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>OpenStrap reads your step count from Apple Health to show your daily steps, and reads back its own recent samples so it never writes duplicates.</string>
+	<string>OpenStrap reads your height, weight, date of birth and sex to set up your profile; your resting heart rate so it has a starting baseline; any blood pressure, blood glucose or body temperature readings, so a device that is cleared to measure those can sit beside your own data with that device's name on it — never blended into an OpenStrap number; and your workouts and their routes, so a run recorded by another app can be listed and drawn on a map here, named with the app that recorded it and never counted as one OpenStrap measured. It also reads back its own recent samples so it never writes duplicates.</string>
+	<!-- REQUIRED, not optional: Apple documents that calling CoreMotion without
+	     this key CRASHES the app. See ios/Runner/AppDelegate.swift
+	     (PedometerBridge). -->
+	<key>NSMotionUsageDescription</key>
+	<string>OpenStrap counts your daily steps from this iPhone's own motion chip, because a band on your wrist cannot tell walking from stirring a pot, and the phone in your pocket can. It reads step counts only — never your location or anything else the motion chip records — and only the last few days of them. Your steps stay on this device and are never uploaded.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>OpenStrap uses the camera to read the barcode on a food packet, so logging a meal does not mean typing its nutrition panel out by hand. It reads the barcode digits and nothing else — no photo is taken, kept, or sent anywhere.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

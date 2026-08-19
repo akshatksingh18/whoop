@@ -166,6 +166,56 @@ void main() {
       expect(line[daily.columns.indexOf('hrv')], '');
       expect(line[daily.columns.indexOf('resting_hr')], '52');
     });
+
+    test('the cycle set carries symptom-only days, not just period starts',
+        () async {
+      final db = await LocalDb.instance;
+      // Two independent writers: _logStart writes cycle_log, _toggleSymptom
+      // writes cycle_symptom. A LEFT JOIN off cycle_log dropped every day that
+      // only ever had symptoms.
+      await db.insert('cycle_log',
+          {'date': '2026-04-01', 'kind': 'start', 'note': ''});
+      await db.insert('cycle_symptom', {
+        'date': '2026-04-05',
+        'symptoms_json': '["cramps","headache"]',
+        'note': 'rough one',
+        'updated_at': 1,
+      });
+
+      final cycle = kCsvExportSets.firstWhere((s) => s.name == 'cycle');
+      final rows = await db.rawQuery(cycle.sql);
+      expect(rows.map((r) => r['date']), ['2026-04-01', '2026-04-05']);
+      final symptomOnly = rows.last;
+      expect(symptomOnly['kind'], '');
+      expect(symptomOnly['note'], 'rough one');
+      expect(symptomOnly['symptoms'], '["cramps","headache"]');
+    });
+
+    test('the journal set exports tags as a list, not the JSON document',
+        () async {
+      final db = await LocalDb.instance;
+      await db.insert('journal', {
+        'date': '2026-04-09',
+        'tags_json': '["stressed","alcohol"]',
+        'note': 'late night',
+        'updated_at': 1,
+      });
+      await db.insert('journal', {
+        'date': '2026-04-10',
+        'tags_json': 'not json',
+        'note': '',
+        'updated_at': 1,
+      });
+
+      final journal = kCsvExportSets.firstWhere((s) => s.name == 'journal');
+      final rows = await db.rawQuery(journal.sql);
+      final tagged = rows.firstWhere((r) => r['date'] == '2026-04-09');
+      expect(tagged['tags'], 'stressed; alcohol');
+      // A malformed doc costs the reader nothing — it comes through verbatim
+      // rather than taking the row (or the whole set) down.
+      final broken = rows.firstWhere((r) => r['date'] == '2026-04-10');
+      expect(broken['tags'], 'not json');
+    });
   });
 
   group('formula injection', () {

@@ -28,8 +28,11 @@ import '../data/db.dart';
 /// Releases build (.github/workflows/build.yml, both android + ios jobs) —
 /// but "ON" here only means the feature EXISTS in that binary; actual
 /// upload additionally requires the user to explicitly flip the in-app
-/// toggle, which defaults off and is itself hidden whenever this flag is
-/// false. Uploading someone's entire raw + derived health history to a
+/// toggle ("Contribute my health data", Settings › Privacy), which defaults
+/// off. That row is hidden when this flag is false EXCEPT when the pref is
+/// already true — an install that consented under an older build must be
+/// able to withdraw it, and a hidden toggle is not a withdrawable consent.
+/// Uploading someone's entire raw + derived health history to a
 /// backend is by far the biggest privacy/compliance surface this app could
 /// have, so keep the App Store/Play Store channel's "we do not collect
 /// your health data" promise (docs/privacy.html) true by construction of
@@ -58,6 +61,21 @@ class HealthUploader {
   int consentVersion = 1;
 
   bool _running = false;
+
+  /// When a full-.db upload last actually happened, or null if never.
+  ///
+  /// Someone switching this off is owed the answer to "what did you already
+  /// send?", and a settings toggle that cannot answer it is asking them to
+  /// take the app's word for it.
+  Future<DateTime?> lastUploadAt() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sec = prefs.getInt(_kLastUpload) ?? 0;
+      return sec == 0 ? null : DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Attempt an upload if [consented] AND on Wi-Fi AND charging AND >24h since the
   /// last one. Returns true if an upload actually happened.

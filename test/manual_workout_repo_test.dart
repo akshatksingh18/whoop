@@ -49,11 +49,20 @@ RawRecord _raw(int ts, int counter) => RawRecord(
 /// Lay down 1 Hz HR at [hr] bpm for [seconds] starting at [start].
 /// One row per 10 s keeps the fixture small; the estimators weight each sample
 /// by the elapsed gap, so the window is still covered end to end.
-Future<void> _seedHr(int start, int seconds, int hr) async {
+/// STAMPED gen4: since TS-03a the zone ceiling comes from `estimatedMaxHr(age,
+/// family)`, so an UNSTAMPED window scores nothing at all — which is the
+/// honest answer for an import or a pre-v41 row, and not what this fixture is
+/// about. `commitSyncBatch` is the seam that carries the stamp.
+Future<void> _seedHr(int start, int seconds, int hr,
+    {String? deviceFamily = 'gen4'}) async {
+  final raws = <RawRecord>[];
+  final samples = <Sample?>[];
   for (var i = 0; i < seconds; i += 10) {
     final ts = start + i;
-    await LocalDb.insertRecord(_raw(ts, ts), _sample(ts, ts, hr));
+    raws.add(_raw(ts, ts));
+    samples.add(_sample(ts, ts, hr));
   }
+  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: deviceFamily);
 }
 
 void main() {
@@ -104,6 +113,36 @@ void main() {
       // getWorkout's on-read enrichment fills the detail screen's chart.
       expect((w['hr'] as List?) ?? const [], isNotEmpty);
       expect((w['zone_bands'] as List?) ?? const [], isNotEmpty);
+    },
+  );
+
+  test(
+    'an UNSTAMPED window still scores off the AGE estimate',
+    () async {
+      // REVERSAL of the TS-03a over-application. The ceiling here is Tanaka
+      // `208 − 0.7·age` — a population regression that reads no sensor — so an
+      // unstamped window (every pre-schema-41 row, every import, every raw
+      // replay) is banded on it exactly as a stamped one is. Gating it on
+      // `device_family` cost zones/strain/calories on a user's whole history
+      // for a number the strap cannot move.
+      //
+      // What DOES still refuse for an unstamped strap is the ceiling the band
+      // MEASURED (analytics `observed_max_hr.dart`, whose motion-corroboration
+      // floor is 0.10 g on gen4 and 0.04 g on gen5) — see the seam's own tests.
+      const unstampedStart = 1_700_100_000;
+      await _seedHr(unstampedStart, 3600, 150, deviceFamily: null);
+
+      final res = await repo.logManualWorkout(
+        startTs: unstampedStart,
+        endTs: unstampedStart + 3600,
+        type: 'run',
+      );
+      final w = await repo.getWorkout(res['workout_id'] as String);
+      expect(w['avg_hr'], 150);
+      expect(w['strain'], isNotNull);
+      expect(w['calories'], isNotNull);
+      expect((w['zone_bands'] as List?) ?? const [], isNotEmpty);
+      expect((w['zone_min'] as List?) ?? const [], isNotEmpty);
     },
   );
 

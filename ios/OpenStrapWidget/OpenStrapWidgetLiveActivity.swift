@@ -37,10 +37,16 @@ struct OpenStrapWidgetAttributes: ActivityAttributes {
   var targetKcal: Int
 }
 
-// MARK: - Palette (Ember on Paper / Char, clay)
+// MARK: - Palette (lib/ui2/theme.dart, clay)
 // Mirrors the app's in-app appearance via the shared App Group flag "theme_dark"
 // (which already accounts for an OS-overriding choice). The clay surface + ink
-// flip; the ember coral + zone accents stay constant in both modes.
+// flip; the accents stay constant in both modes.
+//
+// ui2 tokens, not the retired lib/theme/tokens.dart ones. The clay surface is
+// `P.card` over a `P.card2` sunk well; live HR carries the Heart domain accent
+// (`C.red`, as on the phone's Heart-rate card) and strain the Movement one
+// (`C.purple`). Accent TEXT uses the `P.on()`-solved variant, accent FILL the
+// `P.fill()` one — see the note at the top of OpenStrapWidget.swift.
 
 private let kAppGroup = AppGroup.identifier
 
@@ -52,11 +58,27 @@ private extension Color {
 
 private struct Pal {
   let clayPaper: Color, claySunk: Color, ink: Color, inkMuted: Color
+  /// `P.on(C.red)` / `P.on(C.purple)` — the accents as TEXT on this surface.
+  let onHeart: Color, onMove: Color
+  /// The five HR-zone bands as ui2 draws them: `ZoneBar.pigment` run through
+  /// `P.on` (lib/ui2/charts.dart:729-733), because raw zone 1 measured 1.80:1
+  /// on a light card and read as a pale smear.
+  let zones: [Color]
   let isDark: Bool
-  static let light = Pal(clayPaper: Color(246, 242, 236), claySunk: Color(232, 226, 217),
-                         ink: Color(26, 23, 20), inkMuted: Color(150, 142, 131), isDark: false)
-  static let dark  = Pal(clayPaper: Color(32, 28, 23), claySunk: Color(46, 40, 32),
-                         ink: Color(241, 236, 227), inkMuted: Color(126, 116, 102), isDark: true)
+  static let light = Pal(clayPaper: Color(0xFF, 0xFF, 0xFF), claySunk: Color(0xF1, 0xF5, 0xF9),
+                         ink: Color(0x0F, 0x17, 0x2A), inkMuted: Color(0x62, 0x71, 0x88),
+                         onHeart: Color(0xB9, 0x39, 0x3E), onMove: Color(0x74, 0x4E, 0xCF),
+                         zones: [Color(0x51, 0x6E, 0x95), Color(0x30, 0x65, 0xC1),
+                                 Color(0x1A, 0x79, 0x48), Color(0xA5, 0x52, 0x1D),
+                                 Color(0xB9, 0x39, 0x3E)],
+                         isDark: false)
+  static let dark  = Pal(clayPaper: Color(0x15, 0x1C, 0x26), claySunk: Color(0x1D, 0x26, 0x32),
+                         ink: Color(0xF1, 0xF5, 0xF9), inkMuted: Color(0x7F, 0x8D, 0xA0),
+                         onHeart: Color(0xEF, 0x73, 0x73), onMove: Color(0xA9, 0x89, 0xF6),
+                         zones: [Color(0x93, 0xC5, 0xFD), Color(0x68, 0x9F, 0xF7),
+                                 Color(0x22, 0xC5, 0x5E), Color(0xF8, 0x7F, 0x2A),
+                                 Color(0xEF, 0x73, 0x73)],
+                         isDark: true)
   static var current: Pal {
     (UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false)
       ? .dark : .light
@@ -68,18 +90,17 @@ private extension Color {
   static var claySunk: Color { Pal.current.claySunk }
   static var ink: Color { Pal.current.ink }
   static var inkMuted: Color { Pal.current.inkMuted }
-  static let coral      = Color(255, 90, 54)
-  static let coralDeep  = Color(232, 67, 31)
+  /// The raw Heart pigment, for glyphs and arcs (non-text UI).
+  static let heart = Color(0xEF, 0x44, 0x44)
+  /// `P.fill(C.red)` — darkened until white on it clears AA. Buttons, tints.
+  static let heartFill = Color(0xD8, 0x3D, 0x3D)
+  static var onHeart: Color { Pal.current.onHeart }
+  static var onMove: Color { Pal.current.onMove }
 }
 
-private let zonePalette: [Color] = [
-  Color(124, 168, 240), // Z1 blue
-  Color(43, 182, 115),  // Z2 green
-  Color(255, 90, 54),   // Z3 coral
-  Color(232, 67, 31),   // Z4 deep
-  Color(229, 72, 77),   // Z5 red
-]
-private func zoneColor(_ z: Int) -> Color { (z >= 1 && z <= 5) ? zonePalette[z - 1] : .inkMuted }
+private func zoneColor(_ z: Int) -> Color {
+  (z >= 1 && z <= 5) ? Pal.current.zones[z - 1] : .inkMuted
+}
 
 // MARK: - Claymorphic surface
 
@@ -110,9 +131,9 @@ private struct PulseHeart: View {
   var body: some View {
     if #available(iOSApplicationExtension 17.0, *) {
       Image(systemName: "heart.fill").font(.system(size: size))
-        .foregroundStyle(Color.coral).symbolEffect(.pulse, options: .repeating)
+        .foregroundStyle(Color.heart).symbolEffect(.pulse, options: .repeating)
     } else {
-      Image(systemName: "heart.fill").font(.system(size: size)).foregroundStyle(Color.coral)
+      Image(systemName: "heart.fill").font(.system(size: size)).foregroundStyle(Color.heart)
     }
   }
 }
@@ -132,10 +153,13 @@ private struct ZoneBar: View {
   }
 }
 
-private func hrText(_ v: Int) -> String { v > 0 ? "\(v)" : "—" }
-// Unscored sessions push null rather than 0 — render the absence.
-private func strainText(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "—" }
-private func kcalText(_ v: Int?) -> String { v.map { "\($0)" } ?? "—" }
+// "" = nothing measured. A bare em-dash is the one rendering the phone's
+// grammar forbids outright (lib/ui2/grammar.dart:566-568), and it forbids it
+// here too: the lock screen dims the slot instead. Unscored sessions push null
+// rather than 0, so absence arrives as absence and stays that way.
+private func hrText(_ v: Int) -> String { v > 0 ? "\(v)" : "" }
+private func strainText(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "" }
+private func kcalText(_ v: Int?) -> String { v.map { "\($0)" } ?? "" }
 
 // MARK: - Finish (interactive, iOS 17+)
 
@@ -169,8 +193,8 @@ private struct LockScreenView: View {
         }
         Spacer()
         HStack(spacing: 14) {
-          stat("STRAIN", strainText(s.strain), .coralDeep)
-          stat("KCAL", kcalText(s.calories), .coral)
+          stat("STRAIN", strainText(s.strain), .onMove)
+          stat("KCAL", kcalText(s.calories), .onHeart)
         }
       }
       VStack(alignment: .leading, spacing: 5) {
@@ -191,6 +215,7 @@ private struct LockScreenView: View {
     VStack(spacing: 1) {
       Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(c)
         .contentTransition(.numericText())
+        .opacity(value.isEmpty ? 0.4 : 1)
       Text(label).font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(Color.inkMuted)
     }
   }
@@ -202,7 +227,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: OpenStrapWidgetAttributes.self) { context in
       LockScreenView(context: context)
-        .activitySystemActionForegroundColor(Color.coralDeep)
+        .activitySystemActionForegroundColor(Color.heartFill)
     } dynamicIsland: { context in
       let s = context.state
       return DynamicIsland {
@@ -217,7 +242,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
           VStack(alignment: .trailing, spacing: 0) {
             Text(strainText(s.strain))
               .font(.system(size: 20, weight: .bold, design: .rounded))
-              .foregroundStyle(Color.coral).contentTransition(.numericText())
+              .foregroundStyle(Color.onMove).contentTransition(.numericText())
             Text("STRAIN").font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
           }
         }
@@ -229,12 +254,15 @@ struct OpenStrapWidgetLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           HStack(spacing: 10) {
             ZoneBar(zone: s.zone)
-            Text("\(kcalText(s.calories)) kcal").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            // Absent stays absent: a bare " kcal" with nothing in front of it
+            // is the unit claiming a measurement we don't have. The lock
+            // screen dims the empty slot; here the whole label goes.
+            Text(s.calories.map { "\($0) kcal" } ?? "").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             if #available(iOSApplicationExtension 17.0, *) {
               Button(intent: EndSessionIntent()) {
                 Image(systemName: "stop.fill").font(.system(size: 12, weight: .bold))
               }
-              .tint(Color.coralDeep).buttonBorderShape(.capsule)
+              .tint(Color.heartFill).buttonBorderShape(.capsule)
             }
           }.padding(.top, 2)
         }
@@ -247,9 +275,9 @@ struct OpenStrapWidgetLiveActivity: Widget {
         Text(s.zone >= 1 ? "Z\(s.zone)" : "·")
           .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(zoneColor(s.zone))
       } minimal: {
-        Text(hrText(s.hr)).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.coral)
+        Text(hrText(s.hr)).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.heart)
       }
-      .keylineTint(Color.coral)
+      .keylineTint(Color.heart)
     }
   }
 }

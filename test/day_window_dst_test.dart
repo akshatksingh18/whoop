@@ -23,6 +23,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
+    show lastSevenDays;
 
 typedef _SetenvNative = Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Int32);
 typedef _SetenvDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int);
@@ -192,6 +194,26 @@ void main() {
         isEmpty,
         reason: 'the last local hour of the day belongs to that day',
       );
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'the daily-load week keeps one slot per calendar day over a spring-forward',
+    () {
+      // The day after the transition: `end - Sunday` is 23 h of wall clock,
+      // which `Duration.inDays` floored to 0, so Sunday landed in Monday's
+      // slot and Monday overwrote it — one bar missing, one slot empty, and a
+      // footnote saying six of seven days produced a figure when seven did.
+      final end = DateTime(2026, 3, 9); // Monday, the day after
+      final points = [
+        for (var i = 6; i >= 0; i--)
+          {
+            't': DateTime(2026, 3, 9 - i, 12).millisecondsSinceEpoch ~/ 1000,
+            'v': (9 - i).toDouble(),
+          },
+      ];
+      expect(lastSevenDays(points, end), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     },
     skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
   );

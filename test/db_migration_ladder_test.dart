@@ -17,6 +17,8 @@
 // mid-copy orphaned `<table>_legacy` forever and silently lost the resumable-sync
 // cursor (strap_trim / counter_hw / rec_ts_hw).
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -97,6 +99,30 @@ const _v5DerivedDdl = [
 ''',
 ];
 
+/// One REAL 89-byte gen4 v24 historical record, hex-encoded — the shape
+/// `_backfillDecodedStore` replays out of `raw_records` at ladder step 19.
+///
+/// The old seed here was `deadbeef`, which decodes to nothing, so the backfill
+/// queued zero writes and the step-19 brick never fired in the test.
+String _v24RecordHex({
+  required int counter,
+  required int tsEpoch,
+  required int hr,
+  int rrMs = 850,
+}) {
+  final b = Uint8List(89);
+  final v = ByteData.view(b.buffer);
+  b[0] = 0x2f; // historical data
+  b[1] = 24; // v24 field map (trusted — no plausibility gate)
+  v.setUint32(3, counter, Endian.little);
+  v.setUint32(7, tsEpoch, Endian.little);
+  b[17] = hr;
+  b[18] = 1; // rr_count
+  v.setInt16(19, rrMs, Endian.little);
+  // accel float32s at 36/40/44 stay 0.0 — finite, which is all v24 requires.
+  return [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
+}
+
 Future<String> _dbPath(String name) async =>
     p.join(await databaseFactory.getDatabasesPath(), name);
 
@@ -128,8 +154,17 @@ Future<void> _seedOldDb(
 /// resulting user_version.
 Future<int> _openThroughLocalDb(String name) async {
   await LocalDb.close();
+  LocalDb.lastRebuild = null;
   LocalDb.dbName = name;
   final db = await LocalDb.instance;
+  // THE LADDER, not the safety net. A step that throws rolls the whole
+  // exclusive transaction back and `_openOrRebuild` quarantines the file and
+  // starts a fresh one — which still ends up at the current schema version, so
+  // every `expect(version, schemaVersion)` below passes either way. Without
+  // this, a test in here can go green on the recovery path for a bricked rung.
+  expect(LocalDb.lastRebuild, isNull,
+      reason: 'the upgrade bricked and fell back to quarantine-and-rebuild: '
+          '${LocalDb.lastRebuild?.cause}');
   final rows = await db.rawQuery('PRAGMA user_version');
   return (rows.first.values.first as num?)?.toInt() ?? -1;
 }
@@ -199,6 +234,24 @@ void main() {
             'captured_at': 1780000000 * 1000,
             'rec_ts': 0,
           });
+          // …and a record that ACTUALLY DECODES, so step 19's backfill really
+          // writes through _queueDecodedOneHz. With only the undecodable row
+          // above, the backfill queued nothing and the step-19 brick (the
+          // re-key dropping step_count/… out from under the insert that names
+          // them) never fired.
+          for (var i = 0; i < 2; i++) {
+            await db.insert('raw_records', {
+              'hex': _v24RecordHex(
+                counter: 4200 + i,
+                tsEpoch: 1785000000 + i,
+                hr: 61 + i,
+              ),
+              'counter': 4200 + i,
+              'packet_type': 47,
+              'captured_at': (1785000000 + i) * 1000,
+              'rec_ts': 1785000000 + i,
+            });
+          }
           await db.insert('derived_day', {
             'date': '2026-05-05',
             'payload_json': '{"legacy": true}',
@@ -227,6 +280,20 @@ void main() {
       final cols = await db.rawQuery('PRAGMA table_info(sessions)');
       expect(cols.where((c) => c['name'] == 'steps').length, 1);
       expect(cols.where((c) => c['name'] == 'hrr_bpm').length, 1);
+
+      // Step 19's backfill landed. Before the fix this threw `no such column:
+      // step_count` — the rung's own re-key had just rebuilt decoded_onehz
+      // without the band columns the backfill's insert names.
+      final oh = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in oh) r['rec_ts']], [1785000000, 1785000001]);
+      expect([for (final r in oh) r['hr']], [61, 62]);
+      // The band columns are present and NULL — a gen4 record reports none.
+      expect(oh.first.containsKey('step_count'), isTrue);
+      expect(oh.first['step_count'], isNull);
+      // The RR beat rode along with it.
+      final rr = await db.query('decoded_rr');
+      expect(rr.length, 2);
+      expect(rr.first['rr_ms'], 850);
     },
   );
 
@@ -434,6 +501,20 @@ void main() {
       );
       expect((await LocalDb.labResults()).single['value'], 42.0);
       expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      // MIND-06's window columns reach an OLD database through the onOpen
+      // repair rather than a ladder rung, so this is the only thing that
+      // proves they arrive at all on an upgrade.
+      await LocalDb.updateBreathingWindows(
+        startedAt: 1000,
+        preRmssd: 38.5,
+        postRmssd: 44.25,
+      );
+      expect((await LocalDb.breathingSessions()).single['pre_rmssd'], 38.5);
+      expect((await LocalDb.breathingSessions()).single['post_rmssd'], 44.25);
+      // An UPDATE, never an upsert: a session too short to bank has no row,
+      // and its windows must not create one behind it.
+      await LocalDb.updateBreathingWindows(startedAt: 999, preRmssd: 40);
+      expect((await LocalDb.breathingSessions()).length, 1);
       expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
       expect(await LocalDb.napEditDays(), {'2026-06-01'});
 
@@ -602,6 +683,167 @@ void main() {
         reason: 'undecodable_post_reboot',
       ));
       expect((await LocalDb.rawArchiveStats())['count'], 6);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v39 relaxes NOT NULL on the sensor columns of a POPULATED decoded_onehz '
+    'without losing or rewriting a row',
+    () async {
+      const name = 'migrate_v38_to_v39_test.db';
+      created.add(name);
+      // A v38 install: the sensor columns are NOT NULL, so absence has already
+      // been written as real zeros. The migration must keep those rows exactly
+      // as they are (they are indistinguishable from real readings after the
+      // fact) while making the column able to hold NULL going forward.
+      await _seedOldDb(
+        name,
+        38,
+        [
+          '''
+          CREATE TABLE decoded_onehz (
+            rec_ts INTEGER PRIMARY KEY, counter INTEGER NOT NULL,
+            hr INTEGER NOT NULL, ax REAL NOT NULL, ay REAL NOT NULL,
+            az REAL NOT NULL, spo2_red_raw INTEGER NOT NULL,
+            spo2_ir_raw INTEGER NOT NULL, skin_temp_raw INTEGER NOT NULL,
+            step_count INTEGER, step_cadence INTEGER, activity_class INTEGER,
+            skin_temp_c REAL, on_wrist INTEGER, hr_valid INTEGER,
+            hr_alt INTEGER)
+        ''',
+          '''
+          CREATE TABLE decoded_rr (
+            rec_ts INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+            rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+            PRIMARY KEY (rec_ts, beat_index))
+        ''',
+        ],
+        seedRows: (db) async {
+          for (var i = 0; i < 3; i++) {
+            await db.insert('decoded_onehz', {
+              'rec_ts': 1780000000 + i,
+              'counter': 100 + i,
+              'hr': 60 + i,
+              'ax': 0.0, // the historical fabricated-absent shape
+              'ay': 0.0,
+              'az': 0.0,
+              'spo2_red_raw': 1000 + i,
+              'spo2_ir_raw': 2000 + i,
+              'skin_temp_raw': 3000 + i,
+              'skin_temp_c': 30.5,
+            });
+          }
+          await db.insert('decoded_rr', {
+            'rec_ts': 1780000000,
+            'beat_index': 0,
+            'rr_ts_ms': 1780000000000,
+            'rr_ms': 900,
+          });
+        },
+      );
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      final db = await LocalDb.instance;
+      final rows = await db.query('decoded_onehz', orderBy: 'rec_ts');
+      expect(rows.length, 3, reason: 'every row survives the rebuild');
+      expect(rows.first['hr'], 60);
+      expect(rows.first['spo2_red_raw'], 1000);
+      expect(rows.first['skin_temp_c'], 30.5);
+      expect(rows.last['counter'], 102);
+      // The child table is NOT rebuilt, so its rows are untouched.
+      expect((await db.query('decoded_rr')).length, 1);
+
+      // The whole point: a NULL sensor reading is now storable.
+      await db.insert('decoded_onehz', {
+        'rec_ts': 1780000009,
+        'counter': 109,
+        'hr': 72,
+        'ax': null,
+        'ay': null,
+        'az': null,
+        'spo2_red_raw': null,
+        'spo2_ir_raw': null,
+        'skin_temp_raw': null,
+      });
+      final absent = await db.query('decoded_onehz',
+          where: 'rec_ts = ?', whereArgs: [1780000009]);
+      expect(absent.first['ax'], isNull);
+      expect(absent.first['skin_temp_raw'], isNull);
+
+      // The counter index is GONE — nothing ever read by `counter`, and it cost
+      // a non-sequential b-tree insert per 1 Hz record on the ingest path. An
+      // upgrade from a version that HAD it must drop it, not carry it forward.
+      final idx = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decoded_onehz'",
+      );
+      expect(
+        idx.map((r) => r['name']),
+        isNot(contains('idx_decoded_onehz_counter')),
+      );
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'upgrade from v6 with an OFF-SKIN record completes — step 19 backfills '
+    'through a writer that emits NULL hr, so the relax must precede it',
+    () async {
+      // v43 made `decoded_onehz.hr` nullable and `_queueDecodedOneHz` writes
+      // NULL for a record with no heart rate. `hr = 0` is the off-skin
+      // sentinel and is ORDINARY, not rare. Step 19 re-keys the decoded store
+      // with `hr INTEGER NOT NULL` and then runs the backfill through that
+      // same writer — so without the relax at the top of _backfillDecodedStore
+      // the first off-skin record fails the constraint, throws inside the one
+      // exclusive onUpgrade transaction, and quarantines the user's database.
+      const name = 'migrate_v6_offskin_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        6,
+        [
+          _v6RawDdl,
+          'CREATE TABLE samples (counter INTEGER PRIMARY KEY, ts INTEGER NOT NULL, hr INTEGER)',
+          '''CREATE TABLE events (
+               hex TEXT PRIMARY KEY, event_id INTEGER, ts INTEGER,
+               captured_at INTEGER NOT NULL)''',
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          for (final e in const [(4300, 70), (4301, 0), (4302, 71)]) {
+            await db.insert('raw_records', {
+              'hex': _v24RecordHex(
+                counter: e.$1,
+                tsEpoch: 1786000000 + e.$1,
+                hr: e.$2,
+              ),
+              'counter': e.$1,
+              'packet_type': 47,
+              'captured_at': (1786000000 + e.$1) * 1000,
+              'rec_ts': 1786000000 + e.$1,
+            });
+          }
+        },
+      );
+
+      // `_openThroughLocalDb` already fails loudly if the ladder bricked and
+      // fell back to quarantine-and-rebuild.
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      final db = await LocalDb.instance;
+      final rows = await db.rawQuery(
+        'SELECT rec_ts, hr FROM decoded_onehz ORDER BY rec_ts ASC',
+      );
+      expect(rows.length, 3);
+      expect(rows[0]['hr'], 70);
+      // The off-skin second SURVIVES as a row and its HR reads as absent.
+      expect(rows[1]['hr'], isNull);
+      expect(rows[2]['hr'], 71);
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');

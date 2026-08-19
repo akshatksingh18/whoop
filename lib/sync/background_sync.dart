@@ -69,10 +69,11 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
+      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           LocalDb.commitSyncBatch(raws, samples,
               trimToken: trimTokenHex,
               archives: archives,
+              deviceFamily: deviceFamily,
               onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
@@ -175,15 +176,17 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
     final now = DateTime.now();
     if (!shouldRenotifyStaleness(lastAt, now)) return;
 
-    await prefs.setInt(_kLastStalenessNotifiedMs, now.millisecondsSinceEpoch);
     final hoursStale = (nowSec - recTsHw) ~/ 3600;
-    await NotificationCenter.instance.emit(
+    final shown = await NotificationCenter.instance.emit(
       NotificationEvent(
         // Date-bucketed so a legitimate re-fire after the cooldown isn't
         // blocked by putNotification's INSERT-OR-IGNORE dedupe.
         dedupeKey: '${now.toIso8601String().substring(0, 10)}:sync_stale',
         category: NotifCategory.device,
-        priority: NotifPriority.normal, // respects quiet hours — not urgent
+        // Quiet hours DROP a normal-priority event; nothing queues it for the
+        // morning. The 48-hour cooldown below is therefore only spent when the
+        // event was actually presented.
+        priority: NotifPriority.normal,
         title: "Your band hasn't synced in a while",
         body: 'No new data for about $hoursStale hours. Open OpenStrap to '
             'reconnect — background sync may have stalled.',
@@ -192,6 +195,14 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
       ),
       allowPermissionPrompt: allowPermissionPrompt,
     );
+    if (!shown) {
+      // The gate refused it (quiet hours on an overnight wake is the common
+      // case). Burning the cooldown here silenced the backstop for another 48
+      // hours over a notification nobody ever saw.
+      debugPrint('[bgsync] staleness notification dropped by the gate.');
+      return;
+    }
+    await prefs.setInt(_kLastStalenessNotifiedMs, now.millisecondsSinceEpoch);
     debugPrint(
       '[bgsync] staleness notification fired (hours_stale=$hoursStale).',
     );

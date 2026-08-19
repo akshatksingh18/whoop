@@ -66,6 +66,28 @@ class BandOwnership {
     released?.complete();
   }
 
+  /// Force-clears a headless owner whose run was abandoned by
+  /// HeadlessSyncGate.runCeiling rather than released by its own `finally`.
+  ///
+  /// `release()` requires the caller's own lease token, but the three iOS
+  /// gate entry points (ios_ble_restore.dart, ios_bg_task.dart) call
+  /// `runHeadlessSync()` with no lease argument, so it self-acquires one
+  /// internally and only that orphaned call frame ever sees the token. If
+  /// that frame is truly wedged (not just slow), nothing else can present
+  /// the matching token to `release()` — the band stays headless-owned for
+  /// the rest of the process, and `acquireForeground()`'s wait loop would
+  /// spin forever waiting on `_released`, which nothing left alive can ever
+  /// complete. Only clears a headless owner — never touches a
+  /// foreground-owned lease, since only headless work runs through the gate.
+  static void forceReleaseHeadless() {
+    if (_owner != BandOwnerKind.headless) return;
+    _owner = null;
+    _token = null;
+    final released = _released;
+    _released = null;
+    released?.complete();
+  }
+
   static void resetForTest() {
     _owner = null;
     _token = null;

@@ -16,10 +16,18 @@ import 'package:openstrap_edge/state/app_state.dart';
 
 const _anchored = Profile(ageYears: 34, weightKg: 72, sex: 'm');
 
-LiveWorkoutState _session(Profile p) => LiveWorkoutState(
+/// The session's HR ceiling — `estimatedMaxHr(age, family)` for [_anchored] on
+/// either family (Tanaka, 208 - 0.7*34). Passed in since TS-03a: the ceiling is
+/// a property of the strap as well as the athlete, so the live session is
+/// handed one rather than deriving a universal formula off the profile.
+const _hrMax = 184.2;
+
+LiveWorkoutState _session(Profile p, {double? hrMax = _hrMax}) =>
+    LiveWorkoutState(
   startTime: DateTime(2026, 1, 1, 7),
   targetKcal: 300,
   profile: p,
+  hrMax: hrMax,
 );
 
 void main() {
@@ -65,6 +73,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           <double>[for (var i = 0; i < 60; i++) 140.0],
           profile: _anchored,
+          deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'the Keytel anchors alone do not buy a day figure',
@@ -78,8 +87,27 @@ void main() {
             heightCm: 178,
             sex: 'm',
           ),
+          deviceFamily: 'gen4',
         ),
         isNotNull,
+      );
+      // An unstamped strap is NOT a refusal here. The ceiling the flex gate is
+      // a fraction of is Tanaka on age — a population regression that reads no
+      // sensor — so swapping the strap cannot move it. Gating it on
+      // `device_family` (NULL on every pre-schema-41 row, never backfilled)
+      // deleted calories, zones and strain from whole histories for nothing.
+      expect(
+        DerivationEngine.wakeDayEnergy(
+          <double>[for (var i = 0; i < 60; i++) 140.0],
+          profile: const Profile(
+            ageYears: 34,
+            weightKg: 72,
+            heightCm: 178,
+            sex: 'm',
+          ),
+        ),
+        isNotNull,
+        reason: 'Tanaka is an age formula, not a calibration constant',
       );
     });
   });
@@ -148,7 +176,7 @@ void main() {
     final unanchored = computeManualSessionStats(
       hrTs: ts,
       hrBpm: hr,
-      zoneMaxHr: 185,
+      hrMax: 185,
       profile: const Profile(weightKg: 72, sex: 'm'),
       restingHr: 55,
     );
@@ -163,7 +191,7 @@ void main() {
     final anchored = computeManualSessionStats(
       hrTs: ts,
       hrBpm: hr,
-      zoneMaxHr: 185,
+      hrMax: 185,
       profile: _anchored,
       restingHr: 55,
     );

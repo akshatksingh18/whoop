@@ -174,6 +174,27 @@ void main() {
       await center.emit(_ev('$_today:temp'));
       expect(granted.shown.length, 1);
     });
+
+    // DerivationEngine._runNotifications keys the day's health exception on its
+    // highest severity class, so an ESCALATION (plain → medical) gets through
+    // once. The reverse used to buzz too: the morning fires ':exception:medical'
+    // for a red illness flag, the evening re-derive de-escalates to "low
+    // readiness" and the plain ':exception' key was still unclaimed. It now
+    // burns the plain slot after a real medical present — this is that sequence.
+    test('a de-escalated re-derive does not buzz a second time', () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+
+      expect(await center.emit(_ev('$_today:exception:medical')), isTrue);
+      await const FiredKeyStore().recordFired('$_today:exception');
+
+      await center.emit(_ev('$_today:exception'));
+      expect(sink.shown.length, 1);
+
+      // The other direction still works: tomorrow is a fresh day.
+      await center.emit(_ev('$_tomorrow:exception', date: _tomorrow));
+      expect(sink.shown.length, 2);
+    });
   });
 
   group('emit still respects gating', () {

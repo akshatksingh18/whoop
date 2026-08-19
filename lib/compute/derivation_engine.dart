@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'strain_backfill.dart' show backfillStrainScale;
 
 import 'package:flutter/foundation.dart';
+import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:firebase_core/firebase_core.dart';
@@ -36,12 +37,14 @@ import 'package:firebase_performance/firebase_performance.dart';
 import '../data/db.dart';
 import '../data/day_label.dart';
 import '../data/series_codec.dart';
+import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'hr_max.dart' show estimatedMaxHr, kHrFloorBpm;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -93,10 +96,10 @@ import 'substrate.dart';
 /// curve, no derived change.)
 /// v15: efficiency + worn_min scalars → metric_series (sleep-efficiency & wear
 /// trends); + _trendKey fixes (resting_hr→rhr, skin_temp→skin_temp_z, sleep→tst_min).
-/// v16: ADDITIVE analytics surfaced into the bundle — (a) `clinical.strain_effort`
-/// + `scalars.strain_effort`: a 0–100 Edwards zone-sum "effort" strain (Karvonen
-/// %HRR over the per-second wake HR) beside the 0–21 headline; (b) top-level
-/// `baselines` block: Winsorized-EWMA personal baselines (rhr/hrv/resp) with
+/// v16: ADDITIVE analytics surfaced into the bundle — (a) an Edwards zone-sum
+/// "effort" strain beside the 0–21 headline: NEVER SHIPPED, and removed
+/// entirely at v68 — no producer was ever written, so `strain_effort` was a
+/// permanently-null key in `metric_series`; (b) top-level `baselines` block: Winsorized-EWMA personal baselines (rhr/hrv/resp) with
 /// z/delta/ratio + cold-start status; (c) `advanced_sleep` block: a 4-class
 /// Cole–Kripke/DoG stager's main-session AASM metrics + hypnogram (parallel
 /// ESTIMATE; the single-source `sleep` block stays the headline). Bumping
@@ -770,7 +773,485 @@ import 'substrate.dart';
 //   Older days have no raw to re-derive from, so `strain_backfill.dart` rebuilds
 //   their headline from the stored TRIMP + wake window instead — see that file
 //   for why that is exact and what it deliberately drops.
-const int kAlgoVersion = 65;
+// v66: THREE analytics outputs change shape or value.
+//
+//   1. CIRCADIAN, newly computed. `circadianNonparametric` (IS/IV/RA/L5/M10,
+//      van Someren 1999) and `cosinor` (Halberg/Nelson 1979) were written,
+//      tested and never called from edge. They now run in the cross-day rollup
+//      over a new per-day field, `hourly_hr` — 24 local-hour HR means projected
+//      from the stored `series.hr_curve`. HR, not accelerometry, because the
+//      1 Hz substrate is pruned at 3 days and `day_result` is not: no multi-day
+//      accel exists to analyse. Only runs of calendar-CONSECUTIVE days whose 24
+//      bins are ALL covered are admitted (no imputation — a filled hour is
+//      exactly the smooth signal IS rewards), and each family abstains with the
+//      standard `need_baseline:have=H,need=N` note below its own minimum (7 days
+//      nonparametric, 3 cosinor). New bundle keys: `circadian_rhythm`,
+//      `circadian_cosinor`, `circadian_coverage`.
+//
+//   2. STEPS on gen5. `stepMotionCounter` was decoded, stored in
+//      `decoded_onehz.step_count` and read back, but `Substrate` had no field
+//      for it, so derivation never saw it and a WHOOP 5 user with a real wrist
+//      pedometer got no steps unless they enabled the phone one. The channel is
+//      now carried end to end; the counter is cumulative u16, so the day's total
+//      is the sum of PLAUSIBLE positive deltas — a wrap is recovered modulo
+//      65536, a reset fails the plausibility budget and contributes nothing.
+//      The band counter outranks `live_coverage`; both are disclosed. Gen4 has
+//      no such counter and is unaffected (its every second reads ABSENT, not 0).
+//
+//   3. SLEEP CYCLES gain their Metric envelope. `sleep.cycles_metric` is
+//      `sleepCyclesMetric` over the same detection the raw `cycle_count` /
+//      `cycles_mean_min` keys already carried, so tier and confidence are read
+//      rather than asserted by the UI. The raw keys are unchanged.
+//
+//   ALSO on this bump: `crossDayArtifactUsableToday` now checks the
+//   `algo_version` it has always stamped. It did not, so a bump that changes the
+//   per-day row SHAPE (as this one does, adding `hourly_hr`) would have been
+//   served the pre-bump artifact for the rest of that day.
+// v67: ABSENCE STOPS READING AS A MEASUREMENT. Schema v39 makes the six sensor
+//   columns of `decoded_onehz` nullable, so a record that carried no accel /
+//   no optical / no thermal reading is no longer written as a real zero, and the
+//   readers that consumed those zeros now see absence.
+//
+//   1. ACCEL. `(0, 0, 0)` has a z-angle of exactly 0.0° and an ENMO of 1.0 —
+//      i.e. absent accel read as a PERFECTLY STILL wrist to active minutes, the
+//      activity curve, restlessness, the sleep restlessness map and ENMO, and
+//      as a motionless wrist to auto-workout detection (a missed workout).
+//      `Substrate.accelPresentAt` existed and had exactly one consumer, the van
+//      Hees coverage gate; every other feed now consults it too, and
+//      `accelSamples()` marks absent seconds `valid: false` (which `enmoSeries`
+//      and `positionSeries` already honour). Active minutes, the activity curve
+//      and restlessness are now fractions over OBSERVED seconds, not over all
+//      seconds — a day with accel gaps moves.
+//
+//   2. HEART RATE gains a physiological bound at the substrate. The gen4
+//      TRUSTED decode path (v24/v12) returned the HR byte verbatim, so one
+//      corrupt-but-CRC-valid byte of 250 passed the `hr > 0` filter and became
+//      the day's max HR. Out-of-range now reads as the existing "no usable HR
+//      this second" 0 — never clamped into the range, which would invent a
+//      plausible reading. Applied here rather than in the decoder because
+//      rejecting there costs the whole record, accel and RR with it.
+//
+//   3. `fit_quality` / `fit_warning` are GONE. They scored band tightness from
+//      `skinContact`, which is not a contact measurement (it is the sign+
+//      exponent half of a float32) and was a hardcoded 0 on the decoded path.
+//
+//   4. CPC IS WITHDRAWN, not absent. `cpc_ratio` is gone from the bundle and
+//      from `metric_series`: its "respiration surrogate" was the NN series
+//      itself, so the number was the RR periodogram HF/LF ratio under another
+//      name (measured agreement 1.0000085). It never measured cardiopulmonary
+//      coupling; it needs a real respiration channel to come back.
+//
+//   5. FROM ANALYTICS (verify the pinned SHA carries these before shipping —
+//      the v43 lesson): `lf_hf`/`lf`/`hf`/`total` are now physical PSD in
+//      ms²/Hz rather than dimensionless (0.095 → 2.20 on a synthetic) and are
+//      Welch-averaged over band-appropriate segments; `ulf` is absent rather
+//      than 0.0; sleep staging, the illness CUSUM and the anomaly detector all
+//      moved (a real night went wake 17.5 → 26.0 min, TST 516.5 → 508.0); and
+//      `round6` returns null on a non-finite input instead of passing a NaN on.
+//
+//   6. THREE substituted inputs stop being substituted. `hrRecovery` now gets
+//      `tsSec`, so "+60 s" is clock time rather than +60 ARRAY POSITIONS on a
+//      gappy tail (it overstated the drop, read as a fitness marker);
+//      `enmoSeries` gets `expectedMinutes: 1440`, so coverage is not 1.0 for a
+//      day worn 4 h out of 24; and the sleep coach no longer substitutes a
+//      population 8 h for a missing personal OSD — need, bedtime, wake and
+//      sleep performance are ABSENT until an OSD estimate exists.
+//
+//   ALSO on this bump: the cross-day rollup artifact is stamped with
+//   `algo_version` / `built_for_day` / `built_at_epoch` so the reader can fail
+//   closed instead of serving a previous version's VO₂max, fitness age, sleep
+//   need, strain target and illness flags; and its encode is sanitised, because
+//   ONE non-finite double used to make `jsonEncode` throw and drop the ENTIRE
+//   bundle (see `sanitizeForJson`).
+//
+// v68 — ONE bump for the whole sweep (compute + analytics). Everything below is
+// recomputed by the same derive pass this constant gates, so it is deliberately
+// a single increment rather than one per fix:
+//
+//   1. STRAIN STOPS BEING BUILT ON A DAYTIME "RESTING" HR. The offloaded second
+//      half took its TRIMP reference from `scalars.rhr`, which back then fell
+//      back to daytime HR for the general resting-HR card (it no longer does),
+//      and then overwrote `scalars.strain` with the result — so a day where the
+//      pure pipeline abstained (`clinical.strain` "—") still published a
+//      number, off an awake reference ~20 bpm high. It now reads the
+//      nocturnal-only `scalars.rhr_nocturnal` (the same value readiness uses),
+//      and when neither that nor a user-entered resting HR exists, strain is
+//      ABSENT: the scalar is written NULL (overwriting any stale value) and
+//      `clinical.strain` is stamped absent with it. Affected days lose or lower
+//      their strain — that is the fix, not a regression.
+//
+//   2. `hrv_timeline`'s `t` is EPOCH SECONDS. It was seconds-since-the-first-NN
+//      (`correctRr` re-bases its clock to 0) on a view whose contract — and the
+//      coach's prompt — say epoch, so coach SQL over it returned 1970 and no
+//      join to `hr_curve` could ever match. Its first point also now requires a
+//      full 5-min window instead of being an RMSSD over 10 beats (~8 s) drawn
+//      on the same line as the real windows.
+//
+//   3. `strain_effort`, `spo2` and `odi_per_hour` are gone from `metric_series`
+//      (and from the coach's advertised keys). Nothing has ever produced them:
+//      12 rows, 0 values, on every install. A metric this app does not produce
+//      has no entry and no key.
+//
+//   4. The one-shot strain rescale prices the quiet-waking baseline over the
+//      window the pipeline actually used (`series.strain_curve`, one point per
+//      wake minute) instead of `worn_min − tst_min`, which was off by −15..+22
+//      min on every real day measured. Days that cannot supply it now abstain.
+//
+//   5. Personal baselines withhold z/delta/ratio/in_normal_range until at least
+//      one real night has been folded (analytics no longer seeds a baseline at
+//      the midpoint of the metric's physiological bounds), and the resting-HR
+//      percentile-of-you is oriented lower-is-better.
+//
+//   6. FROM ANALYTICS on this bump: `correctRr` advances its clock by the REAL
+//      interval on a spline-corrected beat (it was dropping ~1 s of record per
+//      correction, inflating cvhr per-hour and shortening hrvFreq's span).
+//
+// v69 — the sweep bump, and the repin that should have come with v67. The pins
+// sat on analytics cef6fe4 / protocol 3ea0290 while every local run built the
+// sibling working copies through pubspec_overrides.yaml, so v67 and v68 both
+// cite analytics behaviour no shipped build ever had. pubspec.yaml now pins
+// analytics beaeafa and protocol e33e53a, and those SHAs are repeated below as
+// kAnalyticsPin/kProtocolPin so a future repin cannot skip this constant.
+//
+// What moves on a re-derive:
+//
+//   1. ACTIVE MINUTES are the z-angle wake quantity, always — never ENMO. Days
+//      derived after the movement floor froze change value, which is the point.
+//      With no usable accel (or under 60 samples) `active_min`, `activity.value`
+//      and the restlessness block are NULL rather than 0: a day nobody wore the
+//      band was reporting a measured zero.
+//
+//   2. THE IRREGULAR-RHYTHM SCREEN is analytics' shared one, not edge's second
+//      copy. Differences are taken only between beats adjacent in the INPUT (a
+//      dropped artifact run was manufacturing one huge spurious difference), it
+//      needs 500 beats rather than 20, it is ABSENT instead of publishing
+//      sd2 = 0 with "regular" on a degenerate series, the flag now also wants
+//      pNN70 >= 30%, and confidence scales with beat count and artifact
+//      fraction instead of sitting at a hardcoded 0.5. `flag` can be null.
+//
+//   3. SLEEP SEGMENTATION uses the habitual-midsleep prior, which was written
+//      and never called. Anyone with 14+ stored nights whose midsleep is far
+//      from 03:30 can see a different sleep block picked on nights with
+//      competing candidates — so TST, staging, nocturnal RHR/RMSSD and
+//      readiness all move with it. Biggest behavioural change in the batch.
+//
+//   4. SKIN TEMP EXISTS ON GEN5. `skin_temp_adc`, `skin_temp_z` and readiness's
+//      temp driver were permanently absent there. Units stay relative either
+//      way (gen4 ADC, gen5 centi-°C) and are only ever read as a z against the
+//      user's own baseline — but a history that crosses a gen4 -> gen5 swap
+//      takes one baseline step while the z re-settles.
+//
+//   5. FROM ANALYTICS (beaeafa, and this time the pin carries them): personal
+//      baselines withhold z/delta/ratio/in_normal_range until a real night is
+//      folded instead of seeding at the midpoint of the physiological bounds;
+//      resting-HR percentile-of-you is lower-is-better; the circadian
+//      non-parametrics (m10/l5/relative amplitude and their onsets) are OMITTED
+//      when any hour of day was unobserved rather than filled with the grand
+//      mean and 0.0; readiness_composite drops the `meaningful` key and the
+//      SWC-gated tail on its note; chronotype's absent-note text changed.
+//
+//   6. FROM PROTOCOL (e33e53a): a gen4 band on a record version whose field map
+//      we never confirmed (v7/v9/v18, unknown) reports spo2/skin-temp/ppg/
+//      ambient ABSENT instead of bytes read off a guess — relative ODI and the
+//      ADC-derived wellness inputs go from a number to honest absence on those
+//      bands. v24/v12 are untouched. A gen5 v18 record with an out-of-range HR
+//      byte now decodes (hr absent, beats/temp/steps kept) instead of landing
+//      in raw_archive, so gen5 gains decoded_onehz rows it never had.
+//
+//   ALSO: `crossday.recent[]` carries an `unsettled` bool, `hrv_timeline` keeps
+//   the v68 epoch fix, and the strain/energy paths are unchanged.
+// v70 — the device seam. Which band measured a day is now an INPUT to the
+// numbers derived from it, and a day that cannot say which band that was gets
+// no number instead of gen4's. Pins move to analytics 98d42b6; protocol stays
+// at e33e53a, unchanged and sealed.
+//
+// READ THIS FIRST — WHAT WILL LOOK LIKE A REGRESSION AND IS NOT:
+//
+//   `decoded_onehz.device_family` arrived at schema 41. It is NULL on every row
+//   written before that, on every import and on every raw replay — which is all
+//   of today's data. So on a re-derive of any EXISTING day, everything
+//   downstream of the HR ceiling goes ABSENT: strain, TRIMP, the day's HR
+//   zones, wake-day calories, and every session's zone_bands/zone_min. That is
+//   the contract working, not a break. We do not know what measured those
+//   seconds, so we cannot say where their ceiling is, and gen4's number is not
+//   a default for a strap we did not identify. Days recorded from here on carry
+//   the family and keep their numbers. Already-banked session strain/kcal/zone
+//   splits are NOT destroyed — reconcile keeps the stored value; it is the
+//   re-score and the on-read recompute that abstain.
+//
+// What moves on a re-derive:
+//
+//   1. ONE HR CEILING, DEVICE-DISPATCHED. There were five: `220 − age` in
+//      local_repository_impl, app_state and analytics' load_trimp; Tanaka
+//      `208 − 0.7·age` inlined in onehz_pipeline and crossday_pipeline; and
+//      `(220 − age) + 25` in hr_max. A session stored its zone_min against one
+//      and its detail screen recomputed zone_bands against the other, for the
+//      same session, with nothing on screen saying so. Everything routes
+//      through `estimatedMaxHr(age, family)` now. At 30 the ceiling goes
+//      190 → 187 and at 60 160 → 166, so BAND MEMBERSHIP CHANGES: 150 bpm at
+//      age 30 was Z3 and is now Z4. `hrCeilingForAge` is deliberately NOT
+//      folded in — it is an artefact-plausibility bound with headroom, and
+//      clipping it to the training ceiling would eat real effort.
+//
+//   2. Both families carry Tanaka today, and they are listed SEPARATELY on
+//      purpose. The ceiling a strap's zones sit on is a property of what that
+//      strap can measure at intensity, so the day gen5 earns its own number it
+//      changes one entry in hr_max.dart rather than everyone's.
+//
+//   3. TWO NEW `metric_series` KEYS: `midsleep_sec` and `sleep_onset_sec` —
+//      signed seconds either side of 04:00 LOCAL, tz-corrected per instant and
+//      unwrapped. Not a second-of-day, not an epoch. FORWARD-ONLY: midsleep was
+//      never persisted, the 1 Hz substrate they come from is pruned at 3 days
+//      and a day locks ~48 h after wake, so no past night can be given one.
+//
+//   4. `day_result` stamps `source: 'band'`. An importer's day is a different
+//      vendor's derived score and must carry its own tag; a day whose
+//      provenance is genuinely unknown stays NULL and is never retro-filled.
+//
+//   5. `decoded_onehz.hr` stores NULL where it stored 0 — off-skin is absence,
+//      not a heartbeat. No number the app produces changes (every reader
+//      already gated `hr > 0`), but a new query must not assume NOT NULL.
+//
+//   6. FROM ANALYTICS (98d42b6, the device-seam commit — and only that):
+//      * `device.dart`: `DeviceFamily`, `deviceFamilyOf()` returning null for
+//        anything it does not recognise, and `calibrationFor()` returning null
+//        rather than handing back gen4's constants. This is what (1) dispatches
+//        on. No registry, no shared constants file — a metric declares its own
+//        map next to itself and refuses when the family is not in it.
+//      * journal correlations ran 9 numeric fields against 4 outcomes behind a
+//        per-test gate. That is 36 simultaneous tests, so ~2 spurious
+//        "meaningful" findings per user were guaranteed by construction.
+//        Benjamini-Hochberg over the grid now, so FINDINGS DISAPPEAR and an
+//        empty result is a real answer the card has to be able to say.
+//      * habits are custom fields with max == 1, so a 0/1 variable was getting
+//        a Spearman rho and a Theil-Sen "slope per unit". They route to
+//        difference-of-means.
+//      * `hrRecovery` publishes a fitted tau off a 180 s tail with a residual
+//        gate, alongside hrr-60 rather than replacing it. It abstains often —
+//        the recovery is biphasic and one exponential conflates the phases.
+//      * the weekday effect is Kruskal-Wallis first, then a permutation test on
+//        the max deviation, so the 7-way selection is paid for. Without that it
+//        is a machine for manufacturing superstitions about Saturdays.
+//      * sleep runs terminate at unobserved instead of merging across it.
+//      * the apnea screen returns the per-cycle depths and widths it was
+//        already accumulating and throwing away.
+//      * `vo2maxEstimate` and `physiologicalAge` are GONE: 15.3·maxHr/rhr is
+//        k/rhr, a restatement of a line already on screen, and the age function
+//        then counted rhr twice in the same direction. Edge stopped calling
+//        both before this pin, so nothing on screen loses a value.
+//
+//   7. FROM PROTOCOL: nothing. e33e53a is unchanged and sealed.
+//
+//   NOT IN THIS PIN, SO NOT AT THIS VERSION: the rest of this wave's analytics
+//   work is UNCOMMITTED in the sibling working copy — the journal lag
+//   realignment, SRI's `pairs`, the sleep stage ranges, `stageIntervals`,
+//   `cvhrPersonalDistribution`, `alertnessForecast`, `sessionHrCeiling`,
+//   `tempCircadian`'s family dispatch. Local runs see them through
+//   pubspec_overrides.yaml; a clean checkout does not, and edge lib/ already
+//   calls nine of those symbols. Commit analytics and repin at the NEXT
+//   version — this is exactly the v67/v68 failure, one commit from repeating.
+//
+//   ALSO, not a re-derive: schema 43 (`source` on decoded_onehz/decoded_rr,
+//   `external_hr`, `imported_measurement`, `sessions.cadence_spm`,
+//   `sessions.rpe`) and `Substrate.hrValid` (gen5-only, no consumer yet).
+//
+// v71 — the algorithms audit. No new feature in here. Every item is a number we
+// could not stand behind, either corrected or withdrawn. Pins do not move:
+// analytics stays 391ede4, protocol stays e33e53a, sealed and unread.
+//
+// READ THIS FIRST — THE PIN DOES NOT CARRY THE FIXES BELOW, YET.
+//
+//   Every analytics change in this block is UNCOMMITTED in the sibling working
+//   copy. 391ede4 is analytics HEAD and predates all of it. So a local build
+//   (pubspec_overrides.yaml) derives a day at v71 with these numbers and a
+//   clean checkout derives the SAME day at v71 with v70's — the collision this
+//   constant exists to prevent, and the v67/v68 failure with the sides swapped.
+//   Do not cut a build off this pin. Commit analytics, repin, and bump again in
+//   the same change; then this block is true. Until then v71 is local-only.
+//   Both sibling branches are also UNPUSHED (analytics
+//   `fix/numerical-correctness`, protocol `fix/gen5-bounds-and-write-guard`),
+//   so these SHAs resolve on this machine and nowhere else.
+//
+// WHAT DROPS OR GOES ABSENT — the part that reads like a regression:
+//
+//   1. ACTIVE ENERGY FALLS, HARD. `dailyEnergy` bills only the minutes actually
+//      above the flex-HR gate. Measured through the real code on the real DBs:
+//      gen4 median daily ACTIVE 1,955 -> 48 kcal, total 1,544-5,582 -> 793-3,437
+//      kcal/day; MG active 539 -> 9, 3,042 -> 680, 695 -> 0. A quiet day now
+//      reads essentially basal, because that is what it was. This is the number
+//      people eat against, and the Apple Health / Health Connect ACTIVE_ENERGY
+//      export moves with it. Already-derived days keep the old inflated figure
+//      until re-derived. Strain, TRIMP, steps and active minutes are unchanged.
+//
+//   2. NIGHTLY RMSSD REFUSES ON A JITTERY NIGHT. The lag-1 autocorrelation of
+//      the NN difference series (`diff_acf1`, new key on every night) separates
+//      real beat-to-beat variability from per-second beat quantisation. Both
+//      WHOOP 5 nights in the corpus refuse — so readiness on a W5 runs on its
+//      other three drivers — MG drops 87.7/82.9/76.9 -> 58.0/52.7/48.0 ms, and
+//      gen4 comes down 2-13%. `rmssd_ms`/`pnn50_pct` are absent on all five
+//      gen5/MG nights and none of the thirteen gen4 ones; `rmssd_nocturnal` is
+//      absent on gen5/MG and 0.1-1.8 ms lower on gen4. `confidence` moved on
+//      every night, 0.95 -> 0.30..0.82 — the old value was a constant wearing a
+//      measurement's clothes. Refusal note prefix `rmssd_refused:acf1=`.
+//      Everyone's `ln_rmssd` history is now on a slightly different scale than
+//      the days before it: the trailing baseline re-converges, the transition
+//      day reads off. Deliberately NOT a device-family gate — MG and W5 are the
+//      same family and land on opposite sides of it, so the night's own signal
+//      is the better judge and an unknown strap gets judged on its data.
+//
+//   3. READINESS REFUSES ON A COLD START. Under 2 surviving inputs, or under
+//      0.5 of the weight, the composite is '—' rather than a score built out of
+//      one driver and a shrug. Two of seventeen real gen4 days go: 2026-08-03
+//      (was 44.7) and 08-07 (was 0.8). Note prefix `need_inputs:`.
+//
+//   4. THE TEMP DRIVER REFUSES UNTIL WE MEASURE A SETTLED FRACTION. A nightly
+//      skin-temp mean over a window that includes warm-up and off-wrist is not
+//      a nightly skin temp. Nothing supplies a settled fraction yet (see
+//      BLOCKED), so the driver is refused everywhere and readiness runs on
+//      three drivers: 7 of 17 gen4 days shift, all within 2.1 points except
+//      08-14 at -7.6. THE CHANNEL IS UNTOUCHED — `skin_temp_raw` ingest,
+//      `skinTempAdc`, `skinTempZ`, `skinTempCoverage`, `tempIllnessFlag`,
+//      `menstrualCoverline`, `tempCircadian` all still exist and still publish.
+//      What is gated is one nightly mean's fitness to be used, and the band is
+//      one-sided on purpose so a fever is never trimmed.
+//
+// BASELINES, AND THEREFORE EVERYTHING GATED ON A Z:
+//
+//   5. `Baselines.update` — the engine under recovery, illness and stress.
+//      Measured on real gen4 nights: resting_hr spread +11.0%, hrv spread
+//      +5.6%, |z| down 11.5% and 5.6%. Every z threshold in the stack shifts
+//      with it. `nightsSinceUpdate` now also increments on a hard-outlier
+//      night, so fourteen consecutive rejected nights correctly read `stale`
+//      instead of `trusted`.
+//
+//   6. SLEEP CONFIDENCE moves on 3 of 8 real gen4 nights, largest 0.440 ->
+//      0.600. It scales `stageIntervals` half-widths and stamps three sleep
+//      Metrics, so the stage ranges on screen widen or narrow with it.
+//
+// THINGS THAT COULD NEVER FIRE, AND NOW CAN:
+//
+//   7. `glassBoxReadiness` published an empty `drivers` list and "nothing moved
+//      beyond your normal day-to-day noise" on essentially every night. Both
+//      populate now. The `past_mdc` JSON key is unchanged on the wire but means
+//      "outside your usual spread" (SWC), which is what the detail screen's
+//      copy already said.
+//
+//   8. `overreachingConjunction` was structurally unable to fire.
+//      `nights_elevated` can be non-zero and `both_point_same_way` true.
+//
+//   9. Cross-day circadian: `circadian_rhythm`, `circadian_cosinor` and
+//      `circadian_coverage` go from permanently absent to populated.
+//
+// THINGS THAT DISAPPEAR:
+//
+//  10. JOURNAL INSIGHTS GET MUCH STRICTER — permutation p, Benjamini-Hochberg q
+//      over the whole grid. A small journal now produces zero insight rows
+//      where it produced several, and zero is the honest answer the card has to
+//      be able to say. New optional `p`/`q`; thin rows come back
+//      `insufficient` with `need_history:have=N,need=M`, which nothing reads
+//      yet and should be surfaced.
+//
+//  11. `alertnessForecast` changes shape, LENGTH (the curve now ends with the
+//      waking day, so it varies with sleep duration), trough window and note.
+//      Any golden over that curve moves.
+//
+//  12. Withdrawn keys and wrong attributions: `prsa` loses `risk_tier` (no
+//      readers), `segmentChangePoints` says GREEDY / Killick 2012 and doubles
+//      its default penalty (no production callers), `sleepDebt` loses a
+//      citation it never implemented.
+//
+//  13. `multivariateAnomaly`'s default gate is 1.25x-13.23x wider under 90
+//      nights of baseline. Zero flags before and zero after on the real corpus,
+//      so nothing on screen changes today — it removes ~4%/night of false-flag
+//      exposure during a new user's first month.
+//
+// BLOCKED ON EDGE WIRING — INERT AT THIS VERSION, EACH ONE LINE, EACH ITS OWN
+// BUMP WHEN IT LANDS:
+//
+//   * `onehz_pipeline.dart:296/:388` — `correctRr(d.sleepRrMs)` /
+//     `correctRr(d.dayRrMs)` want `rrTsMs: d.sleepRrTsMs` / `d.dayRrTsMs`. The
+//     default path is byte-identical, so nothing moves until they are passed.
+//     The moment they are: the analysed span goes from 0.13-0.87 of the window
+//     to 0.99-1.00, LF/HF moves on 12 of 13 nights and CROSSES 1.0 — the line
+//     people read as sympathetic-vs-vagal — on three (MG 08-12 0.65 -> 1.53,
+//     W5 08-11 0.72 -> 1.25, gen4 08-09 0.88 -> 1.01), VLF by up to 33x, and
+//     rsaRespRate stops publishing 9.00 br/min on gen4.
+//   * `onehz_pipeline.dart:329` — `hrvTime(nn, nnTimesMs: nnTimes)` wants
+//     `artifactFraction: artifactFraction`, already in scope twelve lines above
+//     where `hrvFreq` gets it. Worth 13.7-15.3% of confidence on the MG nights
+//     and 1.8-5.1% on gen4; until then half of item 2's confidence fix is dead.
+//   * `derivation_engine.dart:4010` — `ana.cusumChangePoints(rhrSeries, h: 5.0)`
+//     wants `dates: rhrDates`, built four lines above it. Until then the
+//     critical-priority "Your resting heart-rate trend shifted" notification
+//     still accumulates evidence straight across a wear gap.
+//   * Nothing measures a settled fraction, so `nightlySkinTemp` is unwired and
+//     item 4 fails closed everywhere. When it lands, nightly skin temp becomes
+//     the mean of the settled portion rather than of the window: +0.2 to +6.0
+//     counts on real gen4 nights, and the stored `skin_temp_adc` history is
+//     old-rule until a recompute regenerates it.
+//
+// RULINGS, unchanged and re-checked: protocol sealed, not read, not edited.
+// The gen4 skin-temp channel stays. SpO2 still refuses on every day of every
+// DB. `_crossDayWindow` is still 90. Water is still a reminder.
+//
+// STALE IN THIS FILE, not fixed here because it is another owner's diff: the
+// comments at :4377, :4425, :5023 and the header block at :637-666 all still
+// quote the old 0.50*HRmax flex gate that item 1 moved.
+//
+// v74: WEAR COVERAGE divided by the wrong thing, and a charging caveat.
+//
+//   1. `coverage_pct` was `wornSec / (last sample - first sample)` — the span
+//      of the DATA, not the day. A band worn 9-11am and nowhere else reported
+//      100%, and `day_strain` renders that number as the sentence "The band saw
+//      N% of this day". The denominator is now the OBSERVABLE day: local
+//      midnight → min(data edge, next local midnight), both bounds from the day
+//      LABEL so the two DST days are 23 h/25 h rather than a hardcoded 86400.
+//      A day still in progress divides by the part of it that has elapsed, so a
+//      fully-worn morning still reads 100% instead of "60% missing" for hours
+//      that have not happened. Every finalized day re-derives onto a LOWER
+//      number wherever the band came off before the last record of the day —
+//      on a partly-worn day this is the whole point, and it is the first time
+//      that sentence has been true. Nothing else consumed the field: three
+//      screens read it (day_strain, investigate, health_screen) and all three
+//      already handle null.
+//   2. `wear.segments` followed the same span, so the hole between midnight and
+//      the first record was invisible — which would now contradict the
+//      percentage beside it. Leading and trailing off-segments are emitted, and
+//      `sum(on)/observable == coverage_pct` exactly. `longest_off_min` can grow
+//      on a day that started late; that is the measurement, not a regression.
+//   3. Charging INSIDE the scored sleep window is flagged (`sleep_charging`),
+//      after being scored, staged and fed into baselines unremarked on 2 of 9
+//      real nights. A battery-pack swap is not a wrist-off event — the strap
+//      stays on the wrist and keeps logging, so no wear signal can see it. NO
+//      confidence penalty: see `sleepChargingBlock` for the mechanism argument. The
+//      charging/wrist-off span read also widened back to sleep ONSET, which is
+//      before local midnight on any normal night, so a pre-bed top-up that
+//      opened and closed before the day's first record is no longer missed.
+//   4. Comment-only: the daytime-stress refusal at `_daytimeHrv` claimed gen5's
+//      `signalQualityLogVariance` is "dropped before the DB". Since schema 43
+//      it is written to `decoded_onehz.signal_quality_logvar`. Still unread, and
+//      deliberately so — it is gen5/MG-only, so gating on it makes the same
+//      night answer differently on two straps. The refusal's construct argument
+//      is untouched and is the one that carries it.
+const int kAlgoVersion = 74;
+
+/// The sibling SHAs this version was derived against, asserted against
+/// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
+///
+/// A day_result stamps kAlgoVersion and nothing else, so two builds pinning
+/// DIFFERENT analytics at the SAME version serve each other's days as
+/// equivalent — and `_pruneOldDecoded` throws the substrate away behind them,
+/// so it is not repairable after the fact. That is exactly what happened
+/// between v67 and v68. Repinning without touching this block fails the suite,
+/// one line above the constant you then have to bump.
+// Both siblings are on MAIN now (protocol #29, analytics #46, merged
+// 2026-08-19). kAlgoVersion is deliberately NOT bumped with this repin: the
+// analytics hop is two comment lines in tests and touches no lib/ file at all,
+// and the protocol hop only adds `rr_ms` to decodeFrame's R10 branch, which
+// nothing in edge reads. No derived number moves, so forcing every install to
+// recompute would be churn with nothing on the other side of it.
+const String kAnalyticsPin = 'bfea5e56e74f336c3e3d83743123e58da225617d';
+const String kProtocolPin = 'fe3b681a3e9ca76f8a0865339035f949f36f6000';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -868,10 +1349,19 @@ class _DeriveScope {
   final List<String> targetDays;
   final String reason;
 
+  /// EVERY day label that still has 1 Hz substrate on disk — not just the ones
+  /// this pass targets. The raw-prune guard needs the whole set: a day that
+  /// aged out of the light scope while still un-derived is exactly the day
+  /// whose raw must not be deleted, and it is by definition not in
+  /// [targetDays]. Comes free from the `decodedRecTsMaxByDay()` that selects
+  /// the scope, so nothing extra is queried for it.
+  final List<String> rawDays;
+
   const _DeriveScope({
     required this.fullHistory,
     required this.targetDays,
     required this.reason,
+    this.rawDays = const [],
   });
 }
 
@@ -895,6 +1385,12 @@ class _BaselineHistoryCache {
     // single-day threshold collapses on a quiet day and passes everything,
     // which is the mirror image of the absolute-constant failure it replaced.
     'dyn_p90',
+    // TS-03 — the per-day OBSERVED heart-rate ceiling (bpm). Not a baseline
+    // like the rest: nothing is z-scored against it and it is never averaged.
+    // It rides in this cache because it is a `metric_series` key the day's
+    // derive needs the PRIOR days' values of, which is exactly what this
+    // snapshot is (see [maxBefore]).
+    'hr_ceiling_bpm',
   ];
 
   /// DATED baseline samples, ascending by date, one entry per day (metric_series
@@ -983,6 +1479,23 @@ class _BaselineHistoryCache {
   Set<String> datesFor(String key) => {
         for (final s in _series[key] ?? const <_DatedValue>[]) s.date,
       };
+
+  /// The LARGEST value of [key] over every stored day strictly before
+  /// [beforeDate], or null when there is none.
+  ///
+  /// Deliberately NOT windowed to the trailing 28 like [valuesBefore]: this
+  /// backs "highest we've seen", and a ceiling that silently drops out of the
+  /// window would move every zone boundary in the app with nothing on screen
+  /// saying why. The date it happened is shown next to it, so an old one is
+  /// visible rather than anonymous.
+  double? maxBefore(String key, String beforeDate) {
+    double? best;
+    for (final s in _series[key] ?? const <_DatedValue>[]) {
+      if (s.date.compareTo(beforeDate) >= 0) continue;
+      if (best == null || s.value > best) best = s.value;
+    }
+    return best;
+  }
 
   List<double> valuesBefore(String key, String beforeDate) => _trailing([
         for (final s in _series[key] ?? const <_DatedValue>[])
@@ -1119,8 +1632,28 @@ class DerivationEngine {
   /// foreground engine can never inherit background tuning by accident.
   final bool background;
 
-  bool _running = false;
+  /// PROCESS-WIDE, not per-engine. The thing it protects is the DATABASE, and
+  /// there is one of those however many engines exist — but engines are built
+  /// per call site (`lib/sync/background_sync.dart` constructs a fresh one for
+  /// every headless wake), so an instance flag guarded nothing across them. Two
+  /// passes could then derive the same day at once, and `partial`/`finalized`
+  /// are decided before the write transaction, so the slower one's PARTIAL row
+  /// could land on top of the faster one's complete row.
+  static bool _running = false;
   bool get running => _running;
+
+  /// Run [body] under the process-wide derivation lock, returning [busy]
+  /// unchanged if a pass is already in flight. Only for entry points that do
+  /// NOT call another locked entry point (which would deadlock-by-skip).
+  static Future<T> _withRunLock<T>(T busy, Future<T> Function() body) async {
+    if (_running) return busy;
+    _running = true;
+    try {
+      return await body();
+    } finally {
+      _running = false;
+    }
+  }
   final Map<String, dynamic> _diag = {
     'running': false,
     'stage': 'idle',
@@ -1161,23 +1694,6 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
-    // ONE-SHOT: rescale stored strain onto the v63 scale. Days inside the raw
-    // window re-derive below from substrate; everything older has none, so its
-    // headline is rebuilt from the stored TRIMP + wake window instead. Runs
-    // before the sweep so the two never disagree mid-pass, and no-ops after the
-    // first successful pass (`compute_freshness`). Never fatal — a failed
-    // rescale must not take the derive cycle down with it.
-    try {
-      final rescaled = await backfillStrainScale(
-        female: workoutSex(profile.sex) == 'female',
-      );
-      if (rescaled.didWork) {
-        _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) rebuilt, '
-            '${rescaled.skipped} skipped (no TRIMP or no wake window)');
-      }
-    } catch (e) {
-      _log('[derive] strain rescale failed (kept old values): $e');
-    }
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -1236,9 +1752,7 @@ class DerivationEngine {
       ];
       if (todoDays.isEmpty) {
         _log('derive: all days finalized — nothing to do');
-        if (scope.fullHistory) {
-          await _pruneOldDecoded(todoDays, dataNowSec);
-        }
+        await _pruneOldDecoded(scope.rawDays, dataNowSec);
         return 0;
       }
       _diag['todo_days'] = todoDays.length;
@@ -1339,9 +1853,16 @@ class DerivationEngine {
         await _runNotifications();
       }
       // 5. Prune raw — never for a day still inside its raw window / un-derived.
+      // Runs on EVERY derive, not just a full restage: `rawRetentionDays` is
+      // the only cap on the 1 Hz substrate, and behind `scope.fullHistory` it
+      // fired only on a manual "Re-analyze data", so an ordinary install grew
+      // ~12 MB/day without bound. `_pruneOldDecoded` is day-scoped and bounded,
+      // so it is safe to run this often.
+      _diag['stage'] = 'prune';
+      await _pruneOldDecoded(scope.rawDays, dataNowSec);
+      // The timezone hold is a FULL-RESTAGE concept — only a restage actually
+      // re-derives every held day — so clearing it stays behind fullHistory.
       if (scope.fullHistory) {
-        _diag['stage'] = 'prune';
-        await _pruneOldDecoded(todoDays, dataNowSec);
         // Re-baseline the travel guard — but ONLY if every targeted day
         // actually got re-derived under the current timezone. processDay
         // swallows per-day errors and marks the day skipped, so a restage can
@@ -1370,6 +1891,36 @@ class DerivationEngine {
       // entry path and every early return actually reaches.
       _diag['stage'] = 'housekeeping';
       await _runStorageHousekeeping();
+      // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
+      // inside the raw window re-derive from substrate above; everything older
+      // has none, so its headline is rebuilt from the stored TRIMP + wake
+      // window instead. No-ops after the first successful pass
+      // (`compute_freshness`), and never fatal — a failed rescale must not take
+      // the derive cycle down with it.
+      //
+      // AFTER the sweep, not before it. It used to be the first statement of
+      // run(), so the one launch where it actually fires — the first after the
+      // version bump, the launch the user is watching — spent a DB round trip
+      // and a bundle decode+encode PER DAY OF HISTORY before today's data was
+      // touched at all. Nothing in the sweep reads what it rewrites (it only
+      // ever touches days older than `rawRetentionDays`, which no pass
+      // re-derives), so the only thing the old ordering bought was that the
+      // FIRST cross-day rollup after the bump saw the rescaled history rather
+      // than the next one. Still holds `_running`, so nothing else can be
+      // reading day_result while it rewrites.
+      _diag['stage'] = 'strain_rescale';
+      try {
+        final rescaled = await backfillStrainScale(
+          female: workoutSex(profile.sex) == 'female',
+        );
+        if (rescaled.didWork) {
+          _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
+              'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
+              'window)');
+        }
+      } catch (e) {
+        _log('[derive] strain rescale failed (kept old values): $e');
+      }
       _running = false;
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
@@ -1631,6 +2182,11 @@ class DerivationEngine {
       dayId: dayId,
       hasOverride: override != null,
     );
+    // The habitual-midsleep prior needs 14 distinct days and this call carries
+    // ~36 h of substrate, so without the STORED windows the prior can never
+    // fire in production and every night is anchored to the 03:30 cold start.
+    // Read on main (the DB lives here) and capture into the worker.
+    final priorSleep = await _storedSleepHistory(excludeDay: dayId);
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
@@ -1661,6 +2217,7 @@ class DerivationEngine {
         searchSub,
         targetDay: dayId,
         override: override,
+        priorSleep: priorSleep,
       );
       // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
       // rolling profile — done here in the worker because the observations live
@@ -1831,6 +2388,44 @@ class DerivationEngine {
     // payload becomes a cold start, per this method's contract — rather than
     // throwing later inside the staging worker's `jsonDecode(...) as Map`.
     return SleepProfilePolicy.usableProfileJson(raw);
+  }
+
+  /// Stored sleep windows for the trailing [days] days, as the history the
+  /// habitual-midsleep prior takes ([calendarDays]'s `priorSleep`).
+  ///
+  /// `window_json` is a projected column, so this is one small query — no
+  /// bundle decode. Days with no window contribute nothing; the prior itself
+  /// abstains below 14 distinct days.
+  ///
+  /// [excludeDay] drops the day being staged: its stored window is the PREVIOUS
+  /// derive's answer for the very question being asked, and a re-derive that
+  /// reads its own last answer back is not reproducible.
+  Future<List<({int startSec, int endSec, String dayKey})>>
+  _storedSleepHistory({int days = 60, String? excludeDay}) async {
+    final out = <({int startSec, int endSec, String dayKey})>[];
+    try {
+      for (final r in await LocalDb.sleepWindowRows(days)) {
+        final dayKey = r['day_id'] as String?;
+        if (dayKey == null || dayKey.isEmpty || dayKey == excludeDay) continue;
+        final raw = r['window_json'];
+        if (raw is! String || raw.isEmpty) continue;
+        final decoded = jsonDecode(raw);
+        // `value` is the string '—' on a night with no sleep — only a Map when
+        // a window was actually found.
+        final v = decoded is Map ? decoded['value'] : null;
+        if (v is! Map) continue;
+        final onsetMs = (v['onset_ms'] as num?)?.toDouble();
+        final offsetMs = (v['offset_ms'] as num?)?.toDouble();
+        if (onsetMs == null || offsetMs == null) continue;
+        final startSec = (onsetMs / 1000).round();
+        final endSec = (offsetMs / 1000).round();
+        if (startSec <= 0 || endSec <= startSec) continue;
+        out.add((startSec: startSec, endSec: endSec, dayKey: dayKey));
+      }
+    } catch (e) {
+      _log('sleep history for midsleep prior FAILED/skipped: $e');
+    }
+    return out;
   }
 
   Future<Substrate> _loadSubstrateRange(
@@ -2009,7 +2604,12 @@ class DerivationEngine {
       // own, so it clears the guard — but only once it has actually RUN. See
       // the reset at the end of run(): clearing it here, at scope-selection
       // time, meant an interrupted restage still dropped the hold.
-      return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
+      return _scopeForDays(
+        rawDays,
+        reason: 'full-history',
+        fullHistory: true,
+        rawDays: rawDays,
+      );
     }
 
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -2041,20 +2641,25 @@ class DerivationEngine {
           // Everything pending was held. Falling through to the
           // 'latest-finalized-check' below would re-derive rawDays.last —
           // one of the very days just held — defeating the hold entirely.
-          return const _DeriveScope(
+          return _DeriveScope(
             fullHistory: false,
-            targetDays: [],
+            targetDays: const [],
             reason: 'tz-travel-hold',
+            rawDays: rawDays,
           );
         }
       }
     }
     if (pending.isEmpty) {
-      return _scopeForDays([rawDays.last], reason: 'latest-finalized-check');
+      return _scopeForDays(
+        [rawDays.last],
+        reason: 'latest-finalized-check',
+        rawDays: rawDays,
+      );
     }
 
     if (heavy) {
-      return _scopeForDays(pending, reason: 'pending-span');
+      return _scopeForDays(pending, reason: 'pending-span', rawDays: rawDays);
     }
 
     final light = selectLightDeriveDays(
@@ -2062,7 +2667,7 @@ class DerivationEngine {
       pendingDays: pending,
       today: LocalDb.localDayLabelNow(),
     );
-    return _scopeForDays(light.days, reason: light.reason);
+    return _scopeForDays(light.days, reason: light.reason, rawDays: rawDays);
   }
 
   /// The day before and after [dayId] ('YYYY-MM-DD'), DST-safe (goes through
@@ -2123,6 +2728,7 @@ class DerivationEngine {
     List<String> days, {
     required String reason,
     bool fullHistory = false,
+    List<String> rawDays = const [],
   }) {
     final sorted = days.toSet().toList()..sort();
     if (sorted.isEmpty || fullHistory) {
@@ -2130,9 +2736,15 @@ class DerivationEngine {
         fullHistory: true,
         targetDays: sorted,
         reason: reason,
+        rawDays: rawDays,
       );
     }
-    return _DeriveScope(fullHistory: false, targetDays: sorted, reason: reason);
+    return _DeriveScope(
+      fullHistory: false,
+      targetDays: sorted,
+      reason: reason,
+      rawDays: rawDays,
+    );
   }
 
   // ── baseline-dirty recent rescan ─────────────────────────────────────────────
@@ -2162,6 +2774,22 @@ class DerivationEngine {
       final prev = await LocalDb.getCursor('baseline_sig');
       if (sig == prev) {
         _log('baseline unchanged — rescan skipped');
+        return 0;
+      }
+
+      // Same hold `_deriveScope` installs, for the same reason. This re-derives
+      // FINALIZED days by design, and `decodedRecTsMaxByDay` buckets them in
+      // the CURRENT timezone — so after a real trip it relabels and overwrites
+      // (ConflictAlgorithm.replace) exactly the nights the hold was protecting,
+      // minutes after `run()` logged that it was protecting them. Wait for
+      // "Re-analyze data", which is what clears the guard.
+      //
+      // Deliberately BEFORE the `baseline_sig` cursor is stored: the baseline
+      // change is still pending, so the rescan runs once the hold lifts.
+      if (await _timezoneTravelSuspected()) {
+        _log(
+          'rescan: possible timezone change — held until Re-analyze data runs',
+        );
         return 0;
       }
 
@@ -2310,24 +2938,43 @@ class DerivationEngine {
     void Function(String day)? onDayDone,
   }) async {
     if (sub.isEmpty || dates.isEmpty) return 0;
-    final days = calendarDays(sub);
-    final dataNowSec = sub.lastTs ?? 0;
-    var done = 0;
-    for (final day in days) {
-      if (!dates.contains(day.date)) continue;
-      try {
-        await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
-        done++;
-        onDayDone?.call(day.date);
-      } catch (e) {
-        _log('import day ${day.date} FAILED/skipped: $e');
+    // Under the SAME lock as run()/runDays(): this writes day_result rows, and
+    // an import racing a background derive of the same day is exactly the
+    // partial-overwrites-complete case the lock exists for.
+    return _withRunLock(0, () async {
+      final days = calendarDays(sub);
+      final dataNowSec = sub.lastTs ?? 0;
+      var done = 0;
+      for (final day in days) {
+        if (!dates.contains(day.date)) continue;
+        // NEVER clobber a day the band measured. `forceFinalize: true` below
+        // both replaces the measured result and locks the day out of every
+        // future re-derive, and the raw it came from is pruned within days —
+        // so importing a file that overlaps real history destroyed it
+        // silently and permanently. Same guard the WHOOP importer has always
+        // had; it just was not shared.
+        if (await LocalDb.isMeasuredDay(day.date)) {
+          _log('import day ${day.date} kept (already measured on this device)');
+          continue;
+        }
+        try {
+          await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
+          done++;
+          onDayDone?.call(day.date);
+        } catch (e) {
+          _log('import day ${day.date} FAILED/skipped: $e');
+        }
       }
-    }
-    return done;
+      return done;
+    });
   }
 
   /// Run the cross-day rollup + notifications + baseline refresh once after an
   /// import completes (reflects the freshly imported day history).
+  /// NOT under [_withRunLock]: `_refreshBaselines` takes the lock itself, so
+  /// holding it here would make this method skip its own first step. The rollup
+  /// and notification passes below write one artifact each (last write wins,
+  /// and the artifact is version/day stamped), so they are safe to interleave.
   Future<void> finalizeImport(Profile profile) async {
     await _refreshBaselines();
     await _runCrossDay(profile);
@@ -2425,6 +3072,14 @@ class DerivationEngine {
       profile: profile.toMap(),
       dayConfidence: day.confidence,
       dayFlags: day.flags,
+      // WHICH STRAP measured this day, so the pipeline can dispatch its
+      // per-family constants (today: the HR ceiling) and REFUSE on an unknown
+      // family instead of borrowing gen4's.
+      deviceFamily: daySub.deviceFamily,
+      // Whether the sleep window was the user's own assertion or the detector's
+      // guess — sleep-onset latency only means what people think it means on a
+      // forced window.
+      sleepSource: day.sleepSource,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -2567,7 +3222,10 @@ class DerivationEngine {
     try {
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-      final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
+      // Resolved PER WINDOW, not per day: each span of the day goes to the best
+      // source that actually covered it. `.strap` is carried alongside the
+      // total so the bundle can name the sensor that counted.
+      final liveSteps = await LocalDb.resolvedStepsForDay(day.date);
       final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
       // Off-wrist / charging spans over the NAP window (which runs past this
@@ -2578,8 +3236,18 @@ class DerivationEngine {
           day.napSub.length == 0 ? dayLo : day.napSub.tsSec.first;
       final napHi =
           day.napSub.length == 0 ? dayHi : day.napSub.tsSec.last + 60;
-      final wristOffSpans = await LocalDb.wristOffSpans(napLo, napHi);
-      final chargingSpans = await LocalDb.chargingSpans(napLo, napHi);
+      // ...and back to SLEEP ONSET, which is routinely EARLIER than napLo. This
+      // day's sleep is the night that ENDED this morning, so its onset sits at
+      // ~23:00 YESTERDAY — before local midnight, before the day's first
+      // record. `_toggleSpans` carries an already-open state in from before its
+      // window, so a charge that straddles midnight was always covered; one
+      // that opened AND closed at 23:20 was invisible. That is the shape of a
+      // battery-pack top-up before bed, i.e. the exact case this feeds.
+      final spanLo = day.sleepOnsetSec > 0
+          ? math.min(napLo, day.sleepOnsetSec)
+          : napLo;
+      final wristOffSpans = await LocalDb.wristOffSpans(spanLo, napHi);
+      final chargingSpans = await LocalDb.chargingSpans(spanLo, napHi);
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //
@@ -2629,9 +3297,15 @@ class DerivationEngine {
         profile: profile,
         onsetSec: day.sleepOnsetSec,
         offsetSec: day.sleepOffsetSec,
-        rhr: (scMap?['rhr'] as num?)?.toDouble(),
+        // NOCTURNAL-ONLY. `scalars.rhr` is allowed to fall back to daytime HR
+        // for the resting-HR card; feeding that into TRIMP charged a day
+        // against an awake reference and published a strain the pure pipeline
+        // had already refused to publish. `rhr_nocturnal` is null unless a
+        // sleep session was detected — exactly the gate readiness uses.
+        rhr: (scMap?['rhr_nocturnal'] as num?)?.toDouble(),
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
-        liveStepsReal: liveStepsReal,
+        liveStepsReal: liveSteps.total,
+        liveStepsFromStrap: liveSteps.strap,
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
         savedSessions: savedSessions,
@@ -2660,11 +3334,41 @@ class DerivationEngine {
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
       // hrr_bpm reach the persisted series map below.
+      // `addAll` REPLACES `absent_notes` wholesale, and the two halves own
+      // different keys: `trimp` is only ever the pure pipeline's (nothing in the
+      // second half recomputes it), while strain/zones/calories/max_hr_used are
+      // the recompute's. Keep the pipeline's trimp reason across the merge or
+      // the Activity screen's "training load" goes absent with nothing to say.
+      final trimpNote = (bundle['absent_notes'] as Map?)?['trimp'] as String?;
       bundle.addAll(blocks.bundlePatch);
+      if (trimpNote != null && (bundle['scalars'] as Map?)?['trimp'] == null) {
+        (bundle['absent_notes'] as Map?)?['trimp'] = trimpNote;
+      }
       (bundle['series'] as Map?)?.cast<String, dynamic>().addAll(
             blocks.seriesPatch,
           );
       scMap?.addAll(blocks.scalarPatch);
+
+      // ONE ANSWER FOR STRAIN. The second half just recomputed it from the same
+      // nocturnal-or-user resting HR the pure pipeline gated on, and its scalar
+      // is what every surface reads. When that recompute abstains, stamp
+      // `clinical.strain` absent alongside the null scalar: the two were
+      // written by different code paths off different resting HRs, and a stored
+      // bundle could hold "—" in one and a confident 5.99 in the other.
+      if (scMap != null && scMap['strain'] == null) {
+        final strainEnv = (bundle['clinical'] as Map?)?['strain'];
+        if (strainEnv is Map) {
+          strainEnv['value'] = '—';
+          strainEnv['confidence'] = 0;
+          // The note is stamped even when the envelope was ALREADY absent. It
+          // used to be gated on `value != '—'`, so on every day where both
+          // halves abstained — which is every day this matters on — the reason
+          // never landed and the envelope kept the scorer's "strain needs a
+          // TRIMP", naming a sibling metric instead of the missing input.
+          strainEnv['note'] =
+              blocks.wake['strain_absent'] ?? kUnknownAbsenceNote;
+        }
+      }
 
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
@@ -2772,6 +3476,11 @@ class DerivationEngine {
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
       readiness: sc('readiness'),
+      // export-provenance: this day's scalars came out of the 1 Hz substrate
+      // the strap recorded. An importer's day is a DIFFERENT vendor's derived
+      // score and must carry its own tag; a day whose provenance is genuinely
+      // unknown stays NULL and is never retro-filled with this.
+      source: 'band',
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -2786,15 +3495,18 @@ class DerivationEngine {
         'skin_temp_adc': sc('skin_temp_adc'),
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
+        // Written even when NULL: an abstaining day must overwrite a value a
+        // previous version's daytime-RHR strain left behind, not keep it.
         'strain': sc('strain'),
         'trimp': sc('trimp'),
-        // Secondary 0–100 Edwards "effort" strain → its own trend series.
-        'strain_effort': sc('strain_effort'),
-        'odi_per_hour': sc('odi_per_hour'),
-        'cpc_ratio': sc('cpc_ratio'),
+        // `strain_effort`, `spo2` and `odi_per_hour` used to be listed here.
+        // Nothing in the tree ever produced them (12 rows, 0 values per key on
+        // a real install), so they were three permanently-null series with a
+        // card-less key in the coach's contract. A metric this app does not
+        // produce has no entry and no key — the same rule metric_detail.dart
+        // states and the UI already followed.
         // New metrics → trends (day/week/month/3M).
         'stress': sc('stress'),
-        'spo2': sc('spo2'),
         'calories': sc('calories'),
         // Steps = REAL pedometer counts only (band 100 Hz / phone / NOOP
         // import, all via `live_coverage`). Absent — written as a NULL row, so
@@ -2826,6 +3538,33 @@ class DerivationEngine {
         'irregular_rhythm_flag': sc('irregular_rhythm_flag'),
         'brv_cv': sc('brv_cv'),
         'hrr_bpm': sc('hrr_bpm'),
+        // Recovery time constant (s) from the same tail `hrr_bpm` comes off.
+        // Alongside it, never instead of it — the fit gate abstains often.
+        'hrr_tau_s': sc('hrr_tau_s'),
+        // Deceleration capacity (ms), personal trend only — no reference range,
+        // no colour, no threshold, ever.
+        'prsa_dc': sc('prsa_dc'),
+        // How much of the sleep window the temp channel actually covered.
+        'skin_temp_coverage_frac': sc('skin_temp_coverage_frac'),
+        // Sleep shape: hours nobody watched, sustained awakenings (a floor),
+        // longest unbroken stretch, and forced-window sleep-onset latency.
+        'unobserved_min': sc('unobserved_min'),
+        'awakenings': sc('awakenings'),
+        'longest_sleep_min': sc('longest_sleep_min'),
+        'sol_min': sc('sol_min'),
+        // SLP-09 / L10 — where on the clock the night sat, tz-corrected and
+        // UNWRAPPED (signed seconds either side of 04:00 local; see
+        // onehz_pipeline's sleepClockOffsetSec). Written so a schedule-shift
+        // segmentation has a series to run on in six months. FORWARD-ONLY:
+        // mid-sleep was never persisted, the 1 Hz substrate it comes from is
+        // gone at 3 days, and days lock ~48 h after wake — so every night
+        // before this shipped has no value and cannot be given one.
+        'midsleep_sec': sc('midsleep_sec'),
+        'sleep_onset_sec': sc('sleep_onset_sec'),
+        // TS-03 — this day's observed HR ceiling (bpm), or NULL on the ordinary
+        // day that held none. The app-wide "highest we've seen" is the max of
+        // this series; the date/session behind it lives in that day's bundle.
+        'hr_ceiling_bpm': sc('hr_ceiling_bpm'),
       },
     );
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
@@ -3120,6 +3859,10 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = history.valuesBefore('skin_temp_adc', date);
+    // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
+    // not a window (see [maxBefore]), and strictly before today so a day is
+    // never banded on a ceiling its own session set.
+    m['observed_hr_ceiling_bpm'] = history.maxBefore('hr_ceiling_bpm', date);
     return m;
   }
 
@@ -3150,6 +3893,13 @@ class DerivationEngine {
   static bool crossDayArtifactUsableToday(Object? decoded, String today) {
     if (decoded is! Map) return false;
     if (decoded['days'] is! List) return false;
+    // The artifact stamps `algo_version` and this gate used to ignore it, so a
+    // version bump that CHANGES THE ROW SHAPE (a new per-day field, e.g.
+    // `hourly_hr`) was served from the pre-bump artifact for the rest of the
+    // day — the new cross-day family silently saw nothing on the very pass the
+    // bump existed to trigger. A shape the current code did not write is not
+    // reusable, whatever day it was built for.
+    if ((decoded['algo_version'] as num?)?.toInt() != kAlgoVersion) return false;
     final builtFor = decoded['built_for_day'];
     return builtFor is String && builtFor.isNotEmpty && builtFor == today;
   }
@@ -3162,22 +3912,108 @@ class DerivationEngine {
         return;
       }
       final profileMap = profile.toMap();
+      // Her own logged cycle starts. Read on the DB-owning isolate (sqflite),
+      // passed in as plain strings so the bundle stays pure. Only `start`
+      // markers — the other kinds are not what a cycle is counted from.
+      final cycleStarts = <String>[
+        for (final r in await LocalDb.cycleLogs())
+          if (r['kind'] == 'start' && r['date'] is String) r['date'] as String,
+      ];
+      // TS-11's grouping key. Read here (sqflite is main-isolate only) and
+      // handed in as plain strings so the bundle stays pure.
+      final sessionTypes = await _sessionTypesByDate(days);
       // Encode INSIDE the isolate too — a real ~3.5-4.7s main-isolate hang was
       // caught in production (Crashlytics jank_watchdog, correlated with a
       // heavy derive pass) coming from jsonEncode-ing this bundle back on the
       // main isolate after Isolate.run returned it. Returning the already-
       // encoded string avoids both the main-isolate encode cost AND transfers
       // a flat string across the isolate boundary instead of a large nested Map.
-      final bundleJson = await _runIsolateCancellable(
-        () => jsonEncode(buildCrossDayBundle(days, profileMap)),
+      // Stamped so the READER can fail closed. Without these the bundle was
+      // indistinguishable from a current one: after a version bump — or on any
+      // path that leaves the stored artifact untouched (the `< 3 days` return
+      // above, or the catch below) — VO₂max, fitness age, sleep need, strain
+      // target, glass-box readiness and the illness flags all kept serving the
+      // PREVIOUS version's answers with nothing on screen to say so. Same
+      // defect as `crossDayArtifactUsableToday` guards on the INPUT artifact,
+      // one layer up on the output.
+      final builtForDay = LocalDb.localDayLabelNow();
+      final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final (bundleJson, dropped) = await _runIsolateCancellable(
+        () {
+          final bundle =
+              buildCrossDayBundle(
+                  days,
+                  profileMap,
+                  cycleStartDates: cycleStarts,
+                  sessionTypesByDate: sessionTypes,
+                )
+                ..['algo_version'] = kAlgoVersion
+                ..['built_for_day'] = builtForDay
+                ..['built_at_epoch'] = builtAtEpoch;
+          // Encode-safety BEFORE jsonEncode, never a try/catch around it: one
+          // non-finite leaf must cost that leaf, not the whole artifact.
+          final paths = <String>[];
+          final safe = sanitizeForJson(bundle, paths) as Map<String, dynamic>;
+          if (paths.isNotEmpty) safe['encode_dropped_fields'] = paths;
+          return (jsonEncode(safe), paths);
+        },
         _crossDayTimeout,
         label: 'crossday',
       );
       await LocalDb.putBaseline('crossday', bundleJson);
+      if (dropped.isNotEmpty) {
+        // Loud, not debug-only: a dropped field is a metric the user will see
+        // as absent, and the reason lives here and nowhere else.
+        debugPrint('[derive] crossday: ${dropped.length} field(s) were not '
+            'JSON-encodable and were stored as absent: ${dropped.join(", ")}');
+      }
       _log('crossday: stored over ${days.length} day(s)');
-    } catch (e) {
+    } catch (e, st) {
+      // NOT a debug line. A failure here means the stored bundle is now STALE
+      // — the reader's version/day stamp will reject it and the whole
+      // cross-day family goes absent — so it has to be visible in a release
+      // build, with the stack, or the cause is unrecoverable after the fact.
+      debugPrint('[derive] crossday BUNDLE DROPPED — the stored artifact is '
+          'now stale and every cross-day metric will read absent: $e\n$st');
       _log('crossday FAILED/skipped: $e');
     }
+  }
+
+  /// Every FINISHED saved session, grouped by the local day it started on
+  /// (TS-11's `sessionTypesByDate`).
+  ///
+  /// A live session is excluded — it has no end and no next morning yet, and
+  /// including it would make today look like a single-session day that it may
+  /// not turn out to be.
+  ///
+  /// The key is the CALENDAR-local day label, the same alphabet the day rows
+  /// use. It is not the wake-to-wake physiological boundary, so a session
+  /// started between midnight and wake is filed under the calendar day it
+  /// began rather than the physiological day it ends inside. That costs at most
+  /// the attribution of a 1 a.m. workout; the analytics drops multi-session
+  /// days and refuses under ten mornings per type either way.
+  static Future<Map<String, List<String>>> _sessionTypesByDate(
+    List<Map<String, dynamic>> days,
+  ) async {
+    if (days.isEmpty) return const {};
+    final first = days.first['date'];
+    if (first is! String || first.isEmpty) return const {};
+    final fromSec = _localDayLabelToSec(first);
+    final toSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final out = <String, List<String>>{};
+    for (final r in await LocalDb.sessionsInRange(fromSec, toSec)) {
+      if (r['status'] == 'live') continue;
+      final start = (r['start_ts'] as num?)?.toInt();
+      final type = r['type']?.toString();
+      if (start == null || type == null || type.isEmpty) continue;
+      out
+          .putIfAbsent(
+            dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000)),
+            () => <String>[],
+          )
+          .add(type);
+    }
+    return out;
   }
 
   Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
@@ -3267,10 +4103,14 @@ class DerivationEngine {
       final cd = _decodeBundle(cdRow?['payload_json']);
       if (cd == null) return;
       String? date;
+      var lastUnsettled = false;
       final recent = cd['recent'];
       if (recent is List && recent.isNotEmpty) {
         final last = recent.last;
-        if (last is Map) date = last['date'] as String?;
+        if (last is Map) {
+          date = last['date'] as String?;
+          lastUnsettled = last['unsettled'] == true;
+        }
       }
       final illness = cd['illness'] is Map ? cd['illness'] as Map : null;
       final anomaly = cd['anomaly'] is Map ? cd['anomaly'] as Map : null;
@@ -3280,97 +4120,133 @@ class DerivationEngine {
           : null;
       date ??=
           (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
-      if (date == null) return;
-      // Single emitter: writes the in-app feed AND (per user prefs) fires the OS
-      // notification. Health signals are critical (may override quiet hours);
-      // recovery/insight signals are normal (respect quiet hours).
-      Future<void> emit(
-        String kind,
-        String title,
-        String body, {
-        NotifCategory category = NotifCategory.health,
-        NotifPriority priority = NotifPriority.critical,
-        String route = '/today',
-      }) => NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: '$date:$kind',
-          category: category,
-          priority: priority,
-          title: title,
-          body: body,
-          date: date!,
-          route: route,
-        ),
+      // ANCHORED TO THE DAY THIS IS RUNNING ON, not to the newest DERIVED day.
+      //
+      // Every date in here is the newest day the rollup happened to see, which
+      // is not today whenever the newest data is old: import a back-catalogue
+      // (finalizeImport runs this straight after) or bump kAlgoVersion after a
+      // week off the wrist, and a critical, quiet-hours-overriding "Possible
+      // illness onset" goes out about nights from last November — in the
+      // present tense, with the irregular-rhythm copy saying "today".
+      //
+      // Yesterday still counts: before the first sync of the day (and just
+      // after midnight) the newest derived night IS yesterday's, and that
+      // finding is current. Anything older is history, and history does not
+      // interrupt.
+      final today = LocalDb.localDayLabelNow();
+      final yesterday = dayLabelOf(
+        DateTime.now().subtract(const Duration(days: 1)),
       );
+      if (date == null || (date != today && date != yesterday)) return;
+      // ONE exception per day, not one per finding.
+      //
+      // These six signals are correlated by construction — an illness flag, an
+      // overnight anomaly and an elevated skin temperature are usually the same
+      // morning saying the same thing — and they used to fire as six separate
+      // notifications, two of them on the recovery channel. Under the
+      // three-class rule (alarm · exception · lookback) the day's findings are
+      // collected here and presented once, aggregated, so the user gets one
+      // buzz and the whole picture instead of six buzzes and a third of it.
+      //
+      // `medical` marks the DETECTION-class findings — the ones the design
+      // sanctions interrupting for. It only affects the dedupe key (below),
+      // never the wording.
+      // The SENTENCES live in findings.dart, with the log that reads the same
+      // six. They were inline here, which is exactly how a second surface for
+      // the same detector ends up quietly differently worded.
+      final findings = <Finding>[];
       if (illness != null && illness['state'] == 'red') {
-        await emit(
-          'illness',
-          'Possible illness onset',
-          'Elevated resting HR + suppressed HRV over recent nights.',
-          route: '/heart',
-        );
+        findings.add(Finding(FindingKind.illness, date));
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        await emit(
-          'anomaly',
-          'Unusual overnight physiology',
-          'Your nightly signals deviate from your personal baseline.',
-          route: '/heart',
-        );
+        findings.add(Finding(FindingKind.anomaly, date));
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        await emit(
-          'temp',
-          'Skin temperature elevated',
-          'Sustained rise vs your baseline — a possible illness signal.',
-          route: '/body',
-        );
+        findings.add(Finding(FindingKind.tempElevated, date));
       }
-      // 24/7 irregular-rhythm SCREEN (not a diagnosis). Fires at most once/day.
+      // 24/7 irregular-rhythm SCREEN (not a diagnosis).
       final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
       if (irregFlag == 1.0) {
-        await emit('irregular', 'Irregular heart rhythm — screen',
-            'Your beat-to-beat pattern looked irregular today. This is a screen, '
-            'not a diagnosis — see a clinician if you have symptoms.',
-            route: '/heart');
+        findings.add(Finding(FindingKind.irregularRhythm, date));
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
-      if (score is num && score < 34) {
-        await emit(
-          'readiness',
-          'Low readiness today',
-          'Your recovery markers are below your usual range — ease off.',
-          category: NotifCategory.recovery,
-          priority: NotifPriority.normal,
-          route: '/today',
-        );
+      if (score is num && score < kLowReadiness) {
+        findings.add(Finding(FindingKind.lowReadiness, date));
       }
 
-      // "Something changed" — online CUSUM on the recent resting-HR series. Fire
-      // only when the shift lands on the LATEST day (a fresh change, not old
-      // history we'd re-announce every pass). Dedupe key includes the date so it
-      // surfaces at most once per day.
+      // "Something changed" — online CUSUM on the recent resting-HR series.
+      // Only when the shift lands on the day this notification is STAMPED with
+      // (a fresh change, not old history we'd re-announce every pass).
+      //
+      // The dates travel with the values. `rhrSeries` is compacted — days with
+      // no nocturnal RHR are skipped, which is most days for some users — so
+      // `index == length - 1` meant "the most recent day that HAPPENED to have
+      // an rhr". With a few null days in between, a week-old shift satisfied it
+      // and went out at critical priority under today's date.
+      //
+      // `recent[].rhr` is written WITHOUT the `settled()` guard on purpose —
+      // the guard's comment names `recent` and "RHR trend" as things an
+      // unsettled day still feeds, and the trend chart is right to show it.
+      // A critical-priority ALERT is not: a night that is only half drained
+      // reads several bpm high, fires "your resting HR trend shifted", and then
+      // corrects an hour later with the day's dedupe key already claimed. So
+      // the trend keeps the raw value and this one consumer stands down until
+      // the day settles.
       final rhrSeries = <double>[];
+      final rhrDates = <String?>[];
       if (recent is List) {
         for (final r in recent) {
           if (r is Map && r['rhr'] is num) {
             rhrSeries.add((r['rhr'] as num).toDouble());
+            rhrDates.add(r['date'] as String?);
           }
         }
       }
-      if (rhrSeries.length >= 10) {
+      if (!lastUnsettled && rhrSeries.length >= 10) {
         final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
-        if (dets.isNotEmpty && dets.last.index == rhrSeries.length - 1) {
-          final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
-          await emit(
-            'changed',
-            'Your resting heart-rate trend shifted',
-            'Your resting HR has $dir noticeably versus your recent baseline.',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            route: '/heart',
-          );
+        if (dets.isNotEmpty && rhrDates[dets.last.index] == date) {
+          findings.add(Finding(FindingKind.rhrShift, date,
+              risen: dets.last.direction > 0));
         }
+      }
+
+      if (findings.isEmpty) return;
+      final one = findings.length == 1;
+      // The key carries the day's HIGHEST severity class, not just the day.
+      //
+      // With a bare '$date:exception' the first pass of the day claimed the
+      // slot whatever it found, so a day that opened with nothing but "low
+      // readiness" and then turned an illness flag RED in the evening
+      // discarded the illness flag — the one class of notification the design
+      // does sanction, suppressed by a low-priority sibling of the same day.
+      // Keyed this way an ESCALATION still gets through exactly once, while a
+      // re-derive that finds the same class again (or merely adds another
+      // finding of a class already announced) stays silent.
+      // The other direction needs saying too: a day that opens RED and then
+      // DE-escalates (the illness flag clears by evening, "low readiness"
+      // remains) used to buzz a second time under the still-unclaimed plain
+      // key, about a finding the morning's aggregate already carried. So a
+      // presented medical exception burns the day's plain slot as well —
+      // only on a real present, or a medical one lost to quiet hours would
+      // take the plain one down with it.
+      final medical = findings.any((f) => f.medical);
+      final fired = await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: medical ? '$date:exception:medical' : '$date:exception',
+          category: NotifCategory.health,
+          priority: NotifPriority.critical,
+          title: one
+              ? findings.first.title
+              : '${findings.length} things to look at',
+          body: one
+              ? findings.first.detail
+              : findings.map((f) => '• ${f.title} — ${f.detail}').join('\n'),
+          date: date,
+          route: '/heart',
+        ),
+      );
+      if (medical && fired) {
+        await const FiredKeyStore().recordFired('$date:exception');
       }
     } catch (e) {
       _log('notifications FAILED/skipped: $e');
@@ -3416,6 +4292,8 @@ class DerivationEngine {
     final onsetMs = (winVal?['onset_ms'] as num?)?.toDouble();
     final offsetMs = (winVal?['offset_ms'] as num?)?.toDouble();
     final tstSec = (acctVal?['tst_sec'] as num?)?.toDouble();
+    final inBedSec = (acctVal?['in_bed_sec'] as num?)?.toDouble();
+    final observedSec = (acctVal?['observed_in_bed_sec'] as num?)?.toDouble();
 
     return {
       'date': date,
@@ -3434,8 +4312,57 @@ class DerivationEngine {
       'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
+      // Fraction of the night we actually watched — wall-clock in-bed minus the
+      // seconds nobody observed, over in-bed. TS-11 drops a morning whose night
+      // is under half observed: a resting HR from two hours of contact is not a
+      // morning, and it would otherwise be attributed to whatever session the
+      // day before happened to hold.
+      // Unknown stays NULL, never 0: a night whose segmentation did not report
+      // what it watched is not a night we watched none of, and 0 would read as
+      // a confident "no coverage".
+      'sleep_coverage': (inBedSec == null || inBedSec <= 0 || observedSec == null)
+          ? null
+          : observedSec / inBedSec,
       'hypnogram': series?['hypnogram'],
+      // 24 local-hour means of this day's HR curve — the ONLY intraday series
+      // that survives long enough to support cross-day circadian analysis.
+      // `day_result` is never pruned; the 1 Hz substrate is gone after 3 days,
+      // so accelerometry (the textbook ENMO input) simply does not exist far
+      // enough back. `circadianNonparametric` documents HR as an accepted
+      // input alongside activity. 24 numbers a day, so the artifact stays small.
+      'hourly_hr': hourlyHrProfile(series?['hr_curve']),
     };
+  }
+
+  /// Mean HR per LOCAL hour-of-day (24 entries, `null` where the hour is not
+  /// covered) from a stored `series.hr_curve` (`[{t: epochSec, v: bpm}]`).
+  ///
+  /// An hour counts as covered only with [minMinutes] real minute-samples in
+  /// it, so a bin is always a mean over genuine readings — never an average of
+  /// one stray second, and never an imputed value. Gaps stay null and the
+  /// consumer excludes the day; nothing is filled in.
+  static List<double?> hourlyHrProfile(Object? hrCurve, {int minMinutes = 5}) {
+    final sums = List<double>.filled(24, 0);
+    final counts = List<int>.filled(24, 0);
+    if (hrCurve is List) {
+      for (final e in hrCurve) {
+        if (e is! Map) continue;
+        final t = (e['t'] as num?)?.toInt();
+        final v = (e['v'] as num?)?.toDouble();
+        if (t == null || v == null || v <= 0) continue;
+        // LOCAL hour. The day model is local-midnight-to-midnight, so the UTC
+        // hour would smear a user's evening into the next bin (and, for a
+        // non-integral-offset zone, into the wrong one entirely).
+        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        if (h < 0 || h > 23) continue;
+        sums[h] += v;
+        counts[h] += 1;
+      }
+    }
+    return [
+      for (var h = 0; h < 24; h++)
+        counts[h] >= minMinutes ? sums[h] / counts[h] : null,
+    ];
   }
 
   /// Refresh the persisted rolling-baseline artifact + signature caches.
@@ -3460,22 +4387,81 @@ class DerivationEngine {
 
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
 
+  /// Longest the raw-first hold below may keep substrate past
+  /// [rawRetentionDays] for a day that still hasn't produced a complete result.
+  ///
+  /// The hold has to be bounded or it is not a hold, it is an off switch. A
+  /// `partial` day is DELIBERATELY never finalized by age (see
+  /// `_derivePreparedDay` — a headline-only row must keep its chance to be
+  /// filled in), and `dayResultIds` excludes both `partial` and `skipped`, so a
+  /// day whose second half fails every single time never becomes "derived" and
+  /// never becomes finalized either. One such day used to latch pruning off for
+  /// the whole install, forever, at ~12 MB/day.
+  static const int _maxRawHoldDays = 14;
+
+  /// The `rec_ts` below which decoded substrate may be deleted, or null when
+  /// nothing may be. PURE — the decision the raw prune is, separated from the
+  /// two DB calls that surround it. See [_pruneOldDecoded] for the contract.
+  @visibleForTesting
+  static int? rawPruneCutoffSec({
+    required int dataNowSec,
+    required List<String> rawDayIds,
+    required Set<String> derivedDayIds,
+  }) {
+    final cutoffSec = dataNowSec - rawRetentionDays * 86400;
+    if (cutoffSec <= 0) return null;
+    final pending = rawDayIds.where((d) => !derivedDayIds.contains(d)).toList()
+      ..sort();
+    if (pending.isEmpty) return cutoffSec;
+    // Hold at the START of the oldest day still owed a result — its own rows
+    // survive, everything before it goes — floored so a permanently stuck day
+    // cannot hold the whole install (see [_maxRawHoldDays]).
+    final barrier = math.max(
+      _localDayLabelToSec(pending.first),
+      dataNowSec - _maxRawHoldDays * 86400,
+    );
+    return barrier < cutoffSec ? barrier : cutoffSec;
+  }
+
   /// Prune raw older than [rawRetentionDays] BEHIND THE DATA EDGE. Retention is
   /// measured against the last record timestamp we actually drained
   /// ([dataNowSec]), never the wall clock, and rows are deleted by their record
   /// time (`rec_ts`), never receive time (`captured_at`) — a multi-day flash
   /// backfill received in one sync must not be pruned just because it landed
-  /// "now". Guard: never prune while any day in [days] is NOT yet derived at the
-  /// current algo version (raw-first).
-  Future<void> _pruneOldDecoded(List<String> dayIds, int dataNowSec) async {
+  /// "now".
+  ///
+  /// RAW-FIRST, DAY-SCOPED. A day in [rawDayIds] with no complete result at the
+  /// current algo version pulls the cutoff back to ITS OWN start instead of
+  /// aborting the whole prune — the old all-or-nothing guard meant a single
+  /// stuck day kept every older day's substrate too. Bounded by
+  /// [_maxRawHoldDays] so a permanently-stuck day cannot wedge it.
+  ///
+  /// [rawDayIds] must be every day that still HAS substrate (`scope.rawDays`),
+  /// not the days this pass targeted: the day at risk is precisely the one that
+  /// fell out of the scope while still un-derived.
+  ///
+  /// WHY THIS CANNOT RACE A COMPUTATION THAT STILL NEEDS THE ROWS:
+  ///   * Both call sites are inside `run()`, which holds the process-wide
+  ///     `_running` latch across its entire body — no other derive, restage,
+  ///     rescan or import pass can be reading substrate while this runs.
+  ///   * Within this run it is reached only after `runWithConcurrency` has
+  ///     awaited every day's `processDay` (prepare + compute + persist) and
+  ///     after the cross-day rollup, so nothing in flight still holds a claim.
+  ///   * It does not move the retention window — that is still
+  ///     `rawRetentionDays` behind the data edge, exactly as documented. This
+  ///     change only makes the documented window actually apply. Anything that
+  ///     must outlive it has to be PERSISTED into `day_result` when the day is
+  ///     derived rather than re-read from `decoded_onehz` on demand — which is
+  ///     why a workout's average HR is written into the bundle (it was once
+  ///     re-derived lazily and vanished the moment its substrate aged out).
+  Future<void> _pruneOldDecoded(List<String> rawDayIds, int dataNowSec) async {
     final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
-    final pending = dayIds.where((d) => !derivedIds.contains(d)).toList();
-    if (pending.isNotEmpty) {
-      _log('prune skipped — ${pending.length} day(s) not yet derived');
-      return;
-    }
-    final cutoffSec = dataNowSec - rawRetentionDays * 86400;
-    if (cutoffSec <= 0) return;
+    final cutoffSec = rawPruneCutoffSec(
+      dataNowSec: dataNowSec,
+      rawDayIds: rawDayIds,
+      derivedDayIds: derivedIds,
+    );
+    if (cutoffSec == null) return;
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
     if (deleted > 0) {
       _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
@@ -3624,8 +4610,14 @@ class DerivationEngine {
     List<double> wakeHrPerMin, {
     required Profile profile,
     int? dayMinutes,
+    String? deviceFamily,
   }) {
     if (!profile.hasCalorieAnchors) return null;
+    // `dailyEnergy`'s flex gate is a fraction of HRmax, so an absent ceiling is
+    // an absent gate — the whole triple abstains rather than bill a day against
+    // some other strap's number. See hr_max.dart.
+    final hrmax = estimatedMaxHr(profile.ageYears, deviceFamily);
+    if (hrmax == null) return null;
     final heightCm = profile.heightCm;
     if (heightCm == null) return null;
     // Off-skin samples are the package's 0 sentinel; billing them would credit
@@ -3643,7 +4635,7 @@ class DerivationEngine {
         age: profile.ageYears!.toDouble(),
         sex: _workoutSex(profile.sex),
       ),
-      hrmax: profile.hrMaxTanaka,
+      hrmax: hrmax,
       dayMinutes: dayMinutes ?? 1440,
     );
     return (active: e.active, basal: e.basal, total: e.total);
@@ -3677,9 +4669,18 @@ class DerivationEngine {
     required Profile profile,
     required int sleepOnsetSec,
     required int sleepOffsetSec,
+    /// Local midnight opening this day, and the start of the NEXT local day —
+    /// both from the day LABEL. `_DayBlocksInput.dayEndSec` is NOT this: it is
+    /// the data edge (`daySub.lastTs + 1`), which is exactly the span-shaped
+    /// denominator `_wearBlock` had to stop using. Passing it here would
+    /// reinstate the bug under a different name.
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
     double? restingHr,
     double? dynFloorG,
     int liveStepsReal = 0,
+    int liveStepsFromStrap = 0,
     int dynHistoryDays = 0,
   }) {
     final wake = _buildWakeDayFeatures(
@@ -3687,6 +4688,9 @@ class DerivationEngine {
       profile,
       sleepOnsetSec: sleepOnsetSec,
       sleepOffsetSec: sleepOffsetSec,
+      dayStartSec: dayStartSec,
+      dayCalendarEndSec: dayCalendarEndSec,
+      dataNowSec: dataNowSec,
       restingHr: restingHr,
       dynFloorG: dynFloorG,
     );
@@ -3697,6 +4701,7 @@ class DerivationEngine {
       daySub,
       profile,
       liveStepsReal,
+      liveStepsFromStrap,
       dynFloorG,
       dynHistoryDays,
     );
@@ -3721,8 +4726,13 @@ class DerivationEngine {
   ) {
     final activeMin = (wake['active_min'] as num?)?.toDouble();
     if (activeMin != null) scMap?['active_min'] = activeMin;
+    // STRAIN IS WRITTEN EVEN WHEN NULL — same rule as `steps`. This is the
+    // recompute every surface reads (home tile, strain detail, metric_series,
+    // the coach), so an abstaining day must ERASE what a previous derive wrote,
+    // not leave it standing: days built before v68 carry a strain computed off
+    // a daytime "resting" HR, and `if (strain != null)` kept exactly those.
     final strain = (wake['strain'] as num?)?.toDouble();
-    if (strain != null) scMap?['strain'] = strain;
+    scMap?['strain'] = strain;
     final calories = (wake['calories'] as num?)?.toDouble();
     if (calories != null) scMap?['calories'] = calories;
     final steps = (wake['steps'] as num?)?.toDouble();
@@ -3759,6 +4769,16 @@ class DerivationEngine {
             'active Keytel surplus over the wake span (HR-flex)',
       };
     }
+    // WHY each of the above is absent, per figure. This recompute is the answer
+    // every surface reads for the figures it owns, so its reasons win. NOTE
+    // `bundle` here is the isolate's PATCH map, not the pure pipeline's bundle
+    // — the two are merged at the `bundle.addAll(blocks.bundlePatch)` call
+    // site, and that merge is where `trimp` (the pipeline's alone; nothing here
+    // recomputes it) is carried across.
+    bundle['absent_notes'] = <String, String>{
+      for (final e in ((wake['absent_notes'] as Map?) ?? const {}).entries)
+        e.key.toString(): e.value.toString(),
+    };
     bundle['activity'] = wake['activity'];
     bundle['activity_curve'] = wake['activity_curve'];
     bundle['zones'] = wake['zones'];
@@ -3892,21 +4912,73 @@ class DerivationEngine {
   ///
   /// Called BEFORE the movement-substrate guards, because it depends on none of
   /// them — see the call site.
+  ///
+  /// [bandSteps] is the gen5 strap's OWN pedometer total for the day (see
+  /// [hardwareStepsFromCounter]) — a genuine on-wrist gait counter, not a 1 Hz
+  /// inference, so it outranks the phone. Null on every gen4 day, and on a gen5
+  /// day whose records predate schema v34; that is the absent case, not zero.
   static void _writeSteps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
-    int liveStepsReal,
-  ) {
-    final haveRealSteps = liveStepsReal > 0;
+    int liveStepsReal, {
+    int liveStepsFromStrap = 0,
+    int? bandSteps,
+  }) {
+    // THE SOURCE LADDER, and where each rung is actually decided.
+    //
+    // Rungs 1 (band 100 Hz) and 3 (phone) are WINDOWED and were already settled
+    // before this ran: `LocalDb.resolvedStepsForDay` walked the day's spans and
+    // gave each one to the best source that covered it, so `liveStepsReal` is
+    // already a sum of resolved spans and `liveStepsFromStrap` is the band's
+    // share of it. Nothing here re-decides that.
+    //
+    // Rung 2, the gen5 ON-CHIP COUNTER, cannot join that sum honestly. It is a
+    // cumulative u16 with no midnight reset and no timestamps of its own
+    // (`hardwareStepsFromCounter` differences it across the day's records): a
+    // whole-day total with no window behind it. Slicing it into spans would
+    // mean inventing an extent for it, and adding it to windowed spans would
+    // double-count every walk the other two already counted. So it stays a
+    // WHOLE-DAY FALLBACK — used only when no span source covered the day at
+    // all. That inversion is deliberate: whole-day precedence for this counter
+    // is exactly the bug being fixed (622 steps published over the phone's
+    // 18,856 on a day the strap synced for part of).
+    final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
+    final phone = liveStepsReal - strap;
+    final useBand = liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
+    final steps = useBand ? bandSteps : liveStepsReal;
+    final haveRealSteps = steps > 0;
     if (haveRealSteps) {
-      scMap?['steps'] = liveStepsReal.toDouble();
+      scMap?['steps'] = steps.toDouble();
     } else {
       scMap?.remove('steps');
     }
     bundle['steps'] = <String, dynamic>{
-      'value': haveRealSteps ? liveStepsReal : null,
+      'value': haveRealSteps ? steps : null,
       'real_measured': liveStepsReal,
-      'source': haveRealSteps ? 'pedometer_100hz_or_phone' : null,
+      // What the strap's own pedometer counted, independent of which source
+      // won. Null (never 0) when this generation has no counter at all.
+      'band_measured': bandSteps,
+      // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
+      // the phone's count came off the wrist or the other way round. Only the
+      // keys that contributed are present — a zero here would read as "that
+      // sensor was there and counted nothing", which is a different claim.
+      'by_source': haveRealSteps
+          ? <String, int>{
+              if (useBand)
+                'strap_counter': steps
+              else ...{
+                if (strap > 0) 'strap': strap,
+                if (phone > 0) 'phone': phone,
+              },
+            }
+          : const <String, int>{},
+      'source': !haveRealSteps
+          ? null
+          : useBand
+              ? 'strap_counter'
+              : (strap > 0 && phone > 0)
+                  ? 'mixed'
+                  : (strap > 0 ? 'strap' : 'phone'),
       'confidence': haveRealSteps ? 0.9 : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
@@ -3918,11 +4990,32 @@ class DerivationEngine {
       // grades and the edge must not widen it from here.
       'tier': haveRealSteps ? 'HIGH' : null,
       // Likewise, nothing was used when nothing was measured.
-      'inputs_used':
-          haveRealSteps ? const ['live_coverage_pedometer'] : const <String>[],
+      // NAMES THE SENSOR, not the table it came out of. `live_coverage_pedometer`
+      // was the storage location and covered both the wrist and the pocket,
+      // which is the one distinction the ladder exists to preserve. The UI
+      // reads these to label the card.
+      'inputs_used': !haveRealSteps
+          ? const <String>[]
+          : useBand
+              ? const ['band_step_counter']
+              : <String>[
+                  if (strap > 0) 'band_pedometer_100hz',
+                  if (phone > 0) 'phone_pedometer',
+                ],
       'note': haveRealSteps
-          ? 'real pedometer count over measured windows only; time outside '
-              'those windows is not counted rather than estimated'
+          ? (useBand
+              ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
+                  'counter; wrapped and reset boundaries contribute nothing '
+                  'rather than a guess'
+              : (strap > 0 && phone > 0)
+                  ? 'counted over measured windows only, each window by the '
+                      'better sensor that was actually recording it — the '
+                      'strap while it streamed, your phone the rest of the '
+                      'time. Overlaps are counted once, and time no sensor '
+                      'covered is not counted rather than estimated'
+                  : 'real pedometer count over measured windows only; time '
+                      'outside those windows is not counted rather than '
+                      'estimated')
           : 'no step count: nothing that can resolve gait measured this day. '
               'A 1 Hz wrist stream cannot count steps, so no number is shown '
               'instead of an invented one',
@@ -3948,6 +5041,7 @@ class DerivationEngine {
     Substrate daySub,
     Profile profile,
     int liveStepsReal,
+    int liveStepsFromStrap,
     double? dynFloorG,
     int dynHistoryDays,
   ) {
@@ -3961,7 +5055,16 @@ class DerivationEngine {
       // band barely synced, or a fresh install) would silently report no steps
       // at all — discarding a real measurement because an unrelated signal was
       // missing. Assign steps before anything can return early.
-      _writeSteps(bundle, scMap, liveStepsReal);
+      // The strap's own pedometer, when this strap has one (gen5). Read off
+      // `daySub` — already sliced to this calendar day — so the first record's
+      // delta against yesterday's last is not carried across the boundary.
+      _writeSteps(
+        bundle,
+        scMap,
+        liveStepsReal,
+        liveStepsFromStrap: liveStepsFromStrap,
+        bandSteps: hardwareStepsFromCounter(daySub),
+      );
 
       if (daySub.length < 60) return;
       final motion = _motionMinutes(daySub);
@@ -3985,21 +5088,31 @@ class DerivationEngine {
       final est = ana.dailyActiveMinutes(
         motion,
         personalDynFloorG: dynFloorG,
-        pooledMinutesAvailable: dynHistoryDays,
+        // DAYS, and the parameter now says so. This used to be
+        // `pooledMinutesAvailable`, a MINUTE count compared against a
+        // 2000-minute floor, while every caller passed a day count — the
+        // cold-start note read "have=3, need=2000" for a user three days in.
+        // Analytics renamed it and now counts it against the 5-day floor it
+        // was always describing.
+        historyDaysAvailable: dynHistoryDays,
+        // A CALENDAR DAY, as `enmoSeries` is given below. Without it the
+        // coverage denominator is the worn SPAN, which excludes the unworn
+        // ends: a day worn 4 h out of 24 published coverage 1.0.
+        expectedMinutes: 1440,
       );
       final v = est.present ? est.value : null;
 
       // Movement minutes stay, as an explicitly non-locomotion activity index.
       //
-      // ONLY OVERWRITE ON SUCCESS — never remove. `_applyWakeDayFeatures` has
-      // already written `active_min` from `_activeMinutes` (ENMO over wake), a
-      // SEPARATE quantity that was never part of the fabricated step
-      // conversion. Removing it on abstention deleted a number the user
-      // previously had, for the whole enrollment window (every day a new user
-      // has before the floor freezes), and nulled its trend series with it.
-      // Abstaining from the new index is right; destroying the old independent
-      // measurement to do it is not.
-      if (v != null) scMap?['active_min'] = v.activeMinutes.toDouble();
+      // IT DOES NOT WRITE `active_min`. That key is `_activeMinutes` — minutes
+      // over the WAKE span where >20% of seconds showed a >5° z-angle change —
+      // and this is ENMO bouts (≥3 min) over the FULL calendar day against a
+      // personal g floor. Two algorithms, two windows, one key: `dailyActiveMinutes`
+      // abstains until the floor freezes (~day 5), so the day it starts
+      // answering, the user's 'active' trend stepped to a different quantity
+      // with no change in behaviour — and stepped again on every re-freeze.
+      // This figure is published under its own names, `movement` below and
+      // `activity.movement_min`, and `active_min` has exactly one producer.
       bundle['movement'] = <String, dynamic>{
         'active_min': v?.activeMinutes,
         'bout_count': v?.boutCount,
@@ -4044,11 +5157,19 @@ class DerivationEngine {
     Profile profile, {
     required int sleepOnsetSec,
     required int sleepOffsetSec,
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
     double? restingHr,
     double? dynFloorG,
   }) {
     final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
-    final wear = _wearBlock(daySub);
+    final wear = _wearBlock(
+      daySub,
+      dayStartSec: dayStartSec,
+      dayCalendarEndSec: dayCalendarEndSec,
+      dataNowSec: dataNowSec,
+    );
     final perMin = _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
     final motion = _motionMinutes(daySub);
     final dayHrValid = <double>[
@@ -4067,9 +5188,62 @@ class DerivationEngine {
     // age/weight are read by `wakeDayEnergy` straight off the profile now, so
     // they are no longer unpacked here — TRIMP only needs the sex constant.
     final sex = profile.sex?.toLowerCase();
-    final hrMax = profile.hrMaxTanaka; // null when age is unknown
+    // ONE definition (hr_max.dart): null when age is unknown OR when we cannot
+    // say which strap measured this day.
+    final hrMax = estimatedMaxHr(profile.ageYears, daySub.deviceFamily);
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
     double? strain;
+    // Why each absent activity figure is absent, in the order the gates below
+    // apply. Absence is never a bare nothing here: the day carries its own
+    // reason PER FIGURE so every caller can say what is missing instead of
+    // showing a dash — or, worse, guessing (the Strain screen used to blame a
+    // missing resting HR on a day that had one, because the only reason written
+    // down was attached to a metric it does not read).
+    //
+    // Same order and same vocabulary as `deriveDayBundle`'s pure half, which
+    // gates on exactly these inputs; the two must not disagree about WHY.
+    final ceilingAbsent = hrMax != null
+        ? null
+        : profile.ageYears == null
+        ? needInputNote('age')
+        // We know the age; we do not know what measured the HR, so we
+        // have no ceiling to band it against.
+        : ana.unknownFamilyNote(daySub.deviceFamily);
+    String? strainAbsent = perMin.isEmpty
+        ? needInputNote('wake_hr')
+        : hrMax == null
+        ? ceilingAbsent
+            : dayHrValid.isEmpty
+        ? needInputNote('hr_samples')
+                : rhrForTrimp == null
+        ? needInputNote('resting_hr')
+                    : sex == null
+        ? needInputNote('sex')
+        : null;
+    // `wakeDayEnergy`'s own gates, named. It returns a bare null, so the reason
+    // has to be reconstructed from the same inputs it reads — in its order.
+    final caloriesAbsent = perMin.isEmpty
+        ? needInputNote('wake_hr')
+        // The whole energy pass is gated on having motion minutes to pro-rate
+        // the basal floor over; a day with no accel never reaches it.
+        : motion.isEmpty
+        ? needInputNote('accel_1hz')
+        : profile.ageYears == null
+        ? needInputNote('age')
+        : profile.weightKg == null
+        ? needInputNote('weight_kg')
+        : sex == null
+        ? needInputNote('sex')
+        : hrMax == null
+        ? ceilingAbsent
+        // Keytel does not read height; `dailyEnergy`'s ACTIVE
+        // term nets out a Mifflin basal minute, which does.
+        : profile.heightCm == null
+        ? needInputNote('height_cm')
+                        : null;
+    final zonesAbsent = perMin.isEmpty
+        ? needInputNote('wake_hr')
+        : ceilingAbsent;
     double? calories;
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
@@ -4077,8 +5251,13 @@ class DerivationEngine {
     double? caloriesBasal;
     Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
-      // TRIMP needs a real resting HR (nightly or user-supplied) and a real sex
-      // constant — both are in the Banister formula itself.
+      // TRIMP needs a resting HR that is actually RESTING — a NOCTURNAL reading
+      // (`scalars.rhr_nocturnal`, sleep-window only) or one the user entered —
+      // and a real sex constant. Both are in the Banister formula itself.
+      // `restingHr` used to arrive as `scalars.rhr`, which falls back to
+      // daytime HR when no sleep was detected: ~20 bpm high on the days it
+      // fired, which shrinks the HR reserve and manufactures strain out of
+      // sitting still. No resting HR of either kind now means NO STRAIN.
       if (dayHrValid.isNotEmpty && rhrForTrimp != null && sex != null) {
         final trimp = ana.banisterTrimp(
           perMin,
@@ -4103,6 +5282,10 @@ class DerivationEngine {
           );
           if (score.present) strain = score.value;
         }
+        // Every named input was there and the scorer still abstained. We do not
+        // know why; saying so is the honest floor, and it is what the rule
+        // "never a guessed cause" leaves when there is no cause to name.
+        strainAbsent ??= strain == null ? kUnknownAbsenceNote : null;
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
@@ -4128,6 +5311,9 @@ class DerivationEngine {
       final movementMetric = ana.dailyActiveMinutes(
         motion,
         personalDynFloorG: dynFloorG,
+        // Same calendar-day denominator as the other call site; `motion` is
+        // built from the whole day substrate here too.
+        expectedMinutes: 1440,
       );
       if (movementMetric.present && movementMetric.value != null) {
         movementMin = movementMetric.value!.activeMinutes.toDouble();
@@ -4146,6 +5332,7 @@ class DerivationEngine {
         perMin,
         profile: profile,
         dayMinutes: motion.length,
+        deviceFamily: daySub.deviceFamily,
       );
       if (energy != null) {
         calories = energy.active;
@@ -4164,6 +5351,22 @@ class DerivationEngine {
       'active_min': activeMin,
       'movement_min': movementMin,
       'strain': strain,
+      // Machine-readable reason `strain` is null (see `strainAbsent`). Null
+      // when a strain WAS produced.
+      'strain_absent': strain == null ? strainAbsent : null,
+      // …and the same, per figure, for the rest of the activity family. A key
+      // is present ONLY when that figure is absent. `_applyWakeDayFeatures`
+      // merges this onto the bundle's `absent_notes`, which is what the serve
+      // seam attaches to the value it hands a screen — see the note there.
+      'absent_notes': <String, String>{
+        if (strain == null) 'strain': strainAbsent ?? kUnknownAbsenceNote,
+        if (zones.isEmpty) 'zones': zonesAbsent ?? kUnknownAbsenceNote,
+        if (hrMax == null && ceilingAbsent != null)
+          'max_hr_used': ceilingAbsent,
+        if (calories == null) 'calories': caloriesAbsent ?? kUnknownAbsenceNote,
+        if (caloriesTotal == null)
+          'calories_total': caloriesAbsent ?? kUnknownAbsenceNote,
+      },
       'calories': calories,
       'steps': steps,
       'calories_total': caloriesTotal,
@@ -4194,9 +5397,15 @@ class DerivationEngine {
   }
 
   /// Active minutes over the WAKE span — a coarse 1 Hz movement proxy.
-  static int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
+  ///
+  /// NULL, not 0, when nothing was countable. A gen5 day (or a gen4
+  /// R10-historical one) decodes 1 Hz records with no usable accel, so every
+  /// second is skipped below and the loop falls out with `active == 0` — which
+  /// published "0 active minutes" as a measurement for a fully-worn band.
+  static int? _activeMinutes(
+      Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
     final n = s.length;
-    if (n < 60) return 0;
+    if (n < 60) return null;
     final ang = List<double>.filled(n, 0);
     for (var i = 0; i < n; i++) {
       ang[i] = ana.zAngle(s.ax[i], s.ay[i], s.az[i]);
@@ -4206,6 +5415,10 @@ class DerivationEngine {
     final moveSec = <int, int>{};
     final totSec = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // A second with no gravity vector contributes to NEITHER count: it has a
+      // z-angle of exactly 0.0°, so counting it as denominator would read as
+      // stillness and the fraction below would be diluted by missing data.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final t = s.tsSec[i];
       if (sleepOffsetSec > sleepOnsetSec &&
           t >= sleepOnsetSec &&
@@ -4218,6 +5431,7 @@ class DerivationEngine {
         moveSec[m] = (moveSec[m] ?? 0) + 1;
       }
     }
+    if (totSec.isEmpty) return null;
     var active = 0;
     totSec.forEach((m, tot) {
       if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
@@ -4233,21 +5447,28 @@ class DerivationEngine {
           s.ax[i],
           s.ay[i],
           s.az[i],
-          valid: s.hr[i] > 0,
+          // Wear (HR locked) AND a real gravity vector — either missing makes
+          // the second unusable for ENMO, not a still one.
+          valid: s.hr[i] > 0 && s.accelPresentAt(i),
         ),
     ];
-    return ana.enmoSeries(samples).minutes;
+    // 1440 = a calendar day. Both callers pass the day substrate, and without
+    // it `EnmoResult.coverage` divides by the SPAN of minutes that had a
+    // sample — so a day worn 4 h out of 24 reported coverage 1.0. Only
+    // `.minutes` is read here today; passing it keeps the result honest if
+    // coverage is ever surfaced.
+    return ana.enmoSeries(samples, expectedMinutes: 1440).minutes;
   }
 
   /// See `workoutSex` in profile.dart — the one definition, shared with the
   /// pure pipeline, the live tick and manually logged sessions.
   static String _workoutSex(String? sex) => workoutSex(sex);
 
-  // NOTE: `detected_workouts` (`const []`) and `advanced_sleep`
-  // (`{present:false}`) are currently constant stubs — they are now emitted
-  // directly inside [_computeDayBlocks] (the offloaded second half). When the
-  // real WorkoutDetector / AdvancedSleepStager passes are re-homed, put them
-  // back there so they stay OFF the calling isolate.
+  // NOTE: `advanced_sleep` (`{present:false}`) is a constant stub emitted
+  // inside [_computeDayBlocks] (the offloaded second half). If a real
+  // AdvancedSleepStager pass is ever re-homed, put it back there so it stays
+  // OFF the calling isolate. `detected_workouts` used to be listed here too and
+  // is gone — see the note at its old site in [_computeDayBlocks].
 
   /// Per-5-min movement-level curve over the whole day ([{t, v}], v = fraction
   /// of seconds in the bucket with a ≥5° wrist-orientation change, 0..1). The
@@ -4263,6 +5484,8 @@ class DerivationEngine {
     const bucketSec = 300; // 5 min
     final move = <int, int>{}, tot = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // Absent accel is not stillness — see _activeMinutes.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final b = s.tsSec[i] ~/ bucketSec;
       tot[b] = (tot[b] ?? 0) + 1;
       if ((ang[i] - ang[i - 1]).abs() > 5.0) move[b] = (move[b] ?? 0) + 1;
@@ -4291,7 +5514,44 @@ class DerivationEngine {
   /// CAVEAT: this assumes the band does NOT keep logging while off-wrist. If a
   /// future firmware streams off-wrist records, add a skin-temp/motion on-body
   /// gate here (the substrate carries accel + skinTemp).
-  static Map<String, dynamic> _wearBlock(Substrate s) {
+  ///
+  /// THE DENOMINATOR IS THE DAY, NOT THE DATA. `coverage_pct` used to divide
+  /// worn seconds by `last sample - first sample`, so a band worn 9-11am and
+  /// nowhere else reported 100% — and `day_strain` renders that number as the
+  /// sentence "The band saw N% of this day", which was then false. The span
+  /// between the first and last record cannot answer a question about the day;
+  /// only the day can.
+  ///
+  /// WHICH day, for a day still in progress: the ELAPSED part of it, not all 24
+  /// hours. A day that is 40% over must not read as 60% missing — that would
+  /// make every morning open on "the band saw 30% of this day" and re-teach the
+  /// user to ignore the one number that is supposed to mean something. So the
+  /// window is [dayStartSec, min(dataNowSec, dayCalendarEndSec)): for a finished
+  /// past day that is the whole local day (23 h / 25 h on the two DST days,
+  /// because both bounds come from the day LABEL, never from `+86400`), and for
+  /// today it is midnight-to-now.
+  ///
+  /// [dataNowSec] is the DATA edge, not the wall clock, for the same reason
+  /// finalization is: a day whose sync stopped at 14:00 has not been observed
+  /// since, and charging the phone against wall-clock time would invent hours of
+  /// "not worn" out of hours we simply have not received yet.
+  ///
+  /// The segments follow the same window. They used to start at the first
+  /// record and stop at the last, so the hole from midnight to the first record
+  /// was invisible — which would now contradict the coverage number sitting
+  /// beside it. Leading and trailing holes are emitted as off-segments, so
+  /// `sum(on segments) / observable == coverage_pct` exactly.
+  static Map<String, dynamic> _wearBlock(
+    Substrate s, {
+    required int dayStartSec,
+    required int dayCalendarEndSec,
+    required int dataNowSec,
+  }) {
+    final observableEnd = math.min(
+      math.max(dataNowSec, dayStartSec),
+      math.max(dayCalendarEndSec, dayStartSec),
+    );
+    final observableSec = observableEnd - dayStartSec;
     final n = s.length;
     if (n == 0) {
       return {
@@ -4300,53 +5560,72 @@ class DerivationEngine {
         'last_on': null,
         'longest_off_min': 0,
         'worn_min': 0,
-        'coverage_pct': 0,
+        // Zero here is a measurement — the day was derived and held no record.
+        // Null only when there is no day to divide by at all (an unparseable
+        // label), where a percentage would be division by nothing.
+        'coverage_pct': observableSec > 0 ? 0 : null,
       };
     }
     const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
-    final segments = <Map<String, dynamic>>[];
     final firstOn = s.tsSec.first;
     final lastOn = s.tsSec.last + 1;
-    var longestOff = 0, wornSec = 0;
+
+    // On-runs first: contiguous stretches of record presence. The off-segments
+    // are then everything else inside the observable window, which is what puts
+    // the leading/trailing holes on the list.
+    final runs = <List<int>>[];
     var runStart = s.tsSec.first;
     var prev = s.tsSec.first;
-
-    void closeOnRun(int endTs) {
-      segments.add({
-        'on': true,
-        'start': runStart,
-        'end': endTs,
-        'len_min': ((endTs - runStart) / 60).round(),
-      });
-      wornSec += endTs - runStart;
-    }
-
     for (var i = 1; i < n; i++) {
       final ts = s.tsSec[i];
-      final gap = ts - prev;
-      if (gap > offGapSec) {
-        closeOnRun(prev + 1);
-        segments.add({
-          'on': false,
-          'start': prev + 1,
-          'end': ts,
-          'len_min': (gap / 60).round(),
-        });
-        if (gap > longestOff) longestOff = gap;
+      if (ts - prev > offGapSec) {
+        runs.add([runStart, prev + 1]);
         runStart = ts;
       }
       prev = ts;
     }
-    closeOnRun(prev + 1);
+    runs.add([runStart, prev + 1]);
 
-    final totalSec = s.tsSec.last - s.tsSec.first + 1;
+    final segments = <Map<String, dynamic>>[];
+    var longestOff = 0, wornSec = 0;
+    void addOff(int start, int end) {
+      if (end <= start) return;
+      segments.add({
+        'on': false,
+        'start': start,
+        'end': end,
+        'len_min': ((end - start) / 60).round(),
+      });
+      if (end - start > longestOff) longestOff = end - start;
+    }
+
+    var cursor = dayStartSec;
+    for (final r in runs) {
+      addOff(cursor, r[0]);
+      segments.add({
+        'on': true,
+        'start': r[0],
+        'end': r[1],
+        'len_min': ((r[1] - r[0]) / 60).round(),
+      });
+      wornSec += r[1] - r[0];
+      cursor = r[1];
+    }
+    addOff(cursor, observableEnd);
+
     return {
       'segments': segments,
       'first_on': firstOn,
       'last_on': lastOn,
       'longest_off_min': (longestOff / 60).round(),
       'worn_min': (wornSec / 60).round(),
-      'coverage_pct': totalSec > 0 ? (100 * wornSec / totalSec).round() : 0,
+      // Clamped only against a substrate that reaches outside its own day —
+      // production slices `daySub` to the day, so this is a guard, not a
+      // correction, and it must never be the thing that makes the number look
+      // sane.
+      'coverage_pct': observableSec > 0
+          ? (100 * wornSec / observableSec).round().clamp(0, 100).toInt()
+          : null,
     };
   }
 
@@ -4415,10 +5694,15 @@ class DerivationEngine {
     return out;
   }
 
-  /// All-day respiratory-rate curve (epoch {t,v} br/min) via rolling RSA on the
-  /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
-  /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
-  /// confounded, so it's a context line.
+  /// The day's RESTING breathing-rate floor (epoch {t,v} br/min) via rolling
+  /// RSA on the 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too
+  /// few/too noisy beats) are skipped — never fabricated.
+  ///
+  /// RESP-05 — every window is MOTION-GATED before the estimator runs (see
+  /// [_respQuietFraction]). This is not "your breathing rate today" and it is
+  /// never a value during activity: RSA amplitude collapses under motion, so a
+  /// moving window cannot resolve a breathing rate at all. **Most days produce
+  /// nothing, and that is the correct output.**
   ///
   /// Test seam: replaces the RSA estimator, so the ABSENT branch — the one that
   /// used to strand the cadence cursor and re-run a triple Lomb-Scargle per beat
@@ -4435,8 +5719,45 @@ class DerivationEngine {
   @visibleForTesting
   static int debugRespAttempts = 0;
 
+  /// Fraction of a candidate resp window's seconds that must be PRESENT AND
+  /// STILL before the estimator is allowed to run (RESP-05).
+  ///
+  /// RSA amplitude collapses under motion and the tachogram's Nyquist falls
+  /// with heart rate, so a window with movement in it physically cannot resolve
+  /// a normal breathing rate — the estimator does not fail loudly there, it
+  /// returns a confident wrong number or abstains at random. 0.9 of 180 s is
+  /// 162 still seconds: it tolerates the odd re-orientation and rejects
+  /// anything that is a walk. It also subsumes coverage — a second with no
+  /// gravity vector cannot be counted still (absence is not stillness), so a
+  /// half-observed window fails the same test.
+  static const double _respQuietFraction = 0.9;
+
+  /// Test seam: counts windows REJECTED by the stillness gate above.
+  @visibleForTesting
+  static int debugRespGateRejects = 0;
+
   @visibleForTesting
   static List<Map<String, num>> dayRespCurve(Substrate s) {
+    // RESP-05 — the gate is per-FAMILY, and an unknown strap gets no cut rather
+    // than gen4's (device.dart contract). Refusing the whole curve is the
+    // correct output for every pre-schema-41 day and every import: we cannot
+    // say those seconds were still, and an ungated daytime RSA number is the
+    // thing this item exists to stop publishing.
+    final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);
+    if (cut == null) return const [];
+    // Running count of still seconds, over substrate index. Prefix-summed so a
+    // window's stillness is two array reads instead of a rescan.
+    final quietPrefix = List<int>.filled(s.length + 1, 0);
+    for (var i = 0; i < s.length; i++) {
+      var q = 0;
+      if (s.accelPresentAt(i)) {
+        final mag =
+            math.sqrt(s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
+        if ((mag - 1.0).abs() <= cut) q = 1;
+      }
+      quietPrefix[i + 1] = quietPrefix[i] + q;
+    }
+
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -4450,12 +5771,37 @@ class DerivationEngine {
     final out = <Map<String, num>>[];
     var lo = 0;
     var lastEmit = -1e18;
+    // Cursors into s.tsSec for the window bounds. Both `ts[lo]` and `ts[i]` are
+    // non-decreasing across the loop, so these only ever move forward.
+    var qLo = 0, qHi = 0;
     for (var i = 0; i < rr.length; i++) {
       while (ts[i] - ts[lo] > winMs) {
         lo++;
       }
       if (i - lo >= 30 && ts[i] - lastEmit > 300000) {
         // 5-min cadence
+        // STILLNESS GATE, BEFORE the estimator. Rejecting here is also where
+        // the perf win lives: the triple Lomb-Scargle never runs on a window
+        // that could not have produced a resting rate anyway.
+        final loSec = (ts[lo] / 1000).floor();
+        final hiSec = (ts[i] / 1000).ceil();
+        while (qLo < s.length && s.tsSec[qLo] < loSec) {
+          qLo++;
+        }
+        if (qHi < qLo) qHi = qLo;
+        while (qHi < s.length && s.tsSec[qHi] < hiSec) {
+          qHi++;
+        }
+        final spanSec = hiSec - loSec;
+        final stillSec = quietPrefix[qHi] - quietPrefix[qLo];
+        if (spanSec <= 0 || stillSec < _respQuietFraction * spanSec) {
+          // Advance the cadence cursor on a rejection too — otherwise a moving
+          // stretch re-tests (and re-scans) once per beat, which is the same
+          // shape as the v60 bug this loop already carries a fix for.
+          debugRespGateRejects++;
+          lastEmit = ts[i];
+          continue;
+        }
         final nn = rr.sublist(lo, i + 1);
         final t0 = ts[lo];
         final nnt = [for (var k = lo; k <= i; k++) ts[k] - t0];
@@ -4508,8 +5854,82 @@ class DerivationEngine {
     ];
   }
 
+  /// Quiet-second ENMO cut (g), per sensor package.
+  ///
+  /// ENMO here is `||a|| − 1 g` — the same amplitude index `restlessness_map`
+  /// and `enmoSeries` use. A sedentary/still wrist sits at ~0.01-0.02 g and
+  /// walking at ~0.066 g, so 0.02 g separates sitting from moving without
+  /// pretending to separate postures. Listed per family because the cut is only
+  /// meaningful against that family's accel scale; an unknown strap gets no cut
+  /// and the whole block refuses.
+  static const Map<ana.DeviceFamily, double> _quietEnmoCutG = {
+    ana.DeviceFamily.gen4: 0.02,
+    ana.DeviceFamily.gen5: 0.02,
+  };
+
+  @visibleForTesting
+  static Map<String, dynamic> daytimeHrv(
+          Substrate s, int onsetSec, int offsetSec) =>
+      _daytimeHrv(s, onsetSec, offsetSec);
+
+  /// Daytime HRV, MOTION-GATED. The gate is the feature, not a refinement: an
+  /// RR series filtered only on plausibility lets a bin of walking into the
+  /// average as low HRV, and the number then reads as stress when it is
+  /// posture. Only beats whose own second was still — a real gravity vector,
+  /// ENMO under the family's quiet cut — are paired.
+  ///
+  /// Absent accel is NOT stillness (see [Substrate.accelPresentAt]), and an
+  /// unknown device family has no cut we can stand behind. Both refuse.
+  ///
+  /// THIS IS ONE RELABEL AWAY FROM A BODY BATTERY, AND IT MUST NOT TAKE THE
+  /// STEP. quiet windows described as variability is the honest residue; a
+  /// continuous all-day stress score or a depleting battery icon built on this
+  /// series is refused, and the pressure to relabel will arrive from outside
+  /// the code rather than from anything here. two independent reasons:
+  ///   * the signal. wrist PPG beat timing collapses under motion without
+  ///     aggressive quality gating — which is why this function gates at all —
+  ///     so the waking hours a stress score would describe are exactly the
+  ///     hours its input is worst. gen4 has no per-beat quality flag at all.
+  ///     CORRECTION, schema 43: gen5's `signalQualityLogVariance` is no longer
+  ///     dropped — it is decoded, mapped and written to
+  ///     `decoded_onehz.signal_quality_logvar`, and this comment claimed
+  ///     otherwise for three schema versions. It is still not READ (it is in
+  ///     neither substrate column list), and wiring it would not rescue a
+  ///     stress score: it exists on gen5/MG only, so gating on it means the
+  ///     same night measured by two straps answers differently — which is the
+  ///     one thing a metric that enters a cross-device baseline may never do.
+  ///     A gen5-only within-night RANK or WEIGHT is defensible; a percentage,
+  ///     a bar, or anything a gen4 user could compare against is not, because
+  ///     the scale is the band's own with no units and no calibration.
+  ///   * the construct. the systematic evaluation of 14 vendor composite
+  ///     scores found NONE with independent peer-reviewed validation. the
+  ///     inputs validate; the composite does not, and a depleting battery
+  ///     invents a physiological quantity that does not exist — which teaches
+  ///     the user to distrust a real body for disagreeing with a made-up one.
+  /// so: no score, no 0-100, no battery, no gauge, no "current stress". a
+  /// timeline of RMSSD over still minutes, labelled as variability, is the
+  /// whole allowed surface.
   static Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
     const binSec = 300;
+    final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);
+    if (cut == null) {
+      return {
+        'timeline': const <Map<String, dynamic>>[],
+        'mean_rmssd': null,
+        'n_buckets': 0,
+        'note': ana.unknownFamilyNote(s.deviceFamily),
+      };
+    }
+    // The seconds we can call still. Built once over the day substrate; a
+    // second with no gravity vector never lands here, so it can only break a
+    // pair, never join one.
+    final quiet = <int>{};
+    for (var i = 0; i < s.length; i++) {
+      if (!s.accelPresentAt(i)) continue;
+      final mag = math.sqrt(
+          s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
+      if ((mag - 1.0).abs() <= cut) quiet.add(s.tsSec[i]);
+    }
     final bins = <int, List<double>>{};
     double? prev;
     for (var k = 0; k < s.rrMs.length; k++) {
@@ -4517,6 +5937,10 @@ class DerivationEngine {
       if (offsetSec > onsetSec && tSec >= onsetSec && tSec < offsetSec) {
         prev = null;
         continue; // skip the sleep window
+      }
+      if (!quiet.contains(tSec)) {
+        prev = null; // moving, or no accel to say otherwise — break the pair
+        continue;
       }
       final v = s.rrMs[k];
       if (v < 300 || v > 2000) {
@@ -4536,7 +5960,14 @@ class DerivationEngine {
       final sq = bins[b]!;
       if (sq.length < 5) continue;
       final rmssd = math.sqrt(sq.reduce((a, c) => a + c) / sq.length);
-      timeline.add({'t': b * binSec, 'rmssd': (rmssd * 10).round() / 10.0});
+      // `n` is how many quiet beat-pairs this bin is built from — an hour built
+      // from three of them is not a reading and the card has to be able to say
+      // so (or drop the hour).
+      timeline.add({
+        't': b * binSec,
+        'rmssd': (rmssd * 10).round() / 10.0,
+        'n': sq.length,
+      });
       means.add(rmssd);
     }
     final mean = means.isEmpty
@@ -4563,6 +5994,8 @@ class DerivationEngine {
     const moveDeg = 5.0;
     final byMinMove = <int, int>{}, byMinTot = <int, int>{};
     for (var i = 1; i < n; i++) {
+      // Absent accel is not stillness — see _activeMinutes.
+      if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final m = s.tsSec[i] ~/ 60;
       byMinTot[m] = (byMinTot[m] ?? 0) + 1;
       final d =
@@ -4572,6 +6005,17 @@ class DerivationEngine {
       if (d > moveDeg) byMinMove[m] = (byMinMove[m] ?? 0) + 1;
     }
     final keys = byMinTot.keys.toList()..sort();
+    // Nothing countable — a night whose records carry no gravity vector clears
+    // the `n < 60` gate above and then skips every second, and returning the
+    // zeros below claims a perfectly still, unbroken night measured from
+    // nothing. Same answer as the thin-data branch: absent.
+    if (keys.isEmpty) {
+      return {
+        'restless_min': null,
+        'movement_bouts': null,
+        'longest_still_min': null,
+      };
+    }
     var restless = 0, bouts = 0, longestStill = 0, curStill = 0;
     var prevMoved = false;
     for (final m in keys) {
@@ -4613,6 +6057,68 @@ class DerivationEngine {
   /// makes it unknown — and `nap_min` is already left unwritten in that case.
   /// Publishing `total_asleep_min = mainTstMin` there would state a complete
   /// day total while `naps.value` is null, which is internally inconsistent.
+  /// The strap's own CHARGING_ON/OFF spans that fall INSIDE the scored sleep
+  /// window — published as a caveat on the night, never as a reason to drop it.
+  ///
+  /// Why `wear` cannot see this: a battery-pack swap is not a wrist-off event.
+  /// The pack clips onto the strap while the strap stays on the wrist, so the
+  /// band keeps logging 1 Hz records the whole time and every wear signal we
+  /// have — record presence, and the band's own WRIST_ON/OFF, which `wear`
+  /// matches to the minute — correctly says "worn". Measured on a real 9-day
+  /// export, 2 of 9 nights contained CHARGING_ON + BATTERY_PACK_CONNECTED +
+  /// BATTERY_PACK_REMOVED inside the sleep window and were scored, staged and
+  /// fed into baselines with nothing attached.
+  ///
+  /// NO CONFIDENCE PENALTY, deliberately. A confidence number here is a claim
+  /// about how well we measured THIS NIGHT'S SLEEP, and the mechanism does not
+  /// support that claim: the band is on the wrist, the PPG is against skin, and
+  /// beat timing — which is what the stager and every HRV metric actually run
+  /// on — has no pathway to degrade because a battery is sitting on the strap.
+  /// Multiplying the night's confidence down would be inventing a measured
+  /// degradation to express a suspicion, which is the same fabrication as any
+  /// other confident wrong number, only pointing the safe way. What the
+  /// mechanism DOES support is named in the note and left to the reader:
+  ///   * SKIN TEMPERATURE. A charging pack is a heat source bonded to the strap
+  ///     and the channel is relative-ADC with no absolute reference, so this
+  ///     night's skin temp is not comparable to a night without one. That is a
+  ///     per-CHANNEL caveat, and the honest fix is to withhold the night from
+  ///     the skin-temp baseline rather than to fuzz the whole night's sleep —
+  ///     which is a baseline-layer change, not this one.
+  ///   * A MOTION BURST at each end. Clipping and unclipping the pack is a hand
+  ///     movement on the instrumented wrist, so the stager will read wake there.
+  ///     It is bounded, it is at a known timestamp, and it is real movement, so
+  ///     it is reported rather than smoothed away.
+  @visibleForTesting
+  static Map<String, dynamic> sleepChargingBlock(
+    List<List<int>> chargingSpans,
+    int onsetSec,
+    int offsetSec,
+  ) {
+    if (offsetSec <= onsetSec) return const {'present': false};
+    final spans = <List<int>>[];
+    var sec = 0;
+    for (final c in chargingSpans) {
+      if (c.length < 2) continue;
+      final lo = math.max(c[0], onsetSec);
+      final hi = math.min(c[1], offsetSec);
+      if (hi <= lo) continue;
+      spans.add([lo, hi]);
+      sec += hi - lo;
+    }
+    if (spans.isEmpty) return const {'present': false};
+    return {
+      'present': true,
+      'minutes': (sec / 60).round(),
+      'spans': spans,
+      'note':
+          'the strap was charging for part of this night. it stayed on your '
+          'wrist and kept recording, so heart rate and beat timing are '
+          'measured as usual — but the pack warms the strap, so this night\'s '
+          'skin temperature is not comparable to a night without it, and '
+          'clipping the pack on and off registers as wrist movement.',
+    };
+  }
+
   static Map<String, dynamic> _sleepPeriods(
     int onsetSec,
     int offsetSec,
@@ -4788,7 +6294,8 @@ class DerivationEngine {
       }
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
-          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
+          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i],
+              valid: s.accelPresentAt(i)),
       ];
       final hr = [for (final h in s.hr) h.toDouble()];
       // Map the main-sleep epoch-second window to indices into the day arrays.
@@ -5082,10 +6589,13 @@ class DerivationEngine {
     final offset = inp.offsetSec;
     final bundlePatch = <String, dynamic>{};
     final seriesPatch = <String, dynamic>{};
-    // Working scalars — seeded with the nightly RHR the pure helpers read
-    // (steps/energy + wake features gate on it). The seed is removed from the
-    // returned patch so we only write back the NEWLY computed scalars.
-    final scMap = <String, dynamic>{'rhr': inp.rhr};
+    // Working scalars — everything computed below is written here and merged
+    // back by the caller. It used to be seeded with `{'rhr': inp.rhr}` under a
+    // comment claiming the pure helpers read it; nothing does (they take
+    // `restingHr` as an argument), and the seed then had to be deleted again
+    // before returning. `inp.rhr` is the NOCTURNAL resting HR, never the
+    // daytime fallback — see `_DayBlocksInput.rhr`.
+    final scMap = <String, dynamic>{};
 
     final wake = applyDayActivity(
       bundle: bundlePatch,
@@ -5094,9 +6604,14 @@ class DerivationEngine {
       profile: inp.profile,
       sleepOnsetSec: onset,
       sleepOffsetSec: offset,
+      dayStartSec: inp.dayStartSec,
+      // NOT `inp.dayEndSec` — that is the data edge. See `applyDayActivity`.
+      dayCalendarEndSec: localNextMidnightSecForDayLabel(inp.date),
+      dataNowSec: inp.dataNowSec,
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
+      liveStepsFromStrap: inp.liveStepsFromStrap,
       dynHistoryDays: inp.dynHistoryDays,
     );
 
@@ -5131,9 +6646,19 @@ class DerivationEngine {
       mainTstMin: inp.mainTstMin,
       mainEfficiency: inp.mainEfficiency,
     );
+    bundlePatch['sleep_charging'] = sleepChargingBlock(
+      inp.chargingSpans,
+      onset,
+      offset,
+    );
     // Overrides wake's activity_curve (same value, computed once here).
     bundlePatch['activity_curve'] = _activityCurve(daySub);
-    bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
+    // `detected_workouts` is NOT written. It was a permanently-empty stub kept
+    // for a WorkoutDetector pass that was going to be re-homed here; analytics
+    // has since deleted `workout_detect.dart`, so there is no pass to re-home
+    // and no reason to write an empty list every day. The repository's reader
+    // already skips a missing key, and auto-detected bouts reach the UI through
+    // `workout_suggestions` below.
 
     final wc = _computeWorkouts(
       s: daySub,
@@ -5146,6 +6671,20 @@ class DerivationEngine {
     );
     bundlePatch['workout_suggestions'] = wc.boutJson;
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
+    if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
+    final ceiling = _dayHrCeiling(daySub, inp.savedSessions);
+    bundlePatch['hr_ceiling'] = ceiling;
+    // TS-03 — the day's observed ceiling as a SCALAR too, so the app-wide
+    // "highest we've seen" is a max over `metric_series` (one small query the
+    // baseline cache already loads) instead of a scan of every stored bundle.
+    // The envelope above keeps the date/session/hold the copy needs; this is
+    // just the number, and only when the day actually held one.
+    // `Metric.toJson` writes the STRING '—' for an absent value, not null, so
+    // this must type-test rather than cast.
+    final ceilingValue = ceiling['value'];
+    if (ceilingValue is Map && ceilingValue['bpm'] is num) {
+      scMap['hr_ceiling_bpm'] = (ceilingValue['bpm'] as num).toDouble();
+    }
 
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
@@ -5156,6 +6695,9 @@ class DerivationEngine {
       final moveSum = <int, double>{};
       final moveCount = <int, int>{};
       for (var i = 0; i < sleepSub.length; i++) {
+        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
+        // from no data. Skip it; a bucket with no present second is omitted.
+        if (!sleepSub.accelPresentAt(i)) continue;
         final b = sleepSub.tsSec[i] ~/ bucketSec;
         final ax = sleepSub.ax[i];
         final ay = sleepSub.ay[i];
@@ -5178,25 +6720,14 @@ class DerivationEngine {
       bundlePatch['restlessness_map'] = out;
     }
 
-    // Feature 2: Fit-quality diagnostic (band too loose during high activity).
-    var activeContactSum = 0;
-    var activeContactN = 0;
-    for (var i = 0; i < daySub.length; i++) {
-      if (daySub.hr[i] > 100 && daySub.skinContact[i] > 0) {
-        activeContactSum += daySub.skinContact[i];
-        activeContactN++;
-      }
-    }
-    if (activeContactN > 60) {
-      final avgContact = activeContactSum / activeContactN;
-      if (avgContact < 100) {
-        bundlePatch['fit_quality'] = 'poor';
-        bundlePatch['fit_warning'] =
-            'Band is worn too loosely during high activity. Tighten for accurate HR.';
-      }
-    }
+    // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
+    // tightness from `skinContact`, and there is no contact-quality field to
+    // score: the byte is the sign+exponent half of a float32, which is why its
+    // only observed values are {0, 63-70, 194-198}. On the decoded path it was
+    // additionally a hardcoded 0 (`decoded_onehz` has no such column), so the
+    // gate could never fire. A diagnostic built on a non-measurement is worse
+    // than no diagnostic.
 
-    scMap.remove('rhr'); // seed only; the real rhr scalar already lives in the bundle
     return _DayBlocksOutput(
       bundlePatch: bundlePatch,
       seriesPatch: seriesPatch,
@@ -5238,8 +6769,18 @@ class DerivationEngine {
         }
       }
       if (hrBpm.length < 60) return const _WorkoutCompute.empty();
-      final motion =
-          ana.AutoWorkoutDetector.motionPoints(s.tsSec, s.ax, s.ay, s.az);
+      // Feed the detector only the seconds that carry a real gravity vector.
+      // Absent accel reads as a motionless wrist, which is exactly the shape
+      // that suppresses a workout candidate — a missed workout, silently.
+      final mTs = <int>[], mAx = <double>[], mAy = <double>[], mAz = <double>[];
+      for (var i = 0; i < n; i++) {
+        if (!s.accelPresentAt(i)) continue;
+        mTs.add(s.tsSec[i]);
+        mAx.add(s.ax[i]);
+        mAy.add(s.ay[i]);
+        mAz.add(s.az[i]);
+      }
+      final motion = ana.AutoWorkoutDetector.motionPoints(mTs, mAx, mAy, mAz);
       // Exclude windows the user has already logged (manual/live wins).
       final savedSpans = <ana.SavedWorkoutSpan>[
         for (final r in saved)
@@ -5265,10 +6806,13 @@ class DerivationEngine {
 
       // HRR per bout from the per-second HR tail bracketing each bout end.
       final drops = <double>[];
+      final taus = <double>[];
       final boutJson = <Map<String, dynamic>>[];
       for (final b in bouts) {
-        final m = _hrrForBout(s, b.endSec);
+        final r = _hrrForBout(s, b.endSec);
+        final m = r.hrrBpm;
         if (m != null) drops.add(m);
+        if (r.tauSec != null) taus.add(r.tauSec!);
         boutJson.add({
           'start': b.startSec,
           'end': b.endSec,
@@ -5277,6 +6821,7 @@ class DerivationEngine {
           'duration_min': b.durationMin,
           'sport': b.sport,
           if (m != null) 'hrr_bpm': double.parse(m.toStringAsFixed(1)),
+          if (r.tauSec != null) 'hrr_tau_s': r.tauSec!.round(),
         });
       }
       // Also fill HRR for already-saved sessions (manual/live) retrospectively
@@ -5287,7 +6832,9 @@ class DerivationEngine {
         final id = r['id'];
         final endTs = r['end_ts'];
         if (id is! String || endTs is! int) continue;
-        final m = _hrrForBout(s, endTs);
+        final rec = _hrrForBout(s, endTs);
+        final m = rec.hrrBpm;
+        if (rec.tauSec != null) taus.add(rec.tauSec!);
         if (m != null) {
           drops.add(m);
           sessionHrr.add((id, double.parse(m.toStringAsFixed(1))));
@@ -5297,6 +6844,13 @@ class DerivationEngine {
           ? null
           : double.parse(
               (drops.reduce((a, c) => a + c) / drops.length).toStringAsFixed(1));
+      // Mean tau over the bouts that SURVIVED the residual gate — deliberately
+      // a different denominator from `hrrBpm`'s, because the gate abstains
+      // often and pretending otherwise would average a fit never made.
+      final hrrTauS = taus.isEmpty
+          ? null
+          : double.parse(
+              (taus.reduce((a, c) => a + c) / taus.length).toStringAsFixed(1));
 
       // Persist + notify only for RECENT days (≤ ~36 h old) so imports/re-analyze
       // don't resurface 90 days of prompts.
@@ -5330,6 +6884,7 @@ class DerivationEngine {
       return _WorkoutCompute(
         boutJson: boutJson,
         hrrBpm: hrrBpm,
+        hrrTauS: hrrTauS,
         sessionHrrWrites: sessionHrr,
         suggestionsToPersist: toPersist,
         notifBout: notif,
@@ -5340,11 +6895,89 @@ class DerivationEngine {
     }
   }
 
-  /// HRR-60s for a bout ending at [endSec]: build the per-second HR tail around
-  /// the end index and delegate to [ana.hrRecovery]. Returns the drop (bpm) or null.
-  static double? _hrrForBout(Substrate s, int endSec) {
+  /// TS-03 — the day's OBSERVED heart-rate ceiling: the highest bpm any of this
+  /// day's SAVED sessions held for ≥15 continuous seconds with corroborating
+  /// motion, tagged with the session it came from.
+  ///
+  /// NOT a physiological HRmax and not a substitute for one. Whoever renders it
+  /// says "highest we've seen: 184, on 3 Aug" with the date and the session,
+  /// never "your max HR is 184", and never invites a max-effort test. The
+  /// app-wide ceiling is the max over days of the PRESENT values — a one-line
+  /// reduce for the reader, deliberately not a second function here, so the
+  /// hold+motion guard cannot be bypassed by reducing over un-guarded numbers.
+  ///
+  /// Absent is the common case and it is correct: most sessions do not test
+  /// your ceiling. So is an unknown device family — the motion gate is a
+  /// property of the sensor package and gen4's floor is not a default (see
+  /// `observed_max_hr.dart`).
+  ///
+  /// Sessions are scored ONE AT A TIME, never as a concatenated day: a hold
+  /// must be continuous inside one session, and stitching two sessions would
+  /// invent a hold across the gap between them.
+  @visibleForTesting
+  static Map<String, dynamic> dayHrCeiling(
+    Substrate s,
+    List<Map<String, dynamic>> saved,
+  ) =>
+      _dayHrCeiling(s, saved);
+
+  static Map<String, dynamic> _dayHrCeiling(
+    Substrate s,
+    List<Map<String, dynamic>> saved,
+  ) {
+    ana.Metric<ana.HrCeiling>? best;
+    String? bestId;
+    String? bestType;
+    ana.Metric<ana.HrCeiling>? lastAbsent;
+    for (final row in saved) {
+      final start = (row['start_ts'] as num?)?.toInt();
+      final end = (row['end_ts'] as num?)?.toInt();
+      if (start == null || end == null || end <= start) continue;
+      final hr = <ana.HrSample>[];
+      final accel = <ana.AccelSample>[];
+      for (var i = 0; i < s.length; i++) {
+        final t = s.tsSec[i];
+        if (t < start) continue;
+        if (t > end) break;
+        final tsMs = t * 1000.0;
+        hr.add(ana.HrSample(tsMs, s.hr[i].toDouble()));
+        accel.add(ana.AccelSample(tsMs, s.ax[i], s.ay[i], s.az[i],
+            valid: s.accelPresentAt(i)));
+      }
+      if (hr.isEmpty) continue;
+      final m = ana.sessionHrCeiling(hr, accel, deviceFamily: s.deviceFamily);
+      if (!m.present) {
+        lastAbsent = m;
+        continue;
+      }
+      if (best == null || m.value!.bpm > best.value!.bpm) {
+        best = m;
+        bestId = row['id']?.toString();
+        bestType = row['type']?.toString();
+      }
+    }
+    final m = best ??
+        lastAbsent ??
+        const ana.Metric<ana.HrCeiling>.absent(
+          tier: ana.Tier.high,
+          inputs_used: ['hr_1hz', 'accel_1hz', 'device_family'],
+          note: 'no saved session on this day to observe a ceiling in',
+        );
+    return {
+      ...m.toJson((v) => v.toJson()),
+      'session_id': ?bestId,
+      'session_type': ?bestType,
+    };
+  }
+
+  /// HRR-60s + the recovery time constant for a bout ending at [endSec]: build
+  /// the per-second HR tail around the end index, delegate the drop to
+  /// [ana.hrRecovery] and fit tau over the same tail. Either half may be null.
+  static ({double? hrrBpm, double? tauSec}) _hrrForBout(
+      Substrate s, int endSec) {
+    const none = (hrrBpm: null, tauSec: null);
     final n = s.length;
-    if (n == 0) return null;
+    if (n == 0) return none;
     // Find the index nearest the bout end.
     var endIdx = -1;
     for (var i = 0; i < n; i++) {
@@ -5354,12 +6987,116 @@ class DerivationEngine {
       }
     }
     if (endIdx < 0) endIdx = n - 1;
-    const pre = 30, post = 75;
-    final lo = (endIdx - pre).clamp(0, n - 1);
-    final hi = (endIdx + post).clamp(0, n - 1);
+    // SLICE BY TIME, not by array position. The substrate is one row per
+    // DECODED RECORD, not a dense 1 Hz grid, so `endIdx ± 30/75` used to cut a
+    // window whose real duration depended on how gappy the tail was: on a sparse
+    // day it stopped well short of +60 s (no recovery sample — HRR silently
+    // absent), on a dense one it reached far past it. The comment below already
+    // said this about `hrRecovery`'s own +60 s; the slice feeding it never
+    // followed. ±30/+75 SECONDS around the bout end, so the 60-second sample is
+    // always inside the window when the data exists at all.
+    // +180 s, not +75: HRR-60 only ever needed to reach the 60-second sample,
+    // but tau is fitted over the whole decay and a 75-second tail is one time
+    // constant of curve. Widening does NOT move `hrr_bpm` — `hrRecovery` locates
+    // its recovery point on the CLOCK and stops at the first sample past +60 s.
+    const preSec = 30, postSec = 180;
+    var lo = endIdx;
+    while (lo > 0 && s.tsSec[lo - 1] >= endSec - preSec) {
+      lo--;
+    }
+    var hi = endIdx;
+    while (hi + 1 < n && s.tsSec[hi + 1] <= endSec + postSec) {
+      hi++;
+    }
     final tail = <int>[for (var i = lo; i <= hi; i++) s.hr[i]];
-    final m = ana.hrRecovery(tail, endIndex: endIdx - lo, recoverySec: 60);
-    return m.present ? m.value!.dropBpm : null;
+    // `hrRecovery` reads "+60 s" off `tsSec`, not off the array index — on a
+    // gappy tail the recovery sample would otherwise be many minutes
+    // post-exercise and the drop is overstated, read by the user as a fitness
+    // marker.
+    final tailTs = <int>[for (var i = lo; i <= hi; i++) s.tsSec[i]];
+    final m = ana.hrRecovery(
+      tail,
+      endIndex: endIdx - lo,
+      recoverySec: 60,
+      tsSec: tailTs,
+    );
+    return (
+      hrrBpm: m.present ? m.value!.dropBpm : null,
+      tauSec: _recoveryTau(tail, tailTs, endIdx - lo),
+    );
+  }
+
+  /// Recovery time constant (s) from a monoexponential fit of the post-exercise
+  /// HR decay: `hr(t) = C + A*exp(-t/tau)` over 0…180 s after the bout end.
+  ///
+  /// Grid-search tau; A and C fall out of a linear least squares once tau is
+  /// fixed, so there is no optimiser here and no starting point to get wrong.
+  ///
+  /// PUBLISHED ALONGSIDE HRR-60, NEVER INSTEAD OF IT. tau is not
+  /// intensity-invariant — HR recovery is biphasic and the fast-phase constant
+  /// is itself intensity-dependent, so one exponential over 0-180 s conflates
+  /// the two phases. The gate below abstains rather than fit a shape that is not
+  /// there: it needs a clean stop (enough samples, a real fall, no long hole)
+  /// and a residual small against the decay it claims to describe.
+  @visibleForTesting
+  static double? recoveryTau(List<int> hr, List<int> tsSec, int endIdx) =>
+      _recoveryTau(hr, tsSec, endIdx);
+
+  static double? _recoveryTau(List<int> hr, List<int> tsSec, int endIdx) {
+    if (endIdx < 0 || endIdx >= hr.length) return null;
+    final t = <double>[], y = <double>[];
+    final t0 = tsSec[endIdx];
+    var lastTs = t0;
+    for (var i = endIdx; i < hr.length; i++) {
+      if (tsSec[i] - lastTs > 30) break; // hole — the tail stops here
+      lastTs = tsSec[i];
+      if (hr[i] < kHrFloorBpm) continue;
+      t.add((tsSec[i] - t0).toDouble());
+      y.add(hr[i].toDouble());
+    }
+    // Need most of the 180 s and a real fall to fit at all.
+    if (t.length < 60 || t.last < 120) return null;
+    final peak = y.reduce(math.max);
+    final floor = y.reduce(math.min);
+    if (peak - floor < 15) return null; // no fall — not a recovery
+
+    double? bestTau;
+    var bestSse = double.infinity;
+    for (var tau = 15.0; tau <= 240.0; tau += 2.5) {
+      // Linear LS of y ~ C + A*x where x = exp(-t/tau).
+      var sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+      final n = t.length;
+      for (var i = 0; i < n; i++) {
+        final x = math.exp(-t[i] / tau);
+        sx += x;
+        sy += y[i];
+        sxx += x * x;
+        sxy += x * y[i];
+      }
+      final den = n * sxx - sx * sx;
+      if (den.abs() < 1e-9) continue;
+      final a = (n * sxy - sx * sy) / den;
+      final c = (sy - a * sx) / n;
+      if (a <= 0) continue; // rising, not decaying
+      var sse = 0.0;
+      for (var i = 0; i < n; i++) {
+        final r = y[i] - (c + a * math.exp(-t[i] / tau));
+        sse += r * r;
+      }
+      if (sse < bestSse) {
+        bestSse = sse;
+        bestTau = tau;
+      }
+    }
+    if (bestTau == null) return null;
+    // Residual gate. An RMSE over 3 bpm means the tail is not the single decay
+    // we just claimed it was — abstain rather than loosen it.
+    final rmse = math.sqrt(bestSse / t.length);
+    if (rmse > 3.0) return null;
+    // A tau pinned to either end of the grid is the search running out of room,
+    // not a measurement.
+    if (bestTau <= 15.0 || bestTau >= 240.0) return null;
+    return bestTau;
   }
 
   /// Low-confidence WRIST ORIENTATION during the sleep window (`positionSeries`).
@@ -5377,7 +7114,8 @@ class DerivationEngine {
       final epoch = <ana.AccelSample>[
         for (var i = 0; i < s.length; i++)
           if (s.tsSec[i] >= onsetSec && s.tsSec[i] < offsetSec)
-            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i],
+                valid: s.accelPresentAt(i))
       ];
       if (epoch.length < 60) return;
       final tilts = ana.positionSeries(epoch, epochSec: 30);
@@ -5415,7 +7153,8 @@ class DerivationEngine {
     }
   }
 
-  int _localDayLabelToSec(String day) {
+  // static: pure day-label arithmetic, and `rawPruneCutoffSec` needs it.
+  static int _localDayLabelToSec(String day) {
     final d = DateTime.tryParse(day);
     if (d == null) return 0;
     return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
@@ -5486,7 +7225,6 @@ class DerivationEngine {
         mainTstMin: mainTstMin,
         mainEfficiency: mainEfficiency,
       );
-
   /// Test seam for [_attachNaps] — the day-boundary attribution rules (drop
   /// tomorrow's leading nap, drop yesterday's trailing one) decide which day a
   /// nap's minutes are credited to, and are cheap to state directly.
@@ -5552,9 +7290,19 @@ class _DayBlocksInput {
   final Profile profile;
   final int onsetSec;
   final int offsetSec;
+
+  /// NOCTURNAL resting HR for this day (`scalars.rhr_nocturnal`) — null unless a
+  /// sleep session was detected. NOT `scalars.rhr`, which is allowed to fall
+  /// back to daytime HR for the resting-HR card and is not a TRIMP reference.
   final double? rhr;
   final int? maxHrUsed;
   final int liveStepsReal;
+
+  /// How much of [liveStepsReal] the BAND's own 100 Hz pedometer was credited
+  /// with after the per-window resolution; the rest is the phone's. Carried so
+  /// the bundle can say which sensor counted without re-reading the DB from the
+  /// isolate, which has no handle.
+  final int liveStepsFromStrap;
 
   /// PERSONAL ambulatory floor (g, dynAmp units) from trailing days, or null
   /// when there isn't enough history yet — in which case the 1 Hz estimator
@@ -5564,6 +7312,7 @@ class _DayBlocksInput {
 
   /// How many trailing days backed [dynFloorG] — only for the cold-start note.
   final int dynHistoryDays;
+
   final List<Map<String, dynamic>> savedSessions;
 
   /// The user's nap edits for this day, replayed over the detector's output.
@@ -5605,6 +7354,7 @@ class _DayBlocksInput {
     required this.rhr,
     required this.maxHrUsed,
     required this.liveStepsReal,
+    this.liveStepsFromStrap = 0,
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,
@@ -5647,12 +7397,14 @@ class _DayBlocksOutput {
 class _WorkoutCompute {
   final List<Map<String, dynamic>> boutJson;
   final double? hrrBpm;
+  final double? hrrTauS;
   final List<(String, double)> sessionHrrWrites;
   final List<Map<String, dynamic>> suggestionsToPersist;
   final ({int endSec, int durationMin})? notifBout;
   const _WorkoutCompute({
     required this.boutJson,
     required this.hrrBpm,
+    required this.hrrTauS,
     required this.sessionHrrWrites,
     required this.suggestionsToPersist,
     required this.notifBout,
@@ -5660,6 +7412,7 @@ class _WorkoutCompute {
   const _WorkoutCompute.empty()
       : boutJson = const [],
         hrrBpm = null,
+      hrrTauS = null,
         sessionHrrWrites = const [],
         suggestionsToPersist = const [],
         notifBout = null;

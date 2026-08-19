@@ -1,47 +1,95 @@
 # Privacy Policy — Edge / OpenStrap
 
-_Last updated: July 27, 2026_
+_Last updated: August 18, 2026_
 
 Edge ("the App") is an independent, open-source project. It is not affiliated
 with, sponsored by, or endorsed by WHOOP, Inc.
 
-**We do not collect your health data**
-This section describes the builds we ourselves distribute. In the official
-public releases distributed through the App Store and Play Store, we do not
-collect your health data. Your health information is processed and stored
-entirely on your device in those releases. We do not upload it, we do not
-operate a backend that receives it, and we never see it — *unless you
-explicitly choose to install a GitHub release that has health data
-contribution enabled, or separately enable AI Coach or Health app
-integration, described below, which send specific data to services you
-configure.*
+**How the App is distributed**
+There is currently one distribution channel: GitHub Releases. There is no App
+Store or Play Store build of the App today, and nothing in this policy depends
+on which channel you installed from. If that changes, this policy changes with
+it.
 
-Edge is open source. The underlying code contains a compile-time flag
-(`kHealthDataContributionEnabled`, see `lib/telemetry/health_uploader.dart`)
-that an independent developer could enable in their *own*, separately-built
-and separately-distributed copy of the app, pointed at a backend of their
-own choosing. We do not enable that feature in the official public builds we
-publish. If you explicitly download and install a GitHub release, you may
-choose to enable this feature for the purpose of improving algorithm and
-calibration insights. That choice is entirely under your control, and the
-feature is off by default. A self-built copy compiled with that flag on is
-that builder's own software and their own responsibility; it is not covered
-by this policy.
+**We do not collect your health data**
+Your health information is processed and stored entirely on your device. We do
+not upload it, we do not operate a backend that receives it, and we never see
+it — *unless you explicitly switch on health data contribution, or separately
+enable AI Coach or Health app integration, described below, which send specific
+data to services you configure.*
+
+Health data contribution is **off by default**, and it is off unless you turn
+it on yourself in Settings › Privacy › "Contribute my health data". When it is
+on, and only then, the App uploads a compressed copy of its **entire local
+database** — every derived day and every raw sensor row from the band — at most
+once a day, and only while you are on Wi-Fi and charging. It is used to improve
+the App's algorithms. Our server keeps only the most recent copy per device.
+
+You can switch it off at any time from the same row, and nothing further is
+uploaded from that moment. The App will then tell you the date of the last
+upload that did happen, because switching a thing off does not un-send what was
+already sent.
+
+Edge is open source, and this feature sits behind a compile-time flag
+(`kHealthDataContributionEnabled`, see `lib/telemetry/health_uploader.dart`).
+An independent developer can enable it in their *own*, separately-built copy
+pointed at a backend of their own choosing. That is their software and their
+responsibility; it is not covered by this policy.
 
 **Anonymous diagnostics**
-In the official public releases distributed through the App Store and Play
-Store, the App does not send your health data off your device. The only
-thing the App sends off your device *automatically* — aside from the
-optional, user-initiated integrations described next — is basic crash/error
-and performance monitoring, via Firebase (Google) — Crashlytics, Performance
-Monitoring, and Analytics. This is on by default in GitHub releases; you can
-turn it off at any time in your profile, which stops any further collection
-immediately. In App Store and Play Store releases, this data collection does
-not occur. It never includes your health data — only crash reports, basic
-device info (OS/model/app version), and coarse performance timing. This data
-is handled under Firebase's own privacy and security practices, not a system
-we built or operate ourselves — see Google's Firebase privacy & security
+Aside from the optional, user-initiated things described here, the App sends
+basic crash/error and performance monitoring off your device, via Firebase
+(Google) — Crashlytics, Performance Monitoring, and Analytics. This is **off by
+default**: nothing is collected until you turn it on in Settings › Privacy ›
+"Crash reports", and turning it back off stops any further collection
+immediately. It never includes your health data — only crash reports, basic
+device info (OS/model/app version), your phone's and band's battery level,
+whether the band is connected, and coarse performance timing. It does not
+include the band's serial number or any other hardware identifier. This data is
+handled under Firebase's own privacy and security practices, not a system we
+built or operate ourselves — see Google's Firebase privacy & security
 documentation: https://firebase.google.com/support/privacy.
+
+**Update checks**
+Because the App is distributed outside an app store, it can check our release
+server for a newer version and for any urgent notice we need to show you. That
+check is a plain request for a small file: it carries no health data, no
+account and no identifier, but like any network request it discloses your IP
+address (and therefore your approximate location) and the time you opened the
+App. It runs when the App starts and when you bring it back to the foreground.
+
+You can turn it off in Settings › Privacy › "Check for updates", and then the
+App makes no network request of its own accord at all. It is on by default
+because a sideloaded app has no store to tell you a security fix exists.
+
+**Barcode lookup for food logging**
+The food log can read a barcode with the camera and fill in the nutrition
+figures for you. Doing that means asking a database, so it is **off until you
+turn it on**, and the App asks you before the first lookup ever happens — not
+after.
+
+- **What is sent is the barcode.** It goes to openfoodfacts.org, the free and
+  open food database. Nothing about you, your meals, your health or your device
+  goes with it. Like any network request it discloses your IP address to them.
+- **Only when you scan.** There is no background lookup, no batch and no
+  pre-fetch. One barcode, one request, and only because you pointed the camera
+  at a packet.
+- **A barcode you have scanned before is answered from your own phone.** The
+  App keeps a local copy of what it has fetched, so re-scanning the same packet
+  asks nobody anything.
+- **The camera reads digits and nothing else.** No photo is taken, stored or
+  sent. Declining camera access leaves the rest of the food log working.
+- **Everything still works with it off.** Typing the numbers off the pack was
+  always the way in and still is.
+
+You can turn it off at any time in Settings › Privacy › "Look barcodes up
+online", and the App then makes no food-related network request at all.
+
+Their data is contributed by the public, is licensed under the Open Database
+License, and their own terms say it must not be used for medical purposes. So a
+scanned figure is treated as something you typed rather than something the App
+measured: anything that fails a basic plausibility check is left blank instead
+of filled in, and every filled box is yours to edit before you save.
 
 **Location and workout routes**
 If you record a run, ride or walk, the App uses your device's location to draw
@@ -65,14 +113,9 @@ so to be specific about it:
   included in anonymous diagnostics, and it is not sent to your AI Coach
   provider — the coach is technically prevented from reading route data, not
   merely asked not to.
-- **Viewing a route on a map fetches map tiles.** The route itself is never
-  uploaded, but drawing a map under it requires downloading the map squares it
-  covers from CARTO (basemaps.cartocdn.com), a third-party tile provider. That
-  request tells CARTO which part of the world you are looking at, and their
-  server sees your IP address. It happens only while a map is being drawn:
-  opening a route, or rendering the map into a share image. The request carries
-  no health data and no account, and nothing is fetched if you never open a
-  route.
+- **No map tiles are fetched.** A route is drawn on your phone from your own
+  points, against no basemap. The App does not contact a tile provider, so
+  opening a route tells nobody which part of the world you are looking at.
 - **The one exception is you.** If you tap Share on a workout, the image you
   are shown includes a picture of your route, and whatever you send it to
   receives it. That is your choice, you see the image before it is sent, and it
@@ -93,7 +136,12 @@ configure:
   requires your own API key.
 - **Health app integration** — if you enable it, the App can write derived
   daily metrics to Apple Health or Google Health Connect, which are controlled
-  by your device's own OS-level health app, not by us.
+  by your device's own OS-level health app, not by us. The App can also *read*
+  from that same health app when you tap an import — your height, weight, date
+  of birth and sex, your resting heart rate, blood pressure, blood glucose and
+  body temperature readings, and your workouts and their routes. Every import
+  is something you start by hand, never a background sync, and what it reads
+  stays on your device: reading from your health app sends nothing anywhere.
 
 **What we don't do**
 We do not sell your data. We do not send your health data to WHOOP, Inc. or
@@ -101,12 +149,31 @@ any advertising network. We do not require a WHOOP account or credentials to
 use the App. We do not operate a backend that stores your health data.
 
 **Your controls**
-Turn off anonymous diagnostics at any time in your profile — this stops any
-further collection immediately. You can also disable AI Coach or Health app
-integration at any time in Settings if you'd previously turned them on. If
-you explicitly installed a GitHub release and enabled health data
-contribution, you can disable that feature at any time from the app's
-settings.
+Every one of these is a row in Settings › Privacy, and each takes effect the
+moment you tap it:
+- **Crash reports** — off by default; turning it off stops any further
+  collection immediately.
+- **Contribute my health data** — off by default; turning it off stops any
+  further upload immediately, and the App tells you when the last one was.
+- **Check for updates** — turning it off stops the App making any network
+  request of its own accord.
+- **Look barcodes up online** — off by default; turning it off stops any
+  further lookup immediately, and the food log keeps working by hand.
+
+You can also disable AI Coach or Health app integration at any time in Settings
+if you'd previously turned them on.
+
+**Getting your data out, and deleting it**
+Settings › Your data exports everything the App holds: your derived days,
+workouts, sleep, journal, lab results, meals, medication, habits, breathing
+sessions and logged sets as spreadsheets, and the complete database as a single
+file. The same screen can take a scheduled local copy, and restore one.
+
+Settings › "Reset all data" deletes everything on the device: every table in
+the database, every preference, any AI key you stored, the home-screen widget's
+copy of your numbers, and every scheduled reminder. The dialog lists what it
+covers. It is not reversible and the band cannot re-send history it has already
+handed over, so export first if you want a copy.
 
 Uninstalling the App deletes all of your locally stored data immediately.
 That's the whole picture *unless* you had separately enabled one of the

@@ -539,4 +539,151 @@ void main() {
       );
     });
   });
+
+  group('classifyBleBlocker separates the phone from the band', () {
+    test('a revoked permission is not "nothing answered"', () {
+      expect(classifyBleBlocker(adapterState: 'unauthorized'),
+          BleBlocker.permissionDenied);
+      expect(
+        classifyBleBlocker(
+            error: Exception('PlatformException: Need '
+                'android.permission.BLUETOOTH_SCAN')),
+        BleBlocker.permissionDenied,
+      );
+    });
+
+    test('adapter off and no-BLE-radio are their own states', () {
+      expect(classifyBleBlocker(adapterState: 'off'), BleBlocker.adapterOff);
+      expect(classifyBleBlocker(adapterState: 'turningOff'),
+          BleBlocker.adapterOff);
+      expect(classifyBleBlocker(adapterState: 'unavailable'),
+          BleBlocker.unsupported);
+    });
+
+    test('a usable stack and an ordinary band failure classify as null', () {
+      expect(classifyBleBlocker(adapterState: 'on'), isNull);
+      expect(classifyBleBlocker(adapterState: 'unknown'), isNull);
+      expect(classifyBleBlocker(adapterState: 'turningOn'), isNull);
+      expect(classifyBleBlocker(), isNull);
+      // The band-side failures must NOT be swallowed as phone blockers.
+      expect(classifyBleBlocker(error: Exception('connection timeout')), isNull);
+      expect(classifyBleBlocker(error: Exception('bond failed')), isNull);
+      expect(classifyBleBlocker(error: Exception('GATT error 133')), isNull);
+    });
+  });
+
+  group('bandStatusFor is one renderable state, not six booleans', () {
+    test('every fault names itself, says why, and offers a way out', () {
+      final faults = [
+        bandStatusFor(
+            connection: 'disconnected', blocker: BleBlocker.permissionDenied),
+        bandStatusFor(connection: 'disconnected', blocker: BleBlocker.adapterOff),
+        bandStatusFor(
+            connection: 'disconnected',
+            autoReconnectPaused: true,
+            bondRefusals: 5),
+        bandStatusFor(connection: 'disconnected', needsRepairGuide: true),
+        bandStatusFor(connection: 'connected', syncChunkQuarantined: true),
+        bandStatusFor(connection: 'connected', strapNeedsReboot: true),
+        bandStatusFor(connection: 'connected', syncClockLost: true),
+      ];
+      for (final s in faults) {
+        expect(s.isFault, isTrue, reason: '${s.condition}');
+        expect(s.title.isNotEmpty, isTrue, reason: '${s.condition}');
+        expect(s.reason.length > 20, isTrue, reason: '${s.condition}');
+        expect(s.fix, isNotNull, reason: '${s.condition}');
+        // "Something went wrong" is not a name.
+        expect(s.title.toLowerCase().contains('something went wrong'), isFalse);
+      }
+    });
+
+    test('a phone-level blocker outranks every band flag', () {
+      final s = bandStatusFor(
+        connection: 'connected',
+        blocker: BleBlocker.permissionDenied,
+        autoReconnectPaused: true,
+        needsRepairGuide: true,
+        syncClockLost: true,
+      );
+      expect(s.condition, BandCondition.bluetoothDenied);
+      // The one wrong answer this whole seam exists to prevent.
+      expect(s.title.toLowerCase().contains('range'), isFalse);
+      expect(s.fix, contains('Settings'));
+    });
+
+    test('the pause outranks the repair guide it set', () {
+      expect(
+        bandStatusFor(
+          connection: 'disconnected',
+          autoReconnectPaused: true,
+          needsRepairGuide: true,
+          bondRefusals: 5,
+        ).condition,
+        BandCondition.reconnectPaused,
+      );
+      // The count is in the copy — "5 times in a row" is the whole point.
+      expect(
+        bandStatusFor(
+                connection: 'disconnected',
+                autoReconnectPaused: true,
+                bondRefusals: 5)
+            .reason,
+        contains('5'),
+      );
+    });
+
+    test('a data-flow flag outranks the plain link state', () {
+      // "Not connected" is true and useless next to "the clock is lost".
+      expect(
+        bandStatusFor(connection: 'disconnected', syncClockLost: true)
+            .condition,
+        BandCondition.clockLost,
+      );
+      expect(
+        bandStatusFor(connection: 'connected', syncChunkQuarantined: true)
+            .condition,
+        BandCondition.syncStuck,
+      );
+    });
+
+    test('the ordinary link states are not faults', () {
+      for (final c in ['connected', 'connecting', 'scanning', 'disconnected']) {
+        expect(bandStatusFor(connection: c).isFault, isFalse, reason: c);
+      }
+      expect(bandStatusFor(connection: 'connected').condition,
+          BandCondition.connected);
+      expect(bandStatusFor(connection: 'nonsense').condition,
+          BandCondition.disconnected);
+    });
+
+    test('nothing to do is expressed as a null fix, not a fake one', () {
+      final s = bandStatusFor(
+          connection: 'disconnected', blocker: BleBlocker.unsupported);
+      expect(s.condition, BandCondition.bluetoothUnsupported);
+      expect(s.fix, isNull);
+    });
+  });
+
+  group('isTimeoutDisconnect', () {
+    test('the platforms both say it in words', () {
+      // Android reports HCI/GATT names; iOS the CBError localizedDescription.
+      expect(isTimeoutDisconnect('LINK_SUPERVISION_TIMEOUT'), isTrue);
+      expect(isTimeoutDisconnect('GATT_CONNECTION_TIMEOUT'), isTrue);
+      expect(
+          isTimeoutDisconnect('The connection has timed out unexpectedly.'),
+          isTrue);
+    });
+
+    test('an ordinary termination is not a timeout', () {
+      expect(isTimeoutDisconnect('REMOTE_USER_TERMINATED_CONNECTION'), isFalse);
+      expect(isTimeoutDisconnect('connection canceled'), isFalse);
+    });
+
+    test('no reason reported is not a timeout — we never assume one', () {
+      // The old caller hardcoded `timedOut: true`, which is exactly this
+      // assumption: it made two ordinary drops inside 8 s of setup latch the
+      // re-pair guide on a band that was working.
+      expect(isTimeoutDisconnect(null), isFalse);
+    });
+  });
 }

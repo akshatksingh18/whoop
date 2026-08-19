@@ -14,7 +14,10 @@
 //     GPS run left every lat/lng point on disk forever.
 //  8. importFromDbFile replayed decoded_onehz through a plain batch.insert,
 //     bypassing the orphan guard entirely.
-// 10. getRecords' day/night counts now come from SQL, never from payloads.
+// 10. day/night counts are answered in SQL, never by decoding payloads. (Their
+//     one caller, getRecords, has since stopped asking for them at all — the
+//     helpers stay because a payload-free count is the shape any future one
+//     should use.)
 // 11. the timeline's event query was the OLDEST 2000 rows globally, so recent
 //     days' markers vanished once `events` grew past that.
 

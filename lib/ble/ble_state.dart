@@ -61,6 +61,287 @@ String connStringFor(BleConnState s) {
   }
 }
 
+// ── what the user is told ────────────────────────────────────────────────────
+// The engine already knows, precisely, why a link is not working — six flags on
+// DeviceState plus the phone-level blockers below. It used to keep that to
+// itself and hand the UI a four-value connection string, so every distinct
+// failure rendered as "Not connected" (or, worse, as "No band in range", which
+// sends a user who revoked a permission on a walk around the house). This is
+// the single projection a screen renders instead: one condition, a name, a
+// reason, and a way forward.
+
+/// The phone's own Bluetooth stack refusing us, as opposed to a band that is
+/// simply not answering. Deliberately separate from every band-side flag: the
+/// fixes point in opposite directions (Settings vs. walk closer), so conflating
+/// them guarantees the user follows the wrong one.
+enum BleBlocker {
+  /// The OS is withholding Bluetooth from THIS app (iOS `unauthorized`, Android
+  /// BLUETOOTH_SCAN/CONNECT denied). Only Settings clears it.
+  permissionDenied,
+
+  /// The radio itself is off. Every app is equally stuck.
+  adapterOff,
+
+  /// No BLE radio on this device at all. Nothing to fix.
+  unsupported,
+}
+
+/// Thrown by transport calls that never reached the radio. Distinct from
+/// "returned nothing", which means the scan genuinely ran and heard nothing.
+class BleUnavailableException implements Exception {
+  final BleBlocker blocker;
+  const BleUnavailableException(this.blocker);
+
+  @override
+  String toString() => 'BleUnavailableException(${blocker.name})';
+}
+
+/// Map an adapter-state name and/or a thrown transport error onto a blocker.
+/// Returns null when neither says the stack is unusable — i.e. the failure is
+/// about the band, not the phone.
+///
+/// String matching is unavoidable: flutter_blue_plus surfaces the Android
+/// permission refusal as a platform exception whose text is the only signal.
+/// The adapter state is checked first because it is the reliable one.
+BleBlocker? classifyBleBlocker({String? adapterState, Object? error}) {
+  switch (adapterState) {
+    case 'unauthorized':
+      return BleBlocker.permissionDenied;
+    case 'unavailable':
+      return BleBlocker.unsupported;
+    case 'off':
+    case 'turningOff':
+      return BleBlocker.adapterOff;
+  }
+  if (error == null) return null;
+  final s = error.toString().toLowerCase();
+  if (s.contains('unauthorized') ||
+      s.contains('permission') ||
+      s.contains('not authorized') ||
+      s.contains('denied')) {
+    return BleBlocker.permissionDenied;
+  }
+  if (s.contains('adapter is off') ||
+      s.contains('bluetooth must be turned on') ||
+      s.contains('poweredoff') ||
+      s.contains('powered off')) {
+    return BleBlocker.adapterOff;
+  }
+  if (s.contains('unsupported') || s.contains('not supported')) {
+    return BleBlocker.unsupported;
+  }
+  return null;
+}
+
+/// Whether an unintentional disconnect looks like the link TIMING OUT — the
+/// band stopped answering / went out of range — rather than an ordinary
+/// termination (peer closed the link, local close, adapter off).
+///
+/// [MarginalRadioDetector] and [PostBondTimeoutLoopDetector] both key on
+/// "armed/bonded, then a QUICK TIMEOUT", and both used to be handed a
+/// hardcoded `true`, which made every ordinary drop a timeout: two unremarkable
+/// disconnects inside 8 s of setup were enough to latch the re-pair guide, on
+/// iOS as well as Android.
+///
+/// The platform's own reason string is the only timeout evidence we have, and
+/// it says so in words on both: Android reports HCI/GATT names
+/// (`LINK_SUPERVISION_TIMEOUT`, `GATT_CONNECTION_TIMEOUT`, …), iOS the CBError
+/// `localizedDescription` ("The connection has timed out unexpectedly."). Same
+/// string-matching trade as [classifyBleBlocker], for the same reason. No
+/// reason reported ⇒ NOT a timeout: we never assume one we cannot see.
+bool isTimeoutDisconnect(String? reasonDescription) {
+  final s = reasonDescription?.toLowerCase();
+  if (s == null) return false;
+  return s.contains('timeout') || s.contains('timed out');
+}
+
+/// The one connection state a screen renders. Ordered by priority in
+/// [bandStatusFor], most-blocking first.
+enum BandCondition {
+  bluetoothDenied,
+  bluetoothOff,
+  bluetoothUnsupported,
+
+  /// Bond refused repeatedly ⇒ auto-reconnect is PAUSED. Nothing is retrying.
+  reconnectPaused,
+
+  /// The link comes up but the band rejects the encryption key.
+  repairNeeded,
+
+  /// A batch is stuck un-confirmed and the band keeps re-sending it.
+  syncStuck,
+
+  /// The band holds newer data than it will hand over.
+  strapUnresponsive,
+
+  /// Syncs complete carrying no sensor data — the band's clock has lost sync.
+  clockLost,
+
+  connected,
+  connecting,
+  scanning,
+  disconnected,
+}
+
+/// A named connection state with the copy that goes with it. The copy lives
+/// here, not in the UI, so the mapping is unit-testable and every surface that
+/// shows the link (home, devices, pairing, a background notification) says the
+/// same thing about the same state.
+class BandStatus {
+  final BandCondition condition;
+
+  /// Names the state. Never "Something went wrong".
+  final String title;
+
+  /// Why it is in that state, and what it means for the user's data.
+  final String reason;
+
+  /// The way forward, or null when there is genuinely nothing to do.
+  final String? fix;
+
+  const BandStatus(this.condition, this.title, this.reason, {this.fix});
+
+  /// True for the states that need to be shown. The four ordinary link states
+  /// (connected/connecting/scanning/disconnected) are the app's normal
+  /// vocabulary and do not need a failure card.
+  bool get isFault =>
+      condition != BandCondition.connected &&
+      condition != BandCondition.connecting &&
+      condition != BandCondition.scanning &&
+      condition != BandCondition.disconnected;
+}
+
+/// Fold the phone-level blocker and the band's own diagnostic flags into one
+/// state. Pure; [connection] is `DeviceState.connection`.
+///
+/// Priority is linear and deliberate: a blocker defeats everything (nothing can
+/// run), a paused reconnect outranks the flags it caused, and the data-flow
+/// flags outrank the plain link state because "not connected" is the less
+/// useful of the two true statements.
+BandStatus bandStatusFor({
+  required String connection,
+  BleBlocker? blocker,
+  bool autoReconnectPaused = false,
+  bool needsRepairGuide = false,
+  bool syncChunkQuarantined = false,
+  bool strapNeedsReboot = false,
+  bool syncClockLost = false,
+  int bondRefusals = 0,
+}) {
+  const repairFix = 'Forget the band in the phone’s Bluetooth settings, '
+      'then pair it again here';
+  switch (blocker) {
+    case BleBlocker.permissionDenied:
+      return const BandStatus(
+        BandCondition.bluetoothDenied,
+        'Bluetooth is switched off for this app',
+        'The phone is withholding the Bluetooth radio from OpenStrap, so '
+            'nothing can be scanned or connected. This is not the band — '
+            'walking closer to it will not help.',
+        fix: 'Open Settings → OpenStrap and allow Bluetooth',
+      );
+    case BleBlocker.adapterOff:
+      return const BandStatus(
+        BandCondition.bluetoothOff,
+        'Bluetooth is turned off',
+        'The phone’s radio is off, so the band cannot be reached by any app. '
+            'The band keeps recording meanwhile; nothing is lost.',
+        fix: 'Turn Bluetooth on',
+      );
+    case BleBlocker.unsupported:
+      return const BandStatus(
+        BandCondition.bluetoothUnsupported,
+        'This phone has no Bluetooth Low Energy radio',
+        'The band can only be reached over Bluetooth Low Energy. Imported '
+            'data still works; a live link does not.',
+      );
+    case null:
+      break;
+  }
+  if (autoReconnectPaused) {
+    return BandStatus(
+      BandCondition.reconnectPaused,
+      'Reconnecting has been paused',
+      'The band refused the pairing key $bondRefusals times in a row, so the '
+          'app stopped retrying rather than pin the radio and drain both '
+          'batteries on a link that will not open. Nothing is reconnecting '
+          'until you act.',
+      fix: repairFix,
+    );
+  }
+  if (needsRepairGuide) {
+    return const BandStatus(
+      BandCondition.repairNeeded,
+      'The band needs to be paired again',
+      'The link comes up, but the band rejects the encryption key the phone '
+          'holds, so every command is dropped and no data moves. Your '
+          'recordings are safe on the band.',
+      fix: repairFix,
+    );
+  }
+  if (syncChunkQuarantined) {
+    return const BandStatus(
+      BandCondition.syncStuck,
+      'One batch of recordings will not finish transferring',
+      'The band keeps re-sending the same batch because the app cannot get '
+          'its confirmation through. Everything in it is already saved here — '
+          'nothing is lost — but the band cannot move on until the '
+          'confirmation lands.',
+      fix: 'Reconnect the band; if it repeats tomorrow, pair it again',
+    );
+  }
+  if (strapNeedsReboot) {
+    return const BandStatus(
+      BandCondition.strapUnresponsive,
+      'The band has stopped handing over its recordings',
+      'The band reports newer recordings than it will send. Those recordings '
+          'are still on the band and still safe; it just is not passing them '
+          'across.',
+      fix: 'Put the band on its charger for a minute, then reconnect',
+    );
+  }
+  if (syncClockLost) {
+    return const BandStatus(
+      BandCondition.clockLost,
+      'Syncs are finishing with no data in them',
+      'The band completes each sync without handing over a single sensor '
+          'reading, which almost always means its onboard clock has lost '
+          'sync. The app keeps resetting it on every connect.',
+      fix: 'Leave the band connected for a few minutes; if nothing arrives '
+          'by tomorrow, pair it again',
+    );
+  }
+  switch (connection) {
+    case 'connected':
+      return const BandStatus(
+        BandCondition.connected,
+        'Connected',
+        'The band is linked and handing over its recordings.',
+      );
+    case 'connecting':
+      return const BandStatus(
+        BandCondition.connecting,
+        'Connecting',
+        'Opening the link to the band.',
+      );
+    case 'scanning':
+      return const BandStatus(
+        BandCondition.scanning,
+        'Looking for the band',
+        'Listening for the band to advertise itself.',
+      );
+    default:
+      return const BandStatus(
+        BandCondition.disconnected,
+        'Not connected',
+        'The band is out of range, on its charger, or held by another app. '
+            'It keeps recording either way.',
+        fix: 'Bring the band near the phone, and close any other app '
+            'connected to it',
+      );
+  }
+}
+
 /// Pure reconnection schedule: bounded exponential backoff with jitter.
 ///
 /// delay(attempt) = clamp(base * 2^(attempt-1), base, cap), then ± up to
@@ -331,6 +612,73 @@ enum TrimAckVerdict {
   /// reconnect). Refuse the trim so the band re-delivers; the engine should
   /// re-correlate the clock and retry.
   blockedNoDurableProgress,
+
+  /// The band counted more frames in this burst than we counted as valid
+  /// received traffic — some arrived corrupted or never arrived at all. The
+  /// rows we DID get are already committed; refusing the token asks the band
+  /// to re-send the chunk so the missing seconds get another chance instead of
+  /// being trimmed out of flash forever. Strictly bounded by
+  /// [BurstShortfallGate] — see the history in that class.
+  blockedBurstShortfall,
+}
+
+/// The bound on "refuse the trim token because the burst was short".
+///
+/// An UNCONDITIONAL refusal on shortfall is not an option: it was the old
+/// behaviour, and it wedged sync forever — nothing about a retry changes the
+/// count relationship when the shortfall is systematic (`expectedPacketCount`'s
+/// exact semantics are not fully reverse-engineered), so the band re-delivered
+/// the same block indefinitely and the cursor never moved. Accepting every
+/// short burst is the opposite failure: the gap is counted, logged, and then
+/// authorised for deletion.
+///
+/// So: refuse ONCE, then take whatever arrives. A transient radio glitch —
+/// the common case — is recovered on the re-delivery; a systematic shortfall
+/// costs exactly one extra round trip and then proceeds.
+///
+/// Bounded three ways, because only the first assumes the token is stable:
+///   * per TOKEN — a chunk is refused at most once, so a stable token cannot
+///     ping-pong;
+///   * per SESSION — [maxPerSession], in case the band re-issues a fresh token
+///     for the same data (which would defeat the per-token bound);
+///   * per ENGINE RUN — [maxTotal], the backstop for a link that is short on
+///     every burst. Past it, shortfalls are telemetry again.
+///
+/// Pure: no clock, no I/O.
+class BurstShortfallGate {
+  BurstShortfallGate({this.maxPerSession = 1, this.maxTotal = 3});
+
+  final int maxPerSession;
+  final int maxTotal;
+
+  /// Bounded so a long-lived engine cannot grow this without limit; a token
+  /// evicted here can be refused once more, which the two counters still cap.
+  static const int _maxTracked = 64;
+  final Set<String> _refusedTokens = <String>{};
+  int _thisSession = 0;
+  int _total = 0;
+
+  int get refusalsThisSession => _thisSession;
+  int get refusalsTotal => _total;
+
+  /// Whether this HISTORY_END token should be refused over a positive
+  /// shortfall. Records the refusal when it returns true — call it once per
+  /// decision, at the point of decision.
+  bool refuse(String tokenHex) {
+    if (_thisSession >= maxPerSession || _total >= maxTotal) return false;
+    if (!_refusedTokens.add(tokenHex)) return false;
+    if (_refusedTokens.length > _maxTracked) {
+      _refusedTokens.remove(_refusedTokens.first);
+    }
+    _thisSession++;
+    _total++;
+    return true;
+  }
+
+  /// New link — the per-session budget refills. [maxTotal] deliberately does
+  /// not, so a band that is short on every burst of every session stops
+  /// costing round trips.
+  void onSessionStart() => _thisSession = 0;
 }
 
 /// THE gate on the one irreversible act in the whole offload protocol: echoing
@@ -371,12 +719,18 @@ class TrimAckPolicy {
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
+  /// [shortfallRetry]  — [BurstShortfallGate] has budget to spend one refusal
+  ///                     on this token's positive shortfall. Pass `false` on
+  ///                     the PRE-commit call: this refusal must happen only
+  ///                     AFTER the rows we did receive are durable, or the
+  ///                     re-delivery costs us the good records too.
   static TrimAckVerdict evaluate({
     required bool sessionCurrent,
     required bool burstDiscarded,
     required bool commitDurable,
     bool hadDurableRows = true,
     int droppedThisBurst = 0,
+    bool shortfallRetry = false,
   }) {
     // Order is deliberate: a stale session must be refused before anything
     // else touches the (new) link, and a poisoned burst must be refused before
@@ -387,6 +741,9 @@ class TrimAckPolicy {
     if (!hadDurableRows && droppedThisBurst > 0) {
       return TrimAckVerdict.blockedNoDurableProgress;
     }
+    // Last: everything above is a reason the chunk must not be trimmed at all.
+    // This one is a reason to ask for it AGAIN, and only once.
+    if (shortfallRetry) return TrimAckVerdict.blockedBurstShortfall;
     return TrimAckVerdict.send;
   }
 }
@@ -400,8 +757,9 @@ class TrimAckPolicy {
 /// committing an empty buffer and echoing the token verbatim, which trims
 /// exactly the records that were just thrown away. The token is unknown at
 /// discard time (it only arrives with the terminal), so the poison is keyed to
-/// the BURST, not the token: a discard poisons the open burst, and only a
-/// fresh HISTORY_START / re-arm clears it.
+/// the BURST, not the token: a discard poisons the open burst, and only a fresh
+/// HISTORY_START clears it. NOT a local re-arm — the abort→retry path re-arms
+/// on a 3 s timer while the abandoned burst's terminal is still on the wire.
 class BurstTrimGuard {
   bool _discarded = false;
 
@@ -412,7 +770,7 @@ class BurstTrimGuard {
   /// True while the open burst may NOT be trimmed.
   bool get discarded => _discarded;
 
-  /// A fresh burst begins (HISTORY_START / re-arm) — nothing lost yet.
+  /// A fresh burst begins (HISTORY_START) — nothing lost yet.
   void beginBurst() => _discarded = false;
 
   /// The open chunk was abandoned without a durable commit.

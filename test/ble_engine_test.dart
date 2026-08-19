@@ -73,7 +73,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 26,
-          actualBurstPacketCount: 26,
+          receivedTrafficCount: 26,
           droppedThisBurst: 0,
         ),
         isTrue,
@@ -86,7 +86,7 @@ void main() {
         expect(
           burstPacketCountMatches(
             expectedPacketCount: 50,
-            actualBurstPacketCount: 26,
+            receivedTrafficCount: 26,
             droppedThisBurst: 0,
           ),
           isFalse,
@@ -102,7 +102,7 @@ void main() {
         expect(
           burstPacketCountMatches(
             expectedPacketCount: 50,
-            actualBurstPacketCount: 26,
+            receivedTrafficCount: 26,
             droppedThisBurst: 24,
           ),
           isTrue,
@@ -115,7 +115,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 50,
-          actualBurstPacketCount: 26,
+          receivedTrafficCount: 26,
           droppedThisBurst: 10, // leaves a real 14-packet gap unexplained
         ),
         isFalse,
@@ -130,7 +130,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 50,
-          actualBurstPacketCount: 53,
+          receivedTrafficCount: 53,
           droppedThisBurst: 0,
         ),
         isTrue,
@@ -146,7 +146,7 @@ void main() {
 
       bool shortByTwo(int failures) => burstPacketCountMatches(
             expectedPacketCount: 50,
-            actualBurstPacketCount: 48,
+            receivedTrafficCount: 48,
             droppedThisBurst: 0,
             consecutiveFailedValidations: failures,
           );
@@ -157,7 +157,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: 50,
-          actualBurstPacketCount: 47,
+          receivedTrafficCount: 47,
           droppedThisBurst: 0,
           consecutiveFailedValidations: 9,
         ),
@@ -254,11 +254,25 @@ void main() {
       );
     });
 
-    test('a zero shortfall passes the count gate', () {
+    test('extra frames (negative shortfall) are NOT a count mismatch', () {
+      // Retried/duplicate frames put us ahead of the band's own count. That is
+      // not loss, so it must not trip the advisory mismatch counter or land in
+      // the sync ledger as `validated_with_mismatch`.
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 26,
+          receivedTrafficCount: 28,
+          droppedThisBurst: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test('shortfall<=0 is exactly burstPacketCountMatches', () {
       const expected = 50, received = 26, dropped = 24;
       final matches = burstPacketCountMatches(
         expectedPacketCount: expected,
-        actualBurstPacketCount: received,
+        receivedTrafficCount: received,
         droppedThisBurst: dropped,
       );
       final shortfall = burstPacketShortfall(
@@ -266,8 +280,7 @@ void main() {
         receivedTrafficCount: received,
         droppedThisBurst: dropped,
       );
-      expect(shortfall, 0);
-      expect(matches, isTrue);
+      expect(matches, (shortfall <= 0));
     });
 
     test('a NEGATIVE shortfall (surplus) also passes — they are not equivalent',
@@ -287,7 +300,7 @@ void main() {
       expect(
         burstPacketCountMatches(
           expectedPacketCount: expected,
-          actualBurstPacketCount: received,
+          receivedTrafficCount: received,
           droppedThisBurst: dropped,
         ),
         isTrue,

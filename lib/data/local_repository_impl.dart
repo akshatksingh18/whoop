@@ -20,6 +20,7 @@ import 'dart:math' as math;
 import '../compute/derivation_engine.dart';
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
+import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
@@ -33,10 +34,21 @@ import '../gps/route_models.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
-  LocalRepositoryImpl({required this.getProfileMap});
+  LocalRepositoryImpl({required this.getProfileMap, this.saveProfileFields});
 
   /// Reads the live AppState profile map (age/weight/height/sex/step_goal…).
   final Map<String, dynamic>? Function() getProfileMap;
+
+  /// Merges a patch into the stored profile and returns the new map — i.e.
+  /// `AppState.updateProfile`, which is the only writer of that map.
+  ///
+  /// NULL in a process that has no AppState (the iOS background task), and a
+  /// write there FAILS rather than returning a map nobody stored. That is the
+  /// whole P2 bug: [setStepGoal] used to build the merged map, return it, and
+  /// persist nothing — so the coach's `set_step_goal` reported success to the
+  /// user on every call and the goal never moved off 8 000.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
+  saveProfileFields;
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -77,8 +89,22 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   /// The cross-day analytics rollup bundle (from the `crossday` baseline), or
-  /// null when none has been computed yet.
+  /// null when none has been computed yet OR when the stored one is no longer
+  /// safe to show ([crossDayStaleReason]).
+  ///
+  /// The gate lives HERE and not in `getInsights`, because five other seams on
+  /// this class read the same artifact (`getDayHeart`, the sleep-debt block,
+  /// the load block …). Gating one caller would have left the other five
+  /// serving the numbers the gate exists to withhold.
   Future<Map<String, dynamic>?> _crossDay() async {
+    final a = await _crossDayArtifact();
+    if (a == null) return null;
+    return crossDayStaleReason(a, _todayLocalLabel()) == null ? a : null;
+  }
+
+  /// The stored artifact, UNGATED — only `_crossDay` and `getInsights` may
+  /// read this, and only so `getInsights` can report why it withheld it.
+  Future<Map<String, dynamic>?> _crossDayArtifact() async {
     final r = await LocalDb.baseline('crossday');
     return _decode(r?['payload_json']);
   }
@@ -145,6 +171,9 @@ class LocalRepositoryImpl extends LocalRepository {
   /// A bare metric from a scalar (used where a screen reads a number directly).
   /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
   /// the UI can render "Need N more nights" for baseline-gated abstentions.
+  /// [note] is attached ONLY when there is no value — a note on a number that
+  /// arrived is an explanation of an absence that did not happen, and callers
+  /// that pass one unconditionally would otherwise ship it.
   Map<String, dynamic> _scalarMetric(
     num? v,
     String tier, {
@@ -156,7 +185,7 @@ class LocalRepositoryImpl extends LocalRepository {
     'tier': tier,
     'inputs_used': const [],
     'unit': ?unit,
-    'note': ?note,
+    if (v == null) 'note': ?note,
   };
 
   /// The `note` string of a metric envelope at [path] (e.g.
@@ -168,6 +197,38 @@ class LocalRepositoryImpl extends LocalRepository {
     return note is String ? note : null;
   }
 
+  /// WHY the bare-valued figure [key] is absent on this bundle, from the
+  /// pipeline's `absent_notes` block (onehz_pipeline.dart / the engine's
+  /// `_applyWakeDayFeatures`). Null when that figure is present.
+  ///
+  /// `strain`, `calories`, `calories_total`, `zones` and `max_hr_used` are
+  /// stored as bare values, so there is no envelope on them to carry a tier and
+  /// a note. The reason was computed correctly at the gate and then thrown away
+  /// before it reached anyone: the only place `unknown_device_family:id=none`
+  /// was written was onto `daytime_hrv` and `hr_ceiling`, which no screen that
+  /// renders these reads. The screens guessed instead, and the guesses were
+  /// wrong. This is the route back.
+  String? _absentNote(Map<String, dynamic>? b, String key) {
+    final n = _sub(b, 'absent_notes')?[key];
+    if (n is String && n.isNotEmpty) return n;
+    // An IMPORTED day carries only what the export file carried, and no gate in
+    // this app ever ran on it — there is no raw to re-derive from, so this is
+    // not a wait-and-it-fills absence. The payload says so itself
+    // (`LocalDb.isMeasuredDayRow` reads the same flag), so this is a fact about
+    // the row, not a plausible reason invented for it. Measured: 284 of
+    // whoop-5's 287 days are this, and every activity slot on all of them went
+    // absent with nothing to say.
+    if (b?['imported'] == true) return needInputNote('imported_day');
+    return null;
+  }
+
+  /// An ABSENT metric envelope carrying only its tier and the reason it is
+  /// absent — for a payload whose value key is a bare scalar the UI already
+  /// reads. `Metric.parse` reads this shape directly, so a screen gets
+  /// `isEmpty == true` plus a `note` it can render instead of guessing.
+  Map<String, dynamic>? _absentMetric(String? note, String tier) =>
+      note == null ? null : _scalarMetric(null, tier, note: note);
+
   // ── profile ─────────────────────────────────────────────────────────────────
   // The profile lives in AppState (shared_preferences); AppState.updateProfile
   // is the writer. Here we just surface it / accept patches via the same map.
@@ -175,20 +236,33 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getProfile() async {
     final p = getProfileMap() ?? const {};
-    return {...p, 'step_goal': (p['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal};
+    return {
+      ...p,
+      'step_goal': (p['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
+    };
   }
 
+  /// Persist the daily step goal.
+  ///
+  /// [goal] arrives from a caller that may be an LLM, so it is bounded here
+  /// rather than trusted: a step goal is a target a person walks to, and a
+  /// four-digit typo would sit on Home forever with no screen to correct it.
+  ///
+  // ponytail: no UI writes this yet — the coach is the only caller, and the
+  // Home tile still prints "Goal 8,000" as if the user had chosen it. The field
+  // belongs beside the other profile numbers in EditProfile; one more key in
+  // that form's unconditional write is the whole fix.
   @override
-  Future<Map<String, dynamic>> patchProfile(Map<String, dynamic> fields) async {
-    // AppState.updateProfile persists; the screen calls that path. We echo back.
-    return {...?getProfileMap(), ...fields};
+  Future<Map<String, dynamic>> setStepGoal(int goal) async {
+    if (goal < 500 || goal > 100000) {
+      throw RepositoryException(400, 'A step goal of $goal is not a real one.');
+    }
+    final save = saveProfileFields;
+    if (save == null) {
+      throw RepositoryException(500, 'This process cannot change the profile.');
+    }
+    return save({'step_goal': goal});
   }
-
-  @override
-  Future<Map<String, dynamic>> setStepGoal(int goal) async => {
-    ...?getProfileMap(),
-    'step_goal': goal,
-  };
 
   // ── today ─────────────────────────────────────────────────────────────────
   // Shape per lib/models/payloads.dart TodayData: {daily:{…}, sleep:{…},
@@ -196,8 +270,15 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getToday() async {
+    // Refresh when the row is missing OR when its `today_day` is no longer the
+    // real local day. The row is stamped by the last derive, so an app left
+    // running over midnight (band on the charger, or an imported-only user)
+    // kept serving yesterday's finished bundle as today: yesterday's steps,
+    // kcal and strain on Home, yesterday's date in the greeting, and the
+    // frozen headline matching so the readiness went un-flagged too.
     var todayFresh = await _freshness('today');
-    if (todayFresh == null) {
+    if (todayFresh == null ||
+        todayFresh['today_day']?.toString() != _todayLocalLabel()) {
       await LocalDb.refreshComputeFreshness();
       todayFresh = await _freshness('today');
     }
@@ -232,9 +313,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final clinical = sleepBundle == null
         ? const <String, dynamic>{}
         : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
-    final resp = sleepBundle == null
-        ? const <String, dynamic>{}
-        : (_sub(sleepBundle, 'respiration') ?? const <String, dynamic>{});
     final cd = await _crossDay();
 
     final hrvTime = clinical['hrv_time'] is Map
@@ -264,14 +342,45 @@ class LocalRepositoryImpl extends LocalRepository {
         readinessScalar = pin.value.toDouble();
       }
     }
+    // Everything on the overnight side of Home is absent for ONE reason when
+    // there is no night to read: there is no scored night. Said once here so
+    // readiness and resting HR stop going absent with nothing at all — measured
+    // on whoop-5, where they are two of the eight dashes on a Home built over
+    // 287 days of history.
+    final overnightNote = showOvernight ? null : needInputNote('scored_night');
     final readinessNote = readinessScalar == null && showOvernight
-        ? _needNote(sleepBundle, 'clinical.readiness_composite')
-        : null;
+        ? _needNote(sleepBundle, 'clinical.readiness_composite') ??
+              kUnknownAbsenceNote
+        : overnightNote;
     final readinessMetric = _scalarMetric(
       readinessScalar,
       'HIGH',
       note: readinessNote,
     );
+    // WHY an absent activity figure is absent, from whichever source Home is
+    // reading it from. The derived day and the interim wake features both carry
+    // the same `absent_notes` map (the engine writes one and persists the
+    // other), so Home does not have to know which one answered.
+    //
+    // When NEITHER exists there is no gate to name — the day simply has no
+    // activity yet — and that is its own cause, not an unknown one. Home used
+    // to render five bare dashes there (strain, calories, calories_total,
+    // steps, wear) with no tier and no note at all.
+    // `_scalarMetric` drops the note when a value arrived, so this can answer
+    // unconditionally. The floor is "we do not know", never a plausible guess:
+    // `steps` and `wear_min` have no gate that names itself, so an absent one
+    // says exactly that rather than borrowing the strain gate's reason.
+    String activityNote(String key) {
+      if (activityBundle == null && wakeFeatures == null) {
+        return needInputNote('today_activity');
+      }
+      if (activityBundle != null) {
+        return _absentNote(activityBundle, key) ?? kUnknownAbsenceNote;
+      }
+      final n = (wakeFeatures?['absent_notes'] as Map?)?[key];
+      return n is String && n.isNotEmpty ? n : kUnknownAbsenceNote;
+    }
+
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -279,6 +388,13 @@ class LocalRepositoryImpl extends LocalRepository {
         showOvernight ? _scalar(sleepBundle, 'rhr')?.round() : null,
         'HIGH',
         unit: 'bpm',
+        // There IS a night bundle and still no resting HR — the pipeline says
+        // why (no scored sleep, or no clean 30-min window inside one), so read
+        // its reason instead of shipping `unknown_cause` beside a card that
+        // just lost a number it used to show.
+        note: overnightNote ??
+            _needNote(sleepBundle, 'clinical.resting_hr') ??
+            kUnknownAbsenceNote,
       ),
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(
@@ -286,6 +402,7 @@ class LocalRepositoryImpl extends LocalRepository {
             ? (wakeFeatures?['strain'] as num?)?.toDouble()
             : _scalar(activityBundle, 'strain'),
         'ESTIMATE',
+        note: activityNote('strain'),
       ),
       'wear_min': _scalarMetric(
         activityBundle == null
@@ -293,6 +410,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _wearMin(activityBundle),
         'HIGH',
         unit: 'min',
+        note: activityNote('wear_min'),
       ),
       // Active calories (Keytel HR→kcal over the wake span) + total daily energy
       // (TDEE: Mifflin BMR floor + active surplus).
@@ -302,6 +420,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'calories')?.round(),
         'ESTIMATE',
         unit: 'kcal',
+        note: activityNote('calories'),
       ),
       'calories_total': _scalarMetric(
         activityBundle == null
@@ -309,6 +428,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'calories_total')?.round(),
         'ESTIMATE',
         unit: 'kcal',
+        note: activityNote('calories_total'),
       ),
       // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
       // rest; the derivation combines them and avoids double-counting.
@@ -318,6 +438,7 @@ class LocalRepositoryImpl extends LocalRepository {
             : _scalar(activityBundle, 'steps')?.round(),
         'ESTIMATE',
         unit: 'steps',
+        note: activityNote('steps'),
       ),
     };
 
@@ -326,19 +447,30 @@ class LocalRepositoryImpl extends LocalRepository {
         : {
             'rmssd': rmssd,
             'sdnn': _scalar(b, 'sdnn'),
+            // Same baseline getDayHeart emits. Without it TodayData.hrv.baseline
+            // was always null, WidgetService pushed -1, and the HRV ring on the
+            // widget and the Watch could never fill on any day.
+            'baseline': (await _seriesMean('rmssd'))?.round(),
             'confidence': (hrvTime?['confidence'] as num?) ?? 0.5,
           };
 
     return {
       'daily': daily,
-      'sleep': sleepBundle == null ? const {} : _sleepSummary(sleepBundle),
+      'sleep': sleepBundle == null
+          ? const {}
+          : _sleepSummary(sleepBundle, needMin: _sleepNeedMin(cd)),
       if (sleepBundle != null && rhrEnv != null)
         'nocturnal': _nocturnal(
           sleepBundle,
           baselineRhr: await _seriesMean('rhr'),
         ),
-      if (sleepBundle != null && resp['rsa'] is Map)
-        'resp': _respObj(sleepBundle),
+      // No `resp['rsa'] is Map` gate. `getDayLungs` never had one, so Health →
+      // Overview could say "no respiratory rate" on a day whose Vitals tab
+      // printed 14.2 br/min from the same bundle through the same function.
+      // The rsa sub-block only supplies a confidence — `_respObj` already
+      // returns null when there is no `resp_rate` scalar, which is the real
+      // condition, and it falls back to 0.5 when rsa is missing.
+      if (sleepBundle != null) 'resp': ?_respObj(sleepBundle),
       'hrv': hrv,
       'skin_temp': sleepBundle != null
           ? await _skinTempBlock(sleepBundle)
@@ -349,7 +481,10 @@ class LocalRepositoryImpl extends LocalRepository {
       // when absent), so the Today tile shows "—" whenever the real SI abstained.
       // The old `100 - readiness` fallback that fabricated a number was removed.
       if (sleepBundle != null)
-        'stress': ?stressSummaryForToday(sleepBundle, _scalar(sleepBundle, 'readiness')),
+        'stress': ?stressSummaryForToday(
+          sleepBundle,
+          _scalar(sleepBundle, 'readiness'),
+        ),
       if (sleepBundle != null && sleepBundle['spo2'] is Map)
         'spo2': sleepBundle['spo2'],
       if (activityBundle != null && activityBundle['activity'] is Map)
@@ -380,9 +515,83 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  /// How long a stored `crossday` rollup may outlive the day it was built for.
+  ///
+  /// The cross-day families are multi-day by construction — chronotype, social
+  /// jetlag, CTL/ATL/TSB — so yesterday's rollup is still the honest answer at
+  /// 07:00 before today's first derive pass. What is NOT honest is a rollup
+  /// from a fortnight ago: its own "today" row is a fortnight old, and Home's
+  /// readiness drivers would be describing a night the user has forgotten.
+  static const int crossDayMaxAgeDays = 7;
+
+  /// Why a stored `crossday` artifact must not be shown, or null when it may.
+  ///
+  /// Pure, so it is testable without a database — the seam that consumes it
+  /// ([getInsights]) cannot be.
+  ///
+  /// `getInsights` used to return `LocalDb.baseline('crossday')` VERBATIM. No
+  /// screen prints the artifact's date, so a rollup written weeks ago under an
+  /// older algo version rendered every readiness driver, the whole breakdown,
+  /// tonight's need/bedtime/debt, chronotype, jetlag, regularity and
+  /// CTL/ATL/TSB with nothing on screen to say so. `_wakeFeatures`, twenty
+  /// lines below, has always keyed its read on `kAlgoVersion`; this is that
+  /// gate, for the artifact behind four screens.
+  ///
+  /// A version bump that CHANGES THE BUNDLE SHAPE is the sharp case: the
+  /// pre-bump artifact would be served for the rest of the day, so the new
+  /// family silently sees nothing on the very pass the bump existed to
+  /// trigger. That has already been a live bug on the input side — see
+  /// `DerivationEngine.crossDayArtifactUsableToday`.
+  ///
+  /// An UNSTAMPED artifact cannot be SHOWN to be fresh, so it is refused
+  /// rather than assumed fresh. That is the same call the input side makes,
+  /// and it costs one derive pass to heal.
+  static Map<String, dynamic>? crossDayStaleReason(
+    Map<String, dynamic> artifact,
+    String today,
+  ) {
+    final v = (artifact['algo_version'] as num?)?.toInt();
+    if (v != kAlgoVersion) {
+      return {'kind': 'algo_version', 'algo_version': ?v};
+    }
+    final built = artifact['built_for_day'];
+    final age = built is String ? _dayGap(built, today) : null;
+    if (built is! String || built.isEmpty || age == null) {
+      return const {'kind': 'unstamped'};
+    }
+    // `age.abs()`: a NEGATIVE gap means the artifact claims a day in the
+    // future, which is a clock that moved backwards, not freshness.
+    if (age.abs() > crossDayMaxAgeDays) {
+      return {'kind': 'stale', 'built_for_day': built, 'age_days': age};
+    }
+    return null;
+  }
+
+  /// Whole calendar days from [from] to [to], both 'YYYY-MM-DD'. Normalised to
+  /// UTC midnight first: a local-midnight subtraction across a DST boundary is
+  /// 23 or 25 hours, and `inDays` truncates the short one to zero.
+  static int? _dayGap(String from, String to) {
+    final a = DateTime.tryParse(from), b = DateTime.tryParse(to);
+    if (a == null || b == null) return null;
+    return DateTime.utc(
+      b.year,
+      b.month,
+      b.day,
+    ).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+  }
+
   @override
-  Future<Map<String, dynamic>> getInsights() async =>
-      (await _crossDay()) ?? const {};
+  Future<Map<String, dynamic>> getInsights() async {
+    final cd = await _crossDayArtifact();
+    if (cd == null) return const {};
+    final stale = crossDayStaleReason(cd, _todayLocalLabel());
+    // FAIL CLOSED. Returning the reason INSTEAD of the artifact means every
+    // `insights['readiness_glassbox']` read comes back absent — the state the
+    // screens already render honestly — while `stale` carries why, in the
+    // spirit of `need_baseline:have=H,need=N`. Serving the old numbers with no
+    // marker was the bug.
+    return stale == null ? cd : {'stale': stale};
+  }
 
   Future<int> _stepGoal() async =>
       (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
@@ -394,15 +603,34 @@ class LocalRepositoryImpl extends LocalRepository {
     // platforms. Prefer the engine wear block's record-presence worn_min; fall
     // back to the TOTAL record count (hr_samples, not hr_valid); never hr_valid.
     // Mirrors getDayWear so the summary tile and the wear detail agree.
-    final w = b['wear'] is Map ? (b['wear'] as Map).cast<String, dynamic>() : null;
+    final w = b['wear'] is Map
+        ? (b['wear'] as Map).cast<String, dynamic>()
+        : null;
     final fromBlock = (w?['worn_min'] as num?);
     if (fromBlock != null) return fromBlock;
+    // The scalar step getDayWear has. Without it an imported day (scalars.worn_min,
+    // no wear/coverage block) showed a wear figure on Vitals and nothing at all in
+    // today.daily.wear_min — same stored number, two answers.
+    final scalar = (_sub(b, 'scalars')?['worn_min'] as num?);
+    if (scalar != null) return scalar;
     final cov = _sub(b, 'coverage');
     final total = (cov?['hr_samples'] as num?)?.toInt();
     return total == null ? null : (total / 60).round();
   }
 
-  Map<String, dynamic> _sleepSummary(Map<String, dynamic> b) {
+  /// Tonight's LEARNED sleep need, in minutes, or null.
+  ///
+  /// `sleep_coach.need` is the only sleep need this app has: `crossday_pipeline`
+  /// estimates it from the user's own undisturbed nights and emits an ABSENT
+  /// metric until enough of them exist — there is no 8 h default anywhere on
+  /// the compute side, deliberately. The 480 that used to stand in for it here
+  /// reached the home widget, the Watch and the Sleep screen as a denominator.
+  int? _sleepNeedMin(Map<String, dynamic>? crossDay) {
+    final sec = _sub(crossDay, 'sleep_coach.need.value')?['need_sec'] as num?;
+    return sec == null ? null : (sec / 60).round();
+  }
+
+  Map<String, dynamic> _sleepSummary(Map<String, dynamic> b, {int? needMin}) {
     // sleep.accounting is a Metric envelope {value:{tst_sec,…}, confidence,…} —
     // read the inner `.value`, not the envelope (the fields live one level down).
     final acct = _sub(b, 'sleep.accounting.value');
@@ -415,10 +643,15 @@ class LocalRepositoryImpl extends LocalRepository {
         'ESTIMATE',
         unit: 'min',
       ),
-      // Sleep need: same default-8 h convention as getDaySleep, so the Today
-      // sleep tile gets its "of Xh need" caption + progress just like the
-      // Sleep screen (it was silently absent from the /today seam before).
-      'need_min': _scalarMetric(480, 'ESTIMATE', unit: 'min'),
+      // Sleep need, ONLY when it was learned (see [_sleepNeedMin]). Absent means
+      // the key is not written at all, so `TodayData.sleepNeed` is empty and
+      // `WidgetService.push` writes the -1 sentinel every native reader gates
+      // its sleep ring on (`needMin > 0` in OpenStrapWidget.swift,
+      // WatchMetrics.swift and OpenStrapWidgetProvider.kt). A hard 480 here put
+      // a fabricated 8 h denominator on the lock screen and the wrist, where
+      // the phone's own screens refuse to show one.
+      if (needMin != null)
+        'need_min': _scalarMetric(needMin, 'ESTIMATE', unit: 'min'),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
   }
@@ -452,10 +685,29 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  /// The respiratory-rate envelope, INCLUDING the analytics note when the
+  /// estimator abstained.
+  ///
+  /// `respiration.rsa` is a full envelope and it already says exactly why there
+  /// is no number — "too few beats for an RSA spectral estimate (need ≥20)",
+  /// "artifact fraction 0.31 > gate 0.15", "no stable HF respiratory peak
+  /// resolved", "HF peak unstable across spectral resolutions". This used to
+  /// read that envelope for its confidence and throw the note away, returning
+  /// a bare null, so the screen fell back to a written-in-the-UI guess about
+  /// noisy beat timing — which is one of four possible reasons and was picked
+  /// by a human writing copy, not by the estimator.
+  ///
+  /// Carrying the note through costs nothing and is the difference between
+  /// telling someone why their night produced no number and guessing at it.
   Map<String, dynamic>? _respObj(Map<String, dynamic> b) {
     final rr = _scalar(b, 'resp_rate');
-    if (rr == null) return null;
     final env = _sub(b, 'respiration.rsa');
+    if (rr == null) {
+      final note = env?['note']?.toString();
+      return note == null || note.isEmpty
+          ? null
+          : {'value': null, 'note': note};
+    }
     // Round to 1 dp — the raw double (16.0121312…) was overflowing the card.
     return {
       'value': double.parse(rr.toStringAsFixed(1)),
@@ -468,7 +720,22 @@ class LocalRepositoryImpl extends LocalRepository {
   /// instead of a bare "—" (skin-temp z needs ≥3 nights of ADC baseline).
   Future<Map<String, dynamic>> _skinTempBlock(Map<String, dynamic> b) async {
     final z = _scalar(b, 'skin_temp_z');
-    if (z != null) return {'value': z};
+    if (z != null) {
+      // The ENVELOPE, not a bare `{'value': z}`. `Metric.isEmpty` is
+      // `value == null || confidence <= 0`, so a block with no confidence read
+      // as ABSENT on every consumer: the Vitals row printed a real deviation
+      // and dotted it "Not measured", and `MetricDetail('skin_temp')` was
+      // permanently empty. The pipeline already carries the right envelope —
+      // tier RELATIVE, and the note that says why there is no °C figure.
+      final env = _sub(b, 'wellness.skin_temp');
+      return {
+        'value': z,
+        'confidence': (env?['confidence'] as num?) ?? 0.5,
+        'tier': (env?['tier'] as String?) ?? ana.Tier.relative,
+        'inputs_used': env?['inputs_used'] ?? const ['skin_temp_raw'],
+        'note': ?env?['note'],
+      };
+    }
     final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
     return {'value': null, 'note': 'need_baseline:have=$have,need=3'};
   }
@@ -540,7 +807,66 @@ class LocalRepositoryImpl extends LocalRepository {
       'hrv_freq': _sub(b, 'clinical.hrv_freq'),
       'prsa_dc': _sub(b, 'clinical.prsa_dc'),
       'prsa_ac': _sub(b, 'clinical.prsa_ac'),
+      // The SLEEP-window Poincaré screen — sd1/sd2/flag over the same beats
+      // `getNightBeats` returns, which is what makes it legal to print these
+      // two numbers beside that scatter. (`clinical.irregular_24h`, served by
+      // `getDayHeart`, is the WHOLE-DAY screen and a different set of beats;
+      // the two must never be mixed on one picture.)
+      'irregular': _sub(b, 'clinical.irregular'),
+      // Beats read, beats that survived correction, and the surviving fraction
+      // — the denominator for everything above. Pure re-exposure of a block
+      // already on the bundle in hand.
+      'coverage': _sub(b, 'coverage'),
+      // WHICH STRAP measured it. gen4 and gen5/MG do not read the same RMSSD
+      // on the same person, so a screen that trends this across a band swap
+      // has to be able to say so.
+      'device_family': b['device_family'],
+      // CV-06 — per-bin RMSSD across the night, plus `origin_ms`, the wall
+      // clock its bin offsets are counted from. The pipeline has emitted this
+      // envelope since v70 and nothing read it; pure re-exposure, no new
+      // computation and no extra decode (it is on the bundle already in hand).
+      'night_shape': b['hrv_night_shape'],
     };
+  }
+
+  /// The night's beats, corrected. See [LocalRepository.getNightBeats].
+  ///
+  /// Reads `window_json` — the small sibling column — rather than decoding the
+  /// payload: the sleep window is the only thing needed to bound the query, and
+  /// this is the one method on this class that goes back to the raw decoded
+  /// store at all. `[onset_ms, offset_ms]` is exactly the span the pipeline
+  /// sliced `sleepRrMs` from, so the count this returns matches the bundle's
+  /// own `coverage.rr_beats` on a day whose raw survives.
+  ///
+  /// THE EXACT DAY, never the Today fallback: a scatter borrowed from another
+  /// night and drawn under this night's date is the worst failure this screen
+  /// has available to it.
+  @override
+  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
+      String date) async {
+    const none = (nn: <double>[], rawBeats: 0, cleanFraction: 0.0);
+    final row = await LocalDb.dayResult(date);
+    final w = row == null ? null : jsonDecode(row['window_json'] as String? ?? '{}');
+    if (w is! Map) return none;
+    final on = w['onset_ms'] as num?, off = w['offset_ms'] as num?;
+    if (on == null || off == null || off <= on) return none;
+    // rr_ts_ms == rec_ts * 1000, so `rec_ts >= ceil(on/1000)` and
+    // `rec_ts <= floor(off/1000)` is the same set of beats as bounding on
+    // rr_ts_ms directly — no beat either side of the window sneaks in.
+    final rows = await LocalDb.decodedRrByRecTsRange(
+      fromRecTs: (on / 1000).ceil(),
+      toRecTs: (off / 1000).floor(),
+    );
+    final ts = <double>[], rr = <double>[];
+    for (final r in rows) {
+      final t = r['rr_ts_ms'] as num?, v = r['rr_ms'] as num?;
+      if (t == null || v == null) continue;
+      ts.add(t.toDouble());
+      rr.add(v.toDouble());
+    }
+    if (rr.length < 2) return none;
+    final c = ana.correctRr(rr, rrTsMs: ts);
+    return (nn: c.nn, rawBeats: rr.length, cleanFraction: c.cleanFraction);
   }
 
   @override
@@ -599,6 +925,7 @@ class LocalRepositoryImpl extends LocalRepository {
       return v == null ? null : (v / 60).round();
     }
 
+    final needMin = _sleepNeedMin(await _crossDay());
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
     // Sleep periods (main + naps) for the periods screen. The main period is
     // enriched HERE with the hypnogram + stage minutes: derivation builds the
@@ -611,16 +938,12 @@ class LocalRepositoryImpl extends LocalRepository {
     // the ONLY one with no dot — reading as "unknown" for the best-evidenced
     // period on the screen. Stays null when accounting had no confidence,
     // which correctly draws nothing.
-    final periods = _periodsWithMainStages(
-      b,
-      {
-        'light_min': min('light_sec'),
-        'deep_min': min('deep_sec'),
-        'rem_min': min('rem_sec'),
-        'nrem_min': min('nrem_sec'),
-      },
-      mainConfidence: sleepConf,
-    );
+    final periods = _periodsWithMainStages(b, {
+      'light_min': min('light_sec'),
+      'deep_min': min('deep_sec'),
+      'rem_min': min('rem_sec'),
+      'nrem_min': min('nrem_sec'),
+    }, mainConfidence: sleepConf);
     final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
@@ -642,6 +965,25 @@ class LocalRepositoryImpl extends LocalRepository {
       // an unvalidated overlay. The screen badges the whole stage block honestly.
       'stages_confidence': sleepConf,
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
+      // The movement ribbon that goes UNDER the hypnogram, on the hypnogram's
+      // own axis. 5-min mean-ENMO buckets over the same sleep window
+      // (`derivation_engine._computeDayBlocks`, "Feature 6"), so a caller can
+      // draw both against one x without resampling either: measured spans agree
+      // to the bucket (1786480200→1786498200 against 1786480446→1786498206 on a
+      // real night). `density` is 0..1, a RELATIVE amplitude index — it is not
+      // a fraction of anything and never becomes a percentage.
+      //
+      // Absent, not empty, when the night produced none: buckets with no
+      // present accel second are omitted by the producer (absent accel would
+      // score ENMO 1.0 — maximal restlessness out of no data), and a day that
+      // produced no map at all must not arrive as a flat calm night.
+      'restlessness_map': ?b['restlessness_map'],
+      // Charging inside this sleep window — {present:false}, or present with
+      // minutes/spans/note. A battery-pack swap leaves the strap on the wrist,
+      // so `wear` correctly reads "worn" through it and nothing else on this
+      // screen can say so. The night is published normally and the caveat rides
+      // with it; see `sleepChargingBlock` for why it has no confidence penalty.
+      'charging': b['sleep_charging'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
       // Oxygen dips (SpO2/ODI) — moved here from getDayHeart's payload: an
@@ -649,10 +991,16 @@ class LocalRepositoryImpl extends LocalRepository {
       // a general daytime heart metric. Pure re-exposure of the same bundle
       // field getDayHeart already read; no new computation.
       'spo2': b['spo2'],
-      // Sleep need: default 8 h (480 min) until a personal sleep-need baseline
-      // exists. Debt = need − actual TST (≥0). Never null so the gauge always reads.
-      'need_min': 480,
-      'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
+      // Sleep need, and the debt against it — both only when the need was
+      // actually learned (`sleep_coach.need`, see [_sleepNeedMin]; it is the
+      // current personal estimate, and the artifact behind it is refused once
+      // it is more than a week old). There is no 8 h default: it made the gauge
+      // "always read", which is the point, since what it read was a population
+      // figure presented as this user's own. Absent keys leave the gauge in its
+      // honest empty state.
+      'need_min': ?needMin,
+      if (needMin != null)
+        'debt_min': ((needMin - (tst / 60)).clamp(0, needMin)).round(),
       'regularity':
           null, // needs ≥several nights (honest null → "Need N nights")
       // Sleep periods (main + naps) for the periods screen. The main period is
@@ -897,21 +1245,135 @@ class LocalRepositoryImpl extends LocalRepository {
     // never had. Resolution order is now: engine wear block, then the day's
     // own `worn_min` scalar, then the coverage record count, then absent.
     final scalarWornMin = (_sub(b, 'scalars')?['worn_min'] as num?)?.toInt();
-    final wornMin = (w?['worn_min'] as num?)?.toInt() ??
+    final wornMin =
+        (w?['worn_min'] as num?)?.toInt() ??
         scalarWornMin ??
         (hrSamples == null ? null : (hrSamples / 60).round());
     return {
       // Wear = RECORD presence, not valid HR (HR drops out during daytime
       // motion). Fall back to the total record count, never hr_valid.
       'worn_min': wornMin,
-      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt() ??
-          (hrSamples == null ? null : (hrSamples > 0 ? 100 : 0)),
-      'segments': w?['segments'] ?? const [],
+      // MISSING IS NOT 100% either. This used to read `hrSamples > 0 ? 100 : 0`,
+      // so one HR sample claimed the band was worn for the whole day and the
+      // row printed "Wear time 20m · 100% of the day". The engine wear block is
+      // the only thing that measures coverage; without it we say nothing.
+      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt(),
+      // AND MISSING IS NOT "NEVER OFF". Same rule as the two fields above, and
+      // the same day hits it: an imported day has no `wear` block, and an empty
+      // segment list there is not "we looked and the band was never off" — it
+      // is "we never looked". A renderer cannot tell those apart from `[]`, so
+      // the key is absent instead.
+      //
+      // The segments themselves are `{on, start, end, len_min}` over the
+      // OBSERVABLE day (local midnight → now, or → next midnight once the day
+      // is done), which is what makes them renderable as "your band was off
+      // your wrist 11:20 PM – 2:14 AM": the leading and trailing holes are on
+      // the list now, so a day whose records start at 9am shows the 00:00-09:00
+      // gap instead of opening the timeline at the first record and implying
+      // the night before it never existed. `sum(on) / observable` is exactly
+      // `coverage_pct`, so the ribbon and the percentage cannot disagree.
+      'segments': ?w?['segments'],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
       'longest_off_min': w?['longest_off_min'],
       'hourly': const [],
     };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getDayNaps(String date) async {
+    // THE EXACT DAY, never the latest-complete fallback: this list is editable,
+    // and offering "not a nap" against another day's naps would write an edit
+    // onto a day the user was not looking at.
+    final b = await _bundle(date);
+    final block = _sub(b, 'naps');
+    if (block == null) return const {};
+    final v = block['value'];
+    return {
+      // ABSENT ≠ NONE. `value: null` is "this day could not be judged" — too
+      // little 1 Hz data, or detection failed — and it carries its own note.
+      // An empty list is the measured "no qualifying naps", which is a real
+      // answer and reads as one.
+      if (v is List)
+        'naps': [
+          for (final n in v)
+            if (n is Map && n['start'] is num && n['end'] is num)
+              {
+                'start': (n['start'] as num).toInt(),
+                'end': (n['end'] as num).toInt(),
+                'duration_min': (n['duration_min'] as num?)?.round(),
+                // 'manual' on a nap the user logged; absent on a detected one.
+                if (n['source'] != null) 'source': n['source'].toString(),
+              },
+        ],
+      'nap_min': (_sub(b, 'scalars')?['nap_min'] as num?)?.round(),
+      'note': block['note']?.toString(),
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getDaySteps(String date) async {
+    final r = await LocalDb.resolvedStepsForDay(date);
+    // Only for naming: a span that sits inside a session gets that session's
+    // name. Cheap — one indexed read over one day.
+    final sessions = r.spans.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await LocalDb.sessionsInRange(
+            _localMidnightSec(date),
+            _localDayEndSec(date),
+          );
+    // THE EXACT DAY, never `_bundleForDate`'s latest-complete fallback: the
+    // spans come from this date's coverage rows, and pairing them with another
+    // day's published total is the one mismatch this screen must not show.
+    final st = _sub(await _bundle(date), 'steps');
+    return {
+      'total': r.total,
+      'strap': r.strap,
+      'phone': r.phone,
+      'day_total': (st?['value'] as num?)?.toInt(),
+      'day_source': st?['source'] as String?,
+      'note': st?['note'] as String?,
+      'spans': [
+        for (final s in r.spans)
+          {
+            'start_ts': s.startTs,
+            'end_ts': s.endTs,
+            'steps': s.steps,
+            'source': s.fromBand
+                ? LocalDb.kStepSourceBand
+                : LocalDb.kStepSourcePhone,
+            'activity': _sessionOver(sessions, s.startTs, s.endTs),
+          },
+      ],
+    };
+  }
+
+  /// The session a step span sits inside, by type — or null.
+  ///
+  /// HALF THE SPAN OR MORE has to fall inside the session. Naming one is a
+  /// claim about where those steps came from, and a walk that merely touches
+  /// the end of a workout did not happen during it.
+  String? _sessionOver(
+    List<Map<String, dynamic>> sessions,
+    int startTs,
+    int endTs,
+  ) {
+    final dur = endTs - startTs;
+    if (dur <= 0) return null;
+    String? best;
+    var bestOv = 0;
+    for (final s in sessions) {
+      final a = (s['start_ts'] as num?)?.toInt();
+      final b = (s['end_ts'] as num?)?.toInt();
+      final type = s['type'] as String?;
+      if (a == null || b == null || type == null || type.isEmpty) continue;
+      final ov = math.min<int>(endTs, b) - math.max<int>(startTs, a);
+      if (ov > bestOv) {
+        bestOv = ov;
+        best = type;
+      }
+    }
+    return bestOv * 2 >= dur ? best : null;
   }
 
   @override
@@ -997,9 +1459,9 @@ class LocalRepositoryImpl extends LocalRepository {
     // showing yesterday's step count as "today's steps" is actively wrong, not
     // just stale. When today's own row hasn't been derived yet, use today's
     // interim wake_day_features estimate instead of whatever _bundleForDate
-    // fell back to (same source getToday() uses for the Today screen) — the
-    // caller (strain_detail_screen.dart) folds AppState.liveSteps on top of
-    // this, matching Today's base+live composition exactly.
+    // fell back to (same source getToday() uses for the Today screen). This is
+    // the settled BASE only — a caller showing live steps folds AppState.liveSteps
+    // on top, the way Today composes base+live.
     num? stepsBase;
     if (_isTodayLabel(date) && await _bundle(date) == null) {
       final wf = await _wakeFeatures(date);
@@ -1007,22 +1469,28 @@ class LocalRepositoryImpl extends LocalRepository {
     } else {
       stepsBase = _scalar(b, 'steps');
     }
+    // The five bare-valued figures, resolved once so the reason block below can
+    // key off what this payload IS ABOUT TO SAY rather than re-deriving it.
+    final strain = _scalar(b, 'strain');
+    final trimp = _scalar(b, 'trimp');
+    final calories = _scalar(b, 'calories')?.round();
+    final caloriesTotal = _scalar(b, 'calories_total')?.round();
+    final maxHrUsed = b['max_hr_used'] is num
+        ? b['max_hr_used'] as num
+        : _scalar(b, 'max_hr_used');
+    final zoneMin = <String, int?>{
+      for (var i = 1; i <= 5; i++) 'z$i': (zones?['z$i'] as num?)?.toInt(),
+    };
     return {
       // Headline 0–21 strain (the detail screen clamps to 0..21). Raw Banister
       // TRIMP is kept as the secondary "training load" figure.
-      'strain': _scalar(b, 'strain'),
-      'training_load': _scalar(b, 'trimp'),
-      // Secondary 0–100 Edwards "effort" strain (zone-weighted, per-second wake HR).
-      'effort': _scalar(b, 'strain_effort'),
+      'strain': strain,
+      'training_load': trimp,
       'load': cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
-      // HR-zone minutes (Z1–Z5 by %HRmax) — the strain detail's zone bars.
-      'zones': {
-        'z1': (zones?['z1'] as num?)?.toInt() ?? 0,
-        'z2': (zones?['z2'] as num?)?.toInt() ?? 0,
-        'z3': (zones?['z3'] as num?)?.toInt() ?? 0,
-        'z4': (zones?['z4'] as num?)?.toInt() ?? 0,
-        'z5': (zones?['z5'] as num?)?.toInt() ?? 0,
-      },
+      // HR-zone minutes (Z1–Z5 by %HRmax) — the zone bars. `?? 0` on all five
+      // turned a day with no zone block into five confident 0-minute bars; a
+      // day we never measured reads null so the caller can say nothing.
+      'zones': zoneMin,
       'curve': [
         for (final p in curve.whereType<Map>()) {'t': p['t'], 'v': p['v']},
       ],
@@ -1030,18 +1498,55 @@ class LocalRepositoryImpl extends LocalRepository {
         for (final p in zoneTimeline.whereType<Map>())
           {'t': p['t'], 'z': p['z']},
       ],
-      'calories': _scalar(b, 'calories')?.round(),
+      'calories': calories,
       // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
-      'calories_total': _scalar(b, 'calories_total')?.round(),
+      'calories_total': caloriesTotal,
       'steps': stepsBase?.round(),
       'hr': {
         'max': (hrStats?['max'] as num?)?.toInt(),
         'avg': (hrStats?['avg'] as num?)?.toInt(),
         'min': (hrStats?['min'] as num?)?.toInt(),
       },
-      'max_hr_used': b['max_hr_used'] is num
-          ? b['max_hr_used'] as num
-          : _scalar(b, 'max_hr_used'),
+      'max_hr_used': maxHrUsed,
+      // TS-04 — which two numbers THIS day's zone bars were binned on:
+      // 'karvonen' (observed ceiling + measured resting HR), 'observed'
+      // (measured ceiling, resting-HR history still too short) or 'tanaka'
+      // (the age estimate). Stored with the bins by the pipeline, so the bar's
+      // footnote states what the bar IS rather than what it usually is.
+      'zone_source': b['zone_source'],
+      'zone_max_hr': (b['zone_max_hr'] as num?)?.round(),
+      // The HEADLINE absence's reason, promoted to the top level because the
+      // screen's primary content when there is no strain is a single card
+      // explaining why. Same string as `absent.strain`.
+      'note': strain == null ? _absentNote(b, 'strain') : null,
+      // WHY each absent figure above is absent, keyed by that figure's OWN
+      // name — never by a sibling's. Every entry is an absent Metric envelope
+      // ({value:'—', confidence:0, tier, note}), so a screen can
+      // `Metric.parse(strain['absent']?['calories'])` and render the real
+      // reason. Entries exist ONLY for figures that are actually absent.
+      //
+      // This is the fix for a first-law violation: `strain`, `calories`,
+      // `calories_total`, `zones` and `max_hr_used` went absent with no tier
+      // and no note while the gate that killed them wrote its reason onto
+      // `heart.daytime_hrv` and `hr_ceiling`, which this screen never reads. So
+      // the screen guessed — "it needs a resting heart rate from a scored
+      // night" on a day with a scored night, "add your age in Profile" on a
+      // profile with an age. An honest-looking absence with a false cause and
+      // an unactionable fix is worse than a bare dash.
+      'absent': <String, Map<String, dynamic>>{
+        // Keyed the way the VALUE above is keyed — `training_load` is what this
+        // payload calls `trimp` — or the caller has to know both names.
+        for (final e in <String, (bool, String)>{
+          'strain': (strain == null, 'strain'),
+          'training_load': (trimp == null, 'trimp'),
+          'calories': (calories == null, 'calories'),
+          'calories_total': (caloriesTotal == null, 'calories_total'),
+          'zones': (zoneMin.values.every((v) => v == null), 'zones'),
+          'max_hr_used': (maxHrUsed == null, 'max_hr_used'),
+        }.entries)
+          if (e.value.$1)
+            e.key: ?_absentMetric(_absentNote(b, e.value.$2), 'ESTIMATE'),
+      },
       'flags': const {},
     };
   }
@@ -1120,29 +1625,21 @@ class LocalRepositoryImpl extends LocalRepository {
             },
     ];
 
-    // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, already epoch-
-    // stamped, 24/7). Fall back to the sleep-only `hrv_timeline` whose `t` is
-    // SECONDS-FROM-WINDOW-START (re-based nnTimes) — rebase that to epoch via the
-    // sleep onset, or it lands on a wildly different axis and won't render.
+    // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, 24/7); fall back to
+    // the sleep-only `hrv_timeline`. BOTH are epoch seconds now — the sleep one
+    // used to be seconds-from-window-start and was rebased here by adding the
+    // sleep onset, which since `_hrvTimeline` started stamping `originMs + t`
+    // would add the onset twice and throw the line hours off the axis.
     final series = _sub(b, 'series');
     final dayHrv = (series?['hrv_day'] as List?) ?? const [];
-    List<Map<String, dynamic>> hrvLine;
-    if (dayHrv.isNotEmpty) {
-      hrvLine = [
-        for (final e in dayHrv)
-          if (e is Map && e['t'] is num && e['v'] is num)
-            {'t': (e['t'] as num).toInt(), 'v': e['v']},
-      ];
-    } else {
-      final rawHrv = (series?['hrv_timeline'] as List?) ?? const [];
-      final hrvOnsetSec = onMs == null ? null : (onMs / 1000).round();
-      hrvLine = [
-        if (hrvOnsetSec != null)
-          for (final e in rawHrv)
-            if (e is Map && e['t'] is num && e['v'] is num)
-              {'t': hrvOnsetSec + (e['t'] as num).toInt(), 'v': e['v']},
-      ];
-    }
+    final rawHrv = dayHrv.isNotEmpty
+        ? dayHrv
+        : ((series?['hrv_timeline'] as List?) ?? const []);
+    var hrvLine = <Map<String, dynamic>>[
+      for (final e in rawHrv)
+        if (e is Map && e['t'] is num && e['v'] is num)
+          {'t': (e['t'] as num).toInt(), 'v': e['v']},
+    ];
     // Plausibility clip: RMSSD physiologically sits ~5–220 ms; values above are
     // ectopic/missed-beat artifacts (the 400+ ms spikes). Drop them so one bad
     // window can't flatten the whole line. Covers old data + the sleep fallback.
@@ -1202,42 +1699,44 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── lists / summaries ─────────────────────────────────────────────────────
 
   @override
-  Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) async {
-    final rows = await LocalDb.recentDayResults(60);
+  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) async {
+    final rows = await LocalDb.sleepWindowRows(days);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
-      final b = _decode(r['payload_json']);
-      if (b == null) continue;
-      final acct = _sub(b, 'sleep.accounting.value');
-      final tst = (acct?['tst_sec'] as num?);
-      if (tst == null) continue;
+      final date = r['day_id'] as String?;
+      if (date == null || date.isEmpty) continue;
+      // `window_json` comes in TWO shapes and always has. The derivation
+      // engine writes `SleepWindow.toJson()` — a BARE {onset_ms, offset_ms,
+      // spt_sec} — and so do both importers; only this reader ever expected a
+      // Metric envelope, so onset_ts/wake_ts were null for every night ever
+      // stored and Sleep's "earlier/later than usual" row never appeared for
+      // anyone. Take the envelope's `value` when there is one, else the map
+      // itself. (`value` is the string '—' on a night with no sleep, so it
+      // only counts when it is a Map.)
+      Map<String, dynamic>? env;
+      try {
+        final decoded = jsonDecode((r['window_json'] as String?) ?? '{}');
+        if (decoded is Map) env = decoded.cast<String, dynamic>();
+      } catch (_) {
+        env = null;
+      }
+      final v = env?['value'];
+      final val = v is Map
+          ? v.cast<String, dynamic>()
+          : (env?['onset_ms'] != null || env?['offset_ms'] != null
+                ? env
+                : null);
+      final onsetMs = (val?['onset_ms'] as num?)?.toDouble();
+      final offsetMs = (val?['offset_ms'] as num?)?.toDouble();
       out.add({
-        'date': r['date'],
-        'duration_min': (tst / 60).round(),
-        'efficiency': acct?['efficiency_pct'],
-        'flags': {
-          'duration': {'c': 0.6, 'tier': 'ESTIMATE', 'beta': true},
-        },
+        'date': date,
+        'onset_ts': onsetMs == null ? null : (onsetMs / 1000).round(),
+        'wake_ts': offsetMs == null ? null : (offsetMs / 1000).round(),
+        'confidence': (env?['confidence'] as num?)?.toDouble(),
+        'tier': env?['tier'] as String?,
       });
     }
     return out;
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) async {
-    final rows = await LocalDb.recentDayResults(60);
-    return [
-      for (final r in rows)
-        {
-          'date': r['date'],
-          'strain': (() {
-            final b = _decode(r['payload_json']);
-            // Headline 0–21 strain (fall back to nothing if older bundle).
-            return _scalar(b, 'strain');
-          })(),
-          'flags': const {},
-        },
-    ];
   }
 
   @override
@@ -1246,11 +1745,7 @@ class LocalRepositoryImpl extends LocalRepository {
     int? to,
     bool includeDetected = true,
   }) async {
-    // Manual/live sessions (the sessions table) MERGED with auto-detected
-    // workouts from the per-day bundle. Manual/saved WINS on overlap: a detected
-    // bout overlapping a manual session is dropped here (and is already dropped
-    // upstream in the engine via savedSpans — this is a belt-and-suspenders pass
-    // for sessions saved after the day was derived).
+    // The manual/live sessions table, newest first.
     final now = DateTime.now();
     final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     final fromSec =
@@ -1261,400 +1756,26 @@ class LocalRepositoryImpl extends LocalRepository {
     final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
     final manual = [for (final r in manualRows) _workoutOf(r)];
 
-    // Finding the detected half means reading every recent day bundle, and
-    // recentDayResults does SELECT r.* — the whole hr_curve/hypnogram/HRV
-    // payload, tens of KB a day, across the isolate boundary and back through
-    // jsonDecode. A caller that only wants saved sessions must not pay that.
-    // Already newest-first — sessionsInRange orders by start_ts DESC, the same
-    // order the merged path sorts into below.
-    if (!includeDetected) return manual;
-
-    // Saved spans (manual) for overlap-dedup of detected bouts.
-    final savedSpans = <List<int>>[];
-    for (final w in manual) {
-      final st = (w['start_ts'] as num?)?.toInt();
-      final en = (w['end_ts'] as num?)?.toInt() ?? st;
-      if (st != null && en != null) savedSpans.add([st, en]);
-    }
-    bool overlapsSaved(int s, int e) =>
-        savedSpans.any((sp) => s <= sp[1] && sp[0] <= e);
-
-    // Detected workouts from each recent derived day's bundle.
-    final detected = <Map<String, dynamic>>[];
-    final dayRows = await LocalDb.recentDayResults(60);
-    for (final r in dayRows) {
-      final b = _decode(r['payload_json']);
-      final list = b?['detected_workouts'];
-      if (list is! List) continue;
-      for (final dw in list) {
-        if (dw is! Map) continue;
-        final st = (dw['start'] as num?)?.toInt();
-        final en = (dw['end'] as num?)?.toInt();
-        if (st == null || en == null) continue;
-        if (st < fromSec || st > toSec) continue;
-        if (overlapsSaved(st, en)) continue; // manual wins
-        detected.add(_detectedWorkoutOf(dw, r['date'] as String?));
-      }
-    }
-
-    final all = [...manual, ...detected];
-    all.sort(
+    // Manual/live sessions are ALL there is now. There used to be a second
+    // half here: `detected_workouts` from each of the last 60 day bundles,
+    // deduped against the saved spans. That key was a permanently-empty stub
+    // and the derivation has since stopped writing it altogether (analytics
+    // deleted `workout_detect.dart`), so the merge read every recent bundle —
+    // SELECT r.*, the whole hr_curve/hypnogram/HRV payload through jsonDecode —
+    // to append nothing. Auto-detected bouts reach the UI through
+    // `workout_suggestions`, not through this list.
+    //
+    // [includeDetected] is kept because it is part of the repository interface
+    // and callers pass it; there is simply no detected half left to exclude.
+    manual.sort(
       (a, b) => ((b['start_ts'] as num?) ?? 0).compareTo(
         (a['start_ts'] as num?) ?? 0,
       ),
     );
-    return all;
-  }
-
-  /// Shape a bundle `detected_workouts` entry (ExerciseSession.toJson) into the
-  /// workout map the screens parse. start/end are epoch SECONDS.
-  Map<String, dynamic> _detectedWorkoutOf(Map dw, String? date) {
-    final start = (dw['start'] as num?)?.toInt();
-    final end = (dw['end'] as num?)?.toInt();
-    final durS =
-        (dw['duration_s'] as num?)?.toDouble() ??
-        ((start != null && end != null) ? (end - start).toDouble() : null);
-    final sport = (dw['sport'] as String?) ?? 'detected';
-    return {
-      'id': 'auto_${date ?? ''}_$start',
-      'start_ts': start,
-      'end_ts': end,
-      'status': 'detected',
-      'source': 'auto',
-      'type': sport,
-      'title': sport,
-      'strain': (dw['strain'] as num?)?.toDouble(),
-      'calories': (dw['calories_kcal'] as num?)?.round(),
-      'duration_min': durS == null ? null : (durS / 60).round(),
-      'avg_hr': (dw['avg_hr'] as num?)?.round(),
-      'peak_hr': (dw['peak_hr'] as num?)?.toInt(),
-      'zone_min': const [],
-    };
-  }
-
-  @override
-  Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {
-    // The Recap card (ui/recap/recap_screen.dart) reads a `metrics` map
-    // (avg/total/delta_pct per key), daily `series` for the mini-viz, a
-    // `worn_days` count (its emptiness gate), and `from_epoch`/`to_epoch` for
-    // the period label. Build all of that from the persisted metric_series
-    // rows. NOTE: the old stub returned `{days:[…]}` — the wrong shape — so
-    // `_isEmpty` always saw metrics={} / worn_days=0 and the recap was stuck on
-    // "Not enough data yet" for BOTH week and month regardless of data.
-    final days = range == '7d' ? 7 : 30;
-
-    Future<Map<String, double>> seriesMap(String key) async {
-      final rows = await LocalDb.metricSeries(key); // ascending by date
-      final m = <String, double>{};
-      for (final r in rows) {
-        final v = (r['value'] as num?)?.toDouble();
-        if (v != null) m[r['date'] as String] = v;
-      }
-      return m;
-    }
-
-    final strain = await seriesMap('strain');
-    final rhr = await seriesMap('rhr');
-    final tst = await seriesMap('tst_min'); // minutes (recap _hm() formats h/m)
-    final cals = await seriesMap('calories');
-    final steps = await seriesMap('steps');
-
-    // Anchor on the most recent day that has ANY data.
-    final allDates = <String>{
-      ...strain.keys,
-      ...rhr.keys,
-      ...tst.keys,
-      ...cals.keys,
-      ...steps.keys,
-    };
-    if (allDates.isEmpty) {
-      return {'metrics': const {}, 'series': const {}, 'worn_days': 0};
-    }
-
-    DateTime parseD(String s) {
-      final p = s.split('-');
-      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
-    }
-
-    String ymd(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
-    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
-
-    final anchor = allDates.map(parseD).reduce((a, b) => a.isAfter(b) ? a : b);
-    final start = anchor.subtract(Duration(days: days - 1));
-    final prevEnd = start.subtract(const Duration(days: 1));
-    final prevStart = prevEnd.subtract(Duration(days: days - 1));
-
-    List<double> windowVals(Map<String, double> m, DateTime s, DateTime e) {
-      final out = <double>[];
-      var d = s;
-      while (!d.isAfter(e)) {
-        final v = m[ymd(d)];
-        if (v != null) out.add(v);
-        d = d.add(const Duration(days: 1));
-      }
-      return out;
-    }
-
-    double? mean(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
-    double? total(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b);
-    double? pctDelta(double? now, double? prev) =>
-        (now == null || prev == null || prev == 0)
-            ? null
-            : (now - prev) / prev * 100.0;
-    double? round1(double? v) =>
-        v == null ? null : double.parse(v.toStringAsFixed(1));
-
-    // Daily series (oldest→newest), present days only, as [{t, v}].
-    List<Map<String, dynamic>> daily(Map<String, double> m) {
-      final out = <Map<String, dynamic>>[];
-      var d = start;
-      while (!d.isAfter(anchor)) {
-        final v = m[ymd(d)];
-        if (v != null) out.add({'t': secOf(d), 'v': v});
-        d = d.add(const Duration(days: 1));
-      }
-      return out;
-    }
-
-    final strainAvg = mean(windowVals(strain, start, anchor));
-    final strainPrev = mean(windowVals(strain, prevStart, prevEnd));
-    final rhrAvg = mean(windowVals(rhr, start, anchor));
-    final rhrPrev = mean(windowVals(rhr, prevStart, prevEnd));
-    final tstAvg = mean(windowVals(tst, start, anchor));
-    final calTotal = total(windowVals(cals, start, anchor));
-
-    // Worn days = distinct days in the window with any metric present.
-    var worn = 0;
-    var wd = start;
-    while (!wd.isAfter(anchor)) {
-      final k = ymd(wd);
-      if (strain.containsKey(k) ||
-          rhr.containsKey(k) ||
-          tst.containsKey(k) ||
-          cals.containsKey(k) ||
-          steps.containsKey(k)) {
-        worn++;
-      }
-      wd = wd.add(const Duration(days: 1));
-    }
-
-    return {
-      'from_epoch': secOf(start),
-      'to_epoch': secOf(anchor),
-      'worn_days': worn,
-      'metrics': {
-        'strain': {
-          'avg': round1(strainAvg),
-          'delta_pct': round1(pctDelta(strainAvg, strainPrev)),
-        },
-        'resting_hr': {
-          'avg': round1(rhrAvg),
-          'delta_pct': round1(pctDelta(rhrAvg, rhrPrev)),
-        },
-        'sleep_duration': {'avg': round1(tstAvg)},
-        'calories': {'total': round1(calTotal)},
-      },
-      'series': {
-        'strain': daily(strain),
-        'steps': daily(steps),
-      },
-    };
+    return manual;
   }
 
   // ── trends + records + charts ──────────────────────────────────────────────
-
-  @override
-  Future<Map<String, dynamic>> getTrend(
-    String metric, {
-    String scale = 'week',
-    String? anchor,
-  }) async {
-    final key = _trendKey(metric);
-    final rows = await LocalDb.metricSeries(key); // ascending by date
-    final byDate = <String, double>{};
-    for (final r in rows) {
-      final v = (r['value'] as num?)?.toDouble();
-      if (v != null) byDate[r['date'] as String] = v;
-    }
-    final (unit, label) = _unitLabel(metric);
-    final base = {
-      'baseline': {'resting_hr': await _seriesMean('rhr')},
-    };
-    if (byDate.isEmpty) {
-      return {'buckets': const [], 'unit': unit, 'label': label, ...base};
-    }
-
-    DateTime parseD(String s) {
-      final p = s.split('-');
-      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
-    }
-
-    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
-    String ymd(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-    double? meanOf(Iterable<double> xs) {
-      final l = xs.toList();
-      return l.isEmpty ? null : l.reduce((a, b) => a + b) / l.length;
-    }
-
-    final anchorDay = anchor != null
-        ? parseD(anchor)
-        : parseD(rows.last['date'] as String);
-
-    // Mean of the metric over [start, endInclusive] calendar days.
-    double? windowMean(DateTime start, DateTime endIncl) {
-      final vals = <double>[];
-      var d = start;
-      while (!d.isAfter(endIncl)) {
-        final v = byDate[ymd(d)];
-        if (v != null) vals.add(v);
-        d = d.add(const Duration(days: 1));
-      }
-      return meanOf(vals);
-    }
-
-    final buckets = <Map<String, dynamic>>[];
-    if (scale == 'week') {
-      // 7 daily buckets ending at the anchor day.
-      for (var i = 6; i >= 0; i--) {
-        final day = anchorDay.subtract(Duration(days: i));
-        final v = byDate[ymd(day)];
-        buckets.add({
-          'value': v ?? 0.0,
-          'has': v != null,
-          't_start': secOf(day),
-          't_end': secOf(day.add(const Duration(days: 1))),
-        });
-      }
-    } else if (scale == 'month') {
-      // 4 weekly buckets (mean of each week) ending at the anchor week.
-      for (var w = 3; w >= 0; w--) {
-        final end = anchorDay.subtract(Duration(days: w * 7));
-        final start = end.subtract(const Duration(days: 6));
-        final m = windowMean(start, end);
-        buckets.add({
-          'value': m ?? 0.0,
-          'has': m != null,
-          't_start': secOf(start),
-          't_end': secOf(end.add(const Duration(days: 1))),
-        });
-      }
-    } else {
-      // quarter → 3 monthly buckets (mean of each calendar month).
-      for (var mo = 2; mo >= 0; mo--) {
-        final monthStart = DateTime.utc(
-          anchorDay.year,
-          anchorDay.month - mo,
-          1,
-        );
-        final nextMonth = DateTime.utc(
-          monthStart.year,
-          monthStart.month + 1,
-          1,
-        );
-        final m = windowMean(
-          monthStart,
-          nextMonth.subtract(const Duration(days: 1)),
-        );
-        buckets.add({
-          'value': m ?? 0.0,
-          'has': m != null,
-          't_start': secOf(monthStart),
-          't_end': secOf(nextMonth),
-        });
-      }
-    }
-
-    // Summary: avg over present buckets + delta vs the immediately-prior window.
-    final present = [
-      for (final b in buckets)
-        if (b['has'] == true) b['value'] as double,
-    ];
-    final avg = meanOf(present);
-    final spanDays = scale == 'week' ? 7 : (scale == 'month' ? 28 : 90);
-    final prevEnd = anchorDay.subtract(Duration(days: spanDays));
-    final prevAvg = windowMean(
-      prevEnd.subtract(Duration(days: spanDays - 1)),
-      prevEnd,
-    );
-    final delta = (avg != null && prevAvg != null) ? avg - prevAvg : null;
-
-    return {
-      'buckets': buckets,
-      'unit': unit,
-      'label': label,
-      'summary': {
-        'avg': avg == null ? null : double.parse(avg.toStringAsFixed(1)),
-        'delta_vs_prev': delta == null
-            ? null
-            : double.parse(delta.toStringAsFixed(1)),
-        'total': present.length,
-      },
-      ...base,
-    };
-  }
-
-  /// Display (unit, label) per trend metric.
-  (String, String) _unitLabel(String metric) {
-    switch (metric) {
-      case 'resting_hr':
-        return ('bpm', 'resting HR');
-      case 'hrv':
-        return ('ms', 'HRV');
-      case 'recovery':
-        return ('%', 'recovery');
-      case 'strain':
-        return ('', 'strain');
-      case 'stress':
-        return ('', 'stress');
-      case 'spo2':
-        return ('dips/h', 'oxygen dips');
-      case 'sleep':
-        return ('h', 'sleep');
-      case 'active_min':
-        return ('min', 'active');
-      case 'calories':
-        return ('kcal', 'calories');
-      case 'calories_total':
-        return ('kcal', 'total calories');
-      case 'steps':
-        return ('steps', 'steps');
-      case 'resp_rate':
-        return ('rpm', 'respiratory rate');
-      case 'light':
-        return ('min', 'light sleep');
-      case 'deep':
-        return ('min', 'deep sleep');
-      case 'rem':
-        return ('min', 'REM sleep');
-      case 'tst':
-        return ('min', 'time asleep');
-      case 'lf_hf':
-        return ('', 'LF / HF');
-      case 'hrv_cv':
-        return ('%', 'HRV stability');
-      case 'dip':
-        return ('%', 'nocturnal HR dip');
-      case 'efficiency':
-        return ('%', 'sleep efficiency');
-      case 'wear':
-        return ('', 'wear'); // minutes; the screen formats as Hh Mm
-      case 'skin_temp':
-        return ('', 'skin temp'); // relative z vs baseline
-      case 'hrr':
-        return ('bpm', 'HR recovery'); // 60-s post-exercise drop; higher = fitter
-      case 'brv':
-        return ('', 'breathing variability'); // CV of per-window respiratory rate
-      default:
-        return ('', metric);
-    }
-  }
 
   String _trendKey(String metric) {
     switch (metric) {
@@ -1670,7 +1791,8 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'worn_min';
       case 'efficiency': // sleep-efficiency % trend
         return 'efficiency';
-      case 'steps': // 24/7 step ESTIMATE series (ambulatory-min × cadence)
+      case 'steps': // measured band steps (the ambulatory-min × cadence
+        // estimator this comment used to describe was deleted in v57)
         return 'steps';
       case 'light':
         return 'light_min';
@@ -1722,13 +1844,67 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
       };
     }
-    final rows = await LocalDb.metricSeries(_trendKey(metric));
+    final key = _trendKey(metric);
+    final rows = await LocalDb.metricSeries(key);
+    // THE PIN WINS. getToday serves the frozen morning headline for readiness,
+    // but metric_series is rewritten by every later re-derive of the same day —
+    // which is the pin's whole reason for existing — so Readiness detail drew
+    // 74 in the ring and 69 as today's point in the chart underneath it. One
+    // day, one readiness number.
+    final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
     return {
       'points': [
         for (final r in rows)
+          {
+            't': _dateToEpoch(r['date'] as String),
+            'v': r['date'] == pin?.day ? pin!.value : r['value'],
+          },
+      ],
+      // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
+      // can be read against how much of it was actually measured instead of
+      // being an attendance chart wearing a physiology label. Deliberately
+      // unflattering: a month with four nights of wear should look like a month
+      // with four nights of wear, not like a flat line.
+      //
+      // `worn_min` is a live metric_series key present every day, so this is the
+      // same scan again, not a new store. Wear OLDER than the 3-day substrate
+      // window is knowable ONLY through this derived key — nothing here
+      // reconstructs it, and a day with no `worn_min` row is simply absent.
+      'wear': [
+        for (final r in await LocalDb.metricSeries('worn_min'))
           {'t': _dateToEpoch(r['date'] as String), 'v': r['value']},
       ],
+      // L13 — WHERE THE MATHS CHANGED. The dates at which the algo version
+      // behind these values differs from the day before it. This does NOT make
+      // the values on either side comparable; nothing can (days lock ~48 h
+      // after wake, and the substrate to re-derive them is gone at 3 days). It
+      // makes the seam visible, so a change-point search refuses to run across
+      // one instead of reporting the day of a version bump as a finding about
+      // the user.
+      'algo_breaks': await _algoBreaks(),
     };
+  }
+
+  /// Dates where `metric_series`'s algo version changes, with the versions on
+  /// either side: `[{t, from, to}]`. The FIRST stamped day is not a break —
+  /// there is nothing before it to be incomparable with.
+  Future<List<Map<String, dynamic>>> _algoBreaks() async {
+    final rows = await LocalDb.metricSeriesVersions();
+    final out = <Map<String, dynamic>>[];
+    int? prev;
+    for (final r in rows) {
+      final v = (r['algo_version'] as num?)?.toInt();
+      if (v == null) continue;
+      if (prev != null && v != prev) {
+        out.add({
+          't': _dateToEpoch(r['date'] as String),
+          'from': prev,
+          'to': v,
+        });
+      }
+      prev = v;
+    }
+    return out;
   }
 
   int _dateToEpoch(String date) =>
@@ -1737,168 +1913,23 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getRecords() async {
-    // PAYLOAD-FREE. This used to be `recentDayResults(3650)` — `SELECT r.*`
-    // over TEN YEARS of day_result, dragging every bundle's hr_curve /
-    // hypnogram / HRV series across and `jsonDecode`ing each on the main
-    // isolate, for a screen that only ever needs scalar extremes. At ~2 years
-    // of history that is hundreds of MB decoded to compute two counts. Both
-    // are now answered in SQLite: day labels from an index-only GROUP BY, the
-    // sleep count via json_extract (only the scalar crosses the boundary).
-    final dayLabelList = await LocalDb.dayResultDayIdsDesc();
-    final days = dayLabelList.length;
-    final sleepDays = await LocalDb.daysWithSleepTst();
-    final nights = sleepDays.length;
-
-    // Personal records from the day scalars (metric_series) + the sessions
-    // table — computed locally with the record's own date attached.
-    final records = <String, Map<String, dynamic>>{};
-    Future<void> extreme(String recordKey, String seriesKey,
-        {bool max = true, double Function(double)? mapValue}) async {
-      final series = await LocalDb.metricSeries(seriesKey);
-      String? bestDate;
-      double? best;
-      for (final r in series) {
-        final v = (r['value'] as num?)?.toDouble();
-        if (v == null) continue;
-        if (best == null || (max ? v > best : v < best)) {
-          best = v;
-          bestDate = r['date'] as String?;
-        }
-      }
-      if (best == null || bestDate == null) return;
-      records[recordKey] = {
-        'value': mapValue == null ? best : mapValue(best),
-        'date': bestDate,
-      };
-    }
-
-    await extreme('lowest_rhr', 'rhr', max: false);
-    await extreme('top_strain', 'strain');
-    await extreme('longest_sleep', 'tst_min');
-    // The Records screen formats efficiency as a 0..1 fraction ((v*100)%).
-    await extreme('best_efficiency', 'efficiency',
-        mapValue: (v) => v > 1.5 ? v / 100.0 : v);
-    await extreme('most_steps', 'steps');
-    await extreme('top_readiness', 'readiness');
-
-    // Honest gamification: don't celebrate a "personal best" built on a
-    // baseline the app itself still calls "calibrating"/"provisional"
-    // elsewhere (the Heart tab's Personal-baselines card) — resting_hr is
-    // the one record key with a real Winsorized-EWMA trust status to check.
-    // (The other record keys — strain/sleep/efficiency/steps/readiness/
-    // workout — have no equivalent trust concept in this codebase to gate
-    // on; celebrating an all-time extreme from a short history is a smaller,
-    // pre-existing honesty gap for those, left as-is here rather than
-    // inventing a new trust proxy for six unrelated metrics.)
-    if (records.containsKey('lowest_rhr')) {
-      final latest = await _latestBundle();
-      // Dotted-path _sub instead of chained dynamic indexing — a bundle
-      // where baselines.resting_hr isn't a Map (or is missing/a List) would
-      // otherwise throw NoSuchMethodError out of getRecords() instead of
-      // falling into the honest "not trusted" branch. _sub already walks
-      // the whole path defensively, returning null on any mismatch.
-      final rhrStatus = _sub(latest, 'baselines.resting_hr')?['status'] as String?;
-      if (rhrStatus != 'trusted') records.remove('lowest_rhr');
-    }
-
-    // Sessions: top workout strain (with its type) + total tracked count.
-    var workoutsTracked = 0;
-    final sessions = await LocalDb.sessionsInRange(
-        0, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-    Map<String, dynamic>? topWorkout;
-    for (final s in sessions) {
-      if (s['status'] == 'live') continue;
-      workoutsTracked++;
-      final strain = (s['strain'] as num?)?.toDouble();
-      if (strain == null || strain <= 0) continue;
-      if (topWorkout == null ||
-          strain > (topWorkout['value'] as double)) {
-        final startTs = (s['start_ts'] as num?)?.toInt();
-        topWorkout = {
-          'value': strain,
-          'date': startTs == null
-              ? ''
-              : _dayLabelOf(
-                  DateTime.fromMillisecondsSinceEpoch(startTs * 1000)),
-          'type': s['type'],
-        };
-      }
-    }
-    if (topWorkout != null && (topWorkout['date'] as String).isNotEmpty) {
-      records['top_workout'] = topWorkout;
-    }
-
-    // Streaks: consecutive most-recent days with derived data / with sleep.
-    final dayLabels = dayLabelList.toSet();
-    int streakOf(Set<String> have) {
-      var streak = 0;
-      var d = DateTime.now();
-      // Today may legitimately not be derived yet — start from today if
-      // present, else from yesterday.
-      if (!have.contains(_dayLabelOf(d))) {
-        d = d.subtract(const Duration(days: 1));
-      }
-      while (have.contains(_dayLabelOf(d))) {
-        streak++;
-        d = d.subtract(const Duration(days: 1));
-      }
-      return streak;
-    }
-
-    final wearStreak = streakOf(dayLabels);
-    final sleepStreak = streakOf(sleepDays);
-
-    return {
-      'days_tracked': days,
-      'nights_tracked': nights,
-      'workouts_tracked': workoutsTracked,
-      'records': records,
-      'streaks': {
-        if (wearStreak > 0)
-          'wear': {'current': wearStreak, 'label': 'Days tracked in a row'},
-        if (sleepStreak > 0)
-          'sleep': {'current': sleepStreak, 'label': 'Nights of sleep in a row'},
-      },
-      ..._rhrDriftOf(await LocalDb.metricSeries('rhr')),
-    };
-  }
-
-  /// 'YYYY-MM-DD' local label for a DateTime (records/streaks bookkeeping).
-  String _dayLabelOf(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
-
-  /// Resting-HR drift: mean of the newest 7 rhr points vs the mean of the 7
-  /// points ~30 days back. Needs ≥ 21 points spanning ≥ 21 days; otherwise the
-  /// screen shows its honest "not enough history" state.
-  Map<String, dynamic> _rhrDriftOf(List<Map<String, dynamic>> series) {
-    final pts = [
-      for (final r in series)
-        if (r['value'] is num && r['date'] is String)
-          (date: r['date'] as String, v: (r['value'] as num).toDouble()),
-    ];
-    if (pts.length < 21) return const {};
-    double mean(Iterable<double> xs) =>
-        xs.reduce((a, b) => a + b) / xs.length;
-    final now = mean(pts.sublist(pts.length - 7).map((p) => p.v));
-    final thenStart = math.max(0, pts.length - 37);
-    final then = mean(pts.sublist(thenStart, thenStart + 7).map((p) => p.v));
-    final delta = now - then;
-    final direction = delta <= -1
-        ? 'improving'
-        : delta >= 1
-            ? 'worsening'
-            : 'flat';
-    return {
-      'rhr_drift': {
-        'now': now,
-        'then': then,
-        'delta': delta,
-        'direction': direction,
-        'days': math.min(37, pts.length),
-      },
-    };
+    // ONE INTEGER. The only caller is workout_screen's `_loadWorkoutData`,
+    // which reads `['workouts_tracked']` and nothing else — and it awaits this
+    // serially while the Workouts tab is opening.
+    //
+    // What used to be computed here and thrown away: `dayResultDayIdsDesc()`,
+    // `daysWithSleepTst()` (json_valid + json_extract over every stored day
+    // bundle), seven `metricSeries` scans for personal records, a
+    // `recentDayResults(14)` bundle decode to check the resting-HR baseline's
+    // trust status, two streak walks and the resting-HR drift. The screens that
+    // displayed records and streaks are gone (see profile.dart), so every one
+    // of those keys had zero consumers — and streaks are banned by this app's
+    // own grammar anyway.
+    //
+    // The count itself is now done in SQL. It used to pull EVERY session row an
+    // install had ever written — full payloads, sorted by start_ts — across the
+    // platform channel to add up one integer, while the tab was opening.
+    return {'workouts_tracked': await LocalDb.finishedSessionCount()};
   }
 
   // ── workouts (manual / live / auto) — local sessions store ──────────────────
@@ -1920,11 +1951,21 @@ class LocalRepositoryImpl extends LocalRepository {
       'duration_min': (r['duration_min'] as num?)?.toInt(),
       'steps': (r['steps'] as num?)?.toInt(),
       'max_hr': (r['max_hr'] as num?)?.toInt(),
+      // Mean HR over the whole session window, banked at score time so it
+      // outlives the 3-day raw retention. `getWorkouts`/`getWorkout` still
+      // recompute from the substrate while it exists and overwrite this; every
+      // other caller (getSessions, getDayTimeline) now gets a REAL average
+      // instead of nothing.
+      'avg_hr': (r['avg_hr'] as num?)?.toInt(),
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
       'hrr60': (r['hrr_bpm'] as num?)?.round(),
       'zone_min': zoneMin,
       // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
       'source': r['source'],
+      // "Keep this one off the shared surfaces." NOT NULL DEFAULT 0 in the
+      // schema, so a row that predates the column reads false, which is what it
+      // has always meant.
+      'private': (r['private'] as num?)?.toInt() == 1,
     };
   }
 
@@ -1951,12 +1992,19 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final stats = await LocalDb.sessionHrStats(fromTs, nowSec,
-          maxHrCeiling: hrCeilingForAge(age), minHrFloor: kHrFloorBpm);
+      final stats = await LocalDb.sessionHrStats(
+        fromTs,
+        nowSec,
+        maxHrCeiling: hrCeilingForAge(age),
+        minHrFloor: kHrFloorBpm,
+      );
       // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
       // over one batched join so the list agrees with getWorkout's on-read
       // recompute.
-      final rawBySession = await LocalDb.sessionHrSamplesBySession(fromTs, nowSec);
+      final rawBySession = await LocalDb.sessionHrSamplesBySession(
+        fromTs,
+        nowSec,
+      );
       for (final w in workouts) {
         final s = stats[w['id']];
         final raw = rawBySession[w['id']];
@@ -2054,38 +2102,102 @@ class LocalRepositoryImpl extends LocalRepository {
     try {
       // Reuse the rows the rescore above already read for this exact window
       // rather than scanning it a second time on every detail open.
-      final hrRows = rescored.hrRows ??
-          await LocalDb.hrSamplesInRange(startTs, endTs);
+      final hrRows =
+          rescored.hrRows ?? await LocalDb.hrSamplesInRange(startTs, endTs);
       if (hrRows.isNotEmpty) {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
-        w['hr'] = _minuteHrCurve(ts, hr);
+        w.addAll(_sessionTrace(ts, hr, startTs, endTs,
+            rescored.row['device_family'] as String?, await _zoneAnchors()));
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
-        // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
-        // define the min, symmetric to the max recompute below.
-        w['min_hr'] = smoothedMinHr(hr, age: _profileAge()) ?? hr.reduce(math.min);
-        // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
-        // do NOT floor against the stored column: the live path may already have
-        // written a spiked max there, and math.max() would preserve it.
-        final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
-        if (peakAt != null) {
-          w['max_hr'] = peakAt.$1;
-          w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
+        if (w['status'] == 'done') {
+          final curve = await _recoveryCurve(endTs);
+          if (curve.isNotEmpty) w['recovery_curve'] = curve;
         }
-        w['zone_bands'] = _zoneBands(hr);
-        final drift = _hrDriftPct(ts, hr, startTs, endTs);
-        if (drift != null) w['hr_drift_pct'] = drift;
-      }
-      if (w['status'] == 'done') {
-        final curve = await _recoveryCurve(endTs);
-        if (curve.isNotEmpty) w['recovery_curve'] = curve;
+      } else {
+        // THE SUBSTRATE IS GONE (pruned at `rawRetentionDays`), so serve the
+        // trace frozen at score time. Without this, every session's chart half
+        // — curve, zones, drift, time-to-peak, recovery — went blank on its
+        // fourth day and stayed blank forever, while the summary scalars in
+        // their own columns kept rendering. Nothing new is claimed here: these
+        // are the numbers the app showed for the same session when it was two
+        // days old.
+        w.addAll(_frozenTrace(rescored.row));
       }
     } catch (_) {
       /* enrichment is best-effort — the summary scalars still render */
     }
     return w;
   }
+
+  /// Everything the detail screen draws from a session's 1 Hz HR window, in one
+  /// map — so [getWorkout] and the trace that outlives the substrate are
+  /// produced by the SAME code and cannot drift apart.
+  ///
+  /// `trace_samples` / `trace_coverage_pct` ride along on both paths: 1 Hz means
+  /// one sample per second, so the count against the window length is the
+  /// honest coverage of these numbers. A session the band only partly handed
+  /// over must read as partial rather than draw a confident thin line across a
+  /// sync gap.
+  Map<String, dynamic> _sessionTrace(
+    List<int> ts,
+    List<int> hr,
+    int startTs,
+    int endTs,
+    String? deviceFamily,
+    _ZoneAnchors anchors,
+  ) {
+    final w = <String, dynamic>{};
+    w['hr'] = _minuteHrCurve(ts, hr);
+    // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
+    // define the min, symmetric to the max recompute below.
+    w['min_hr'] = smoothedMinHr(hr, age: _profileAge()) ?? hr.reduce(math.min);
+    // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
+    // do NOT floor against the stored column: the live path may already have
+    // written a spiked max there, and math.max() would preserve it.
+    final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
+    if (peakAt != null) {
+      w['max_hr'] = peakAt.$1;
+      w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
+    }
+    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors);
+    final drift = _hrDriftPct(ts, hr, startTs, endTs);
+    if (drift != null) w['hr_drift_pct'] = drift;
+    w['trace_samples'] = hr.length;
+    final windowSec = endTs - startTs;
+    if (windowSec > 0) {
+      w['trace_coverage_pct'] = math.min(
+        100,
+        (hr.length / windowSec * 100).round(),
+      );
+    }
+    return w;
+  }
+
+  /// The stored trace for a session whose substrate has aged out, decoded back
+  /// into the same keys [_sessionTrace] produces. Empty when there is none —
+  /// a session scored before this column existed has no trace and never will
+  /// (those seconds are gone; nothing here backfills or guesses one).
+  Map<String, dynamic> _frozenTrace(Map<String, dynamic> row) {
+    final json = row['trace_json'];
+    if (json is! String || json.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is! Map) return const {};
+      final out = decoded.cast<String, dynamic>();
+      // `hr` and `recovery_curve` are stored through SeriesCodec (the same
+      // compact form day_result uses); everything else is a plain scalar.
+      out['hr'] = SeriesCodec.decodeCurve(out['hr']) ?? const [];
+      return out;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Freeze one session's trace for storage. Mirror of [_frozenTrace].
+  String _encodeTrace(Map<String, dynamic> trace) =>
+      jsonEncode({...trace, 'hr': SeriesCodec.encodeCurve(trace['hr'])});
 
   /// Minute-mean HR curve [{t, v}] (epoch sec at each minute start) from raw
   /// 1 Hz samples — the shape the detail chart parses.
@@ -2113,34 +2225,106 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  /// Time-in-zone bands Z1..Z5 (50/60/70/80/90 % of max HR) over the session's
-  /// 1 Hz HR — the shape the zones card + summary bar parse.
-  List<Map<String, dynamic>> _zoneBands(List<int> hr) {
-    final maxHr = _profileMaxHr();
-    const names = ['Warm-up', 'Fat burn', 'Aerobic', 'Threshold', 'Max effort'];
-    const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
+  /// Zone names. "Fat burn" was a substrate-utilisation claim on a band that
+  /// measures heart rate. Z2 is an INTENSITY label; which fuel is being
+  /// oxidised there needs respiratory exchange, which no wrist sensor produces
+  /// (TS-04a). Never "aerobic threshold" either — a %HRR band is a convention,
+  /// not a measurement of anyone's threshold.
+  static const zoneNames = ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
+
+  /// Time-in-zone bands Z1..Z5 over the session's 1 Hz HR — the shape the zones
+  /// card + summary bar parse.
+  ///
+  /// Banded on [trainingZones], the SAME set the day pipeline bins its own
+  /// `zones` block with, so a session's bands and the day's bars can never come
+  /// off different ceilings again (TS-03a) or different anchors (TS-04).
+  List<Map<String, dynamic>> _zoneBands(
+    List<int> hr,
+    String? deviceFamily,
+    _ZoneAnchors anchors,
+  ) {
+    final set = _zoneSetFor(deviceFamily, anchors);
+    // No age, or a strap with no calibrated ceiling ⇒ no bands.
+    if (set == null) return const [];
     final secs = List<int>.filled(5, 0);
     for (final v in hr) {
-      final pct = v / maxHr;
-      for (var z = 4; z >= 0; z--) {
-        if (pct >= loPct[z]) {
-          secs[z]++;
-          break;
-        }
-      }
+      final z = set.zoneNumber(v.toDouble());
+      if (z >= 1) secs[z - 1]++;
     }
     final total = hr.length;
     return [
       for (var z = 0; z < 5; z++)
         {
           'zone': z + 1,
-          'name': names[z],
-          'lo': (loPct[z] * maxHr).round(),
-          'hi': z == 4 ? maxHr : (loPct[z + 1] * maxHr).round(),
+          'name': zoneNames[z],
+          'lo': set.zones[z].lower.round(),
+          'hi': set.zones[z].upper.round(),
           'min': double.parse((secs[z] / 60).toStringAsFixed(1)),
           'pct': total == 0 ? 0 : (secs[z] / total * 100).round(),
+          'source': set.source,
         },
     ];
+  }
+
+  /// THE zone set for a window measured by [deviceFamily] — one call so every
+  /// producer of a zone split in this file bands identically.
+  ana.HeartRateZoneSet? _zoneSetFor(String? deviceFamily, _ZoneAnchors a) =>
+      trainingZones(
+        age: _profileAge(),
+        deviceFamily: deviceFamily,
+        observedCeilingBpm: a.observedCeilingBpm,
+        restingHrHistory: a.restingHrHistory,
+      );
+
+  /// The two anchors [trainingZones] needs, read once per call chain.
+  ///
+  /// Both are cross-day reads, so a per-session recompute must not do them
+  /// again for every row it touches.
+  Future<_ZoneAnchors> _zoneAnchors() async {
+    try {
+      return _ZoneAnchors(
+        observedCeilingBpm: (await _observedCeiling())?.bpm,
+        restingHrHistory: await LocalDb.trailingSeriesValues('rhr', 28),
+      );
+    } catch (_) {
+      return const _ZoneAnchors();
+    }
+  }
+
+  /// TS-03 — the highest heart rate the band has ever OBSERVED on this user:
+  /// the max of the per-day `hr_ceiling_bpm` series, with the day it happened
+  /// and the session it came from.
+  ///
+  /// NOT a physiological HRmax. Every value in that series already passed the
+  /// hold + corroborating-motion guard in `observed_max_hr.dart`; nothing here
+  /// may take a max over un-guarded numbers (a raw `sessions.max_hr` max would
+  /// be one PPG artifact away from dragging every zone boundary up forever).
+  ///
+  /// All-time, not a trailing window: this is "highest we've seen", and the
+  /// date is rendered beside it so an old one is visible rather than anonymous.
+  Future<_ObservedCeiling?> _observedCeiling() async {
+    final top = await LocalDb.observedHrCeiling();
+    if (top == null) return null;
+    // The session + hold behind it live in that day's own bundle envelope —
+    // one extra day read, only on the day that actually set the ceiling.
+    String? sessionType;
+    int? heldSeconds;
+    try {
+      final env = (await _bundleForDate(top.date))?['hr_ceiling'];
+      if (env is Map) {
+        sessionType = env['session_type'] as String?;
+        final v = env['value'];
+        if (v is Map) heldSeconds = (v['held_seconds'] as num?)?.toInt();
+      }
+    } catch (_) {
+      /* the number and its date still stand */
+    }
+    return _ObservedCeiling(
+      bpm: top.bpm,
+      date: top.date,
+      sessionType: sessionType,
+      heldSeconds: heldSeconds,
+    );
   }
 
   /// Cardiac drift: mean HR of the 2nd half vs the 1st half, %; sessions under
@@ -2198,9 +2382,51 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  int _profileMaxHr() {
-    final age = (getProfileMap()?['age'] as num?)?.toDouble() ?? 30.0;
-    return (220 - age).round();
+  /// The HRmax this session's zones are banded on, or null.
+  ///
+  /// [deviceFamily] is `sessions.device_family` — WHICH STRAP measured the
+  /// window. It was `220 − age` here and Tanaka `208 − 0.7·age` in the analytics
+  /// anchors, so one session's persisted `zone_min` and the `zone_bands` its own
+  /// detail screen recomputes were banded off ceilings 3 bpm apart at 30 and 6
+  /// apart at 60. Both are gone: [estimatedMaxHr] is the single definition
+  /// (TS-03a).
+  ///
+  /// Null on no age AND on an unknown/unstamped strap — every pre-schema-41
+  /// session, every import and every raw replay carries no family, and a strap
+  /// we have not calibrated a ceiling for is not gen4 with a different badge.
+  /// No ceiling, no zones; nothing is substituted.
+  int? _profileMaxHr(String? deviceFamily) => estimatedMaxHr(
+        (getProfileMap()?['age'] as num?),
+        deviceFamily,
+      )?.round();
+
+  /// Which strap measured [startTs, endTs] — the `device_family` the ingest
+  /// stamped on the 1 Hz rows themselves, which is the same stamp the day
+  /// pipeline dispatches on. Null when the window is unstamped: every
+  /// pre-schema-41 row, every import and every raw replay carries NULL, and
+  /// unknown provenance is its own case, never gen4.
+  ///
+  /// Only a manual/retimed WRITE needs this — every other seam reads the stamp
+  /// off `sessions.device_family`, which this write is what banks.
+  Future<String?> _windowDeviceFamily(int startTs, int endTs) async {
+    // ponytail: one row, the first second of the window, over the derive path's
+    // existing range query rather than a new `SELECT DISTINCT` in db.dart. A
+    // window whose FIRST second is unstamped reads as unknown even if later
+    // seconds are stamped, which refuses rather than over-claims. If a window
+    // can ever span two straps, this needs the distinct-set read that
+    // `SubstratePages.deviceFamily` already does over the pages it holds.
+    try {
+      final rows = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 1,
+        fromRecTs: startTs,
+        toRecTs: endTs,
+      );
+      if (rows.isEmpty) return null;
+      final f = rows.first['device_family'] as String?;
+      return (f == null || f.isEmpty) ? null : f;
+    } catch (_) {
+      return null; // unknown provenance, same as an unstamped window
+    }
   }
 
   /// Profile age in years, or null when unset — the input to the physiological
@@ -2209,6 +2435,10 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
+
+  @override
+  Future<void> setWorkoutPrivate(String id, bool private) async =>
+      LocalDb.setSessionPrivate(id, private);
 
   @override
   Future<Map<String, dynamic>> startWorkout(
@@ -2245,12 +2475,6 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> setWorkoutType(String id, String type) async {
-    await LocalDb.setSessionType(id, type);
-    return {'workout_id': id, 'type': type};
-  }
-
-  @override
   Future<List<SessionSpan>> savedSessionSpans() async {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
@@ -2271,31 +2495,15 @@ class LocalRepositoryImpl extends LocalRepository {
     required int startTs,
     required int endTs,
     required String type,
-  }) =>
-      _writeManualSession(
-        startTs: startTs,
-        endTs: endTs,
-        type: type,
-        // A manual row's id is derived from its start second, so re-logging the
-        // same window is an UPDATE of that row, not a collision with it. Pass
-        // the id we are about to write as the one to skip in the overlap check.
-        validateAgainstId: manualSessionId(startTs),
-      );
-
-  @override
-  Future<Map<String, dynamic>> logDetectedWorkout({
-    required int startTs,
-    required int endTs,
-    required String type,
-  }) =>
-      _writeManualSession(
-        startTs: startTs,
-        endTs: endTs,
-        type: type,
-        sessionId: 'auto:$startTs',
-        source: 'auto',
-        validateAgainstId: 'auto:$startTs',
-      );
+  }) => _writeManualSession(
+    startTs: startTs,
+    endTs: endTs,
+    type: type,
+    // A manual row's id is derived from its start second, so re-logging the
+    // same window is an UPDATE of that row, not a collision with it. Pass
+    // the id we are about to write as the one to skip in the overlap check.
+    validateAgainstId: manualSessionId(startTs),
+  );
 
   @override
   Future<Map<String, dynamic>> setWorkoutWindow(
@@ -2365,15 +2573,27 @@ class LocalRepositoryImpl extends LocalRepository {
     // Prefer the measured nightly RHR; fall back to the user-supplied one.
     // Both are real inputs — absent both, strain stays null rather than
     // leaning on a 60 bpm stand-in.
-    final restingHr = await _recentRestingHr() ??
-        profile.restingHrManual?.toDouble();
+    final restingHr =
+        await _recentRestingHr() ?? profile.restingHrManual?.toDouble();
+
+    // WHICH STRAP measured this window. An edit keeps the stamp the row already
+    // carries; a hand-entered window has none of its own, so it is read off the
+    // substrate it is scored from. Null — an unstamped window (every pre-v41
+    // row, every import, every raw replay) — is a refusal, not gen4 by default.
+    final deviceFamily = (existing?['device_family'] as String?) ??
+        await _windowDeviceFamily(startTs, endTs);
 
     final stats = computeManualSessionStats(
       hrTs: hrTs,
       hrBpm: hrBpm,
       profile: profile,
-      zoneMaxHr: _profileMaxHr().toDouble(),
+      hrMax: _profileMaxHr(deviceFamily)?.toDouble(),
       restingHr: restingHr,
+      // TS-04 — the persisted `zone_min` is binned with the SAME set the detail
+      // screen's `zone_bands` recomputes. `hrMax` above stays the strain and
+      // calorie anchor; the two are named separately because they can now be
+      // different ceilings.
+      zoneSet: _zoneSetFor(deviceFamily, await _zoneAnchors()),
     );
 
     final row = buildManualSessionRow(
@@ -2386,14 +2606,21 @@ class LocalRepositoryImpl extends LocalRepository {
       sessionId: sessionId,
       source: source,
     );
+    // Banked on the row so the on-read re-score, the zone bands and the frozen
+    // trace all band on the SAME ceiling this write did — `putSession` is
+    // INSERT-OR-REPLACE, so omitting it would blank an edit's existing stamp.
+    row['device_family'] = deviceFamily;
     await LocalDb.putSession(row);
 
     // Retire the fragment(s) this window supersedes, so the athlete isn't
     // asked "did you work out?" about the session they just logged.
     try {
       final sug = await LocalDb.activeWorkoutSuggestions();
-      for (final id in supersededSuggestionIds(sug,
-          startSec: startTs, endSec: endTs)) {
+      for (final id in supersededSuggestionIds(
+        sug,
+        startSec: startTs,
+        endSec: endTs,
+      )) {
         await LocalDb.dismissWorkoutSuggestion(id);
       }
     } catch (_) {
@@ -2425,7 +2652,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// values applied (never null-out a stored value), writing back only on a
   /// real change. Best-effort — never throws into a read path.
   Future<({Map<String, dynamic> row, List<Map<String, dynamic>>? hrRows})>
-      _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
+  _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
     final id = row['id'];
     final startTs = (row['start_ts'] as num?)?.toInt();
     final endTs = (row['end_ts'] as num?)?.toInt();
@@ -2449,9 +2676,11 @@ class LocalRepositoryImpl extends LocalRepository {
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
-        zoneMaxHr: _profileMaxHr().toDouble(),
+        hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+        zoneSet: _zoneSetFor(
+            row['device_family'] as String?, await _zoneAnchors()),
       );
       // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
       // writes a PPG spike into the column `getWorkout` deliberately refuses to
@@ -2485,7 +2714,23 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
         substrate: stats,
       );
-      if (!merged.changed) return (row: row, hrRows: hrRows);
+      // `avg_hr` is new, so every session scored before it existed has a NULL
+      // column and a live substrate that can still fill it. Bailing purely on
+      // "the scores did not change" would leave those rows permanently blank
+      // once their raw ages out — the exact loss the column was added to stop.
+      final needsAvgBackfill =
+          stats.avgHr != null && (row['avg_hr'] as num?) == null;
+      // Same argument for the frozen trace, and this path is the right one to
+      // write it from: it already re-read the exact window and already knows
+      // when coverage IMPROVED. Rewrite only when this pass saw MORE seconds
+      // than the stored trace was built from — a later pass with a thinner
+      // window (a partial re-drain) must never overwrite a fuller trace.
+      final storedSamples = (row['trace_samples'] as num?)?.toInt();
+      final needsTrace =
+          storedSamples == null || stats.hrSampleCount > storedSamples;
+      if (!merged.changed && !needsAvgBackfill && !needsTrace) {
+        return (row: row, hrRows: hrRows);
+      }
 
       // `putSession` is INSERT-OR-REPLACE on the whole row, and everything
       // above this point awaited (two substrate reads). A retime or a
@@ -2506,26 +2751,56 @@ class LocalRepositoryImpl extends LocalRepository {
       }
 
       final zoneJson = jsonEncode(
-        merged.zoneMinutes.any((v) => v > 0) ? merged.zoneMinutes : const <num>[],
+        merged.zoneMinutes.any((v) => v > 0)
+            ? merged.zoneMinutes
+            : const <num>[],
       );
       // Score columns ONLY, via a targeted UPDATE. `putSession` is
       // INSERT-OR-REPLACE over the whole row, so it also rewrites columns this
       // code never looked at — `hrr_bpm` (backfilled by the derive) and `type`
       // (the user's own correction) are both written by narrow UPDATEs that
       // the re-read above cannot detect.
+      String? traceJson;
+      if (needsTrace) {
+        final trace = _sessionTrace(
+          [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
+          hrBpm,
+          startTs,
+          endTs,
+          row['device_family'] as String?,
+          await _zoneAnchors(),
+        );
+        // The post-end recovery window is outside the session and outside the
+        // rows read above, so it costs one more bounded (~205 s) read — only on
+        // a pass that is already writing.
+        final curve = await _recoveryCurve(endTs);
+        if (curve.isNotEmpty) trace['recovery_curve'] = curve;
+        traceJson = _encodeTrace(trace);
+      }
       await LocalDb.setSessionScores(
         id,
         strain: merged.strain,
         calories: merged.calories,
         maxHr: merged.maxHr,
         zoneMinJson: zoneJson,
+        avgHr: stats.avgHr,
+        traceJson: traceJson,
+        traceSamples: needsTrace ? stats.hrSampleCount : null,
       );
+      // CV-01 / TS-07 — freeze the per-km splits on the SAME improvement pass
+      // as the trace, and for the same reason: `avg_hr` per split is a join
+      // against `decoded_onehz`, which is gone at ~3 days, so a split not
+      // written inside that window can never be written at all. Forward-only.
+      if (needsTrace) await _persistKmSplits(id, hrRows);
       final updated = {
         ...current,
         'strain': merged.strain,
         'calories': merged.calories,
         'max_hr': merged.maxHr,
         'zone_min_json': zoneJson,
+        if (stats.avgHr != null) 'avg_hr': stats.avgHr,
+        'trace_json': ?traceJson,
+        if (traceJson != null) 'trace_samples': stats.hrSampleCount,
       };
       return (row: updated, hrRows: hrRows);
     } catch (_) {
@@ -2564,17 +2839,18 @@ class LocalRepositoryImpl extends LocalRepository {
       // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
       // hours, so a flat day-length silently moves the window by an hour.
       final fromTs =
-          localDayStartSec(dayLabelOf(DateTime.now().subtract(
-                Duration(days: sinceDays),
-              ))) ??
-              (nowSec - sinceDays * 86400);
+          localDayStartSec(
+            dayLabelOf(DateTime.now().subtract(Duration(days: sinceDays))),
+          ) ??
+          (nowSec - sinceDays * 86400);
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
       // Where the durable record frontier stands NOW. A finished session whose
       // window sits behind it has all the substrate it is ever going to get.
       // Falls back to the newest decoded row so an import-only install (no
       // band, so no `rec_ts_hw` cursor) still gets the skip rather than
       // re-scanning every session's window on every pass.
-      final frontier = await LocalDb.getCursorInt('rec_ts_hw') ??
+      final frontier =
+          await LocalDb.getCursorInt('rec_ts_hw') ??
           await LocalDb.lastDecodedRecTs() ??
           0;
       final seen = <String>{};
@@ -2639,6 +2915,85 @@ class LocalRepositoryImpl extends LocalRepository {
     }
   }
 
+  /// Freeze this session's per-KILOMETRE splits (CV-01 / TS-07).
+  ///
+  /// THE WHOLE FEATURE IS THIS WRITE. A split's `avg_hr` is a join against
+  /// `decoded_onehz`, which the retention window prunes at ~3 days, so there is
+  /// no retroactive index and never can be: this is forward-only and produces
+  /// its first honest "same pace, fewer beats?" chart 8-12 weeks after it
+  /// ships. Nothing reads `workout_split` yet, and that is expected.
+  ///
+  /// [hrRows] is the session's 1 Hz HR the caller has already read — reused
+  /// rather than re-queried, and the reason this hangs off the re-score pass.
+  Future<void> _persistKmSplits(
+    String id,
+    List<Map<String, dynamic>> hrRows,
+  ) async {
+    try {
+      if (!await LocalDb.sessionHasRoute(id)) return;
+      final rows = await LocalDb.routePoints(id);
+      if (rows.length < 2) return;
+      final points = [for (final r in rows) RoutePoint.fromRow(r)];
+      final hr = [
+        for (final r in hrRows)
+          HrSample(
+            tsMs: (r['rec_ts'] as num).toInt() * 1000,
+            hr: (r['hr'] as num).toInt(),
+          ),
+      ];
+      final splits = rmath.computeSplits(
+        points,
+        hr,
+        unitMeters: rmath.kMetersPerKm,
+      );
+      if (splits.isEmpty) return;
+      // Splits are CONTIGUOUS in time by construction (each one starts where
+      // the last crossed), so walking the durations reproduces their exact
+      // boundaries without `computeSplits` having to return them.
+      var edgeMs = points.first.tsMs;
+      final out = <Map<String, Object?>>[];
+      for (final s in splits) {
+        final startMs = edgeMs;
+        edgeMs += s.durationSec * 1000;
+        out.add({
+          'km': s.index,
+          'meters': s.meters,
+          'duration_sec': s.durationSec,
+          'avg_hr': s.avgHr,
+          'net_elev_m': _netElevation(points, startMs, edgeMs),
+        });
+      }
+      await LocalDb.putWorkoutSplits(id, out);
+    } catch (_) {
+      /* best-effort: a missing route or a malformed row costs the splits only */
+    }
+  }
+
+  /// Elevation change across [fromMs, toMs] — LAST altitude minus FIRST, over
+  /// the whole kilometre.
+  ///
+  /// NOT a summed ascent with a deadband. GPS altitude error is tens of metres
+  /// pointwise and there is no barometer anywhere in this stack, so a
+  /// point-to-point sum is mostly integrated noise; the net over a km is the
+  /// only elevation figure the fix actually supports. Null — never 0 — when
+  /// either end carried no altitude, because 0 reads as "flat".
+  static double? _netElevation(
+    List<RoutePoint> points,
+    int fromMs,
+    int toMs,
+  ) {
+    double? first, last;
+    for (final p in points) {
+      if (p.tsMs < fromMs) continue;
+      if (p.tsMs > toMs) break;
+      final a = p.alt;
+      if (a == null) continue;
+      first ??= a;
+      last = a;
+    }
+    return (first == null || last == null) ? null : last - first;
+  }
+
   /// Tolerance when clipping route points to their session's window. GPS
   /// timestamps are millisecond-stamped while the session window is whole
   /// seconds, so the very first and last fix can land a hair outside it.
@@ -2695,10 +3050,12 @@ class LocalRepositoryImpl extends LocalRepository {
       hr: hr,
       distanceMeters: rmath.totalDistanceMeters(points),
       movingSec: rmath.movingSeconds(points),
-      splitsKm:
-          rmath.computeSplits(points, hr, unitMeters: rmath.kMetersPerKm),
-      splitsMi:
-          rmath.computeSplits(points, hr, unitMeters: rmath.kMetersPerMile),
+      splitsKm: rmath.computeSplits(points, hr, unitMeters: rmath.kMetersPerKm),
+      splitsMi: rmath.computeSplits(
+        points,
+        hr,
+        unitMeters: rmath.kMetersPerMile,
+      ),
     );
   }
 
@@ -2929,6 +3286,21 @@ class LocalRepositoryImpl extends LocalRepository {
       for (final d in dates)
         ana.JournalNumericDay(d, {
           for (final e in metricsByDay[d]!.entries) e.key: e.value.value,
+          // MT-06 — the last cup, as a clock time, alongside the day's total.
+          //
+          // `at_min` has been stored, round-tripped, CSV-exported and rendered
+          // for ages, and it died three lines above the analysis: the input was
+          // built as `{key: value}` and the timing was dropped. The sleep-
+          // relevant fact about caffeine is WHEN the last one landed, not how
+          // much — 200 mg at 08:00 and 200 mg at 20:00 are the same dose and a
+          // different night.
+          //
+          // Two things this cannot see, both of which the screen has to say:
+          // `at_min` is the LAST occurrence only, so two coffees and five are
+          // indistinguishable in timing and "later" quietly means "more" for
+          // anyone who logs a second cup; and a late, stressful, socially busy
+          // day produces both the late coffee and the wrecked sleep.
+          ...?_lastCaffeineMin(metricsByDay[d]!),
         }),
     ];
     final outcomes = <String, List<double?>>{
@@ -2960,15 +3332,25 @@ class LocalRepositoryImpl extends LocalRepository {
     for (final f in corr) {
       final spec = journalFieldSpec(f.field, custom: customs);
       for (final e in f.effects) {
-        if (e.insufficient || !e.meaningful || e.rho == null) continue;
+        if (e.insufficient || !e.meaningful) continue;
+        // MIND-04 — a 0/1 field is a HABIT, and analytics routed it to a
+        // difference of means. It has no rho by construction, and the old
+        // `e.rho == null` guard silently dropped every one of them: the whole
+        // habit half of this analysis was computed and thrown away.
+        if (e.rho == null && e.delta == null) continue;
         final higherBetter = betterOf[e.outcome] ?? true;
+        final direction = e.binary ? e.delta! > 0 : e.rho! > 0;
         out.add({
           'field': f.field,
-          'field_label': spec?.label ?? f.field,
-          'field_unit': spec?.unit ?? '',
+          'field_label': spec?.label ?? _kSynthLabels[f.field] ?? f.field,
+          'field_unit': spec?.unit ?? _kSynthUnits[f.field] ?? '',
           'outcome': e.outcome,
           'outcome_label': labelOf[e.outcome],
           'unit': unitOf[e.outcome],
+          // The two paths carry different evidence and the UI phrases them
+          // differently: a dose gets rho + interval + slope, a tick box gets a
+          // group difference with the days on each side.
+          'binary': e.binary,
           'rho': e.rho,
           // Outcome units per one unit of the field — the interpretable half.
           // Null when Theil-Sen could not fit, in which case the UI shows the
@@ -2976,19 +3358,64 @@ class LocalRepositoryImpl extends LocalRepository {
           'slope_per_unit': e.slopePerUnit,
           'rho_low': e.rhoLow,
           'rho_high': e.rhoHigh,
+          'delta': e.delta,
+          'cohens_d': e.cohensD,
+          'n_with': e.nWith,
+          'n_without': e.nWithout,
           'n': e.n,
+          'q': e.q,
           // More of it moved the outcome the good way.
-          'helped': (e.rho! > 0) == higherBetter,
+          'helped': direction == higherBetter,
         });
       }
     }
-    // Strongest relationship first.
-    out.sort(
-      (a, b) =>
-          (b['rho'] as double).abs().compareTo((a['rho'] as double).abs()),
-    );
+    // Strongest relationship first. Cohen's d and rho are not the same scale,
+    // so the two paths are ordered within themselves by their own effect size
+    // — never mixed into one ranking that would read as a league table.
+    out.sort((a, b) => _effectSize(b).compareTo(_effectSize(a)));
     return out;
   }
+
+  /// MIND-12 — which day of the week costs you, on one outcome.
+  ///
+  /// The whole series, not a window: the analytics floor is eight weeks with at
+  /// least five of every weekday in it, and clipping to 90 days would refuse
+  /// installs that have the history. It runs in an isolate because the
+  /// permutation loop is ~1000 reshuffles and this is called from a build.
+  ///
+  /// Absent is the normal answer and the screen has to be able to say so — a
+  /// gate that never refuses is not a gate.
+  @override
+  Future<Map<String, dynamic>> getWeekdayEffect({
+    String key = 'readiness',
+  }) async {
+    final rows = await LocalDb.metricSeries(key);
+    if (rows.isEmpty) return const {};
+    final dates = <String>[];
+    final values = <double?>[];
+    for (final r in rows) {
+      final d = r['date'];
+      if (d is! String) continue;
+      dates.add(d);
+      values.add((r['value'] as num?)?.toDouble());
+    }
+    final m = await Isolate.run(() => ana.weekdayEffect(dates, values));
+    return {
+      'present': m.present,
+      'note': m.note,
+      if (m.value != null) ...m.value!.toJson(),
+    };
+  }
+
+  /// The day's LAST caffeine, as minutes past midnight, or nothing when the
+  /// field is absent or was logged without a time.
+  Map<String, double>? _lastCaffeineMin(Map<String, JournalMetricValue> day) {
+    final at = day['caffeine_mg']?.atMinuteOfDay;
+    return at == null ? null : {'caffeine_last_min': at.toDouble()};
+  }
+
+  double _effectSize(Map<String, dynamic> r) =>
+      ((r['rho'] ?? r['cohens_d']) as num?)?.abs().toDouble() ?? 0;
 
   List<String> _decodeStrList(Object? json) => [
     for (final e in _decodeList(json)) e.toString(),
@@ -3010,7 +3437,22 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getCycle() async {
-    final enabled = getProfileMap()?['track_cycle'] == true;
+    final profile = getProfileMap();
+    final enabled = profile?['track_cycle'] == true;
+    // WH-07 — DECLARED reproductive state. The app never guesses it, and unset
+    // is not "assume she cycles": it is the conservative reading, which means
+    // no phase. A phase needs an ovulation to count from and we do not measure
+    // one — under hormonal contraception there isn't one at all. What survives
+    // every state is arithmetic over her own logged dates and the biometric
+    // overlay, because neither assumes anything about what her body is doing.
+    //
+    // This is a feature that makes the app say LESS. It is never pregnancy
+    // support and never contraception support.
+    final repro = profile?['repro_state'] as String?;
+    final phaseOk = repro == 'cycling';
+    // 'none' covers pregnant / postpartum / not currently cycling: there is no
+    // next period to predict, so we do not print a date for one.
+    final predictOk = repro != 'none';
     if (!enabled) {
       return {
         'enabled': false,
@@ -3026,17 +3468,34 @@ class LocalRepositoryImpl extends LocalRepository {
         if (r['kind'] == 'start') r['date'] as String,
     ];
 
-    // Mean cycle length = mean of gaps (days) between consecutive starts.
-    double? meanLength;
+    // WH-09 — MEDIAN gap, and the spread around it.
+    //
+    // The mean rounded to one date was a precision we never had: one mis-tapped
+    // start drags it, and printing a single day hides how wide her own gaps
+    // actually are. Median is the robust centre; the UNSCALED MAD is the half
+    // width of the band half her gaps fell inside, which is a claim the data
+    // supports and a claim we can print. It is embarrassingly wide for an
+    // irregular cycler, and that width IS the answer.
+    //
+    // One gap has no spread — MAD of a single number is 0, which would print
+    // the same false single date wearing a range's clothes. So the band needs
+    // two gaps (three logged starts); below that the screen says a point and
+    // says why it can't say a width.
+    double? medianLength, gapSpread;
+    var gapCount = 0;
     if (startDates.length >= 2) {
-      final gaps = <int>[];
+      final gaps = <double>[];
       for (var i = 1; i < startDates.length; i++) {
         final a = DateTime.tryParse(startDates[i - 1]);
         final b = DateTime.tryParse(startDates[i]);
-        if (a != null && b != null) gaps.add(b.difference(a).inDays);
+        if (a != null && b != null) {
+          gaps.add(b.difference(a).inDays.toDouble());
+        }
       }
       if (gaps.isNotEmpty) {
-        meanLength = gaps.reduce((a, b) => a + b) / gaps.length;
+        gapCount = gaps.length;
+        medianLength = ana.median(gaps);
+        if (gaps.length >= 2) gapSpread = ana.mad(gaps, scaled: false);
       }
     }
 
@@ -3052,10 +3511,10 @@ class LocalRepositoryImpl extends LocalRepository {
       cycleDay = t0.difference(d0).inDays + 1; // day 1 = start day
     }
 
-    String? predictedNext;
+    String? predictedNext, predictedFrom, predictedTo;
     num? daysUntilNext;
-    if (lastStart != null && meanLength != null) {
-      final next = lastStart.add(Duration(days: meanLength.round()));
+    if (predictOk && lastStart != null && medianLength != null) {
+      final next = lastStart.add(Duration(days: medianLength.round()));
       predictedNext = _ymd(next);
       final t0 = DateTime(today.year, today.month, today.day);
       daysUntilNext = DateTime(
@@ -3063,23 +3522,33 @@ class LocalRepositoryImpl extends LocalRepository {
         next.month,
         next.day,
       ).difference(t0).inDays;
+      if (gapSpread != null) {
+        final w = gapSpread.round();
+        predictedFrom = _ymd(next.subtract(Duration(days: w)));
+        predictedTo = _ymd(next.add(Duration(days: w)));
+      }
     }
 
-    // Phase + fertile window — only when meanLength is known (else honest unknown).
+    // Phase — only when the median length is known (else honest unknown).
+    //
+    // WH-09: THERE IS NO FERTILE WINDOW HERE ANY MORE. It was `ovDay ± 2` where
+    // `ovDay = median − 14`, i.e. a textbook population constant printed as her
+    // own dates with "Not contraception." underneath. We do not measure
+    // ovulation, so we do not date it. Do not put it back.
+    //
+    // A cycle shorter than the 10-day ovulation floor makes the clamp bounds
+    // cross — `clamp(10, 8)` THROWS ArgumentError (lowerLimit > upperLimit),
+    // and it threw straight out of getCycle() so the entire cycle screen
+    // errored instead of degrading. Two logged `start` markers 8 days apart is
+    // enough: a mis-tap the user then corrected, or a genuinely short cycle.
+    // Below the floor there is no defensible day to split on, so be honest —
+    // leave `phase: 'unknown'` (prediction / cycleDay / the biometric overlay
+    // still render).
     String phase = 'unknown';
-    String? fertileStart, fertileEnd;
-    // A mean cycle shorter than the 10-day ovulation floor makes the clamp
-    // bounds cross — `clamp(10, 8)` THROWS ArgumentError (lowerLimit >
-    // upperLimit), and it threw straight out of getCycle() so the entire cycle
-    // screen errored instead of degrading. Two logged `start` markers 8 days
-    // apart is enough: a mis-tap the user then corrected, or a genuinely short
-    // cycle. Below the floor there is no defensible ovulation day to place, so
-    // be honest — leave `phase: 'unknown'` and publish no fertile window
-    // (predictedNext / cycleDay / the biometric overlay still render).
-    final ovDay = (meanLength == null || meanLength.round() < 10)
+    final ovDay = (medianLength == null || medianLength.round() < 10)
         ? null
-        : (meanLength - 14).round().clamp(10, meanLength.round());
-    if (ovDay != null && cycleDay != null && lastStart != null) {
+        : (medianLength - 14).round().clamp(10, medianLength.round());
+    if (phaseOk && ovDay != null && cycleDay != null && lastStart != null) {
       if (cycleDay <= 5) {
         phase = 'menstrual';
       } else if (cycleDay < ovDay) {
@@ -3089,16 +3558,35 @@ class LocalRepositoryImpl extends LocalRepository {
       } else {
         phase = 'luteal';
       }
-      final ovDate = lastStart.add(Duration(days: ovDay - 1));
-      fertileStart = _ymd(ovDate.subtract(const Duration(days: 2)));
-      fertileEnd = _ymd(ovDate.add(const Duration(days: 2)));
     }
 
-    // Retrospective ovulation confirmation via 3-over-6 coverline on recent
-    // nightly RELATIVE skin-temp z (derived). Honest: confirmation only.
-    String? ovulationEst;
+    // NO ovulation estimate. `menstrualCoverline` is unit-agnostic and cannot
+    // check what it is handed; this called it with skin-temp Z-SCORES while
+    // leaving `threshold` at its 1.0 default, which is the classic 3-over-6
+    // rule's ~0.2 °F reinterpreted as a full standard deviation above the max
+    // of the prior six nights. The dates it produced were not wrong by a
+    // little, and nothing rendered them anyway.
+    //
+    // Restoring it needs a threshold defensible in z, on this sensor, with a
+    // stated basis — not a number chosen to make events appear. Until then the
+    // key does not exist, because absent-forever is deleted, not explained.
+    // See docs/internal/UI_ROADMAP.md.
     // Biometric overlay across the cycle — how resting HR / HRV / skin-temp shift
     // (descriptive context; the prediction is from logged periods, not these).
+    //
+    // WH-02 — EVERY logged start, not just the last one. `cycle_day` used to be
+    // counted from `lastStart` for every row in the window, so a day that fell
+    // inside an older cycle came back numbered past that cycle's own length
+    // ("cycle day 97") and only the newest cycle could ever be drawn. Each day
+    // is now placed against the start that actually preceded it, and carries
+    // the INDEX of that start, so "the same day of a different cycle" is a
+    // thing the caller can express at all. Days before the first logged start
+    // carry neither key — there is no cycle to number them in, and a day 0 or a
+    // negative day is a fabricated position, not an absent one.
+    final cycleStarts = <DateTime>[
+      for (final s in startDates)
+        if (DateTime.tryParse(s) case final d?) DateTime(d.year, d.month, d.day),
+    ]..sort();
     final overlay = <Map<String, dynamic>>[];
     final derived = await LocalDb.recentDayResults(120);
     if (derived.isNotEmpty) {
@@ -3112,32 +3600,25 @@ class LocalRepositoryImpl extends LocalRepository {
         dates.add(dt);
         final z = _scalar(b, 'skin_temp_z')?.toDouble();
         temps.add(z);
-        // cycle day for this overlay row (relative to the last logged start).
-        int? cd;
-        if (lastStart != null) {
-          final d = DateTime.tryParse(dt);
-          if (d != null) {
-            cd =
-                DateTime(d.year, d.month, d.day)
-                    .difference(
-                      DateTime(lastStart.year, lastStart.month, lastStart.day),
-                    )
-                    .inDays +
-                1;
+        // (cycle index, cycle day) for this row — see WH-02 above.
+        int? cd, ci;
+        final d = DateTime.tryParse(dt);
+        if (d != null) {
+          final day = DateTime(d.year, d.month, d.day);
+          final i = cycleStarts.lastIndexWhere((s) => !s.isAfter(day));
+          if (i >= 0) {
+            ci = i;
+            cd = day.difference(cycleStarts[i]).inDays + 1;
           }
         }
         overlay.add({
           'date': dt,
           'cycle_day': ?cd,
+          'cycle_index': ?ci,
           'resting_hr': _scalar(b, 'rhr')?.toDouble(),
           'hrv_rmssd': _scalar(b, 'rmssd')?.toDouble(),
           'skin_temp_idx': z,
         });
-      }
-      final ov = ana.menstrualCoverline(dates, temps);
-      final events = ov.value;
-      if (events != null && events.isNotEmpty) {
-        ovulationEst = events.last.date;
       }
     }
 
@@ -3145,14 +3626,18 @@ class LocalRepositoryImpl extends LocalRepository {
 
     return {
       'enabled': true,
+      // Null = never declared. Stays out of every export: it lives in the
+      // profile prefs, and `kCsvExportExclusions` keeps the whole profile out.
+      'repro_state': repro,
       'phase': phase,
       'cycle_day': cycleDay,
       'days_until_next': daysUntilNext,
       'predicted_next': predictedNext,
-      'fertile_start': fertileStart,
-      'fertile_end': fertileEnd,
-      'ovulation_est': ovulationEst,
-      'mean_length': meanLength,
+      // The band half her gaps fell inside. Null until two gaps exist.
+      'predicted_from': predictedFrom,
+      'predicted_to': predictedTo,
+      'gap_n': gapCount,
+      'median_length': medianLength,
       'note': null,
       'confidence': confidence,
       'logs': logs,
@@ -3242,6 +3727,260 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
+
+  // ── TS-03 / TS-04 / TS-05 — the zones screen ───────────────────────────────
+
+  /// Everything the zones screen draws: the observed ceiling and where it came
+  /// from, the zone edges and WHICH TWO NUMBERS they were anchored on, and —
+  /// only when both of those were measured — the 28-day intensity distribution.
+  @override
+  Future<Map<String, dynamic>> getZones() async {
+    final ceiling = await _observedCeiling();
+    final rhrHistory = await LocalDb.trailingSeriesValues('rhr', 28);
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // One read, two jobs: which strap these edges belong to, and the 28-day
+    // distribution below.
+    final recent = await LocalDb.sessionsInRange(nowSec - 28 * 86400, nowSec);
+    // The strap these edges belong to — from the most recent session that
+    // carries one, then from the day's own 1 Hz rows while they still exist.
+    // Sessions outlive the 3-day raw retention, so this still answers for a
+    // user who has not synced in a week.
+    // The strap these edges belong to. Sessions outlive the ~3-day raw
+    // retention and derived days outlive everything, so this still answers for
+    // a user who has not synced in a week. Unknown stays unknown — it is never
+    // filled in with gen4.
+    final todayBundle = await _bundleForDate(todayLabel());
+    final family = _familyOfSessions(recent) ??
+        await LocalDb.latestSessionDeviceFamily() ??
+        todayBundle?['device_family'] as String?;
+    // WHY there is no measured ceiling — but ONLY the reason that holds across
+    // the whole history, because that is what an all-time max is taken over.
+    // An unknown family is exactly that: `observedCeilingBpm` has no motion
+    // gate for one, so it refuses on every day and no future session can change
+    // it. Any other day's note is one day's reason and would be a guess here.
+    //
+    // The card stated a cause of its own — "the band has not yet HELD a high
+    // enough heart rate" — and offered "wear the band for your normal hard
+    // sessions". Measured on all three real databases, both are false: every
+    // row is unstamped (`unknown_device_family:id=none` on `hr_ceiling`).
+    final ceilingNote = ceiling == null && ana.deviceFamilyOf(family) == null
+        ? ana.unknownFamilyNote(family)
+        : null;
+    final set = trainingZones(
+      age: _profileAge(),
+      deviceFamily: family,
+      observedCeilingBpm: ceiling?.bpm,
+      restingHrHistory: rhrHistory,
+    );
+    final measured = zonesAreMeasured(set?.source);
+    // WHY there are no edges. This screen printed "Without your age or a strap
+    // we have calibrated a ceiling for, there is no ceiling" and offered "Add
+    // your age in Profile" — on a profile whose age IS set, because the only
+    // thing actually missing was the strap stamp. Name the one that is missing.
+    final age = _profileAge();
+    final zonesNote = set != null
+        ? null
+        : age == null
+        ? needInputNote('age')
+        : ana.unknownFamilyNote(family);
+    // TS-05 — the 28-day distribution is ABSENT, not captioned, until BOTH zone
+    // anchors were measured on this user; a three-bar "you live in the grey
+    // middle" read off `208 − 0.7·age` bands is manufactured and no footnote
+    // repairs it. So it has three distinct causes and they are not the same
+    // fix: no edges at all, edges off the age estimate, or edges off a measured
+    // ceiling whose reserve anchor is still short. Name the one that applies.
+    final distribution = measured ? _intensity28d(set!, recent) : null;
+    final distributionNote = distribution != null
+        ? null
+        : zonesNote ??
+              (set!.source == 'tanaka'
+                  // The ceiling's OWN reason outranks "no hard session yet" —
+                  // on all three real databases it refused for an unstamped
+                  // strap, which a hard session cannot fix.
+                  ? ceilingNote ?? needInputNote('observed_ceiling')
+                  : !measured
+                  ? needInputNote(
+                      'resting_hr_days',
+                      have: rhrHistory.length,
+                      need: ana.HeartRateZones.reserveMinDays,
+                    )
+                  : needInputNote(
+                      'sessions',
+                      have: recent.length,
+                      need: _minDistributionSessions,
+                    ));
+    return {
+      'ceiling': ?ceiling?.toJson(),
+      // Why there is no ceiling, when there is none. Never set alongside one.
+      'ceiling_note': ceilingNote,
+      'age': age,
+      'device_family': family,
+      'source': set?.source,
+      'max_hr': set?.maxHr.round(),
+      // The reserve anchor, and how many nights it is a median of — printed,
+      // because "your easy zone got wider" is only answerable if the two
+      // numbers it was built from are on the screen.
+      'resting_hr': measured ? _median(rhrHistory)?.round() : null,
+      // Why there are no edges, at the top level: with no zones the screen IS
+      // this one card. Same string as `absent.zones`.
+      'note': zonesNote,
+      'resting_days': rhrHistory.length,
+      'resting_min_days': ana.HeartRateZones.reserveMinDays,
+      'zones': set == null
+          ? const []
+          : [
+              for (var i = 0; i < 5; i++)
+                {
+                  'zone': i + 1,
+                  'name': zoneNames[i],
+                  'lo': set.zones[i].lower.round(),
+                  'hi': set.zones[i].upper.round(),
+                  'lo_pct': (set.zones[i].lowerPct * 100).round(),
+                  'hi_pct': (set.zones[i].upperPct * 100).round(),
+                },
+            ],
+      // TS-05 — ABSENT, not captioned, while the ceiling is the age formula.
+      // A three-bar "you live in the grey middle" read off 220−age bands is
+      // manufactured, and no footnote repairs it, so the gate is the absence.
+      'distribution': distribution,
+      // Per-figure reasons, same shape and same contract as `getDayStrain`'s.
+      // Present only for what is actually absent.
+      'absent': <String, Map<String, dynamic>>{
+        'zones': ?_absentMetric(zonesNote, 'ESTIMATE'),
+        'max_hr': ?_absentMetric(zonesNote, 'ESTIMATE'),
+        'distribution': ?_absentMetric(distributionNote, 'ESTIMATE'),
+      },
+    };
+  }
+
+  /// The family stamped on the most recent of [rows] that carries one (they
+  /// arrive `start_ts DESC`) — the free answer when the caller has already
+  /// read the window. Falls through to [LocalDb.latestSessionDeviceFamily] at
+  /// the call site when the window holds none.
+  static String? _familyOfSessions(List<Map<String, dynamic>> rows) {
+    for (final r in rows) {
+      final f = r['device_family'] as String?;
+      if (f != null && f.isNotEmpty) return f;
+    }
+    return null;
+  }
+
+  /// Sessions in the last 28 days that are worth calling a training pattern.
+  /// Below this it is a handful of workouts, not a distribution.
+  static const _minDistributionSessions = 8;
+
+  /// TS-05 — where the last 28 days of SESSION minutes actually went.
+  ///
+  /// SESSIONS, never whole days. The pipeline's day `zones` block bins the
+  /// whole waking day, so Z1 there is mostly sitting down; a pyramidal /
+  /// polarised read off that would be a description of having a job.
+  ///
+  /// Every session is re-binned HERE, with ONE current zone set, off its frozen
+  /// per-minute HR trace — the stored `zone_min_json` was binned with whatever
+  /// anchors were current when that session was scored, and summing bins from
+  /// different anchors is the same defect TS-03a removed one layer down.
+  ///
+  /// Null (not a partial chart) when there are too few sessions or none of them
+  /// carries a trace — a session scored before the trace column existed has no
+  /// per-minute HR and never will.
+  Map<String, dynamic>? _intensity28d(
+    ana.HeartRateZoneSet set,
+    List<Map<String, dynamic>> rows,
+  ) {
+    final minutes = List<double>.filled(5, 0);
+    var sessions = 0, withoutTrace = 0;
+    for (final r in rows) {
+      if (r['status'] == 'live') continue;
+      final hr = _frozenTrace(r)['hr'];
+      if (hr is! List || hr.isEmpty) {
+        withoutTrace++;
+        continue;
+      }
+      var counted = false;
+      for (final e in hr) {
+        if (e is! Map || e['v'] is! num) continue;
+        final z = set.zoneNumber((e['v'] as num).toDouble());
+        if (z >= 1) minutes[z - 1] += 1; // the trace is one point per MINUTE
+        counted = true;
+      }
+      if (counted) sessions++;
+    }
+    if (sessions < _minDistributionSessions) return null;
+    final total = minutes.fold<double>(0, (a, b) => a + b);
+    if (total <= 0) return null;
+    final easy = minutes[0] + minutes[1];
+    final moderate = minutes[2];
+    final hard = minutes[3] + minutes[4];
+    return {
+      'minutes': [for (final m in minutes) m.round()],
+      'sessions': sessions,
+      'sessions_without_trace': withoutTrace,
+      'days': 28,
+      'easy_min': easy.round(),
+      'moderate_min': moderate.round(),
+      'hard_min': hard.round(),
+      // A DESCRIPTION of the shape and nothing else. There is no target here:
+      // the 80/20 literature is trained endurance athletes against lab-defined
+      // thresholds, and these are %HRR bands off a wrist-measured ceiling.
+      'shape': intensityShape(easy, moderate, hard),
+    };
+  }
+
+  /// Names the SHAPE of an easy/moderate/hard split. Pure, so the naming is
+  /// testable without a database. Null when nothing has a clear largest share.
+  static String? intensityShape(double easy, double moderate, double hard) {
+    final total = easy + moderate + hard;
+    if (total <= 0) return null;
+    if (easy < moderate || easy < hard) return 'middle-heavy';
+    if (moderate >= hard) return 'pyramidal';
+    return 'polarised';
+  }
+
+  static double? _median(List<double> xs) {
+    if (xs.isEmpty) return null;
+    final v = [...xs]..sort();
+    return v.length.isOdd
+        ? v[v.length ~/ 2]
+        : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2.0;
+  }
+}
+
+/// The two anchors every zone set in the app is built from — read once, passed
+/// down, so a per-session recompute does not re-query them per row.
+class _ZoneAnchors {
+  final double? observedCeilingBpm;
+  final List<double> restingHrHistory;
+  const _ZoneAnchors({
+    this.observedCeilingBpm,
+    this.restingHrHistory = const [],
+  });
+}
+
+/// TS-03 — the highest heart rate the band has OBSERVED, and where.
+///
+/// An observed maximum, never a physiological one. The date and the session
+/// travel WITH the number because that is what makes a wrong one attributable:
+/// a walk that cadence-locked at 180 bpm for twenty seconds passes the hold and
+/// the motion gate, and the only defence against it is that the user can see
+/// which session it came from.
+class _ObservedCeiling {
+  final double bpm;
+  final String date; // 'YYYY-MM-DD', the local day it was held on
+  final String? sessionType;
+  final int? heldSeconds;
+  const _ObservedCeiling({
+    required this.bpm,
+    required this.date,
+    this.sessionType,
+    this.heldSeconds,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'bpm': bpm.round(),
+        'date': date,
+        'session_type': ?sessionType,
+        'held_seconds': ?heldSeconds,
+      };
 }
 
 /// The /today `coach` block, bridging the cross-day strain target onto the
@@ -3350,7 +4089,11 @@ Map<String, dynamic> _breathingCoherenceCompute(
     return {'ok': false, 'n_beats': rrMs.length};
   }
   final cleaned = ana.correctRr(rrMs);
-  final m = ana.cardiacCoherence(cleaned.nn, cleaned.nnTimesMs, pacedHz: pacedHz);
+  final m = ana.cardiacCoherence(
+    cleaned.nn,
+    cleaned.nnTimesMs,
+    pacedHz: pacedHz,
+  );
   if (!m.present) {
     return {'ok': false, 'n_beats': cleaned.nn.length, 'note': m.note};
   }
@@ -3365,3 +4108,11 @@ Map<String, dynamic> _breathingCoherenceCompute(
     'note': m.note,
   };
 }
+
+/// Fields the repository SYNTHESISES for the journal analysis — they have no
+/// [JournalFieldSpec] because the user never enters them directly.
+const _kSynthLabels = <String, String>{
+  'caffeine_last_min': 'Last caffeine, clock time',
+};
+
+const _kSynthUnits = <String, String>{'caffeine_last_min': 'min past midnight'};

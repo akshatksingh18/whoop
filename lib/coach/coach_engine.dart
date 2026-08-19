@@ -19,7 +19,9 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../data/day_label.dart';
+import '../data/db.dart';
 import '../data/local_repository.dart';
+import 'coach_actions.dart';
 import 'coach_config.dart';
 import 'coach_db.dart';
 import 'coach_prompt.dart';
@@ -711,6 +713,15 @@ class CoachEngine {
         case 'run_sql':
           return await CoachDb.runCoachSql('${args['sql'] ?? ''}');
 
+        // data — the two stores that are NOT in the SQL views. Widening
+        // `coach_db`'s allow-list to reach them would trade a structural btree
+        // gate for a text-level one; a typed read tool costs nothing.
+        case 'get_nutrition':
+          return await CoachActions.nutritionDay(
+              await LocalDb.instance, args['date']);
+        case 'get_medications':
+          return await CoachActions.medications(await LocalDb.instance);
+
         // plot — legacy bar/line/area figure
         case 'plot_chart':
           final spec = ChartSpec.tryParse(args);
@@ -750,11 +761,55 @@ class CoachEngine {
             tool: name, title: 'End workout',
             summary: 'End the active workout.', args: args,
           ), () async { final r = await api.endWorkout('${args['workout_id']}'); return _enc(r); });
+        case 'log_food':
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Log food',
+            summary: 'Add "${args['label']}" to ${args['meal']} on '
+                '${args['date'] ?? 'today'}'
+                '${args['kcal'] == null ? '' : ' (${args['kcal']} kcal)'}.',
+            args: args,
+          ), () async => CoachActions.logFood(await LocalDb.instance, args));
+        case 'log_journal_fields':
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Log how the day went',
+            summary: 'Record ${_fieldSummary(args['fields'])} for '
+                '${args['date'] ?? 'today'}.',
+            args: args,
+          ), () async => CoachActions.logJournalFields(api, args));
+        case 'add_completed_workout':
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Log a workout',
+            summary: 'Save a ${args['duration_min']}-minute '
+                '${args['type'] ?? 'workout'} starting '
+                '${args['start_time']} on ${args['date'] ?? 'today'}.',
+            args: args,
+          ), () async => CoachActions.addCompletedWorkout(api, args));
+        case 'add_medication':
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Add a medication',
+            summary: 'Schedule ${args['name']} at ${args['time']}, '
+                '${_daysSummary(args['weekdays'])}. '
+                'This app does not check interactions.',
+            args: args,
+          ), () async => CoachActions.addMedication(await LocalDb.instance, args));
+        case 'mark_medication':
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Mark a dose',
+            summary: 'Record ${args['name']} on ${args['date'] ?? 'today'} as '
+                '${args['state']}.',
+            args: args,
+          ), () async => CoachActions.markMedication(await LocalDb.instance, args));
         case 'set_step_goal':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Set step goal',
             summary: 'Set your daily step goal to ${args['goal']}.', args: args,
-          ), () async { await api.setStepGoal((args['goal'] as num).toInt()); return 'Step goal updated.'; });
+          ), () async {
+            // A provider that sends "9000" as a string is not an edge case.
+            final goal = CoachActions.num_(args['goal']);
+            if (goal == null) throw CoachActionError('A step goal must be a number.');
+            await api.setStepGoal(goal.round());
+            return 'Step goal updated.';
+          });
 
         default:
           return 'Unknown tool: $name';
@@ -779,9 +834,30 @@ class CoachEngine {
     return s.length > 16000 ? '${s.substring(0, 16000)}…(truncated)' : s;
   }
 
+  /// "500 ml of water and mood 4" — the confirmation has to say what it writes,
+  /// not "3 fields".
+  static String _fieldSummary(Object? fields) {
+    if (fields is! Map || fields.isEmpty) return 'nothing';
+    return fields.entries
+        .map((e) => '${e.key.toString().replaceAll('_', ' ')} ${e.value}')
+        .join(', ');
+  }
+
+  static String _daysSummary(Object? weekdays) {
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (weekdays is! List || weekdays.isEmpty || weekdays.length == 7) {
+      return 'every day';
+    }
+    return weekdays
+        .map((d) => d is num && d >= 1 && d <= 7 ? names[d.toInt() - 1] : '?')
+        .join(', ');
+  }
+
   String _statusFor(String name, Map<String, dynamic> args) {
     switch (name) {
       case 'run_sql': return 'Querying your data…';
+      case 'get_nutrition': return 'Reading your food log…';
+      case 'get_medications': return 'Reading your medications…';
       case 'plot_chart': return 'Plotting…';
       case 'render': return 'Rendering ${args['type'] ?? 'figure'}…';
       default: return 'Working…';
@@ -807,8 +883,13 @@ class CoachEngine {
         'v_metric(date,key,value); '
         'v_daily(date,resting_hr,hrv,sdnn,readiness,strain,resp_rate,stress,'
         'sleep_efficiency,sleep_min,deep_min,rem_min,light_min,nap_min,steps,'
+        // `odi_per_hour` is NOT listed: the view still has the column but the
+        // pipeline stopped writing the key when SpO2 was refused edge-side, so
+        // it is permanently NULL. Advertising a column that can never hold a
+        // value makes the model query it, get nothing, and reason about the
+        // hole. A column that can never have data is a lie to the model.
         'active_calories,total_calories,skin_temp_z,lf_hf,hrv_cv,dip_pct,'
-        'odi_per_hour,worn_min,hrr_bpm,brv_cv,irregular_flag); '
+        'worn_min,hrr_bpm,brv_cv,irregular_flag); '
         'v_series(date,series,t,v) — series ∈ hr_curve,strain_curve,hrv_timeline,'
         'hrv_day,resp_day,skin_temp_day,zone_timeline,activity_curve; ALWAYS filter '
         'WHERE date=\'YYYY-MM-DD\' AND series=\'…\'; '
@@ -851,6 +932,83 @@ class CoachEngine {
           'type': {'type': 'string'},
           'title': {'type': 'string'},
         }, ['type']),
+    _fn('get_nutrition',
+        'Read one day of food. Returns every entry and the day totals as the '
+        'app computes them (a total over an entry with no numbers is a FLOOR '
+        'and says so). Food is NOT in run_sql — use this.',
+        {'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'}}),
+    _fn('get_medications',
+        'Read the medication/supplement schedule and today\'s doses '
+        '(taken/skipped/missed/upcoming). Not in run_sql — use this.', {}),
+    _fn('log_food',
+        'Log something eaten (asks the user to confirm). EVERY nutrient is '
+        'optional: an eating occasion with no numbers is a complete log, and '
+        'you must never invent a calorie or macro figure to fill a field. Only '
+        'pass a number the user told you or that is on a label they described.',
+        {
+          'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+          'meal': {'type': 'string', 'enum': ['breakfast', 'lunch', 'dinner', 'snack']},
+          'label': {'type': 'string', 'description': 'what it was'},
+          'time': {'type': 'string', 'description': 'HH:MM, optional'},
+          'quantity': {'type': 'number'},
+          'unit': {'type': 'string', 'description': 'g, ml, piece…'},
+          'kcal': {'type': 'number'},
+          'protein_g': {'type': 'number'},
+          'carbs_g': {'type': 'number'},
+          'fat_g': {'type': 'number'},
+          'fibre_g': {'type': 'number'},
+          'sugar_g': {'type': 'number'},
+          'sat_fat_g': {'type': 'number'},
+          'sodium_mg': {'type': 'number'},
+          'iron_mg': {'type': 'number'},
+          'calcium_mg': {'type': 'number'},
+          'note': {'type': 'string'},
+        }, ['meal', 'label']),
+    _fn('log_journal_fields',
+        'Record the user\'s own numbers for a day (asks them to confirm). This '
+        'is where WATER and MOOD live. Fields: mood, sleep_quality, energy, '
+        'stress, soreness (all 1–5), water_ml, caffeine_mg, alcohol_units, '
+        'screens_min, weight_kg. Fields you do not pass are left as they are.',
+        {
+          'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+          'fields': {'type': 'object', 'description': 'field key -> number'},
+          'time': {'type': 'string', 'description': 'HH:MM — only used by caffeine/alcohol'},
+        }, ['fields']),
+    _fn('add_completed_workout',
+        'Log a workout that ALREADY HAPPENED (asks the user to confirm). Use '
+        'this for "I ran this morning" — start_workout is only for one starting '
+        'right now. The window is scored from the recorded 1 Hz data; a window '
+        'with nothing recorded behind it is saved unscored, and the result says '
+        'which.',
+        {
+          'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+          'start_time': {'type': 'string', 'description': 'HH:MM local, 24-h'},
+          'duration_min': {'type': 'integer'},
+          'type': {'type': 'string', 'description': 'run, ride, walk, strength, swim, yoga…'},
+        }, ['start_time', 'duration_min', 'type']),
+    _fn('add_medication',
+        'Add or replace a medication/supplement schedule (asks the user to '
+        'confirm). weekdays are 1=Monday…7=Sunday; pass them whenever the user '
+        'says anything other than daily. This app does NOT check interactions '
+        'and you must not imply that it does.',
+        {
+          'name': {'type': 'string'},
+          'time': {'type': 'string', 'description': 'HH:MM, 24-h'},
+          'weekdays': {'type': 'array', 'items': {'type': 'integer'}},
+          'dose_value': {'type': 'number'},
+          'dose_unit': {'type': 'string', 'description': 'mg, ml, tablet…'},
+          'kind': {'type': 'string', 'enum': ['medication', 'supplement']},
+        }, ['name', 'time']),
+    _fn('mark_medication',
+        'Record one scheduled dose (asks the user to confirm). "skipped" is a '
+        'decision the user made; "not_taken" undoes a mark. They are different '
+        'facts — do not collapse them.',
+        {
+          'name': {'type': 'string'},
+          'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+          'time': {'type': 'string', 'description': 'HH:MM of the slot; default the first'},
+          'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
+        }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {
       'date': {'type': 'string'}, 'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
     }, ['date']),

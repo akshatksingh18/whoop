@@ -17,6 +17,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 
+/// The ONE ceiling for [_profile] since TS-03a: estimatedMaxHr(30, 'gen4'|'gen5')
+/// = Tanaka 208 - 0.7*30 = 187. It bands the zones AND anchors TRIMP/Keytel;
+/// the tests used to pass 190 for zones and let the scorer derive 187 for the
+/// anchors, which is exactly the split TS-03a removed.
+const _hrMax = 187.0;
+
 /// A full profile — every anchor the scored metrics need.
 const _profile = Profile(
   ageYears: 30,
@@ -244,7 +250,7 @@ void main() {
         hrTs: const [],
         hrBpm: const [],
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       );
       expect(s.isUnscored, isTrue);
@@ -262,7 +268,7 @@ void main() {
         hrTs: w.ts,
         hrBpm: w.bpm,
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: null,
       );
       // Banister carries RHR as a term in the formula — absent it, abstain.
@@ -278,13 +284,15 @@ void main() {
       expect(s.hrSampleCount, 30 * 60);
     });
 
-    test('no age → no HRmax anchor → neither strain nor calories', () {
+    test('no ceiling → no HRmax anchor → neither strain nor calories', () {
+      // No age OR an uncalibrated/unstamped strap: both make `estimatedMaxHr`
+      // null, and the caller passes that null straight through (TS-03a).
       final w = _flat(0, 30, 150);
       final s = computeManualSessionStats(
         hrTs: w.ts,
         hrBpm: w.bpm,
         profile: const Profile(weightKg: 75, heightCm: 180, sex: 'm'),
-        zoneMaxHr: 190,
+        hrMax: null,
         restingHr: 55,
       );
       expect(s.strain, isNull);
@@ -301,7 +309,7 @@ void main() {
         hrTs: w.ts,
         hrBpm: w.bpm,
         profile: const Profile(ageYears: 30, heightCm: 180, sex: 'm'),
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       );
       expect(s.calories, isNull);
@@ -314,7 +322,7 @@ void main() {
         hrTs: w.ts,
         hrBpm: w.bpm,
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       );
       expect(s.isUnscored, isFalse);
@@ -332,7 +340,7 @@ void main() {
             hrTs: _flat(0, minutes, 150).ts,
             hrBpm: _flat(0, minutes, 150).bpm,
             profile: _profile,
-            zoneMaxHr: 190,
+            hrMax: _hrMax,
             restingHr: 55,
           );
       // THE WHOLE POINT of the feature: correcting 25 min → 60 min must
@@ -349,7 +357,7 @@ void main() {
         hrTs: ts,
         hrBpm: bpm,
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       );
       expect(s.avgHr, 150);
@@ -364,7 +372,7 @@ void main() {
         hrTs: [for (var i = 60; i < 120; i++) i],
         hrBpm: List<int>.filled(60, 150),
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       );
       expect(s.calories, wornOnly.calories);
@@ -382,7 +390,7 @@ void main() {
     test('a hard hour scores on-scale, nowhere near the old accrual', () {
       final perMin = List<double>.filled(60, 150);
       final s = strainFromPerMinuteHr(perMin,
-          profile: _profile, restingHr: 55)!;
+          profile: _profile, restingHr: 55, hrMax: _hrMax)!;
 
       // The canonical figure for this effort.
       expect(s, closeTo(11.62, 0.05));
@@ -400,7 +408,7 @@ void main() {
     test('never exceeds 21, even for an absurdly long maximal effort', () {
       // 12 h pinned at 190 bpm — the old accrual would read into the hundreds.
       final s = strainFromPerMinuteHr(List<double>.filled(720, 190),
-          profile: _profile, restingHr: 55)!;
+          profile: _profile, restingHr: 55, hrMax: _hrMax)!;
       expect(s, lessThanOrEqualTo(21.0));
     });
 
@@ -408,7 +416,8 @@ void main() {
       double at(int minutes, double bpm) => strainFromPerMinuteHr(
           List<double>.filled(minutes, bpm),
           profile: _profile,
-          restingHr: 55)!;
+          restingHr: 55,
+          hrMax: _hrMax)!;
       expect(at(60, 150), greaterThan(at(30, 150)));
       expect(at(60, 165), greaterThan(at(60, 150)));
     });
@@ -417,21 +426,25 @@ void main() {
       final perMin = List<double>.filled(60, 150);
       // No resting HR.
       expect(
-          strainFromPerMinuteHr(perMin, profile: _profile, restingHr: null),
+          strainFromPerMinuteHr(perMin,
+              profile: _profile, restingHr: null, hrMax: _hrMax),
           isNull);
-      // No age → no Tanaka HRmax.
+      // No ceiling — no age, OR a strap with no calibrated HRmax (TS-03a: an
+      // unknown/unstamped device family REFUSES rather than borrowing gen4's).
       expect(
           strainFromPerMinuteHr(perMin,
-              profile: const Profile(sex: 'm'), restingHr: 55),
+              profile: _profile, restingHr: 55, hrMax: null),
           isNull);
       // No sex → no Banister weighting constant.
       expect(
           strainFromPerMinuteHr(perMin,
-              profile: const Profile(ageYears: 30), restingHr: 55),
+              profile: const Profile(ageYears: 30), restingHr: 55,
+              hrMax: _hrMax),
           isNull);
       // No HR at all.
       expect(
-          strainFromPerMinuteHr(const [], profile: _profile, restingHr: 55),
+          strainFromPerMinuteHr(const [],
+              profile: _profile, restingHr: 55, hrMax: _hrMax),
           isNull);
     });
 
@@ -442,11 +455,11 @@ void main() {
         hrTs: w.ts,
         hrBpm: w.bpm,
         profile: _profile,
-        zoneMaxHr: 190,
+        hrMax: _hrMax,
         restingHr: 55,
       ).strain;
       final direct = strainFromPerMinuteHr(hrPerMinute(w.ts, w.bpm),
-          profile: _profile, restingHr: 55);
+          profile: _profile, restingHr: 55, hrMax: _hrMax);
       expect(viaStats, direct);
     });
   });
@@ -456,7 +469,7 @@ void main() {
       hrTs: _flat(1000, 60, 150).ts,
       hrBpm: _flat(1000, 60, 150).bpm,
       profile: _profile,
-      zoneMaxHr: 190,
+      hrMax: _hrMax,
       restingHr: 55,
     );
 

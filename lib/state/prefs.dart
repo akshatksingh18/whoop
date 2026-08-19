@@ -24,6 +24,15 @@ class Prefs {
     } catch (_) {/* reads fall back to defaults */}
   }
 
+  /// Whether storage is actually available, i.e. whether a `getX` default is
+  /// "the key is unset" or "we cannot see what you chose".
+  ///
+  /// For a tab index those are the same answer. For a CONSENT they are not:
+  /// an on-by-default switch read through unavailable storage would send on
+  /// behalf of somebody who turned it off. Anything gating an outbound call
+  /// checks this first — see `offLookupAllowed`.
+  static bool get loaded => _sp != null;
+
   // ── synchronous read (fall back to default until loaded) ────────────────────
   static int getInt(String key, int fallback) => _sp?.getInt(key) ?? fallback;
   static String getString(String key, String fallback) =>

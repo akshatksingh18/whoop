@@ -71,9 +71,18 @@ const _userAgent =
 /// Still persisted and still revocable from Settings › Privacy, and the food
 /// log is entirely usable with it off: typing the numbers off the pack was
 /// always the fallback and still is.
+///
+/// Default-on and fail-closed are not in tension, because they answer two
+/// different questions. `Prefs.getBool`'s fallback covers BOTH "loaded, no key
+/// yet" (a fresh install — default on, deliberately) and "prefs never loaded"
+/// (we cannot see the answer). Reading the second as the first sends the
+/// barcode of someone who explicitly opted out, which is the one thing a
+/// revocable consent must never do. So storage has to be there before the
+/// default counts.
 const kOffConsentKey = 'nutrition.barcode_lookup';
 
-bool get offLookupAllowed => Prefs.getBool(kOffConsentKey, true);
+bool get offLookupAllowed =>
+    Prefs.loaded && Prefs.getBool(kOffConsentKey, true);
 
 void setOffLookupAllowed(bool on) => Prefs.setBool(kOffConsentKey, on);
 

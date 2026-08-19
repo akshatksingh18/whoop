@@ -396,18 +396,34 @@ void main() {
 
   group('the consent gate', () {
     // Order matters: Prefs caches its SharedPreferences instance on first load
-    // and never reloads, so the unloaded-defaults case has to be read before
-    // anything mocks a store in.
-    test('a fresh install may look up', () {
-      // Nothing has loaded Prefs, so this IS the default. It is ON: what
-      // leaves is the barcode, never anything about the person holding it.
+    // and never reloads, so the unloaded case has to be read before anything
+    // mocks a store in.
+    test('storage we cannot read is a refusal, not the default', () async {
+      // Nothing has loaded Prefs. The default is ON, but an unreadable store
+      // is not evidence of a fresh install — it is equally the phone of
+      // somebody who turned this OFF, and their barcode must not go out on a
+      // guess.
+      expect(Prefs.loaded, isFalse);
+      expect(offLookupAllowed, isFalse);
+      final r = await fetchOffProduct('8901719101090');
+      expect(r.outcome, OffOutcome.refused);
+    });
+
+    test('a fresh install may look up', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+      // Loaded, and the key has never been written: THIS is the fresh install,
+      // and it is on. What leaves is the barcode, never anything about the
+      // person holding it.
+      expect(Prefs.loaded, isTrue);
       expect(offLookupAllowed, isTrue);
     });
 
     test('a lookup refuses before any request once it is turned off', () async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      SharedPreferences.setMockInitialValues({kOffConsentKey: false});
-      await Prefs.ensureLoaded();
+      // Written through the instance the test above loaded — Prefs caches it
+      // for the process, so a second `setMockInitialValues` would not be seen.
+      setOffLookupAllowed(false);
       expect(offLookupAllowed, isFalse);
       final r = await fetchOffProduct('8901719101090');
       expect(r.outcome, OffOutcome.refused);

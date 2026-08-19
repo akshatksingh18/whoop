@@ -51,7 +51,7 @@ final _dayHr = <double>[
 void main() {
   group('DerivationEngine.wakeDayEnergy', () {
     test('active calories net out the basal minute, not double-count it', () {
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile);
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4');
 
       expect(e, isNotNull);
 
@@ -72,7 +72,7 @@ void main() {
     });
 
     test('total is the full-day basal floor plus the active surplus', () {
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile)!;
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4')!;
 
       expect(e.basal, closeTo(_bmrDay, 0.5));
       expect(e.total, closeTo(e.basal + e.active, 0.001));
@@ -82,7 +82,7 @@ void main() {
       // health_export writes BASAL_ENERGY_BURNED as calories_total - calories.
       // When the two came from different implementations that subtraction
       // silently produced a basal figure that was too low.
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile)!;
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4')!;
 
       expect(e.total - e.active, closeTo(e.basal, 0.001));
     });
@@ -90,7 +90,7 @@ void main() {
     test('a day spent entirely below the flex point reads as pure basal', () {
       final quiet = <double>[for (var i = 0; i < 1440; i++) 55.0];
 
-      final e = DerivationEngine.wakeDayEnergy(quiet, profile: _profile)!;
+      final e = DerivationEngine.wakeDayEnergy(quiet, profile: _profile, deviceFamily: 'gen4')!;
 
       expect(e.active, 0.0);
       expect(e.total, closeTo(_bmrDay, 0.5));
@@ -103,6 +103,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(weightKg: 72, sex: 'm'),
+          deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'age is a Keytel term',
@@ -111,6 +112,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(ageYears: 34, sex: 'm'),
+          deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'body mass is a Keytel term',
@@ -119,6 +121,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(ageYears: 34, weightKg: 72),
+          deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'the formula has a different constant per sex',
@@ -133,7 +136,7 @@ void main() {
       // in moves a scalar that is persisted to `day_result` and exported to
       // Apple Health.
       const noHeight = Profile(ageYears: 34, weightKg: 72, sex: 'm');
-      expect(DerivationEngine.wakeDayEnergy(_dayHr, profile: noHeight), isNull);
+      expect(DerivationEngine.wakeDayEnergy(_dayHr, profile: noHeight, deviceFamily: 'gen4'), isNull);
     });
 
     test('a stand-in height would move ACTIVE, not just the basal floor', () {
@@ -143,8 +146,10 @@ void main() {
       const tall = Profile(ageYears: 35, weightKg: 80, heightCm: 195, sex: 'm');
       final hr = <double>[for (var i = 0; i < 600; i++) 130.0];
 
-      final s = DerivationEngine.wakeDayEnergy(hr, profile: short)!;
-      final t = DerivationEngine.wakeDayEnergy(hr, profile: tall)!;
+      final s =
+          DerivationEngine.wakeDayEnergy(hr, profile: short, deviceFamily: 'gen4')!;
+      final t =
+          DerivationEngine.wakeDayEnergy(hr, profile: tall, deviceFamily: 'gen4')!;
 
       expect((s.active - t.active).abs(), greaterThan(100.0));
       expect((s.total - t.total).abs(), greaterThan(100.0));
@@ -154,7 +159,8 @@ void main() {
       // No heart rate at all is "we did not measure this day", which is not
       // the same claim as "this day burned exactly your BMR".
       expect(
-        DerivationEngine.wakeDayEnergy(const <double>[], profile: _profile),
+        DerivationEngine.wakeDayEnergy(const <double>[],
+            profile: _profile, deviceFamily: 'gen4'),
         isNull,
       );
     });
@@ -209,19 +215,28 @@ void main() {
         spo2Ir: List<int>.filled(n, 0),
         skinTemp: List<int>.filled(n, 0),
         skinContact: List<int>.filled(n, 0),
+        // A stamped strap: without one there is no HR ceiling and the whole
+        // energy triple abstains (hr_max.dart).
+        deviceFamily: 'gen4',
       );
     }
 
     ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run() {
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
+      final daySub = build();
       DerivationEngine.applyDayActivity(
         bundle: bundle,
         scalars: scalars,
-        daySub: build(),
+        daySub: daySub,
         profile: older,
         sleepOnsetSec: sleepOnset,
         sleepOffsetSec: sleepOffset,
+        // Wear/coverage is not what this test measures — the substrate's own
+        // span is the day. See wear_coverage_test.dart for the denominator.
+        dayStartSec: daySub.tsSec.first,
+        dayCalendarEndSec: daySub.tsSec.last + 1,
+        dataNowSec: daySub.tsSec.last + 1,
       );
       return (bundle: bundle, scalars: scalars);
     }
@@ -289,13 +304,17 @@ void main() {
       // movement and a step count; it must simply carry no calorie figure.
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
+      final daySub = build();
       DerivationEngine.applyDayActivity(
         bundle: bundle,
         scalars: scalars,
-        daySub: build(),
+        daySub: daySub,
         profile: const Profile(ageYears: 70, weightKg: 80, heightCm: 175),
         sleepOnsetSec: sleepOnset,
         sleepOffsetSec: sleepOffset,
+        dayStartSec: daySub.tsSec.first,
+        dayCalendarEndSec: daySub.tsSec.last + 1,
+        dataNowSec: daySub.tsSec.last + 1,
       );
 
       expect(scalars.containsKey('calories'), isFalse);
@@ -337,6 +356,7 @@ void main() {
           profile: profile,
           dayConfidence: 0.5,
           dayFlags: const [],
+          deviceFamily: 'gen4',
         ).toJson(),
       );
     }

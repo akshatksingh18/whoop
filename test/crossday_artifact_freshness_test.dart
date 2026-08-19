@@ -23,8 +23,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 
 void main() {
-  Map<String, dynamic> envelope(String? builtFor) => <String, dynamic>{
-        'algo_version': 56,
+  Map<String, dynamic> envelope(String? builtFor, {int? algoVersion}) =>
+      <String, dynamic>{
+        'algo_version': algoVersion ?? kAlgoVersion,
         'built_for_day': ?builtFor,
         'days': [
           {'date': '2024-03-01', 'strain': 14.0},
@@ -57,19 +58,40 @@ void main() {
       expect(DerivationEngine.crossDayArtifactUsableToday(envelope(null), '2024-03-02'), isFalse);
     });
 
+    test('an artifact from an older algo version is not reusable', () {
+      // The row SHAPE is versioned, not just the numbers: v66 added a per-day
+      // `hourly_hr` field that the whole circadian family reads. Serving the
+      // pre-bump artifact means the new family sees nothing all day, on exactly
+      // the pass the bump existed to trigger.
+      expect(
+        DerivationEngine.crossDayArtifactUsableToday(
+          envelope('2024-03-02', algoVersion: kAlgoVersion - 1),
+          '2024-03-02',
+        ),
+        isFalse,
+      );
+    });
+
     test('a malformed or empty envelope is not reusable', () {
       expect(DerivationEngine.crossDayArtifactUsableToday(null, '2024-03-02'), isFalse);
       expect(DerivationEngine.crossDayArtifactUsableToday('not a map', '2024-03-02'), isFalse);
       expect(
         DerivationEngine.crossDayArtifactUsableToday(
-          {'built_for_day': '2024-03-02'}, // no `days`
+          {
+          'algo_version': kAlgoVersion,
+          'built_for_day': '2024-03-02',
+        }, // no `days`
           '2024-03-02',
         ),
         isFalse,
       );
       expect(
         DerivationEngine.crossDayArtifactUsableToday(
-          {'built_for_day': '', 'days': const []},
+          {
+            'algo_version': kAlgoVersion,
+            'built_for_day': '',
+            'days': const [],
+          },
           '2024-03-02',
         ),
         isFalse,

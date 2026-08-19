@@ -11,9 +11,12 @@
 // SEEDS the rolling baselines the recovery/illness stack reads — that's the
 // "snapshots + baselines" the onboarding promised.
 //
-// Overlap with future 1 Hz days is safe: putDayResult is INSERT-OR-REPLACE on
-// (day_id, algo_version), so once the band syncs and a real 1 Hz day is derived
-// it OVERWRITES any imported snapshot for the same date (real data wins).
+// Overlap with 1 Hz days is safe in BOTH directions. Forwards: putDayResult is
+// INSERT-OR-REPLACE on (day_id, algo_version), so once the band syncs and a real
+// 1 Hz day is derived it overwrites any imported snapshot for the same date.
+// Backwards: `_writeDay` skips any date `LocalDb.isMeasuredDay` already claims —
+// without that, importing over history the band had measured destroyed it, and
+// the `finalized: true` below meant no re-derive could ever bring it back.
 
 import 'dart:convert';
 
@@ -103,6 +106,11 @@ class CloudImporter {
 
   static Future<void> _writeDay(
       String date, Map<String, dynamic> d, Map<String, dynamic>? sl) async {
+    // Real data wins BOTH ways. The header's claim only ever held in one
+    // direction (a later band sync overwriting a snapshot); importing over a
+    // day the band had already measured replaced it and, because the write is
+    // `finalized: true`, locked the replacement in for good.
+    if (await LocalDb.isMeasuredDay(date)) return;
     num? n(Object? v) => v is num ? v : null;
     final rhr = n(d['resting_hr']);
     final rmssd = n(d['hrv_rmssd']);
@@ -228,6 +236,9 @@ class CloudImporter {
       payloadJson: jsonEncode(bundle),
       windowJson: jsonEncode(win ?? const {}),
       finalized: true, // imported snapshot — never recomputed (no raw exists)
+      // export-provenance — see WhoopImporter. A vendor snapshot's scalars are
+      // that vendor's maths; the tag matches the one in the payload.
+      source: 'cloud_v2',
       rhr: f(rhr),
       rmssd: f(rmssd),
       readiness: f(readiness),

@@ -160,4 +160,46 @@ void main() {
       expect(formatMinuteOfDay(24 * 60), '12:00 AM');
     });
   });
+
+  // MT-03 — weight is stored as entered and DRAWN as a trend. Day-to-day scale
+  // noise is water and glycogen at plus or minus 1-2 kg; a raw line makes that
+  // read as change, on the most eating-disorder-adjacent surface in the app.
+  group('weight trend', () {
+    test('the field exists and is entered, not measured', () {
+      final w = kJournalFieldsByKey['weight_kg']!;
+      expect(w.unit, 'kg');
+      expect(w.step, 0.1); // a scale reads tenths; whole kg would round it away
+    });
+
+    test('smooths scale noise instead of reporting it as movement', () {
+      // Five days oscillating +/- 1 kg around 80 with no real change.
+      final ewma = weightTrendEwma({
+        '2026-01-01': 80.0,
+        '2026-01-02': 81.0,
+        '2026-01-03': 79.0,
+        '2026-01-04': 81.0,
+        '2026-01-05': 79.0,
+      });
+      // The raw series swings 2 kg on the last two days; the trend must not.
+      expect((ewma['2026-01-05']! - ewma['2026-01-04']!).abs(), lessThan(0.3));
+      expect(ewma['2026-01-05'], closeTo(80.0, 0.6));
+    });
+
+    test('a gap is a gap — no day without a reading gets a point', () {
+      final ewma = weightTrendEwma({
+        '2026-01-01': 80.0,
+        '2026-02-01': 76.0,
+      });
+      expect(ewma.keys, ['2026-01-01', '2026-02-01']);
+      // A month of decay means the later reading is essentially its own
+      // starting point rather than being dragged toward a stale one.
+      expect(ewma['2026-02-01'], closeTo(76.0, 0.2));
+    });
+
+    test('two readings a day apart barely move the trend', () {
+      final ewma = weightTrendEwma({'2026-01-01': 80.0, '2026-01-02': 84.0});
+      // ~9.4% of a 4 kg jump at a 7-day half-life.
+      expect(ewma['2026-01-02'], closeTo(80.4, 0.1));
+    });
+  });
 }

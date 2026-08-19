@@ -22,6 +22,106 @@
 
 import 'dart:math' as math;
 
+import 'package:openstrap_analytics/onehz.dart' as ana;
+
+// ── THE app's HR ceiling for zones / TRIMP / calories ────────────────────────
+//
+// There used to be five of these. `220 − age` at local_repository_impl.dart,
+// app_state.dart and analytics' load_trimp; Tanaka `208 − 0.7·age` inlined in
+// onehz_pipeline and crossday_pipeline; and `(220 − age) + 25` here. At 30 that
+// is 190 vs 187, at 60 it is 160 vs 166 — so the same day's `zone_timeline` and
+// the same day's session `zone_bands` were banded off different ceilings for
+// one user, with nothing on screen saying so. [estimatedMaxHr] is the one
+// definition; route every zone/TRIMP/calorie caller through it.
+//
+// `hrCeilingForAge` below is NOT one of them and is deliberately left alone: it
+// is an artefact-plausibility bound with headroom above the estimate, whose job
+// is to drop impossible samples before a spike defines a peak. Folding it into
+// the training ceiling would clip real effort.
+
+/// Estimated HRmax (bpm) for [age] — Tanaka (2001), `208 − 0.7 · age`. Null
+/// only when the age is unknown.
+///
+/// THIS IS NOT DEVICE-GATED, AND IT WAS, AND THAT WAS THE BUG. Tanaka is a
+/// population regression on AGE. It reads no sensor, no accelerometer and no
+/// ADC; swapping the strap does not move the number by one bpm. Dispatching it
+/// through `calibrationFor` therefore refused a ceiling for every row written
+/// before schema 41 — `device_family` is NULL there and is never backfilled by
+/// design — and with the ceiling went zones, TRIMP, strain, Keytel calories and
+/// `max_hr_used` for a user's entire history. device.dart's contract is "unknown
+/// family ⇒ refuse a CALIBRATION CONSTANT"; the test is *does the sensor change
+/// the answer*, and here it does not.
+///
+/// [deviceFamily] is accepted and DELIBERATELY UNUSED, so the ~6 call sites that
+/// already resolve the strap keep compiling and the parameter stays as the hook
+/// for the day a family earns its own age line. Do not re-add a null return for
+/// an unstamped strap.
+///
+/// What this returns is an ESTIMATE and every consumer must say so: zones built
+/// on it carry `source: 'tanaka'` (see [trainingZones]), which is materially
+/// different from `observed`/`karvonen`. The device-dependent ceiling — the one
+/// the band actually MEASURED — is `observedCeilingBpm`, and that one still
+/// refuses for an unknown family, in analytics' `observed_max_hr.dart`.
+double? estimatedMaxHr(num? age, String? deviceFamily) {
+  if (age == null || age <= 0) return null;
+  return 208.0 - 0.7 * age.toDouble();
+}
+
+/// THE zone set every surface bands on — day zones, the day zone timeline and a
+/// session's zone bands. One function so those three cannot drift (TS-03a's
+/// unification, extended to the anchors rather than just the ceiling).
+///
+/// Which anchors it used is in `HeartRateZoneSet.source`, and the screens must
+/// print it, because they are materially different claims:
+///
+/// * `karvonen` — %HRR bands between two heart rates the band MEASURED: the
+///   observed ceiling ([observedCeilingBpm], TS-03) and the median of
+///   [restingHrHistory]. Still a model — %HRR bands are a convention, not a
+///   measurement of anyone's thresholds — but both ends are measured.
+/// * `observed` — the ceiling is measured, the resting-HR history is still too
+///   short for a reserve anchor ([HeartRateZones.reserveMinDays]), so these are
+///   %HRmax bands off the observed ceiling.
+/// * `tanaka` — no observed ceiling yet: %HRmax off `208 − 0.7·age`, i.e. the
+///   AGE ESTIMATE. Byte-for-byte what this app did before TS-03 landed, so a
+///   user with no observed ceiling sees no number move.
+///
+/// Null only when there is no ceiling at all — no observed ceiling AND no age.
+/// An unstamped strap is no longer one of those cases: Tanaka does not read a
+/// sensor, so it lands on `tanaka` with the estimate's label, not on nothing.
+///
+/// The age estimate is deliberately NOT run through Karvonen: reserve bands off
+/// a guessed ceiling are one measured anchor and one guessed one, which is not
+/// the claim `karvonen` makes here and not worth moving every existing user's
+/// zone boundaries for.
+ana.HeartRateZoneSet? trainingZones({
+  num? age,
+  String? deviceFamily,
+  double? observedCeilingBpm,
+  List<double> restingHrHistory = const [],
+}) {
+  if (observedCeilingBpm != null && observedCeilingBpm > 0) {
+    return ana.HeartRateZones.reserveZones(
+          restingHrHistory: restingHrHistory,
+          maxHr: observedCeilingBpm,
+        ) ??
+        ana.HeartRateZones.zonesFromMaxHr(
+          observedCeilingBpm,
+          source: 'observed',
+        );
+  }
+  final est = estimatedMaxHr(age, deviceFamily);
+  return est == null
+      ? null
+      : ana.HeartRateZones.zonesFromMaxHr(est, source: 'tanaka');
+}
+
+/// Whether [source] means BOTH zone anchors were measured on this user.
+///
+/// The gate TS-05 hangs on: a three-bar "your training is polarised" read off
+/// bands built on 220−age is manufactured, and a caption cannot repair it, so
+/// the distribution is not drawn at all unless this is true.
+bool zonesAreMeasured(String? source) => source == 'karvonen';
+
 /// Below this a sample is sensor dropout/garbage, not a heartbeat.
 const int kHrFloorBpm = 30;
 

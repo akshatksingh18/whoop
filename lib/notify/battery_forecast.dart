@@ -117,8 +117,12 @@ class BatteryForecaster {
     this.minSpan = const Duration(hours: 2),
     this.maxSampleAge = const Duration(hours: 48),
     this.maxPlausibleDrainPctPerHour = 25.0,
-    this.reservePct = 5.0,
+    this.reservePct = defaultReservePct,
   });
+
+  /// The default [reservePct], named so [describe] can test the same number the
+  /// trigger did without the two drifting.
+  static const double defaultReservePct = 5.0;
 
   /// Fewer points than this and the median slope is not meaningful.
   final int minSamples;
@@ -335,7 +339,18 @@ class BatteryForecaster {
   /// whose text asserts an invariant it never checks is one refactor away from
   /// lying, and a UI surface showing a survivable forecast is the obvious next
   /// caller. Check it here instead of relying on where it is called from.
-  static String describe(BatteryForecast f, {required DateTime wakeAt}) {
+  ///
+  /// Middle branch: the trigger is [willNotSurvive], i.e. the level at wake vs
+  /// [reservePct] — but the text only tested the 0% instant, so every alert
+  /// landing in (0, reserve] read "it runs out around 08:30, after your usual
+  /// wake time" under the title "Charge your strap before bed". The user read
+  /// the body, didn't charge, and lost the night. The body now tests the same
+  /// thing the trigger did.
+  static String describe(
+    BatteryForecast f, {
+    required DateTime wakeAt,
+    double reservePct = defaultReservePct,
+  }) {
     final rate = f.drainPctPerHour;
     final pct = f.currentPct;
     final empty = f.predictedEmptyAt;
@@ -343,9 +358,16 @@ class BatteryForecaster {
     final h = empty.hour.toString().padLeft(2, '0');
     final m = empty.minute.toString().padLeft(2, '0');
     final head = 'At ${rate.toStringAsFixed(1)}%/h it runs out around $h:$m';
-    return empty.isBefore(wakeAt)
-        ? '$head — before you wake. Charge it now to keep tonight\'s sleep.'
-        : '$head, after your usual wake time.';
+    if (empty.isBefore(wakeAt)) {
+      return '$head — before you wake. Charge it now to keep tonight\'s sleep.';
+    }
+    final atWake = f.predictedPctAtWake;
+    if (atWake != null && atWake <= reservePct) {
+      return '$head, just after your usual wake time — about '
+          '${atWake.round()}% left when you get up. Charge it now to keep '
+          'tonight\'s sleep.';
+    }
+    return '$head, after your usual wake time.';
   }
 
   /// Whole hours remaining at the current rate, for compact UI. Null when the

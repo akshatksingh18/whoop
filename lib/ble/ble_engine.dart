@@ -44,6 +44,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
+import '../platform/tasker_bridge.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'ble_state.dart';
@@ -65,12 +66,16 @@ typedef BatchSink =
 /// durable half of the safe-trim invariant: it MUST complete before the engine
 /// writes the HISTORY_END ACK, so the band never trims flash we haven't banked.
 /// [trimTokenHex] is the hex of the HISTORY_END 8-byte continuation token.
+/// [deviceFamily] is which strap produced these rows (`'gen4'`/`'gen5'`, pinned
+/// at service discovery) — stamped into the ledger at ingest, because this is
+/// the only moment anyone knows it. Null when no link has identified itself.
 typedef CommitSyncBatchSink =
     Future<void> Function(
       List<RawRecord> raws,
       List<Sample?> samples,
       String? trimTokenHex, {
       List<ArchiveRecord>? archives,
+      String? deviceFamily,
     });
 
 /// Persist an UNDECODABLE historical record (unknown/unsupported version) to the
@@ -122,6 +127,32 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
     onWrist: g.onWristRaw,
     hrValid: g.hrRrValidThisSecond,
     hrAlt: g.heartRateAlt,
+    // MT-12 — the record's second and third temperature channels, and the
+    // band's own per-second signal-quality figure. Carried by CHANNEL INDEX,
+    // never by a body part: protocol calls their semantics loose, and naming
+    // one of them is exactly how gen4's `skinTempRaw` came to feed readiness
+    // as a skin temperature. Measured on real records (docs/internal/GATES.md):
+    // populated on 1,035/1,035, 27.0-33.2 °C, systematically 2-3 °C below
+    // `skinTempC`. That is a measurement; no claim is made about what they are.
+    // Nothing reads these — persisting claims nothing, which is the point.
+    tempCh2C: g.tempAux1C,
+    tempCh3C: g.tempAux2C,
+    signalQualityLogVar: g.signalQualityLogVariance,
+    // The band's own gravity-removed motion magnitude for this second (g).
+    // Present on 1,035/1,035 real MG records and 3/3 WHOOP 5 (GATES.md §4b).
+    // NOT our ENMO and never a substitute for it: the band's window, filter
+    // and statistic are all unknown, so the two are on different scales.
+    // Stored, unread — the point is to make the comparison possible later.
+    dynAccelG: g.dynamicAccelerationG,
+    // The record's own sub-second (1/32768 s), decoded on both generations
+    // since forever and dropped here — see Sample.tsSubsec.
+    tsSubsec: g.tsSubsec,
+    // The band's OWN wake/sleep envelope, bits 4-5 of the same byte
+    // `onWristRaw` above already comes out of — decoded, modelled, and the
+    // only field in this mapper that was never carried. Raw code, not the
+    // enum: a stored name freezes a meaning, a stored 2-bit code does not.
+    // Corroboration only, never a stage — see Sample.bandSleepState.
+    bandSleepState: g.sleepStateRawNibble,
   );
 }
 
@@ -182,24 +213,33 @@ bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
 ///
-/// [actualBurstPacketCount] only counts packets that reached
-/// onHistoricalRecord/onUndecodableRecord — i.e. that PASSED the RecordGate
-/// plausibility check. A record the gate rejects (a stale/wandering-clock
-/// block — see RecordGate.admit) is, by design, "neither stored nor
-/// counted": it never reaches either callback. The band's own count has no
-/// such carve-out — it just counts every packet it physically transmitted.
+/// [receivedTrafficCount] is every frame we received this burst, ALL types
+/// ([BurstStats.totalTrafficPacketCount]) — the same all-types total
+/// [burstPacketShortfall] compares against, and the exact same measurement:
+/// this predicate is `shortfall <= 0`. Negative is NOT a mismatch: it just
+/// means we tallied MORE frames than the band said it sent (retried/duplicate
+/// frames), which [burstPacketShortfall]'s own doc calls "not loss" — it used
+/// to trip the advisory mismatch counter and write the burst to the sync ledger
+/// as `validated_with_mismatch` anyway. The doc here used to describe a
+/// historical-only, post-RecordGate count that this function is never handed,
+/// and that no longer exists as an input anywhere (the historical-only figure
+/// survives separately as `currentBurstHistoricalPacketCount`, logged but not
+/// compared).
+///
 /// [droppedThisBurst] (RecordGate.dropped delta across this burst) must be
-/// added back in before comparing, or a burst containing even one
-/// gate-rejected record can never validate — which discards its OTHER,
-/// perfectly good buffered records and re-requests the same stuck block
-/// forever (zero sync progress).
+/// added back in before comparing: a record the gate rejects is, by design,
+/// "neither stored nor counted" (see RecordGate.admit) while the band's own
+/// count has no such carve-out — it just counts every packet it physically
+/// transmitted. Without it, a burst containing even one gate-rejected record
+/// can never validate, which discards its OTHER, perfectly good buffered
+/// records and re-requests the same stuck block forever (zero sync progress).
 @visibleForTesting
 bool burstPacketCountMatches({
   required int expectedPacketCount,
-  required int actualBurstPacketCount,
+  required int receivedTrafficCount,
   required int droppedThisBurst,
 }) =>
-    expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
+    expectedPacketCount <= receivedTrafficCount + droppedThisBurst;
 
 /// Honest burst-completeness signal for TELEMETRY ONLY — this NEVER gates the
 /// commit/ACK decision (see the log-only call site).
@@ -370,6 +410,11 @@ class _Session {
   Timer? periodicBackfill; // 900s: re-trigger the historical offload
   Timer? idleWatchdog; // 60s: strap went silent mid-offload
   Timer? historicalRetry; // explicit abort→retry settle
+  /// Abort→retry attempts THIS session. The cycle re-arms the 60 s idle
+  /// watchdog, which can re-fire the abort, so without a cap a band that
+  /// connects but never drains cycles at a fixed period for the life of the
+  /// session — every other retry in this engine is bounded, this one was not.
+  int historicalRetries = 0;
   // Starts false: we are NOT connected until connect() resolves / the OS
   // connectionState stream reports `connected`. (It was previously initialised
   // true, which combined with the stream replaying a spurious initial
@@ -490,6 +535,15 @@ class BleEngine {
   final Future<int?> Function(String name)? cursorReader;
 
   final DeviceState state = DeviceState();
+
+  /// The device family every row this link produces is stamped with — `'gen4'`
+  /// or `'gen5'`, pinned once at service discovery. NULL until a link has
+  /// actually identified itself, and NULL is not gen4: it means we do not know
+  /// which sensor package measured the row, so a per-family metric must refuse
+  /// rather than assume. Deliberately reads `state.generation` (set only after
+  /// the service UUID matched) rather than `_session.band`, which DEFAULTS to
+  /// gen4 before discovery has run.
+  String? get linkDeviceFamily => state.generation;
 
   // ── PROCESS-WIDE SINGLE-OWNER GUARD ─────────────────────────────────────────
   // The strap streams its historical offload to EVERY subscribed central. If two
@@ -618,6 +672,8 @@ class BleEngine {
   }
 
   // ── OS-managed pending reconnect (background fallback) ───────────────────────
+  static const Duration _osAutoConnectPoll = Duration(seconds: 5);
+
   /// Arm a flutter_blue_plus `autoConnect` pending connection and wait for the
   /// OS to complete it. Unlike the direct `connect(autoConnect:false)` retry
   /// loop (which needs our Dart timer alive to fire the next attempt), an armed
@@ -652,7 +708,13 @@ class BleEngine {
       // Arm under the op lock so it can't overlap a connect/disconnect.
       await _locked(() => device.connect(autoConnect: true, mtu: null));
     } catch (e) {
+      // Cost the caller the poll interval before handing back a failure. The
+      // reconnect loop's OS-pending branch has no backoff of its own (only the
+      // direct-connect branch delays), so returning immediately — which is what
+      // an arm against a powered-off adapter does — spun that loop at
+      // event-loop rate, burning CPU/battery for as long as Bluetooth was off.
       _log('autoConnect arm failed: $e');
+      await Future.delayed(_osAutoConnectPoll);
       return false;
     }
     _log('OS autoConnect armed for $remoteId — waiting (max '
@@ -663,7 +725,7 @@ class BleEngine {
         done.complete(true);
       }
     });
-    final poll = Timer.periodic(const Duration(seconds: 5), (_) {
+    final poll = Timer.periodic(_osAutoConnectPoll, (_) {
       if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
         done.complete(false);
       }
@@ -807,6 +869,12 @@ class BleEngine {
       log: _log,
     );
   }
+
+  /// Test seam onto the LOWEST-level write, so the dangerous-opcode block that
+  /// lives there can be exercised on a pre-framed frame — which is exactly the
+  /// shape the nine `_send`-bypassing call sites hand it.
+  @visibleForTesting
+  Future<bool> debugWriteRaw(Uint8List raw) => _write(raw);
 
   /// Feed one inbound historical frame through the real ingest path (decode →
   /// plausibility gate → store or archive).
@@ -981,6 +1049,13 @@ class BleEngine {
   FrameCorruptionDetector _frameCorruption = FrameCorruptionDetector();
   int _crcFailuresTotal = 0; // across the engine's lifetime (diagnostics)
   int _crcFailuresThisSession = 0; // reset on each connect
+  // Frames whose CRCs both pass but whose revision byte this decoder does not
+  // understand (gen5 only — gen4 has no revision byte). NOT corruption: a
+  // non-zero count means the strap's firmware moved the header layout.
+  int _frameRevRejectsTotal = 0;
+  /// Bounded "ask the band to re-send a short burst" budget (see P-03 / the
+  /// class doc — an unconditional FAIL here wedged sync forever).
+  final BurstShortfallGate _shortfallGate = BurstShortfallGate();
 
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
@@ -995,6 +1070,16 @@ class BleEngine {
   DateTime? _lastClockVerifyAt;
   int? _sessionOldestUnix; // strap's banked-data window (GET_DATA_RANGE)
   int? _sessionNewestUnix;
+  Map<String, dynamic>? _lastPagesBehind;
+
+  /// The strap's own ring-buffer bookkeeping from the last GET_DATA_RANGE reply
+  /// — `{written, used, capacity, trim_page, wrap_count, free_records}`, exactly
+  /// as protocol parsed it (SD-08). Null until a reply carried it.
+  ///
+  /// DEVICE STATE, not physiology: it can claim what it says and nothing more.
+  /// `wrap_count` is a ring wrap counter, NOT a unique batch id — never build
+  /// dedupe on it.
+  Map<String, dynamic>? get lastPagesBehind => _lastPagesBehind;
   // Lifetime count of GET_DATA_RANGE reads rejected by isCorruptFutureRtc —
   // see the range_oldest/range_newest handler below.
   int _corruptDataRangeCount = 0;
@@ -1116,7 +1201,7 @@ class BleEngine {
 
   void _log(String s) => log?.call(s);
 
-  void _logHistoricalOptics(Uint8List inner, R24 r) {
+  void _logHistoricalOptics(R24 r) {
     final version = r.histVersion;
     final count = (_historicalVersionCounts[version] ?? 0) + 1;
     _historicalVersionCounts[version] = count;
@@ -1143,27 +1228,11 @@ class BleEngine {
       return;
     }
 
-    if (version == 25) {
-      final view = inner.buffer.asByteData(
-        inner.offsetInBytes,
-        inner.lengthInBytes,
-      );
-      final u16s = <int>[];
-      for (int off = 23; off + 2 <= inner.length && off < 73; off += 2) {
-        u16s.add(view.getUint16(off, Endian.little));
-      }
-      final first = u16s.take(8).toList();
-      final min = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a < b ? a : b);
-      final max = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a > b ? a : b);
-      _log(
-        '[SPO2] hist=v25 count=$count base=inner '
-        'known(unix@7 gravity@69/71/73) '
-        'unknown_optical_region=23..72 '
-        'ts=${r.tsEpoch} g=${r.accelG.map((v) => v.toStringAsFixed(4)).join(",")} '
-        'opt_u16_unique=${u16s.toSet().length} opt_u16_min=$min opt_u16_max=$max '
-        'opt_u16_first8=$first',
-      );
-    }
+    // No v25 arm: the only caller branches on `recType != Record.r25`, and
+    // `recType` is frame.inner[1] — the same byte `r.histVersion` reads — so a
+    // v25 record can never reach here. v25 is archived whole instead (it is a
+    // 24 Hz PPG waveform, not a 1 Hz record), and its byte survey lived here
+    // unreachable.
   }
 
   /// Note that records were just persisted; (re)arm the debounced derive trigger.
@@ -1220,6 +1289,7 @@ class BleEngine {
     // degrading radio corrupting frames rather than a stale/implausible band.
     'crc_failures_total': _crcFailuresTotal,
     'crc_failures_this_session': _crcFailuresThisSession,
+    'frame_rev_rejects_total': _frameRevRejectsTotal,
     'frame_corruption_tripped': _frameCorruption.tripped,
     // Band-truth reconciliation: expectedPacketCount vs. what we actually
     // committed — advisory only (see the comment at the validation site), but
@@ -1284,6 +1354,17 @@ class BleEngine {
   Future<BluetoothDevice?> scan({
     Duration timeout = const Duration(seconds: 12),
   }) async {
+    // A phone-level blocker is NOT "nothing answered". Returning null for a
+    // revoked Bluetooth permission classified it as `notFound` upstream, which
+    // told the user to walk closer to a band that was never the problem — the
+    // one fix that cannot work. Check the adapter BEFORE scanning and throw,
+    // so the reason reaches the caller instead of being flattened into a null.
+    final pre = await _detectBlocker();
+    if (pre != null) {
+      _noteBlocker(pre);
+      _setPhase(BleConnState.idle);
+      throw BleUnavailableException(pre);
+    }
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
@@ -1313,6 +1394,15 @@ class BleEngine {
           withServices: [gen4Svc, gen5Svc], timeout: timeout);
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
+      // Android reports a missing runtime permission by throwing here rather
+      // than through the adapter state, so the pre-check above cannot catch it.
+      final blocker = classifyBleBlocker(error: e);
+      if (blocker != null) {
+        _noteBlocker(blocker);
+        await sub.cancel();
+        _setPhase(BleConnState.idle);
+        throw BleUnavailableException(blocker);
+      }
       _log('scan error: $e');
     } finally {
       await sub.cancel();
@@ -1320,8 +1410,64 @@ class BleEngine {
     if (found == null) {
       _setPhase(BleConnState.idle);
       _log('No WHOOP found (force-quit the official app; band must be free).');
+    } else {
+      _clearBlocker();
     }
     return found;
+  }
+
+  // ── phone-level Bluetooth blockers ──────────────────────────────────────────
+  /// The last reason the phone's own stack refused us, or null when the stack is
+  /// usable. Latched (a blocker does not clear itself) and cleared only by a
+  /// scan or connect that actually got through.
+  BleBlocker? _blocker;
+
+  BleBlocker? get bluetoothBlocker => _blocker;
+
+  /// The ONE connection state a screen renders — the phone-level blocker and the
+  /// band's own diagnostic flags folded into a named state with its reason and
+  /// its fix. See [bandStatusFor]; every flag it reads is set by a detector in
+  /// this file.
+  BandStatus get bandStatus => bandStatusFor(
+        connection: state.connection,
+        blocker: _blocker,
+        autoReconnectPaused: state.autoReconnectPaused,
+        needsRepairGuide: state.needsRepairGuide,
+        syncChunkQuarantined: state.syncChunkQuarantined,
+        strapNeedsReboot: state.strapNeedsReboot,
+        syncClockLost: state.syncClockLost,
+        bondRefusals: state.bondRefusals,
+      );
+
+  /// Read the adapter state without hanging: `unknown` is the pre-init value and
+  /// never a verdict, so wait past it, but never longer than [_blockerProbe].
+  static const Duration _blockerProbe = Duration(seconds: 2);
+
+  Future<BleBlocker?> _detectBlocker() async {
+    try {
+      final s = await FlutterBluePlus.adapterState
+          .firstWhere((s) => s != BluetoothAdapterState.unknown)
+          .timeout(_blockerProbe,
+              onTimeout: () => BluetoothAdapterState.unknown);
+      return classifyBleBlocker(adapterState: s.name);
+    } catch (e) {
+      return classifyBleBlocker(error: e);
+    }
+  }
+
+  void _noteBlocker(BleBlocker b) {
+    if (_blocker == b) return;
+    _blocker = b;
+    _log('[BLE] blocked by the phone, not the band: ${b.name}.');
+    onState(state);
+  }
+
+  /// Anything that actually reached the radio proves the stack is usable again.
+  void _clearBlocker() {
+    if (_blocker == null) return;
+    _blocker = null;
+    _log('[BLE] phone-level Bluetooth block cleared.');
+    onState(state);
   }
 
   /// Reconnect to a previously-paired device by its persisted remote id.
@@ -1408,10 +1554,16 @@ class BleEngine {
         autoConnect: false,
       );
     } catch (e) {
+      // Bluetooth revoked mid-life shows up here, on a reconnect, and used to
+      // vanish into the reconnect loop as an ordinary failed attempt — retrying
+      // silently forever against a stack that will never answer.
+      final blocker = classifyBleBlocker(error: e);
+      if (blocker != null) _noteBlocker(blocker);
       _log('connect failed: $e');
       await _failConnect();
       return false;
     }
+    _clearBlocker();
 
     // connect() resolved without throwing => the link is up. Set this explicitly
     // rather than racing the connectionState stream's `connected` emission, so
@@ -1588,6 +1740,8 @@ class BleEngine {
       _stuckStrap = StuckStrapDetector();
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
+      // Per-session budget only: the engine-run total deliberately carries over.
+      _shortfallGate.onSessionStart();
       _burstMismatchStreak = 0;
       _autoContinue.end();
       _lastBackfillAt = 0;
@@ -1613,6 +1767,17 @@ class BleEngine {
       // continuation detectors are correct on the first offload after a restart.
       _recordGate =
           RecordGate(frontierTs: (await cursorReader?.call('rec_ts_hw')) ?? 0);
+      // The gate's drop counter restarts at 0, so its burst baseline must too.
+      // Left behind, a HISTORY_END arriving on connection N>1 before that
+      // connection's first HISTORY_START computed a NEGATIVE droppedThisBurst
+      // against the previous connection's baseline — which fabricates a
+      // positive burstPacketShortfall (one needless re-delivery through
+      // _shortfallGate.refuse) and makes TrimAckVerdict.blockedNoDurableProgress
+      // unfireable (`!hadDurableRows && droppedThisBurst > 0`), i.e. a
+      // gate-drop-only burst could authorise the band to trim flash we never
+      // banked. The startless HISTORY_END is expected, not hypothetical: the
+      // historyEnd branch has its own `history_end_while_not_syncing` terminal.
+      _burstDroppedAtStart = 0;
       // Re-seed the counter-regression watch from the durable counter_hw
       // cursor so a reboot is caught even across the reconnect it usually
       // causes, instead of only within a single unbroken connection.
@@ -1937,8 +2102,33 @@ class BleEngine {
         if (_session != session || !session.connected) return;
         _lastRx = DateTime.now();
         for (final frame in session.asm[role]!.feed(chunk)) {
-          if (frame.valid) {
+          if (frame.decodable) {
             _onFrame(role, frame, session);
+          } else if (frame.valid) {
+            // Both CRCs pass but the frame revision is one this decoder does
+            // not understand, so packetType/seq/opcode sit at unknown offsets:
+            // routing it would read a BODY byte as the opcode and dispatch on
+            // it, silently, with no CRC failure to point at. Counted apart
+            // from CRC corruption so a firmware revision bump is loud.
+            _frameRevRejectsTotal++;
+            // ARCHIVE, don't drop. These are intact bytes from a firmware we
+            // don't speak yet — exactly what raw_archive is for. Dropping them
+            // while still ACKing the burst let the band trim records that
+            // existed nowhere. The counter is forensic only (its offset is a
+            // guess under an unknown revision); raw_archive keys on the hex.
+            //
+            // Only while an offload is running: that is the only window where
+            // an ACK can make the band delete these bytes, and we cannot tell a
+            // record from a 100 Hz live frame under an unknown revision —
+            // archiving those (raw_archive is never pruned) would bloat the DB
+            // exactly the way live frames are kept out of raw_records for.
+            if (_offloadActive) {
+              _archiveHistoricalFrame(
+                frame,
+                _counterFromInner(frame.inner),
+                reason: 'undecodable_frame_rev',
+              );
+            }
           } else {
             // Previously silent: a degrading radio corrupting frames looked
             // identical to a healthy one everywhere. Now counted (surfaced in
@@ -1977,8 +2167,10 @@ class BleEngine {
     }
     _drain?.onLinkDown();
     if (!wasIntentional) {
-      _feedReconnectDetectors();
       final reason = session.device.disconnectReason;
+      _feedReconnectDetectors(
+        timedOut: isTimeoutDisconnect(reason?.description),
+      );
       _log('Link down (reason=${reason?.description ?? "unknown"}).');
     }
     // The caller (AppState) listens for the 'disconnected' phase to drive its
@@ -1994,8 +2186,8 @@ class BleEngine {
     // watchdog, historical retry) kept firing into a dead characteristic
     // forever and its four onValueReceived subscriptions stayed registered —
     // one more full set leaked on every drop. Deferred off this notification
-    // callback (we are inside one of the very subscriptions being cancelled)
-    // and non-intentional, so no redundant device.disconnect() is issued.
+    // callback (we are inside one of the very subscriptions being cancelled);
+    // the disconnect() teardown issues is a no-op on an already-dead link.
     unawaited(
       Future<void>(() async {
         if (_session != session) return; // a connect already replaced us
@@ -2009,10 +2201,16 @@ class BleEngine {
     );
   }
 
-  /// Feed an UNINTENTIONAL disconnect to the cross-reconnect detectors. A timeout
-  /// is approximated by "not an intentional close". The detectors self-reset when
-  /// a disconnect does not match their quick-timeout pattern.
-  void _feedReconnectDetectors() {
+  /// Feed an UNINTENTIONAL disconnect to the cross-reconnect detectors. The
+  /// detectors self-reset when a disconnect does not match their quick-timeout
+  /// pattern.
+  ///
+  /// [timedOut] is the platform's own verdict (see [isTimeoutDisconnect]) and
+  /// used to be hardcoded `true` — which made every ordinary drop look like a
+  /// timeout to both detectors. `_bondTime` is set unconditionally in the
+  /// connect setup, not just on Android, so that hardcoding let two unremarkable
+  /// disconnects inside 8 s of setup latch the re-pair guide on any platform.
+  void _feedReconnectDetectors({required bool timedOut}) {
     final now = DateTime.now();
     final sinceArm = _armTime == null
         ? null
@@ -2023,7 +2221,7 @@ class BleEngine {
     if (_marginalRadio.connectionEnded(
       wasArmed: _liveEnabled,
       secondsSinceArm: sinceArm,
-      timedOut: true,
+      timedOut: timedOut,
     )) {
       state.standardHrFallback = true;
       onState(state);
@@ -2034,12 +2232,47 @@ class BleEngine {
     if (_postBondLoop.connectionEnded(
       wasBonded: _bondTime != null,
       secondsSinceBond: sinceBond,
-      timedOut: true,
+      timedOut: timedOut,
     )) {
       state.needsRepairGuide = true;
       onState(state);
       _log('[RECONNECT] post-bond loop tripped — surfacing re-pair guide.');
     }
+  }
+
+  /// Test seam: the disconnect path's detector feed, with the bond timestamp the
+  /// connect setup would have stamped. Both detectors live behind a real radio,
+  /// so without this the only coverage possible was of the pure detectors —
+  /// never of the engine wiring that decides what counts as a timeout.
+  @visibleForTesting
+  void debugFeedDisconnect({required bool timedOut, DateTime? bondedAt}) {
+    _bondTime = bondedAt ?? DateTime.now();
+    _feedReconnectDetectors(timedOut: timedOut);
+  }
+
+  /// A command reply is the direct contradiction of the re-pair guide: the band
+  /// decrypted one of our commands and answered it, so encryption is not
+  /// blocking traffic and there is nothing to re-pair.
+  ///
+  /// `needsRepairGuide` was set-only in practice. Its one clear sat inside
+  /// [refreshAutoReconnectPause], behind `if (!state.autoReconnectPaused)
+  /// return false` — and a single refused bond, or a post-bond loop trip, never
+  /// pauses auto-reconnect. `state` is one long-lived [DeviceState], so a
+  /// working, syncing band kept telling the user to forget the bond and re-pair
+  /// for the rest of the process.
+  ///
+  /// Keyed on the round-trip rather than on `createBond()` succeeding, because
+  /// the bond succeeding does not prove the band accepts commands while a reply
+  /// does — and the connect setup issues GET_CLOCK immediately after the bond,
+  /// so on Android the evidence lands in the same setup either way.
+  /// [PostBondTimeoutLoopDetector] trips once and latches, so it is reset here
+  /// too: otherwise the guide could be cleared but never legitimately re-raised.
+  void _clearRepairGuideOnCommandReply() {
+    if (!state.needsRepairGuide) return;
+    state.needsRepairGuide = false;
+    _postBondLoop.reset();
+    onState(state);
+    _log('[RECONNECT] band answered a command — clearing the re-pair guide.');
   }
 
   // ── write (serialised through a single chain) ───────────────────────────────────
@@ -2069,8 +2302,31 @@ class BleEngine {
   /// whatever session happens to be current when the write chain reaches it —
   /// i.e. an OLD connection's batch-ACK, with a re-used sync seq, written onto
   /// a BRAND NEW link. Every offload write passes its owning session.
-  Future<bool> _write(Uint8List raw, {_Session? owner}) {
+  /// [allowDangerous] is the ONE audited opt-out of the block below. It exists
+  /// for `enableGen5DeepBuffers`, whose SET_FF_VALUE frames are in
+  /// `dangerousCmds` on purpose (persistent config writes) and are sent only
+  /// behind an explicit user opt-in with a restore-defaults companion. Pass it
+  /// nowhere else without the same justification.
+  Future<bool> _write(
+    Uint8List raw, {
+    _Session? owner,
+    bool allowDangerous = false,
+  }) {
     final session = _session;
+    // The dangerous-opcode block lives HERE, at the one write every command
+    // funnels through, not only in `_send`: nine call sites build their own
+    // frame and hand it straight to `_write`, so a `_send`-only guard was
+    // bypassable BY CONSTRUCTION rather than by an audited opt-out. Now the
+    // bypasses are one named parameter at one reviewed call site, and
+    // FORCE_TRIM (whose full-erase form is two 0xFEFEFEFE args), REBOOT and
+    // POWER_CYCLE cannot leave this engine by any path.
+    final opcode =
+        allowDangerous ? null : _opcodeOfFrame(raw, session?.band ?? BandProfile.gen4);
+    if (opcode != null &&
+        (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode))) {
+      _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at _write');
+      return Future.value(false);
+    }
     final completer = Completer<bool>();
     _writeChain = _writeChain.then((_) async {
       var ok = false;
@@ -2115,6 +2371,14 @@ class BleEngine {
       }
     });
     return completer.future;
+  }
+
+  /// The command opcode carried by an already-framed outbound write, or null
+  /// when [raw] is too short to carry one. Layout is `header | pktType | seq |
+  /// opcode | body…`, and only the header length differs by generation.
+  static int? _opcodeOfFrame(Uint8List raw, BandProfile band) {
+    final i = band.headerLen + 2;
+    return i < raw.length ? raw[i] : null;
   }
 
   /// Retry schedule for the HISTORY_END batch ACK (pure; see ble_state.dart).
@@ -2270,10 +2534,16 @@ class BleEngine {
     List<Sample?> samples,
     String? trimTokenHex, {
     List<ArchiveRecord>? archives,
+    String? deviceFamily,
   }) async {
     final hasArchives = archives != null && archives.isNotEmpty;
     if (raws.isEmpty && trimTokenHex == null && !hasArchives) return;
-    await onCommitBatch!(raws, samples, trimTokenHex, archives: archives);
+    // Stamp the family HERE, from the link that produced the chunk: this is the
+    // last point that knows it. Callers may override (tests / a replay that
+    // knows better); null falls back to the live link, which is itself null
+    // before discovery has pinned one.
+    await onCommitBatch!(raws, samples, trimTokenHex,
+        archives: archives, deviceFamily: deviceFamily ?? linkDeviceFamily);
     if (raws.isNotEmpty || hasArchives) _noteStored();
   }
 
@@ -2500,6 +2770,29 @@ class BleEngine {
       // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
       // fall through to the undecodable archive below — that is honest
       // (correctly-identified-but-not-yet-stored), not a decode failure.
+      //
+      // WHAT THE v26 PPG BUFFER MAY NOT BECOME: vascular age, arterial
+      // stiffness, a "PPG aging clock", or any pulse-morphology claim about a
+      // blood vessel. this is not the v25 scar being reapplied — that one
+      // killed rate/ratio derivations and morphology is a per-pulse shape, so
+      // it gets its own refusal, and it fails for four independent reasons:
+      //   1. sample rate. 24-50 Hz is ~12-25 samples per cardiac cycle,
+      //      nowhere near enough to locate a dicrotic notch, and gen4's v25 is
+      //      13-27 s bursts every ~20 min.
+      //   2. multiplexing. v26's subChannel means one burst is several
+      //      interleaved optical channels, not one signal, and 0.2% of records
+      //      report a channel we don't know (protocol's `subChannelKnown` is
+      //      the gate, and it returning null is the common failure).
+      //   3. amplitude. the band re-tunes gain per record, and morphology IS
+      //      amplitude-shape, so pulse shape is not comparable across records
+      //      without a normalisation nobody has validated.
+      //   4. physiology. the diastolic peak is frequently absent in older
+      //      subjects — the exact population such a feature targets — and
+      //      green-light wrist reflectance is the worst site and wavelength
+      //      for morphology, with no explainable transfer to arterial stiffness.
+      // the defensible uses of this waveform are internal and claim nothing
+      // about a vessel: beat-detection quality, motion-artifact rejection,
+      // corroborating the band's own RR intervals. build those, not a number.
       sample = decodeGen5HistoricalSample(frame.inner);
     } else if (recType != Record.r25 &&
         kKnownRecordVersions.contains(recType)) {
@@ -2509,11 +2802,45 @@ class BleEngine {
       // them. gen5 also ships a v18 with a completely different layout; the
       // `isGen5` branch above claims it first, so this is gen4 only.
       //
-      // v25 is EXCLUDED on purpose and keeps going to the archive, exactly as
-      // before. Not because the decode is wrong — it is right, and checked
-      // against 20k of these records: the timestamp at inner[7] is monotonic
-      // and steps by exactly 1 s, and the gravity vector reads a mean |g| of
-      // 0.97 with 19999/20000 inside the plausible window.
+      // v25 is EXCLUDED on purpose and keeps going to the archive.
+      //
+      // THE TIMESTAMP IS RIGHT AND THE GRAVITY VECTOR IS NOT. inner[7] is
+      // monotonic and steps by exactly 1 s. But `_parseV25`'s accel — i16s at
+      // inner[69/71/73], the only "validation" behind which is a mean |g| of
+      // 0.97 sitting inside a 0.5-1.5 g window — is NOT an accelerometer.
+      // MEASURED on all 28,395 v25 records in `whoop-4.db`:
+      //
+      //   * inner[73] (the "z" axis) takes THREE distinct values across 28,395
+      //     records: 0, 1 and 256. inner[71] ("y") takes 17, one of which
+      //     (2896) is 68% of them. No axis of a worn IMU does that.
+      //   * inner[69] ("x") is the upper half of a little-endian f32 that
+      //     starts at inner[67], which is why it is pinned near 0.94 g. |g|
+      //     ≈ 0.97 is that constant, not a wrist.
+      //   * 13,394 v25 seconds also have a v24 record for the SAME second.
+      //     Against that real gravity vector: per-axis correlation 0.16 /
+      //     0.22 / 0.06, and the median ANGLE between the two vectors is 83°
+      //     — orthogonal, i.e. unrelated.
+      //
+      // A near-constant vector is exactly the "perfectly still wrist" this
+      // file's `ax/ay/az` note refuses to fabricate, and van Hees immobility
+      // is precisely what would consume it. So SLP-05's routing half is
+      // REFUSED on the data, not deferred. Consistent with GATES.md §4a: the
+      // 76-byte v25 inner is the same record as gen5's v26 — 24 × i16 of
+      // waveform — so there is no room in it for a gravity vector, and what
+      // lives at 69/71/73 is the waveform's tail and a constant.
+      //
+      // AND THERE IS NOTHING TO GAIN EITHER WAY. Of the 13,395 v25 seconds
+      // that fall inside `decoded_onehz`'s retained range on that export,
+      // 13,394 are ALREADY covered by a v24 record; exactly one is new in
+      // 8.5 days. Recomputed over all 24 stored sleep windows, the observed
+      // fraction (`sampled && hrNear`) moves +0.00 pp. The "1-5 pp lift"
+      // SLP-05 sizes does not exist on real data.
+      //
+      // Worse, routing it here would be a REGRESSION: `_queueDecodedOneHz`
+      // writes REPLACE on the rec_ts key, so a v25 record arriving for a
+      // second a v24 record already holds would evict it — deleting that
+      // second's HR, R-R, optical and thermal readings and leaving an
+      // HR-less row behind. That is 49% of v25 records.
       //
       // The record genuinely has NO heart rate. Every byte and u16 offset was
       // scanned for anything in a bpm range with physiological drift across
@@ -2522,13 +2849,12 @@ class BleEngine {
       // is a 24-slot raw waveform buffer spanning the full i16 range — the band
       // ships samples here and computes HR into the v24 records instead.
       //
-      // So `_parseV25` reporting `hr: 0` is an honest absence. The collision is
-      // downstream: `decoded_onehz.hr` is NOT NULL and `hr == 0` is this app's
-      // off-skin sentinel, so banking v25 would assert "the band was off the
-      // wrist" for every one of those seconds — ~50k in one real export — while
-      // the genuine gravity keeps the accel-coverage gate happy with the
-      // window. The gravity IS worth having; it needs a nullable `hr` column
-      // first. Until then the bytes are archived and nothing is lost.
+      // So `_parseV25` reporting `hr: 0` is an honest absence, and the nullable
+      // `hr` column (schema v43) that used to be the blocker is in place — the
+      // blocker now is the accel, above. `undecodable_rec_v25` is therefore NOT
+      // in `LocalDb.redrivableArchiveReasons` and must not be added: the bytes
+      // stay archived, unpruned, whole, for a build that can actually read the
+      // waveform (RESP-15/SD-15). Nothing is lost by leaving them there.
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;
@@ -2540,27 +2866,52 @@ class BleEngine {
       }
       final r = _firmwareDecoder.decode(decodeTarget);
       if (r != null) {
-        _logHistoricalOptics(frame.inner, r);
+        _logHistoricalOptics(r);
         sample = Sample(
           tsEpoch: r.tsEpoch,
           counter: r.counter,
           hr: r.hr,
           rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-          ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-          ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-          az: r.accelG.length > 2 ? r.accelG[2] : 0,
+          // NULL, not 0: a decoder that emitted no gravity vector said the
+          // accel is ABSENT, and 0 g is a reading no wrist can produce (which
+          // is exactly why a run of them reads as a perfectly still one).
+          ax: r.accelG.isNotEmpty ? r.accelG[0] : null,
+          ay: r.accelG.length > 1 ? r.accelG[1] : null,
+          az: r.accelG.length > 2 ? r.accelG[2] : null,
           spo2RedRaw: r.spo2RedRaw,
           spo2IrRaw: r.spo2IrRaw,
           // stored raw under the column it's always had. nothing reads it as a
           // temperature — that's what the deprecation is warning about.
           // ignore: deprecated_member_use
           skinTempRaw: r.skinTempRaw,
+          // gen4 ambient-light ADC (u16 @inner[70]). Decoded on every
+          // historical record since forever and thrown away here — this was
+          // the ONLY hole left in SD-04: the column, the Sample field and the
+          // write all exist, but the live drain never handed the value over,
+          // so `ambient_raw` was NULL on every row the band ever delivered.
+          // 0 is the ADC-ABSENT sentinel (records.dart emits `optical ? u16@70
+          // : 0` for unconfirmed versions) and is mapped to NULL at the write
+          // in `_queueDecodedOneHz` — do not "fix" it by zero-filling here.
+          ambientRaw: r.ambientRaw,
+          // Same field, same offset, same omission on this side: the record's
+          // sub-second was decoded and thrown away here too.
+          tsSubsec: r.tsSubsec,
         );
       }
     } else if (recType == Record.r10) {
       final r = parseR10Lite(frame.inner);
       if (r != null) {
-        sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
+        // R10 carries an R-R block, and this path used to drop it. The record
+        // then committed as decoded — so it never reached raw_archive — and
+        // the band was acked to trim it, which made those beats unrecoverable
+        // rather than merely degraded. R10 carries no accel we map, so
+        // ax/ay/az stay ABSENT (null) rather than becoming a still wrist.
+        sample = Sample(
+          tsEpoch: r.tsEpoch,
+          counter: r.counter,
+          hr: r.hr,
+          rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+        );
       }
     }
     // FIRMWARE RESILIENCE: a historical record we could NOT decode (unknown/
@@ -2594,8 +2945,10 @@ class BleEngine {
       // ARCHIVE, don't drop. A record we merely MISTRUST used to be written
       // nowhere at all, i.e. treated strictly worse than one we cannot parse —
       // and the batch-ACK then let the band trim those bytes away for good.
-      // The archive rides the same pre-ACK transaction, so the bytes survive
-      // and a later pass can re-time them once the clock correlation is known.
+      // The archive rides the same pre-ACK transaction, so the bytes survive.
+      // They are NOT re-timed later: the offset-and-snap salvage that used to
+      // promise it would collapse 300 one-second records onto one rec_ts (see
+      // sync_policy.dart), so it is gone. The day keeps an honest hole.
       _archiveHistoricalFrame(frame, counter, reason: kGateDroppedReason);
       return;
     }
@@ -2620,28 +2973,7 @@ class BleEngine {
 
   void _absorbState(Decoded d) {
     final f = d.fields;
-    if (d.kind == 'cmd_response' && f['opcode'] == Cmd.getDataRange) {
-      // `range_oldest`/`range_newest` come from the reply's real field map.
-      // These used to come from a local byte-scan that took the min/max of every
-      // 4-byte window that looked like a unix time — which is how a cross-field
-      // read once landed as "newest" in 2034 and left `backlogRemains` true
-      // forever, chasing a target the band could never reach. The scanner was
-      // then given a tighter ceiling instead of being replaced, and it kept
-      // running alongside the correct value, feeding a different decision.
-      final oldest = (f['range_oldest'] as num?)?.toInt();
-      final newest = (f['range_newest'] as num?)?.toInt();
-      if (oldest != null) _strapHistoryOldestTs = oldest;
-      if (newest != null) _strapHistoryNewestTs = newest;
-      unawaited(
-        LocalDb.upsertSyncLedgerEntry(
-          status: 'range_seen',
-          metaPatch: {
-            'strap_history_oldest_ts': _strapHistoryOldestTs,
-            'strap_history_newest_ts': _strapHistoryNewestTs,
-          },
-        ),
-      );
-    }
+    if (d.kind == 'cmd_response') _clearRepairGuideOnCommandReply();
     // GET_ALARM_TIME readback is PARKED: the response byte layout isn't confirmed
     // (the decode assumed a leading revision byte before the epoch that the band
     // doesn't send → it returned a plausible-but-wrong epoch, e.g. showing 21:49
@@ -2817,9 +3149,25 @@ class BleEngine {
         _clockCorrectTries = 0; // latched — reset for the next drift episode
       }
     }
+    // THE ONE GET_DATA_RANGE consumer. `range_oldest`/`range_newest` come from
+    // the reply's real field map (protocol emits them together or not at all).
+    // They used to come from a local byte-scan that took the min/max of every
+    // 4-byte window that looked like a unix time — which is how a cross-field
+    // read once landed as "newest" in 2034 and left `backlogRemains` true
+    // forever, chasing a target the band could never reach. The scanner was
+    // then given a tighter ceiling instead of being replaced, and it kept
+    // running alongside the correct value, feeding a different decision.
+    //
+    // The same field map was then absorbed TWICE — once here behind
+    // isCorruptFutureRtc, and once in a sibling block that assigned
+    // `range_newest` straight into `_strapHistoryNewestTs` with no check at
+    // all. Protocol only screens to `_maxPlausibleUnix` (year 2100), so every
+    // junk value between now+1 day and 2100 reached the ungated path, pinned
+    // `backlogRemains` true in AppState._runSyncBurst and burned all 20
+    // backfill sessions on every foreground catch-up. One field map, one gate.
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {
-      final oldest = f['range_oldest'] as int;
-      final newest = f['range_newest'] as int;
+      final oldest = (f['range_oldest'] as num).toInt();
+      final newest = (f['range_newest'] as num).toInt();
       // GET_DATA_RANGE responses are documented to occasionally carry junk at
       // unstable offsets. Nothing previously sanity-checked `range_newest`
       // before it tightened RecordGate's session window for the whole
@@ -2831,16 +3179,47 @@ class BleEngine {
         _log(
           '[SYNC] GET_DATA_RANGE newest=$newest is implausibly far in the '
           'future — treating as a corrupt strap RTC read; NOT tightening '
-          'this session\'s plausibility window '
+          'this session\'s plausibility window, and NOT adopting it as the '
+          'backlog target '
           '(corrupt_ranges_total=$_corruptDataRangeCount).',
         );
       } else {
         _sessionOldestUnix = oldest;
         _sessionNewestUnix = newest;
+        _strapHistoryOldestTs = oldest;
+        _strapHistoryNewestTs = newest;
         state.dataRangeOldest = oldest;
         state.dataRangeNewest = newest;
         onState(state);
+        // A rejected read is not a range seen: the ledger row is written only
+        // for the value we actually adopted. Through the same best-effort
+        // wrapper as every other ledger write in this file — un-awaited and
+        // un-caught, a failed write surfaced as an unhandled async error
+        // instead of a log line.
+        unawaited(
+          _bestEffortLedgerWrite(
+            () => LocalDb.upsertSyncLedgerEntry(
+              status: 'range_seen',
+              metaPatch: {
+                'strap_history_oldest_ts': _strapHistoryOldestTs,
+                'strap_history_newest_ts': _strapHistoryNewestTs,
+              },
+            ),
+          ),
+        );
       }
+    }
+    // The OTHER half of the same GET_DATA_RANGE reply: the strap's own ring
+    // bookkeeping, parsed since forever and read by nobody. Deliberately NOT
+    // inside the block above — `pages_behind` is emitted independently of the
+    // epochs, and pages are pages whatever the RTC says, so a corrupt-clock
+    // reply still carries a usable backlog. The clock gate stays exactly as it
+    // is; this reads a different field.
+    final pb = f['pages_behind'];
+    if (pb is Map) {
+      _lastPagesBehind =
+          Map<String, dynamic>.unmodifiable(pb.cast<String, dynamic>());
+      unawaited(_recordPagesBehind(_lastPagesBehind!));
     }
     if (d.kind == 'cmd_response' && f['hello'] is HelloInfo) {
       final h = f['hello'] as HelloInfo;
@@ -2922,12 +3301,30 @@ class BleEngine {
     }
   }
 
+  /// Attempts allowed per session before the abort→retry cycle gives up and
+  /// leaves the link to the ordinary reconnect path.
+  static const int _maxHistoricalRetriesPerSession = 3;
+
   Future<void> _abortAndRetryHistorical({required String reason}) async {
     final session = _session;
     if (session == null || !session.connected) return;
     session.idleWatchdog?.cancel();
     session.historicalRetry?.cancel();
+    // The drain ended on the clock, not on a HISTORY_COMPLETE. Record that as
+    // the terminal here — the only place it is knowable. It used to be attempted
+    // in `_onOffloadFinished` behind a `!complete` flag that no call site ever
+    // passed, so a timed-out drain reported whatever terminal the previous burst
+    // had left behind (usually `success`).
+    _setHpsTerminal(_HpsTerminalKind.timeout, reason: reason);
     _setOffloadActive(false);
+    if (session.historicalRetries >= _maxHistoricalRetriesPerSession) {
+      _log('[SYNC] abort($reason) — already retried '
+          '${session.historicalRetries} times this session; NOT re-arming. '
+          'The strap is not draining; the reconnect path takes it from here.');
+      await _send(Cmd.abortHistoricalTransmits, const [0x00]);
+      return;
+    }
+    session.historicalRetries++;
     _log('[SYNC] abort($reason) — sending ABORT_HISTORICAL.');
     await _send(Cmd.abortHistoricalTransmits, const [0x00]);
     session.historicalRetry = Timer(
@@ -2961,6 +3358,63 @@ class BleEngine {
     } catch (e) {
       _log('[SYNC] ledger write failed (non-fatal, continuing): $e');
     }
+  }
+
+  /// SD-08. Persist the strap's ring-buffer bookkeeping and log how it moved
+  /// since the last connect.
+  ///
+  /// Device state, not physiology, so it can claim exactly what it says: how
+  /// many records the ring holds, how much room is left, and how many times it
+  /// has wrapped. `wrap_count` moving between two connects means the ring
+  /// overwrote records — possibly ones we never drained. We only LOG that for
+  /// now (ring-buffer-loss-warning): the "you lost N days" wording needs a real
+  /// records-per-day divisor, and a week of these lines is how we get one. No
+  /// notification, no copy, no user-facing claim.
+  ///
+  /// Sink is `band_backlog`, one row per connect, keyed on the connect second
+  /// and never pruned — the same shape and the same reason as `band_battery`.
+  /// It replaces the single `sync_ledger` row this used to overwrite: that row
+  /// only ever held the LAST reading, which is enough for the wrap check and
+  /// nothing else, and the records-per-day divisor the loss wording needs can
+  /// only come from a series. `device_family` rides along because `free_records`
+  /// on gen4 and on gen5 do not belong on one axis.
+  ///
+  /// The previous `wrap_count` now comes from the newest stored row, so the
+  /// check survives on the table it writes to rather than on ledger JSON.
+  Future<void> _recordPagesBehind(Map<String, dynamic> pb) async {
+    int? asInt(Object? v) => v is num ? v.toInt() : null;
+    final used = asInt(pb['used']);
+    final free = asInt(pb['free_records']);
+    final wrap = asInt(pb['wrap_count']);
+    final written = asInt(pb['written']);
+    final capacity = asInt(pb['capacity']);
+    final trimPage = asInt(pb['trim_page']);
+
+    int? prevWrap;
+    try {
+      final prev = await LocalDb.bandBacklog(limit: 1);
+      if (prev.isNotEmpty) prevWrap = asInt(prev.first['wrap_count']);
+    } catch (_) {/* no prior snapshot — first connect since install */}
+
+    final wrapped = (prevWrap != null && wrap != null && wrap > prevWrap)
+        ? wrap - prevWrap
+        : 0;
+    _log('[BACKLOG] used=$used free=$free wrap=$wrap (prev=$prevWrap, '
+        '+$wrapped) written=$written/$capacity trim_page=$trimPage');
+
+    await _bestEffortLedgerWrite(
+      () => LocalDb.putBandBacklog(
+        ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        written: written,
+        used: used,
+        capacity: capacity,
+        trimPage: trimPage,
+        wrapCount: wrap,
+        freeRecords: free,
+        // Unknown link ⇒ NULL, never a guessed gen4.
+        deviceFamily: linkDeviceFamily,
+      ),
+    );
   }
 
   /// Refuse to echo a HISTORY_END token, for one of the [TrimAckVerdict]
@@ -3004,6 +3458,29 @@ class BleEngine {
           kind: 'historical_batch',
           status: 'trim_refused',
           lastError: 'discarded_burst',
+          metaPatch: {'batch_id': batchId, 'records': d.records},
+        ));
+        return;
+      case TrimAckVerdict.blockedBurstShortfall:
+        // The rows we DID receive are already durable (this verdict is only
+        // reachable post-commit). Withholding the token asks the band to
+        // re-deliver the chunk, which is the only way the frames we lost can
+        // still be recovered — after the trim they are gone from flash. The
+        // re-delivery is dedup-safe (decoded rows REPLACE by rec_ts), and
+        // BurstShortfallGate has already spent this token's one refusal, so
+        // the redelivery is ACKed whatever it contains. No link bounce: the
+        // link is fine, we just want the chunk again.
+        _log(
+          '[SYNC] HISTORY_END token=$tokenHex NOT ACKed — the burst was short '
+          '(frames counted by the band that we never received intact). The '
+          'committed rows stay; the band re-delivers this chunk once and the '
+          'next delivery is ACKed regardless.',
+        );
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'trim_refused',
+          lastError: 'burst_shortfall_retry',
           metaPatch: {'batch_id': batchId, 'records': d.records},
         ));
         return;
@@ -3124,6 +3601,9 @@ class BleEngine {
       _session?.historicalRetry?.cancel();
       _burstDroppedAtStart = _recordGate.dropped;
       d?.rearm();
+      // The one place a new burst is really declared — the only safe point to
+      // clear the discarded-burst poison (see DrainController.beginBurst).
+      d?.beginBurst();
       _setOffloadActive(true);
       return;
     }
@@ -3163,7 +3643,9 @@ class BleEngine {
       // Records the plausibility gate silently rejected THIS burst (stale/
       // wandering-clock block — by design, "neither stored nor counted",
       // see RecordGate.admit) never reach onHistoricalRecord/
-      // onUndecodableRecord, so they never entered currentBurstPacketCount.
+      // onUndecodableRecord, so they never entered currentBurstTrafficCount.
+      // The baseline is reset per connection alongside the gate itself, so a
+      // HISTORY_END with no HISTORY_START before it cannot go negative here.
       final droppedThisBurst = _recordGate.dropped - _burstDroppedAtStart;
       final validated = expected == null ||
           d.validateBurst(
@@ -3206,7 +3688,6 @@ class BleEngine {
           '[SYNC] Burst packet-count mismatch (advisory, NOT blocking commit) '
           '(attempt ${d.consecutiveValidationFailures}, '
           'streak=$_burstMismatchStreak): expected=$expected, '
-          'actual=${d.currentBurstPacketCount}, '
           'dropped_this_burst=$droppedThisBurst, '
           'historical=${d.currentBurstHistoricalPacketCount}, '
           'traffic=${d.currentBurstTrafficCount}, '
@@ -3217,7 +3698,6 @@ class BleEngine {
           lastError: 'burst_packet_mismatch',
           metaPatch: {
             'expected_burst_packets': expected,
-            'actual_burst_packets': d.currentBurstPacketCount,
             'dropped_this_burst': droppedThisBurst,
             'historical_burst_packets': d.currentBurstHistoricalPacketCount,
             'traffic_burst_packets': d.currentBurstTrafficCount,
@@ -3229,19 +3709,29 @@ class BleEngine {
       } else {
         _burstMismatchStreak = 0;
       }
-      // Would-flag: the correct-signal completeness diagnostic. LOG-ONLY — the
-      // commit + verbatim-token ACK below are unchanged. A positive shortfall
-      // is the honest missing/corrupted-traffic telemetry we want to watch
-      // before a later, field-validated FAIL gate ever acts on it.
+      // A positive shortfall = frames the band counted that we did not count
+      // as valid received traffic (missing, or CRC-corrupted). It used to be
+      // log-only, which meant a hole in the burst was counted and then handed
+      // a trim authorisation anyway — the missing seconds left flash forever.
+      //
+      // It now costs the band ONE re-delivery, and only one: the refusal is
+      // taken AFTER the commit (so the records we did get are already durable
+      // and the re-delivery only has to make up the difference) and is bounded
+      // per token / per session / per engine run by [BurstShortfallGate]. That
+      // recovers the transient-radio case without reviving the always-FAIL
+      // behaviour that wedged sync forever.
+      final shortfallRetry = shortfall > 0 && _shortfallGate.refuse(tokenHex);
       if (shortfall > 0) {
         _log(
-          '[SYNC] burst completeness would-flag (LOG-ONLY, commit+ACK '
-          'unchanged): expected=$expected '
+          '[SYNC] burst completeness shortfall: expected=$expected '
           'received=${d.currentBurstTrafficCount} '
           'dropped_this_burst=$droppedThisBurst shortfall=$shortfall '
           '(all-types received total — frames the band counted that we did '
-          'not; missing or CRC-corrupted, potential loss; groundwork for a '
-          'future FAIL gate, NOT gating today)',
+          'not; missing or CRC-corrupted) — '
+          '${shortfallRetry ? "REFUSING the trim token once so the band "
+              "re-delivers this chunk" : "budget spent, committing + ACKing "
+              "(refusals: session=${_shortfallGate.refusalsThisSession} "
+              "total=${_shortfallGate.refusalsTotal})"}',
         );
       }
       final r = d.bufferedRecTsRange;
@@ -3262,7 +3752,7 @@ class BleEngine {
           d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
-        'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
+        'expected=${m.expectedPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
         'dropped_this_burst=$droppedThisBurstForLog '
@@ -3318,6 +3808,7 @@ class BleEngine {
         commitDurable: durable,
         hadDurableRows: hadDurableRows,
         droppedThisBurst: droppedThisBurst,
+        shortfallRetry: shortfallRetry,
       );
       if (verdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -3364,7 +3855,8 @@ class BleEngine {
             'ack_failures': failCount,
           },
         ));
-        if (_chunkFailures.shouldQuarantine(tokenHex)) {
+        final quarantined = _chunkFailures.shouldQuarantine(tokenHex);
+        if (quarantined) {
           await _bestEffortLedgerWrite(() => LocalDb.quarantineSyncChunk(
             kind: 'historical_batch',
             payloadJson: jsonEncode({
@@ -3380,15 +3872,26 @@ class BleEngine {
             '(already committed); this only means the band has not yet '
             'been told to trim, so it keeps re-sending the same batch.',
           );
+          // ESCALATE, don't keep bouncing. The quarantine row existed and
+          // nothing read it, while the bounce below ran unconditionally and
+          // indefinitely — the band re-delivered forever, the app reconnected
+          // forever, the battery drained, and the only user-visible symptom
+          // was a sync that never finished.
+          if (!state.syncChunkQuarantined) {
+            state.syncChunkQuarantined = true;
+            onState(state);
+          }
         }
         _log('[SYNC] BATCH-ACK FAILED after '
             '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex, '
-            'failures_for_this_token=$failCount) — bouncing the link; data '
-            'is committed and the band will re-send.');
+            'failures_for_this_token=$failCount) — '
+            '${quarantined ? "token QUARANTINED; NOT bouncing again" : "bouncing the link"}; '
+            'data is committed and the band will re-send.');
         // ONLY bounce a session that is still OURS. _writeAckVerified also
         // returns false when the session died under it, and tearing down then
-        // would kill the healthy session that replaced it.
-        if (!_sessionIsStale(session)) {
+        // would kill the healthy session that replaced it. And never bounce for
+        // a quarantined token: the reconnect is what makes it a loop.
+        if (!quarantined && !_sessionIsStale(session)) {
           unawaited(
             _teardownSession(intentional: false).then((_) {
               _setPhase(BleConnState.idle); // caller's reconnect loop takes over
@@ -3398,6 +3901,15 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      // A trimmed chunk proves the strap IS draining, so the abort→retry
+      // budget is about a stall that has since cleared, not this session.
+      session.historicalRetries = 0;
+      if (state.syncChunkQuarantined) {
+        // A token finally ACKed — whatever was wrong with the write path has
+        // cleared, so the flag must not stick around as a permanent scare.
+        state.syncChunkQuarantined = false;
+        onState(state);
+      }
       // A trim ACK is the only real proof the no-durable-progress condition is
       // over — records were banked and the band may advance.
       _noDurableProgress.trimAcked();
@@ -3450,8 +3962,10 @@ class BleEngine {
       if (!tailDurable) {
         // No ACK is written for a HISTORY_COMPLETE, so nothing was trimmed and
         // no data is at risk — but the tail is NOT durable yet. commit() left
-        // the records buffered, so the next commit (the next burst's
-        // HISTORY_END, or the flush on teardown) re-attempts them.
+        // the records buffered, so the next commit re-attempts them: the next
+        // burst's HISTORY_END, or awaitComplete's flush when the drain stops.
+        // NOT a teardown flush — teardown drops the buffer on purpose (see the
+        // blockedCommitFailed bounce), and the band still holds the chunk.
         _log(
           '[SYNC] HistoryComplete tail commit FAILED — ${d.bufferedRecords} '
           'records stay buffered for the next commit. Nothing was trimmed '
@@ -3485,27 +3999,49 @@ class BleEngine {
       );
       _setHpsTerminal(_HpsTerminalKind.success, drain: d);
       _noteStored();
-      await _onOffloadFinished(complete: true);
+      await _onOffloadFinished();
     }
   }
 
   // ── post-offload policy: empty-sync, stuck-strap, auto-continue ──────────────
-  Future<void> _onOffloadFinished({required bool complete}) async {
+  /// Reached from the HISTORY_COMPLETE branch only — a drain that ends any
+  /// other way (link down, idle watchdog) records its own terminal and never
+  /// gets here. This used to take a `complete` flag that its single call site
+  /// always passed as `true`, so both arms guarded by it were dead: the
+  /// empty-sync block below always ran, and a `_HpsTerminalKind.timeout` arm at
+  /// the bottom never did (the watchdog abort now records that terminal where
+  /// the timeout actually happens).
+  Future<void> _onOffloadFinished() async {
     final d = _drain;
     if (d == null) return;
     final banked = d.recordsThisOffload > 0;
     _emptyStreak = banked ? 0 : (_emptyStreak + 1);
 
-    if (complete) {
-      // Empty-sync: ≥3 consecutive console-only completed offloads ⇒ RTC lost.
-      if (_emptySync.recordCompletedSync(
-        bankedSensorRecords: banked,
-        consoleOnly: !banked,
-      )) {
-        state.syncClockLost = true;
-        onState(state);
-        _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
-      }
+    // Records arrived ⇒ both "the band is not handing anything over" flags are
+    // over. Their detectors self-reset, but the flags themselves were set-only,
+    // so once tripped they described the rest of the process. Now that they are
+    // rendered, a stale one is a permanent scare about a band that is working.
+    // Cleared BEFORE the detectors below, so a fresh trip in this same pass
+    // still wins.
+    if (banked && (state.syncClockLost || state.strapNeedsReboot)) {
+      state.syncClockLost = false;
+      state.strapNeedsReboot = false;
+      onState(state);
+      _log('[SYNC] records banked — clearing syncClockLost/strapNeedsReboot.');
+    }
+
+    // Empty-sync: ≥3 consecutive console-only completed offloads ⇒ RTC lost.
+    // Completed only, deliberately: an aborted drain proves nothing about the
+    // strap's RTC, which is why the tracker's method is `recordCompletedSync`.
+    // `_emptyStreak` above carries the same completed-only semantics for the
+    // same reason.
+    if (_emptySync.recordCompletedSync(
+      bankedSensorRecords: banked,
+      consoleOnly: !banked,
+    )) {
+      state.syncClockLost = true;
+      onState(state);
+      _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
     }
 
     // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
@@ -3546,13 +4082,10 @@ class BleEngine {
       // nothing left to continue - this offload cycle is genuinely done
       // either way (clean completion or not), so maintenance traffic
       // (heartbeat/keepalive/RTC re-verify/live re-arm/battery poll) can
-      // resume. this used to only clear on the !complete sub-case below,
-      // so an ordinary clean completion with no more backlog left
-      // maintenance traffic silently paused for the rest of the connection.
+      // resume. this used to only clear on a `!complete` sub-case that no call
+      // site could reach, so an ordinary clean completion with no more backlog
+      // left maintenance traffic silently paused for the rest of the connection.
       _setOffloadActive(false);
-      if (!complete && _lastHpsTerminal == null) {
-        _setHpsTerminal(_HpsTerminalKind.timeout, drain: d);
-      }
     }
   }
 
@@ -3583,19 +4116,21 @@ class BleEngine {
   /// Written directly via [_write] (not [_send]) because the pre-built
   /// frames already carry their own sequence numbers — going through `_send`
   /// would double-allocate from [_seq] for no benefit. SET_FF_VALUE (120) is
-  /// in `OpcodeSafety.forbidden` but NOT `OpcodeSafety.destructive`; per that
-  /// class's own doc this deliberate, explicitly-opted-in sequence is exactly
-  /// the kind of call site the broader `forbidden` list is not meant to gate
-  /// (see `_send`'s doc for the full reasoning) — writing it directly here
-  /// keeps that intentional exception in ONE place rather than needing an
-  /// allowlist parameter threaded through the shared chokepoint.
+  /// in `dangerousCmds` (a persistent config write survives a reboot), so this
+  /// is the ONE call site that passes `allowDangerous: true` — a named,
+  /// reviewed opt-in rather than the structural bypass it used to be, now that
+  /// the block sits on `_write` itself.
   Future<void> enableGen5DeepBuffers() async {
     if (!(_session?.band.isGen5 ?? false)) return;
     final frames = buildR22EnableSequence(startSeq: _seq.nextLive());
     _log('Sending gen5 R22 deep-buffer enable sequence (${frames.length} '
         'flags)…');
     for (final frame in frames) {
-      await _write(frame);
+      // The ONE audited `allowDangerous`. SET_FF_VALUE is in `dangerousCmds`
+      // because a persistent config write survives a reboot; this sequence is
+      // opt-in and ships a restore-defaults companion, which is exactly the
+      // carve-out the block-list doc describes.
+      await _write(frame, allowDangerous: true);
       await Future.delayed(const Duration(milliseconds: 40));
     }
     _log('gen5 R22 deep-buffer enable sequence sent.');
@@ -3763,6 +4298,14 @@ class BleEngine {
       },
     );
     if (!report.complete) _setOffloadActive(false);
+    // OUTBOUND automation event (Android only — see TaskerBridge.emitEvent for
+    // why iOS gets no equivalent). Only on a COMPLETE offload: "sync finished"
+    // must mean the strap actually drained, not that a link dropped mid-drain.
+    // Un-awaited and rate-limited inside the bridge; a broadcast that cannot be
+    // sent must never hold up the sync path.
+    if (report.complete) {
+      unawaited(TaskerBridge.emitSyncComplete(records: report.records));
+    }
     _log(
       '[SYNC] OFFLOAD SUMMARY: records=${report.records} '
       'batches=${report.batches} complete=${report.complete}',
@@ -4020,30 +4563,6 @@ class BleEngine {
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
   }
 
-  /// Signal strength of the live link, in dBm (negative; closer to zero is
-  /// stronger). Null whenever there is nothing to measure.
-  ///
-  /// Used by the find-my-band hunt. Note what this does NOT do: it never
-  /// scans. A hunt needs to BUZZ the band as well as track it, and buzzing
-  /// requires the connection — so a band we cannot reach is one we could not
-  /// help find anyway. Read straight off the connected device instead, which
-  /// also means the hunt costs nothing beyond one small GATT read per poll:
-  /// no radio mode change, no interference with an in-flight offload.
-  ///
-  /// Returns null rather than throwing on a mid-hunt disconnect; the caller
-  /// polls on a timer and a dropped sample must not blow up the screen. The
-  /// timeout matters because `readRssi` can hang on a link that is technically
-  /// still "connected" but is not passing traffic.
-  Future<int?> readRssi() async {
-    final s = _session;
-    if (s == null || !s.connected) return null;
-    try {
-      return await s.device.readRssi().timeout(const Duration(seconds: 3));
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
   /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
   /// DOES NOT change the displayed state — we stay in the single `listening` phase;
@@ -4217,11 +4736,24 @@ class BleEngine {
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
-    if (intentional) {
-      try {
-        await device.disconnect();
-      } catch (_) {}
-    }
+    // Live arming is per-connection. `_armTime` used to survive teardown, and
+    // enableHrOnlyLive sets `_liveEnabled` without touching it — so the
+    // marginal-radio detector measured the NEXT session's drop against the
+    // PREVIOUS session's arm and permanently downgraded live streams on the
+    // evidence of a session that never armed the raw flood.
+    _liveEnabled = false;
+    _liveHrOnly = false;
+    _armTime = null;
+    // ALWAYS drop the radio link, not just on an intentional disconnect. Every
+    // self-initiated bounce (liveness fuse, ACK-exhausted, commit-failed) tears
+    // the session down non-intentionally and expects a NEW GATT connection —
+    // but FBP treats connect() on a still-connected device as a no-op, so the
+    // reconnect re-ran setup over the same zombie link and the fuse just fired
+    // again 120 s later, forever. On an OS-driven drop this is a harmless
+    // no-op.
+    try {
+      await device.disconnect();
+    } catch (_) {}
   }
 
   void _setOffloadActive(bool active) {
@@ -4475,7 +5007,10 @@ class DrainController {
   /// Buffer only when the atomic commit path exists. Unbuffered mode
   /// (test-only) must not look like it banked durable rows for trim.
   bool get _buffering => onCommit != null;
-  int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
+  /// Every frame received this burst, ALL types. There used to be a second
+  /// getter, `currentBurstPacketCount`, with the identical body — one
+  /// measurement presented in the mismatch log and in the sync ledger under two
+  /// labels as if the two were independent.
   int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
   String get currentBurstBreakdown => burstStats.breakdownString;
@@ -4489,7 +5024,14 @@ class DrainController {
       _raws.add(raw);
       _samples.add(sample);
     } else {
-      unawaited(onRecord(sample, raw));
+      // Unbuffered fire-and-forget: production never takes this branch
+      // (`onCommitBatch` is always set, and this wiring is documented as
+      // non-trimmable / test-only), but an un-handled async error here would
+      // lose the record AND surface as an unhandled-error crash rather than a
+      // log line. Nothing else can catch a throw off an `unawaited` future.
+      unawaited(onRecord(sample, raw).catchError(
+        (Object e) => log('[SYNC] unbuffered record persist failed: $e'),
+      ));
     }
   }
 
@@ -4520,7 +5062,10 @@ class DrainController {
     if (_buffering) {
       _archives.add(a);
     } else {
-      unawaited(onArchive?.call(a) ?? Future<void>.value());
+      // Same unbuffered-branch reasoning as onHistoricalRecord above.
+      unawaited((onArchive?.call(a) ?? Future<void>.value()).catchError(
+        (Object e) => log('[SYNC] unbuffered archive persist failed: $e'),
+      ));
     }
   }
 
@@ -4530,11 +5075,9 @@ class DrainController {
 
   void onBurstConsole() => burstStats.onConsole();
 
-  void onBurstUnknown() => burstStats.onUnknown();
-
   /// [droppedThisBurst] = records the plausibility gate rejected during this
   /// same burst (stale/wandering-clock block) — never tallied into
-  /// [currentBurstPacketCount] (they're never stored), but the band's own
+  /// [currentBurstTrafficCount] (they're never stored), but the band's own
   /// [expectedPacketCount] counts them anyway since it just counts what it
   /// physically transmitted. Add them back in before comparing, or a burst
   /// that legitimately contains even one gate-rejected record can never
@@ -4546,7 +5089,7 @@ class DrainController {
   }) {
     if (burstPacketCountMatches(
       expectedPacketCount: expectedPacketCount,
-      actualBurstPacketCount: currentBurstPacketCount,
+      receivedTrafficCount: currentBurstTrafficCount,
       droppedThisBurst: droppedThisBurst,
     )) {
       consecutiveValidationFailures = 0;
@@ -4565,15 +5108,26 @@ class DrainController {
 
   /// Re-arm for a fresh offload over the same connection (clears the COMPLETE flag
   /// so a new awaitComplete() blocks until the next HISTORY_COMPLETE).
+  ///
+  /// Does NOT clear the poison latch — see [beginBurst]. Re-arming is US asking
+  /// for another offload; the burst boundary is the BAND's to declare.
   void rearm() {
     _complete = false;
     _linkDown = false;
     _lastProgressAt = DateTime.now();
     burstStats.reset();
-    // A fresh burst starts un-poisoned: whatever was discarded belonged to the
-    // burst that just ended, and the band will re-deliver it.
-    _trimGuard.beginBurst();
   }
+
+  /// The band declared a new burst (HISTORY_START) — clear the poison latch.
+  ///
+  /// This used to live in [rearm], which conflated "we are asking for another
+  /// offload" with "the band started a new burst". The abort→retry path re-arms
+  /// 3 s after the idle watchdog threw a chunk away, while the abandoned burst's
+  /// HISTORY_END is still in flight — so the terminal landed on a clean guard
+  /// and its token was echoed, trimming exactly the records we dropped. Frames
+  /// arrive in order, so a HISTORY_START proves the previous burst's terminal
+  /// has already been handled (or is never coming) and the latch may clear.
+  void beginBurst() => _trimGuard.beginBurst();
 
   void onLinkDown() => _linkDown = true;
 
@@ -4589,7 +5143,7 @@ class DrainController {
   /// went on to commit the (now empty) buffer and echo the token verbatim —
   /// trimming exactly the records that were just dropped. The poison is
   /// unconditional (even with an empty buffer, this burst was abandoned) and
-  /// is cleared only by [rearm] / a fresh HISTORY_START.
+  /// is cleared only by [beginBurst] — a fresh HISTORY_START from the band.
   void discardOpenChunk() {
     _trimGuard.discardOpenChunk();
     if (_raws.isEmpty && _archives.isEmpty) return;

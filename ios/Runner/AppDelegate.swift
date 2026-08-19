@@ -3,6 +3,7 @@ import UIKit
 import AudioToolbox
 import AVFoundation
 import BackgroundTasks
+import CoreMotion
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -49,9 +50,14 @@ import BackgroundTasks
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // Whenever the phone app comes to the foreground, mirror the latest App Group
-  // snapshot to the watch. This makes the watch fresh on any app open, not only
-  // when the Today screen happens to call WidgetService.push().
+  // Whenever the phone app comes to the foreground, mirror the App Group
+  // snapshot to the watch, so the wrist is not waiting on the next derive.
+  //
+  // It mirrors whatever is already there — nothing rewrites the group on a mere
+  // foreground, only a completed derive does (AppState → WidgetService.refresh).
+  // So this can ship yesterday's snapshot, and that is survivable only because
+  // the watch ages `updated_at` itself (WatchMetrics.fresh) and shows its
+  // no-recent-data state rather than yesterday's numbers.
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
     WatchBridge.shared.pushCurrentState()
@@ -82,9 +88,24 @@ import BackgroundTasks
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AccessorySetup") {
       AccessorySetup.register(messenger: registrar.messenger())
     }
+    // Home-screen icon switching (setAlternateIconName). iOS only — see the
+    // bridge below for the system-alert cost it carries.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppIconBridge") {
+      AppIconBridge.register(messenger: registrar.messenger())
+    }
     // Build-time iOS configuration exposed to Dart without requiring --dart-define.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
+    }
+    // The phone's OWN step count (CMPedometer), not HealthKit's multi-writer
+    // aggregate. See lib/health/phone_pedometer.dart.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
+      PedometerBridge.register(messenger: registrar.messenger())
+    }
+    // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
+    // the workouts themselves. See lib/health/health_workout_import.dart.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
+      HealthRouteBridge.register(messenger: registrar.messenger())
     }
     // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
@@ -120,6 +141,103 @@ enum ConfigBridge {
         let on = args["on"] as? Bool ?? false
         UIApplication.shared.isIdleTimerDisabled = on
         result(true)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+}
+
+// The iPhone's own pedometer. This is the motion coprocessor's count — the same one
+// HealthKit republishes as the iPhone's contribution to step count, minus every OTHER
+// writer in the store. Requires NSMotionUsageDescription in Info.plist: without it the
+// first call CRASHES the app (Apple's words), which is why the plist edit ships with
+// this file, not after it.
+enum PedometerBridge {
+  private static let channelName = "openstrap/phone_steps"
+  private static let pedometer = CMPedometer()
+
+  /// Apple: "Only the past seven days worth of data is stored and available for you to
+  /// retrieve. Specifying a start date that is more than seven days in the past returns
+  /// only the available data." A too-old range therefore UNDER-REPORTS SILENTLY rather
+  /// than erroring — the one failure this whole file exists to refuse. An hour taken
+  /// from the last (safety) hour of the window is answered "not covered", never short.
+  private static let cacheWindow: TimeInterval = 7 * 24 * 60 * 60 - 60 * 60
+
+  /// Mirrors PhonePedometer.intervalNotCovered on the Dart side: we hold no record of
+  /// this interval. NOT a failure, NOT a zero.
+  private static let notCovered = -1
+
+  /// `notDetermined` is not a no — the first query is what raises the prompt.
+  private static var denied: Bool {
+    switch CMPedometer.authorizationStatus() {
+    case .denied, .restricted: return true
+    default: return false
+    }
+  }
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "available":
+        result(CMPedometer.isStepCountingAvailable())
+
+      case "authorized":
+        result(CMPedometer.isStepCountingAvailable() && !denied)
+
+      case "stop":
+        // Nothing to stop and nothing to forget: CMPedometer is query-only, so iOS
+        // keeps no store of ours to accumulate into. Android's does — see
+        // PhoneStepCounter.stopAndForget. Handled rather than left unimplemented so
+        // the Dart caller does not have to know which platform it is on.
+        result(nil)
+
+      case "requestPermission":
+        // CoreMotion has NO explicit request API — the system prompt is raised by the
+        // first query, and until one is issued the app does not appear under Settings ›
+        // Privacy & Security › Motion & Fitness at all. So arming IS a query.
+        guard CMPedometer.isStepCountingAvailable() else {
+          result(false)
+          return
+        }
+        let now = Date()
+        pedometer.queryPedometerData(from: now.addingTimeInterval(-60), to: now) { _, error in
+          DispatchQueue.main.async {
+            result(error == nil && !denied)
+          }
+        }
+
+      case "stepsInInterval":
+        let args = call.arguments as? [String: Any] ?? [:]
+        guard let fromMs = args["fromMs"] as? Int, let toMs = args["toMs"] as? Int else {
+          result(nil)
+          return
+        }
+        guard CMPedometer.isStepCountingAvailable(), !denied else {
+          result(nil) // unavailable or refused — unknown, and the day is abandoned
+          return
+        }
+        let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
+        let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
+        guard to > from else {
+          result(0)
+          return
+        }
+        guard from >= Date().addingTimeInterval(-cacheWindow) else {
+          result(notCovered)
+          return
+        }
+        pedometer.queryPedometerData(from: from, to: to) { data, error in
+          DispatchQueue.main.async {
+            guard let data = data, error == nil else {
+              result(nil)
+              return
+            }
+            result(data.numberOfSteps.intValue)
+          }
+        }
+
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -172,6 +290,50 @@ enum ActionBridge {
       }
     default:
       return false
+    }
+  }
+}
+
+/// Switching the home-screen icon.
+///
+/// `setAlternateIconName` is the only public way to do this, and it comes with
+/// a cost the UI has to be honest about: iOS puts up its own "You have changed
+/// the icon for OpenStrap" alert on every change, and there is no way to
+/// suppress it. The icons themselves are compiled into the asset catalog
+/// (AppIcon / AppIconBW) and named by ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES
+/// in the Runner target — nothing here can invent one that was not built in.
+///
+/// `available` is asked rather than assumed: alternate icons are refused on some
+/// managed/enterprise configurations, and a settings row that cannot work should
+/// not be drawn.
+enum AppIconBridge {
+  private static let channelName = "openstrap/app_icon"
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "available":
+        result(UIApplication.shared.supportsAlternateIcons)
+      case "current":
+        // nil means the primary icon. iOS owns this state — nothing is mirrored
+        // into prefs, so the app can never disagree with the home screen.
+        result(UIApplication.shared.alternateIconName)
+      case "set":
+        guard UIApplication.shared.supportsAlternateIcons else {
+          result(false)
+          return
+        }
+        let name = (call.arguments as? [String: Any])?["name"] as? String
+        UIApplication.shared.setAlternateIconName(name) { error in
+          if let error = error {
+            NSLog("[app_icon] setAlternateIconName(\(name ?? "nil")) failed: \(error)")
+          }
+          result(error == nil)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 }

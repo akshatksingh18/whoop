@@ -76,7 +76,33 @@ class CoachConfig extends ChangeNotifier {
   String get model => _model;
   String? get apiKey => _key;
   bool get hasKey => _key != null && _key!.isNotEmpty;
-  bool get configured => hasKey && _baseUrl.isNotEmpty && _model.isNotEmpty;
+
+  /// A model served from this device or this network wants no API key, so
+  /// requiring one made Ollama and LM Studio impossible to finish configuring:
+  /// Save closed the form, `configured` stayed false, and the coach never came
+  /// on with nothing on screen to explain why.
+  ///
+  /// Deliberately narrow — loopback, the Android emulator's host alias, and the
+  /// three private IPv4 ranges. A public host still needs a key, because
+  /// "endpoint with no credential" is a thing worth being sure about before
+  /// sending someone's health data to it.
+  bool get isLocalEndpoint {
+    final h = Uri.tryParse(apiBase)?.host.toLowerCase() ?? '';
+    if (h == 'localhost' || h == '127.0.0.1' || h == '::1' ||
+        h == '10.0.2.2' || h.endsWith('.local')) {
+      return true;
+    }
+    final v4 = RegExp(r'^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$')
+        .firstMatch(h);
+    if (v4 == null) return false;
+    final a = int.parse(v4.group(1)!), b = int.parse(v4.group(2)!);
+    return a == 10 ||
+        (a == 172 && b >= 16 && b <= 31) ||
+        (a == 192 && b == 168);
+  }
+
+  bool get configured =>
+      (hasKey || isLocalEndpoint) && _baseUrl.isNotEmpty && _model.isNotEmpty;
 
   /// Normalised base, no trailing slash.
   String get apiBase {

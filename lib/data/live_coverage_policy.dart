@@ -140,6 +140,172 @@ LiveCoverageWindow? deriveLiveCoverageWindow({
   return LiveCoverageWindow(anchor, anchor + secs);
 }
 
+// ── THE SOURCE LADDER ───────────────────────────────────────────────────────
+//
+// A day is not owned by one source. Each SPAN of it goes to the best source
+// that actually covered that span, and the spans sum. Whole-day precedence
+// ("the band reported something, so the band takes the day") reported 622 steps
+// against the phone's 18,856 on a real export, because the strap only covered
+// the hours it was syncing.
+//
+// TWO FAILURES, NOT ONE. Per-span precedence alone is not enough either.
+// `live_coverage` spans say "a live link existed", not "the pedometer was
+// counting", and they are deliberately biased WIDE (see [kCoverageDutyFloor]).
+// On the same export the band claimed 9.35 h of coverage for 216 steps
+// (0.4 spm) while the phone had 11 h for 7,775 (11.8 spm): handing the band
+// that span because it is nominally the better sensor loses ~7,000 steps. So a
+// band span only outranks the phone where it actually looks like gait — see
+// [kBandSpanMinSpm].
+//
+// HOW OVERLAPS ARE SETTLED. Spans are resolved highest rank first; a lower-
+// ranked span is credited its own count MINUS what the higher-ranked spans
+// already counted over the time they share (pro-rated by overlap). So a strap
+// session inside a phone-covered hour contributes its own minutes and the phone
+// contributes the rest, and neither the walk nor the hour is counted twice. The
+// subtraction is bounded at zero, so a source can lose its claim but can never
+// go negative — nothing is ever fabricated and nothing is double-counted.
+
+/// Minimum step density (steps per minute, over the span's own extent) a BAND
+/// span must show before it outranks the phone over time they both cover.
+///
+/// This is a WEAR-vs-GAIT discriminator, not a cadence gate — a real bout
+/// includes pauses, so it sits far below the 60–200 spm walking band. Measured
+/// band spans from a real export: 0.4, 3.0 (link idle, phone was right) and
+/// 101.6 spm (an 11-minute walk, band was right). It only ever changes the
+/// ORDER between band and phone: on a day with no phone data the band keeps
+/// every step it counted regardless of this number.
+///
+/// Left as a knob on purpose — a different strap, worn differently, will sit
+/// somewhere else on this axis.
+const double kBandSpanMinSpm = 10.0;
+
+/// One `live_coverage` row, as the resolver sees it.
+class CoverageSpan {
+  const CoverageSpan({
+    required this.startTs,
+    required this.endTs,
+    required this.steps,
+    required this.fromBand,
+  });
+
+  final int startTs;
+  final int endTs;
+  final int steps;
+
+  /// `source != 'phone'` — the band's own 100 Hz pedometer, live or imported.
+  final bool fromBand;
+}
+
+/// A day's steps after the ladder has run, split by the sensor that counted.
+class ResolvedDaySteps {
+  const ResolvedDaySteps({
+    this.strap = 0,
+    this.phone = 0,
+    this.spans = const [],
+  });
+
+  /// Steps credited to the band's 100 Hz pedometer.
+  final int strap;
+
+  /// Steps credited to the phone's pedometer.
+  final int phone;
+
+  /// The spans AS CREDITED, in time order — never the raw table rows.
+  ///
+  /// A screen that draws the day's spans has to draw these: a raw row still
+  /// carries the steps the ladder took back off it, so a strap session inside a
+  /// phone-covered hour would be drawn twice, showing the user a walk the total
+  /// (correctly) only counts once. Spans credited nothing are dropped for the
+  /// same reason.
+  ///
+  /// Each span is rounded on its own, so re-summing this list can differ from
+  /// [total] by a step or two. [total] is the number to publish.
+  final List<CoverageSpan> spans;
+
+  int get total => strap + phone;
+
+  /// The sensor that counted most of the day, or null when nothing counted.
+  /// Ties go to the strap — it is the higher-ranked sensor.
+  String? get dominant =>
+      total <= 0 ? null : (strap >= phone ? 'strap' : 'phone');
+
+  bool get mixed => strap > 0 && phone > 0;
+
+  static const none = ResolvedDaySteps();
+}
+
+class _Ranked {
+  _Ranked(this.startTs, this.endTs, this.steps, this.rank, this.fromBand);
+  final int startTs, endTs, rank;
+  final double steps;
+  final bool fromBand;
+  double credited = 0;
+}
+
+/// Resolve one day's coverage rows into a per-sensor step split.
+///
+/// Order of business, per the ladder note above: rank each span, then walk them
+/// highest first, subtracting from each what the higher-ranked spans already
+/// counted over shared time.
+///
+/// A single-source day is unchanged by all of this — every span keeps its full
+/// count and the total is the plain sum, exactly as before.
+// ponytail: O(n²) over one day's rows (tens, typically single digits). If a day
+// ever carries thousands, sort by start and sweep instead.
+ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
+  final spans = <_Ranked>[];
+  for (final r in rows) {
+    // Legacy zero-width rows are real counts with a lost extent; repair them
+    // the same way the writer does rather than dropping a measurement.
+    final w = sanitizeCoverageWindow(r.startTs, r.endTs, r.steps);
+    if (w == null) continue;
+    final spm = r.steps * 60 / (w.endTs - w.startTs);
+    // 2 = band that looks like gait, 1 = phone, 0 = band that does not.
+    final rank = r.fromBand ? (spm >= kBandSpanMinSpm ? 2 : 0) : 1;
+    spans.add(
+      _Ranked(w.startTs, w.endTs, r.steps.toDouble(), rank, r.fromBand),
+    );
+  }
+  spans.sort((a, b) => b.rank.compareTo(a.rank));
+
+  var strap = 0.0;
+  var phone = 0.0;
+  for (var i = 0; i < spans.length; i++) {
+    final s = spans[i];
+    var alreadyCounted = 0.0;
+    for (var j = 0; j < i; j++) {
+      final h = spans[j];
+      // EQUAL RANK IS NOT COMPETITION. Two band rows, or two phone rows, are
+      // the same sensor reporting twice and are summed — which is what the
+      // table has always meant and what re-import idempotency relies on.
+      if (h.rank <= s.rank) continue;
+      final ov = math.min(s.endTs, h.endTs) - math.max(s.startTs, h.startTs);
+      if (ov <= 0) continue;
+      alreadyCounted += h.credited * ov / (h.endTs - h.startTs);
+    }
+    s.credited = math.max(0.0, s.steps - alreadyCounted);
+    if (s.fromBand) {
+      strap += s.credited;
+    } else {
+      phone += s.credited;
+    }
+  }
+  return ResolvedDaySteps(
+    strap: strap.round(),
+    phone: phone.round(),
+    spans: [
+      for (final s in spans)
+        if (s.credited.round() > 0)
+          CoverageSpan(
+            startTs: s.startTs,
+            endTs: s.endTs,
+            steps: s.credited.round(),
+            fromBand: s.fromBand,
+          ),
+    ]..sort((a, b) => a.startTs.compareTo(b.startTs)),
+  );
+}
+
 /// Persistence-boundary guard: normalise a window before it reaches the
 /// `live_coverage` table, or null when it must not be stored at all.
 ///

@@ -311,4 +311,21 @@ void main() {
     expect(BatteryForecaster.describe(dies, wakeAt: wake),
         contains('before you wake'));
   });
+
+  test('a forecast that trips the reserve never reads as survivable', () {
+    // 25% at 20:00, 2%/h → 3% left at a 07:00 wake (under the 5% reserve, so
+    // the alert FIRES) but 0% only at 08:30. The body used to say "runs out
+    // around 08:30, after your usual wake time" under "Charge your strap
+    // before bed" — the user reads the body and doesn't charge.
+    final thin = f.forecast(
+      samples: run(endPct: 25, ratePctPerHour: 2),
+      now: now,
+      wakeAt: wake,
+    );
+    expect(f.willNotSurvive(thin), isTrue);
+    expect(thin.predictedEmptyAt!.isAfter(wake), isTrue);
+    final body = BatteryForecaster.describe(thin, wakeAt: wake);
+    expect(body, contains('Charge it now'));
+    expect(body, contains('3% left'));
+  });
 }

@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.26+57
+version: 0.9.27+58
 
 environment:
   sdk: ^3.11.4
@@ -15,6 +15,13 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+
+  # The single icon family behind lib/ui2. One pack, one stroke weight, one
+  # optical size — replacing the five-pack mix the old design system blended
+  # per concept, which is why no two screens' icons quite matched. Lucide is
+  # what the interface was drawn in; keeping it means a screen can name the
+  # glyph the design names.
+  lucide_icons_flutter: ^3.1.15
 
   # Local pure-Dart packages — the protocol byte codecs and the metric/analytics
   # engine. Replace the old cloud backend: decode happens on-device, and the
@@ -48,7 +55,22 @@ dependencies:
       # it is one, r-r beats are read only where the field map is confirmed, and
       # a frame whose payload crc32 fails no longer lets its declared length
       # swallow the frames behind it.
-      ref: 3ea0290c924cec1a1877bec1cc50db2e7e93a0f2
+      #
+      # protocol `fix/gen5-bounds-and-write-guard` @ e33e53a — the sweep half.
+      # gen4 record versions we never confirmed a field map for (v7/v9/v18 and
+      # unknown) stop publishing spo2/skin-temp/ppg/ambient off that guess and
+      # report absent instead; a gen5 v18 record with an out-of-range HR byte
+      # now decodes with hr absent instead of being thrown at raw_archive whole;
+      # gen4 bounds are no longer applied to gen5; HelloInfo.wristOn/.charging
+      # are always null (wear comes from WRIST_ON/OFF and the realtime wearing
+      # bit). v24/v12 — what our own straps ship — are byte-for-byte unchanged.
+      #
+      # Pushed (2026-08-19) on `fix/gen5-bounds-and-write-guard`, so a fresh
+      # checkout resolves it. The branch has moved on since (decodeFrame now
+      # emits R10 beat intervals) — deliberately NOT repinned: edge never reads
+      # `rr_ms` off decodeFrame, so the hop changes no number here and a repin
+      # would drag kAlgoVersion with it for nothing.
+      ref: fe3b681a3e9ca76f8a0865339035f949f36f6000
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -98,7 +120,74 @@ dependencies:
       # Verified against the SHA:
       #   `git show e047c59:lib/src/onehz/workout/calories.dart |
       #      grep defaultMergeGapCapS`
-      ref: cef6fe4d11c4b4a15ae626350304e882882405e1
+      #
+      # analytics `fix/numerical-correctness` @ beaeafa. THE PIN ABOVE WAS
+      # STALE: it sat on cef6fe4 (#45) while the comment described e047c59 and
+      # every local run built ../analytics through pubspec_overrides.yaml, so
+      # kAlgoVersion 67 and 68 both documented analytics behaviour the pinned
+      # SHA had never contained — the v43 failure, again. The two commits this
+      # moves to are what those entries were actually written against, plus the
+      # sweep: Welch-averaged band powers in ms²/Hz, `ulf` absent rather than
+      # 0.0, nullable `round6`, correctRr advancing its clock by the real
+      # interval on a corrected beat, baselines withheld until a real night is
+      # folded, the resting-HR percentile-of-you oriented lower-is-better, the
+      # circadian non-parametrics omitted when an hour was never observed, and
+      # `meaningful` off readiness_composite. `sex`/`age` are gone from
+      # vo2maxEstimate and physiologicalAge, so this pin and
+      # crossday_pipeline.dart must move together.
+      #
+      # The pins are also asserted from lib/compute/derivation_engine.dart
+      # (kAnalyticsPin/kProtocolPin) — repin without visiting the version gate
+      # and the suite goes red, because kAlgoVersion alone cannot tell two
+      # different analytics apart.
+      #
+      #
+      # analytics `fix/numerical-correctness` @ 98d42b6 — the device seam, at
+      # kAlgoVersion 70. One commit on top of beaeafa, and the one every
+      # family-dispatched metric in edge needs: `lib/src/onehz/device.dart`
+      # (DeviceFamily, deviceFamilyOf() -> null on anything unrecognised,
+      # calibrationFor() -> null rather than gen4's constants). It also lands
+      # Benjamini-Hochberg over the 9x4 journal-correlation grid (findings
+      # disappear; empty is a real answer), binary habits routed to
+      # difference-of-means instead of a rho, hrRecovery's fitted tau,
+      # Kruskal-Wallis + permutation on the weekday effect, sleep runs
+      # terminating at unobserved, per-cycle depths/widths out of the apnea
+      # screen, and the removal of vo2maxEstimate/physiologicalAge — edge
+      # stopped calling those two before this pin, so nothing loses a value.
+      #
+      # Verified against the SHA:
+      #   `git show 98d42b6:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # analytics `fix/numerical-correctness` @ 391ede4 — analytics HEAD, and
+      # what kAlgoVersion 71 is pinned against. This is the commit that landed
+      # the nine symbols edge lib/ was already calling and 98d42b6 did not have
+      # (alertnessForecast, AlertnessForecast, CvhrNight, CvhrDistribution,
+      # cvhrPersonalDistribution, cvhrDistributionWindowNights, StageInterval,
+      # stageIntervals, journalFieldLagDays) plus observed_max_hr, session_cost,
+      # night_hrv_shape, cycle_lengths and the cvhr apnea screen. The "a clean
+      # checkout does not compile" warning that used to sit here is RESOLVED —
+      # checked symbol by symbol against this SHA.
+      #
+      # Verified against the SHA:
+      #   `git show 391ede4:lib/src/onehz/human/alertness_forecast.dart | head -1`
+      #   `git show 391ede4:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # The "pin is behind the working copy" warning that used to sit here is
+      # RESOLVED. The algorithms-audit wave (readiness refusing on a cold start,
+      # the RMSSD jitter gate, the active-energy correction, the EWMA baseline
+      # fix, BH-corrected journal insights) was uncommitted when that was
+      # written; it is committed now and this SHA is the tip of it, so what
+      # kAlgoVersion 71's changelog describes is what a clean checkout builds.
+      # The pin also moved 391ede4 -> 21664f8 without the prose above following
+      # it — the `git show` lines still read true against either.
+      #
+      # `fix/numerical-correctness` merged to main as PR #46 (bfea5e5); the pin
+      # moved 21664f8 -> bfea5e5 to track it. Diff between the two is two
+      # test-only deprecation-ignore annotations (analytics `lib/` untouched),
+      # so kAlgoVersion needs no bump for this move.
+      ref: bfea5e56e74f336c3e3d83743123e58da225617d
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -114,6 +203,13 @@ dependencies:
   # directly because `lib/import/import_container.dart` imports it.
   archive: ^4.0.9
 
+  # Passphrase-encrypted backup (lib/import/backup_crypto.dart). A vetted,
+  # long-standing pure-Dart implementation of AES-256-GCM and
+  # PBKDF2-HMAC-SHA256 — no hand-rolled construction, and no platform channel,
+  # so the round trip is testable headless. `crypto` (already transitive) has
+  # HMAC but no AEAD, which is the one primitive that must not be improvised.
+  pointycastle: ^3.9.1
+
   # Background scheduled derivation (the heavy nightly pass: sleep staging +
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
   # honest caveat in lib/compute/background_derivation.dart — app-killed heavy
@@ -123,6 +219,19 @@ dependencies:
   # HTTP — retained ONLY for the OTA self-update pointer (see lib/sync/update_service.dart)
   # and the AI Coach's direct LLM (BYOK) calls. No backend / auth traffic anymore.
   http: ^1.2.2
+
+  # Barcode scanning for the food log (lib/ui2/screens/scan_barcode.dart).
+  #
+  # The floor is not cosmetic: 7.3.0 and 7.4.0 fixed a controller-dispose bug
+  # that tore down ANOTHER controller's camera, and an Apple `captureOutput`
+  # race. This app holds a camera nowhere else today, but the first bug is the
+  # kind that only shows up once it does.
+  #
+  # The default Android config links the BUNDLED ML Kit model, which is what we
+  # want: +3-10 MB of APK in exchange for needing no Google Play Services at
+  # all, on a build distributed through GitHub Releases. Do NOT set the
+  # `useUnbundled` Gradle property.
+  mobile_scanner: ^7.3.1
 
   # State + small settings persistence.
   provider: ^6.1.2
@@ -148,41 +257,20 @@ dependencies:
   # Type: Manrope + Barlow Condensed are BUNDLED under assets/fonts/ (declared
   # in flutter.fonts below), not pulled at runtime — see the note there.
 
-  # Icon packs backing lib/ui/kit/os_icons.dart (see that file's header for the
-  # full per-concept rationale). Mixed deliberately — each pack is used only
-  # for the concepts it's genuinely best at, normalized to one consistent
-  # size/weight by OsAppIcon:
-  #   - phosphor_flutter   — Duotone weight; the primary "hero" biometric/
-  #     domain glyphs (closest replacement for the old illustrations).
-  #   - solar_icons        — Bold weight; literal sport + sleep-stage glyphs.
-  #   - iconsax_flutter    — battery/bluetooth variants + the heartbeat-zigzag
-  #     "activity" glyph (cardio/resting-HR family).
-  #   - fluentui_system_icons — Regular weight; plain monochrome UI chrome
-  #     (arrows, check, settings, calendar…) — reads crisper flat than duotone
-  #     at small utility sizes.
-  #   - hugeicons          — used for exactly the 2 concepts it wins outright
-  #     (a literal ECG waveform + a literal blood-drop); nothing else uses it.
-  hugeicons: ^0.0.11
-  solar_icons: ^0.1.0
-  iconsax_flutter: ^1.0.1
-  fluentui_system_icons: ^1.1.273
-  phosphor_flutter: ^2.1.0
-
-  # Declarative motion language for the design system (entrance stagger, press
-  # pops, count-ups, shimmer) — one consistent vocabulary instead of hand-rolled
-  # AnimationControllers in every component. See lib/ui/design/motion.dart.
-  flutter_animate: ^4.5.2
+  # Declarative motion (flutter_animate) and the five-pack icon mix that
+  # backed lib/ui/kit/os_icons.dart went with lib/ui. lib/ui2 has one icon
+  # family (lucide_icons_flutter, declared above) and one motion gate
+  # (lib/ui2/theme.dart), so none of them have a consumer any more.
+  #
+  # phosphor_flutter also no longer COMPILES against the current Flutter SDK —
+  # `IconData` became a final class, and PhosphorIconData extends it — which is
+  # what was failing 33 test files on main before this branch.
 
   # Injectable clock (RouteTracker's stall watchdog) — was a transitive dep via
   # fake_async/flutter_test; declared directly since lib/ code now imports it.
   # `clock.now()` instead of raw DateTime.now() lets fakeAsync tests control
   # time deterministically instead of needing a real multi-second sleep.
   clock: ^1.1.2
-
-  # Cold-start splash video (assets/splash/splashscreen.mp4) shown while AppState
-  # initializes; dismissed the instant the route gate resolves. See
-  # lib/ui/splash/boot_splash.dart.
-  video_player: ^2.9.2
 
   # Share recap cards (rendered card → image → share sheet).
   share_plus: ^10.1.4
@@ -225,7 +313,6 @@ dependencies:
   ota_update: ^7.1.0
   url_launcher: ^6.3.0
   notification_listener_service: ^1.0.0
-  installed_apps: ^2.1.1
   flutter_secure_storage: ^10.3.1
   gpt_markdown: ^1.1.7
   firebase_core: ^4.11.0
@@ -268,19 +355,40 @@ dev_dependencies:
   # someone else's `pub upgrade` rather than on a deliberate one here.
   sqflite_common: 2.5.8
 
+# Run with `dart run flutter_launcher_icons`. TWO THINGS TO KNOW BEFORE YOU DO:
+#
+#   · 0.13.1 rewrites ios/Runner.xcodeproj/project.pbxproj with a regex that
+#     matches ANY `ASSETCATALOG_COMPILER_*` setting and overwrites its value
+#     with the app-icon name. On this project that silently sets
+#     GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS, GLOBAL_ACCENT_COLOR_NAME and
+#     WIDGET_BACKGROUND_COLOR_NAME to "AppIcon" on the widget and watch targets.
+#     `git checkout -- ios/Runner.xcodeproj/project.pbxproj` afterwards: the one
+#     setting it needs to write (APPICON_NAME = AppIcon) is already correct, and
+#     the alternate-icon settings next to it must survive.
+#   · It does NOT generate the alternate icon. AppIconBW.appiconset is built by
+#     hand from assets/images/icon_bw.png at the same slots as AppIcon.
+#
+# adaptive_icon_foreground is a PRE-INSET copy of the icon, not the icon itself.
+# Android composites both layers on a 108 dp canvas and every launcher mask
+# crops it to the middle 72 dp, so full-bleed art is zoomed 1.5x — which was
+# cutting the mark off both sides. assets/launcher/ is not a bundled asset dir;
+# it is build-time input only.
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/images/icon.png"
   remove_alpha_ios: true
-  adaptive_icon_background: "#F4F1EC"
-  adaptive_icon_foreground: "assets/images/icon.png"
+  # The icon's own plate, so the ring the mask leaves around the artwork is the
+  # same colour as the artwork's edge rather than the old cream.
+  adaptive_icon_background: "#020D1C"
+  adaptive_icon_foreground: "assets/launcher/icon_adaptive.png"
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/splash/
+    - assets/images/2.0x/
+    - assets/images/3.0x/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user
   # has seen the consent screen, and contrary to PRIVACY.md. It also lets the

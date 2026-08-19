@@ -193,29 +193,32 @@ List<double> hrPerMinute(List<int> hrTs, List<int> hrBpm) {
   return out;
 }
 
-/// Minutes spent in each of Z1..Z5 (50/60/70/80/90 % of [zoneMaxHr]).
+/// Minutes spent in each of Z1..Z5.
 ///
-/// [zoneMaxHr] is the caller's DISPLAY HRmax convention. It is deliberately a
-/// parameter, not derived here: the workout screens band zones on 220-age
-/// (`LocalRepositoryImpl._profileMaxHr`) while the analytics anchors below use
-/// Tanaka. Persisting `zone_min` on a different HRmax from the `zone_bands`
-/// the same screen recomputes on read would put two disagreeing zone splits on
-/// one card. (That the app carries two HRmax conventions at all is
-/// pre-existing and worth converging separately — this just refuses to widen
-/// the split.)
-List<double> zoneMinutesFor(List<int> hrBpm, double zoneMaxHr) {
-  if (hrBpm.isEmpty || zoneMaxHr <= 0) return const [];
-  const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
+/// [zoneSet] is THE app's zone set (`trainingZones`) — banded on the OBSERVED
+/// ceiling and the measured resting HR once both exist, and on the age estimate
+/// until then. It is a parameter, not derived here, because both anchors are
+/// cross-day reads this pure scorer has no way to make. Pass it: a session that
+/// persists a `zone_min` split binned differently from the `zone_bands` its own
+/// detail screen recomputes is the TS-03a defect, one layer up.
+///
+/// [zoneMaxHr] is the fallback ceiling for a caller with no set in hand, and it
+/// resolves to the SAME %HRmax bands (`zonesFromMaxHr`) the inline loop here
+/// used to hard-code. 0 means "no ceiling": no age, or a strap we have no
+/// calibrated ceiling for, so no split.
+List<double> zoneMinutesFor(
+  List<int> hrBpm,
+  double zoneMaxHr, {
+  ana.HeartRateZoneSet? zoneSet,
+}) {
+  final set = zoneSet ??
+      (zoneMaxHr > 0 ? ana.HeartRateZones.zonesFromMaxHr(zoneMaxHr) : null);
+  if (hrBpm.isEmpty || set == null) return const [];
   final secs = List<int>.filled(5, 0);
   for (final v in hrBpm) {
     if (v <= 0) continue;
-    final pct = v / zoneMaxHr;
-    for (var z = 4; z >= 0; z--) {
-      if (pct >= loPct[z]) {
-        secs[z]++;
-        break;
-      }
-    }
+    final z = set.zoneNumber(v.toDouble());
+    if (z >= 1) secs[z - 1]++;
   }
   return [
     for (var z = 0; z < 5; z++)
@@ -236,15 +239,20 @@ List<double> zoneMinutesFor(List<int> hrBpm, double zoneMaxHr) {
 /// made "workout strain" and "daily strain" incomparable numbers that merely
 /// looked alike.
 ///
-/// [restingHr] and the profile's Tanaka HRmax and sex are all TERMS in the
-/// formula — a missing one abstains rather than substituting a default (the
-/// old live path silently used 30 y / 70 kg / 60 bpm).
+/// [restingHr], [hrMax] and the profile's sex are all TERMS in the formula — a
+/// missing one abstains rather than substituting a default (the old live path
+/// silently used 30 y / 70 kg / 60 bpm).
+///
+/// [hrMax] is passed IN rather than read off [profile]: since TS-03a the HR
+/// ceiling is a property of the strap that measured the window as well as the
+/// athlete's age (`estimatedMaxHr`), and this scorer is device-agnostic. Null
+/// — no age, or an uncalibrated/unstamped strap — abstains.
 double? strainFromPerMinuteHr(
   List<double> perMinuteHr, {
   required Profile profile,
   required double? restingHr,
+  required double? hrMax,
 }) {
-  final hrMax = profile.hrMaxTanaka; // null when age is unknown
   final sex = profile.sex?.toLowerCase();
   if (perMinuteHr.isEmpty || hrMax == null || restingHr == null || sex == null) {
     return null;
@@ -276,14 +284,23 @@ double? strainFromPerMinuteHr(
 /// Uses the SAME published methods as the day-level derivation so a manual
 /// session and the day it sits in are on one scale: `ana.banisterTrimp` ->
 /// `ana.strainScoreMetric` for strain, `ana.Calories.estimateBoutCalories`
-/// (Keytel 2005) for kcal. Anchors come from Tanaka HRmax (`Profile`), never a
-/// 220-age default — a missing anchor makes the dependent metric null.
+/// (Keytel 2005) for kcal. A missing anchor makes the dependent metric null.
+///
+/// [hrMax] is THE ceiling for this window — `estimatedMaxHr(age, family)`,
+/// resolved by the caller, which is the only layer that knows which strap
+/// measured it. It bands the zones AND anchors TRIMP and Keytel: those were two
+/// separate ceilings (220−age for the zone split, Tanaka for the anchors), so
+/// one session persisted a `zone_min` split the `zone_bands` recomputed on its
+/// own detail screen disagreed with (TS-03a). Null — no age, or an
+/// uncalibrated/unstamped strap — means no zone split and no scored strain or
+/// calories, not a substituted default.
 ManualSessionStats computeManualSessionStats({
   required List<int> hrTs,
   required List<int> hrBpm,
   required Profile profile,
-  required double zoneMaxHr,
+  required double? hrMax,
   double? restingHr,
+  ana.HeartRateZoneSet? zoneSet,
 }) {
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
@@ -311,10 +328,9 @@ ManualSessionStats computeManualSessionStats({
   final age = profile.ageYears?.toDouble();
   final weightKg = profile.weightKg;
   final sex = profile.sex?.toLowerCase();
-  final hrMax = profile.hrMaxTanaka; // null when age is unknown
 
-  final strain =
-      strainFromPerMinuteHr(perMin, profile: profile, restingHr: restingHr);
+  final strain = strainFromPerMinuteHr(perMin,
+      profile: profile, restingHr: restingHr, hrMax: hrMax);
 
   double? calories;
   if (profile.hasCalorieAnchors &&
@@ -344,7 +360,8 @@ ManualSessionStats computeManualSessionStats({
     maxHr: peak,
     strain: strain,
     calories: calories,
-    zoneMinutes: zoneMinutesFor(worn, zoneMaxHr),
+    // 0 is `zoneMinutesFor`'s own "no ceiling" input → an empty split.
+    zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0, zoneSet: zoneSet),
     hrSampleCount: worn.length,
   );
 }
@@ -390,6 +407,10 @@ Map<String, dynamic> buildManualSessionRow({
     'calories': stats.calories,
     'strain': stats.strain,
     'max_hr': stats.maxHr,
+    // Banked, not recomputed on read: the 1 Hz window this was measured over is
+    // pruned after 3 days, and an average that vanishes from every workout older
+    // than that is worse than one stored beside the peak it belongs with.
+    'avg_hr': stats.avgHr,
     'duration_min': (endSec - startSec) ~/ 60,
     'zone_min_json': jsonEncode(zone.any((v) => v > 0) ? zone : const <num>[]),
     // Steps and HRR belong to the window, not the entry: `steps` came from the

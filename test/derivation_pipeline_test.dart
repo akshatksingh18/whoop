@@ -159,9 +159,6 @@ void main() {
     expect(() => jsonEncode(bundle), returnsNormally);
 
     final scalars = (bundle['scalars'] as Map).cast<String, dynamic>();
-    // RHR present + physiologically plausible.
-    expect(scalars['rhr'], isNotNull, reason: 'nocturnal RHR computed');
-    expect(scalars['rhr'] as num, inInclusiveRange(25, 220));
     // An HRV value present + positive.
     expect(scalars['rmssd'], isNotNull, reason: 'RMSSD computed');
     expect(scalars['rmssd'] as num, greaterThan(0));
@@ -175,6 +172,34 @@ void main() {
     // Coverage diagnostics.
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
+
+    // This fixture has no detected sleep, so there is NO resting HR — on either
+    // key. `rhr` used to fall back to the day's HR here and publish an awake
+    // number as a resting one; both keys are now the same nocturnal value, and
+    // the clinical envelope says why it is missing.
+    expect(scalars.containsKey('rhr_nocturnal'), isTrue);
+    expect(scalars['rhr'], isNull,
+        reason: 'no sleep session → no resting HR, never the daytime fallback');
+    expect(scalars['rhr_nocturnal'], scalars['rhr']);
+    expect(
+      (clinical['resting_hr'] as Map)['note'],
+      contains('no sleep was scored'),
+    );
+
+    // hrv_timeline.t is EPOCH SECONDS, on the same axis as hr_curve — the
+    // v_series contract and the coach prompt both promise that, and the stored
+    // `t` used to be seconds since the first NN beat (single digits).
+    final series = (bundle['series'] as Map).cast<String, dynamic>();
+    final tl = (series['hrv_timeline'] as List).cast<Map>();
+    expect(tl, isNotEmpty, reason: '~30 min of NN should yield 5-min windows');
+    final firstT = (tl.first['t'] as num).toInt();
+    expect(firstT, greaterThan(1600000000), reason: 'epoch seconds, not 1970');
+    expect(firstT, greaterThanOrEqualTo(dayTs.first),
+        reason: 'inside the day it belongs to');
+    expect(firstT, lessThanOrEqualTo(dayTs.last + 60));
+    // A FULL 5-minute window before the first point. It used to emit after 10
+    // beats (~8 s) onto a line documented as rolling 5-min windows.
+    expect(firstT - dayTs.first, greaterThanOrEqualTo(300));
 
     // (The secondary Edwards "effort" strain block was removed in the PR#25
     // pipeline refactor; the headline 0–21 strain remains via scalars['strain'].)
@@ -202,6 +227,149 @@ void main() {
     expect(rhrMetric['value'], isNotNull);
     expect(rhrMetric['value'], isNot('—'));
   }, skip: skipNoFixture);
+
+  // ── synthetic, fixture-free: the seams the day bundle publishes ────────────
+  group('the day bundle seams', () {
+    const t0 = 1786700000;
+
+    Map<String, dynamic> bundleFor({
+      required List<String> stages,
+      String sleepSource = 'auto',
+      int tempEvery = 1,
+      String? deviceFamily = 'gen4',
+    }) {
+      final n = stages.length;
+      final ts = <int>[for (var i = 0; i < n; i++) t0 + i];
+      final hr = <int>[for (var i = 0; i < n; i++) 55];
+      return deriveDayBundle(DayBundleInput(
+        date: '2026-08-15',
+        dayTsSec: ts,
+        dayHr: hr,
+        sleepTsSec: ts,
+        sleepHr: hr,
+        sleepRrTsMs: const [],
+        sleepRrMs: const [],
+        sleepSpo2Red: List<int>.filled(n, 0),
+        sleepSpo2Ir: List<int>.filled(n, 0),
+        // One temp sample every `tempEvery` seconds; 0 is the absent sentinel.
+        sleepSkinTemp: <int>[
+          for (var i = 0; i < n; i++) i % tempEvery == 0 ? 3000 : 0,
+        ],
+        sleepJson: {
+          'tst_sec': n,
+          'in_bed_sec': n,
+          'unobserved_sec': stages.where((s) => s == 'unobserved').length,
+          'window': {'onset_ms': t0 * 1000, 'offset_ms': (t0 + n) * 1000},
+        },
+        hypnoStages: stages,
+        sleepOnsetSec: t0,
+        sleepOffsetSec: t0 + n,
+        profile: const {
+          'age': 35,
+          'sex': 'm',
+          'weight_kg': 75,
+          'height_cm': 178,
+        },
+        deviceFamily: deviceFamily,
+        sleepSource: sleepSource,
+      ).toJson());
+    }
+
+    Map<String, dynamic> accountingOf(Map<String, dynamic> b) =>
+        (((b['sleep'] as Map)['accounting'] as Map)['value'] as Map)
+            .cast<String, dynamic>();
+
+    // Two hours of sleep, a one-hour hole, two more hours. A naive longest-run
+    // bridges the hole and prints five hours of unbroken sleep.
+    test('the longest unbroken stretch never bridges an unobserved hole', () {
+      final acc = accountingOf(bundleFor(stages: <String>[
+        ...List<String>.filled(7200, 'light'),
+        ...List<String>.filled(3600, 'unobserved'),
+        ...List<String>.filled(7200, 'light'),
+      ]));
+      expect(acc['longest_sleep_sec'], 7200);
+      expect(acc['unobserved_sec'], 3600);
+      expect(acc['observed_in_bed_sec'], 14400);
+      // And the hole is not an awakening — we did not see anyone wake up.
+      expect(acc['awakenings'], 0);
+    });
+
+    test('only sustained wake runs count as awakenings', () {
+      final acc = accountingOf(bundleFor(stages: <String>[
+        ...List<String>.filled(3600, 'light'),
+        ...List<String>.filled(600, 'wake'),
+        ...List<String>.filled(3600, 'rem'),
+        ...List<String>.filled(60, 'wake'),
+        ...List<String>.filled(3600, 'light'),
+      ]));
+      expect(acc['awakenings'], 1);
+    });
+
+    // On the auto path the window cannot begin before you are already still
+    // with a sleep-ish heart rate, so a latency measured off it is not the
+    // number people read it as.
+    test('sleep-onset latency is published only on a forced window', () {
+      final stages = <String>[
+        ...List<String>.filled(900, 'wake'),
+        ...List<String>.filled(3600, 'light'),
+      ];
+      expect(accountingOf(bundleFor(stages: stages))['sol_sec'], isNull);
+      expect(
+        accountingOf(
+            bundleFor(stages: stages, sleepSource: 'manual'))['sol_sec'],
+        900,
+      );
+      // …and never when the leading edge went unwatched.
+      expect(
+        accountingOf(bundleFor(
+          stages: <String>[
+            'unobserved',
+            ...List<String>.filled(899, 'wake'),
+            ...List<String>.filled(3600, 'light'),
+          ],
+          sleepSource: 'manual',
+        ))['sol_sec'],
+        isNull,
+      );
+    });
+
+    // How much of "last night" a nightly skin temperature is actually made of.
+    test('the temperature mean carries its coverage fraction', () {
+      final scalars =
+          (bundleFor(stages: List<String>.filled(7200, 'light'), tempEvery: 10)[
+                  'scalars'] as Map)
+              .cast<String, dynamic>();
+      expect(scalars['skin_temp_adc'], isNotNull);
+      expect(scalars['skin_temp_coverage_frac'] as num, closeTo(0.1, 0.001));
+    });
+
+    // One ceiling, dispatched on the strap — and no ceiling at all when we
+    // cannot say which strap measured the heart rate.
+    // REVERSAL: the ceiling every one of these is banded on is Tanaka on AGE,
+    // which reads no sensor. An unstamped strap (device_family NULL on every
+    // pre-schema-41 row, never backfilled) gets the SAME estimate as a stamped
+    // one — gating it deleted strain, TRIMP, calories and zones from whole
+    // histories for a number the strap cannot move. What still refuses for an
+    // unknown family is the OBSERVED ceiling and the accel/temp constants.
+    test('the age ceiling does not depend on the strap that measured the day',
+        () {
+      final stamped =
+          (bundleFor(stages: List<String>.filled(3600, 'light'))['scalars']
+                  as Map)
+              .cast<String, dynamic>();
+      expect(stamped['max_hr_used'] as num, closeTo(208 - 0.7 * 35, 0.001));
+      final unstamped = (bundleFor(
+        stages: List<String>.filled(3600, 'light'),
+        deviceFamily: null,
+      )['scalars'] as Map)
+          .cast<String, dynamic>();
+      expect(unstamped['max_hr_used'], stamped['max_hr_used']);
+      expect(unstamped['trimp'], stamped['trimp']);
+      expect(unstamped['calories'], stamped['calories']);
+    });
+  });
+
+  _nightShapeGroup();
 }
 
 /// Minimal mirror of LocalRepositoryImpl.getToday() shaping (no DB).
@@ -224,4 +392,79 @@ Map<String, dynamic> _shapeToday(Map<String, dynamic> b) {
     'hrv': {'rmssd': sc('rmssd'), 'sdnn': sc('sdnn')},
     'step_goal': 10000,
   };
+
+}
+
+// ── CV-06 — the shape of the night reaches the bundle ────────────────────────
+//
+// Per-bin RMSSD over the SAME cleaned NN the headline RMSSD uses, so the curve
+// and the number can never disagree. The check that matters is not the numbers
+// (analytics owns those and tests them) but the seam: the bins arrive, they are
+// placeable on a wall clock, and a night too short to have a shape says so.
+
+Map<String, dynamic> _nightBundle({required int hours}) {
+  const t0 = 1780000000;
+  final rrTs = <double>[], rrMs = <double>[];
+  final tsSec = <int>[], hr = <int>[];
+  var t = t0 * 1000.0;
+  var i = 0;
+  while (t < (t0 + hours * 3600) * 1000.0) {
+    // ~60 bpm with a small deterministic wobble — real enough for RMSSD.
+    final rr = 1000.0 + 20.0 * ((i % 7) - 3);
+    t += rr;
+    rrTs.add(t);
+    rrMs.add(rr);
+    i++;
+  }
+  for (var s = 0; s < hours * 3600; s++) {
+    tsSec.add(t0 + s);
+    hr.add(60);
+  }
+  return deriveDayBundle(DayBundleInput(
+    date: '2026-06-01',
+    dayTsSec: tsSec,
+    dayHr: hr,
+    sleepTsSec: tsSec,
+    sleepHr: hr,
+    sleepRrTsMs: rrTs,
+    sleepRrMs: rrMs,
+    sleepSpo2Red: List<int>.filled(tsSec.length, 0),
+    sleepSpo2Ir: List<int>.filled(tsSec.length, 0),
+    sleepSkinTemp: List<int>.filled(tsSec.length, 0),
+    sleepJson: const {},
+    hypnoStages: const [],
+    sleepOnsetSec: t0,
+    sleepOffsetSec: t0 + hours * 3600,
+    profile: const {'age': 30, 'sex': 'm', 'weight': 75, 'height': 178},
+  ).toJson());
+}
+
+void _nightShapeGroup() {
+  group('CV-06 — hrv_night_shape', () {
+    test('a real night ships bins with a band, and an origin to place them on',
+        () {
+      final shape = (_nightBundle(hours: 6)['hrv_night_shape'] as Map)
+          .cast<String, dynamic>();
+      final bins = ((shape['value'] as Map)['bins'] as List).cast<Map>();
+      expect(bins.length, greaterThanOrEqualTo(3));
+      // A BAND, not a line: every present bin carries its sampling spread.
+      final present = bins.where((b) => b['rmssd_ms'] != null);
+      expect(present, isNotEmpty);
+      for (final b in present) {
+        expect(b['lo_ms'] as num, lessThanOrEqualTo(b['rmssd_ms'] as num));
+        expect(b['hi_ms'] as num, greaterThanOrEqualTo(b['rmssd_ms'] as num));
+      }
+      // `t` is seconds from the first beat, so without the origin the bins
+      // cannot be put on the same axis as hr_curve.
+      expect(bins.first['t'], 0);
+      expect(shape['origin_ms'] as num, greaterThan(1600000000000));
+    });
+
+    test('a night with no shape to describe is absent, not flat', () {
+      final shape = (_nightBundle(hours: 1)['hrv_night_shape'] as Map)
+          .cast<String, dynamic>();
+      expect(shape['value'], '—');
+      expect(shape['note'], isNotNull);
+    });
+  });
 }

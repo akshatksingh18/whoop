@@ -14,40 +14,72 @@ import Foundation
 enum OpenStrapShared {
   static var appGroup: String {
     Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String
-      ?? "group.wtf.openstrap"
+      // Same fallback as AppGroup.swift and WidgetService.fallbackAppGroupId:
+      // the build-configured default (ios/Config/Signing.defaults.xcconfig).
+      // Three different fallbacks for one group meant that if Info.plist ever
+      // went missing, Siri and the widget would read different suites.
+      ?? "group.com.example.openstrap"
   }
 
   static func defaults() -> UserDefaults? { UserDefaults(suiteName: appGroup) }
 
-  static var hasData: Bool { defaults()?.bool(forKey: "has_data") ?? false }
+  /// `has_data` is the phone saying the snapshot is non-empty and describes a
+  /// recent day — but it is a bool frozen when the phone last pushed, so on a
+  /// phone that stopped syncing it stays true forever. Siri answers in the
+  /// present tense, so it ages `updated_at` here, at answer time.
+  ///
+  /// Same 26 h and same reasoning as `kStaleAfter` in
+  /// ios/OpenStrapWidget/OpenStrapWidget.swift and WatchMetrics.swift —
+  /// separate build targets, so it cannot be one declaration.
+  static let staleAfter: TimeInterval = 26 * 3600
+
+  static var hasData: Bool {
+    guard defaults()?.bool(forKey: "has_data") ?? false else { return false }
+    let at = defaults()?.object(forKey: "updated_at") as? Int ?? 0
+    // An unknown timestamp is not a claim of staleness.
+    return at <= 0 || Date().timeIntervalSince1970 - Double(at) <= staleAfter
+  }
   static var readiness: Int { defaults()?.object(forKey: "readiness") as? Int ?? -1 }
+  /// The phone's own band label, published as `readiness_band` (thresholds:
+  /// `readinessBand` in lib/ui2/screens/home_screen.dart). Siri used to carry a
+  /// fourth private copy of the cut-offs, so it called 65 "moderate" while the
+  /// phone said "Steady" and the widget drew orange.
+  static var readinessBand: String { defaults()?.string(forKey: "readiness_band") ?? "" }
   static var strain: Double { defaults()?.object(forKey: "strain") as? Double ?? -1 }
   static var hrv: Int { defaults()?.object(forKey: "hrv") as? Int ?? -1 }
   static var rhr: Int { defaults()?.object(forKey: "rhr") as? Int ?? -1 }
   static var sleepMin: Int { defaults()?.object(forKey: "sleep_min") as? Int ?? -1 }
 
+  /// Spoken, so it is words rather than the phone's "7h 05m" — but a 45-minute
+  /// nap is not "0 hours 45 minutes".
   static var sleepText: String {
     guard sleepMin >= 0 else { return "no sleep data yet" }
-    return "\(sleepMin / 60) hours \(sleepMin % 60) minutes"
+    let h = sleepMin / 60, m = sleepMin % 60
+    if h == 0 { return "\(m) minutes" }
+    if m == 0 { return h == 1 ? "1 hour" : "\(h) hours" }
+    return "\(h) \(h == 1 ? "hour" : "hours") \(m) minutes"
   }
-  static var noData: String { "I don't have today's numbers yet. Open OpenStrap and sync your strap." }
+  static var noData: String { "I don't have today's numbers yet. Open OpenStrap and sync your band." }
 }
 
 // MARK: - Intents
 
 @available(iOS 16.0, *)
 struct RecoveryIntent: AppIntent {
-  static var title: LocalizedStringResource = "Check Recovery"
-  static var description = IntentDescription("Ask OpenStrap for today's recovery.")
+  static var title: LocalizedStringResource = "Check Readiness"
+  static var description = IntentDescription("Ask OpenStrap for today's readiness.")
   static var openAppWhenRun = false
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.readiness >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.noData))
     }
-    let r = OpenStrapShared.readiness
-    let tier = r < 34 ? "Take it easy today." : (r < 67 ? "A moderate day looks good." : "You're primed to push.")
-    return .result(dialog: "Your recovery is \(r) percent. \(tier)")
+    // "Readiness, out of 100" — the app's own name and unit. It is not a
+    // percentage and it is not called Recovery anywhere else in the product.
+    let band = OpenStrapShared.readinessBand
+    let line = "Your readiness is \(OpenStrapShared.readiness) out of 100."
+    return .result(dialog: IntentDialog(
+      stringLiteral: band.isEmpty ? line : "\(line) \(band)."))
   }
 }
 
@@ -111,11 +143,12 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: RecoveryIntent(),
       phrases: [
+        "\(.applicationName) readiness",
+        "What's my readiness in \(.applicationName)",
         "\(.applicationName) recovery",
-        "What's my recovery in \(.applicationName)",
         "How recovered am I in \(.applicationName)",
       ],
-      shortTitle: "Recovery",
+      shortTitle: "Readiness",
       systemImageName: "bolt.heart")
 
     AppShortcut(

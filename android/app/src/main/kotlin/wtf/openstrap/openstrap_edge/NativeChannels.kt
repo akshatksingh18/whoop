@@ -37,6 +37,16 @@ object NativeChannels {
     const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
 
+        /**
+         * Outbound automation events broadcast as
+         * `wtf.openstrap.openstrap_edge.<EVENT>` so an automation app can
+         * filter on the action directly. Runtime-registered receivers (which is
+         * what Tasker's "Intent Received" profile installs) still receive
+         * implicit broadcasts on Android 8+; the O background restriction
+         * applies to manifest-declared receivers.
+         */
+        const val EVENT_ACTION_PREFIX = "wtf.openstrap.openstrap_edge."
+
     private var torchOn = false
 
     // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
@@ -52,6 +62,10 @@ object NativeChannels {
 
         HealthConnectSleepWriter.register(engine, app)
         HealthConnectHeartRateWriter.register(engine, app)
+        // The phone's own step counter. Registered here (from EdgeApplication.onCreate)
+        // so the channel exists headless; the sensor listener itself arms on the first
+        // Dart call, which only happens when the user has phone steps switched on.
+        PhoneStepCounter.register(engine, app)
 
         MethodChannel(engine.dartExecutor.binaryMessenger, EDGE_TRACKING_CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -190,6 +204,47 @@ object NativeChannels {
                         result.success(null)
                     }
                     "get_auth_token" -> result.success(getOrCreateTaskerToken(app))
+                    // OUTBOUND automation event. ANDROID ONLY, and deliberately
+                    // so: iOS has no public mechanism for a Shortcuts personal
+                    // automation to trigger on an app-donated intent — that
+                    // trigger list is a fixed system set, and `donate`/
+                    // INInteraction buys Siri suggestions, not an event
+                    // trigger. Claiming parity in the docs would be a promise
+                    // the platform cannot keep.
+                    //
+                    // NO TOKEN RIDES OUT. This is an implicit broadcast, so
+                    // every app on the device can read its extras; putting the
+                    // INBOUND buzz secret in here would hand any installed app
+                    // the ability to buzz the strap, which is the one thing
+                    // that token exists to prevent. The outbound direction has
+                    // nothing to protect — the worst a spoofed event can do is
+                    // run the user's own Tasker profile early.
+                    //
+                    // Extras carry only FACTS ABOUT THE SYNC (how many records
+                    // landed, when), never a derived metric: a Shortcut that
+                    // receives `readiness=0` has recreated the fabricated-number
+                    // problem outside the app, where there is no tier and no
+                    // note to read. Absence must leave as absence, and the
+                    // simplest way to guarantee that is to send no metrics.
+                    "emit_event" -> {
+                        val name = call.argument<String>("event")
+                        if (name.isNullOrBlank()) {
+                            result.success(false)
+                        } else {
+                            val intent = Intent("$EVENT_ACTION_PREFIX$name")
+                            call.argument<Map<String, Any>>("extras")
+                                ?.forEach { (k, v) ->
+                                    when (v) {
+                                        is Int -> intent.putExtra(k, v)
+                                        is Long -> intent.putExtra(k, v)
+                                        is Boolean -> intent.putExtra(k, v)
+                                        is String -> intent.putExtra(k, v)
+                                    }
+                                }
+                            app.sendBroadcast(intent)
+                            result.success(true)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

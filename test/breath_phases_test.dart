@@ -6,7 +6,8 @@
 // in a per-frame call.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/ui/stress/breath_phases.dart';
+import 'package:openstrap_edge/stress/breath_phases.dart';
+import 'package:openstrap_edge/ui2/screens/calm_breathing.dart';
 
 void main() {
   final box = kBreathPatternsByKey['box']!;
@@ -119,10 +120,14 @@ void main() {
       expect(BreathPhaseKind.holdIn.isHold, isTrue);
       expect(BreathPhaseKind.holdOut.isHold, isTrue);
       expect(BreathPhaseKind.inhale.isHold, isFalse);
-      expect(BreathPhaseKind.holdIn.targetScale,
-          BreathPhaseKind.inhale.targetScale);
-      expect(BreathPhaseKind.holdOut.targetScale,
-          BreathPhaseKind.exhale.targetScale);
+      expect(
+        BreathPhaseKind.holdIn.targetScale,
+        BreathPhaseKind.inhale.targetScale,
+      );
+      expect(
+        BreathPhaseKind.holdOut.targetScale,
+        BreathPhaseKind.exhale.targetScale,
+      );
     });
 
     test('both holds read as "Hold" without saying which', () {
@@ -194,6 +199,79 @@ void main() {
         sessionEnd(resonance, 5)!.inMilliseconds,
         (resonance.cycleSeconds * 5 * 1000).round(),
       );
+    });
+  });
+
+  _paceSweep();
+}
+
+// ── RESP-06 · the pace sweep ────────────────────────────────────────────────
+//
+// The three things that make it a measurement rather than a coin toss: a block
+// that did not score kills the ranking, a tie is not a winner, and the default
+// does not move until two sittings agree.
+
+void _paceSweep() {
+  group('paceAt', () {
+    test('5.5 is the SHIPPED resonance pattern, not a second one at the '
+        'same pace', () {
+      expect(paceAt(5.5).key, kBreathPatterns.first.key);
+    });
+
+    test('another rate is an even in/out pattern that actually runs at it', () {
+      final p = paceAt(4.5);
+      expect(p.rate, closeTo(4.5, 1e-9));
+      expect(p.coherenceRated, isTrue);
+      expect(p.phases.map((x) => x.kind), [
+        BreathPhaseKind.inhale,
+        BreathPhaseKind.exhale,
+      ]);
+    });
+
+    test('every tested rate has a distinct key', () {
+      final keys = kPaceSweepRates.map((r) => paceAt(r).key).toSet();
+      expect(keys.length, kPaceSweepRates.length);
+    });
+  });
+
+  group('sweepWinner', () {
+    test('the strongest response wins', () {
+      expect(sweepWinner(kPaceSweepRates, [40, 71, 55]), 5.5);
+    });
+
+    test('an unscored block kills the ranking rather than shrinking it', () {
+      expect(sweepWinner(kPaceSweepRates, [40, null, 55]), isNull);
+    });
+
+    test('a tie at the top is not a winner', () {
+      expect(sweepWinner(kPaceSweepRates, [71, 71, 55]), isNull);
+    });
+
+    test('a sweep stopped part way ranks nothing', () {
+      expect(sweepWinner(kPaceSweepRates, [40, 71]), isNull);
+    });
+  });
+
+  group('agreedPace', () {
+    test('one sitting never moves the default', () {
+      expect(agreedPace([4.5]), isNull);
+      expect(agreedPace(null), isNull);
+    });
+
+    test('two sittings that agree do', () {
+      expect(agreedPace([4.5, 4.5]), 4.5);
+    });
+
+    test('two sittings that disagree do not — including when an older pair '
+        'once agreed', () {
+      expect(agreedPace([6.5, 4.5]), isNull);
+      expect(agreedPace([4.5, 4.5, 6.5]), isNull);
+    });
+
+    test('the picker offers ONE resonance entry either way', () {
+      expect(patternsFor(null).length, kBreathPatterns.length);
+      expect(patternsFor(4.5).length, kBreathPatterns.length);
+      expect(patternsFor(4.5).first.rate, closeTo(4.5, 1e-9));
     });
   });
 }

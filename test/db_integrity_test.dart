@@ -91,6 +91,53 @@ void main() {
     expect([for (final r in rr) r['rr_ms']], [900, 910]);
   });
 
+  // CV-11 ORDERING INVARIANT. The `source` column landed BEFORE the first
+  // 0x180D byte, and the derive/baseline read paths filter on it while the
+  // answer is still trivially "all of them". Resting HR from a chest strap and
+  // from wrist PPG differ systematically; a quiet merge puts a step change into
+  // every baseline the app keeps with no visible cause. This test fails the
+  // moment `source IS NULL` is dropped from either read.
+  test('a non-band source row is excluded from the derive read paths',
+      () async {
+    const ts = 1781000000;
+    await LocalDb.insertRecord(_raw(ts, 700), _sample(ts, 700, [800]));
+
+    final db = await LocalDb.instance;
+    // Written straight in: nothing in the app writes a non-NULL source to
+    // these tables today, and that is exactly the state the filter guards.
+    await db.insert('decoded_onehz', {
+      'counter': 701,
+      'rec_ts': ts + 1,
+      'hr': 155,
+      'source': 'Chest strap',
+    });
+    await db.insert('decoded_rr', {
+      'rec_ts': ts + 1,
+      'beat_index': 0,
+      'rr_ts_ms': (ts + 1) * 1000,
+      'rr_ms': 390,
+      'source': 'Chest strap',
+    });
+
+    final page = await LocalDb.decodedOneHzBatchByRecTsRange(
+      limit: 100,
+      fromRecTs: ts,
+      toRecTs: ts + 1,
+    );
+    expect([for (final r in page) r['rec_ts']], [ts]);
+
+    final rr = await LocalDb.decodedRrByRecTsRange(
+      fromRecTs: ts,
+      toRecTs: ts + 1,
+    );
+    expect([for (final r in rr) r['rr_ms']], [800]);
+
+    // The onboarding/day-walk anchor too — a chest-strap second is not "when
+    // your data starts".
+    final (_, hi) = await LocalDb.firstAndLastRecordTs();
+    expect(hi, isNot(ts + 1));
+  });
+
   test('prune deletes decoded_rr by rec_ts, keeps recent beats', () async {
     const oldTs = 1700000000; // strictly before the cutoff below
     final db = await LocalDb.instance;

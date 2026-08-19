@@ -104,15 +104,13 @@ class ClockRef {
   int get driftSec => wall - device;
 }
 
-/// The dedup grid the record-time correction snaps to. Repeated re-syncs of the
-/// SAME physical record (a band that re-floods after a missed ACK) must land on
-/// the IDENTICAL corrected rec_ts, or the decoded_onehz UNIQUE(rec_ts) dedup
-/// admits duplicates. Snapping the correction to a coarse grid makes the result
-/// stable even if the strap↔wall offset wobbles by a few seconds between syncs.
-const int kRecTsGridSeconds = 300; // 5-minute grid
-
-/// Snap [ts] DOWN to the nearest [grid]-second boundary.
-int snapToGrid(int ts, [int grid = kRecTsGridSeconds]) => (ts ~/ grid) * grid;
+// NO RTC SALVAGE PASS. `ClockPolicy.correctRecordTs` used to live here — it
+// shifted a gate-dropped record by the strap↔wall offset and SNAPPED the result
+// to a 5-minute grid so re-syncs deduped. It never had a caller, and it must
+// not get one: our records are 1 Hz, so snapping 300 consecutive seconds onto
+// one rec_ts would have decoded_onehz REPLACE 299 of every 300 rows — and then
+// the burst ACKs and the band trims the originals. Gate-dropped bytes stay in
+// raw_archive as bytes; the day keeps an honest hole.
 
 class ClockPolicy {
   /// Whether a GET_CLOCK `clock_epoch` read may be trusted enough to become
@@ -176,46 +174,6 @@ class ClockPolicy {
   static bool phoneClockSuspect(int deviceClock, int wallNow) =>
       deviceClock >= kMinPlausibleUnix &&
       deviceClock > wallNow + kFutureMargin;
-
-  /// Salvage an implausible record time using the strap↔wall clock offset
-  /// (device→wall = [clockWall] - [deviceClock]). A wandering/unset RTC offsets
-  /// EVERY record in a session by the same amount, so shifting by that offset
-  /// recovers the true wall time. Conservative by design:
-  ///   - only corrects when the offset exceeds 1 day (small drift is left alone —
-  ///     the embedded time is trusted for sub-day skew);
-  ///   - SNAPS the result to a 5-minute grid so repeated re-syncs dedupe to the
-  ///     identical rec_ts (protects the decoded_onehz UNIQUE(rec_ts) key);
-  ///   - never returns a time past wall-clock-now;
-  ///   - the result must still pass [isPlausibleUnix] against the session's own
-  ///     GET_DATA_RANGE ±7-day band.
-  /// Returns the corrected+snapped ts, or null when it can't be made plausible
-  /// (the caller then drops the record, exactly as before).
-  static int? correctRecordTs(
-    int recTs, {
-    required int wallNow,
-    int? deviceClock,
-    int? clockWall,
-    int? sessionOldestUnix,
-    int? sessionNewestUnix,
-  }) {
-    if (deviceClock == null || clockWall == null) return null;
-    final offset = clockWall - deviceClock;
-    if (offset.abs() <= 86400) return null; // sub-day drift — don't manufacture a fix
-    var corrected = recTs + offset;
-    // Snap FIRST, then clamp: snapping down can only lower the value, so a value
-    // that was <= now stays <= now, and we still guard the post-snap result.
-    corrected = snapToGrid(corrected);
-    if (corrected > wallNow) return null; // never push a record into the future
-    if (!isPlausibleUnix(
-      corrected,
-      wallNow,
-      sessionOldestUnix: sessionOldestUnix,
-      sessionNewestUnix: sessionNewestUnix,
-    )) {
-      return null;
-    }
-    return corrected;
-  }
 }
 
 // ── periodic-backfill rate policy ────────────────────────────────────────────

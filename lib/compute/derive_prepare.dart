@@ -317,12 +317,17 @@ PreparedDerivationPayload prepareDerivationPayload(
   Substrate sub, {
   String? targetDay,
   SleepWindowOverride? override,
+  List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
   }
   final days = <PreparedDerivationDay>[];
-  for (final day in calendarDays(sub, override: override)) {
+  for (final day in calendarDays(
+    sub,
+    override: override,
+    priorSleep: priorSleep,
+  )) {
     if (targetDay != null && day.date != targetDay) continue;
     final daySub = sub.slice(day.startSec, day.endSec);
     final napSub = sub.slice(day.startSec, day.endSec + napBoundaryBufferSec);
@@ -372,9 +377,10 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   Substrate sub, {
   required String targetDay,
   SleepWindowOverride? override,
+  List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
 }) {
-  final payload =
-      prepareDerivationPayload(sub, targetDay: targetDay, override: override);
+  final payload = prepareDerivationPayload(sub,
+      targetDay: targetDay, override: override, priorSleep: priorSleep);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
   final day = payload.days.first;
   return SleepSessionCandidate(
@@ -402,6 +408,26 @@ class _PrepareAccumulator {
   final List<int> skinTemp = [];
   final List<int> skinContact = [];
 
+  /// Gen5 on-chip cumulative step counter, `-1` = the record carried none.
+  /// See [Substrate.stepCount] for why the sentinel is not 0.
+  final List<int> stepCount = [];
+  final List<int> hrValid = [];
+
+  /// The DISTINCT non-null `device_family` stamps seen across every page fed in
+  /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
+  /// family. Zero (nothing stamped: pre-v41 rows, imports, the raw-hex replay
+  /// path) or more than one (the athlete changed straps inside this window) ⇒
+  /// null, i.e. UNKNOWN, and per-family metrics refuse. Cheaper than a
+  /// per-second array and it answers the only question anyone asks.
+  final Set<String> _families = {};
+
+  void _noteFamily(Object? v) {
+    if (v is String && v.isNotEmpty) _families.add(v);
+  }
+
+  String? get deviceFamily =>
+      _families.length == 1 ? _families.first : null;
+
   /// Defensive numeric read. The decoded-page rows come straight out of SQLite,
   /// where a column's storage class is per-VALUE, not per-column — a row written
   /// by an older/importing path can hand back a String or null where an INTEGER
@@ -424,6 +450,14 @@ class _PrepareAccumulator {
     spo2Ir.addAll(sub.spo2Ir);
     skinTemp.addAll(sub.skinTemp);
     skinContact.addAll(sub.skinContact);
+    // decodeSubstrate fills -1 for the whole page (gen4 R24 has no counter),
+    // but read it rather than assuming, so the arrays stay 1:1 with tsSec.
+    stepCount.addAll(sub.stepCount.length == sub.length
+        ? sub.stepCount
+        : List<int>.filled(sub.length, -1));
+    hrValid.addAll(sub.hrValid.length == sub.length
+        ? sub.hrValid
+        : List<int>.filled(sub.length, -1));
   }
 
   void addDecodedPage(
@@ -443,20 +477,51 @@ class _PrepareAccumulator {
     for (final row in frames) {
       final recTs = _num(row['rec_ts'])?.toInt();
       if (recTs == null || recTs <= 0) continue;
+      _noteFamily(row['device_family']);
       tsSec.add(recTs);
-      hr.add(_num(row['hr'])?.toInt() ?? 0);
+      hr.add(plausibleHrOrZero(_num(row['hr'])?.toInt() ?? 0));
+      // The 1 Hz arrays are POSITIONAL — one entry per second, 1:1 with tsSec —
+      // so a NULL sensor column (schema v39: absent, never coerced to a real
+      // reading) must still occupy its slot. It lands as the array's ABSENT
+      // SENTINEL, which is what every reader tests, not as a measurement:
+      //   accel  → exact (0, 0, 0), read back through `Substrate.accelPresentAt`
+      //            (no real sensor reads 0 g on all three axes — see that doc)
+      //   ADC    → 0, read back through the `v > 0` gate every ADC consumer uses
+      // Same discipline as `stepCount`'s -1 below.
       ax.add(_num(row['ax'])?.toDouble() ?? 0);
       ay.add(_num(row['ay'])?.toDouble() ?? 0);
       az.add(_num(row['az'])?.toDouble() ?? 0);
       spo2Red.add(_num(row['spo2_red_raw'])?.toInt() ?? 0);
       spo2Ir.add(_num(row['spo2_ir_raw'])?.toInt() ?? 0);
-      skinTemp.add(_num(row['skin_temp_raw'])?.toInt() ?? 0);
-      // `decoded_onehz` has no skin-contact column, so the live decoded path
-      // genuinely has no contact signal to offer; a page that DOES carry one
-      // (the raw-decode fallback) is honoured. Keeping the array 1:1 with
-      // tsSec is what lets `Substrate.fromJson` tell "absent" (empty ⇒
-      // zero-filled) from "present but zero".
-      skinContact.add(_num(row['skin_contact'])?.toInt() ?? 0);
+      // gen4 stores skin temp as a raw ADC count (`skin_temp_raw`); gen5 v18
+      // decodes it to °C and stores THAT (`skin_temp_c`), leaving skin_temp_raw
+      // NULL on every row. Reading only the gen4 column meant a WHOLE gen5
+      // install never produced a skin-temp reading and readiness ran on three
+      // drivers forever, with the band delivering the measurement all along.
+      // Both are only ever used RELATIVE to the user's own baseline (a z), so
+      // carry whichever the row has, in centi-°C to stay integral and positive
+      // through the `v > 0` gate every ADC consumer uses. A user who swaps
+      // gen4 → gen5 mid-history steps the baseline once; the z re-settles.
+      final tempRaw = _num(row['skin_temp_raw'])?.toInt();
+      final tempC = _num(row['skin_temp_c'])?.toDouble();
+      skinTemp.add(tempRaw ?? (tempC == null ? 0 : (tempC * 100).round()));
+      // NO skin contact on the decoded path, and no column to read: the byte the
+      // name refers to is the sign+exponent half of a float32, never a contact
+      // measurement. The array stays 1:1 with tsSec, all-zero ⇒ absent.
+      skinContact.add(0);
+      // `decoded_onehz.step_count` is NULL on every gen4 row and on any gen5
+      // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
+      // reading from a band that has not moved since its counter last wrapped.
+      stepCount.add(_num(row['step_count'])?.toInt() ?? -1);
+      // CV-04a — the band's own "this second's beat is valid" flag, the first
+      // of the five write-only gen5 columns to reach Substrate.
+      //
+      // NULL IS ABSENT (-1), NOT FALSE. gen4's R24 has no such field, so every
+      // gen4 row is NULL here, and a `?? 0` would tell every downstream reader
+      // that a whole generation's beats were rejected BY THE BAND. 0 is a real
+      // reading and only gen5 can produce it. `Substrate.hrValidAt` gates the
+      // read on `device_family == 'gen5'` on top of this.
+      hrValid.add(_num(row['hr_valid'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
@@ -480,5 +545,8 @@ class _PrepareAccumulator {
     spo2Ir: spo2Ir,
     skinTemp: skinTemp,
     skinContact: skinContact,
+    stepCount: stepCount,
+    hrValid: hrValid,
+    deviceFamily: deviceFamily,
   );
 }

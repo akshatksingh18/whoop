@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/notify/charge_alert_policy.dart';
 import 'package:openstrap_edge/notify/device_alerts.dart';
+import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 
 class _Shown {
@@ -27,15 +28,16 @@ class _Shown {
 
 class _FakeSink implements DeviceAlertSink {
   final List<_Shown> shown = [];
+  final List<NotificationEvent> events = [];
   final List<int> cancelled = [];
 
+  /// The gate presented it. A sink that returns FALSE is the dropped case,
+  /// which [_DroppingSink] covers.
   @override
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
-    shown.add(_Shown(id, title));
+  Future<bool> show(NotificationEvent e) async {
+    events.add(e);
+    shown.add(_Shown(e.osId!, e.title));
+    return true;
   }
 
   @override
@@ -62,13 +64,27 @@ class _ThrowingSink implements DeviceAlertSink {
   int attempts = 0;
 
   @override
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
+  Future<bool> show(NotificationEvent e) async {
     attempts++;
     throw StateError('unavailable');
+  }
+
+  @override
+  Future<void> cancel(int id) async {}
+}
+
+/// A sink that always reports the alert was DROPPED by the shared gate —
+/// quiet hours, the device category switched off, no OS permission. Nothing
+/// was presented and nothing was queued, so a once-per-drain latch spent on
+/// one of these is a low-battery warning the user never gets for the rest of
+/// the drain.
+class _DroppingSink implements DeviceAlertSink {
+  int attempts = 0;
+
+  @override
+  Future<bool> show(NotificationEvent e) async {
+    attempts++;
+    return false;
   }
 
   @override
@@ -497,6 +513,40 @@ void main() {
       expect(failing.attempts, 1);
     });
 
+    test('a DROPPED alert does not spend the once-per-drain latch', () async {
+      // The other half of the AGENTS.md 4.3 rule. A THROWING sink spends the
+      // latch (above) because we cannot know what the plugin did. A sink that
+      // returns FALSE told us plainly that nothing was presented and nothing
+      // was queued — quiet hours, category off, no permission — so the latch
+      // must stay armed and the next state update must try again. Spending it
+      // here meant the user was never told the band was flat for the whole
+      // drain, since re-arming needs 25% or a charger.
+      final dropping = _DroppingSink();
+      final a = DeviceAlerts(sink: dropping, store: store);
+      for (var i = 0; i < 3; i++) {
+        a.onDeviceState(batteryPct: 12);
+        await a.settled;
+      }
+      expect(dropping.attempts, 3);
+      // And nothing was persisted as disarmed, so a restart still tries.
+      expect(store.values['device_alerts.low_armed'], isNot(0));
+    });
+
+    test('a drop then a delivery still fires exactly once', () async {
+      final dropping = _DroppingSink();
+      final first = DeviceAlerts(sink: dropping, store: store);
+      first.onDeviceState(batteryPct: 12);
+      await first.settled;
+
+      // Quiet hours ended: the same drain now gets its one alert.
+      final second = DeviceAlerts(sink: sink, store: store);
+      second.onDeviceState(batteryPct: 11);
+      await second.settled;
+      second.onDeviceState(batteryPct: 10);
+      await second.settled;
+      expect(sink.countOf(NotificationService.idLowBattery), 1);
+    });
+
     test('a replayed plug-in does not re-arm the low alert', () async {
       final a = alerts();
       a.onDeviceState(batteryPct: 12);
@@ -516,6 +566,58 @@ void main() {
       a.onDeviceState(batteryPct: 12, charging: true, chargingTs: tsAged(2));
       await a.settled;
       expect(sink.countOf(NotificationService.idLowBattery), 0);
+    });
+  });
+
+  // T-02: these used to go straight to the plugin via
+  // NotificationService.showDevice, which consulted neither quiet hours nor the
+  // user's category switch and passed no payload, so a 23:30 plug-in buzzed the
+  // phone and the tap did nothing. They are NotificationEvents now, which is
+  // what gets them through NotificationPrefs.shouldFireOs on the way out.
+  group('band alerts speak the shared emitter\'s currency', () {
+    late _FakeSink sink;
+    late _FakeStore store;
+
+    setUp(() {
+      sink = _FakeSink();
+      store = _FakeStore();
+    });
+
+    test('every alert carries a category, a route and its fixed os id',
+        () async {
+      final a = DeviceAlerts(sink: sink, store: store);
+      a.onDeviceState(batteryPct: 90, charging: true, chargingTs: tsAged(2));
+      await a.settled;
+      a.onDeviceState(batteryPct: 12, charging: false, chargingTs: tsAged(2));
+      await a.settled;
+
+      expect(sink.events, hasLength(2));
+      for (final e in sink.events) {
+        expect(e.category, NotifCategory.device);
+        // Quiet hours apply: a flat band can wait until morning.
+        expect(e.priority, NotifPriority.normal);
+        // Without a payload the tap is dropped by the OS tap handler.
+        expect(e.route, '/profile');
+        expect(e.date, isNotEmpty);
+      }
+      expect(sink.events.first.osId, NotificationService.idCharging);
+      expect(sink.events.last.osId, NotificationService.idLowBattery);
+    });
+
+    test('the dedupe key is the real event identity, not just the day',
+        () async {
+      final a = DeviceAlerts(sink: sink, store: store);
+      a.onDeviceState(batteryPct: 90, charging: true, chargingTs: tsAged(2));
+      await a.settled;
+      // Charger off, then a genuinely NEW plug-in the same day. A key that was
+      // only date+kind would have swallowed the second one at the emitter.
+      a.onDeviceState(batteryPct: 92, charging: false, chargingTs: tsAged(1));
+      await a.settled;
+      a.onDeviceState(batteryPct: 92, charging: true, chargingTs: tsAged(0));
+      await a.settled;
+
+      final keys = sink.events.map((e) => e.dedupeKey).toSet();
+      expect(keys, hasLength(sink.events.length));
     });
   });
 }

@@ -54,7 +54,11 @@ Future<void> _insertHr(int fromTs, int toTs, int Function(int ts) hrOf,
     samples.add(_sample(ts, c, hrOf(ts)));
     c++;
   }
-  await LocalDb.insertRecordsBatch(raws, samples);
+  // STAMPED gen4 — since TS-03a the zone ceiling is `estimatedMaxHr(age,
+  // family)`, so unstamped rows have no ceiling and draw no zone bands.
+  // `commitSyncBatch` is the seam that carries the stamp; `insertRecordsBatch`
+  // has none.
+  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
 }
 
 void main() {
@@ -88,7 +92,10 @@ void main() {
     LocalDb.dbName = 'openstrap_workout_enrichment_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
-    repo = LocalRepositoryImpl(getProfileMap: () => {'age': 30}); // maxHr 190
+    // maxHr = estimatedMaxHr(30, 'gen4') = 208 - 0.7*30 = 187 (TS-03a). It was
+    // 220-30 = 190 here and Tanaka 187 in the analytics anchors for the SAME
+    // session; one ceiling now, and it takes the strap as well as the age.
+    repo = LocalRepositoryImpl(getProfileMap: () => {'age': 30});
   });
 
   tearDownAll(() async {
@@ -113,6 +120,8 @@ void main() {
       'strain': 8.5,
       'duration_min': 10,
       'source': 'manual',
+      // Which strap measured it — the zone ceiling dispatches on this.
+      'device_family': 'gen4',
       'created_at': start * 1000,
     });
     // In-session: 120 bpm then 150 bpm.
@@ -137,17 +146,19 @@ void main() {
       expect(e['t'], inInclusiveRange(start - 60, end));
     }
 
-    // Zones at maxHr 190: 120 bpm = 63% → Z2, 150 bpm = 79% → Z3; 5 min each.
+    // Zones at maxHr 187: 120 bpm = 64% → Z2, 150 bpm = 80.2% → Z4; 5 min each.
+    // 150 sat in Z3 under the old 190 ceiling — the same heartbeat, banded
+    // differently by the two conventions the app used to carry at once.
     final bands = (w['zone_bands'] as List).cast<Map>();
     expect(bands.length, 5);
     expect(bands[0]['zone'], 1);
     expect((bands[1]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z2
-    expect((bands[2]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z3
+    expect((bands[3]['min'] as num).toDouble(), closeTo(5.0, 0.1)); // Z4
     expect(bands[1]['pct'], 50);
-    expect(bands[3]['min'], 0);
-    // lo/hi bpm edges follow the 50/60/70/80/90% thresholds of maxHr 190.
-    expect(bands[0]['lo'], 95);
-    expect(bands[4]['hi'], 190);
+    expect(bands[2]['min'], 0);
+    // lo/hi bpm edges follow the 50/60/70/80/90% thresholds of maxHr 187.
+    expect(bands[0]['lo'], 94);
+    expect(bands[4]['hi'], 187);
 
     // First 150 bpm sample is 300 s in → 5 min to peak.
     expect(w['time_to_peak_min'], 5);
@@ -179,6 +190,28 @@ void main() {
     expect(w['hr'], isNull); // no fabricated curve
     expect(w['avg_hr'], isNull); // → the screens' noData state
     expect(w['zone_bands'], isNull);
+  });
+
+  test('no age in the profile means NO zones — not a 220-30 ceiling', () async {
+    // Age is optional in onboarding. _profileMaxHr used to substitute age 30,
+    // so a user who skipped it got zone bars and a persisted zone_min computed
+    // against a stranger's 190 bpm ceiling, with nothing saying so. The same
+    // refusal now covers a strap with no calibrated ceiling (TS-03a).
+    final ageless = LocalRepositoryImpl(getProfileMap: () => const {});
+    final w = await ageless.getWorkout('w-enrich');
+    expect(w['zone_bands'], anyOf(isNull, isEmpty));
+
+    // A window of its own — the log rejects an overlap with w-enrich.
+    await _insertHr(900000, 900299, (_) => 140, counterBase: 90000);
+    final logged = await ageless.logManualWorkout(
+      startTs: 900000,
+      endTs: 900300,
+      type: 'run',
+    );
+    final saved = await ageless.getWorkout(logged['workout_id'] as String);
+    expect(saved['zone_min'], isEmpty);
+    // The rest of the scoring still lands — only the ceiling is missing.
+    expect(saved['avg_hr'], isNotNull);
   });
 
   test('getWorkouts fills avg_hr per session from the 1 Hz join', () async {
@@ -278,163 +311,17 @@ void main() {
     expect(points.first['t'], t1);
   });
 
-  // ── getRecords: local PRs + streaks ───────────────────────────────────────
+  // ── getRecords: the one integer the Workouts tab reads ────────────────────
 
-  test('getRecords computes PRs with dates, workout count, and streaks',
-      () async {
-    // A third day (2 days ago) to extend the series + streaks.
-    final d2 = DateTime.now().subtract(const Duration(days: 2));
-    await LocalDb.putDayResult(
-      dayId: _label(d2),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': _label(d2),
-        'scalars': {'rhr': 58.0},
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 25800}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 58.0,
-        'strain': 9.0,
-        'tst_min': 430.0,
-        'efficiency': 0.85,
-        'steps': 9000.0,
-        'readiness': 75.0,
-      },
-    );
-
-    // getRecords gates the resting-HR PR on the resting_hr baseline actually
-    // being "trusted" (never celebrate a personal best built on a baseline
-    // the app itself still calls calibrating) — upsert today's bundle with a
-    // trusted status so this test exercises the normal (celebrated) path.
-    // See the "provisional resting_hr baseline hides the PR" test below for
-    // the honesty-gate itself.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {
-          'resting_hr': {'status': 'trusted', 'baseline': 55.0, 'z': 0.0},
-        },
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
+  test('getRecords returns the workout count and nothing else', () async {
     final r = await repo.getRecords();
-    expect(r['days_tracked'], greaterThanOrEqualTo(3));
-    expect(r['nights_tracked'], greaterThanOrEqualTo(3));
+    // Finished sessions only — a live one is not a tracked workout yet.
     expect(r['workouts_tracked'], greaterThanOrEqualTo(2));
-
-    final yLabel = _label(DateTime.now().subtract(const Duration(days: 1)));
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    expect((records['lowest_rhr'] as Map)['value'], 52.0);
-    expect((records['lowest_rhr'] as Map)['date'], yLabel);
-    expect((records['top_strain'] as Map)['value'], 15.4);
-    expect((records['longest_sleep'] as Map)['value'], 465.0);
-    expect((records['best_efficiency'] as Map)['value'], 0.93);
-    expect((records['most_steps'] as Map)['value'], 12000.0);
-    expect((records['top_readiness'] as Map)['value'], 91.0);
-    // Top workout strain comes from the sessions table, typed + dated.
-    expect((records['top_workout'] as Map)['value'], 8.5);
-    expect((records['top_workout'] as Map)['type'], 'run');
-
-    // 3 consecutive derived days (incl. today) → streaks run.
-    final streaks = (r['streaks'] as Map).cast<String, dynamic>();
-    expect((streaks['wear'] as Map)['current'], greaterThanOrEqualTo(3));
-    expect((streaks['sleep'] as Map)['current'], greaterThanOrEqualTo(3));
-  });
-
-  test(
-      "getRecords hides the resting-HR PR while its baseline is only "
-      "'calibrating' — never celebrate an unreliable number", () async {
-    // Downgrade today's resting_hr baseline status (still the latest bundle
-    // from the previous test) to calibrating.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {
-          'resting_hr': {'status': 'calibrating', 'baseline': 55.0, 'z': 0.0},
-        },
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
-    final r = await repo.getRecords();
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    // The resting-HR PR is gone — a calibrating baseline is not a trust the
-    // app can vouch for, so nothing celebrates it.
-    expect(records.containsKey('lowest_rhr'), isFalse);
-    // Every other record type is untouched by the gate (no equivalent trust
-    // concept exists for them in this codebase — see local_repository_impl
-    // comment at the gate).
-    expect((records['top_strain'] as Map)['value'], 15.4);
-    expect((records['top_readiness'] as Map)['value'], 91.0);
-  });
-
-  test(
-      "getRecords doesn't throw when baselines.resting_hr is malformed — "
-      "falls into the honest 'not trusted' branch instead of "
-      'NoSuchMethodError (the dotted-_sub-path fix)', () async {
-    // resting_hr is a String here, not a Map — the old chained
-    // `?['resting_hr']?['status']` indexing would throw on this shape.
-    await LocalDb.putDayResult(
-      dayId: todayLabel(),
-      algoVersion: 1,
-      payloadJson: jsonEncode({
-        'date': todayLabel(),
-        'scalars': {'rhr': 55.0},
-        'baselines': {'resting_hr': 'not-a-map'},
-        'sleep': {
-          'accounting': {'value': {'tst_sec': 24000}},
-        },
-      }),
-      windowJson: '{}',
-      finalized: false,
-      series: const {
-        'rhr': 55.0,
-        'strain': 12.1,
-        'tst_min': 400.0,
-        'efficiency': 0.88,
-        'steps': 8000.0,
-        'readiness': 80.0,
-      },
-    );
-
-    final r = await repo.getRecords();
-    final records = (r['records'] as Map).cast<String, dynamic>();
-    expect(records.containsKey('lowest_rhr'), isFalse);
+    // Everything else this used to compute had zero consumers: the records and
+    // streaks screens are gone, and the tab awaited a full-history PR sweep,
+    // seven metric_series scans, a json_extract over every stored day bundle
+    // and a bundle decode to read one count.
+    expect(r.keys, ['workouts_tracked']);
   });
 
   // ── zone_min accumulation shape (#15) ─────────────────────────────────────
@@ -447,5 +334,62 @@ void main() {
     w.zoneSeconds[3] = 90; // Z3: 1.5 min
     w.zoneSeconds[5] = 30; // Z5: 0.5 min
     expect(w.zoneMinutes(), [0.0, 5.0, 1.5, 0.0, 0.5]);
+  });
+
+  // LAST in the file on purpose — it prunes the 1 Hz substrate every test above
+  // depends on.
+  test('the session trace outlives the substrate (TS-01)', () async {
+    const s = 1200000;
+    const e = 1200600;
+    await LocalDb.putSession({
+      'id': 'w-frozen',
+      'start_ts': s,
+      'end_ts': e,
+      'type': 'run',
+      'status': 'done',
+      'duration_min': 10,
+      'source': 'manual',
+      'created_at': s * 1000,
+    });
+    await _insertHr(s, s + 299, (_) => 120, counterBase: 110000);
+    await _insertHr(s + 300, e - 1, (_) => 150, counterBase: 120000);
+
+    // First open scores it, which is also what freezes the trace.
+    final live = await repo.getWorkout('w-frozen');
+    expect((live['hr'] as List).isNotEmpty, isTrue);
+    expect(live['trace_samples'], 600);
+    expect(live['trace_coverage_pct'], 100);
+
+    // The band's 1 Hz window ages out — which is what used to blank the whole
+    // chart half of this screen on day four, permanently.
+    await LocalDb.pruneDecodedBeforeRecTs(e + 100000);
+    expect(await LocalDb.hrSamplesInRange(s, e), isEmpty);
+
+    final frozen = await repo.getWorkout('w-frozen');
+    expect(frozen['hr'], live['hr']);
+    expect(frozen['zone_bands'], live['zone_bands']);
+    expect(frozen['time_to_peak_min'], live['time_to_peak_min']);
+    expect(frozen['hr_drift_pct'], live['hr_drift_pct']);
+    expect(frozen['min_hr'], live['min_hr']);
+    expect(frozen['trace_samples'], 600);
+    // avg_hr survives in its own column, as it already did.
+    expect(frozen['avg_hr'], live['avg_hr']);
+
+    // A session that aged out before the column existed gets NO trace — never
+    // a reconstructed one.
+    await LocalDb.putSession({
+      'id': 'w-pre-trace',
+      'start_ts': s - 10000,
+      'end_ts': s - 9400,
+      'type': 'run',
+      'status': 'done',
+      'duration_min': 10,
+      'source': 'manual',
+      'created_at': (s - 10000) * 1000,
+    });
+    final none = await repo.getWorkout('w-pre-trace');
+    expect(none['hr'], isNull);
+    expect(none['zone_bands'], isNull);
+    expect(none['trace_samples'], isNull);
   });
 }

@@ -33,12 +33,15 @@ const _profile = Profile(
 // to `sessions.strain` on stop will disagree with everything else.
 void main() {
   group('LiveWorkoutState — live strain rides the same method', () {
+    // 187 = estimatedMaxHr(30, gen4|gen5) — the ONE ceiling since TS-03a,
+    // resolved by AppState from the age and the strap and handed to the session.
     LiveWorkoutState make() => LiveWorkoutState(
           startTime: DateTime(2026, 1, 1, 9),
           targetKcal: 300,
           type: 'run',
           age: 30,
           profile: _profile,
+          hrMax: 187.0,
           restingHr: 55,
         );
 

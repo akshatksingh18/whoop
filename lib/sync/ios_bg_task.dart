@@ -34,7 +34,6 @@ import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
-import '../models/payloads.dart';
 import '../widget/widget_service.dart';
 import 'background_sync.dart';
 import 'headless_gate.dart';
@@ -150,12 +149,8 @@ class IosBgTask {
   /// was (or "I don't have today's numbers yet" if that never happened at
   /// all). Best-effort — never throws into the caller.
   static Future<void> _refreshWidgetSnapshot(Profile profile) async {
-    try {
-      final repo = LocalRepositoryImpl(getProfileMap: () => profile.toMap());
-      final today = await repo.getToday();
-      await WidgetService.push(TodayData.fromJson(today));
-    } catch (e) {
-      debugPrint('[ios-bgtask] widget snapshot refresh skipped: $e');
-    }
+    await WidgetService.refresh(
+      LocalRepositoryImpl(getProfileMap: () => profile.toMap()),
+    );
   }
 }

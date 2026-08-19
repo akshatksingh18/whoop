@@ -14,6 +14,12 @@
     <!-- FGS location type (API 34+): lets EdgeTrackingService keep sampling GPS while
          a run/ride/walk session is active and the app is backgrounded. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Camera: reading the barcode on a food packet in the food log, and
+         nothing else. No frame is captured, stored or sent — mobile_scanner is
+         asked for the digits only. Declared not-required so a phone without a
+         camera still installs; the scan row falls back to typing. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Edge Tracking foreground service: keeps the strap connection alive in the background. -->
@@ -22,6 +28,20 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Band-gesture "ring my phone" haptic. Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The phone's OWN step counter (Sensor.TYPE_STEP_COUNTER), which is the app's
+         only 24/7 step source — a wrist cannot resolve gait at 1 Hz. RUNTIME
+         (dangerous) permission on API 29+; below that the sensor reads without it,
+         which is why minSdk 26 still works. This is NOT a Play Console
+         declaration-class permission, only a data-safety disclosure.
+
+         The listener rides EdgeTrackingService's process (see PhoneStepCounter.kt) —
+         Android 9+ withholds sensor events from background processes and a foreground
+         service of ANY type lifts that. We deliberately do NOT claim the API 34
+         "health" FGS type for it: the service's purpose is still the band connection,
+         and each declared type costs a separate Play declaration plus a demo video.
+         If Play ever pushes back, add FOREGROUND_SERVICE_HEALTH here and OR the type
+         into EdgeTrackingService.onStartCommand — no code shape changes. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- Reboot survival: restart EdgeTrackingService + headless auto-connect after device reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- CompanionDeviceManager: association makes us a "companion app" (exempt from the
@@ -37,11 +57,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- OTA self-update: download + launch the system installer for the new APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Notification relay: let the user pick from their installed apps. Android 11+
-         hides the package list without this; OpenStrap ships as a sideloaded APK (not
-         Play-distributed), so broad visibility is acceptable here. -->
+    <!-- QUERY_ALL_PACKAGES: declared for a notification-relay app picker that was
+         never built. Nothing in lib/ or the Kotlin sources calls
+         getInstalledApplications or queryIntentActivities, and the `installed_apps`
+         package it was declared for has no Dart import. It is the most
+         policy-expensive permission there is, so it goes — with node="remove" so a
+         library manifest cannot merge it back in behind us. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
+        tools:node="remove" />
     <!-- ── Health Connect (export to Google Health Connect) ──
          The `health` plugin treats a WRITE request as READ+WRITE (hasPermissions
          checks both), so the READ_* permissions MUST be declared too even though
@@ -71,6 +94,18 @@
          than failing, so an omission here looks exactly like an empty store. -->
     <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_HEIGHT" />
+    <!-- READ only, and there will never be a WRITE counterpart. These come
+         from devices CLEARED to take them — a blood-pressure cuff, a CGM, a
+         thermometer — and the whole value is that OpenStrap did not measure
+         them. They are shown with the source app's name attached, they are
+         never blended into anything of ours, and nothing derived takes one as
+         an input. See lib/health/health_measurement_import.dart. -->
+    <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
+    <uses-permission android:name="android.permission.health.READ_BLOOD_GLUCOSE" />
+    <uses-permission android:name="android.permission.health.READ_BODY_TEMPERATURE" />
+    <!-- Seeding a SHADOW resting-HR baseline from history the phone already
+         holds (lib/health/health_rhr_seed.dart). READ_RESTING_HEART_RATE is
+         already declared above for the write path. -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <!-- CompanionDeviceManager availability (not required: devices without it just skip
          the association and rely on the sticky service + watchdog). -->
@@ -80,7 +115,10 @@
     <application
         android:label="Edge"
         android:name=".EdgeApplication"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@mipmap/launcher_icon"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true">
         <!-- ── ZERO-COLLECTION BY DEFAULT (privacy tier 1) ──
              Every Firebase SDK auto-starts collecting the moment the app
              process does: Analytics logs first_open/session_start, Performance

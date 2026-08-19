@@ -35,6 +35,7 @@ import '../charts.dart';
 import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
 import '../theme.dart';
+import 'log_workout.dart';
 import 'start_card.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -457,26 +458,81 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   // ─────────────── HISTORY ───────────────
+
+  /// Open a screen that can write a session, then re-read. Every write path on
+  /// this tab goes through here: `AppState.insightsRevision` is what
+  /// [_onRevision] listens to, and a screen that saved while this one was
+  /// parked still has to leave the list correct on the way back.
+  Future<void> _push(BuildContext c, Widget w) async {
+    await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
+    if (mounted) _reload();
+  }
+
+  void _reload() {
+    final app = context.read<AppState>();
+    setState(() {
+      _loadedAt = app.insightsRevision.value;
+      _load = _loadWorkoutData(app);
+    });
+  }
+
+  /// The detector's unreviewed bouts, at the top of History where the sessions
+  /// they might become are listed.
+  ///
+  /// This is the surface that was missing, not a second copy of one: the
+  /// notification is the only thing that has ever pointed at
+  /// `workout_suggestions`, and it is emitted on a channel `classOf` drops, so
+  /// it does not fire. Without this the rows accumulate forever, unseen.
+  List<Widget> _suggestionCards(BuildContext c, _WorkoutData d) {
+    if (d.suggestions.isEmpty) return const [];
+    final n = d.suggestions.length;
+    return [
+      StatusCard(
+        n == 1
+            ? 'One effort we spotted but did not log'
+            : '$n efforts we spotted but did not log',
+        'The band saw sustained work and nothing was started for it. Nothing '
+            'is logged until you say so.',
+        fix: 'Review ${n == 1 ? 'it' : 'them'}',
+        icon: LucideIcons.radar,
+        onFix: () =>
+            _push(c, WorkoutSuggestionScreen(preloaded: d.suggestions)),
+      ),
+      const SizedBox(height: S.x5),
+    ];
+  }
+
+  /// Back-log a session the band never saw, or never saw the whole of.
+  Widget _logPastCard(BuildContext c) => StatusCard(
+        'Did something the band missed?',
+        'Enter the times yourself and it is scored from the heart rate '
+            'recorded across them, like any other session.',
+        fix: 'Log a past workout',
+        icon: LucideIcons.calendarPlus,
+        onFix: () => _push(c, const LogWorkout()),
+      );
+
   List<Widget> _history(BuildContext c, _WorkoutData d) {
     final p = P.of(c);
     if (d.workouts.isEmpty) {
       return [
+        ..._suggestionCards(c, d),
         StatusCard(
           'No sessions recorded yet',
-          // Auto-detection writes `workout_suggestions` and nothing reads it
-          // (lib/app.dart:339), so a detected effort never arrives here. The
-          // string used to tell the user to wait for it.
           'Sessions appear here once you start one.',
           fix: 'Start a workout',
           onFix: () => _openPicker(c, d),
           icon: LucideIcons.dumbbell,
         ),
         const SizedBox(height: S.x5),
+        _logPastCard(c),
+        const SizedBox(height: S.x5),
         ..._importCard(c, d),
       ];
     }
     final importedThisWeek = d.weekImported;
     return [
+      ..._suggestionCards(c, d),
       Row(children: [
         Expanded(child: _sum(p, '${d.workoutsTracked ?? d.workouts.length}',
             'Tracked')),
@@ -506,9 +562,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
-        _HistoryRow(w, weightKg: d.weightKg),
+        _HistoryRow(w,
+            weightKg: d.weightKg,
+            // A retime is a re-score over the new window, so it is offered
+            // only where there is something of ours to re-score: an imported
+            // row's times belong to the app that recorded it, and this band
+            // measured nothing across them.
+            onRetime: w.importedFrom == null && w.id.isNotEmpty
+                ? () => _push(
+                      c,
+                      LogWorkout(
+                        sessionId: w.id,
+                        start: w.start,
+                        end: w.start.add(w.duration),
+                        activity: w.activity,
+                        title: 'Fix the times',
+                      ),
+                    )
+                : null),
         const SizedBox(height: S.x3),
       ],
+      const SizedBox(height: S.x3),
+      _logPastCard(c),
       const SizedBox(height: S.x3),
       ..._importCard(c, d),
     ];
@@ -734,7 +809,12 @@ class _QuickTile extends StatelessWidget {
 class _HistoryRow extends StatelessWidget {
   final _PastWorkout w;
   final double? weightKg;
-  const _HistoryRow(this.w, {this.weightKg});
+
+  /// Widen or correct this session's window. Null for an imported row, and for
+  /// a session with no id to retime.
+  final VoidCallback? onRetime;
+
+  const _HistoryRow(this.w, {this.weightKg, this.onRetime});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -835,6 +915,23 @@ class _HistoryRow extends StatelessWidget {
             value: stats[i].$2,
             unit: stats[i].$3,
             accent: p.on(a.color),
+          ),
+        ],
+        // The way to correct a window the detector clipped, or one a session
+        // started late. Nested inside the card's own tap: the inner Pressable
+        // wins, so the row still opens the summary everywhere else.
+        if (onRetime != null) ...[
+          Divider(color: p.line, height: S.x5),
+          Pressable(
+            onTap: onRetime,
+            semanticLabel: 'Fix the times on this session',
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
+              const SizedBox(width: S.x2),
+              Text('Fix the times',
+                  style: F.cap.copyWith(
+                      color: p.on(C.blue), fontWeight: FontWeight.w600)),
+            ]),
           ),
         ],
       ]),
@@ -1521,6 +1618,16 @@ class _WorkoutData {
   /// which takes months, and that is the honest state until then.
   final List<MorningEffect> morningAfter;
 
+  /// The detector's active bouts — every "did you work out?" that has neither
+  /// been logged nor dismissed. Empty when auto-detection is switched off.
+  ///
+  /// These rows have been written on every derive since the detector shipped
+  /// and read by nothing, so a detected effort was invisible unless a
+  /// notification happened to catch you. The notification is not enough on its
+  /// own: it is emitted on the `recovery` channel, which `classOf` drops, so
+  /// in this build it never actually fires.
+  final List<Suggestion> suggestions;
+
   /// When the phone's health store last handed us a workout, or null for
   /// never. It is the whole difference between an Import button and a Refresh
   /// one — see health_import_state.dart for why the store cannot be asked.
@@ -1544,6 +1651,7 @@ class _WorkoutData {
     this.setHistory = const {},
     this.overreach,
     this.morningAfter = const [],
+    this.suggestions = const [],
     this.importedLast,
   });
 
@@ -1778,6 +1886,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       setHistory: history,
       overreach: overreach,
       morningAfter: morningAfter,
+      suggestions: await activeSuggestions(),
       importedLast: await lastImportAt(HealthImport.workouts),
     );
 }

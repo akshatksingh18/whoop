@@ -224,16 +224,24 @@ void main() {
     });
 
     test(
-        'readinessBand cuts at 40/66 — MUST match the Today ring\'s own '
-        'word-thresholds (score>=66 Push, >=40 Focus, else Recover) or '
-        'the briefing and the ring can disagree again', () {
-      // Just below/at each ring boundary.
-      expect(readinessBand(39), 'low'); // ring: "Recover"
-      expect(readinessBand(40), 'moderate'); // ring: "Focus"
-      expect(readinessBand(65), 'moderate'); // ring: "Focus"
-      expect(readinessBand(66), 'good'); // ring: "Push"
+        'readinessBand is the ring\'s own band, folded to three words — a '
+        'second set of cuts here is how the briefing and Home came to '
+        'disagree about the same number', () {
+      // Every ring boundary (26/37/61), from below and at.
+      expect(readinessBand(0), 'low'); // ring: "Rest today"
+      expect(readinessBand(25.9), 'low'); // ring: "Rest today"
+      expect(readinessBand(26), 'low'); // ring: "Take it easy"
+      expect(readinessBand(36.9), 'low'); // ring: "Take it easy"
+      expect(readinessBand(37), 'moderate'); // ring: "Steady"
+      expect(readinessBand(60.9), 'moderate'); // ring: "Steady"
+      expect(readinessBand(61), 'good'); // ring: "Good to go"
       expect(readinessBand(100), 'good');
-      expect(readinessBand(0), 'low');
+    });
+
+    test('every ring tier has a briefing word', () {
+      for (var v = 0; v <= 100; v++) {
+        expect(readinessBand(v), isIn(const ['low', 'moderate', 'good']));
+      }
     });
   });
 

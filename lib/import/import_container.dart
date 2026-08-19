@@ -169,14 +169,19 @@ Future<bool> isNoopExport(String path) async {
     // Enough to reach the first RECORD, not just the first byte — see
     // [noopCsvFirstRecordMatches]. The container sniff still only reads the
     // magic at the front.
-    head = await raf.read(_headBytes);
+    //
+    // One byte PAST the window, because "the buffer filled" and "the file
+    // stopped" are the same length otherwise: a file of exactly [_headBytes]
+    // read as truncated loses its last record, and a one-record export with no
+    // trailing newline loses the only record it has.
+    head = await raf.read(_headBytes + 1);
   } finally {
     await raf.close();
   }
   switch (sniffImportContainer(head.take(64).toList())) {
     case ImportContainer.text:
       return noopCsvFirstRecordMatches(String.fromCharCodes(head),
-          truncated: head.length == _headBytes);
+          truncated: head.length > _headBytes);
     case ImportContainer.sqlite:
       return true;
     case ImportContainer.zip:

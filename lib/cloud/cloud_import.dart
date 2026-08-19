@@ -23,6 +23,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../compute/derivation_engine.dart' show kAlgoVersion;
+import '../data/day_label.dart' show dayLabelOf;
 import '../data/db.dart';
 import 'backend_client.dart';
 
@@ -49,7 +50,9 @@ class CloudImporter {
     // today so the current local day is never excluded.
     final now = DateTime.now();
     final fromD = now.subtract(Duration(days: days));
-    final from = _ymd(fromD), to = _ymd(now);
+    // day_label.dart is THE one day-label helper (byte-identical output here —
+    // both inputs are local DateTimes).
+    final from = dayLabelOf(fromD), to = dayLabelOf(now);
 
     final profileRaw = await api.getProfile();
     final dailies = await api.getDailies(from, to);
@@ -296,9 +299,6 @@ class CloudImporter {
     });
     return true;
   }
-
-  static String _ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static Map<String, dynamic>? _parseObj(Object? v) {
     if (v is Map) return v.cast<String, dynamic>();

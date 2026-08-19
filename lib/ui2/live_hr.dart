@@ -24,6 +24,8 @@
 //   · It repaints ALONE. A 1 Hz stream hung off a `watch` in a parent would
 //     rebuild that whole tree once a second for the life of the connection.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -120,8 +122,8 @@ class LiveHrCard extends StatelessWidget {
           ),
           const SizedBox(height: S.x2),
           Text(
-            'The last ${trace.length} readings — ${trace.reduce((a, b) => a < b ? a : b)}'
-            '–${trace.reduce((a, b) => a > b ? a : b)} bpm. Not stored; this is '
+            'The last ${trace.length} readings — ${trace.reduce(math.min)}'
+            '–${trace.reduce(math.max)} bpm. Not stored; this is '
             'the live stream, not a record of your day.',
             style: F.over.copyWith(color: p.ink3),
           ),

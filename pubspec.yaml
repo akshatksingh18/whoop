@@ -282,6 +282,10 @@ dependencies:
   # `IconData` became a final class, and PhosphorIconData extends it — which is
   # what was failing 33 test files on main before this branch.
 
+  # Structural deep-equality (series_codec's verifyLossless) — was transitive
+  # via flutter itself; declared directly since lib/ code now imports it.
+  collection: ^1.18.0
+
   # Injectable clock (RouteTracker's stall watchdog) — was a transitive dep via
   # fake_async/flutter_test; declared directly since lib/ code now imports it.
   # `clock.now()` instead of raw DateTime.now() lets fakeAsync tests control

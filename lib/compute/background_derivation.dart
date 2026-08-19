@@ -1,143 +1,26 @@
-// background_derivation.dart — scheduled HEAVY derivation, app-closed.
+// background_derivation.dart — TOMBSTONE of the removed WorkManager scheduling.
 //
-// The light pass (most-recent affected day) is kicked synchronously from every
-// drain/flush completion in AppState (foreground + background BLE wakes) — see
-// AppState._afterDrain. THIS file is the SCHEDULED heavy pass (full sleep
-// staging + 24-h spectra over every stale day).
+// This file used to register two Android WorkManager periodic tasks (sync +
+// heavy derive) at the 15-min floor with NO constraints (requiresCharging:
+// false, requiresBatteryNotLow: false) and a dispatcher that initialized
+// Firebase in every background isolate. `BackgroundDerivation.init()` was
+// deliberately un-wired from main.dart (it collided with AppState's own
+// persistent-connection background session — see the note there, "don't
+// re-add"), which left the registration + dispatcher as dead code whose latent
+// configuration was a battery disaster by construction if anyone ever re-wired
+// it. It is deleted now; background derivation is owned by DeriveScheduler +
+// DeriveDebouncer (background tier) on the persistent connection.
 //
-//   Android: two real OS-scheduled WorkManager periodic jobs (sync + heavy
-//            derive), requested every 10 min and clamped by Android to 15, with
-//            NO constraints — see `init`: `requiresCharging: false`,
-//            `requiresBatteryNotLow: false`, no network, no device-idle. They
-//            run whatever the battery is doing. (This block used to claim
-//            "constrained to when charging + idle is preferred"; nothing in the
-//            registration ever asked for that.) WorkManager genuinely runs us in
-//            a background isolate even when the app is killed.
+// ONLY the unique task names remain: main.dart cancels both by name on every
+// Android cold start, because registrations persisted by the OS survive app
+// updates. Keep the constants (and the cancel calls) until it is reasonable to
+// assume no installed device still carries the old registrations.
 //
-//   iOS:     HONEST CAVEAT — heavy compute on iOS is NOT guaranteed.
-//            BackgroundTasks.swift registers "wtf.openstrap.edge.bgsync" as a
-//            BGProcessingTask and ios_bg_task.dart handles the run→Dart callout
-//            (sync + heavy derive). iOS decides if/when to run it (idle + power
-//            preferred; force-quit apps never run background tasks at all).
-//            Reliable iOS coverage: (a) the light pass during CoreBluetooth-
-//            restoration BLE wakes (IosBleRestore), (b) BGProcessingTask when iOS
-//            grants budget (IosBgTask), and (c) finalize-on-foreground when the
-//            app next opens. We do NOT pretend the BGTask is guaranteed.
-//
-// The WorkManager callback runs in its OWN isolate with no Provider/UI — it reads
-// the profile straight from shared_preferences and drives DerivationEngine, which
-// keeps all DB I/O on that (its own main) isolate and offloads the pure pipeline
-// via Isolate.run.
-
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:flutter/widgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:workmanager/workmanager.dart';
-import 'package:firebase_core/firebase_core.dart';
-import '../firebase_options.dart';
-
-import 'derivation_engine.dart';
-import 'profile.dart';
-import '../sync/background_sync.dart';
-
 // Public (not `_`-prefixed): main.dart needs these unique names to scope its
 // startup cancelByUniqueName() cleanup to exactly these two tasks, without
 // touching unrelated WorkManager jobs (e.g. the native KeepAliveWorker
 // watchdog, which shares the same OS-level WorkManager instance and would
 // otherwise get wiped by an unscoped cancelAll()).
+
 const String kHeavyDeriveTaskName = 'openstrap.derive.heavy';
 const String kSyncTaskName = 'openstrap.sync';
-const String _kProfileKey = 'local_profile_json'; // mirrors AppState._kProfile
-
-/// The WorkManager entry point. MUST be a top-level / static fn with the
-/// @pragma so it survives tree-shaking in the background isolate.
-@pragma('vm:entry-point')
-void derivationDispatcher() {
-  Workmanager().executeTask((task, _) async {
-    WidgetsFlutterBinding.ensureInitialized();
-    try {
-      if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-      }
-    } catch (_) {}
-    
-    try {
-      if (task == kSyncTaskName) {
-        debugPrint('[bg-sync] triggered by WorkManager');
-        await runHeadlessSync();
-        return true;
-      } else if (task == kHeavyDeriveTaskName) {
-        debugPrint('[bg-derive] triggered by WorkManager');
-        final profile = await _loadProfile();
-        final engine = DerivationEngine(
-            log: (m) => debugPrint('[bg-derive] $m'), background: true);
-        await engine.run(profile, heavy: true);
-        // Baseline-dirty rescan on the scheduled tick: refresh baseline-dependent
-        // scalars on recent finalized days when the rolling baseline has moved.
-        // Cheap no-op when the baseline signature is unchanged.
-        await engine.rescanRecent(profile);
-        return true;
-      }
-      return true;
-    } catch (e, st) {
-      debugPrint('[bg-task] failed: $e\n$st');
-      return true; // don't thrash retries; the next run catches up.
-    }
-  });
-}
-
-Future<Profile> _loadProfile() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kProfileKey);
-    if (raw == null) return const Profile();
-    final m = (jsonDecode(raw) as Map).cast<String, dynamic>();
-    return Profile.fromMap(m);
-  } catch (_) {
-    return const Profile();
-  }
-}
-
-/// Initialize + schedule the heavy derivation and sync. Call once at app startup.
-/// No-op-safe: failures are swallowed (compute still happens on drain hooks +
-/// on foreground).
-class BackgroundDerivation {
-  static Future<void> init() async {
-    // Android only: WorkManager has no iOS background-fetch guarantee for heavy
-    // compute. On iOS we rely on the drain-hook light pass + foreground finalize.
-    if (!Platform.isAndroid) return;
-    try {
-      await Workmanager().initialize(derivationDispatcher);
-      
-      // Schedule Sync Task (every 10 min - note Android clamps to 15 min minimum)
-      await Workmanager().registerPeriodicTask(
-        kSyncTaskName,
-        kSyncTaskName,
-        frequency: const Duration(minutes: 10),
-        constraints: Constraints(
-          networkType: NetworkType.notRequired,
-          requiresBatteryNotLow: false,
-          requiresCharging: false,
-        ),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-      );
-
-      // Schedule Analyze/Derivation Task (every 10 min - note Android clamps to 15 min minimum)
-      await Workmanager().registerPeriodicTask(
-        kHeavyDeriveTaskName,
-        kHeavyDeriveTaskName,
-        frequency: const Duration(minutes: 10),
-        constraints: Constraints(
-          networkType: NetworkType.notRequired,
-          requiresBatteryNotLow: false,
-          requiresCharging: false,
-        ),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-      );
-    } catch (e) {
-      debugPrint('[bg-task] schedule failed: $e');
-    }
-  }
-}

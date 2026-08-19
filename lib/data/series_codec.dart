@@ -36,6 +36,8 @@
 
 import 'dart:convert';
 
+import 'package:collection/collection.dart' show DeepCollectionEquality;
+
 /// Encoder/decoder for the curve shapes stored in `day_result.payload_json`.
 ///
 /// The invariant every method here upholds: **encode → decode is lossless, or
@@ -286,24 +288,11 @@ class SeriesCodec {
     }
   }
 
-  static bool _deepEquals(Object? a, Object? b) {
-    if (identical(a, b)) return true;
-    if (a is Map && b is Map) {
-      if (a.length != b.length) return false;
-      for (final k in a.keys) {
-        if (!b.containsKey(k) || !_deepEquals(a[k], b[k])) return false;
-      }
-      return true;
-    }
-    if (a is List && b is List) {
-      if (a.length != b.length) return false;
-      for (var i = 0; i < a.length; i++) {
-        if (!_deepEquals(a[i], b[i])) return false;
-      }
-      return true;
-    }
-    return a == b;
-  }
+  // package:collection's structural equality — identical semantics for
+  // JSON-shaped data (ordered lists, keyed maps, == on scalars) to the ~18
+  // hand-rolled lines this replaces.
+  static bool _deepEquals(Object? a, Object? b) =>
+      const DeepCollectionEquality().equals(a, b);
 
   /// True when [payloadJson] still holds at least one legacy-shaped curve, i.e.
   /// re-encoding it would shrink the row. Used by the background backfill to

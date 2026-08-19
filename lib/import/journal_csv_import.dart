@@ -23,6 +23,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../data/day_label.dart' show dayLabelOf;
 import '../data/db.dart';
 
 /// Exactly the columns `csv_export.dart` emits for the journal set. A file
@@ -76,8 +77,9 @@ class JournalCsvFormatException implements Exception {
 ///
 /// Written out rather than pulled from a package because the writing half is
 /// also six lines in this repo (`csvField`), and a reader that disagrees with
-/// its own writer is the actual risk here.
-@visibleForTesting
+/// its own writer is the actual risk here. THE one CSV reader in lib/ —
+/// whoop_import reads through it too (its old line-based reader broke on
+/// quoted embedded newlines).
 List<List<String>> parseCsv(String text) {
   final records = <List<String>>[];
   var fields = <String>[];
@@ -167,9 +169,7 @@ JournalCsvParse parseJournalCsv(String text, {DateTime? today}) {
   }
 
   final now = today ?? DateTime.now();
-  final todayLabel = '${now.year.toString().padLeft(4, '0')}-'
-      '${now.month.toString().padLeft(2, '0')}-'
-      '${now.day.toString().padLeft(2, '0')}';
+  final todayLabel = dayLabelOf(now);
 
   final rows = <JournalCsvRow>[];
   final rejected = <RejectedRow>[];

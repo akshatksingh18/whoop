@@ -170,7 +170,18 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
       _looking = false;
       _outcome = res.outcome;
       final p = res.product;
-      if (p != null) _apply(p);
+      if (p != null) {
+        _apply(p);
+      } else {
+        // A scan that found nothing must not leave the PREVIOUS packet
+        // attached. `_scanned` is what writes `foodKey` and stamps
+        // `FoodSource.barcode` on the saved row, so keeping it here filed the
+        // entry under the wrong barcode AND claimed a barcode provenance for
+        // numbers that may have been typed over since. The form drops back to
+        // manual, which is what it now is; the boxes keep whatever is in them,
+        // because clearing a value the user typed would be its own bug.
+        _scanned = null;
+      }
     });
   }
 

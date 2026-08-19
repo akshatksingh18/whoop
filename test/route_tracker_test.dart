@@ -482,6 +482,42 @@ void main() {
     await ctrl.close();
   });
 
+  test('default 1s throttle coalesces path emissions; stop() flushes the tail',
+      () {
+    fakeAsync((async) {
+      final ctrl = StreamController<GpsSample>();
+      // Production default pathEmitEvery (1s) — the throttle under test.
+      final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+      t.start(ctrl.stream);
+      // Move the fake wall clock well past the 0 sentinel so the first accepted
+      // fix crosses the throttle rather than depending on the epoch base.
+      async.elapse(const Duration(seconds: 2));
+
+      ctrl.add(_fix(0));
+      async.flushMicrotasks();
+      expect(t.path.value.length, 1); // first accepted fix always emits
+
+      ctrl.add(_fix(1)); // same wall-second → throttled, not emitted
+      async.flushMicrotasks();
+      expect(t.path.value.length, 1);
+
+      async.elapse(const Duration(seconds: 1));
+      ctrl.add(_fix(2)); // throttle window passed → emits all vertices so far
+      async.flushMicrotasks();
+      expect(t.path.value.length, 3);
+
+      ctrl.add(_fix(3)); // throttled again
+      async.flushMicrotasks();
+      expect(t.path.value.length, 3);
+
+      unawaited(t.stop()); // stop() force-emits the suppressed tail vertex
+      async.flushMicrotasks();
+      expect(t.path.value.length, 4);
+
+      unawaited(ctrl.close());
+    });
+  });
+
   test('stalled never trips for a session shorter than stallAfter', () {
     fakeAsync((async) {
       final ctrl = StreamController<GpsSample>();

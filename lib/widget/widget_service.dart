@@ -182,6 +182,18 @@ class WidgetService {
       final effMin = eff.isEmpty ? -1 : eff.value!.round();
       final overnightWhy = heldWhy ?? '';
       final coachLine = _coachLine(t.coach);
+      // The day this snapshot describes leads the fingerprint — the SAME
+      // field `isStale` reads. Without it, two consecutive days with
+      // identical rounded metrics produce the same fingerprint, the push is
+      // skipped, `updated_at` never advances, and the native `fresh` check
+      // (updatedAt + 26 h) flips to "No recent data" on day 2 despite a
+      // clean current-day sync. Including it guarantees a new day always
+      // pushes while keeping the within-day skip that is the point of the
+      // gate.
+      final statusDay = t.status?.overnightDay ??
+          t.status?.activityDay ??
+          t.status?.todayDay ??
+          '';
 
       // THE THREE HOME RINGS, RESOLVED HERE. Recovery · Strain · Sleep, the
       // same trio and the same four states as `RingTrio` on Home. Resolved in
@@ -223,6 +235,7 @@ class WidgetService {
       // excluded: write-time metadata, and any genuinely new data moves at
       // least one value in the list.
       final fp = [
+        statusDay,
         hasData,
         readinessInt,
         tier,
@@ -287,7 +300,11 @@ class WidgetService {
       await _reloadSnapshotWidgets();
       await _syncWatch();
       // Only after everything landed — a mid-write failure must retry on the
-      // next push, not be remembered as done.
+      // next push, not be remembered as done. The Watch leg is best-effort:
+      // `_syncWatch` always resolves and WatchBridge uses updateApplicationContext
+      // (WCSession re-delivers the latest state on reconnect), so a transient
+      // WCSession failure self-heals on the next push — and the day-in-fingerprint
+      // above guarantees a push at least once per day.
       _lastPushFingerprint = fp;
     } catch (_) {
       /* widgets unavailable / not configured yet — ignore */

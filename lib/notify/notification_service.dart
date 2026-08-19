@@ -155,11 +155,21 @@ class NotificationService {
   ///     reminder is switched on, at the interval the user picked.
   ///   • [idEveningBrief] — armed only when the nightly sweep found something
   ///     unusual for this user, and its body IS the finding.
-  /// Wind-down, the morning briefing, the journal prompt and the "time to move"
-  /// one-shot are none of those, and are still refused. Their callers keep
-  /// CANCELLING, which is how an upgrade cleans out whatever an older build
-  /// left standing.
-  static const Set<int> schedulableIds = {idWeeklyRecap, idEveningBrief};
+  ///   • [idStillness] — armed only while `NotificationPrefs.movementEnabled`
+  ///     is on (opt-in, off by default), and only by two hours of no movement
+  ///     in the band's own live IMU. Its body IS that measurement. It was
+  ///     refused here for as long as it had no switch, which is the real reason
+  ///     issue #123 never fired: the cancel on every foreground resume was the
+  ///     visible half, but `scheduleOnce` had been dropping it at this gate
+  ///     before the cancel ever mattered.
+  /// Wind-down, the morning briefing and the journal prompt are none of those,
+  /// and are still refused. Their callers keep CANCELLING, which is how an
+  /// upgrade cleans out whatever an older build left standing.
+  static const Set<int> schedulableIds = {
+    idWeeklyRecap,
+    idEveningBrief,
+    idStillness,
+  };
 
   /// Whether [id] is one of the hydration slots. A band rather than a set
   /// member, which is the only reason [maySchedule] exists as a function.

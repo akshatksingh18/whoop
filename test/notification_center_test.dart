@@ -10,6 +10,7 @@ import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_ids.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
+import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 
 NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
@@ -66,8 +67,14 @@ void main() {
     // The OS fires a zonedSchedule with no Dart running, so shouldFireOs never
     // sees one. What may be SCHEDULED is a separate, narrower list: a slot the
     // user asked for by name, at a time or interval they picked.
-    test('allows the lookback, the hydration band and the nightly sweep', () {
+    test('allows the lookback, the hydration band, the sweep and the nudge', () {
       expect(NotificationService.maySchedule(NotificationService.idWeeklyRecap),
+          isTrue);
+      // The movement nudge earned its place by growing an off switch
+      // (NotificationPrefs.movementEnabled). Refused here for as long as it had
+      // none, which is why issue #123 never fired for anyone — the cancel on
+      // every foreground resume was the visible half of it.
+      expect(NotificationService.maySchedule(NotificationService.idStillness),
           isTrue);
       expect(NotificationService.maySchedule(NotificationService.idEveningBrief),
           isTrue);
@@ -85,7 +92,6 @@ void main() {
         NotificationService.idWindDown,
         NotificationService.idJournalLog,
         NotificationService.idMorningBrief,
-        NotificationService.idStillness,
         NotificationService.idLowBattery,
         NotificationService.idWaterBase - 1,
         NotificationService.idWaterBase + NotificationService.maxWaterSlots,
@@ -118,6 +124,31 @@ void main() {
                 _ev(NotifCategory.reminders, NotifPriority.low), minute),
             isFalse);
       }
+    });
+    // The auto-detect off switch (issues #102, #149). The detector has never
+    // had one — the row is written, the notification is emitted, and nothing
+    // anywhere could stop either.
+    test('the detected-workout prompt is silenced by its own switch', () {
+      const on = NotificationPrefs();
+      const off = NotificationPrefs(autoDetectEnabled: false);
+      const e = NotificationEvent(
+        dedupeKey: '2026-06-27:auto_workout:1',
+        // health, so the three-class rule is not what is being measured here:
+        // the point is that the switch outranks a category that WOULD fire.
+        category: NotifCategory.health,
+        priority: NotifPriority.normal,
+        title: 'Did you work out?',
+        body: 'b',
+        date: '2026-06-27',
+        route: kRouteWorkoutSuggestion,
+      );
+      expect(on.shouldFireOs(e, 12 * 60), isTrue);
+      expect(off.shouldFireOs(e, 12 * 60), isFalse);
+      // and it silences nothing else
+      expect(
+          off.shouldFireOs(_ev(NotifCategory.health, NotifPriority.normal),
+              12 * 60),
+          isTrue);
     });
     test('critical overrides quiet hours when allowed', () {
       expect(p.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),

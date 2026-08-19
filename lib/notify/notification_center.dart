@@ -204,7 +204,20 @@ class NotificationCenter {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
-    await svc.cancel(NotificationService.idStillness);
+    // idStillness is NOT a standing schedule and must not be cancelled with
+    // them. It is a one-shot armed by live movement
+    // (`AppState._rescheduleStillnessNudge`), nothing in this method re-arms
+    // it, and this method runs on EVERY foreground resume — so the fix for
+    // issue #123 was cancelling itself: open the app and the nudge was binned.
+    // The re-arm needs a connected band streaming foreground IMU AND is
+    // throttled to once per ten minutes, so it is not a gap that closes on its
+    // own; with the band off the wrist it never closes at all.
+    //
+    // The one cancel that IS correct here is the user's own switch: this is
+    // where a movement nudge that was just turned off actually goes away.
+    if (!prefs.movementEnabled) {
+      await svc.cancel(NotificationService.idStillness);
+    }
     for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
       await svc.cancel(NotificationService.idWaterBase + i);
     }

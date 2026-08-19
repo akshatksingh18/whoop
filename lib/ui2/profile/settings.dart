@@ -38,6 +38,7 @@ import 'alarm.dart';
 import 'band_notifications.dart';
 import 'data.dart';
 import 'gallery.dart';
+import 'gestures.dart';
 import 'profile.dart';
 
 /// Unwind the profile stack back to the gate.
@@ -601,6 +602,14 @@ class MoreSettingsView extends StatelessWidget {
                       onTap: onToggleHealthSync),
                 ]),
                 settingsGroup(c, 'Automation', [
+                  // The picker died with the old ui tree and the engine kept
+                  // running against a mapping nothing could set — the whole
+                  // feature was live code pinned at "do nothing".
+                  Builder(
+                      builder: (c) => SetRow(
+                          LucideIcons.hand, C.orange, 'Double-tap',
+                          sub: 'What a double-tap on the band does',
+                          onTap: () => goto(c, const BandGestures()))),
                   SetRow(LucideIcons.workflow, C.indigo, 'Tasker and Shortcuts',
                       // The row states the asymmetry rather than leaving it to
                       // the screen: someone on an iPhone should learn what they

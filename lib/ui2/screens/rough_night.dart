@@ -203,7 +203,11 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
   final series = <String, Map<String, double>>{};
   for (final key in const [_kRhr, _kRmssd, _kDip, _kTempZ]) {
     series[key] = {
-      for (final r in await LocalDb.metricSeries(key))
+      // MEASURED ONLY. This is a detection, not a chart: the night is called
+      // rough by comparing it against the spread of the days behind it, and a
+      // day another vendor's algorithm derived is not the same measurement.
+      // A picture may splice two algorithms; a statistic may not.
+      for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
         if (r['date'] is String && r['value'] is num)
           r['date'] as String: (r['value'] as num).toDouble(),
     };

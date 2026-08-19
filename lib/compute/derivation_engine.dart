@@ -4609,10 +4609,15 @@ class DerivationEngine {
   static ({double active, double basal, double total})? wakeDayEnergy(
     List<double> wakeHrPerMin, {
     required Profile profile,
+    required double? restingHr,
     int? dayMinutes,
     String? deviceFamily,
   }) {
     if (!profile.hasCalorieAnchors) return null;
+    // The active gate is a %HRR flex point, so it needs BOTH ends of the
+    // reserve. No resting HR, no gate — and no gate means every wake minute
+    // bills as active. Abstain, same as an absent ceiling below.
+    if (restingHr == null) return null;
     // `dailyEnergy`'s flex gate is a fraction of HRmax, so an absent ceiling is
     // an absent gate — the whole triple abstains rather than bill a day against
     // some other strap's number. See hr_max.dart.
@@ -4636,6 +4641,7 @@ class DerivationEngine {
         sex: _workoutSex(profile.sex),
       ),
       hrmax: hrmax,
+      restingHr: restingHr,
       dayMinutes: dayMinutes ?? 1440,
     );
     return (active: e.active, basal: e.basal, total: e.total);
@@ -5331,6 +5337,9 @@ class DerivationEngine {
       final energy = wakeDayEnergy(
         perMin,
         profile: profile,
+        // The same anchor the TRIMP above is scored against — a nocturnal RHR
+        // or the one the user entered, never a daytime fallback.
+        restingHr: rhrForTrimp,
         dayMinutes: motion.length,
         deviceFamily: daySub.deviceFamily,
       );

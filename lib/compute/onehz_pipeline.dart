@@ -684,10 +684,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // active figure this line publishes (about 117 kcal/day across a
     // 150-195 cm profile). `wakeDayEnergy` abstains for that reason; so does
     // this, or Today shows an imputed number the derived day then withdraws.
+    //
+    // The RESTING HR is required for the same class of reason: `dailyEnergy`'s
+    // active gate is a %HRR flex point, so without the lower reserve anchor
+    // there is no gate and every wake minute bills as active. `wakeDayEnergy`
+    // abstains without it; so does this, or the two drift again.
     if (age != null &&
         sex != null &&
         weightKg != null &&
-        heightCm != null) {
+        heightCm != null &&
+        rhrForTrimp != null) {
       caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
@@ -697,6 +703,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           sex: workoutSex(sex),
         ),
         hrmax: hrMax,
+        restingHr: rhrForTrimp,
       ).active; // active-energy component (Keytel surplus over basal)
     }
   }

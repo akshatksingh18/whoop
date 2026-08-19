@@ -264,6 +264,12 @@ class CoachActions {
         endTs: startTs + mins * 60,
         type: type,
       );
+      // TODO(#130): export this session to the phone's health store, the way
+      // AppState.stopWorkout does. Every other write path exports; a workout
+      // logged through the coach reaches the health store only if the next
+      // day-result pass happens to sweep it up. The export seam is being
+      // reworked in the same audit — the one-line call goes here once its
+      // signature lands, and it must be a no-op when health sync is off.
       return jsonEncode({'saved': true, 'date': d, 'type': type, ...r});
     } catch (e) {
       // The repo rejects overlaps, futures and absurd durations. Hand the

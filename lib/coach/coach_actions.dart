@@ -30,6 +30,7 @@ import '../data/journal_fields.dart';
 import '../data/local_repository.dart';
 import '../data/med_store.dart';
 import '../data/nutrition_store.dart';
+import '../health/health_export.dart';
 
 /// Raised when the model's arguments cannot be honoured. The message goes back
 /// into the transcript so the model can correct itself rather than retrying the
@@ -264,12 +265,11 @@ class CoachActions {
         endTs: startTs + mins * 60,
         type: type,
       );
-      // TODO(#130): export this session to the phone's health store, the way
-      // AppState.stopWorkout does. Every other write path exports; a workout
-      // logged through the coach reaches the health store only if the next
-      // day-result pass happens to sweep it up. The export seam is being
-      // reworked in the same audit — the one-line call goes here once its
-      // signature lands, and it must be a no-op when health sync is off.
+      // Every other write path exports; without this a workout logged through
+      // the coach reached the health store only if the next day-result pass
+      // happened to sweep it up (#130). The seam checks `healthSyncEnabled`
+      // itself, so this is a no-op with the switch off, and it never throws.
+      await HealthExporter.exportWorkoutId(r['workout_id'] as String?);
       return jsonEncode({'saved': true, 'date': d, 'type': type, ...r});
     } catch (e) {
       // The repo rejects overlaps, futures and absurd durations. Hand the

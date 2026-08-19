@@ -35,6 +35,7 @@ import 'package:provider/provider.dart';
 import '../../compute/manual_session.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
+import '../../health/health_export.dart';
 import '../../notify/notification_prefs.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
@@ -136,11 +137,14 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     setState(() => _busy = true);
     var message = '';
     try {
-      await repo.logManualWorkout(
+      final r = await repo.logManualWorkout(
         startTs: s.startTs,
         endTs: s.endTs,
         type: s.activity?.typeKey ?? 'other',
       );
+      // Every write path exports, or the health store quietly disagrees with
+      // the log (#130). No-op with health sync off; never throws.
+      await HealthExporter.exportWorkoutId(r['workout_id'] as String?);
       // The repo retires every suggestion the saved window covers, this one
       // included — nothing to dismiss here.
     } on ManualWindowException catch (e) {
@@ -519,6 +523,10 @@ class _LogWorkoutState extends State<LogWorkout> {
               startTs: _startSec, endTs: _endSec, type: _activity.typeKey)
           : await repo.setWorkoutWindow(widget.sessionId!,
               startTs: _startSec, endTs: _endSec);
+      // Both branches: a new session and a RETIMED one both change what the
+      // health store should hold for that window (#130).
+      await HealthExporter.exportWorkoutId(
+          (r['workout_id'] ?? widget.sessionId) as String?);
       // Say what was actually banked. A window with no 1 Hz substrate left
       // behind it — anything past the ~3-day retention, or a stretch the band
       // was off — is saved UNSCORED, and a screen that pops silently would let

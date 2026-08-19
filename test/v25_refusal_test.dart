@@ -44,18 +44,21 @@ void main() {
     await LocalDb.close();
   });
 
-  test('protocol still hands us the vector — this is the thing we refuse', () {
-    // Not a change request against protocol (SEALED): asserted so that if the
-    // decoder ever DOES change, this test tells whoever changed it that edge
-    // is deliberately dropping the record.
+  test('protocol hands us no vector at all now — and we still drop the record',
+      () {
+    // This used to assert the opposite: protocol handed over a "gravity"
+    // vector from inner[69/71/73] and edge dropped the record anyway. Those
+    // offsets were refuted on real data and protocol 60676cf stopped emitting
+    // them, so `accelG` is empty — absent, not (0,0,0), the same idiom gen5's
+    // `gravityG` uses. Asserted so that if the decoder changes again, whoever
+    // changes it learns edge is deliberately dropping the record either way.
     final r = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25a));
     expect(r, isNotNull);
     expect(r!.histVersion, 25);
     expect(r.hr, 0, reason: 'v25 carries no heart rate');
-    // The tell: the same "y" value on both records, and a "z" of zero.
+    expect(r.accelG, isEmpty, reason: 'absent, never a still wrist');
     final s = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25b))!;
-    expect(r.accelG[1], s.accelG[1], reason: 'a wrist axis that never moves');
-    expect(r.accelG[2], 0.0);
+    expect(s.accelG, isEmpty);
   });
 
   test('decodeSubstrate drops v25 rather than banking a still wrist', () {

@@ -31,6 +31,7 @@
 // The last four cases in this file are each one of those.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -213,28 +214,35 @@ void main() {
 
   test('a sawtooth hovering at the gate does not collapse to one side', () {
     // The worst case for minute-mean gating, and an entirely ordinary heart
-    // rate: 30 s at 94 and 30 s at 93 against a 93.76 gate. Every minute mean
-    // is 93.5, just under, so the whole session reads as rest.
+    // rate: half a minute a beat above the gate, half a minute a beat below.
+    // Every minute mean lands under it, so the whole session reads as rest.
+    //
+    // The gate is ASKED FOR, not written down. It used to be a fraction of
+    // HRmax and is now a fraction of heart-rate reserve, and this test failed
+    // the day that changed — it was still straddling a boundary that had moved
+    // 13 bpm away, which is a test pinning arithmetic instead of behaviour.
+    final gate = ana.Calories.activeGateHr(_hrMax, _restingHr);
+    final above = gate.ceil() + 1;
+    final below = gate.floor() - 1;
     final sawtooth = <int>[
       for (var block = 0; block < 10; block++) ...[
-        for (var i = 0; i < 30; i++) 94,
-        for (var i = 0; i < 30; i++) 93,
+        for (var i = 0; i < 30; i++) above,
+        for (var i = 0; i < 30; i++) below,
       ],
     ];
 
     final live = _run(sawtooth);
 
     expect(live.calories, closeTo(_rescore(sawtooth), 0.25));
-    // 300 s * activeKcalPerS(94) + 300 s * restingRate
-    //   = 300 * 0.1010958 + 300 * 0.0198397 = 36.28 kcal
-    expect(live.calories, closeTo(36.28, 0.25));
-    // Minute-mean gating bills all 600 s at the resting rate: 11.90 kcal, i.e.
-    // 1.19 kcal/min where the re-score says 3.63 — about 146 kcal adrift over a
-    // zone-2 hour, off a stream that never looks unusual.
+
+    // What minute-mean gating would have billed: all 600 s at the resting rate,
+    // because no minute's mean ever clears the gate. Derived from the same
+    // estimator rather than stated, so it tracks the gate too.
+    final allRest = _rescore([for (var i = 0; i < 600; i++) below]);
     expect(
       live.calories,
-      greaterThan(20.0),
-      reason: 'billing a 94 bpm half-minute as rest is the bug this pins',
+      greaterThan(allRest * 1.5),
+      reason: 'billing an above-gate half-minute as rest is the bug this pins',
     );
   });
 

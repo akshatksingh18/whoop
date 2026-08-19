@@ -48,8 +48,11 @@ void main() {
         BandNotificationsView(enabled: true, onGrant: () => asked = true),
       );
       expect(find.text('Grant notification access'), findsOneWidget);
-      // The claim that has to be on the same card as the request.
-      expect(find.textContaining('Nothing leaves your phone'), findsOneWidget);
+      // The claim that has to be on the same card as the request — and it has
+      // to be the TRUE one. The relay keeps the package names locally, so
+      // "nothing is stored" was a promise the code did not keep.
+      expect(find.textContaining('stay on this phone'), findsOneWidget);
+      expect(find.textContaining('nothing leaves it'), findsOneWidget);
       await t.tap(find.text('Grant notification access'));
       expect(asked, isTrue);
     });

@@ -144,9 +144,17 @@ class BandNotificationsView extends StatelessWidget {
                 else ...[
                   settingsGroup(c, 'Relay', [
                     SetRow(LucideIcons.bellRing, C.purple, 'Buzz on app notifications',
+                        // What is actually true, and no more. The relay reads
+                        // no content and sends nothing anywhere — but it DOES
+                        // keep the package names on this phone, because that
+                        // list is the only way the picker below can offer you
+                        // an app without asking for the permission that
+                        // enumerates every app you have installed. "Nothing is
+                        // stored" was the wrong claim to make about it.
                         sub: 'The strap buzzes when one of the apps below '
-                            'notifies you. Nothing is read, stored or sent — '
-                            'only which app posted',
+                            'notifies you. What a notification says is never '
+                            'read or sent — only which app posted, kept on '
+                            'this phone to build the list',
                         value: enabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => onEnabled?.call(!enabled)),
@@ -159,7 +167,8 @@ class BandNotificationsView extends StatelessWidget {
                     StatusCard(
                       'Android needs to let us see notifications',
                       'The permission says which app posted, and that is all '
-                          'this uses it for. Nothing leaves your phone.',
+                          'this uses it for. The names stay on this phone and '
+                          'nothing leaves it.',
                       fix: 'Grant notification access',
                       icon: LucideIcons.shieldCheck,
                       onFix: onGrant,

@@ -232,7 +232,15 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     if (icon != null && icon.isNotEmpty) _icons[pkg] = icon;
     final known = _seen.remove(pkg);
     _seen.insert(0, pkg);
-    if (_seen.length > maxSeen) _seen.removeRange(maxSeen, _seen.length);
+    if (_seen.length > maxSeen) {
+      _seen.removeRange(maxSeen, _seen.length);
+      // The icons go with them. `_seen` is bounded, `_icons` was not — an
+      // evicted package left its bitmap resident for the life of the process,
+      // and on a phone with a lot of chatty apps that is the picker's whole
+      // icon set held for a list it is no longer on.
+      // ponytail: O(n) scan over 60 entries, only on eviction.
+      _icons.removeWhere((k, _) => !_seen.contains(k));
+    }
     if (!known) {
       SharedPreferences.getInstance()
           .then((p) => p.setStringList(_kSeen, _seen))

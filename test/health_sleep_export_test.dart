@@ -248,6 +248,26 @@ void main() {
       );
     });
 
+    test('Apple delete scope never names the Health Connect envelope', () {
+      final types = healthDeleteTypes(isApplePlatform: true);
+
+      // SLEEP_SESSION is Health-Connect-only. On iOS the plugin resolves an
+      // unknown key to bodyMass, queries a type we never asked for, and its
+      // error path never calls back — `delete()` hangs and the day's export
+      // stalls behind it. Same failure #239/#225 fixed on the write side.
+      expect(types, isNot(contains(HealthDataType.SLEEP_SESSION)));
+      expect(types, contains(HealthDataType.SLEEP_IN_BED));
+      expect(
+        types,
+        containsAll(<HealthDataType>[
+          HealthDataType.SLEEP_DEEP,
+          HealthDataType.SLEEP_REM,
+          HealthDataType.SLEEP_LIGHT,
+          HealthDataType.SLEEP_AWAKE,
+        ]),
+      );
+    });
+
     test('the sleep delete covers the pre-midnight half of the night', () {
       final dayStart = DateTime(2026, 8, 5);
       final dayEnd = DateTime(2026, 8, 6);

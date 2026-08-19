@@ -54,10 +54,23 @@ const _sleepHealthTypes = <HealthDataType>{
   // The night's envelope. Health Connect models it as a SleepSessionRecord
   // parent; HealthKit has no session record, so the enclosing bar is an
   // `inBed` sleepAnalysis sample. Only one of the two is ever asked for —
-  // see `_types` — but both belong to the sleep delete scope.
+  // see `_types` and `_sleepEnvelopeFor` — but both belong to the sleep
+  // delete SCOPE, which is what this set answers.
   HealthDataType.SLEEP_SESSION,
   HealthDataType.SLEEP_IN_BED,
 };
+
+/// The envelope type the OTHER store uses, which this one must never be sent.
+///
+/// SLEEP_SESSION is Health-Connect-only. Handing it to HealthKit is not a
+/// harmless no-op: the plugin resolves an unknown key to bodyMass and runs a
+/// sample query for a type we never asked permission for, which errors — and
+/// the error path never calls back, so `delete()` never completes. That hangs
+/// the day's export, which is the stall (#239/#225) this whole seam exists to
+/// stop, re-entered through the delete side.
+HealthDataType _foreignSleepEnvelope(bool isApplePlatform) => isApplePlatform
+    ? HealthDataType.SLEEP_SESSION
+    : HealthDataType.SLEEP_IN_BED;
 
 List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
   final types = <HealthDataType>[
@@ -70,7 +83,8 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.BASAL_ENERGY_BURNED,
     HealthDataType.STEPS,
-    ..._sleepHealthTypes,
+    for (final t in _sleepHealthTypes)
+      if (t != _foreignSleepEnvelope(isApplePlatform)) t,
     HealthDataType.WORKOUT,
   ];
   return isApplePlatform

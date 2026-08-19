@@ -280,7 +280,10 @@ dependencies:
 
   # Apple Health (HealthKit, iOS) + Google Health Connect (Android) — export each
   # day's derived metrics to the platform health store.
-  health: ^11.1.1
+  # >=12.0.0 is not optional: 11.1.1's `_alignValue` lists SLEEP_ASLEEP twice
+  # and never lists SLEEP_LIGHT, so every light/Core stage write threw on iOS —
+  # ~70% of a night, every night, and it flipped the day's export to failed too.
+  health: ^12.2.1
   # Open the Health Connect app/settings so the user can grant per-app access
   # manually (the reliable path when its in-app request dialog is locked out).
   android_intent_plus: ^5.1.0

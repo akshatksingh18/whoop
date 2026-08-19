@@ -346,4 +346,39 @@ void main() {
     expect(outcome.partial, isTrue);
     expect(outcome.finalized, isFalse);
   });
+
+  // 3. A re-stage over LESS substrate than the last one had (#242). A day
+  //    re-stages on every pass for its first 48 h, and pruning can take the
+  //    substrate away between passes — so the same night comes back shorter and
+  //    replaced the good one. "It got fixed, then a few syncs later it went
+  //    back."
+  group('a night never re-stages shorter', () {
+    SleepSessionCandidate night(num? tstSec) => SleepSessionCandidate(
+          dayId: '2026-08-19',
+          confidence: 0.8,
+          flags: const [],
+          sleepJson: {'tst_sec': ?tstSec},
+          hypnoStages: const [],
+          sleepOnsetSec: 1000,
+          sleepOffsetSec: 2000,
+        );
+
+    test('a shorter re-stage loses to the banked night', () {
+      expect(DerivationEngine.isRicherSleep(night(27000), night(9000)), isTrue);
+    });
+
+    test('a longer re-stage wins — the band handed over more of it', () {
+      expect(DerivationEngine.isRicherSleep(night(9000), night(27000)), isFalse);
+    });
+
+    test('an identical re-stage writes, so equal is not richer', () {
+      expect(DerivationEngine.isRicherSleep(night(27000), night(27000)), isFalse);
+    });
+
+    test('a night beats no night, and no night never beats one', () {
+      expect(DerivationEngine.isRicherSleep(night(27000), night(null)), isTrue);
+      expect(DerivationEngine.isRicherSleep(night(null), night(27000)), isFalse);
+      expect(DerivationEngine.isRicherSleep(night(null), night(null)), isFalse);
+    });
+  });
 }

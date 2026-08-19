@@ -2265,6 +2265,41 @@ class DerivationEngine {
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
     if (override == null) {
+      // NEVER RE-STAGE A NIGHT SHORTER THAN THE ONE ALREADY BANKED (#242).
+      //
+      // A day re-stages on every pass for its first 48 h, and the substrate it
+      // stages over does not only grow: `pruneDecodedBeforeRecTs` runs once the
+      // covering day is derived, so a later pass can look at the same night
+      // through less data and produce a shorter one — which then REPLACED the
+      // good candidate, and the day rebuilt from it. That is the reported "it
+      // got fixed, then a few syncs later it went back", and it is a write-path
+      // defect, not a staging one (a mid-night wake bridges and sums correctly).
+      //
+      // The guard belongs HERE rather than on the day result: the candidate is
+      // upstream of the sleep block, the hypnogram AND every sleep scalar, so
+      // keeping the richer one keeps the whole day internally consistent.
+      // Swapping a richer sleep block into a thinner day's bundle would pair
+      // last pass's night with this pass's stage minutes.
+      //
+      // Keyed at this algo version, so a bump still re-stages from scratch —
+      // that is what a bump is for. An override never reaches this branch, so a
+      // user shortening their own night is untouched.
+      final stored = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+      final storedJson = stored?['payload_json'];
+      if (storedJson is String && storedJson.isNotEmpty) {
+        try {
+          final prev = SleepSessionCandidate.fromJson(
+              (jsonDecode(storedJson) as Map).cast<String, dynamic>());
+          if (isRicherSleep(prev, candidate)) {
+            _log('derive $dayId: kept the banked night '
+                '(${_tstSec(prev)} s) over this pass\'s '
+                '${_tstSec(candidate)} s — less substrate, not a shorter night');
+            return prev;
+          }
+        } catch (_) {
+          // Undecodable stored candidate — the fresh one is strictly better.
+        }
+      }
       await LocalDb.putSleepSessionCandidate(
         dayId: dayId,
         algoVersion: kAlgoVersion,
@@ -3749,6 +3784,33 @@ class DerivationEngine {
       }
     }
     return carried;
+  }
+
+  /// The night's measured total sleep, seconds. Null when this candidate has no
+  /// night in it at all.
+  static num? _tstSec(SleepSessionCandidate c) =>
+      c.sleepJson['tst_sec'] as num?;
+
+  /// Whether the already-banked [prev] night is RICHER than the freshly staged
+  /// [next] one, measured by total sleep time (#242).
+  ///
+  /// TST, not confidence and not the window: it is the quantity the user sees
+  /// change, and the failure mode this guards is a re-stage over a pruned
+  /// substrate seeing less of the same night. A night that grows is a night the
+  /// band handed over more of, and it wins.
+  ///
+  /// A candidate with no night at all is never richer than one that has one, and
+  /// EQUAL is not richer — a pass that reproduces the same night writes, so an
+  /// otherwise-identical candidate still refreshes.
+  @visibleForTesting
+  static bool isRicherSleep(
+    SleepSessionCandidate prev,
+    SleepSessionCandidate next,
+  ) {
+    final p = _tstSec(prev);
+    if (p == null) return false;
+    final n = _tstSec(next);
+    return n == null || p > n;
   }
 
   /// How a day should be filed after its second half failed and the previous

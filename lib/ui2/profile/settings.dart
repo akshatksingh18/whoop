@@ -497,7 +497,7 @@ class MoreSettingsView extends StatelessWidget {
     this.healthState = HealthLinkState.unknown,
     this.healthStore = 'Apple Health',
     this.telemetry = false,
-    this.barcodeLookup = false,
+    this.barcodeLookup = true,
     this.cycleTracking = false,
     this.showHealthShare = false,
     this.healthShare = false,

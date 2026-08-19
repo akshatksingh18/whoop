@@ -17,6 +17,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/off_lookup.dart';
+import 'package:openstrap_edge/state/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// An api/v2 body, in the shape the endpoint actually returns.
 Map<String, Object?> body({
@@ -392,10 +394,20 @@ void main() {
     });
   });
 
-  group('nothing leaves without consent', () {
-    test('a lookup with the pref off refuses before any request', () async {
-      // Prefs is unloaded in a headless test, so every read is its default —
-      // and the default is off. This is the state a fresh install is in.
+  group('the consent gate', () {
+    // Order matters: Prefs caches its SharedPreferences instance on first load
+    // and never reloads, so the unloaded-defaults case has to be read before
+    // anything mocks a store in.
+    test('a fresh install may look up', () {
+      // Nothing has loaded Prefs, so this IS the default. It is ON: what
+      // leaves is the barcode, never anything about the person holding it.
+      expect(offLookupAllowed, isTrue);
+    });
+
+    test('a lookup refuses before any request once it is turned off', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({kOffConsentKey: false});
+      await Prefs.ensureLoaded();
       expect(offLookupAllowed, isFalse);
       final r = await fetchOffProduct('8901719101090');
       expect(r.outcome, OffOutcome.refused);

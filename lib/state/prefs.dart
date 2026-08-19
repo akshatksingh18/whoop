@@ -53,6 +53,17 @@ class Prefs {
     _sp?.setBool(key, value);
   }
 
+  /// The same write, with SharedPreferences' own acknowledgement handed back —
+  /// false when there is no storage, or when the platform refused it.
+  ///
+  /// For a tab index nobody can be hurt by a write that quietly failed. For a
+  /// CONSENT they can: SharedPreferences updates its cache OPTIMISTICALLY and
+  /// never rolls it back, so a failed revocation reads as off for the rest of
+  /// the session and is back ON at the next launch, with nobody told. The one
+  /// caller that must know is `setOffLookupAllowed`.
+  static Future<bool> setBoolAcked(String key, bool value) async =>
+      await _sp?.setBool(key, value) ?? false;
+
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
   static const String shellTab = 'ui.shell_tab';
   static const String recapRange = 'ui.recap_range';

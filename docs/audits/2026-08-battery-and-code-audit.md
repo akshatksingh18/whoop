@@ -88,6 +88,14 @@ under Follow-ups, not claimed fixed.
    pause/resume via lifecycle observer (elapsed is wall-clock-derived, loss-free).
 7. `docs/internal/GATES.md` is referenced from code comments but absent from
    the repo.
+8. **Route the direct derive triggers through `DeriveDebouncer`** (CR-001 m5):
+   `markStoredData()`/`requestHeavy()` called directly from AppState
+   (reconnect backlog, foreground catch-up, periodic backfill) and
+   `_teardownSession` bypass the background pacing tier. Low practical impact —
+   the continuous 1 Hz stream (the real all-night drain) already goes through
+   the debouncer, and the direct calls are event-bounded (≥15 min apart, heavy
+   throttled to 1/30 min in background) — but a single debounced entry point
+   would make the pacing uniform.
 
 ## Maintainer considerations
 

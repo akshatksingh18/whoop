@@ -44,7 +44,12 @@ const _sleepHealthTypes = <HealthDataType>{
   HealthDataType.SLEEP_REM,
   HealthDataType.SLEEP_LIGHT,
   HealthDataType.SLEEP_AWAKE,
+  // The night's envelope. Health Connect models it as a SleepSessionRecord
+  // parent; HealthKit has no session record, so the enclosing bar is an
+  // `inBed` sleepAnalysis sample. Only one of the two is ever asked for —
+  // see `_types` — but both belong to the sleep delete scope.
   HealthDataType.SLEEP_SESSION,
+  HealthDataType.SLEEP_IN_BED,
 };
 
 List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
@@ -220,7 +225,10 @@ class HealthExporter {
         HealthDataType.SLEEP_REM,
         HealthDataType.SLEEP_LIGHT,
         HealthDataType.SLEEP_AWAKE,
-        HealthDataType.SLEEP_SESSION,
+        // The envelope, in whichever form the platform actually has. Asking
+        // for the other one sends a type name that store has never heard of
+        // (SLEEP_SESSION is Health-Connect-only, SLEEP_IN_BED HealthKit-only).
+        isApple ? HealthDataType.SLEEP_IN_BED : HealthDataType.SLEEP_SESSION,
         HealthDataType.WORKOUT,
       ];
 
@@ -933,6 +941,29 @@ class HealthExporter {
     // per call, fragmenting a night. Android therefore uses our typed native
     // replace API; Apple Health keeps its existing per-stage samples.
     if (isApple && night != null) {
+      // THE ENVELOPE FIRST. Bare stage bars with nothing enclosing them is why
+      // readers (Bevel and friends) reconstruct a night as a short sleep plus a
+      // scatter of naps — HealthKit has no session record, so the wrapper is an
+      // `inBed` sleepAnalysis sample spanning the night.
+      //
+      // The span is the DETECTED sleep window, which is the same wall-clock
+      // number the app already reports as in-bed time (`in_bed_sec` is
+      // offset - onset). Nothing is invented: no window, no envelope, and a
+      // bundle without one writes no stages either — which is also why an
+      // unstaged night (an import, a night staging refused) contributes no
+      // fragments here.
+      try {
+        final wrote = await _health.writeHealthData(
+          value: 0,
+          type: HealthDataType.SLEEP_IN_BED,
+          startTime: night.start,
+          endTime: night.end,
+        );
+        if (!wrote) success = false;
+      } catch (e) {
+        debugPrint('[health] write sleep envelope: $e');
+        success = false;
+      }
       // Stages come from the SAME normalization Android uses, so they are
       // clipped to the sleep window instead of spilling past either end of it
       // — which is what let a pre-midnight segment survive the day-scoped

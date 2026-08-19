@@ -2442,14 +2442,21 @@ class AppState extends ChangeNotifier {
   ///
   /// [openSession]'s fast reclaim (or a foreground reconnect) restores the
   /// full set either way.
+  /// The in-flight background live downgrade, if any. `disableLiveStreams`
+  /// (Android) clears `liveEnabled`/`liveHrOnly` only AFTER its ~300 ms write
+  /// sequence, so a foreground reclaim landing inside that window must AWAIT
+  /// this before deciding whether to re-arm — otherwise it reads stale
+  /// full-live flags, skips `enableLiveStreams`, and the pending disable's OFF
+  /// writes then leave foreground live off. See [openSession].
+  Future<void>? _bgLiveDowngrade;
+
   void _maybeDowngradeLiveForBackground() {
     if (!engine.isConnected || !engine.liveEnabled) return;
     if (_hasLiveConsumer) return;
-    if (Platform.isAndroid) {
-      unawaited(engine.disableLiveStreams());
-    } else {
-      unawaited(engine.enableHrOnlyLive());
-    }
+    _bgLiveDowngrade = Platform.isAndroid
+        ? engine.disableLiveStreams()
+        : engine.enableHrOnlyLive();
+    unawaited(_bgLiveDowngrade!);
   }
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
@@ -3920,6 +3927,16 @@ class AppState extends ChangeNotifier {
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
+    // A background live downgrade may still be writing (its flags clear only on
+    // completion). Let it finish before any reclaim path below re-arms live, so
+    // the re-arm sees settled flags and its ON writes can't interleave with the
+    // disable's trailing OFF writes.
+    if (_bgLiveDowngrade != null) {
+      try {
+        await _bgLiveDowngrade;
+      } catch (_) {}
+      _bgLiveDowngrade = null;
+    }
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);

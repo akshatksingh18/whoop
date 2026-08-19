@@ -595,7 +595,20 @@ class HealthExporter {
               force: forceRetry,
             );
             if (!shouldAttempt) {
-              if (attempts >= _kMaxExportAttempts) return exportBulk(null);
+              // The priority day is held back by the CAP or by the success-side
+              // rewrite throttle (it exported cleanly &lt;30 min ago) — in either
+              // case its sleep session is already in the store and is not what's
+              // blocking, so still export every OTHER pending day. Only a
+              // genuine retry backoff (recent FAILURE, still under the cap) holds
+              // bulk, matching the pre-throttle behaviour. A day with `ok_ms` set
+              // carries no pending failure (the success branch clears
+              // attempts/last_ms), so the two conditions are mutually exclusive.
+              final throttledBySuccess = okMs != null &&
+                  !pendingPriorityDay.finalized &&
+                  nowMs - okMs < _kNonFinalizedRewriteInterval.inMilliseconds;
+              if (attempts >= _kMaxExportAttempts || throttledBySuccess) {
+                return exportBulk(null);
+              }
               return 0;
             }
             Future<void> recordPriorityFailure() async {

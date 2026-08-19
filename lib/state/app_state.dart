@@ -3041,8 +3041,12 @@ class AppState extends ChangeNotifier {
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
       // phantom alarm "waiting for the strap to confirm" that can never fire.
-      _log('[alarm] arm write FAILED — not persisting; alarm not set.');
-      throw Exception('Alarm not sent — the strap did not accept the write');
+      // Null now covers two cases: the write never left the phone, and the
+      // strap answered and REFUSED the alarm (doc 07's alarm-status byte —
+      // see BleEngine.setAlarm). Both mean the band holds no alarm, so both
+      // must stay out of persistence; the engine log says which one it was.
+      _log('[alarm] the band did not take the alarm — not persisting.');
+      throw Exception('Alarm not set — the strap did not accept it');
     }
     final epoch = armed.millisecondsSinceEpoch ~/ 1000;
     _savedAlarm = epoch;

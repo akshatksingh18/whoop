@@ -866,6 +866,14 @@ class BleEngine {
   @visibleForTesting
   void debugIngestHistoricalFrame(Frame frame) => _ingestHistoricalFrame(frame);
 
+  /// Feed one inbound control frame through the real immediate-receive path
+  /// (decode → event handling → state absorb).
+  ///
+  /// Type-48 events are telemetry the band volunteers — nothing here is ever
+  /// requested — so this path is otherwise only reachable behind a radio.
+  @visibleForTesting
+  void debugProcessImmediateFrame(Frame frame) => _processImmediateFrame(frame);
+
   /// Drive the canonical historical-refresh path. Returns whether
   /// SEND_HISTORICAL_DATA actually went out.
   @visibleForTesting
@@ -985,6 +993,29 @@ class BleEngine {
   /// user's alarm may not actually be armed. Never used for display.
   int? _strapAlarmEpoch;
   bool? _strapAlarmActive;
+
+  /// Last STRAP_CONDITION_REPORT(29) event — the band's own view of its
+  /// backlog, charge and wear. Observability only; see [StrapConditionReport].
+  StrapConditionReport? _strapCondition;
+
+  /// Why the last running haptics pattern stopped (HAPTICS_TERMINATED(100),
+  /// doc 07): `expired`, `error` or `user_double_tap`. The double tap is the
+  /// only way to learn the WEARER dismissed an alarm rather than letting it
+  /// time out. Recorded and logged; the alarm flow is unchanged.
+  String? _lastHapticsTermination;
+  int? _lastHapticsTerminationTs;
+
+  /// What the strap answered the last [runStoredAlarm] with: the alarm/haptics
+  /// status byte from the correlated `RUN_ALARM(68)` reply (doc 07
+  /// §"Alarm/haptics status codes"), plus the wall second it landed.
+  ///
+  /// This is the wake-in-green trigger's only evidence trail. RUN_ALARM has
+  /// never been verified on WHOOP 5 hardware with the rev-2 body (see
+  /// [runStoredAlarm]), so "did the strap say it played?" is exactly the
+  /// question a hardware re-test needs answered from the field.
+  int? _lastRunAlarmStatus;
+  String? _lastRunAlarmStatusName;
+  int? _lastRunAlarmTs;
 
   // ── reconnect/offload policy ────────────────────────────────────────────────
   // Marginal-radio + post-bond-loop persist ACROSS reconnects (they count
@@ -1336,6 +1367,20 @@ class BleEngine {
     // What the STRAP reports it holds (GET_ALARM_TIME), not what we set.
     'strap_alarm_epoch': _strapAlarmEpoch,
     'strap_alarm_active': _strapAlarmActive,
+    // Unsolicited strap telemetry (doc 04 event 29 / doc 07 event 100).
+    // Observability only — neither drives a sync nor the alarm flow.
+    'condition_pages_behind': _strapCondition?.pagesBehind,
+    'condition_backlog': _strapCondition?.backlog,
+    'condition_soc_pct': _strapCondition?.socPct,
+    'condition_charging': _strapCondition?.charging,
+    'condition_wrist_state': _strapCondition?.wristState,
+    'condition_ts': _strapCondition?.tsEpoch,
+    'last_haptics_termination': _lastHapticsTermination,
+    'last_haptics_termination_ts': _lastHapticsTerminationTs,
+    // doc 07: what the strap answered the last RUN_ALARM with.
+    'last_run_alarm_status': _lastRunAlarmStatus,
+    'last_run_alarm_status_name': _lastRunAlarmStatusName,
+    'last_run_alarm_ts': _lastRunAlarmTs,
     // doc 01/02: hello health and the identity gate, both observable rather
     // than enforced. `hello_failures` counts ACROSS reconnects and resets
     // itself at the bond-reset threshold.
@@ -3026,7 +3071,34 @@ class BleEngine {
   }
 
   void _handleEventInfo(EventInfo event) {
+    final f = event.decoded;
     switch (event.eventId) {
+      case EventId.strapConditionReport:
+        // doc 04 §"Type 48 — events": free sync-progress telemetry, sent
+        // unasked. Recorded and logged ONLY — deliberately no offload trigger
+        // here, so the backfill policy stays the single place that decides
+        // when to sync.
+        _strapCondition = StrapConditionReport(
+          tsEpoch: event.tsEpoch,
+          pagesBehind: (f['condition_pages_behind'] as num?)?.toInt(),
+          backlog: (f['condition_backlog'] as num?)?.toDouble(),
+          socPct: (f['condition_soc_pct'] as num?)?.toDouble(),
+          flash: (f['condition_flash'] as num?)?.toInt(),
+          charging: f['condition_charging'] as bool?,
+          wristState: (f['condition_wrist_state'] as num?)?.toInt(),
+        );
+        _log('[SYNC] strap condition: $_strapCondition');
+        return;
+      case EventId.hapticsTerminated:
+        // doc 07 §"Termination event". `user_double_tap` is the wearer
+        // dismissing a running alarm — a different fact from an alarm that ran
+        // its course. Observed, not acted on: the alarm flow is unchanged.
+        _lastHapticsTermination =
+            f['haptics_termination'] as String? ?? 'unknown';
+        _lastHapticsTerminationTs = event.tsEpoch;
+        _log('[ALARM] haptics terminated: cause=$_lastHapticsTermination '
+            'code=${f['haptics_termination_code']} ts=${event.tsEpoch}');
+        return;
       case EventId.highFreqSyncPrompt:
         _log(
           '[SYNC] HighFreq prompt received — scheduling a one-shot historical refresh.',
@@ -4354,8 +4426,25 @@ class BleEngine {
   /// time-only form ([setAlarmSimple]) is ACKed but never buzzes. The strap
   /// confirms via event 56 and reports firing via 57/58 + 60.
   ///
-  /// Returns the wall-clock instant armed, or null if the write failed (so the
-  /// caller does not persist a phantom alarm).
+  /// Returns the wall-clock instant armed, or null when the strap did not take
+  /// the alarm — so the caller never persists a phantom alarm. Null means one
+  /// of two things, both of them "there is no alarm on that band":
+  ///
+  ///  * the write never left the phone, or
+  ///  * the strap answered and REFUSED it — a FAILURE/UNSUPPORTED outer result,
+  ///    or an alarm-status byte from the input-rejection family (doc 07
+  ///    §"Alarm/haptics status codes": invalid waveform/loop/duration/time/ID).
+  ///    That byte is "in addition to" the outer result and the doc says to
+  ///    check both — a strap can answer SUCCESS and still report `invalid
+  ///    alarm time`. The `arm info is invalid, error 0xb` seen when arming slot
+  ///    0 on a WHOOP 5 is precisely status 11, `invalid_alarm_id`, arriving
+  ///    through this byte.
+  ///
+  /// An UNANSWERED arm is deliberately NOT a refusal: it returns [when] as
+  /// before. Correlation is new here and unproven on every strap; failing an
+  /// arm because a read-back never came back would break wake alarms on any
+  /// band that does not echo the originating sequence. The log line is the
+  /// signal that the arm went out unconfirmed.
   Future<DateTime?> setAlarm(
     DateTime when, {
     int index = 0,
@@ -4385,16 +4474,41 @@ class BleEngine {
       index: index,
       haptics: haptics,
     );
-    final ok = await _send(Cmd.setAlarmTime, payload);
+    final out = await _sendAwaited(Cmd.setAlarmTime, payload);
     _log(
       'SET_ALARM_TIME (${isGen5 ? "gen5 rich index1" : "rich"} ${payload.length}B) '
       '→ wallSec=${when.millisecondsSinceEpoch ~/ 1000} '
       'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
       'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
       'idx=${payload.length >= 2 ? payload[1] : -1} '
-      'write=${ok ? 'ok' : 'FAILED'}',
+      'write=${out.written ? 'ok' : 'FAILED'}',
     );
-    return ok ? when : null;
+    if (!out.written) return null;
+    // Worst case here is the awaiter's single 5 s timeout, applied once, with
+    // no resend — arming is a user-facing action, not a background poll, and a
+    // duplicate SET after a slow-but-successful one would rewrite the strap's
+    // stored deadline.
+    final resp = await out.response;
+    if (resp == null) {
+      _log('[ALARM] arm UNCONFIRMED — no correlated SET_ALARM_TIME reply. '
+          'Treating the write as the arm (the strap may not echo the '
+          'originating sequence); verify with getAlarm().');
+      return when;
+    }
+    final code = (resp.fields['alarm_status'] as num?)?.toInt();
+    final name = resp.fields['alarm_status_name'] as String?;
+    final rejected = resp.failed ||
+        resp.unsupported ||
+        (code != null && AlarmStatus.isInputRejection(code));
+    if (rejected) {
+      _log('[ALARM] arm REJECTED by the strap — result=${resp.status} '
+          'alarm_status=$code ($name). NOT recording an alarm: there is '
+          'nothing armed on the band.');
+      return null;
+    }
+    _log('[ALARM] arm accepted — result=${resp.status} '
+        'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
+    return when;
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -4458,10 +4572,38 @@ class BleEngine {
   /// on gen5. The rev-2 form has not been re-tested on hardware yet, so callers
   /// must treat a wake driven by this as unconfirmed until it has (tracked in
   /// reversing-whoop doc 15 G6).
+  ///
+  /// Returns whether the WRITE went out — callers treat the wake as
+  /// best-effort and must not block on the band. The reply (`[02, status]`,
+  /// doc 07) is correlated in the background and recorded in
+  /// [offloadSnapshot] as `last_run_alarm_status*`: on hardware that never
+  /// answered this command, whether the strap reports `played_successfully`
+  /// is the evidence the re-test needs, and it can only be collected from a
+  /// real band.
   Future<bool> runStoredAlarm({int? slot}) async {
     final band = _session?.band ?? BandProfile.gen4;
     final id = slot ?? (band.isGen5 ? AlarmPayloads.gen5Slot : null);
-    return _write(cmdRunAlarm(_seq.nextLive(), mode: id, profile: band));
+    final out = await _sendAwaited(
+      Cmd.runAlarm,
+      const <int>[],
+      frameBuilder: (seq) => cmdRunAlarm(seq, mode: id, profile: band),
+    );
+    if (!out.written) return false;
+    unawaited(out.response.then((resp) {
+      if (resp == null) {
+        _log('[ALARM] RUN_ALARM went unanswered — the early wake is '
+            'UNCONFIRMED (write ok, no correlated reply).');
+        return;
+      }
+      final code = (resp.fields['alarm_status'] as num?)?.toInt();
+      final name = resp.fields['alarm_status_name'] as String?;
+      _lastRunAlarmStatus = code;
+      _lastRunAlarmStatusName = name;
+      _lastRunAlarmTs = _wallSecs().round();
+      _log('[ALARM] RUN_ALARM reply — result=${resp.status} '
+          'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
+    }));
+    return true;
   }
 
   /// Cancel the on-device alarm (DISABLE_ALARM = 0x45). gen4 body `[0x01]`

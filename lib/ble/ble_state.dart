@@ -1295,3 +1295,42 @@ class HelloIdentity {
       'cpu=${cpuOk ? 'ok' : 'BAD'}'
       '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
 }
+
+/// The last `STRAP_CONDITION_REPORT(29)` event the band volunteered
+/// (doc 04 §"Type 48 — events").
+///
+/// OBSERVABILITY ONLY. This is the band telling us, unasked, how far behind its
+/// flash we are — the cheapest sync-progress signal there is — but nothing here
+/// starts an offload; the backfill triggers are unchanged.
+///
+/// [pagesBehind] is the SAME modular PAGE span `GET_DATA_RANGE` reports, not a
+/// packet or record count (doc 05, ~15 records/page nominal). [wristState] is
+/// the raw tri-state byte: the doc names no mapping for its three values, so
+/// wear truth still comes from WRIST_ON/WRIST_OFF and hello, never from here.
+/// Every field is nullable because a short body decodes to its prefix only.
+class StrapConditionReport {
+  /// The event's own strap timestamp — the band re-serves buffered events on
+  /// connect, so a report is only evidence about the moment it names.
+  final int tsEpoch;
+  final int? pagesBehind;
+  final double? backlog;
+  final double? socPct;
+  final int? flash;
+  final bool? charging;
+  final int? wristState;
+
+  const StrapConditionReport({
+    required this.tsEpoch,
+    this.pagesBehind,
+    this.backlog,
+    this.socPct,
+    this.flash,
+    this.charging,
+    this.wristState,
+  });
+
+  @override
+  String toString() => 'pages_behind=$pagesBehind backlog=$backlog '
+      'soc=$socPct% flash=$flash charging=$charging wrist=$wristState '
+      'ts=$tsEpoch';
+}

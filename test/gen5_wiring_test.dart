@@ -444,4 +444,112 @@ void main() {
       expect(logs.where((l) => l.contains('never set')), isNotEmpty);
     });
   });
+
+  _events();
+}
+
+/// A type-48 EVENT inner:
+/// `[0x30][u8 seq][u16 id][u32 unix][u16 subsec][u16 body len][body…]`
+/// (doc 04 §"Type 48 — events"). Built directly rather than through
+/// `buildFrame` because the engine's receive path consumes inners.
+Uint8List _eventInner(int id, List<int> body, {int ts = 1786000000}) {
+  final inner = Uint8List(12 + body.length);
+  inner[0] = PacketType.event;
+  inner[1] = 0x07;
+  final view = ByteData.sublistView(inner);
+  view.setUint16(2, id, Endian.little);
+  view.setUint32(4, ts, Endian.little);
+  view.setUint16(8, 0, Endian.little);
+  view.setUint16(10, body.length, Endian.little);
+  inner.setRange(12, inner.length, body);
+  return inner;
+}
+
+void _events() {
+  group('P1 — the band volunteers condition and haptics events (T6)', () {
+    ({BleEngine engine, List<String> logs}) rig() {
+      final logs = <String>[];
+      final engine = BleEngine(
+        onRecord: (_, _) async {},
+        onState: (_) {},
+        log: logs.add,
+      );
+      return (engine: engine, logs: logs);
+    }
+
+    test('STRAP_CONDITION_REPORT(29) lands in the offload snapshot and the log',
+        () {
+      final r = rig();
+      // pages behind 4321, backlog 45.6, SoC 87.2%, flash 3, charging, wrist 2.
+      r.engine.debugProcessImmediateFrame(Frame(
+        _eventInner(EventId.strapConditionReport, <int>[
+          0xE1, 0x10, 0x00, 0x00, // u32 page backlog = 4321
+          0xC8, 0x01, // u16 backlog tenths = 456
+          0x68, 0x03, // u16 state-of-charge tenths = 872
+          0x03, // flash
+          0x01, // charging
+          0x02, // wrist tri-state
+        ], ts: 1786000123),
+        true,
+        true,
+      ));
+
+      final snap = r.engine.offloadSnapshot;
+      expect(snap['condition_pages_behind'], 4321,
+          reason: 'a modular PAGE span (doc 05), not a packet count');
+      expect(snap['condition_backlog'], closeTo(45.6, 1e-9));
+      expect(snap['condition_soc_pct'], closeTo(87.2, 1e-9));
+      expect(snap['condition_charging'], isTrue);
+      expect(snap['condition_wrist_state'], 2);
+      expect(snap['condition_ts'], 1786000123);
+      expect(r.logs.where((l) => l.contains('[SYNC] strap condition')),
+          isNotEmpty);
+    });
+
+    test('a condition report is observability only — it starts no offload', () {
+      final r = rig();
+      r.engine.debugProcessImmediateFrame(Frame(
+        _eventInner(EventId.strapConditionReport,
+            <int>[0xFF, 0xFF, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0]),
+        true,
+        true,
+      ));
+      // A five-figure backlog is exactly the reading that would tempt a sync
+      // trigger. The backfill policy stays the only thing that starts one.
+      expect(r.engine.offloadActive, isFalse);
+      expect(r.engine.offloadSnapshot['history_requests'], 0);
+      // The raw tri-state byte must not be laundered into wear state.
+      expect(r.engine.offloadSnapshot['condition_wrist_state'], 0);
+    });
+
+    test('HAPTICS_TERMINATED(100) code 2 records the wearer double-tap', () {
+      final r = rig();
+      r.engine.debugProcessImmediateFrame(Frame(
+        _eventInner(EventId.hapticsTerminated,
+            <int>[1, HapticsTermination.userDoubleTap],
+            ts: 1786000456),
+        true,
+        true,
+      ));
+
+      final snap = r.engine.offloadSnapshot;
+      expect(snap['last_haptics_termination'], 'user_double_tap');
+      expect(snap['last_haptics_termination_ts'], 1786000456);
+      expect(
+          r.logs.where(
+              (l) => l.contains('[ALARM]') && l.contains('user_double_tap')),
+          isNotEmpty);
+    });
+
+    test('an expiry and a dismissal are not the same recorded cause', () {
+      final r = rig();
+      r.engine.debugProcessImmediateFrame(Frame(
+        _eventInner(
+            EventId.hapticsTerminated, <int>[1, HapticsTermination.expired]),
+        true,
+        true,
+      ));
+      expect(r.engine.offloadSnapshot['last_haptics_termination'], 'expired');
+    });
+  });
 }

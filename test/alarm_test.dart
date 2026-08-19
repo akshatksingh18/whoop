@@ -1,15 +1,69 @@
-// Pure-logic tests for the on-device wake alarm:
+// Tests for the on-device wake alarm:
 //   - the exact SET_ALARM_TIME byte layouts (rich 20-byte firing form + short
-//     7-byte time-only form) and the RUN/DISABLE bodies (AlarmPayloads), and
-//   - the strap-event confirmation state machine (AlarmConfirmation).
-// No BLE / DB — everything here is deterministic.
+//     7-byte time-only form) and the RUN/DISABLE bodies (AlarmPayloads),
+//   - the strap-event confirmation state machine (AlarmConfirmation), and
+//   - the arm/run decision made on the correlated reply's alarm-status byte
+//     (doc 07), driven over the engine's fake-link seam.
+// No radio and no DB — everything here is deterministic.
 
+import 'dart:typed_data';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
+/// A gen5 link with no radio behind it, plus the seq of every command written.
+/// Same seam as `command_correlation_test.dart`: the reply is injected from
+/// INSIDE the write, i.e. before the write call returns, which is the ordering
+/// doc 02 demands and the one a fast strap actually produces.
+class _Link {
+  final logs = <String>[];
+  final written = <({int seq, int opcode})>[];
+  late final BleEngine engine;
+
+  _Link({proto.Decoded? Function(int seq, int opcode)? replyTo}) {
+    engine = BleEngine(onRecord: (_, _) async {}, onState: (_) {}, log: logs.add);
+    engine.debugInstallFakeLink(
+      band: proto.BandProfile.gen5,
+      onWrite: (frame) async {
+        final inner = proto.parseFrame(frame, profile: proto.BandProfile.gen5)!.inner;
+        written.add((seq: inner[1], opcode: inner[2]));
+        final reply = replyTo?.call(inner[1], inner[2]);
+        if (reply != null) engine.debugAbsorbDecoded(reply);
+        return true;
+      },
+    );
+  }
+
+  bool logged(String needle) => logs.any((l) => l.contains(needle));
+}
+
+/// A COMMAND_RESPONSE carrying the doc-07 alarm/haptics status byte, decoded by
+/// the REAL protocol parser so the test asserts on the wire layout rather than
+/// on a hand-written field map: `[0x24][strap seq][opcode][echoed seq][result]`
+/// then body `[revision][alarm status]`.
+proto.Decoded _alarmReply(
+  int opcode,
+  int seq,
+  int alarmStatus, {
+  int outer = 1,
+  int revision = 3,
+}) {
+  final inner = Uint8List.fromList(
+      [0x24, 0x55, opcode, seq, outer, revision, alarmStatus]);
+  final r =
+      proto.parseCommandResponse(inner, profile: proto.BandProfile.gen5)!;
+  return proto.Decoded('cmd_response', {'opcode': r.opcode, ...r.decoded});
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(BleEngine.resetBandClaimForTest);
+  tearDown(BleEngine.resetBandClaimForTest);
+
   group('AlarmPayloads byte layout', () {
     // A hand-computed vector:
     //   sec    = 0x01020304 = 16909060  → LE [04 03 02 01]
@@ -317,6 +371,162 @@ void main() {
       expect(run(p, now: opensAt + 600, met: true), ConditionalWakeAction.openWindow,
           reason: 'window may reopen, but the wake must not repeat');
       expect(run(p, now: opensAt + 700, met: true), ConditionalWakeAction.none);
+    });
+  });
+
+  // doc 07 §"Command bodies": the SET_ALARM_TIME reply carries a haptics/alarm
+  // status byte "in addition to the ordinary outer command result — check
+  // both". Before this, the engine treated a successful WRITE as an armed
+  // alarm, so a strap that answered `invalid alarm time` left the app showing
+  // a wake alarm that did not exist on the band.
+  group('engine wiring — an arm is judged on the strap\'s reply', () {
+    final wake = DateTime.fromMillisecondsSinceEpoch(1750000000 * 1000);
+
+    test('a rejected alarm time returns null — nothing to persist', () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.invalidAlarmTime)
+            : null,
+      );
+
+      expect(await link.engine.setAlarm(wake), isNull,
+          reason: 'the strap refused it; there is no alarm on the band');
+      expect(link.logged('arm REJECTED'), isTrue);
+      expect(link.logged('invalid_alarm_time'), isTrue,
+          reason: 'the status name is the whole diagnostic');
+      expect(link.engine.pendingCommandCount, 0);
+    });
+
+    test('a SUCCESS outer result does not override a rejecting status byte',
+        () async {
+      // The reply above already carries outer result 1 — the point of the doc's
+      // "check both" is that this combination exists on the wire.
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.invalidAlarmId,
+                outer: 1)
+            : null,
+      );
+      expect(await link.engine.setAlarm(wake), isNull);
+      expect(link.logged('invalid_alarm_id'), isTrue);
+    });
+
+    test('an accepted arm returns the armed time and logs the status', () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern)
+            : null,
+      );
+
+      expect(await link.engine.setAlarm(wake), wake);
+      expect(link.logged('arm accepted'), isTrue);
+      expect(link.logged('valid_input_pattern'), isTrue);
+    });
+
+    test('a FAILURE outer result rejects the arm even with no status byte',
+        () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? proto.Decoded('cmd_response', {
+                'opcode': opcode,
+                'req_seq': seq,
+                'cmd_status': CommandAwaiter.statusFailure,
+              })
+            : null,
+      );
+      expect(await link.engine.setAlarm(wake), isNull);
+      expect(link.logged('arm REJECTED'), isTrue);
+    });
+
+    test('an unanswered arm still arms, logged as unconfirmed', () {
+      // Correlation is new and unproven on every strap: a band that does not
+      // echo the originating sequence must not lose its wake alarm. The arm
+      // costs at most the awaiter's single 5 s timeout, with no resend.
+      fakeAsync((async) {
+        final link = _Link(); // writes succeed, nothing ever answers
+        DateTime? armed;
+        var done = false;
+        link.engine.setAlarm(wake).then((v) {
+          armed = v;
+          done = true;
+        });
+
+        async.elapse(const Duration(seconds: 4));
+        expect(done, isFalse, reason: 'still waiting on the reply');
+        async.elapse(const Duration(seconds: 2));
+
+        expect(done, isTrue);
+        expect(armed, wake, reason: 'an unanswered read-back is not a refusal');
+        expect(link.logged('arm UNCONFIRMED'), isTrue);
+        expect(link.engine.pendingCommandCount, 0);
+      });
+    });
+
+    test('a failed write is still the only silent null', () async {
+      final link = _Link();
+      link.engine.debugWriteHook = (_) async => false;
+      expect(await link.engine.setAlarm(wake), isNull);
+      expect(link.logged('arm REJECTED'), isFalse,
+          reason: 'nothing was refused — nothing was ever sent');
+      expect(link.engine.pendingCommandCount, 0,
+          reason: 'a write that never went out leaves no observer behind');
+    });
+  });
+
+  // RUN_ALARM(68) is the wake-in-green trigger and has never been verified on
+  // WHOOP 5 hardware with the rev-2 body. Its `[02, status]` reply is the
+  // evidence trail a hardware re-test reads back out of the snapshot.
+  group('engine wiring — runStoredAlarm records what the strap answered', () {
+    test('the reply status lands in the offload snapshot', () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.playedSuccessfully,
+                revision: 2)
+            : null,
+      );
+
+      expect(await link.engine.runStoredAlarm(), isTrue,
+          reason: 'the bool is the WRITE — the wake stays best-effort');
+      await pumpEventQueue();
+
+      final snap = link.engine.offloadSnapshot;
+      expect(snap['last_run_alarm_status'], proto.AlarmStatus.playedSuccessfully);
+      expect(snap['last_run_alarm_status_name'], 'played_successfully');
+      expect(snap['last_run_alarm_ts'], isNotNull);
+      expect(link.logged('RUN_ALARM reply'), isTrue);
+    });
+
+    test('a haptics failure is recorded too, not swallowed', () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.hapticsFailure,
+                outer: 0, revision: 2)
+            : null,
+      );
+
+      // Still true: the write went out. The verdict lives in the snapshot.
+      expect(await link.engine.runStoredAlarm(), isTrue);
+      await pumpEventQueue();
+      expect(link.engine.offloadSnapshot['last_run_alarm_status_name'],
+          'haptics_failure');
+    });
+
+    test('the RUN_ALARM frame is correlated on its own sequence', () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
+            ? _alarmReply(opcode, seq, proto.AlarmStatus.playedSuccessfully,
+                revision: 2)
+            : null,
+      );
+      await link.engine.runStoredAlarm();
+      await pumpEventQueue();
+      // The frame is built by the protocol helper, so the awaiter's sequence
+      // has to be threaded THROUGH it — a hard-coded seq inside cmdRunAlarm
+      // would never match.
+      final run =
+          link.written.lastWhere((w) => w.opcode == proto.Cmd.runAlarm);
+      expect(run.seq, greaterThanOrEqualTo(SeqAllocator.liveFloor));
+      expect(link.engine.pendingCommandCount, 0);
     });
   });
 }

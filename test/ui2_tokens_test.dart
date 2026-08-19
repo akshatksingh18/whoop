@@ -202,6 +202,12 @@ const _notComponents = {
   // permission on tap — a gallery case would either mock all of that or
   // trigger a real health-store prompt from a screenshot sweep.
   'PhoneImport', 'AutomationSettings',
+  // The double-tap picker. A Scaffold route whose whole content is decided by
+  // what the OS answered to a method channel, so a gallery case would be a
+  // photograph of a fixture rather than of the screen. Rendered instead by
+  // band_gestures_test.dart, at a real phone width, in both the has-native and
+  // the native-unreachable state.
+  'BandGestures', 'BandGesturesView',
   // FULL-BLEED, so it is a screen element rather than a component: it takes
   // the whole window width back off its parent's padding via OverflowBox. The
   // gallery lays every case out in a ~179 logical-px cell, which is narrower

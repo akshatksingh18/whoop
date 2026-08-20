@@ -670,24 +670,48 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
             onFix: () => _addMed(c),
           )
         else ...[
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Column(
-              children: [
-                for (final s in _slots)
-                  MedRow(
-                    slot: s,
-                    onTap: () => _markDose(s),
-                    // Everything that is not "I took it" lives behind here:
-                    // skipping a dose on purpose, fixing the days it is due,
-                    // and the exit for a course you finished — which used to
-                    // keep coming due every day with nothing but "Delete
-                    // everything" to stop it.
-                    onMore: () => _medActions(c, s),
-                  ),
-              ],
+          // A medication with no slot TODAY is not an empty screen. It happens
+          // for ordinary reasons — the days exclude today, the time had already
+          // passed when it was added (`slotsForDay` will not invent a slot
+          // behind you), or the day being viewed is not today — and every one
+          // of them used to render an empty `Surface`: added a medication, no
+          // tracker, nothing said. Absence states its reason, and the schedule
+          // itself is the reason, so it is what gets printed.
+          if (_slots.isEmpty) ...[
+            const StatusCard(
+              'Nothing due today',
+              'What you take is scheduled for other days or times.',
+              icon: LucideIcons.pill,
             ),
-          ),
+            const SizedBox(height: S.x3),
+            Surface(
+              pad: const EdgeInsets.symmetric(vertical: S.x2),
+              child: Column(
+                children: [
+                  for (final d in _meds)
+                    for (final sch in d.schedule) _scheduleRow(c, d, sch),
+                ],
+              ),
+            ),
+          ] else
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  for (final s in _slots)
+                    MedRow(
+                      slot: s,
+                      onTap: () => _markDose(s),
+                      // Everything that is not "I took it" lives behind here:
+                      // skipping a dose on purpose, fixing the days it is due,
+                      // and the exit for a course you finished — which used to
+                      // keep coming due every day with nothing but "Delete
+                      // everything" to stop it.
+                      onMore: () => _medActions(c, s),
+                    ),
+                ],
+              ),
+            ),
           Section(
             'Adherence',
             // An empty denominator is not an adherence of nothing. Consistency
@@ -722,6 +746,29 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
           ),
         ],
       ],
+    );
+  }
+
+  /// One scheduled time that is not due today: what it is, and when it is due.
+  ///
+  /// Tapping goes straight to the schedule and NOT to `_medActions` — a slot
+  /// that is not due cannot be taken or skipped, and offering either would
+  /// write a dose row for a day the medication was never scheduled on.
+  /// Changing when it is due is the only honest action here, and it is also
+  /// the one that brings the tracker back.
+  Widget _scheduleRow(BuildContext c, MedDef d, MedSchedule sch) {
+    final slot = MedSlot(
+      def: d,
+      date: _date,
+      slotMin: sch.minuteOfDay,
+      state: DoseState.upcoming,
+    );
+    return _SheetAction(
+      LucideIcons.pill,
+      d.label,
+      // `timeLabel`, so the two halves of this tab print a time the same way.
+      sub: '${_daysLabel(sch.days)} · ${slot.timeLabel}',
+      onTap: () => _editSchedule(c, slot),
     );
   }
 

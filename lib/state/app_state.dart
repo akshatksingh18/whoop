@@ -195,7 +195,6 @@ class AppState extends ChangeNotifier {
   // "last data: …" indicator must show. Seeded from the DB at init, advanced as
   // records (drained + live) flow in.
   int? _lastRecTs;
-  Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
   bool busy = false;
 
@@ -1383,7 +1382,6 @@ class AppState extends ChangeNotifier {
         heavy: heavy,
         onDayDone: (day, index, total) async {
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
@@ -1819,14 +1817,12 @@ class AppState extends ChangeNotifier {
         onDayDone: (day, index, total) async {
           reanalyzeProgress = 'Analyzing $index/$total';
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
       );
       await LocalDb.refreshComputeFreshness();
       bumpInsights();
-      dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
       _log('[derive] reanalyze failed: $e');
@@ -1897,7 +1893,6 @@ class AppState extends ChangeNotifier {
       // The day_result rows just changed — without this no RevisionReload screen
       // re-reads, so an override/nap edit only showed up after a restart.
       bumpInsights();
-      dbCounts = await LocalDb.counts();
     } catch (e) {
       _log('[derive] sleep-override re-derive failed: $e');
     } finally {
@@ -1923,7 +1918,6 @@ class AppState extends ChangeNotifier {
   Future<int> deleteDays(Set<String> dayIds) async {
     final deleted = await LocalDb.deleteDays(dayIds);
     await LocalDb.refreshComputeFreshness();
-    dbCounts = await LocalDb.counts();
     lastSynced = await LocalDb.latestSample();
     notifyListeners();
     return deleted;
@@ -1931,7 +1925,7 @@ class AppState extends ChangeNotifier {
 
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
-  /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
+  /// LIGHT derive over the affected day(s).
   ///
   /// This is also THE reliable place to refresh `_lastRecTs` (the "last data"
   /// freshness banner reads it). `_runSyncBurst`'s own before/after frontier
@@ -1940,13 +1934,12 @@ class AppState extends ChangeNotifier {
   /// checkpoint-based refresh can miss a burst entirely. This callback fires
   /// on EVERY successful persist path (foreground burst, background/headless
   /// drain, live-triggered store) after the write is durable, so it can't
-  /// race it — same guarantee dbCounts already relies on above.
+  /// race it.
   void _onDataStored() {
     // Synchronously, before the async read below: this is the moment records
     // became durable, and it is the only path that sees every commit.
     _markSyncActivity();
     unawaited(() async {
-      dbCounts = await LocalDb.counts();
       final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
@@ -2039,7 +2032,6 @@ class AppState extends ChangeNotifier {
     // policies already trust).
     _lastRecTs =
         await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
-    dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // Band-gesture mapping: load the saved action + query native capabilities so the
@@ -3320,7 +3312,6 @@ class AppState extends ChangeNotifier {
         '(${report.complete ? "complete" : "stopped early"}).',
       );
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
       }
     } catch (e) {
@@ -3883,7 +3874,7 @@ class AppState extends ChangeNotifier {
       // The foreground guard stops a wake from fighting this live session for the band.
       IosBleRestore.foregroundActive = true;
       IosBleRestore.arm(band.remoteId);
-      _log('===== SESSION START ===== raw=${dbCounts['raw']}');
+      _log('===== SESSION START =====');
       await _ensureForegroundLease();
       // connect() now subscribes → SET_CLOCK → INIT, so the historical offload is
       // ALREADY streaming the moment this returns.
@@ -3924,14 +3915,12 @@ class AppState extends ChangeNotifier {
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
       await engine.enableLiveStreams();
-      dbCounts = await LocalDb.counts();
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
           _log(
             'Backlog drained: ${report.records} records in ${report.batches} '
             'batches (${report.complete ? "complete" : "stopped early"}).',
           );
-          dbCounts = await LocalDb.counts();
           // Re-evaluate the high-frequency wake window now the backlog landed.
           await _refreshHighFreqWakeWindow();
           // The whole backlog landed → heavy foreground finalize (full sleep
@@ -4059,7 +4048,6 @@ class AppState extends ChangeNotifier {
           _log('Reconnected — live on; draining backlog in background.');
           unawaited(
             _kickSyncBurst(kickFirst: false).then((report) async {
-              dbCounts = await LocalDb.counts();
               _log('Reconnect backlog drained: ${report.records} records.');
               // Re-evaluate the high-frequency wake window now the backlog
               // landed.
@@ -4122,7 +4110,6 @@ class AppState extends ChangeNotifier {
         await _syncBurst;
       }
       await _kickSyncBurst(kickFirst: true);
-      dbCounts = await LocalDb.counts();
       notifyListeners();
       // A just-finished workout window landed from flash → derive it (light).
       _deriveScheduler.markStoredData();
@@ -4168,7 +4155,6 @@ class AppState extends ChangeNotifier {
       if (!await engine.requestForegroundSync()) return;
       final report = await _kickSyncBurst(kickFirst: false);
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
         notifyListeners();
       }

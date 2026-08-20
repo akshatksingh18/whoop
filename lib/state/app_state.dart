@@ -1434,7 +1434,7 @@ class AppState extends ChangeNotifier {
         _log('[derive] session rescore failed: $e');
       }
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
+      bumpInsights();
       notifyListeners(); // screens re-fetch from the derived store
       // Same signal, for the surfaces that can't listen: home/lock-screen
       // widget, Watch mirror, Siri intents (WidgetService.refresh).
@@ -1852,7 +1852,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
+      bumpInsights();
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -1921,6 +1921,9 @@ class AppState extends ChangeNotifier {
     try {
       await _derive.run(_profile, force: true);
       await LocalDb.refreshComputeFreshness();
+      // The day_result rows just changed — without this no RevisionReload screen
+      // re-reads, so an override/nap edit only showed up after a restart.
+      bumpInsights();
       dbCounts = await LocalDb.counts();
     } catch (e) {
       _log('[derive] sleep-override re-derive failed: $e');
@@ -1935,40 +1938,6 @@ class AppState extends ChangeNotifier {
   /// rather than a redraw, and the engine force-includes nap-edit days even
   /// when they are finalized.
   Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
-
-  Future<int> reanalyzeDays(Set<String> days) async {
-    if (days.isEmpty || reanalyzing) return 0;
-    reanalyzing = true;
-    final ordered = days.toList()..sort();
-    reanalyzeProgress =
-        'Analyzing ${ordered.length} day${ordered.length == 1 ? '' : 's'}…';
-    notifyListeners();
-    try {
-      final n = await _derive.runDays(
-        _profile,
-        days,
-        force: true,
-        onDayDone: (day, index, total) async {
-          reanalyzeProgress = 'Analyzing $index/$total';
-          if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
-            notifyListeners();
-          }
-        },
-      );
-      await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
-      dbCounts = await LocalDb.counts();
-      return n;
-    } catch (e) {
-      _log('[derive] reanalyze selected failed: $e');
-      return 0;
-    } finally {
-      reanalyzing = false;
-      reanalyzeProgress = '';
-      notifyListeners();
-    }
-  }
 
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
       LocalDb.dataHistoryDays();
@@ -2387,8 +2356,6 @@ class AppState extends ChangeNotifier {
       _log('[db] schemaHealth check skipped: $e');
     }
   }
-
-  void _bumpInsightsRevision() => bumpInsights();
 
   /// Say that the DURABLE data changed, so every screen reading it re-reads.
   ///
@@ -5180,7 +5147,7 @@ class AppState extends ChangeNotifier {
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
-      _bumpInsightsRevision();
+      bumpInsights();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();

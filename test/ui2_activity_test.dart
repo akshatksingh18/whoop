@@ -1373,6 +1373,36 @@ void main() {
       expect(find.text('141'), findsOneWidget);
     });
 
+    testWidgets('the rest countdown ticks without rebuilding the shell',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      await tester.pumpWidget(_frame(
+          LiveStrength(activityByName('weight_training')!),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(find.text('01:30'), findsOneWidget);
+
+      // The countdown used to be a field behind setState, so every one of the
+      // ninety ticks rebuilt this state — and with it a whole new LiveShell,
+      // header and transport and all. The widget instance is the tell: only
+      // _LiveStrengthState.build makes a new one.
+      final shell = tester.widget<LiveShell>(find.byType(LiveShell));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('01:29'), findsOneWidget,
+          reason: 'the ring still counts down');
+      expect(identical(tester.widget<LiveShell>(find.byType(LiveShell)), shell),
+          isTrue,
+          reason: 'the shell must not be rebuilt for a number inside the body');
+    });
+
     testWidgets('a session that failed to save says so and can retry',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);

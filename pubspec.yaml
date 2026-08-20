@@ -198,7 +198,7 @@ dependencies:
       # abstains rather than billing every waking minute as active when the
       # anchors are unusable — which is source-breaking here, not
       # number-changing (see `onehz_pipeline` and `_dailyEnergy`).
-      ref: 3174a493472a5e6280b11a0ab11fec82483507e1
+      ref: d9362a66fbeac326d5d7d7b1fe27b28e41169a79
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

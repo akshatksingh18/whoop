@@ -1310,7 +1310,14 @@ const int kAlgoVersion = 76;
 // produced and no baseline ever held. For a user whose data is valid, every
 // number out of both packages is byte-identical, so a bump would invalidate
 // every stored day to recompute the same answers.
-const String kAnalyticsPin = '3174a493472a5e6280b11a0ab11fec82483507e1';
+//
+// This repin picks up the analytics perf pass, and kAlgoVersion holds at 76 for
+// the same reason: the stager does the same arithmetic in fewer passes. The one
+// place that could have gone wrong was sorting the HR window before `stddev`,
+// which re-orders a float summation — that is computed before the sort now, and
+// the real overnight capture staged identically down to the last digit of
+// confidence.
+const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
 const String kProtocolPin = 'c761f29bcbed73886b1b059dcd9e92e4333574f5';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

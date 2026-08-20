@@ -199,7 +199,8 @@ MetricRow(IconData icon, Color color, String name, String value,
 The trailing slot is a DIRECTION ARROW, not a sparkline: a 52 pt line chart
 showed a shape nobody could read a number off. `series` is read by `trendOf`,
 which only calls a direction if the newest three values clear half a standard
-deviation of the fourteen before them — inside that it is steady, and with
+deviation of up to fourteen before them — four is enough, so seven recorded
+values already produce a direction — inside that it is steady, and with
 fewer than seven recorded days it is nothing at all (an empty slot, with the
 reason in the semantics, because a flat arrow would claim a measured "no
 change"). `rising` says which way is good news for THIS metric and is the only

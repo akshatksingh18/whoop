@@ -258,6 +258,13 @@ class MyDevicesView extends StatelessWidget {
     // hid the only route back to pairing, and forgetting a band left the user
     // stranded with a steps row and no way to add another.
     final hasBand = sources.any((s) => s.isBand);
+
+    // THE PHONE ROW IS LISTED WHENEVER THE TOGGLE IS ON, connected or not —
+    // `connected` there is "steps have actually been banked", because on iOS
+    // the toggle sits on while a denied READ permission returns nothing. So
+    // "a source exists" was the wrong test for this card: it told a user
+    // whose phone was measuring nothing that "the phone counts steps".
+    final phoneCounting = sources.any((s) => !s.isBand && s.connected);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -276,16 +283,16 @@ class MyDevicesView extends StatelessWidget {
                 // the one they came for.
                 if (!hasBand) ...[
                   StatusCard(
-                    sources.isEmpty
-                        ? 'Nothing is measuring yet'
-                        : 'No band is paired',
-                    sources.isEmpty
-                        ? 'No band is paired and phone steps are off, so every '
-                            'metric in the app will abstain rather than '
-                            'estimate.'
-                        : 'The phone counts steps and nothing else. Heart '
+                    phoneCounting
+                        ? 'No band is paired'
+                        : 'Nothing is measuring yet',
+                    phoneCounting
+                        ? 'The phone counts steps and nothing else. Heart '
                             'rate, sleep, recovery and temperature all abstain '
-                            'until a band is paired.',
+                            'until a band is paired.'
+                        : 'No band is paired and no phone steps are arriving, '
+                            'so every metric in the app will abstain rather '
+                            'than estimate.',
                     fix: 'Pair a band',
                     icon: LucideIcons.watch,
                     onFix: onPair,

@@ -487,7 +487,7 @@ class TrendCard extends StatelessWidget {
   /// [delta] as the caller wrote it ("no baseline") and stops there.
   final bool? good;
 
-  /// DENSE — see [MetricRow.spark].
+  /// DENSE — see [MetricRow.series].
   final List<double?> series;
   final Color color;
   final VoidCallback? onTap;
@@ -1253,7 +1253,11 @@ class MetricRow extends StatelessWidget {
           );
     return Pressable(
       onTap: onTap,
-      semanticLabel: '$name, $value $unit ${_trendWord(trend)}'
+      // WHAT THE ROW SHOWS IS WHAT IT SAYS. `status` REPLACES the arrow in the
+      // trailing slot, so announcing the trend under it described a glyph that
+      // is not on screen — a row reading 'ON TRACK' told a screen reader
+      // 'trending up'.
+      semanticLabel: '$name, $value $unit ${status ?? _trendWord(trend)}'
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim(),
       child: Padding(

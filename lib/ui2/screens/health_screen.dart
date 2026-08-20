@@ -456,15 +456,20 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   /// that was invisible here until the app was relaunched. The already-loaded
   /// sub-tabs are re-read too — they cache on `!= null`, which is the same
   /// load-once bug one level down.
+  ///
+  /// EVERY SUB-TAB THAT HAS EVER READ, not every sub-tab that holds data. This
+  /// gated on `!= null` and so skipped the one case that matters most — a
+  /// sub-tab whose first read is still in flight when the revision lands, which
+  /// is the ordinary state of the first load after an import. See [hasRead].
   @override
   void reload() {
     _load();
-    if (_v != null) _loadVitals(force: true);
-    if (_l != null) {
+    if (hasRead(#vitals)) _loadVitals(force: true);
+    if (hasRead(#labs)) {
       _l = null;
       _loadLabs();
     }
-    if (_e != null) {
+    if (hasRead(#explore)) {
       _e = null;
       _loadExplore();
     }

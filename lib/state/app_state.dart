@@ -2278,23 +2278,32 @@ class AppState extends ChangeNotifier {
   /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
   /// `markJournalDone` would set and nothing anywhere calls: it is false for
   /// every user on every day. The journal rows are the truth.
-  Future<bool> _checkInDoneToday() async {
+  /// NULL, NOT FALSE, when the journal could not be read. The scheduler reads
+  /// `false` as "today is known to be unanswered" and arms the prompt on it —
+  /// so a transient read failure asked a user who had already written their
+  /// rating how their day was. Null is the answer it already has a branch for:
+  /// leave the check-in exactly as it is and let the next pass decide.
+  Future<bool?> _checkInDoneToday() async {
     try {
       return NotificationCenter.checkInDone(
           await LocalDb.journalMetricsForDay(todayLabel()));
     } catch (_) {
-      // Unknown → treat the day as unanswered. Nothing is armed anyway unless
-      // the user switched the check-in on.
-      return false;
+      return null;
     }
   }
 
-  /// The medication schedule + today's recorded doses, or empty when the
-  /// reminder is off. Two indexed reads, only on the path that will use them.
-  Future<({List<MedDef> defs, Map<String, Map<int, Map<String, Object?>>> doses})>
+  /// The medication schedule + today's recorded doses. Two indexed reads, only
+  /// on the path that will use them.
+  ///
+  /// NULL `defs` means UNREAD — the switch is off, or the read threw — and is
+  /// not the same answer as an empty list, which means "this user has no
+  /// medications". The scheduler cancels the armed doses on the second and
+  /// preserves them on the first; returning `[]` for a failed read handed it
+  /// the wrong one of those.
+  Future<({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})>
       _medScheduleToday(NotificationPrefs prefs) async {
     const empty = <String, Map<int, Map<String, Object?>>>{};
-    if (!prefs.medsEnabled) return (defs: const <MedDef>[], doses: empty);
+    if (!prefs.medsEnabled) return (defs: null, doses: empty);
     try {
       final db = await LocalDb.instance;
       return (
@@ -2302,7 +2311,7 @@ class AppState extends ChangeNotifier {
         doses: await MedDb.dosesForDay(db, todayLabel()),
       );
     } catch (_) {
-      return (defs: const <MedDef>[], doses: empty);
+      return (defs: null, doses: empty);
     }
   }
 

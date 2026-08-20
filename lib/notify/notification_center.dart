@@ -204,7 +204,11 @@ class NotificationCenter {
   /// caller could not tell, and the check-in is then left exactly as it is.
   ///
   /// [medDefs] / [medDosesToday] come straight from `MedDb` and are only read
-  /// when `prefs.medsEnabled` is on. They stay parameters rather than a query
+  /// when `prefs.medsEnabled` is on. NULL means the caller did not read the
+  /// schedule at all — the notifications screen re-asserting after an
+  /// unrelated toggle, or a read that threw — and the armed doses are then
+  /// left exactly as they are. An EMPTY list is an answer: there are no
+  /// medications, and the old slots go. They stay parameters rather than a query
   /// in here for the same reason [weeklyFinding] does: this method is the
   /// policy, and a policy that opens the database cannot be tested without
   /// one.
@@ -213,7 +217,7 @@ class NotificationCenter {
     double? bedtimeMinOfDay,
     String? weeklyFinding,
     bool? checkInDoneToday,
-    List<MedDef> medDefs = const [],
+    List<MedDef>? medDefs,
     Map<String, Map<int, Map<String, Object?>>> medDosesToday = const {},
   }) async {
     final svc = NotificationService.instance;
@@ -239,7 +243,17 @@ class NotificationCenter {
     // after any unrelated toggle, with no schedule passed, and an unconditional
     // cancel there would bin every armed dose for a user who came in to change
     // their quiet hours. Cancel only what this call can put back.
-    if (!prefs.medsEnabled || medDefs.isNotEmpty) {
+    //
+    // NULL, NOT EMPTY, is what "no schedule passed" means — and that is the
+    // whole distinction. "There are no medications" and "the medication table
+    // could not be read" are different facts with opposite correct answers:
+    // an EMPTY schedule must cancel, or a user who deleted their last
+    // medication keeps getting reminded to take it, forever, because nothing
+    // else ever cancels these. An UNAVAILABLE one must preserve, because
+    // re-arming is impossible and cancelling would silently disarm doses that
+    // are still real. Collapsing both into `const []` chose preserve for both,
+    // so the deleted-medication case never got its cancel.
+    if (!prefs.medsEnabled || medDefs != null) {
       for (var i = 0; i < NotificationService.maxMedSlots; i++) {
         await svc.cancel(NotificationService.idMedsBase + i);
       }
@@ -268,7 +282,8 @@ class NotificationCenter {
         ? null
         : checkInSlot(prefs, bedtimeMinOfDay,
             doneToday: checkInDoneToday, nowMin: now.hour * 60 + now.minute);
-    final meds = medPromptSlots(prefs, medDefs, medDosesToday, now: now);
+    final meds =
+        medPromptSlots(prefs, medDefs ?? const [], medDosesToday, now: now);
     if (water.isEmpty && !wantWeekly && checkIn == null && meds.isEmpty) return;
     // Re-resolve the zone first: this runs on every foreground resume, and the
     // instants below are wall-clock. A phone that flew somewhere would otherwise

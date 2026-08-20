@@ -228,6 +228,11 @@ class _AppRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final icon = app.icon;
+    // Decoded at the size it is drawn at, same reasoning as _IconChoice in
+    // settings.dart: these are launcher masters (Android ships up to 512 px)
+    // decoded in full to paint a 32 pt row. WIDTH ONLY — a third-party icon
+    // need not be square, and constraining both dimensions would distort it.
+    final px = (32 * MediaQuery.devicePixelRatioOf(c)).round();
     return Pressable(
       onTap: () => onChanged?.call(app.package, !app.on),
       semanticLabel:
@@ -239,7 +244,10 @@ class _AppRow extends StatelessWidget {
             borderRadius: R.rSm,
             child: icon != null && icon.isNotEmpty
                 ? Image.memory(icon,
-                    width: 32, height: 32, gaplessPlayback: true)
+                    width: 32,
+                    height: 32,
+                    cacheWidth: px,
+                    gaplessPlayback: true)
                 : Container(
                     width: 32,
                     height: 32,

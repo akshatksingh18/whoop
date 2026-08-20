@@ -94,13 +94,8 @@ bool get offLookupAllowed =>
 /// must never do. In-session it is already fail-closed (the cache is off, so
 /// nothing goes out); what the caller has to do with a `false` here is TELL
 /// the person, because it will not survive a restart.
-Future<bool> setOffLookupAllowed(bool on) async {
-  try {
-    return await Prefs.setBoolAcked(kOffConsentKey, on);
-  } catch (_) {
-    return false;
-  }
-}
+Future<bool> setOffLookupAllowed(bool on) =>
+    Prefs.setBoolAcked(kOffConsentKey, on);
 
 // ══════════════════ RESULT ══════════════════
 

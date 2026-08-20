@@ -18,6 +18,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/app.dart';
 import 'package:openstrap_edge/ui2/app_shell.dart' show ShellDomain;
+import 'package:openstrap_edge/ui2/screens/wellness_screen.dart'
+    show WellnessScreen;
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/med_store.dart';
@@ -314,10 +316,14 @@ void main() {
       // which is the half `/profile` and `/recap` were missing.
       expect(t.screen, kRouteMeds);
       expect(domainForRoute(kRouteMeds), ShellDomain.wellness);
-      // Deliberately pushes nothing: the Medication tab is a sub-tab of a shell
-      // tab with no initial-tab argument. Flip this to isNotNull on the day
-      // WellnessScreen grows one.
+      // Still pushes nothing, and that is now the WORKING answer rather than
+      // the ceiling it used to be: the checklist is a sub-tab of a shell tab,
+      // so anything pushed would be a second copy of Wellness over Wellness.
+      // The shell asks the screen for the tab instead.
       expect(screenForRoute(kRouteMeds), isNull);
+      // The number that deep link hands over. It is an index into a private
+      // list, so a reorder would silently land the tap on Habits.
+      expect(WellnessScreen.tabs[WellnessScreen.medsTab], 'Medication');
     });
 
     test('an unknown route still falls back to Home rather than crashing', () {

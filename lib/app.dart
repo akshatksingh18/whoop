@@ -364,13 +364,11 @@ Widget? screenForRoute(String route) => switch (route) {
       kRouteWater => const NutritionScreen(),
       // The detected bout, with the three answers to it: log it, adjust the
       // times first, or say it never happened.
-      // The medication reminder pushes nothing: the checklist it is about is a
-      // SUB-TAB of Wellness, and `WellnessScreen` keeps that index in private
-      // state with no constructor argument, so there is nothing to hand it.
-      // `domainForRoute` still lands the tap on Wellness, one tap from the
-      // Medication tab — deliberately null rather than pushing a second copy
-      // of a shell tab over the shell. Give `WellnessScreen` an `initialTab`
-      // and this becomes `WellnessScreen(initialTab: 3)`.
+      // The medication reminder pushes NOTHING, and still lands on the
+      // checklist: it is a SUB-TAB of Wellness, so pushing anything would put
+      // a second copy of a shell tab over the shell. `_consume` asks Wellness
+      // for the tab instead (`WellnessScreen.tabRequest`) — the deep link is
+      // wired, the answer here stays null.
       kRouteMeds => null,
       kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
       // Battery, band and sources all live behind this one.
@@ -455,6 +453,15 @@ class _ShellState extends State<_Shell> {
     // the base the payload was built with, not a second destination.
     if (s != null && s.isNotEmpty) {
       _go(domainForRoute(s));
+      // A route whose destination is a SUB-tab, which no pushed screen can
+      // express. Asked for AFTER `_go` (which may re-key the shell and build a
+      // fresh Wellness) and cleared a frame later, so whichever state ends up
+      // on screen has seen it — see `WellnessScreen.tabRequest`.
+      if (s == kRouteMeds) {
+        WellnessScreen.tabRequest.value = WellnessScreen.medsTab;
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => WellnessScreen.tabRequest.value = -1);
+      }
       final screen = screenForRoute(s);
       if (screen != null) {
         Navigator.of(context)

@@ -40,16 +40,39 @@ import 'sleep_detail.dart';
 class WellnessScreen extends StatefulWidget {
   const WellnessScreen({super.key});
 
+  /// A deep link asking for one of the sub-tabs — [medsTab] from the dose
+  /// reminder. -1 for the ordinary case: open where the screen opens.
+  ///
+  /// NOT A CONSTRUCTOR ARGUMENT, and it cannot be one. This screen is built by
+  /// the shell's IndexedStack, which keeps it alive; a tap that lands on a
+  /// Wellness already on screen rebuilds nothing, so there is no constructor
+  /// call to carry the index. A request the screen listens for reaches it in
+  /// BOTH cases — the live state's listener when Wellness is already up, and
+  /// the fresh state's `initState` when the shell re-keys to switch domain.
+  ///
+  /// The shell CLEARS it a frame later rather than the screen consuming it on
+  /// read: on the re-key path the outgoing state's listener fires first, and a
+  /// consume-on-read would eat the request before the incoming one existed.
+  static final ValueNotifier<int> tabRequest = ValueNotifier<int>(-1);
+
+  /// Cycle is LAST on purpose: it is the one tab that can be switched off
+  /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
+  /// trailing tab leaves every other tab's index where it was.
+  ///
+  /// On the widget rather than the state so [medsTab] can be checked against
+  /// it — a deep link that lands on the wrong tab because the list was
+  /// reordered is not a failure anything else would catch.
+  static const tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
+
+  static const int medsTab = 3;
+
   @override
   State<WellnessScreen> createState() => _WellnessScreenState();
 }
 
 class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   int _tab = 0;
-  /// Cycle is LAST on purpose: it is the one tab that can be switched off
-  /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
-  /// trailing tab leaves every other tab's index where it was.
-  static const _tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
+  static const _tabs = WellnessScreen.tabs;
 
   /// Habit consistency is read over a fortnight: long enough that one bad week
   /// does not read as collapse, short enough to still be about now.
@@ -85,7 +108,23 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   @override
   void initState() {
     super.initState();
+    final t = WellnessScreen.tabRequest.value;
+    if (t >= 0 && t < _tabs.length) _tab = t;
+    WellnessScreen.tabRequest.addListener(_onTabRequest);
     _load();
+  }
+
+  /// A dose reminder tapped while Wellness was already the open domain.
+  void _onTabRequest() {
+    final t = WellnessScreen.tabRequest.value;
+    if (t < 0 || t >= _tabs.length || t == _tab || !mounted) return;
+    setState(() => _tab = t);
+  }
+
+  @override
+  void dispose() {
+    WellnessScreen.tabRequest.removeListener(_onTabRequest);
+    super.dispose();
   }
 
   /// Readiness drivers, insights and journal metrics all move under this tab
@@ -95,6 +134,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   void reload() => _load();
 
   Future<void> _load() async {
+    final t = beginRead(#wellness);
     final app = context.read<AppState>();
     final repo = app.repo;
     final db = await LocalDb.instance;
@@ -147,7 +187,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     );
     final history = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
 
-    if (!mounted) return;
+    if (!stillNewest(#wellness, t)) return;
     setState(() {
       _meds = meds;
       _slots = slotsForDay(meds, _date, doses, now: DateTime.now());

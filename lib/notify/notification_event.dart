@@ -79,8 +79,13 @@ NotifClass? classOf(NotificationEvent e) => switch (e.category) {
       NotifCategory.reminders
           when e.priority == NotifPriority.critical =>
         NotifClass.alarm,
+      // Priority as well as route. The doc above says "reminders at NORMAL
+      // priority", and without the second half a low-priority event carrying
+      // this route walks through the OS gate on the strength of its route
+      // alone — which is the whole thing this case was narrowed to prevent.
       NotifCategory.reminders
-          when routePath(e.route ?? '') == kRouteWorkoutSuggestion =>
+          when e.priority == NotifPriority.normal &&
+              routePath(e.route ?? '') == kRouteWorkoutSuggestion =>
         NotifClass.prompt,
       NotifCategory.reminders || NotifCategory.recovery => null,
     };

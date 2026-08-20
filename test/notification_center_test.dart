@@ -24,10 +24,11 @@ NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
 
 /// The auto-detected-workout prompt exactly as `derivation_engine` emits it —
 /// reminders channel, normal priority, and a route carrying the bout's id.
-NotificationEvent _autoWorkout({String? route}) => NotificationEvent(
+NotificationEvent _autoWorkout({String? route, NotifPriority? priority}) =>
+    NotificationEvent(
       dedupeKey: '2026-06-27:1750000000:auto_workout',
       category: NotifCategory.reminders,
-      priority: NotifPriority.normal,
+      priority: priority ?? NotifPriority.normal,
       title: 'Did you work out?',
       body: 'We spotted ~42 min of elevated activity. Tap to log it.',
       date: '2026-06-27',
@@ -79,6 +80,10 @@ void main() {
       // The route is what opens the gate, not the channel: a new nudge on the
       // same channel is still refused.
       expect(classOf(_autoWorkout(route: '/workouts')), isNull);
+      // BOTH halves, not either. The route alone was enough until now, so a
+      // low-priority event carrying it walked through a gate documented as
+      // reminders + NORMAL only.
+      expect(classOf(_autoWorkout(priority: NotifPriority.low)), isNull);
     });
 
     test('the id-carrying payload is what actually gets classified', () {

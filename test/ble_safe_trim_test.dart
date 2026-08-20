@@ -16,8 +16,9 @@ import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
 
 /// A well-formed inner-frame hex: [0]=0x2f historical, [1]=0x18 (revision 24),
-/// then the u32 record counter. BurstStats re-parses this, so it must be real
-/// hex, not a label.
+/// then the u32 record counter. Nothing re-parses it any more — BurstStats is
+/// handed the revision the ingest path already read — but the commit path
+/// stores it, so it stays real hex rather than a label.
 String _hex(int counter) =>
     '2f18${counter.toRadixString(16).padLeft(8, '0')}';
 
@@ -61,7 +62,7 @@ void main() {
         (raws, samples, token, {archives, deviceFamily}) async =>
             throw StateError('OOM in SqlCommand.getSqlArguments'),
       );
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
 
       final durable = await d.commit(_tokenA);
 
@@ -76,8 +77,8 @@ void main() {
       final d = _drainWith(
         (raws, samples, token, {archives, deviceFamily}) async => throw StateError('rollback'),
       );
-      d.onHistoricalRecord(_raw(1), _sample(1));
-      d.onHistoricalRecord(_raw(2), _sample(2));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      d.onHistoricalRecord(_raw(2), _sample(2), 24);
       d.onUndecodableRecord(_archive(3));
 
       expect(d.bufferedRecords, 2);
@@ -98,8 +99,8 @@ void main() {
         seenArchives.addAll((archives ?? const []).map((a) => a.hex));
       });
       // (rebuild the same state on a controller whose commit succeeds)
-      d2.onHistoricalRecord(_raw(1), _sample(1));
-      d2.onHistoricalRecord(_raw(2), _sample(2));
+      d2.onHistoricalRecord(_raw(1), _sample(1), 24);
+      d2.onHistoricalRecord(_raw(2), _sample(2), 24);
       d2.onUndecodableRecord(_archive(3));
       expect(await d2.commit(_tokenA), isTrue);
       expect(seenRaws, [_hex(1), _hex(2)]);
@@ -127,10 +128,10 @@ void main() {
           log: (_) {},
         );
 
-        d.onHistoricalRecord(_raw(1), _sample(1));
+        d.onHistoricalRecord(_raw(1), _sample(1), 24);
         final inFlight = d.commit(_tokenA);
         // A record arrives while the commit is parked mid-await.
-        d.onHistoricalRecord(_raw(2), _sample(2));
+        d.onHistoricalRecord(_raw(2), _sample(2), 24);
         gate.complete();
         expect(await inFlight, isFalse);
 
@@ -155,12 +156,12 @@ void main() {
 
       // Empty token-only commits do not count as trim advance (would feed
       // auto-continue while the durable frontier stayed frozen).
-      d.onHistoricalRecord(_raw(0), _sample(0));
+      d.onHistoricalRecord(_raw(0), _sample(0), 24);
       expect(await d.commit(_tokenA), isTrue);
       expect(d.lastTrimAdvanced, isTrue);
 
       fail = true;
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
       expect(await d.commit(_tokenB), isFalse);
       // The cursor did NOT move to tokenB, so nothing may claim it did.
       expect(d.lastTrimAdvanced, isTrue, reason: 'rolled back to the tokenA state');
@@ -189,7 +190,7 @@ void main() {
 
     test('a successful commit clears the buffer and reports durable', () async {
       final d = _drainWith((raws, samples, token, {archives, deviceFamily}) async {});
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
 
       expect(await d.commit(_tokenA), isTrue);
       expect(d.bufferedRecords, 0);
@@ -380,7 +381,7 @@ void main() {
         onArchive: null,
         log: (_) {},
       );
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
       expect(d.bufferedRecords, 0);
       expect(d.supportsSafeTrim, isFalse);
       expect(wrote, 1);
@@ -390,7 +391,7 @@ void main() {
   group('P0 — a discarded burst poisons its HISTORY_END token', () {
     test('discardOpenChunk marks the open burst un-ACKable', () async {
       final d = _drainWith((raws, samples, token, {archives, deviceFamily}) async {});
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
       expect(d.burstDiscarded, isFalse);
 
       d.discardOpenChunk();
@@ -424,7 +425,7 @@ void main() {
       // flight, landed on a clean guard, and got ACKed verbatim: the band
       // trimmed exactly the records the watchdog threw away.
       final d = _drainWith((raws, samples, token, {archives, deviceFamily}) async {});
-      d.onHistoricalRecord(_raw(1), _sample(1));
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
       d.discardOpenChunk();
 
       d.rearm();

@@ -54,8 +54,6 @@ void main(List<String> args) {
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
-      sleepSpo2Red: sleepSub.spo2Red,
-      sleepSpo2Ir: sleepSub.spo2Ir,
       sleepSkinTemp: sleepSub.skinTemp,
       sleepJson: day.sleep.toJson(),
       hypnoStages: hypno,

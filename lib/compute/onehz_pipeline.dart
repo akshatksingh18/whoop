@@ -22,6 +22,7 @@
 //         the curve series the UI needs + indexed scalars. Survives jsonEncode.
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:openstrap_analytics/onehz.dart';
 
@@ -126,8 +127,6 @@ class DayBundleInput {
   final List<int> sleepHr;
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
-  final List<int> sleepSpo2Red;
-  final List<int> sleepSpo2Ir;
   final List<int> sleepSkinTemp;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
@@ -192,8 +191,6 @@ class DayBundleInput {
     required this.sleepHr,
     required this.sleepRrTsMs,
     required this.sleepRrMs,
-    required this.sleepSpo2Red,
-    required this.sleepSpo2Ir,
     required this.sleepSkinTemp,
     required this.sleepJson,
     required this.hypnoStages,
@@ -222,8 +219,6 @@ class DayBundleInput {
     'sleep_hr': sleepHr,
     'sleep_rr_ts_ms': sleepRrTsMs,
     'sleep_rr_ms': sleepRrMs,
-    'sleep_spo2_red': sleepSpo2Red,
-    'sleep_spo2_ir': sleepSpo2Ir,
     'sleep_skin_temp': sleepSkinTemp,
     'sleep_json': sleepJson,
     'hypno_stages': hypnoStages,
@@ -245,9 +240,20 @@ class DayBundleInput {
   static DayBundleInput fromJson(Map<String, dynamic> m) {
     List<int> ints(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    List<double> dbls(String k) => ((m[k] as List?) ?? const [])
-        .map((e) => (e as num).toDouble())
-        .toList();
+    // The substrate packs these as Float64List and the isolate boundary hands
+    // them back typed; unboxing them into a plain List<double> was re-boxing
+    // every element for nothing. Always a COPY, never an alias: on the direct
+    // (synchronous, in-test) path returning the caller's list would share the
+    // substrate's arrays across two repos with nobody enforcing read-only.
+    List<double> dbls(String k) {
+      final v = (m[k] as List?) ?? const [];
+      if (v is List<double>) return Float64List.fromList(v);
+      final out = Float64List(v.length);
+      for (var i = 0; i < v.length; i++) {
+        out[i] = (v[i] as num).toDouble();
+      }
+      return out;
+    }
     List<String> strs(String k) =>
         ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
     return DayBundleInput(
@@ -260,8 +266,6 @@ class DayBundleInput {
       sleepHr: ints('sleep_hr'),
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
       sleepRrMs: dbls('sleep_rr_ms'),
-      sleepSpo2Red: ints('sleep_spo2_red'),
-      sleepSpo2Ir: ints('sleep_spo2_ir'),
       sleepSkinTemp: ints('sleep_skin_temp'),
       sleepJson: ((m['sleep_json'] as Map?) ?? const {})
           .cast<String, dynamic>(),
@@ -456,7 +460,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   const kSpo2Refusal = 'refused: the red and IR channels are one signal — '
       'ir − red is a fixed offset within a session, so any ratio built from '
       'them measures baseline drift, not oxygenation';
-  final odiTs = [for (final t in d.sleepTsSec) t.toDouble()];
   const odi = Metric<RelativeOdiResult>.absent(
     tier: Tier.relative,
     inputs_used: ['spo2_red_raw', 'spo2_ir_raw'],
@@ -1044,7 +1047,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
     'note': kSpo2Refusal,
     'debug': <String, dynamic>{
-      'sleep_samples': odiTs.length,
+      'sleep_samples': d.sleepTsSec.length,
     },
   };
 

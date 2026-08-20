@@ -61,8 +61,18 @@ class Prefs {
   /// never rolls it back, so a failed revocation reads as off for the rest of
   /// the session and is back ON at the next launch, with nobody told. The one
   /// caller that must know is `setOffLookupAllowed`.
-  static Future<bool> setBoolAcked(String key, bool value) async =>
-      await _sp?.setBool(key, value) ?? false;
+  /// A THROW is the same answer as a false: the write did not land. Letting it
+  /// propagate is worse than useless here — it skips the caller's "we could not
+  /// save that" warning and takes out the flow that was asking (the scanner
+  /// exits before the camera opens), so the one path that exists to TELL the
+  /// person never runs. Failure is reported, never raised.
+  static Future<bool> setBoolAcked(String key, bool value) async {
+    try {
+      return await _sp?.setBool(key, value) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
   static const String shellTab = 'ui.shell_tab';

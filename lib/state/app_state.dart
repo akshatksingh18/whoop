@@ -418,38 +418,11 @@ class AppState extends ChangeNotifier {
 
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
-    // The app's OWN automatic backup is gzipped (`.db.gz`, see
-    // auto_backup.dart's kBackupExtension) and `importFromDbFile` opens a
-    // SQLite file, so restoring one on a new phone failed — the most important
-    // import path there is, and the only one where the user has already lost
-    // the original. Detected by magic bytes rather than by extension so a
-    // renamed file still restores.
-    String src = path;
-    String? inflated;
-    try {
-      final head = await File(path).openRead(0, 2).first;
-      if (head.length >= 2 && head[0] == 0x1f && head[1] == 0x8b) {
-        inflated = '$path.inflated.db';
-        final sink = File(inflated).openWrite();
-        await File(path).openRead().transform(gzip.decoder).pipe(sink);
-        src = inflated;
-      }
-    } catch (_) {
-      // Unreadable header — hand the original to the importer and let its own
-      // error be the one the user sees.
-      src = path;
-    }
-    final counts = await () async {
-      try {
-        return await LocalDb.importFromDbFile(src);
-      } finally {
-        if (inflated != null) {
-          try {
-            await File(inflated).delete();
-          } catch (_) {}
-        }
-      }
-    }();
+    // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
+    // do not add it back here. Its inflate checks the gzip trailer, so a
+    // truncated backup fails loudly; `gzip.decoder` returns partial output
+    // without raising and would restore short while reporting success.
+    final counts = await LocalDb.importFromDbFile(path);
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);

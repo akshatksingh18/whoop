@@ -1808,8 +1808,14 @@ class _LiveFlowState extends State<LiveFlow>
     // No `setState`: this body follows the shell's clock, which already
     // rebuilds it once a second, so the wrapper only bought a second rebuild
     // of the same subtree at the same rate.
+    //
+    // WHICH IS WHY THE PAUSE CHECK IS HERE. A paused session stops advancing
+    // `elapsedSec`, so the shell stops repainting — and a hold that kept
+    // counting behind a frozen screen would sit there wrong and then jump on
+    // resume. It is a pacer for a pose being held; a paused session is not
+    // holding anything.
     _hold = Timer.periodic(Motion.tick, (_) {
-      if (!mounted) return;
+      if (!mounted || LiveDraft.current?.pausedAt != null) return;
       hold = hold > 0 ? hold - 1 : 30;
     });
   }

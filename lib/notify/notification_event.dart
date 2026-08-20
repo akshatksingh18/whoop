@@ -12,11 +12,13 @@
 // quiet-hours decision: `critical` can break through; everything else respects
 // the user's quiet window.
 
+import 'tap_router.dart';
+
 enum NotifCategory { health, recovery, reminders, device }
 
 enum NotifPriority { critical, normal, low }
 
-/// The three — and only three — things this app may EMIT into the notification
+/// The four — and only four — things this app may EMIT into the notification
 /// shade. Everything else is an in-app card.
 ///
 /// This governs the present path only. A standing schedule (the weekly
@@ -41,10 +43,21 @@ enum NotifClass {
 
   /// The weekly lookback, and ONLY when the week actually contained something.
   lookback,
+
+  /// Something happened that only the user can confirm, and the app cannot
+  /// record it for them: an auto-detected workout. Not a nudge — a nudge asks
+  /// you to go and do something, this reports a thing that already happened and
+  /// asks whether to keep it. One per detected bout, never a reminder series.
+  ///
+  /// It gates exactly like [exception] today (category switch + quiet hours),
+  /// which is deliberate rather than redundant: this enum is the ledger of what
+  /// may interrupt, and filing "did you work out?" under `exception` would make
+  /// the one honest list in the notification system lie.
+  prompt,
 }
 
 /// Which class [e] belongs to, or null for anything that is not one of the
-/// three — which [NotificationPrefs.shouldFireOs] then drops.
+/// four — which [NotificationPrefs.shouldFireOs] then drops.
 ///
 /// Classified from the category, because that is already the axis the emit
 /// sites express: health/device signals are exceptions; a `reminders` event at
@@ -53,11 +66,22 @@ enum NotifClass {
 /// both nudges, and its genuine findings (low readiness, a shifted resting-HR
 /// trend) are folded into the day's health exception at the point they are
 /// computed rather than fired one at a time.
+///
+/// The ONE exception to classifying on the category alone is the detected
+/// workout, which is keyed on its route. It is a reminders-channel prompt at
+/// normal priority, and that pair has to keep meaning "no" for everything else
+/// — it is the pair every one of the nineteen deleted nudges would arrive on.
+/// So the route names the single event allowed to claim it, rather than the
+/// gate opening for a whole category. `shouldFireOs` already reads the route
+/// for the same reason (the auto-detect off switch).
 NotifClass? classOf(NotificationEvent e) => switch (e.category) {
       NotifCategory.health || NotifCategory.device => NotifClass.exception,
       NotifCategory.reminders
           when e.priority == NotifPriority.critical =>
         NotifClass.alarm,
+      NotifCategory.reminders
+          when routePath(e.route ?? '') == kRouteWorkoutSuggestion =>
+        NotifClass.prompt,
       NotifCategory.reminders || NotifCategory.recovery => null,
     };
 

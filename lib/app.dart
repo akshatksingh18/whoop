@@ -310,7 +310,7 @@ ShellDomain domainForTab(int tab) => switch (tab) {
 /// Every `kRoute*` in `tap_router.dart` is here, and unknown routes fall back
 /// to Home rather than crashing a cold launch on a payload from an older
 /// build.
-ShellDomain domainForRoute(String route) => switch (route) {
+ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
       kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
       // Water is a journal field that lives on Nutrition — that is the tab
@@ -349,7 +349,7 @@ ShellDomain domainForRoute(String route) => switch (route) {
 ///
 /// `/ai/*` used to be in that list too. It now lands on the briefing itself,
 /// which also carries the exact snapshot that was sent to produce it.
-Widget? screenForRoute(String route) => switch (route) {
+Widget? screenForRoute(String route) => switch (routePath(route)) {
       kRouteAiMorning =>
         const AiBriefingScreen(period: BriefingPeriod.morning),
       kRouteAiEvening =>
@@ -370,7 +370,12 @@ Widget? screenForRoute(String route) => switch (route) {
       // for the tab instead (`WellnessScreen.tabRequest`) — the deep link is
       // wired, the answer here stays null.
       kRouteMeds => null,
-      kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
+      // A CONSTRUCTOR ARGUMENT is right here and wrong for `/meds` above: this
+      // screen is PUSHED by `_consume`, so every tap builds a fresh one and the
+      // id reaches it. Wellness is a shell tab kept alive in the IndexedStack,
+      // never rebuilt on a tap, which is why that one needs a request notifier.
+      kRouteWorkoutSuggestion =>
+        WorkoutSuggestionScreen(focusId: routeId(route)),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
       // The weekly recap used to land on the Health tab and push nothing,
@@ -457,7 +462,7 @@ class _ShellState extends State<_Shell> {
       // express. Asked for AFTER `_go` (which may re-key the shell and build a
       // fresh Wellness) and cleared a frame later, so whichever state ends up
       // on screen has seen it — see `WellnessScreen.tabRequest`.
-      if (s == kRouteMeds) {
+      if (routePath(s) == kRouteMeds) {
         WellnessScreen.tabRequest.value = WellnessScreen.medsTab;
         WidgetsBinding.instance.addPostFrameCallback(
             (_) => WellnessScreen.tabRequest.value = -1);

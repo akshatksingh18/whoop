@@ -441,10 +441,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// The detector's unreviewed bouts, at the top of History where the sessions
   /// they might become are listed.
   ///
-  /// This is the surface that was missing, not a second copy of one: the
-  /// notification is the only thing that has ever pointed at
-  /// `workout_suggestions`, and it is emitted on a channel `classOf` drops, so
-  /// it does not fire. Without this the rows accumulate forever, unseen.
+  /// This is the surface that was missing, not a second copy of one: for the
+  /// whole time the notification was emitted on the `recovery` channel it was
+  /// dropped by `classOf` and never fired, so these rows accumulated unseen.
+  /// It fires now (reminders channel, NotifClass.prompt) and lands on the one
+  /// bout it is about — but only for a bout detected in the last ~2 h, so
+  /// everything drained later still has to be reviewable here.
   List<Widget> _suggestionCards(BuildContext c, _WorkoutData d) {
     if (d.suggestions.isEmpty) return const [];
     final n = d.suggestions.length;
@@ -1585,9 +1587,8 @@ class _WorkoutData {
   ///
   /// These rows have been written on every derive since the detector shipped
   /// and read by nothing, so a detected effort was invisible unless a
-  /// notification happened to catch you. The notification is not enough on its
-  /// own: it is emitted on the `recovery` channel, which `classOf` drops, so
-  /// in this build it never actually fires.
+  /// notification happened to catch you — and until the emit moved off the
+  /// dropped `recovery` channel, no notification ever did.
   final List<Suggestion> suggestions;
 
   /// When the phone's health store last handed us a workout, or null for

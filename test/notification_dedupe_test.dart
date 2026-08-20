@@ -22,6 +22,7 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/notify/fired_keys.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/tap_router.dart';
 
 /// Records every event handed to the OS layer so tests can assert call counts.
 class _FakeSink {
@@ -321,6 +322,66 @@ void main() {
       center.presentSink = sink.call;
       await center.emit(highStress());
       expect(sink.shown, isEmpty);
+    });
+  });
+
+  group('the auto-detected workout actually reaches the shade', () {
+    // The exact event derivation_engine builds for a detected bout. It was
+    // emitted on NotifCategory.recovery, which `classOf` maps to null, so
+    // `shouldFireOs` dropped it: the suggestion row was written on every derive
+    // and the user was never told, in any build. A test that only asserts the
+    // row exists passes on that broken code — this one asserts the OS saw it.
+    const sugId = '2026-08-19:1755625800';
+    NotificationEvent detected() => NotificationEvent(
+          dedupeKey: '$_today:$sugId:auto_workout',
+          category: NotifCategory.reminders,
+          title: 'Did you work out?',
+          body: 'We spotted ~42 min of elevated activity. Tap to log it.',
+          date: _today,
+          route: workoutSuggestionRoute(sugId),
+        );
+
+    test('it fires, and it carries the bout it is about', () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      expect(await center.emit(detected()), isTrue);
+      // The payload is what the OS hands back on the tap; the id has to survive
+      // it (the colon in the row id is percent-encoded in the query).
+      expect(routeId(sink.shown.single.route!), sugId);
+    });
+
+    test('one detected workout, one notification — never per derive pass',
+        () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      // Derivation re-detects the same bout on every drain and every 15-min
+      // background pass. The key is the suggestion id, so they all collapse.
+      for (var i = 0; i < 5; i++) {
+        await center.emit(detected());
+      }
+      expect(sink.shown.length, 1);
+    });
+
+    test('the auto-detect switch silences it', () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': false,
+        'notif_auto_detect': false,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      expect(await center.emit(detected()), isFalse);
+      expect(sink.shown, isEmpty);
+    });
+
+    test('quiet hours silence it — it is a prompt, not the alarm', () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': 0,
+        'notif_quiet_end': 1440,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      expect(await center.emit(detected()), isFalse);
     });
   });
 

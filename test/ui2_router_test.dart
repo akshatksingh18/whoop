@@ -30,6 +30,8 @@ import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
+import 'package:openstrap_edge/ui2/screens/log_workout.dart'
+    show WorkoutSuggestionScreen;
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
@@ -167,6 +169,23 @@ void main() {
       // Unknown / retired routes must not crash a cold launch.
       expect(domainForRoute(''), ShellDomain.home);
       expect(screenForRoute('/nope'), isNull);
+    });
+
+    test('the detected-workout deep link opens on THAT bout', () {
+      // "We spotted ~42 min. Tap to log it." has to land on those 42 minutes.
+      // Landing on the Workouts tab was issue #113; landing on a list of every
+      // unreviewed bout is the same broken promise one screen further in.
+      const id = '2026-08-19:1755625800';
+      final route = workoutSuggestionRoute(id);
+      expect(domainForRoute(route), ShellDomain.workout);
+      final screen = screenForRoute(route);
+      expect(screen, isA<WorkoutSuggestionScreen>());
+      expect((screen! as WorkoutSuggestionScreen).focusId, id);
+      // A payload from a build that carried no id still reviews everything.
+      expect(
+          (screenForRoute(kRouteWorkoutSuggestion)! as WorkoutSuggestionScreen)
+              .focusId,
+          isNull);
     });
 
     test('the tab index the shell persists round-trips through the enum', () {

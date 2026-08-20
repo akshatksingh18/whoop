@@ -24,6 +24,15 @@ class Prefs {
     } catch (_) {/* reads fall back to defaults */}
   }
 
+  /// Whether storage is actually available, i.e. whether a `getX` default is
+  /// "the key is unset" or "we cannot see what you chose".
+  ///
+  /// For a tab index those are the same answer. For a CONSENT they are not:
+  /// an on-by-default switch read through unavailable storage would send on
+  /// behalf of somebody who turned it off. Anything gating an outbound call
+  /// checks this first — see `offLookupAllowed`.
+  static bool get loaded => _sp != null;
+
   // ── synchronous read (fall back to default until loaded) ────────────────────
   static int getInt(String key, int fallback) => _sp?.getInt(key) ?? fallback;
   static String getString(String key, String fallback) =>
@@ -42,6 +51,27 @@ class Prefs {
 
   static void setBool(String key, bool value) {
     _sp?.setBool(key, value);
+  }
+
+  /// The same write, with SharedPreferences' own acknowledgement handed back —
+  /// false when there is no storage, or when the platform refused it.
+  ///
+  /// For a tab index nobody can be hurt by a write that quietly failed. For a
+  /// CONSENT they can: SharedPreferences updates its cache OPTIMISTICALLY and
+  /// never rolls it back, so a failed revocation reads as off for the rest of
+  /// the session and is back ON at the next launch, with nobody told. The one
+  /// caller that must know is `setOffLookupAllowed`.
+  /// A THROW is the same answer as a false: the write did not land. Letting it
+  /// propagate is worse than useless here — it skips the caller's "we could not
+  /// save that" warning and takes out the flow that was asking (the scanner
+  /// exits before the camera opens), so the one path that exists to TELL the
+  /// person never runs. Failure is reported, never raised.
+  static Future<bool> setBoolAcked(String key, bool value) async {
+    try {
+      return await _sp?.setBool(key, value) ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────

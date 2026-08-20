@@ -10,6 +10,7 @@
 
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart';
@@ -36,6 +37,12 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
 
   static const _kEnabled = 'notif_relay_enabled';
   static const _kPackages = 'notif_relay_packages';
+  static const _kSeen = 'notif_relay_seen';
+
+  /// How many apps the "seen" list remembers. A phone posts from a long tail
+  /// of packages over a week; past this the list stops being a list you can
+  /// read.
+  static const int maxSeen = 60;
 
   /// Only Android can observe other apps' notifications. Everything below is a
   /// no-op when this is false, and the UI hides the feature entirely.
@@ -46,6 +53,24 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _granted = false;
   bool get permissionGranted => _granted;
+
+  /// Packages that have actually posted a notification while the listener was
+  /// running, most recent first. This is what the picker offers.
+  ///
+  /// The alternative — enumerating installed apps — needs QUERY_ALL_PACKAGES,
+  /// which was deliberately removed from the manifest with `tools:node=remove`
+  /// as the most policy-expensive permission there is. It is also the worse
+  /// list: two hundred packages to scroll, against the dozen that actually
+  /// interrupt you.
+  final List<String> _seen = [];
+
+  /// Per-package icon, straight off the notification the OS handed us. RAM
+  /// only, deliberately: the packages persist, the bitmaps do not, and a
+  /// freshly-launched app simply shows names until each one posts again.
+  final Map<String, Uint8List> _icons = {};
+
+  List<String> get seenPackages => List.unmodifiable(_seen);
+  Uint8List? iconFor(String pkg) => _icons[pkg];
 
   final Set<String> _packages = {};
   Set<String> get packages => _packages;
@@ -73,6 +98,15 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     _packages
       ..clear()
       ..addAll(prefs.getStringList(_kPackages) ?? const []);
+    _seen
+      ..clear()
+      ..addAll(prefs.getStringList(_kSeen) ?? const []);
+    // An app already on the allow-list belongs in the picker whether or not it
+    // has posted since launch — otherwise turning the feature on and reopening
+    // the screen shows an empty list with your choices invisibly still active.
+    for (final p in _packages) {
+      if (!_seen.contains(p)) _seen.add(p);
+    }
     WidgetsBinding.instance.addObserver(this);
     await refreshPermission();
     _resync();
@@ -189,12 +223,50 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {/* handler absent on this plugin build — ignore */}
   }
 
+  /// Remember that [pkg] notifies, so the picker has something to offer.
+  ///
+  /// Persisted only when the package is NEW: the in-memory order changes on
+  /// every ping and a SharedPreferences write per notification would be a
+  /// disk write per notification.
+  @visibleForTesting
+  void noteSeen(String pkg, Uint8List? icon) {
+    if (icon != null && icon.isNotEmpty) _icons[pkg] = icon;
+    final known = _seen.remove(pkg);
+    _seen.insert(0, pkg);
+    if (_seen.length > maxSeen) {
+      // Oldest first, but an ARMED app is never evicted. The picker is built
+      // from this list, so dropping one you turned ON leaves it buzzing the
+      // strap with no row to turn it off from — a thing that keeps acting on
+      // you with no way to stop it. The bound survives: the overflow is at most
+      // the apps you chose yourself.
+      for (var i = _seen.length - 1; i >= 0 && _seen.length > maxSeen; i--) {
+        if (!_packages.contains(_seen[i])) _seen.removeAt(i);
+      }
+      // The icons go with them. `_seen` is bounded, `_icons` was not — an
+      // evicted package left its bitmap resident for the life of the process,
+      // and on a phone with a lot of chatty apps that is the picker's whole
+      // icon set held for a list it is no longer on.
+      // ponytail: O(n) scan over 60 entries, only on eviction.
+      _icons.removeWhere((k, _) => !_seen.contains(k));
+    }
+    if (!known) {
+      SharedPreferences.getInstance()
+          .then((p) => p.setStringList(_kSeen, _seen))
+          .catchError((_) => false);
+    }
+    notifyListeners();
+  }
+
   void _onNotification(ServiceNotificationEvent e) {
     // Only fresh, user-facing posts: skip removals and persistent/ongoing ones
     // (media players, foreground-service notifications) — those aren't "a ping".
     if (e.hasRemoved || e.onGoing) return;
     final pkg = e.packageName;
-    if (pkg.isEmpty || !_packages.contains(pkg)) return;
+    if (pkg.isEmpty) return;
+    // BEFORE the allow-list check: an app you have not chosen yet is exactly
+    // the one the picker needs to be able to offer you.
+    noteSeen(pkg, e.appIcon);
+    if (!_packages.contains(pkg)) return;
     if (!isConnected()) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -214,4 +286,30 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     _sub?.cancel();
     super.dispose();
   }
+}
+
+/// A readable name for [pkg], from the package name alone.
+///
+/// An app's own label lives behind `getApplicationLabel`, which needs the
+/// package-visibility permission this feature deliberately does not have — so
+/// the ICON beside it (taken off the notification itself) is the identifier a
+/// human actually reads, and this is the caption under it.
+///
+/// The last meaningful segment, capitalised: `com.whatsapp` → "Whatsapp",
+/// `org.telegram.messenger` → "Messenger", `com.foo.android` → "Foo". Segments
+/// that name a platform or a build rather than a product are stepped over,
+/// because "Android" under every second icon is not a name.
+String appLabel(String pkg) {
+  const generic = {
+    'android', 'app', 'apps', 'client', 'mobile', 'main', 'ui',
+    'free', 'pro', 'lite', 'beta', 'release',
+  };
+  final parts = [for (final p in pkg.split('.')) if (p.isNotEmpty) p];
+  if (parts.isEmpty) return pkg;
+  var i = parts.length - 1;
+  while (i > 0 && generic.contains(parts[i].toLowerCase())) {
+    i--;
+  }
+  final w = parts[i];
+  return w[0].toUpperCase() + w.substring(1);
 }

@@ -23,6 +23,7 @@ import 'dart:io' show Platform;
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/series_codec.dart';
@@ -39,13 +40,37 @@ enum HealthLinkState {
   unsupported, // no health store on this device (iPad / simulator)
 }
 
+/// The user's "sync to Apple Health / Health Connect" switch. `AppState` owns
+/// the toggle; the key lives here so an export seam reached without an
+/// AppState can honour the same answer instead of keeping a second copy of the
+/// string.
+const String kHealthSyncPref = 'health_sync';
+
 const _sleepHealthTypes = <HealthDataType>{
   HealthDataType.SLEEP_DEEP,
   HealthDataType.SLEEP_REM,
   HealthDataType.SLEEP_LIGHT,
   HealthDataType.SLEEP_AWAKE,
+  // The night's envelope. Health Connect models it as a SleepSessionRecord
+  // parent; HealthKit has no session record, so the enclosing bar is an
+  // `inBed` sleepAnalysis sample. Only one of the two is ever asked for —
+  // see `_types` and `_sleepEnvelopeFor` — but both belong to the sleep
+  // delete SCOPE, which is what this set answers.
   HealthDataType.SLEEP_SESSION,
+  HealthDataType.SLEEP_IN_BED,
 };
+
+/// The envelope type the OTHER store uses, which this one must never be sent.
+///
+/// SLEEP_SESSION is Health-Connect-only. Handing it to HealthKit is not a
+/// harmless no-op: the plugin resolves an unknown key to bodyMass and runs a
+/// sample query for a type we never asked permission for, which errors — and
+/// the error path never calls back, so `delete()` never completes. That hangs
+/// the day's export, which is the stall (#239/#225) this whole seam exists to
+/// stop, re-entered through the delete side.
+HealthDataType _foreignSleepEnvelope(bool isApplePlatform) => isApplePlatform
+    ? HealthDataType.SLEEP_SESSION
+    : HealthDataType.SLEEP_IN_BED;
 
 List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
   final types = <HealthDataType>[
@@ -58,7 +83,8 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.BASAL_ENERGY_BURNED,
     HealthDataType.STEPS,
-    ..._sleepHealthTypes,
+    for (final t in _sleepHealthTypes)
+      if (t != _foreignSleepEnvelope(isApplePlatform)) t,
     HealthDataType.WORKOUT,
   ];
   return isApplePlatform
@@ -71,6 +97,24 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
             )
             .toList();
 }
+
+/// The span a day's SLEEP-type delete has to cover.
+///
+/// The calendar day is not it. Stage samples are written at TRUE epoch, so a
+/// night that began at 23:10 sits in the PREVIOUS day — deleting only
+/// `[dayStart, dayEnd)` leaves that half behind and every re-export appends
+/// another copy of it. Widen to the union of the day and the night; with no
+/// night to write, the day window is already right.
+({DateTime start, DateTime end}) sleepCleanupWindow({
+  required DateTime dayStart,
+  required DateTime dayEnd,
+  HealthSleepSession? night,
+}) => (
+  start: (night != null && night.start.isBefore(dayStart))
+      ? night.start
+      : dayStart,
+  end: (night != null && night.end.isAfter(dayEnd)) ? night.end : dayEnd,
+);
 
 bool shouldAttemptHealthExport({
   required int attempts,
@@ -168,6 +212,38 @@ class HealthExporter {
     : _androidHeartRate =
           androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter();
 
+  /// The process-wide exporter. `AppState` holds this one, and so does every
+  /// seam that lands a session without a widget tree to read AppState from —
+  /// the coach's `add_completed_workout` tool has only a [LocalRepository].
+  /// Lazily built, so importing this file starts no platform channels.
+  static final HealthExporter shared = HealthExporter();
+
+  /// [exportWorkout] for a caller that holds the ID it just wrote rather than
+  /// the row: `logManualWorkout` returns `workout_id`, not the session. This
+  /// is the seam issue #130 is actually about — a workout logged from the
+  /// coach (or any non-UI path) otherwise reaches the health store only if a
+  /// full-day export happens to run afterwards, which needs a `day_result`
+  /// row AND a derive pass, so a hand-logged session can sit unexported for
+  /// hours.
+  ///
+  /// GATED ON [kHealthSyncPref], because unlike `AppState.stopWorkout` these
+  /// callers have no `healthSyncEnabled` to check first — and writing to the
+  /// platform store with the switch off is exactly the thing the switch is
+  /// for. Best-effort: never throws, false when nothing was written.
+  static Future<bool> exportWorkoutId(String? id) async {
+    if (id == null || id.isEmpty) return false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(kHealthSyncPref) != true) return false;
+      final row = await LocalDb.session(id);
+      if (row == null) return false;
+      return await shared.exportWorkout(row);
+    } catch (e) {
+      debugPrint('[health] exportWorkoutId $id: $e');
+      return false;
+    }
+  }
+
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
   static bool get isApple => Platform.isIOS || Platform.isMacOS;
 
@@ -202,7 +278,10 @@ class HealthExporter {
         HealthDataType.SLEEP_REM,
         HealthDataType.SLEEP_LIGHT,
         HealthDataType.SLEEP_AWAKE,
-        HealthDataType.SLEEP_SESSION,
+        // The envelope, in whichever form the platform actually has. Asking
+        // for the other one sends a type name that store has never heard of
+        // (SLEEP_SESSION is Health-Connect-only, SLEEP_IN_BED HealthKit-only).
+        isApple ? HealthDataType.SLEEP_IN_BED : HealthDataType.SLEEP_SESSION,
         HealthDataType.WORKOUT,
       ];
 
@@ -679,14 +758,30 @@ class HealthExporter {
     // Outside the success accounting on purpose — see the method doc.
     await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
 
+    // The night this day owns, normalized ONCE: stages clipped to the sleep
+    // window, sorted, de-overlapped. Shared by the delete window below and the
+    // Apple write further down so both cover exactly the same span. Android
+    // gets this from its native writer instead (see [_androidSleep] above).
+    final night = isApple ? normalizeHealthSleepSession(b) : null;
+
+    // Sleep deletes are night-scoped, everything else stays day-scoped —
+    // `HealthConnectSleepWriter.sleepCleanupRange` already does the equivalent
+    // on Android.
+    final sleepWindow = sleepCleanupWindow(
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+      night: night,
+    );
+
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
     for (final t in _rewriteTypes) {
+      final isSleep = _sleepHealthTypes.contains(t);
       try {
         final deleted = await _health.delete(
           type: t,
-          startTime: dayStart,
-          endTime: dayEnd,
+          startTime: isSleep ? sleepWindow.start : dayStart,
+          endTime: isSleep ? sleepWindow.end : dayEnd,
         );
         if (!deleted) {
           debugPrint('[health] delete ${t.name} returned false');
@@ -898,21 +993,42 @@ class HealthExporter {
     // health 11.1.1 generic SLEEP_* writer instead creates one parent record
     // per call, fragmenting a night. Android therefore uses our typed native
     // replace API; Apple Health keeps its existing per-stage samples.
-    if (isApple) {
-      final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
-      for (final s in segs) {
-        if (s is! Map) continue;
-        final st = (s['start'] as num?)?.toInt();
-        final en = (s['end'] as num?)?.toInt();
-        final stage = healthSleepStageOf(s['stage']?.toString());
-        if (st == null || en == null || en <= st || stage == null) continue;
-        final type = _sleepType(stage);
+    if (isApple && night != null) {
+      // THE ENVELOPE FIRST. Bare stage bars with nothing enclosing them is why
+      // readers (Bevel and friends) reconstruct a night as a short sleep plus a
+      // scatter of naps — HealthKit has no session record, so the wrapper is an
+      // `inBed` sleepAnalysis sample spanning the night.
+      //
+      // The span is the DETECTED sleep window, which is the same wall-clock
+      // number the app already reports as in-bed time (`in_bed_sec` is
+      // offset - onset). Nothing is invented: no window, no envelope, and a
+      // bundle without one writes no stages either — which is also why an
+      // unstaged night (an import, a night staging refused) contributes no
+      // fragments here.
+      try {
+        final wrote = await _health.writeHealthData(
+          value: 0,
+          type: HealthDataType.SLEEP_IN_BED,
+          startTime: night.start,
+          endTime: night.end,
+        );
+        if (!wrote) success = false;
+      } catch (e) {
+        debugPrint('[health] write sleep envelope: $e');
+        success = false;
+      }
+      // Stages come from the SAME normalization Android uses, so they are
+      // clipped to the sleep window instead of spilling past either end of it
+      // — which is what let a pre-midnight segment survive the day-scoped
+      // delete and pile up a fresh copy on every retry.
+      for (final seg in night.stages) {
+        final type = _sleepType(seg.stage);
         try {
           final wrote = await _health.writeHealthData(
             value: 0,
             type: type,
-            startTime: DateTime.fromMillisecondsSinceEpoch(st * 1000),
-            endTime: DateTime.fromMillisecondsSinceEpoch(en * 1000),
+            startTime: seg.start,
+            endTime: seg.end,
           );
           if (!wrote) success = false;
         } catch (e) {

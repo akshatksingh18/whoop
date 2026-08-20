@@ -70,7 +70,11 @@ dependencies:
       # emits R10 beat intervals) — deliberately NOT repinned: edge never reads
       # `rr_ms` off decodeFrame, so the hop changes no number here and a repin
       # would drag kAlgoVersion with it for nothing.
-      ref: fe3b681a3e9ca76f8a0865339035f949f36f6000
+      #
+      # Repinned to the #27 head after its own review pass. NO kAlgoVersion
+      # bump: the fixes only reject NaN/±inf, which was never a measurement, so
+      # for any user whose data is valid the output is byte-identical.
+      ref: c761f29bcbed73886b1b059dcd9e92e4333574f5
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -187,7 +191,14 @@ dependencies:
       # moved 21664f8 -> bfea5e5 to track it. Diff between the two is two
       # test-only deprecation-ignore annotations (analytics `lib/` untouched),
       # so kAlgoVersion needs no bump for this move.
-      ref: bfea5e56e74f336c3e3d83743123e58da225617d
+      #
+      # Repinned again after that branch's own review pass. Still no bump, same
+      # reason: the change rejects NaN/±inf inputs and nothing else, and a NaN
+      # was never a reading. `dailyEnergy` returns a nullable record now — it
+      # abstains rather than billing every waking minute as active when the
+      # anchors are unusable — which is source-breaking here, not
+      # number-changing (see `onehz_pipeline` and `_dailyEnergy`).
+      ref: 3174a493472a5e6280b11a0ab11fec82483507e1
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -280,7 +291,10 @@ dependencies:
 
   # Apple Health (HealthKit, iOS) + Google Health Connect (Android) — export each
   # day's derived metrics to the platform health store.
-  health: ^11.1.1
+  # >=12.0.0 is not optional: 11.1.1's `_alignValue` lists SLEEP_ASLEEP twice
+  # and never lists SLEEP_LIGHT, so every light/Core stage write threw on iOS —
+  # ~70% of a night, every night, and it flipped the day's export to failed too.
+  health: ^12.2.1
   # Open the Health Connect app/settings so the user can grant per-app access
   # manually (the reliable path when its in-app request dialog is locked out).
   android_intent_plus: ^5.1.0

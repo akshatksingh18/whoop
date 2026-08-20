@@ -10,6 +10,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'notification_event.dart';
+import 'tap_router.dart';
 
 class NotificationPrefs {
   /// The day's aggregated health exception (illness, unusual physiology,
@@ -50,6 +51,28 @@ class NotificationPrefs {
   static const int waterIntervalMinAllowed = 30;
   static const int waterIntervalMaxAllowed = 360;
 
+  /// Whether the auto-detected-workout surfaces are on: the "did you work out?"
+  /// notification and the review cards the detector feeds. Asked for twice
+  /// (issues #102, #149) and never built — the detector has never had an off
+  /// switch of any kind.
+  ///
+  /// WHAT IT DOES NOT DO: stop the detection itself. The bouts are computed
+  /// inside the day derivation and written to `workout_suggestions` there; this
+  /// switch silences every surface that shows them, which is the part the user
+  /// experiences. The rows stay, unread, and turning it back on shows them
+  /// again rather than losing a week of them.
+  final bool autoDetectEnabled;
+
+  /// The "time to move" nudge: a one-shot OS notification two hours after the
+  /// last movement the band's live IMU saw, re-armed on every movement so it
+  /// only ever fires on a genuinely uninterrupted still stretch.
+  ///
+  /// Opt-in, off by default, and it is what earns the nudge its place on
+  /// [NotificationService.schedulableIds] — the rule that list enforces is that
+  /// a scheduled slot must be one the user asked for by name. Without a switch
+  /// it was refused, which is why it has never fired for anyone (issue #123).
+  final bool movementEnabled;
+
   const NotificationPrefs({
     this.healthEnabled = true,
     this.recoveryEnabled = true,
@@ -61,6 +84,8 @@ class NotificationPrefs {
     this.criticalOverridesQuiet = true,
     this.waterEnabled = false,
     this.waterIntervalMin = 120, // every 2 hours
+    this.autoDetectEnabled = true,
+    this.movementEnabled = false,
   });
 
   static const _kHealth = 'notif_health';
@@ -73,6 +98,8 @@ class NotificationPrefs {
   static const _kCriticalOverride = 'notif_critical_override';
   static const _kWater = 'notif_water';
   static const _kWaterInterval = 'notif_water_interval';
+  static const _kAutoDetect = 'notif_auto_detect';
+  static const _kMovement = 'notif_movement';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -87,6 +114,8 @@ class NotificationPrefs {
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
       waterEnabled: p.getBool(_kWater) ?? false,
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
+      autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
+      movementEnabled: p.getBool(_kMovement) ?? false,
     );
   }
 
@@ -102,6 +131,8 @@ class NotificationPrefs {
     await p.setBool(_kCriticalOverride, criticalOverridesQuiet);
     await p.setBool(_kWater, waterEnabled);
     await p.setInt(_kWaterInterval, waterIntervalMin);
+    await p.setBool(_kAutoDetect, autoDetectEnabled);
+    await p.setBool(_kMovement, movementEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -115,6 +146,8 @@ class NotificationPrefs {
     bool? criticalOverridesQuiet,
     bool? waterEnabled,
     int? waterIntervalMin,
+    bool? autoDetectEnabled,
+    bool? movementEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -128,6 +161,8 @@ class NotificationPrefs {
             criticalOverridesQuiet ?? this.criticalOverridesQuiet,
         waterEnabled: waterEnabled ?? this.waterEnabled,
         waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
+        autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
+        movementEnabled: movementEnabled ?? this.movementEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {
@@ -155,6 +190,13 @@ class NotificationPrefs {
   /// a check at each of the emit sites, which is how twenty-two kinds accreted
   /// in the first place.
   bool shouldFireOs(NotifEvent event, int minuteOfDay) {
+    // The auto-detect off switch, applied before anything else: it is the one
+    // gate the user set for THIS notification, and route is what identifies it
+    // (the category it is emitted on is shared with everything else on the
+    // recovery channel).
+    if (!autoDetectEnabled && event.route == kRouteWorkoutSuggestion) {
+      return false;
+    }
     final klass = classOf(event);
     if (klass == null) return false; // not one of the three — never fires
     // The alarm is the one thing quiet hours must not silence: the user armed

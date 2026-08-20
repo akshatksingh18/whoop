@@ -71,7 +71,14 @@ double? rescaledStrain({
   required bool female,
 }) {
   if (trimp == null || wakeMinutes == null || wakeMinutes <= 0) return null;
-  return ana.strainScore(trimp, wakeMinutes: wakeMinutes, female: female);
+  return ana.strainScore(
+    trimp,
+    wakeMinutes: wakeMinutes,
+    // Reference level, not this user's — see onehz_pipeline's
+    // `strainMetric` for why, and edge#226 for the fix.
+    quietHrr: ana.quietWakingHrr,
+    female: female,
+  );
 }
 
 /// Rescale every stored day that can no longer be re-derived from raw.

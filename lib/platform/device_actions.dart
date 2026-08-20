@@ -2,9 +2,16 @@
 // channel. Mirrors the edge_tracking / live_activity bridges: a thin wrapper that
 // asks native what it can do (capabilities) and tells it to do one thing (perform).
 //
-// Native handlers: android/.../ActionHandler.kt (via MainActivity), ios ActionBridge.
+// Native handlers, both registered at engine attach:
+//   Android — NativeChannels.kt (`DEVICE_ACTIONS_CHANNEL` + its `perform`).
+//   iOS     — the `ActionBridge` enum in ios/Runner/AppDelegate.swift.
+// There is no ActionHandler.kt and no ActionBridge.swift; this comment used to name
+// both, which is two files' worth of grep that finds nothing.
+//
 // All actions use no-risk OS APIs (media-key dispatch, system volume, a ringtone +
-// vibrate) — no special runtime permissions beyond VIBRATE (a normal permission).
+// vibrate, torch) — no special runtime permissions beyond VIBRATE (a normal
+// permission). In-app actions never reach this channel at all; the dispatcher
+// handles them in Dart.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';

@@ -2672,7 +2672,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
-      final raw = computeManualSessionStats(
+      final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
@@ -2682,19 +2682,10 @@ class LocalRepositoryImpl extends LocalRepository {
         zoneSet: _zoneSetFor(
             row['device_family'] as String?, await _zoneAnchors()),
       );
-      // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
-      // writes a PPG spike into the column `getWorkout` deliberately refuses to
-      // floor against (issue #127) — and once raw ages out past retention the
-      // list has no smoothed value left to prefer, so the artefact would become
-      // permanent. Store the spike-suppressed peak instead.
-      final stats = ManualSessionStats(
-        avgHr: raw.avgHr,
-        maxHr: smoothedMaxHr(hrBpm, age: _profileAge()) ?? raw.maxHr,
-        strain: raw.strain,
-        calories: raw.calories,
-        zoneMinutes: raw.zoneMinutes,
-        hrSampleCount: raw.hrSampleCount,
-      );
+      // The peak is smoothed inside `computeManualSessionStats` now — one
+      // definition for the manual save, this re-score and the workout list
+      // (#127), instead of the raw peak being re-smoothed here and banked raw
+      // everywhere else. Nothing to re-wrap.
 
       // "Complete" = the band has handed over essentially the whole window.
       // 1 Hz means one sample per second, so sample count vs window seconds is

@@ -44,7 +44,8 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
-import 'hr_max.dart' show estimatedMaxHr, kHrFloorBpm;
+import 'hr_max.dart'
+    show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -1233,7 +1234,33 @@ import 'substrate.dart';
 //      deliberately so — it is gen5/MG-only, so gating on it makes the same
 //      night answer differently on two straps. The refusal's construct argument
 //      is untouched and is the one that carries it.
-const int kAlgoVersion = 74;
+// v75 — THE ISSUE AUDIT. Every issue and discussion ever filed was re-checked
+// against the shipped tree; these are the ones that were still true. Four
+// numbers move, and each moved because it was wrong, not because it was tuned:
+//   1. READINESS carries its fourth driver. `tempInput` refused on every night
+//      ever shipped, because `settledFraction` was never passed from this side
+//      — the driver was documented, weighted 0.10, and unreachable. The other
+//      three renormalised over 0.90 and quietly absorbed it. Nights the strap
+//      cannot vouch for (device_family NULL, pre-schema-41, imports, gen5) are
+//      refused BY NAME now instead of silently.
+//   2. READINESS BANDS are the score's own quantiles. The composite is a
+//      logistic with no scale parameter, so its centre is 50 — and 50 was
+//      labelled "Take it easy". Half of every user's nights read as a warning
+//      by construction, and "Good to go" needed every input ~1.4 SD above
+//      personal median at once. The score did not change; the verdict did.
+//   3. PEAK HR stopped contradicting itself. The workout producers smoothed
+//      through hr_max.dart, the day peak still did reduce(math.max) over raw
+//      1 Hz — so the strain card and the timeline printed different numbers off
+//      the same beats (#127, closed once already). Manual saves and the
+//      below-coverage reconcile fed it unsmoothed too.
+//   4. CALORIES and STRAIN follow the analytics gates above, and both abstain
+//      rather than guess: a day with no resting HR now has no calorie figure
+//      instead of billing every waking minute as active.
+// Also here, changing nothing derived: a night never re-stages shorter than the
+// one already banked (#242 — the guard only fired on a FAILED pass and never
+// compared tst_sec, which is why a fixed night came back wrong a few syncs
+// later), and absent accel stays absent instead of coalescing to zero.
+const int kAlgoVersion = 75;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1244,14 +1271,20 @@ const int kAlgoVersion = 74;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-// Both siblings are on MAIN now (protocol #29, analytics #46, merged
-// 2026-08-19). kAlgoVersion is deliberately NOT bumped with this repin: the
-// analytics hop is two comment lines in tests and touches no lib/ file at all,
-// and the protocol hop only adds `rr_ms` to decodeFrame's R10 branch, which
-// nothing in edge reads. No derived number moves, so forcing every install to
-// recompute would be churn with nothing on the other side of it.
-const String kAnalyticsPin = 'bfea5e56e74f336c3e3d83743123e58da225617d';
-const String kProtocolPin = 'fe3b681a3e9ca76f8a0865339035f949f36f6000';
+// Both siblings move with this bump, and both move NUMBERS this time — which
+// is the whole reason the version goes up. analytics: one active-energy gate
+// on heart-rate reserve instead of %HRmax (the day and the bout used to
+// disagree by 8-35 bpm depending on age and rest), and a measured quiet-waking
+// level under strain instead of a population constant that scored a day with
+// no activity at all somewhere between 6.9 and 12.1 out of 21. protocol: v25
+// stops emitting a gravity vector from offsets that were refuted on real data.
+// Both siblings moved again after their own review passes, and kAlgoVersion
+// deliberately did NOT: those fixes reject NaN and ±inf, which no sensor ever
+// produced and no baseline ever held. For a user whose data is valid, every
+// number out of both packages is byte-identical, so a bump would invalidate
+// every stored day to recompute the same answers.
+const String kAnalyticsPin = '3174a493472a5e6280b11a0ab11fec82483507e1';
+const String kProtocolPin = 'c761f29bcbed73886b1b059dcd9e92e4333574f5';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2264,6 +2297,41 @@ class DerivationEngine {
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
     if (override == null) {
+      // NEVER RE-STAGE A NIGHT SHORTER THAN THE ONE ALREADY BANKED (#242).
+      //
+      // A day re-stages on every pass for its first 48 h, and the substrate it
+      // stages over does not only grow: `pruneDecodedBeforeRecTs` runs once the
+      // covering day is derived, so a later pass can look at the same night
+      // through less data and produce a shorter one — which then REPLACED the
+      // good candidate, and the day rebuilt from it. That is the reported "it
+      // got fixed, then a few syncs later it went back", and it is a write-path
+      // defect, not a staging one (a mid-night wake bridges and sums correctly).
+      //
+      // The guard belongs HERE rather than on the day result: the candidate is
+      // upstream of the sleep block, the hypnogram AND every sleep scalar, so
+      // keeping the richer one keeps the whole day internally consistent.
+      // Swapping a richer sleep block into a thinner day's bundle would pair
+      // last pass's night with this pass's stage minutes.
+      //
+      // Keyed at this algo version, so a bump still re-stages from scratch —
+      // that is what a bump is for. An override never reaches this branch, so a
+      // user shortening their own night is untouched.
+      final stored = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+      final storedJson = stored?['payload_json'];
+      if (storedJson is String && storedJson.isNotEmpty) {
+        try {
+          final prev = SleepSessionCandidate.fromJson(
+              (jsonDecode(storedJson) as Map).cast<String, dynamic>());
+          if (isRicherSleep(prev, candidate)) {
+            _log('derive $dayId: kept the banked night '
+                '(${_tstSec(prev)} s) over this pass\'s '
+                '${_tstSec(candidate)} s — less substrate, not a shorter night');
+            return prev;
+          }
+        } catch (_) {
+          // Undecodable stored candidate — the fresh one is strictly better.
+        }
+      }
       await LocalDb.putSleepSessionCandidate(
         dayId: dayId,
         algoVersion: kAlgoVersion,
@@ -3750,6 +3818,33 @@ class DerivationEngine {
     return carried;
   }
 
+  /// The night's measured total sleep, seconds. Null when this candidate has no
+  /// night in it at all.
+  static num? _tstSec(SleepSessionCandidate c) =>
+      c.sleepJson['tst_sec'] as num?;
+
+  /// Whether the already-banked [prev] night is RICHER than the freshly staged
+  /// [next] one, measured by total sleep time (#242).
+  ///
+  /// TST, not confidence and not the window: it is the quantity the user sees
+  /// change, and the failure mode this guards is a re-stage over a pruned
+  /// substrate seeing less of the same night. A night that grows is a night the
+  /// band handed over more of, and it wins.
+  ///
+  /// A candidate with no night at all is never richer than one that has one, and
+  /// EQUAL is not richer — a pass that reproduces the same night writes, so an
+  /// otherwise-identical candidate still refreshes.
+  @visibleForTesting
+  static bool isRicherSleep(
+    SleepSessionCandidate prev,
+    SleepSessionCandidate next,
+  ) {
+    final p = _tstSec(prev);
+    if (p == null) return false;
+    final n = _tstSec(next);
+    return n == null || p > n;
+  }
+
   /// How a day should be filed after its second half failed and the previous
   /// result's detail was carried forward.
   ///
@@ -4609,10 +4704,15 @@ class DerivationEngine {
   static ({double active, double basal, double total})? wakeDayEnergy(
     List<double> wakeHrPerMin, {
     required Profile profile,
+    required double? restingHr,
     int? dayMinutes,
     String? deviceFamily,
   }) {
     if (!profile.hasCalorieAnchors) return null;
+    // The active gate is a %HRR flex point, so it needs BOTH ends of the
+    // reserve. No resting HR, no gate — and no gate means every wake minute
+    // bills as active. Abstain, same as an absent ceiling below.
+    if (restingHr == null) return null;
     // `dailyEnergy`'s flex gate is a fraction of HRmax, so an absent ceiling is
     // an absent gate — the whole triple abstains rather than bill a day against
     // some other strap's number. See hr_max.dart.
@@ -4636,8 +4736,13 @@ class DerivationEngine {
         sex: _workoutSex(profile.sex),
       ),
       hrmax: hrmax,
+      restingHr: restingHr,
       dayMinutes: dayMinutes ?? 1440,
     );
+    // Anchors that cannot define an active gate are an ABSENT day's energy,
+    // not a day billed entirely as active. `dailyEnergy` abstains; so does the
+    // day, which is what every other caller of this method already expects.
+    if (e == null) return null;
     return (active: e.active, basal: e.basal, total: e.total);
   }
 
@@ -5278,6 +5383,9 @@ class DerivationEngine {
           final score = ana.strainScoreMetric(
             trimp.value,
             wakeMinutes: perMin.length.toDouble(),
+            // Reference level, not this user's — see onehz_pipeline's
+            // `strainMetric` for why, and edge#226 for the fix.
+            quietHrr: ana.quietWakingHrr,
             female: _workoutSex(sex) == 'female',
           );
           if (score.present) strain = score.value;
@@ -5331,6 +5439,9 @@ class DerivationEngine {
       final energy = wakeDayEnergy(
         perMin,
         profile: profile,
+        // The same anchor the TRIMP above is scored against — a nocturnal RHR
+        // or the one the user entered, never a daytime fallback.
+        restingHr: rhrForTrimp,
         dayMinutes: motion.length,
         deviceFamily: daySub.deviceFamily,
       );
@@ -5340,11 +5451,19 @@ class DerivationEngine {
         caloriesBasal = energy.basal;
       }
     }
+    // Same peak, same smoothing as the pipeline's copy and as every workout
+    // producer — see `hr_max.dart` and the note beside the pipeline's `hrStats`.
+    // A bare max over raw 1 Hz let one PPG transient be the day's "Peak HR"
+    // (#127).
+    final dayHrInt = [for (final h in dayHrValid) h.round()];
+    final age = profile.ageYears?.round();
     final hrStats = dayHrValid.isEmpty
         ? null
         : {
-            'max': dayHrValid.reduce(math.max).round(),
-            'min': dayHrValid.reduce(math.min).round(),
+            'max': smoothedMaxHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.max).round(),
+            'min': smoothedMinHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.min).round(),
             'avg': _meanWake(dayHrValid)?.round(),
           };
     return {

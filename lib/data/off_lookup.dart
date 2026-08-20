@@ -3,9 +3,9 @@
 // THIS IS AN OUTBOUND NETWORK CALL, and this app's whole position is that it
 // makes none it did not ask you about. So it is shaped like the only other one
 // that touches your data (ui2/activity/tiles.dart, the map basemap):
-//   · [offLookupAllowed] is off until the user turns it on, and every entry
-//     point here refuses without it — there is no code path that fetches by
-//     accident;
+//   · [offLookupAllowed] gates every entry point here, so turning it off in
+//     Settings stops the lookup dead — there is no code path that fetches
+//     around it;
 //   · it is user-initiated, one product per scan, never a batch and never a
 //     background job;
 //   · what leaves is the barcode. Not the meal, not the day, not who you are;
@@ -60,18 +60,42 @@ const _userAgent =
 
 // ══════════════════ CONSENT ══════════════════
 
-/// Whether the user has said openfoodfacts.org may be asked about a barcode.
+/// Whether openfoodfacts.org may be asked about a barcode.
 ///
-/// Default OFF and persisted, like every other outbound path in this app
-/// (crash reports, health contribution, update checks, map tiles). Revocable
-/// from Settings › Privacy, and the scanner is fully usable without it in the
-/// only sense that matters: typing the numbers off the pack was always the
-/// fallback and still is.
+/// Default ON — with the update check, and unlike every path that would send
+/// something ABOUT YOU (crash reports, health contribution), which stay off
+/// until asked. The line between them is what leaves: this sends a number
+/// printed on a packet by its manufacturer, and a scanner that refuses to scan
+/// until you have found a settings toggle is a scanner nobody uses.
+///
+/// Still persisted and still revocable from Settings › Privacy, and the food
+/// log is entirely usable with it off: typing the numbers off the pack was
+/// always the fallback and still is.
+///
+/// Default-on and fail-closed are not in tension, because they answer two
+/// different questions. `Prefs.getBool`'s fallback covers BOTH "loaded, no key
+/// yet" (a fresh install — default on, deliberately) and "prefs never loaded"
+/// (we cannot see the answer). Reading the second as the first sends the
+/// barcode of someone who explicitly opted out, which is the one thing a
+/// revocable consent must never do. So storage has to be there before the
+/// default counts.
 const kOffConsentKey = 'nutrition.barcode_lookup';
 
-bool get offLookupAllowed => Prefs.getBool(kOffConsentKey, false);
+bool get offLookupAllowed =>
+    Prefs.loaded && Prefs.getBool(kOffConsentKey, true);
 
-void setOffLookupAllowed(bool on) => Prefs.setBool(kOffConsentKey, on);
+/// Record the choice, and say whether it was actually RECORDED.
+///
+/// The one write in this app that is not fire-and-forget. SharedPreferences
+/// updates its cache optimistically and never rolls it back, so a revocation
+/// whose disk write fails reads as off for the rest of the session and is
+/// silently back ON at the next launch — the app sending a barcode for
+/// somebody who turned it off, which is the single thing a revocable consent
+/// must never do. In-session it is already fail-closed (the cache is off, so
+/// nothing goes out); what the caller has to do with a `false` here is TELL
+/// the person, because it will not survive a restart.
+Future<bool> setOffLookupAllowed(bool on) =>
+    Prefs.setBoolAcked(kOffConsentKey, on);
 
 // ══════════════════ RESULT ══════════════════
 

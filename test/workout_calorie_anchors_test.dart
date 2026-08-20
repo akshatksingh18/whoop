@@ -73,6 +73,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           <double>[for (var i = 0; i < 60; i++) 140.0],
           profile: _anchored,
+          restingHr: 55,
           deviceFamily: 'gen4',
         ),
         isNull,
@@ -87,6 +88,7 @@ void main() {
             heightCm: 178,
             sex: 'm',
           ),
+          restingHr: 55,
           deviceFamily: 'gen4',
         ),
         isNotNull,
@@ -105,9 +107,28 @@ void main() {
             heightCm: 178,
             sex: 'm',
           ),
+          restingHr: 55,
         ),
         isNotNull,
         reason: 'Tanaka is an age formula, not a calibration constant',
+      );
+
+      // The active gate is a %HRR flex point, so it needs the LOWER reserve
+      // anchor too. Without one there is no gate and every wake minute bills as
+      // active, which is a bigger lie than an absent figure.
+      expect(
+        DerivationEngine.wakeDayEnergy(
+          <double>[for (var i = 0; i < 60; i++) 140.0],
+          profile: const Profile(
+            ageYears: 34,
+            weightKg: 72,
+            heightCm: 178,
+            sex: 'm',
+          ),
+          restingHr: null,
+        ),
+        isNull,
+        reason: 'no resting HR, no active gate',
       );
     });
   });

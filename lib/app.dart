@@ -27,6 +27,7 @@ import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
+import 'ui2/screens/log_workout.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
@@ -337,13 +338,14 @@ ShellDomain domainForRoute(String route) => switch (route) {
 /// The focused screen a deep link pushes on top of its domain, when one
 /// exists. Null means the domain itself is the destination.
 ///
-/// One route still resolves to null and should not: `/workouts/suggestion`
-/// ("Tap to log it" has nothing to tap through to — nothing reads
-/// `workout_suggestions`). It is recorded in the sweep; the fix is to stop
-/// making the promise, not to route it somewhere plausible.
+/// `/workouts/suggestion` used to be in that list, and it was the one route
+/// where the fallback was a broken promise: "Tap to log it" landed on the
+/// plain Workouts tab, because the screen that could log it was deleted with
+/// `lib/ui/workouts/` and nothing read `workout_suggestions`. There is a
+/// destination again, and confirming on it writes a real session.
 ///
-/// `/ai/*` used to be in that list. It now lands on the briefing itself, which
-/// also carries the exact snapshot that was sent to produce it.
+/// `/ai/*` used to be in that list too. It now lands on the briefing itself,
+/// which also carries the exact snapshot that was sent to produce it.
 Widget? screenForRoute(String route) => switch (route) {
       kRouteAiMorning =>
         const AiBriefingScreen(period: BriefingPeriod.morning),
@@ -357,6 +359,9 @@ Widget? screenForRoute(String route) => switch (route) {
       // which is how the tile that everybody actually used stayed add-only for
       // so long — the thing that could clear a value was behind a notification.
       kRouteWater => const NutritionScreen(),
+      // The detected bout, with the three answers to it: log it, adjust the
+      // times first, or say it never happened.
+      kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
       // The weekly recap used to land on the Health tab and push nothing,

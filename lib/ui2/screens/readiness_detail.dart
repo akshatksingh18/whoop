@@ -86,8 +86,9 @@ class ReadinessData {
       readiness: readiness,
       // `narrative` and the glass-box `score` are DELIBERATELY not read. Both
       // belong to the deprecated percentile score, which bands at 70/40 while
-      // the headline composite bands at 80/60/40 — printing its verdict under
-      // the ring put "You're ready" directly beneath "45 · Take it easy". The
+      // the headline composite bands at 61/37/26 (see `readinessBand`) —
+      // printing its verdict under the ring put "You're ready" directly
+      // beneath "45 · Take it easy". The
       // breakdown below IS worth keeping; it is a parallel ranking of the same
       // four inputs, and the footer now says so.
       breakdown: [

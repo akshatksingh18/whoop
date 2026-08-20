@@ -81,9 +81,49 @@ void main() {
     );
     expect(r.strain, 9.0);
     expect(r.calories, 400);
-    expect(r.maxHr, 171);
     expect(r.zoneMinutes, const [1, 5, 10, 4, 0]);
-    expect(r.changed, isFalse);
+    // ... EXCEPT the peak, which is not that kind of quantity — see below.
+    expect(r.maxHr, 140);
+    expect(r.changed, isTrue);
+  });
+
+  // #127. Strain and calories accumulate, so over a subset of the window each
+  // is a floor and the larger of two floors is the better estimate. A MAXIMUM
+  // moves the other way: an artefact only ever makes it bigger, so max() is a
+  // ratchet a single PPG transient wins forever. It did — a session saved
+  // before the peak was smoothed carries the spike, the substrate re-scores it
+  // to the real figure, and the ratchet put the spike straight back on every
+  // pass under 90 % coverage. Meanwhile `_sessionTrace` recomputes the peak
+  // from the same substrate and deliberately does NOT floor against the stored
+  // column, so the list and the detail screen printed different peaks for one
+  // session.
+  test('a spiked stored peak loses to the substrate, at any coverage', () {
+    final r = reconcileSessionScore(
+      liveStrain: 5.0,
+      liveCalories: 200,
+      liveMaxHr: 160, // the PPG transient RR reported
+      liveZoneMinutes: const [],
+      substrate: _substrate(
+        strain: 4.0,
+        calories: 180,
+        maxHr: 143, // the real peak, spike-suppressed
+        samples: 600,
+      ),
+    );
+    expect(r.maxHr, 143);
+    expect(r.strain, 5.0, reason: 'the additive rule is unchanged');
+  });
+
+  test('an absent substrate peak still keeps the live one', () {
+    final r = reconcileSessionScore(
+      liveStrain: 5.0,
+      liveCalories: 200,
+      liveMaxHr: 160,
+      liveZoneMinutes: const [],
+      substrate: _substrate(strain: 4.0, calories: 180, samples: 600),
+    );
+    expect(r.maxHr, 160,
+        reason: 'no worn samples survived is not "the answer is nothing"');
   });
 
   test('absent stays absent — an unscored session never becomes 0.0', () {

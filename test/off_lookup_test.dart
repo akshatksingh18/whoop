@@ -17,6 +17,26 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/off_lookup.dart';
+import 'package:openstrap_edge/state/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+// The store behind SharedPreferences, so a write can be made to FAIL. Pulled
+// in through shared_preferences rather than pinned here — a test-only import
+// of its own platform interface is not a dependency this app takes on.
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+/// A store whose every write fails — the phone with no room left on it.
+class _RefusingStore extends SharedPreferencesStorePlatform {
+  @override
+  Future<bool> clear() async => false;
+  @override
+  Future<Map<String, Object>> getAll() async => {};
+  @override
+  Future<bool> remove(String key) async => false;
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      false;
+}
 
 /// An api/v2 body, in the shape the endpoint actually returns.
 Map<String, Object?> body({
@@ -392,13 +412,55 @@ void main() {
     });
   });
 
-  group('nothing leaves without consent', () {
-    test('a lookup with the pref off refuses before any request', () async {
-      // Prefs is unloaded in a headless test, so every read is its default —
-      // and the default is off. This is the state a fresh install is in.
+  group('the consent gate', () {
+    // Order matters: Prefs caches its SharedPreferences instance on first load
+    // and never reloads, so the unloaded case has to be read before anything
+    // mocks a store in.
+    test('storage we cannot read is a refusal, not the default', () async {
+      // Nothing has loaded Prefs. The default is ON, but an unreadable store
+      // is not evidence of a fresh install — it is equally the phone of
+      // somebody who turned this OFF, and their barcode must not go out on a
+      // guess.
+      expect(Prefs.loaded, isFalse);
       expect(offLookupAllowed, isFalse);
       final r = await fetchOffProduct('8901719101090');
       expect(r.outcome, OffOutcome.refused);
+    });
+
+    test('a fresh install may look up', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+      // Loaded, and the key has never been written: THIS is the fresh install,
+      // and it is on. What leaves is the barcode, never anything about the
+      // person holding it.
+      expect(Prefs.loaded, isTrue);
+      expect(offLookupAllowed, isTrue);
+    });
+
+    test('a lookup refuses before any request once it is turned off', () async {
+      // Written through the instance the test above loaded — Prefs caches it
+      // for the process, so a second `setMockInitialValues` would not be seen.
+      expect(await setOffLookupAllowed(false), isTrue);
+      expect(offLookupAllowed, isFalse);
+      final r = await fetchOffProduct('8901719101090');
+      expect(r.outcome, OffOutcome.refused);
+    });
+
+    test('a revocation that storage refused does not report as saved',
+        () async {
+      // SharedPreferences updates its cache before the platform answers and
+      // never rolls it back, so a refused write is off in memory and ON again
+      // at the next launch. In-session that is fail-closed and fine; what must
+      // not happen is the app calling it saved, because then nobody is told
+      // the barcode will start going out again tomorrow.
+      final real = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = _RefusingStore();
+      addTearDown(() => SharedPreferencesStorePlatform.instance = real);
+      expect(await setOffLookupAllowed(false), isFalse);
+      expect(offLookupAllowed, isFalse);
+      expect((await fetchOffProduct('8901719101090')).outcome,
+          OffOutcome.refused);
     });
   });
 }

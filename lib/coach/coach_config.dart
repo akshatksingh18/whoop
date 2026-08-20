@@ -66,11 +66,50 @@ class CoachConfig extends ChangeNotifier {
   bool _keyUndetermined = false;
   bool get keyUndetermined => _keyUndetermined;
 
-  /// Bumped by every [save]. A [load] that started before a save must not apply
-  /// its stale result afterwards: the startup load is unawaited and a slow
-  /// keystore read can still be in flight when the user pastes a key, and its
-  /// late `_key = null` would wipe the key they just saved out of the session.
+  /// Bumped TWICE by every [save] — once on the way in, once on the way out.
+  ///
+  /// A [load] that started before a save must not apply its stale result
+  /// afterwards: the startup load is unawaited and a slow keystore read can
+  /// still be in flight when the user pastes a key, and its late `_key = null`
+  /// would wipe the key they just saved out of the session.
+  ///
+  /// One bump only caught the load that started BEFORE the save. A load that
+  /// starts DURING one captured the already-incremented value, so its check
+  /// passed, and its read — taken while the write was still inside the plugin —
+  /// came back empty. Trusted, that empty read is treated as proof there is no
+  /// key: it cleared `_key` and wrote the `_kKeyPresent` marker to false over
+  /// the true the save had just set. A later background read then reports the
+  /// stored key as ABSENT rather than unreadable, which also puts
+  /// [refreshKeyOnResume] to sleep — the retry that would have recovered it.
+  /// Bumping again on the way out invalidates any read that straddled the
+  /// write, which is the only kind that can be wrong about it.
   int _generation = 0;
+
+  /// ONE keychain MUTATION at a time.
+  ///
+  /// [load] does not only read: it writes the value it just read back, to
+  /// upgrade an item stored before this class asked for `first_unlock`. That
+  /// write is awaited, but `load` itself is not — the startup call is
+  /// fire-and-forget — so nothing stopped it overlapping the user's Save. Two
+  /// ways that ends badly: the upgrade lands last and puts the OLD key back
+  /// over the one they just pasted, or, on iOS, a write races a delete inside
+  /// the plugin and comes out as `PlatformException(-25299)`
+  /// (errSecDuplicateItem). [_generation] already orders the in-memory half of
+  /// that race; it cannot order two calls that are both inside the plugin.
+  ///
+  /// WRITES ONLY, deliberately. The read is left outside, because a keystore
+  /// read can hang outright (the documented Samsung Knox case this file's
+  /// `load` is already shaped around) and a lock that a hung read holds would
+  /// block Save forever — trading a rare clobber for a wedged settings screen.
+  Future<void> _keychainLock = Future.value();
+
+  Future<void> _serialized(Future<void> Function() op) {
+    final done = _keychainLock.then((_) => op());
+    // A failed operation must not wedge the queue — the next caller runs either
+    // way, and the error still reaches whoever awaited `done`.
+    _keychainLock = done.catchError((_) {});
+    return done;
+  }
 
   String get baseUrl => _baseUrl;
   String get model => _model;
@@ -150,13 +189,19 @@ class CoachConfig extends ChangeNotifier {
         // Keystore (the documented Samsung Knox hang) on the startup path for
         // no reason.
         if (marker != true) {
-          await _secure.write(
-            key: _kKey,
-            value: read,
-            iOptions: _apple,
-            mOptions: _macos,
-          );
-          await prefs.setBool(_kKeyPresent, true);
+          await _serialized(() async {
+            // Re-checked INSIDE the lock, not just before the read. A save can
+            // land while this upgrade is queued behind it, and writing `read`
+            // then would put the superseded key back.
+            if (generation != _generation) return;
+            await _secure.write(
+              key: _kKey,
+              value: read,
+              iOptions: _apple,
+              mOptions: _macos,
+            );
+            await prefs.setBool(_kKeyPresent, true);
+          });
         }
       } else if (trusted) {
         // Foreground, so the keychain is readable and an empty answer is the
@@ -225,24 +270,32 @@ class CoachConfig extends ChangeNotifier {
       // other order leaves memory holding a key that was never persisted (lost
       // at the next launch, with no marker to even flag it as missing), or
       // hiding one that is still stored.
-      if (k.isEmpty) {
-        await _secure.delete(key: _kKey, iOptions: _apple, mOptions: _macos);
-        // The marker follows the keychain, and its own failure is not worth
-        // failing the save: a stale `true` costs a retry, never a lost key.
-        try {
-          await prefs.setBool(_kKeyPresent, false);
-        } catch (_) {/* re-established by the next load */}
-      } else {
-        await _secure.write(
-          key: _kKey,
-          value: k,
-          iOptions: _apple,
-          mOptions: _macos,
-        );
-        try {
-          await prefs.setBool(_kKeyPresent, true);
-        } catch (_) {/* re-established by the next load */}
-      }
+      await _serialized(() async {
+        if (k.isEmpty) {
+          await _secure.delete(key: _kKey, iOptions: _apple, mOptions: _macos);
+          // The marker follows the keychain, and its own failure is not worth
+          // failing the save: a stale `true` costs a retry, never a lost key.
+          try {
+            await prefs.setBool(_kKeyPresent, false);
+          } catch (_) {/* re-established by the next load */}
+        } else {
+          await _secure.write(
+            key: _kKey,
+            value: k,
+            iOptions: _apple,
+            mOptions: _macos,
+          );
+          try {
+            await prefs.setBool(_kKeyPresent, true);
+          } catch (_) {/* re-established by the next load */}
+        }
+      });
+      // The second bump: see [_generation]. Anything that read the keychain
+      // while that write was in flight now fails its check and drops its
+      // answer, instead of clearing the key and filing the marker false.
+      // Skipped when the write threw, on purpose — nothing landed, so a
+      // straddling read's "no key" is the truth.
+      _generation++;
       _key = k.isEmpty ? null : k;
       _keyUnreadable = false;
       _keyUndetermined = false;

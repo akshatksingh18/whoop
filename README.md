@@ -79,7 +79,8 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 
 ## Checklist
 
-- **WHOOP 4.0 only.** Haven't touched a WHOOP 5, don't know if it even shares a protocol.
+- **WHOOP 4.0 is the one that's properly tested.** WHOOP 5 and MG work too, but they're
+  experimental — see the note further down.
 - Not affiliated with WHOOP, doesn't talk to their servers.
 - Not a clone of their algorithms — different math, published methods, cited in the
   analytics repo. Don't expect identical numbers to what their app shows.
@@ -143,9 +144,10 @@ shortcuts, a smart alarm that buzzes the band.
   against a lab, don't treat any of it as a diagnosis.
 - Not on the App Store or Play Store yet. iOS is a public TestFlight beta, which is a
   normal install but still a beta; Android is an APK straight off Releases.
-- WHOOP 5.0 / MG support is in progress and **experimental** — the band is detected and
-  spoken to, but it hasn't been validated against real 5.0 hardware. WHOOP 4.0 is the
-  only one that's actually tested.
+- WHOOP 5.0 / MG support is **experimental**. Both pair, sync and decode, and the work is
+  checked against real records off real bands — but 4.0 is the one I wear every day, so
+  it's the one that gets found out when it breaks. Expect rough edges on 5 and MG, and
+  open an issue when you hit one.
 
 ## Run it
 

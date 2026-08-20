@@ -3829,9 +3829,15 @@ class LocalDb {
             counter: r.counter,
             hr: r.hr,
             rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-            ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-            ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-            az: r.accelG.length > 2 ? r.accelG[2] : 0,
+            // ABSENT ACCEL STAYS ABSENT. These used to coalesce to 0, which is
+            // a reading — a perfectly still wrist — and it is the same
+            // fabricated stillness the nullable columns and the v25 refusal
+            // above exist to prevent. protocol now returns an empty `accelG`
+            // for a record whose accelerometer it will not vouch for, so the
+            // fallback is null, exactly as the gen5 `gravityG` path above does.
+            ax: r.accelG.isNotEmpty ? r.accelG[0] : null,
+            ay: r.accelG.length > 1 ? r.accelG[1] : null,
+            az: r.accelG.length > 2 ? r.accelG[2] : null,
             spo2RedRaw: r.spo2RedRaw,
             spo2IrRaw: r.spo2IrRaw,
             // raw column passthrough, same as the ble path. not read as a temp.

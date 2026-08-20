@@ -45,6 +45,8 @@ import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
+import '../data/journal_fields.dart'
+    show JournalMetricValue, kJournalFieldsByKey;
 import '../data/auto_backup.dart'
     show BackupCadence, BackupOutcome, runBackup;
 import '../stress/breath_phases.dart';
@@ -454,12 +456,18 @@ class AppState extends ChangeNotifier {
   }
 
   // ── platform health export (Apple Health / Health Connect) ──────────────────
-  final HealthExporter _healthExport = HealthExporter();
+  // The shared instance, not a private one: the coach and the log-workout
+  // sheet reach the exporter through `HealthExporter.exportWorkoutId` with no
+  // AppState in hand, and two exporters would mean two `Health()` handles and
+  // two Health-Connect availability probes doing the same work.
+  final HealthExporter _healthExport = HealthExporter.shared;
   final HealthExportSingleFlight _healthExportSingleFlight =
       HealthExportSingleFlight();
   HealthLinkState healthState = HealthLinkState.unknown;
   bool healthSyncEnabled = false;
-  static const String _kHealthSync = 'health_sync';
+  // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
+  // switch from callers that never see this class.
+  static const String _kHealthSync = kHealthSyncPref;
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
@@ -692,13 +700,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// Session-triggered Health export for one just-finished workout (issue
-  /// #130) — used by callers outside this class (e.g. confirming an
-  /// auto-detected workout in workouts_screen.dart) that write a `sessions`
-  /// row directly rather than going through [stopWorkout]. See
+  /// #130) — for callers outside this class that write a `sessions` row
+  /// directly rather than going through [stopWorkout]. See
   /// [HealthExporter.exportWorkout] for why this can't just wait for the next
   /// day export. Best-effort, never throws.
-  Future<bool> exportWorkoutToHealth(Map<String, Object?> session) =>
-      _healthExport.exportWorkout(session);
+  ///
+  /// This used to take the row, and its only two call sites went out with the
+  /// old `lib/ui/workouts` — leaving it callerless while `logManualWorkout`
+  /// paths (the coach, the log-workout sheet) exported nothing at all. Those
+  /// callers hold the `workout_id` the repo hands back, not the row, and most
+  /// of them have no AppState to reach for either, so the seam that matters is
+  /// [HealthExporter.exportWorkoutId] and this just forwards to it.
+  Future<bool> exportWorkoutToHealth(String? sessionId) =>
+      HealthExporter.exportWorkoutId(sessionId);
 
   // ── companion: anonymous telemetry + health-data contribution ────────────────
   // All anchored to a stable anonymous install id (no account). Two SEPARATE
@@ -1138,6 +1152,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onMarkMoment: _markMomentFromGesture,
       onWorkoutToggle: _toggleWorkoutFromGesture,
+      onLogWater: _logWaterFromGesture,
     );
     engine = BleEngine(
       onRecord: _onRecord,
@@ -1225,6 +1240,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onMarkMoment: _markMomentFromGesture,
       onWorkoutToggle: _toggleWorkoutFromGesture,
+      onLogWater: _logWaterFromGesture,
     );
     this.engine = engine ??
         BleEngine(
@@ -1772,6 +1788,13 @@ class AppState extends ChangeNotifier {
     if (nowMs - _lastStillnessScheduleMs < 10 * 60 * 1000) return;
     _lastStillnessScheduleMs = nowMs;
     try {
+      // Opt-in, off by default. Read here rather than cached because this runs
+      // at most once every ten minutes and SharedPreferences is already in
+      // memory — and because the switch has to bite on the next movement, not
+      // at the next launch. It is also what makes the slot allow-listed at all
+      // (NotificationService.schedulableIds): a nudge with no off switch was
+      // refused there, and had never once fired.
+      if (!(await NotificationPrefs.load()).movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
       final at =
           DateTime.fromMillisecondsSinceEpoch(nowMs).add(const Duration(hours: 2));
@@ -5199,6 +5222,39 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// One water write at a time. `_logWaterFromGesture` reads the day, awaits, then
+  /// writes the whole map back, and `postJournalMetrics` REPLACES the day — so two
+  /// taps overlapping that await both read the same total and the second write eats
+  /// the first glass. Same guard the nutrition screen's `+` already uses. This is not
+  /// a second debounce (the dispatcher owns that); it is the read-modify-write lock.
+  bool _writingWaterFromGesture = false;
+
+  /// Double-tap → add one glass to today's water. Step and ceiling come from the
+  /// journal field spec, so a wrist tap and the on-screen `+` always agree.
+  Future<void> _logWaterFromGesture() async {
+    final r = repo;
+    if (r == null || _writingWaterFromGesture) return;
+    _writingWaterFromGesture = true;
+    try {
+      final spec = kJournalFieldsByKey['water_ml']!;
+      final date = todayLabel();
+      // Inside the try: the READ can throw too, and a guard set before it would
+      // stay set forever. Spread into a fresh map — postJournalMetrics rewrites
+      // the whole day from what it is handed.
+      final fields = {...await r.getJournalMetrics(date)};
+      final now = fields['water_ml']?.value ?? 0;
+      fields['water_ml'] =
+          JournalMetricValue((now + spec.step).clamp(0, spec.max).toDouble());
+      await r.postJournalMetrics(date, fields);
+      _log('[gesture] water logged (+${spec.step.round()} ${spec.unit})');
+      await HapticFeedback.mediumImpact();
+    } catch (e) {
+      _log('[gesture] log water failed: $e');
+    } finally {
+      _writingWaterFromGesture = false;
+    }
+  }
+
   /// Double-tap → stamp a timestamped tag onto today's journal (read-modify-write so
   /// existing tags/note survive). "Remember this" for a spike, a set, a feeling.
   Future<void> _markMomentFromGesture() async {
@@ -5365,6 +5421,20 @@ class LiveWorkoutState {
       calories = 0.0;
       return;
     }
+    // THE gate, from the one place that defines it. This used to be the
+    // arithmetic inlined below, which is the third copy of it — and
+    // `Calories`' own docstring says a second copy is how the day and the bout
+    // came to disagree in the first place. It also got none of the anchor
+    // validation: a non-finite resting HR makes the gate NaN, every
+    // `bpm < gate` is then false, and EVERY sample bills at the active rate.
+    // Null means the anchors cannot define a gate, and the live gauge abstains
+    // exactly as the re-score does.
+    final gate = ana.Calories.activeGateHr(maxHr, rhr);
+    if (gate == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
     if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
       _caloriesScored = false;
       calories = 0.0;
@@ -5378,7 +5448,6 @@ class LiveWorkoutState {
     // floor. Defaulted to match `computeManualSessionStats`, so the two paths
     // cannot disagree for a profile that carries no height.
     final heightCm = profile.heightCm ?? 170.0;
-    final gate = rhr + ana.Calories.activeHRRFraction * (maxHr - rhr);
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
 

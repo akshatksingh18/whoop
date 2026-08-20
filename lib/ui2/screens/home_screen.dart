@@ -479,11 +479,39 @@ String prettyDay(String? dayId) {
 /// palettes instead of each keeping a private copy of the cut-offs. They did,
 /// and a 65 rendered green on the phone, orange on the widget and yellow on
 /// the wrist. -1 = not scored.
+///
+/// THE CUT-OFFS ARE THE SCORE'S OWN QUANTILES, NOT ROUND NUMBERS (issue #250).
+/// `readinessComposite` is `100 / (1 + exp(-z̄))` with no scale parameter, and
+/// z̄ is a weight-renormalised mean of per-input robust z's — each ~N(0,1)
+/// against that person's OWN baseline. So the score is a percentile of self
+/// whose CENTRE IS 50 BY CONSTRUCTION: a night exactly at personal median
+/// scores 50, and the old 40/60/80 bands filed that median night under "Take it
+/// easy". Roughly a quarter of all nights fell under "Rest today" and 1.7 %
+/// could ever reach "Good to go" — it needed every input ~1.4 SD above median
+/// at once. A warning that fires on the typical night is not a warning.
+///
+/// z̄'s own SD is NOT 1: averaging the disclosed weights (.40/.30/.20/.10,
+/// renormalised over present inputs) gives σ ≈ 0.55-0.60 if the inputs were
+/// independent, ~0.70 at the positive correlation HRV/RHR/RR actually have.
+/// σ ≈ 0.65 is the middle of that, and the cut-offs below are its quantiles:
+///
+///   score = 100 / (1 + exp(-0.65 · Φ⁻¹(p)))
+///     p=.05 → 26   p=.20 → 37   p=.75 → 61
+///
+/// which lands 5 % of nights on "Rest today", 15 % on "Take it easy", 55 % on
+/// "Steady" and 25 % on "Good to go". The median night is now the neutral band,
+/// which is the whole point. Under the old cut-offs the same distribution read
+/// 27 / 47 / 25 / 2.
+///
+/// σ is the one soft number here — it is a property of how correlated a given
+/// person's four inputs are, and it moves with how many of them are present.
+/// Re-derive it from a real `metric_series` readiness distribution when there
+/// is one long enough to measure; do not nudge the cut-offs by feel.
 ({String label, Color color, int tier}) readinessBand(num? v) {
   if (v == null) return (label: 'Not scored', color: C.n400, tier: -1);
-  if (v >= 80) return (label: 'Good to go', color: C.green, tier: 3);
-  if (v >= 60) return (label: 'Steady', color: C.green, tier: 2);
-  if (v >= 40) return (label: 'Take it easy', color: C.orange, tier: 1);
+  if (v >= 61) return (label: 'Good to go', color: C.green, tier: 3);
+  if (v >= 37) return (label: 'Steady', color: C.green, tier: 2);
+  if (v >= 26) return (label: 'Take it easy', color: C.orange, tier: 1);
   return (label: 'Rest today', color: C.red, tier: 0);
 }
 

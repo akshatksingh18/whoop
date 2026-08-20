@@ -51,7 +51,7 @@ final _dayHr = <double>[
 void main() {
   group('DerivationEngine.wakeDayEnergy', () {
     test('active calories net out the basal minute, not double-count it', () {
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4');
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, restingHr: 55, deviceFamily: 'gen4');
 
       expect(e, isNotNull);
 
@@ -72,7 +72,7 @@ void main() {
     });
 
     test('total is the full-day basal floor plus the active surplus', () {
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4')!;
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, restingHr: 55, deviceFamily: 'gen4')!;
 
       expect(e.basal, closeTo(_bmrDay, 0.5));
       expect(e.total, closeTo(e.basal + e.active, 0.001));
@@ -82,7 +82,7 @@ void main() {
       // health_export writes BASAL_ENERGY_BURNED as calories_total - calories.
       // When the two came from different implementations that subtraction
       // silently produced a basal figure that was too low.
-      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, deviceFamily: 'gen4')!;
+      final e = DerivationEngine.wakeDayEnergy(_dayHr, profile: _profile, restingHr: 55, deviceFamily: 'gen4')!;
 
       expect(e.total - e.active, closeTo(e.basal, 0.001));
     });
@@ -90,7 +90,7 @@ void main() {
     test('a day spent entirely below the flex point reads as pure basal', () {
       final quiet = <double>[for (var i = 0; i < 1440; i++) 55.0];
 
-      final e = DerivationEngine.wakeDayEnergy(quiet, profile: _profile, deviceFamily: 'gen4')!;
+      final e = DerivationEngine.wakeDayEnergy(quiet, profile: _profile, restingHr: 55, deviceFamily: 'gen4')!;
 
       expect(e.active, 0.0);
       expect(e.total, closeTo(_bmrDay, 0.5));
@@ -103,7 +103,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(weightKg: 72, sex: 'm'),
-          deviceFamily: 'gen4',
+          restingHr: 55, deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'age is a Keytel term',
@@ -112,7 +112,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(ageYears: 34, sex: 'm'),
-          deviceFamily: 'gen4',
+          restingHr: 55, deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'body mass is a Keytel term',
@@ -121,7 +121,7 @@ void main() {
         DerivationEngine.wakeDayEnergy(
           _dayHr,
           profile: const Profile(ageYears: 34, weightKg: 72),
-          deviceFamily: 'gen4',
+          restingHr: 55, deviceFamily: 'gen4',
         ),
         isNull,
         reason: 'the formula has a different constant per sex',
@@ -136,7 +136,7 @@ void main() {
       // in moves a scalar that is persisted to `day_result` and exported to
       // Apple Health.
       const noHeight = Profile(ageYears: 34, weightKg: 72, sex: 'm');
-      expect(DerivationEngine.wakeDayEnergy(_dayHr, profile: noHeight, deviceFamily: 'gen4'), isNull);
+      expect(DerivationEngine.wakeDayEnergy(_dayHr, profile: noHeight, restingHr: 55, deviceFamily: 'gen4'), isNull);
     });
 
     test('a stand-in height would move ACTIVE, not just the basal floor', () {
@@ -147,9 +147,9 @@ void main() {
       final hr = <double>[for (var i = 0; i < 600; i++) 130.0];
 
       final s =
-          DerivationEngine.wakeDayEnergy(hr, profile: short, deviceFamily: 'gen4')!;
+          DerivationEngine.wakeDayEnergy(hr, profile: short, restingHr: 55, deviceFamily: 'gen4')!;
       final t =
-          DerivationEngine.wakeDayEnergy(hr, profile: tall, deviceFamily: 'gen4')!;
+          DerivationEngine.wakeDayEnergy(hr, profile: tall, restingHr: 55, deviceFamily: 'gen4')!;
 
       expect((s.active - t.active).abs(), greaterThan(100.0));
       expect((s.total - t.total).abs(), greaterThan(100.0));
@@ -160,7 +160,7 @@ void main() {
       // the same claim as "this day burned exactly your BMR".
       expect(
         DerivationEngine.wakeDayEnergy(const <double>[],
-            profile: _profile, deviceFamily: 'gen4'),
+            profile: _profile, restingHr: 55, deviceFamily: 'gen4'),
         isNull,
       );
     });
@@ -177,7 +177,11 @@ void main() {
     // A 70-year-old is the sharpest case for the wake-vs-whole-day question:
     // `dailyEnergy`'s flex gate is 0.50 x Tanaka HRmax = 104 - 0.35*age, so at
     // 70 it sits at 79.5 bpm — under a perfectly ordinary sleeping heart rate.
-    const older = Profile(ageYears: 70, weightKg: 80, heightCm: 175, sex: 'm');
+    const older = Profile(
+        ageYears: 70, weightKg: 80, heightCm: 175, sex: 'm',
+        // The active gate is a %HRR flex point now, so the lower reserve anchor
+        // is a term in it — no resting HR, no gate, no figure.
+        restingHrManual: 55);
     // Mifflin (male): 10*80 + 6.25*175 - 5*70 + 5 = 1548.75 kcal/day
     const olderBasalPerMin = 1548.75 / 1440.0;
 
@@ -309,7 +313,11 @@ void main() {
         bundle: bundle,
         scalars: scalars,
         daySub: daySub,
-        profile: const Profile(ageYears: 70, weightKg: 80, heightCm: 175),
+        profile: const Profile(
+            ageYears: 70,
+            weightKg: 80,
+            heightCm: 175,
+            restingHrManual: 55),
         sleepOnsetSec: sleepOnset,
         sleepOffsetSec: sleepOffset,
         dayStartSec: daySub.tsSec.first,
@@ -374,6 +382,10 @@ void main() {
           'sex': 'm',
           'weight_kg': 72,
           'height_cm': 178,
+          // The active gate is a %HRR flex point now, so the lower reserve
+          // anchor is a term in it. This day has no sleep, so the manual one
+          // is the only resting HR there is.
+          'resting_hr': 55,
         }),
         isNotNull,
       );

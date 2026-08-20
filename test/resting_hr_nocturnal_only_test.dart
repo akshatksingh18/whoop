@@ -39,8 +39,6 @@ Map<String, dynamic> _bundle({required bool scoredSleep}) {
       sleepHr: scoredSleep ? hr : const [],
       sleepRrTsMs: const [],
       sleepRrMs: const [],
-      sleepSpo2Red: scoredSleep ? zeros : const [],
-      sleepSpo2Ir: scoredSleep ? zeros : const [],
       sleepSkinTemp: scoredSleep ? zeros : const [],
       sleepJson: scoredSleep
           ? <String, dynamic>{'tst_sec': wornSec, 'efficiency_pct': 90.0}

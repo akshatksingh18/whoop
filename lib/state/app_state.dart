@@ -195,7 +195,6 @@ class AppState extends ChangeNotifier {
   // "last data: …" indicator must show. Seeded from the DB at init, advanced as
   // records (drained + live) flow in.
   int? _lastRecTs;
-  Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
   bool busy = false;
 
@@ -418,38 +417,11 @@ class AppState extends ChangeNotifier {
 
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
-    // The app's OWN automatic backup is gzipped (`.db.gz`, see
-    // auto_backup.dart's kBackupExtension) and `importFromDbFile` opens a
-    // SQLite file, so restoring one on a new phone failed — the most important
-    // import path there is, and the only one where the user has already lost
-    // the original. Detected by magic bytes rather than by extension so a
-    // renamed file still restores.
-    String src = path;
-    String? inflated;
-    try {
-      final head = await File(path).openRead(0, 2).first;
-      if (head.length >= 2 && head[0] == 0x1f && head[1] == 0x8b) {
-        inflated = '$path.inflated.db';
-        final sink = File(inflated).openWrite();
-        await File(path).openRead().transform(gzip.decoder).pipe(sink);
-        src = inflated;
-      }
-    } catch (_) {
-      // Unreadable header — hand the original to the importer and let its own
-      // error be the one the user sees.
-      src = path;
-    }
-    final counts = await () async {
-      try {
-        return await LocalDb.importFromDbFile(src);
-      } finally {
-        if (inflated != null) {
-          try {
-            await File(inflated).delete();
-          } catch (_) {}
-        }
-      }
-    }();
+    // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
+    // do not add it back here. Its inflate checks the gzip trailer, so a
+    // truncated backup fails loudly; `gzip.decoder` returns partial output
+    // without raising and would restore short while reporting success.
+    final counts = await LocalDb.importFromDbFile(path);
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
@@ -1410,7 +1382,6 @@ class AppState extends ChangeNotifier {
         heavy: heavy,
         onDayDone: (day, index, total) async {
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
@@ -1434,7 +1405,7 @@ class AppState extends ChangeNotifier {
         _log('[derive] session rescore failed: $e');
       }
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
+      bumpInsights();
       notifyListeners(); // screens re-fetch from the derived store
       // Same signal, for the surfaces that can't listen: home/lock-screen
       // widget, Watch mirror, Siri intents (WidgetService.refresh).
@@ -1846,14 +1817,12 @@ class AppState extends ChangeNotifier {
         onDayDone: (day, index, total) async {
           reanalyzeProgress = 'Analyzing $index/$total';
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
       );
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
-      dbCounts = await LocalDb.counts();
+      bumpInsights();
       return n;
     } catch (e) {
       _log('[derive] reanalyze failed: $e');
@@ -1921,7 +1890,9 @@ class AppState extends ChangeNotifier {
     try {
       await _derive.run(_profile, force: true);
       await LocalDb.refreshComputeFreshness();
-      dbCounts = await LocalDb.counts();
+      // The day_result rows just changed — without this no RevisionReload screen
+      // re-reads, so an override/nap edit only showed up after a restart.
+      bumpInsights();
     } catch (e) {
       _log('[derive] sleep-override re-derive failed: $e');
     } finally {
@@ -1936,40 +1907,6 @@ class AppState extends ChangeNotifier {
   /// when they are finalized.
   Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
 
-  Future<int> reanalyzeDays(Set<String> days) async {
-    if (days.isEmpty || reanalyzing) return 0;
-    reanalyzing = true;
-    final ordered = days.toList()..sort();
-    reanalyzeProgress =
-        'Analyzing ${ordered.length} day${ordered.length == 1 ? '' : 's'}…';
-    notifyListeners();
-    try {
-      final n = await _derive.runDays(
-        _profile,
-        days,
-        force: true,
-        onDayDone: (day, index, total) async {
-          reanalyzeProgress = 'Analyzing $index/$total';
-          if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
-            notifyListeners();
-          }
-        },
-      );
-      await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
-      dbCounts = await LocalDb.counts();
-      return n;
-    } catch (e) {
-      _log('[derive] reanalyze selected failed: $e');
-      return 0;
-    } finally {
-      reanalyzing = false;
-      reanalyzeProgress = '';
-      notifyListeners();
-    }
-  }
-
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
       LocalDb.dataHistoryDays();
 
@@ -1981,15 +1918,20 @@ class AppState extends ChangeNotifier {
   Future<int> deleteDays(Set<String> dayIds) async {
     final deleted = await LocalDb.deleteDays(dayIds);
     await LocalDb.refreshComputeFreshness();
-    dbCounts = await LocalDb.counts();
     lastSynced = await LocalDb.latestSample();
+    // Deleting days is a durable write like any other, so the screens holding a
+    // cached read have to be told. `notifyListeners()` alone leaves a
+    // RevisionReload screen showing days that are gone until some unrelated
+    // bump or a restart — and this is the one write where the stale copy is of
+    // data the user explicitly asked to destroy.
+    if (deleted > 0) bumpInsights();
     notifyListeners();
     return deleted;
   }
 
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
-  /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
+  /// LIGHT derive over the affected day(s).
   ///
   /// This is also THE reliable place to refresh `_lastRecTs` (the "last data"
   /// freshness banner reads it). `_runSyncBurst`'s own before/after frontier
@@ -1998,13 +1940,12 @@ class AppState extends ChangeNotifier {
   /// checkpoint-based refresh can miss a burst entirely. This callback fires
   /// on EVERY successful persist path (foreground burst, background/headless
   /// drain, live-triggered store) after the write is durable, so it can't
-  /// race it — same guarantee dbCounts already relies on above.
+  /// race it.
   void _onDataStored() {
     // Synchronously, before the async read below: this is the moment records
     // became durable, and it is the only path that sees every commit.
     _markSyncActivity();
     unawaited(() async {
-      dbCounts = await LocalDb.counts();
       final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
@@ -2097,7 +2038,6 @@ class AppState extends ChangeNotifier {
     // policies already trust).
     _lastRecTs =
         await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
-    dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // Band-gesture mapping: load the saved action + query native capabilities so the
@@ -2387,8 +2327,6 @@ class AppState extends ChangeNotifier {
       _log('[db] schemaHealth check skipped: $e');
     }
   }
-
-  void _bumpInsightsRevision() => bumpInsights();
 
   /// Say that the DURABLE data changed, so every screen reading it re-reads.
   ///
@@ -3380,7 +3318,6 @@ class AppState extends ChangeNotifier {
         '(${report.complete ? "complete" : "stopped early"}).',
       );
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
       }
     } catch (e) {
@@ -3943,7 +3880,7 @@ class AppState extends ChangeNotifier {
       // The foreground guard stops a wake from fighting this live session for the band.
       IosBleRestore.foregroundActive = true;
       IosBleRestore.arm(band.remoteId);
-      _log('===== SESSION START ===== raw=${dbCounts['raw']}');
+      _log('===== SESSION START =====');
       await _ensureForegroundLease();
       // connect() now subscribes → SET_CLOCK → INIT, so the historical offload is
       // ALREADY streaming the moment this returns.
@@ -3984,14 +3921,12 @@ class AppState extends ChangeNotifier {
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
       await engine.enableLiveStreams();
-      dbCounts = await LocalDb.counts();
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
           _log(
             'Backlog drained: ${report.records} records in ${report.batches} '
             'batches (${report.complete ? "complete" : "stopped early"}).',
           );
-          dbCounts = await LocalDb.counts();
           // Re-evaluate the high-frequency wake window now the backlog landed.
           await _refreshHighFreqWakeWindow();
           // The whole backlog landed → heavy foreground finalize (full sleep
@@ -4119,7 +4054,6 @@ class AppState extends ChangeNotifier {
           _log('Reconnected — live on; draining backlog in background.');
           unawaited(
             _kickSyncBurst(kickFirst: false).then((report) async {
-              dbCounts = await LocalDb.counts();
               _log('Reconnect backlog drained: ${report.records} records.');
               // Re-evaluate the high-frequency wake window now the backlog
               // landed.
@@ -4182,7 +4116,6 @@ class AppState extends ChangeNotifier {
         await _syncBurst;
       }
       await _kickSyncBurst(kickFirst: true);
-      dbCounts = await LocalDb.counts();
       notifyListeners();
       // A just-finished workout window landed from flash → derive it (light).
       _deriveScheduler.markStoredData();
@@ -4228,7 +4161,6 @@ class AppState extends ChangeNotifier {
       if (!await engine.requestForegroundSync()) return;
       final report = await _kickSyncBurst(kickFirst: false);
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
         notifyListeners();
       }
@@ -5180,7 +5112,7 @@ class AppState extends ChangeNotifier {
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
-      _bumpInsightsRevision();
+      bumpInsights();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();

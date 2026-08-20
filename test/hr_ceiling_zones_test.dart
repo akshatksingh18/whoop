@@ -168,8 +168,6 @@ void main() {
           sleepHr: const [],
           sleepRrTsMs: const [],
           sleepRrMs: const [],
-          sleepSpo2Red: const [],
-          sleepSpo2Ir: const [],
           sleepSkinTemp: const [],
           sleepJson: const {},
           hypnoStages: const [],

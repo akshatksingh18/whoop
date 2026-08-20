@@ -2965,7 +2965,7 @@ class BleEngine {
     // just stores directly if a frame somehow arrives before setup completed.
     final d = _drain;
     if (d != null) {
-      d.onHistoricalRecord(raw, sample);
+      d.onHistoricalRecord(raw, sample, recType);
     } else {
       unawaited(_storeRecord(sample, raw));
     }
@@ -5015,11 +5015,13 @@ class DrainController {
   int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
   String get currentBurstBreakdown => burstStats.breakdownString;
 
-  void onHistoricalRecord(RawRecord raw, Sample? sample) {
+  /// [revision] is the record version byte the ingest path already read off
+  /// the frame (-1 when the frame was too short to have one).
+  void onHistoricalRecord(RawRecord raw, Sample? sample, int revision) {
     records++;
     recordsThisOffload++;
     _lastProgressAt = DateTime.now();
-    burstStats.onHistoricalData(raw.packetType, raw.counter, sample, raw.hex);
+    burstStats.onHistoricalData(raw.packetType, raw.counter, revision);
     if (_buffering) {
       _raws.add(raw);
       _samples.add(sample);
@@ -5364,19 +5366,16 @@ class BurstStats {
     return parts.join(', ');
   }
 
-  void onHistoricalData(
-    int packetType,
-    int counter,
-    Sample? sample,
-    String rawHex,
-  ) {
+  /// [revision] is the record version byte (inner[1]), which the caller has
+  /// already read off the frame. This used to take the record's hex and parse
+  /// the whole thing back into bytes to reach that one byte — a throwaway
+  /// buffer per record, on every record of every offload.
+  void onHistoricalData(int packetType, int counter, int revision) {
     if (packetType != PacketType.historicalData) return;
-    final inner = hexToBytes(rawHex);
-    if (inner.length < 2) {
+    if (revision < 0) {
       _unknownCount++;
       return;
     }
-    final revision = inner[1];
     if (_ordinaryHistoricalRevisions.contains(revision)) {
       _dataPacketCountsByRevision[revision] =
           (_dataPacketCountsByRevision[revision] ?? 0) + 1;

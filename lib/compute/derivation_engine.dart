@@ -3172,8 +3172,6 @@ class DerivationEngine {
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
-      sleepSpo2Red: sleepSub.spo2Red,
-      sleepSpo2Ir: sleepSub.spo2Ir,
       sleepSkinTemp: sleepSub.skinTemp,
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
@@ -3200,7 +3198,6 @@ class DerivationEngine {
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
-    _logSpo2Diagnostics(day, input, bundle);
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside
     // Isolate.run so it couldn't call Firebase itself; it just returned the
@@ -3738,86 +3735,6 @@ class DerivationEngine {
     }
     await LocalDb.setFrozenHeadline(next.day, next.value);
     _log('froze headline readiness ${next.value} for ${next.day}');
-  }
-
-  void _logSpo2Diagnostics(
-    PreparedDerivationDay day,
-    DayBundleInput input,
-    Map<String, dynamic> bundle,
-  ) {
-    final red = input.sleepSpo2Red;
-    final ir = input.sleepSpo2Ir;
-    final ts = input.sleepTsSec;
-    if (red.isEmpty || ir.isEmpty || ts.isEmpty) {
-      _log('[spo2-detect] {"day":"${day.date}","status":"no_sleep_spo2"}');
-      return;
-    }
-
-    int minInt(List<int> xs) => xs.reduce((a, b) => a < b ? a : b);
-    int maxInt(List<int> xs) => xs.reduce((a, b) => a > b ? a : b);
-    double meanInt(List<int> xs) =>
-        xs.isEmpty ? 0 : xs.reduce((a, b) => a + b) / xs.length;
-
-    final redNonZero = red.where((v) => v > 0).length;
-    final irNonZero = ir.where((v) => v > 0).length;
-    final spo2 = (bundle['spo2'] as Map?)?.cast<String, dynamic>();
-    final ratios = <double>[
-      for (var i = 0; i < red.length && i < ir.length; i++)
-        if (red[i] > 0 && ir[i] > 0) red[i] / ir[i],
-    ];
-    double? meanDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
-    double? minDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a < b ? a : b);
-    double? maxDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a > b ? a : b);
-
-    final payload = <String, dynamic>{
-      'day': day.date,
-      'sleep_samples': ts.length,
-      'sleep_span_sec': ts.last - ts.first,
-      'feature_disabled': spo2?['disabled'] == true,
-      'red': <String, dynamic>{
-        'non_zero': redNonZero,
-        'zero': red.length - redNonZero,
-        'coverage': redNonZero / red.length,
-        'unique': red.toSet().length,
-        'min': minInt(red),
-        'max': maxInt(red),
-        'mean': meanInt(red).toStringAsFixed(2),
-        'first10': red.take(10).toList(),
-      },
-      'ir': <String, dynamic>{
-        'non_zero': irNonZero,
-        'zero': ir.length - irNonZero,
-        'coverage': irNonZero / ir.length,
-        'unique': ir.toSet().length,
-        'min': minInt(ir),
-        'max': maxInt(ir),
-        'mean': meanInt(ir).toStringAsFixed(2),
-        'first10': ir.take(10).toList(),
-      },
-      'ratio': <String, dynamic>{
-        'samples': ratios.length,
-        'min': minDouble(ratios)?.toStringAsFixed(6),
-        'max': maxDouble(ratios)?.toStringAsFixed(6),
-        'mean': meanDouble(ratios)?.toStringAsFixed(6),
-        'first10': ratios.take(10).map((v) => v.toStringAsFixed(6)).toList(),
-      },
-      'odi': <String, dynamic>{
-        'disabled': spo2?['disabled'],
-        'note': spo2?['note'],
-        'value': spo2?['odi_per_hour'],
-        'dip_count': spo2?['dip_count'],
-        'signal_coverage': spo2?['signal_coverage'],
-        'trusted_coverage': spo2?['trusted_coverage'],
-        'confidence': spo2?['confidence'],
-        'reject_counts': spo2?['reject_counts'],
-        'severity_counts': spo2?['severity_counts'],
-        'debug': spo2?['debug'],
-      },
-    };
-    _log('[spo2-detect] ${jsonEncode(payload)}');
   }
 
   /// Skip reasons that describe a TRANSIENT failure of this particular pass

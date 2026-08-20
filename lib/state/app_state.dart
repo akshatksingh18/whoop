@@ -1919,6 +1919,12 @@ class AppState extends ChangeNotifier {
     final deleted = await LocalDb.deleteDays(dayIds);
     await LocalDb.refreshComputeFreshness();
     lastSynced = await LocalDb.latestSample();
+    // Deleting days is a durable write like any other, so the screens holding a
+    // cached read have to be told. `notifyListeners()` alone leaves a
+    // RevisionReload screen showing days that are gone until some unrelated
+    // bump or a restart — and this is the one write where the stale copy is of
+    // data the user explicitly asked to destroy.
+    if (deleted > 0) bumpInsights();
     notifyListeners();
     return deleted;
   }

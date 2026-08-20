@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  Last night, on its own — the trio's sleep dial at full size plus the one
+  figure that does not fit in a third of a card. `foot` carries the efficiency
+  when the night has one and the reason when it does not; it is never a dash.
+  Colours and strings are set at render time (SleepWidgetProvider).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="10dp">
+
+    <ImageView
+        android:id="@+id/dial_sleep"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/cap_sleep"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:text="@string/widget_sleep_label"
+        android:textSize="9sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.05"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/val_sleep"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="10sp"
+        android:autoSizeMaxTextSize="20sp"
+        android:autoSizeStepGranularity="1sp"
+        android:textSize="20sp"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/sub_sleep"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textSize="11sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/foot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:gravity="center"
+        android:textSize="10sp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:visibility="gone" />
+</LinearLayout>

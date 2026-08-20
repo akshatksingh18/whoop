@@ -34,6 +34,7 @@ import '../activity/summary.dart';
 import '../charts.dart';
 import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
+import '../revision.dart';
 import '../theme.dart';
 import 'log_workout.dart';
 import 'start_card.dart';
@@ -45,56 +46,26 @@ class WorkoutScreen extends StatefulWidget {
   State<WorkoutScreen> createState() => _WorkoutScreenState();
 }
 
-class _WorkoutScreenState extends State<WorkoutScreen> {
+class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   int tab = 0;
   static const _tabs = ['For you', 'Activities', 'History'];
 
   Future<_WorkoutData>? _load;
 
-  /// The revision this screen's data was loaded at.
-  ///
-  /// `_load ??=` alone meant the screen read the database exactly once, for the
-  /// life of the widget — so a session you had just finished was absent from
-  /// History, "This week", "Tracked" and the weekly load until the app was
-  /// restarted. `AppState.insightsRevision` already ticks after every derive
-  /// and now after a session is durably written, so re-reading when it moves
-  /// covers the manual finish, the gesture path and the Live Activity alike.
-  int _loadedAt = -1;
-
-  /// Held so the listener can be removed in [dispose], where `context.read`
-  /// is not safe, and so a second `didChangeDependencies` cannot subscribe
-  /// twice — `ValueNotifier.addListener` stacks duplicates.
-  ValueNotifier<int>? _rev;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final app = context.read<AppState>();
-    if (!identical(_rev, app.insightsRevision)) {
-      _rev?.removeListener(_onRevision);
-      _rev = app.insightsRevision..addListener(_onRevision);
-    }
-    if (_load == null) {
-      _loadedAt = app.insightsRevision.value;
-      _load = _loadWorkoutData(app);
-    }
-  }
-
-  void _onRevision() {
-    if (!mounted) return;
-    final app = context.read<AppState>();
-    if (app.insightsRevision.value == _loadedAt) return;
-    setState(() {
-      _loadedAt = app.insightsRevision.value;
-      _load = _loadWorkoutData(app);
-    });
+    // `_load ??=` alone meant the screen read the database exactly once, for
+    // the life of the widget — so a session you had just finished was absent
+    // from History, "This week", "Tracked" and the weekly load until the app
+    // was restarted. `RevisionReload` re-reads when the data moves: the manual
+    // finish, the gesture path, the Live Activity and an import alike.
+    _load ??= _loadWorkoutData(context.read<AppState>());
   }
 
   @override
-  void dispose() {
-    _rev?.removeListener(_onRevision);
-    super.dispose();
-  }
+  void reload() =>
+      setState(() => _load = _loadWorkoutData(context.read<AppState>()));
 
   @override
   Widget build(BuildContext c) {
@@ -460,29 +431,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   // ─────────────── HISTORY ───────────────
 
   /// Open a screen that can write a session, then re-read. Every write path on
-  /// this tab goes through here: `AppState.insightsRevision` is what
-  /// [_onRevision] listens to, and a screen that saved while this one was
-  /// parked still has to leave the list correct on the way back.
+  /// this tab goes through here: `RevisionReload` covers the writers that bump
+  /// `AppState.insightsRevision`, and this covers the ones that do not.
   Future<void> _push(BuildContext c, Widget w) async {
     await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
-    if (mounted) _reload();
-  }
-
-  void _reload() {
-    final app = context.read<AppState>();
-    setState(() {
-      _loadedAt = app.insightsRevision.value;
-      _load = _loadWorkoutData(app);
-    });
+    if (mounted) reload();
   }
 
   /// The detector's unreviewed bouts, at the top of History where the sessions
   /// they might become are listed.
   ///
-  /// This is the surface that was missing, not a second copy of one: the
-  /// notification is the only thing that has ever pointed at
-  /// `workout_suggestions`, and it is emitted on a channel `classOf` drops, so
-  /// it does not fire. Without this the rows accumulate forever, unseen.
+  /// This is the surface that was missing, not a second copy of one: for the
+  /// whole time the notification was emitted on the `recovery` channel it was
+  /// dropped by `classOf` and never fired, so these rows accumulated unseen.
+  /// It fires now (reminders channel, NotifClass.prompt) and lands on the one
+  /// bout it is about — but only for a bout detected in the last ~2 h, so
+  /// everything drained later still has to be reviewable here.
   List<Widget> _suggestionCards(BuildContext c, _WorkoutData d) {
     if (d.suggestions.isEmpty) return const [];
     final n = d.suggestions.length;
@@ -1623,9 +1587,8 @@ class _WorkoutData {
   ///
   /// These rows have been written on every derive since the detector shipped
   /// and read by nothing, so a detected effort was invisible unless a
-  /// notification happened to catch you. The notification is not enough on its
-  /// own: it is emitted on the `recovery` channel, which `classOf` drops, so
-  /// in this build it never actually fires.
+  /// notification happened to catch you — and until the emit moved off the
+  /// dropped `recovery` channel, no notification ever did.
   final List<Suggestion> suggestions;
 
   /// When the phone's health store last handed us a workout, or null for

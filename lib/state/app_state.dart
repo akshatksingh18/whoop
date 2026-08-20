@@ -47,6 +47,7 @@ import '../compute/profile.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
+import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart'
     show BackupCadence, BackupOutcome, runBackup;
 import '../stress/breath_phases.dart';
@@ -370,6 +371,11 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastNoopImport = res;
+    // The rows are durable — tell the screens that read them. Without this an
+    // import landed days, sessions and journal rows into a database every live
+    // tab had already finished reading, and the only way to see them was to
+    // relaunch the app.
+    bumpInsights();
     notifyListeners();
     return res.days;
   }
@@ -398,6 +404,7 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastWhoopImport = res;
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     return res.days;
   }
@@ -449,6 +456,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       importRollupError = '$e';
     }
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     // DAYS, not rows. `_days` is a distinct day_id count taken from the source
     // file; the caller reports "N days imported" and a row total is not that.
@@ -2220,9 +2228,13 @@ class AppState extends ChangeNotifier {
     try {
       final prefs = await NotificationPrefs.load();
       final bedtimeMin = await _recommendedBedtimeMin();
+      final meds = await _medScheduleToday(prefs);
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
         bedtimeMinOfDay: bedtimeMin,
+        checkInDoneToday: await _checkInDoneToday(),
+        medDefs: meds.defs,
+        medDosesToday: meds.doses,
       );
       // AI slots. The nightly sweep is armed only when today actually produced
       // a finding — see [_sweepHeadlineNow], which is also where the body of
@@ -2257,6 +2269,49 @@ class AppState extends ChangeNotifier {
       return (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
     } catch (_) {
       return null; // no recommendation → the fixed fallback times
+    }
+  }
+
+  /// Whether today's self-report is already written — the check-in prompt's
+  /// "do not ask for something already logged" gate.
+  ///
+  /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
+  /// `markJournalDone` would set and nothing anywhere calls: it is false for
+  /// every user on every day. The journal rows are the truth.
+  /// NULL, NOT FALSE, when the journal could not be read. The scheduler reads
+  /// `false` as "today is known to be unanswered" and arms the prompt on it —
+  /// so a transient read failure asked a user who had already written their
+  /// rating how their day was. Null is the answer it already has a branch for:
+  /// leave the check-in exactly as it is and let the next pass decide.
+  Future<bool?> _checkInDoneToday() async {
+    try {
+      return NotificationCenter.checkInDone(
+          await LocalDb.journalMetricsForDay(todayLabel()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The medication schedule + today's recorded doses. Two indexed reads, only
+  /// on the path that will use them.
+  ///
+  /// NULL `defs` means UNREAD — the switch is off, or the read threw — and is
+  /// not the same answer as an empty list, which means "this user has no
+  /// medications". The scheduler cancels the armed doses on the second and
+  /// preserves them on the first; returning `[]` for a failed read handed it
+  /// the wrong one of those.
+  Future<({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})>
+      _medScheduleToday(NotificationPrefs prefs) async {
+    const empty = <String, Map<int, Map<String, Object?>>>{};
+    if (!prefs.medsEnabled) return (defs: null, doses: empty);
+    try {
+      final db = await LocalDb.instance;
+      return (
+        defs: await MedDb.defs(db),
+        doses: await MedDb.dosesForDay(db, todayLabel()),
+      );
+    } catch (_) {
+      return (defs: null, doses: empty);
     }
   }
 
@@ -2333,7 +2388,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _bumpInsightsRevision() {
+  void _bumpInsightsRevision() => bumpInsights();
+
+  /// Say that the DURABLE data changed, so every screen reading it re-reads.
+  ///
+  /// Public because the writers are not all in here: the log-workout sheet
+  /// writes a session, and an import writes days, sessions and journal rows.
+  /// `notifyListeners` is NOT that signal — it also ticks at ~1 Hz with live
+  /// HR, so screens listen to this instead and re-read only when something
+  /// actually landed.
+  void bumpInsights() {
     insightsRevision.value = insightsRevision.value + 1;
   }
 
@@ -3519,6 +3583,12 @@ class AppState extends ChangeNotifier {
     await engine.disconnect();
     _releaseForegroundLease();
     await PairedDevice.clear();
+    // Everything the old band told us about itself. The engine's DeviceState
+    // lives as long as the process and the persisted strap name outlives even
+    // that, so without both of these a re-pair — with a DIFFERENT band —
+    // inherits the forgotten one's name, serial, generation and bond verdicts.
+    device.reset();
+    Prefs.setString(_kStrapName, '');
     paired = null;
     notifyListeners();
   }

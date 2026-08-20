@@ -40,16 +40,39 @@ import 'sleep_detail.dart';
 class WellnessScreen extends StatefulWidget {
   const WellnessScreen({super.key});
 
+  /// A deep link asking for one of the sub-tabs — [medsTab] from the dose
+  /// reminder. -1 for the ordinary case: open where the screen opens.
+  ///
+  /// NOT A CONSTRUCTOR ARGUMENT, and it cannot be one. This screen is built by
+  /// the shell's IndexedStack, which keeps it alive; a tap that lands on a
+  /// Wellness already on screen rebuilds nothing, so there is no constructor
+  /// call to carry the index. A request the screen listens for reaches it in
+  /// BOTH cases — the live state's listener when Wellness is already up, and
+  /// the fresh state's `initState` when the shell re-keys to switch domain.
+  ///
+  /// The shell CLEARS it a frame later rather than the screen consuming it on
+  /// read: on the re-key path the outgoing state's listener fires first, and a
+  /// consume-on-read would eat the request before the incoming one existed.
+  static final ValueNotifier<int> tabRequest = ValueNotifier<int>(-1);
+
+  /// Cycle is LAST on purpose: it is the one tab that can be switched off
+  /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
+  /// trailing tab leaves every other tab's index where it was.
+  ///
+  /// On the widget rather than the state so [medsTab] can be checked against
+  /// it — a deep link that lands on the wrong tab because the list was
+  /// reordered is not a failure anything else would catch.
+  static const tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
+
+  static const int medsTab = 3;
+
   @override
   State<WellnessScreen> createState() => _WellnessScreenState();
 }
 
-class _WellnessScreenState extends State<WellnessScreen> {
+class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   int _tab = 0;
-  /// Cycle is LAST on purpose: it is the one tab that can be switched off
-  /// (Profile → Preferences → Cycle tracking, off by default), and dropping a
-  /// trailing tab leaves every other tab's index where it was.
-  static const _tabs = ['Mind', 'Recovery', 'Habits', 'Medication', 'Cycle'];
+  static const _tabs = WellnessScreen.tabs;
 
   /// Habit consistency is read over a fortnight: long enough that one bad week
   /// does not read as collapse, short enough to still be about now.
@@ -85,10 +108,33 @@ class _WellnessScreenState extends State<WellnessScreen> {
   @override
   void initState() {
     super.initState();
+    final t = WellnessScreen.tabRequest.value;
+    if (t >= 0 && t < _tabs.length) _tab = t;
+    WellnessScreen.tabRequest.addListener(_onTabRequest);
     _load();
   }
 
+  /// A dose reminder tapped while Wellness was already the open domain.
+  void _onTabRequest() {
+    final t = WellnessScreen.tabRequest.value;
+    if (t < 0 || t >= _tabs.length || t == _tab || !mounted) return;
+    setState(() => _tab = t);
+  }
+
+  @override
+  void dispose() {
+    WellnessScreen.tabRequest.removeListener(_onTabRequest);
+    super.dispose();
+  }
+
+  /// Readiness drivers, insights and journal metrics all move under this tab
+  /// when a derive or an import runs — and it is one of the three the shell
+  /// keeps alive forever, so it read them once and stopped.
+  @override
+  void reload() => _load();
+
   Future<void> _load() async {
+    final t = beginRead(#wellness);
     final app = context.read<AppState>();
     final repo = app.repo;
     final db = await LocalDb.instance;
@@ -141,7 +187,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
     );
     final history = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
 
-    if (!mounted) return;
+    if (!stillNewest(#wellness, t)) return;
     setState(() {
       _meds = meds;
       _slots = slotsForDay(meds, _date, doses, now: DateTime.now());
@@ -204,7 +250,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                 noun: 'exercises',
                 sub: last == null
                     ? 'Pick one and go'
-                    : 'Last: ${((last['seconds'] as num?) ?? 0) ~/ 60} min',
+                    : 'Last: ${(_reading(last['seconds']) ?? 0) ~/ 60} min',
                 asset: 'mascot_wellness.png',
                 accent: C.domMind,
                 deep: C.teal,
@@ -251,8 +297,14 @@ class _WellnessScreenState extends State<WellnessScreen> {
   // ── MIND ─────────────────────────────────────────────────────────────────
 
   Widget _mind(BuildContext c) {
-    final score = (_stress['stress'] as Map?)?['score'] as num?;
-    final level = (_stress['stress'] as Map?)?['level'] as String?;
+    // Same rule as `_recovery`'s coach block, and for the same reason: this
+    // runs inside `build`, so a leaf of the wrong type here costs the whole
+    // screen rather than this one card. See [_reading].
+    final stress = _stress['stress'];
+    final score = _reading(stress is Map ? stress['score'] : null);
+    final level = stress is Map && stress['level'] is String
+        ? stress['level'] as String
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -348,8 +400,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
     final needSec = _nested(coachMap, 'need', 'need_sec');
     final bedMin = _nested(coachMap, 'bedtime', 'bedtime_min_of_day');
     final wakeMin = _nested(coachMap, 'wake', 'wake_min_of_day');
-    final napMin = (coachMap?['nap_credit_min'] as num?)?.toDouble();
-    final strainMin = (coachMap?['strain_bonus_min'] as num?)?.toDouble();
+    final napMin = _reading(coachMap?['nap_credit_min']);
+    final strainMin = _reading(coachMap?['strain_bonus_min']);
     final debtH = _nested(_insights, 'sleep_debt', 'debt_hours');
 
     return Column(
@@ -397,7 +449,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
               // nothing, and was printed for every cause the estimator has.
               ? StatusCard(
                   'No sleep need yet',
-                  whyFromNote((coachMap?['need'] as Map?)?['note'] as String?) ??
+                  whyFromNote(_noteOf(coachMap?['need'])) ??
                       'Nothing recorded says why there is no need for tonight.',
                   icon: LucideIcons.bedDouble,
                 )
@@ -618,24 +670,48 @@ class _WellnessScreenState extends State<WellnessScreen> {
             onFix: () => _addMed(c),
           )
         else ...[
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Column(
-              children: [
-                for (final s in _slots)
-                  MedRow(
-                    slot: s,
-                    onTap: () => _markDose(s),
-                    // Everything that is not "I took it" lives behind here:
-                    // skipping a dose on purpose, fixing the days it is due,
-                    // and the exit for a course you finished — which used to
-                    // keep coming due every day with nothing but "Delete
-                    // everything" to stop it.
-                    onMore: () => _medActions(c, s),
-                  ),
-              ],
+          // A medication with no slot TODAY is not an empty screen. It happens
+          // for ordinary reasons — the days exclude today, the time had already
+          // passed when it was added (`slotsForDay` will not invent a slot
+          // behind you), or the day being viewed is not today — and every one
+          // of them used to render an empty `Surface`: added a medication, no
+          // tracker, nothing said. Absence states its reason, and the schedule
+          // itself is the reason, so it is what gets printed.
+          if (_slots.isEmpty) ...[
+            const StatusCard(
+              'Nothing due today',
+              'What you take is scheduled for other days or times.',
+              icon: LucideIcons.pill,
             ),
-          ),
+            const SizedBox(height: S.x3),
+            Surface(
+              pad: const EdgeInsets.symmetric(vertical: S.x2),
+              child: Column(
+                children: [
+                  for (final d in _meds)
+                    for (final sch in d.schedule) _scheduleRow(c, d, sch),
+                ],
+              ),
+            ),
+          ] else
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  for (final s in _slots)
+                    MedRow(
+                      slot: s,
+                      onTap: () => _markDose(s),
+                      // Everything that is not "I took it" lives behind here:
+                      // skipping a dose on purpose, fixing the days it is due,
+                      // and the exit for a course you finished — which used to
+                      // keep coming due every day with nothing but "Delete
+                      // everything" to stop it.
+                      onMore: () => _medActions(c, s),
+                    ),
+                ],
+              ),
+            ),
           Section(
             'Adherence',
             // An empty denominator is not an adherence of nothing. Consistency
@@ -670,6 +746,29 @@ class _WellnessScreenState extends State<WellnessScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  /// One scheduled time that is not due today: what it is, and when it is due.
+  ///
+  /// Tapping goes straight to the schedule and NOT to `_medActions` — a slot
+  /// that is not due cannot be taken or skipped, and offering either would
+  /// write a dose row for a day the medication was never scheduled on.
+  /// Changing when it is due is the only honest action here, and it is also
+  /// the one that brings the tracker back.
+  Widget _scheduleRow(BuildContext c, MedDef d, MedSchedule sch) {
+    final slot = MedSlot(
+      def: d,
+      date: _date,
+      slotMin: sch.minuteOfDay,
+      state: DoseState.upcoming,
+    );
+    return _SheetAction(
+      LucideIcons.pill,
+      d.label,
+      // `timeLabel`, so the two halves of this tab print a time the same way.
+      sub: '${_daysLabel(sch.days)} · ${slot.timeLabel}',
+      onTap: () => _editSchedule(c, slot),
     );
   }
 
@@ -880,8 +979,41 @@ double? _nested(Map<String, dynamic>? blk, String key, String field) {
   final m = blk?[key];
   if (m is! Map) return null;
   final v = m['value'];
-  if (v is Map) return (v[field] as num?)?.toDouble();
-  return (v as num?)?.toDouble();
+  return _reading(v is Map ? v[field] : v);
+}
+
+/// A stored leaf as a number this screen can print, or null.
+///
+/// TESTED, NEVER CAST, and the finite check is not belt-and-braces. Every
+/// caller of this is evaluated inside `_recovery`, which `build` CALLS — so a
+/// throw here is not a broken card, it is `WellnessScreen.build` failing, the
+/// whole domain replaced by an `ErrorWidget`, and `RenderErrorBox` painting
+/// `0xF0C0C0C0` over the page. On a release build that is a flat grey screen
+/// with a working nav bar beside it and nothing anywhere that says why.
+///
+/// Two ways in, and neither is hypothetical enough to leave open:
+///   · `x as num?` tolerates null and NOTHING ELSE, so one leaf stored as a
+///     String — an older artifact, a hand-edited backup, an import — throws.
+///   · `.round()` throws `UnsupportedError` on NaN and infinity, and every
+///     number here is rounded a few lines later (`_hm`, `formatMinuteOfDay`,
+///     the strain and nap rows). `1e999` in JSON decodes to `Infinity`.
+///
+/// The write seam already learned this: `sanitizeForJson` nulls a non-finite
+/// leaf rather than letting `jsonEncode` throw, because "the artifact is a bag
+/// of independent metrics, so it must degrade one field at a time". Same rule,
+/// read side. A leaf we cannot read is ABSENT — which every branch below
+/// already renders honestly — instead of costing the screen.
+double? _reading(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
+
+/// The `note` off a metric envelope, when there is one and it is prose.
+///
+/// `(x as Map?)?['note'] as String?` was two unguarded casts on the ABSENCE
+/// branch — the one that renders for every account that has no learned sleep
+/// need yet, which is the widest audience this screen has.
+String? _noteOf(Object? envelope) {
+  if (envelope is! Map) return null;
+  final note = envelope['note'];
+  return note is String ? note : null;
 }
 
 String _hm(double minutes) {

@@ -12,6 +12,8 @@ import SwiftUI
 struct OpenStrapWidgetBundle: WidgetBundle {
     var body: some Widget {
         OpenStrapWidget()
+        OpenStrapSleepWidget()
+        OpenStrapOvernightWidget()
         OpenStrapBatteryWidget()
         OpenStrapWidgetLiveActivity()
         OpenStrapBreathingLiveActivity()

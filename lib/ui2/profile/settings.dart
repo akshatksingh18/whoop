@@ -23,7 +23,6 @@ import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
 import '../../health/health_profile_import.dart';
-import '../../notify/notification_center.dart';
 import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
@@ -764,7 +763,13 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     // Re-run the scheduler so a switch that was just turned off actually
     // cancels what it was standing for, rather than taking effect at some
     // later resume.
-    await NotificationCenter.instance.scheduleStandingReminders(next);
+    //
+    // Through AppState, not straight at the NotificationCenter: the medication
+    // slots need the med schedule and the check-in needs today's journal, and
+    // only AppState can read either. Calling the centre directly cancels what
+    // the switch turned off and arms nothing back, so meds stayed silent until
+    // the next foreground pass.
+    if (mounted) await context.read<AppState>().refreshAiReminders();
     // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
     // the switch only takes effect at the next launch.
     if (mounted) await context.read<AppState>().armWaterReminder(next);
@@ -891,6 +896,31 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             movementEnabled: !prefs.movementEnabled))),
+                    // The one prompt whose time is not a guess: it is the
+                    // schedule already typed into the Medication tab. Only a
+                    // dose still due is armed, and the notification names no
+                    // drug — it lands on a lock screen in front of whoever is
+                    // in the room.
+                    SetRow(LucideIcons.pill, C.blue, 'Medication reminders',
+                        sub: 'One notification per scheduled dose, at the '
+                            'times you entered. Nothing is sent for a dose '
+                            'already marked taken or skipped',
+                        value: prefs.medsEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () =>
+                            set(prefs.copyWith(medsEnabled: !prefs.medsEnabled))),
+                    // ONE prompt for the whole journal, not one per field —
+                    // mood, energy, stress and the rest are all the same
+                    // screen, so five rows would be five interruptions for one
+                    // minute of typing.
+                    SetRow(LucideIcons.notebookPen, C.purple, 'Daily check-in',
+                        sub: 'One prompt in the evening to write the day — '
+                            'mood, energy, stress. Skipped once the day '
+                            'already has a rating in it',
+                        value: prefs.checkInEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            checkInEnabled: !prefs.checkInEnabled))),
                     // A prompt to log, not a reading. The app measures no
                     // hydration and this row may never imply it does.
                     SetRow(LucideIcons.glassWater, C.teal, 'Water reminder',

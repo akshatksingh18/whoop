@@ -40,7 +40,7 @@ import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
-import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
+import '../notify/tap_router.dart' show workoutSuggestionRoute;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
@@ -1260,7 +1260,34 @@ import 'substrate.dart';
 // one already banked (#242 — the guard only fired on a FAILED pass and never
 // compared tst_sec, which is why a fixed night came back wrong a few syncs
 // later), and absent accel stays absent instead of coalescing to zero.
-const int kAlgoVersion = 75;
+// v76 — IMPORTED DAYS WERE SETTING THE BASELINE THEY ARE SUPPOSED TO STAY OUT
+// OF. The rule that a vendor export never feeds a personal baseline was enforced
+// on the WRITE path only — three call sites check `isMeasuredDay`, while
+// `_BaselineHistoryCache.load()` read `metric_series` with no source filter at
+// all. Both importers write real series rows through `putDayResult`, so four of
+// the eight baselines (`rhr`, `rmssd`, `readiness`, `resp_rate`) were being set
+// partly by somebody else's algorithm. The other four escaped by accident, not
+// design — the importers happen to write `skin_temp_z` rather than
+// `skin_temp_adc`.
+//
+// NOOP is NOT foreign, which is the part worth remembering: `NoopIngest` holds a
+// DerivationEngine and feeds it reconstructed 1 Hz substrate, so those days are
+// our own maths and are stamped `source: 'band'`. Only `whoop_export` and
+// `cloud_v2` are somebody else's.
+//
+// `source` is NULL for every day written before schema 43 and the backfill
+// deliberately never fills it, so filtering on `source = 'band'` would have
+// deleted genuine early history — a pollution bug traded for a data-loss one.
+// It is decidable anyway: both importers put `imported: true` in the day
+// bundle, which is what the write path has always tested. `importedDates()` is
+// the union of both eras and the seam everything else reads through.
+//
+// Readiness, the illness CUSUM, and the training-zone and live-strain RHR
+// anchors all move for anyone with an import in range. For a user who never
+// imported this is a strict no-op: the set is empty and every read is unchanged.
+// Days already finalized keep the score they were derived with — raw is pruned,
+// so no bump can heal them.
+const int kAlgoVersion = 76;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1463,7 +1490,21 @@ class _BaselineHistoryCache {
   /// window possible at all. It must NOT be given a `limit` (that is `date ASC
   /// LIMIT n`, i.e. the OLDEST n — the opposite of a trailing window); the
   /// trailing window is taken here, in Dart, per target day.
+  ///
+  /// IMPORTED DAYS ARE EXCLUDED. `LocalDb.isMeasuredDay` kept another vendor's
+  /// export from OVERWRITING a measured day, but nothing kept it out of the
+  /// window on the way back in: a WHOOP or cloud import writes real
+  /// `metric_series` rows for `rhr`, `rmssd`, `readiness` and `resp_rate`, and
+  /// this load read them like any other day. Their scores are a different
+  /// algorithm's output over a different (or no) substrate, so blending them in
+  /// moves the median every personal z-score is taken against — silently, for
+  /// as long as the window is, and worst exactly when someone imports their
+  /// history on day one and has nothing else in the window at all.
+  ///
+  /// The mask is taken ONCE per load and applied to every key, because the
+  /// query behind it scans day bundles (see [LocalDb.importedDates]).
   static Future<_BaselineHistoryCache> load() async {
+    final imported = await LocalDb.importedDates();
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key);
       final out = <_DatedValue>[];
@@ -1471,6 +1512,7 @@ class _BaselineHistoryCache {
         final date = row['date'];
         final value = row['value'];
         if (date is! String || date.isEmpty || value is! num) continue;
+        if (imported.contains(date)) continue;
         out.add((date: date, value: value.toDouble()));
       }
       return out;
@@ -3449,21 +3491,39 @@ class DerivationEngine {
         });
       }
       final nb = blocks.notifBout;
-      if (nb != null) {
+      // Only for a bout that is STILL waiting on an answer. The detector is
+      // pure and re-derives the same bouts every pass; dismissing one, logging
+      // it, or logging any session that covers its window retires the row
+      // (`supersededSuggestionIds`), and none of that reaches the detector. So
+      // the live table is what decides, not the detection — a notification
+      // about a workout already in the log is how someone turns all of them
+      // off. `putWorkoutSuggestion` ran a few lines up, so the row is there.
+      final live = nb == null
+          ? false
+          : (await LocalDb.activeWorkoutSuggestions())
+              .any((r) => r['id'] == nb.id);
+      if (nb != null && live) {
         await NotificationCenter.instance.emit(
           NotificationEvent(
             // Per-bout, not per-day — a per-day key silently swallowed the
             // notification for a second real workout later the same day
-            // (fire-once-per-key by design). endSec is stable across re-derive
-            // passes re-detecting the SAME bout, so that case still dedupes.
-            dedupeKey: '${day.date}:auto_workout:${nb.endSec}',
-            category: NotifCategory.recovery,
+            // (fire-once-per-key by design). The suggestion id is stable across
+            // re-derive passes re-detecting the SAME bout, so that case still
+            // dedupes, and it is date-prefixed so the fired-key store prunes it.
+            dedupeKey: '${nb.id}:auto_workout',
+            // NOT `recovery`. That channel is where "your recovery is ready"
+            // lived and `classOf` drops everything on it, so this notification
+            // has never once reached anybody: the suggestion row was written,
+            // the user was never told. This is a prompt about something that
+            // happened — reminders channel, NotifClass.prompt, and it respects
+            // quiet hours like every prompt should.
+            category: NotifCategory.reminders,
             priority: NotifPriority.normal,
             title: 'Did you work out?',
             body: 'We spotted ~${nb.durationMin} min of elevated activity. '
                 'Tap to log it.',
             date: day.date,
-            route: kRouteWorkoutSuggestion,
+            route: workoutSuggestionRoute(nb.id),
           ),
           // This runs from headless background derivation too — never prompt
           // for permission from a background context (violates the OS
@@ -6975,11 +7035,15 @@ class DerivationEngine {
       // don't resurface 90 days of prompts.
       final recent = (dataNowSec - dayEndSec) < 36 * 3600;
       final toPersist = <Map<String, dynamic>>[];
-      ({int endSec, int durationMin})? notif;
+      ({String id, int durationMin})? notif;
+      // ONE definition of the row id. The notification checks the table by it
+      // and opens the screen on it, so a second copy of the format here would
+      // drift into a prompt that silently never fires again.
+      String sugId(int startSec) => '$date:$startSec';
       if (recent && bouts.isNotEmpty) {
         for (final b in bouts) {
           toPersist.add({
-            'id': '$date:${b.startSec}',
+            'id': sugId(b.startSec),
             'date': date,
             'start_ts': b.startSec,
             'end_ts': b.endSec,
@@ -6997,7 +7061,10 @@ class DerivationEngine {
         // above so they surface in the Workouts screen; we just don't ping for them.
         final newest = bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
         if ((dataNowSec - newest.endSec) < 2 * 3600) {
-          notif = (endSec: newest.endSec, durationMin: newest.durationMin);
+          notif = (
+            id: sugId(newest.startSec),
+            durationMin: newest.durationMin,
+          );
         }
       }
       return _WorkoutCompute(
@@ -7500,7 +7567,7 @@ class _DayBlocksOutput {
   final Map<String, dynamic> wake;
   final List<Map<String, dynamic>> suggestionsToPersist;
   final List<(String, double)> sessionHrrWrites;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _DayBlocksOutput({
     required this.bundlePatch,
     required this.seriesPatch,
@@ -7519,7 +7586,7 @@ class _WorkoutCompute {
   final double? hrrTauS;
   final List<(String, double)> sessionHrrWrites;
   final List<Map<String, dynamic>> suggestionsToPersist;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _WorkoutCompute({
     required this.boutJson,
     required this.hrrBpm,

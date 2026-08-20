@@ -1077,7 +1077,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
 
@@ -1085,15 +1085,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// database is a read problem, and telling a user with three months of
   /// history that their band has never produced data is the wrong answer to it.
   bool _failed = false;
-
-  /// The revision this screen's data was loaded at, and the notifier it came
-  /// from — the same pattern `WorkoutScreen` already uses. Home used to load
-  /// once post-frame and never listen, so the "Sync the band" button it renders
-  /// could not change what the screen showed: the offload landed, the derive
-  /// ran, and Home kept saying "Nothing derived yet" until the app was
-  /// relaunched.
-  int _loadedAt = -1;
-  ValueNotifier<int>? _rev;
 
   @override
   void initState() {
@@ -1106,36 +1097,16 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  /// Handed its data (golden, gallery) — the screen just renders what it has.
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (widget.data != null) return;
-    // No AppState above us in a golden — the screen just renders what it has.
-    final AppState app;
-    try {
-      app = context.read<AppState>();
-    } catch (_) {
-      return;
-    }
-    if (!identical(_rev, app.insightsRevision)) {
-      _rev?.removeListener(_onRevision);
-      _rev = app.insightsRevision..addListener(_onRevision);
-      _loadedAt = app.insightsRevision.value;
-    }
-  }
+  bool get revisionReloads => widget.data == null;
 
-  void _onRevision() {
-    final r = _rev;
-    if (!mounted || r == null || r.value == _loadedAt) return;
-    _loadedAt = r.value;
-    _load();
-  }
-
+  /// Home used to load once post-frame and never listen, so the "Sync the
+  /// band" button it renders could not change what the screen showed: the
+  /// offload landed, the derive ran, and Home kept saying "Nothing derived
+  /// yet" until the app was relaunched.
   @override
-  void dispose() {
-    _rev?.removeListener(_onRevision);
-    super.dispose();
-  }
+  void reload() => _load();
 
   Future<void> _load() async {
     final repo = repoOf(context);
@@ -1143,11 +1114,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final t = beginRead(#home);
     try {
       final d = await HomeData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false, _failed = false));
+      if (stillNewest(#home, t)) {
+        setState(() => (_d = d, _loading = false, _failed = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => (_loading = false, _failed = true));
+      if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
     }
   }
 

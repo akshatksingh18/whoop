@@ -382,4 +382,40 @@ class DeviceState {
   String? generation;
 
   DeviceState({this.connection = 'disconnected'});
+
+  /// Back to "no band has ever connected this process".
+  ///
+  /// The engine holds ONE of these for its whole life, so without this a
+  /// forget leaves the old strap's serial, name, generation and battery in
+  /// place — and a re-pair with a different band then shows them until the new
+  /// link happens to overwrite each one. `generation` is the one that is not
+  /// cosmetic: it is the key every sensor-dependent metric looks its constants
+  /// up under, and the device page states it as a calibration fact.
+  ///
+  /// The bond/radio verdicts go too. They are findings about the band that was
+  /// forgotten — an `autoReconnectPaused` left standing would silently pause
+  /// the reconnect loop for the NEXT band as well.
+  void reset() {
+    address = null;
+    serial = null;
+    batteryPct = null;
+    charging = null;
+    chargingTs = null;
+    wristOn = null;
+    liveHr = null;
+    liveHrAt = null;
+    alarmEpoch = null;
+    strapName = null;
+    generation = null;
+    connection = 'disconnected';
+    standardHrFallback = false;
+    needsRepairGuide = false;
+    bondRefusals = 0;
+    autoReconnectPaused = false;
+    syncClockLost = false;
+    strapNeedsReboot = false;
+    syncChunkQuarantined = false;
+    dataRangeOldest = null;
+    dataRangeNewest = null;
+  }
 }

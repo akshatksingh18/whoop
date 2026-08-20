@@ -418,7 +418,7 @@ class HealthScreen extends StatefulWidget {
   State<HealthScreen> createState() => _HealthScreenState();
 }
 
-class _HealthScreenState extends State<HealthScreen> {
+class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   // EXPLORE SITS SECOND, not last. Five chips do not fit a 390 pt frame at 1×:
   // the fifth is clipped by the edge, and a half-visible chip is exactly the
   // discoverability failure this tab exists to fix. Labs takes the clip instead
@@ -447,17 +447,46 @@ class _HealthScreenState extends State<HealthScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  /// Handed its data (golden, gallery) — nothing behind it to re-read.
+  @override
+  bool get revisionReloads => widget.data == null;
+
+  /// A tab kept alive by the IndexedStack for the life of the process: it read
+  /// the database once at launch, so an import or a derive that landed after
+  /// that was invisible here until the app was relaunched. The already-loaded
+  /// sub-tabs are re-read too — they cache on `!= null`, which is the same
+  /// load-once bug one level down.
+  ///
+  /// EVERY SUB-TAB THAT HAS EVER READ, not every sub-tab that holds data. This
+  /// gated on `!= null` and so skipped the one case that matters most — a
+  /// sub-tab whose first read is still in flight when the revision lands, which
+  /// is the ordinary state of the first load after an import. See [hasRead].
+  @override
+  void reload() {
+    _load();
+    if (hasRead(#vitals)) _loadVitals(force: true);
+    if (hasRead(#labs)) {
+      _l = null;
+      _loadLabs();
+    }
+    if (hasRead(#explore)) {
+      _e = null;
+      _loadExplore();
+    }
+  }
+
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final t = beginRead(#day);
     try {
       final d = await HealthData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (stillNewest(#day, t)) setState(() => (_d = d, _loading = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#day, t)) setState(() => _loading = false);
     }
   }
 
@@ -474,11 +503,14 @@ class _HealthScreenState extends State<HealthScreen> {
   Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
     if (repo == null || (_v != null && !force)) return;
+    // Keyed per sub-tab: steering to another day starts a read that must beat
+    // the one already in flight, and neither may cancel Labs or Explore.
+    final t = beginRead(#vitals);
     try {
       final v = await VitalsData.load(repo, want: _vDay);
-      if (mounted) setState(() => (_v = v, _vFailed = false));
+      if (stillNewest(#vitals, t)) setState(() => (_v = v, _vFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _vFailed = true);
+      if (stillNewest(#vitals, t)) setState(() => _vFailed = true);
     }
   }
 
@@ -489,11 +521,12 @@ class _HealthScreenState extends State<HealthScreen> {
 
   Future<void> _loadLabs() async {
     if (_l != null) return;
+    final t = beginRead(#labs);
     try {
       final l = await LabsData.load();
-      if (mounted) setState(() => (_l = l, _lFailed = false));
+      if (stillNewest(#labs, t)) setState(() => (_l = l, _lFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _lFailed = true);
+      if (stillNewest(#labs, t)) setState(() => _lFailed = true);
     }
   }
 
@@ -510,11 +543,12 @@ class _HealthScreenState extends State<HealthScreen> {
 
   Future<void> _loadExplore() async {
     if (_e != null) return;
+    final t = beginRead(#explore);
     try {
       final e = await ExploreData.load();
-      if (mounted) setState(() => (_e = e, _eFailed = false));
+      if (stillNewest(#explore, t)) setState(() => (_e = e, _eFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _eFailed = true);
+      if (stillNewest(#explore, t)) setState(() => _eFailed = true);
     }
   }
 
@@ -558,9 +592,16 @@ class _HealthScreenState extends State<HealthScreen> {
     // measured gap. `overnight: false` is for a row that is not — a hole at
     // 2 AM says nothing about a daytime number, and offering it as the reason
     // would be the invented cause the whole absence layer refuses.
+    // `rising` is the ONE value judgement a row makes, and it is per metric:
+    // resting heart rate falling is good news, HRV rising is. A metric this
+    // project makes no directional claim about takes [Rising.neither] and
+    // draws its arrow in ink — the direction is stated, the verdict is not
+    // invented.
     void row(Metric m, IconData icon, Color col, String name, String sub,
-        String value, String unit, List<double?> spark, String metricKey,
-        {String? whyAbsent, bool overnight = true}) {
+        String value, String unit, List<double?> series, String metricKey,
+        {String? whyAbsent,
+        bool overnight = true,
+        Rising rising = Rising.neither}) {
       if (m.isEmpty) {
         final s = StatusCard.forMetric('No ${name.toLowerCase()}', m,
             why: whyAbsent ?? '', gap: overnight ? d.nightGap : null);
@@ -570,7 +611,8 @@ class _HealthScreenState extends State<HealthScreen> {
       rows.add(MetricRow(icon, col, name, value,
           sub: sub,
           unit: unit,
-          spark: spark,
+          series: series,
+          rising: rising,
           onTap: () => go(c, MetricDetail(metricKey))));
     }
 
@@ -592,6 +634,10 @@ class _HealthScreenState extends State<HealthScreen> {
         // was scored" is often the wrong reason and contradicts the Sleep row
         // sitting two lines down. Only the branch this screen can SEE is
         // stated — the other named a beat-quality gate it never read.
+        // Nocturnal resting heart rate: lower is the direction every part of
+        // this app already treats as better — it is what the illness CUSUM
+        // watches for a RISE, and what readiness scores as `lowerIsBetter`.
+        rising: Rising.bad,
         whyAbsent: sleepMin.isEmpty
             ? 'Read from sleep, and no night was scored.'
             : '');
@@ -601,6 +647,7 @@ class _HealthScreenState extends State<HealthScreen> {
         ofNight('RMSSD, asleep'),
         hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
         d.spark('hrv', 24), 'hrv',
+        rising: Rising.good,
         // Blaming signal quality unconditionally told a day-one user their
         // sensor produced dirty data on a night that never happened.
         whyAbsent: sleepMin.isEmpty
@@ -610,6 +657,9 @@ class _HealthScreenState extends State<HealthScreen> {
     row(sleepMin, LucideIcons.moon, C.blue, 'Sleep',
         night == null ? 'Last night' : prettyDay(night),
         hm(sleepMin.value), '', d.spark('sleep', 24), 'sleep',
+        // More sleep is the direction this app coaches towards — `sleepNeed`
+        // exists to say you are short of it, never over it.
+        rising: Rising.good,
         whyAbsent: 'No sleep period long enough to score was recorded.');
 
     final stressBlock = d.today['stress'];
@@ -628,6 +678,7 @@ class _HealthScreenState extends State<HealthScreen> {
         '/100',
         d.spark('stress', 24),
         'stress',
+        rising: Rising.bad,
         // Was 'No resting stretch long enough last night.' — one of several
         // gates stress abstains on, asserted for all of them.
         whyAbsent: sleepMin.isEmpty
@@ -640,6 +691,10 @@ class _HealthScreenState extends State<HealthScreen> {
         respMetric.value == null ? '' : respMetric.value!.toStringAsFixed(1),
         'br/min',
         d.spark('resp_rate', 24), 'resp_rate',
+        // DELIBERATELY UNJUDGED. Readiness scores a rise as a cost, but that
+        // is a deviation from your own baseline, not a claim that breathing
+        // slower is better health — nobody here would tell you a falling
+        // respiratory rate is good news. Direction, no verdict.
         // THE ESTIMATOR'S OWN REASON when it left one, not a guess written
         // here. `respiration.rsa` records which gate it failed — too few beats,
         // artifact fraction over the gate, no stable HF peak, or a peak that
@@ -1232,12 +1287,21 @@ class _HealthScreenState extends State<HealthScreen> {
       ..sort((a, b) => (byKey[a['marker']]?.label ?? '')
           .compareTo(byKey[b['marker']]?.label ?? ''));
     final lastDraw = l.results.isEmpty ? null : l.results.first['taken_on'];
+    // Markers the user named themselves — the only ones whose DEFINITION is
+    // theirs to remove. A catalogue marker is the app's and stays.
+    final mine = l.markers.where((m) => m.custom).toList();
+    final counts = <String, int>{};
+    for (final r in l.results) {
+      final k = r['marker'].toString();
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (rows.isEmpty)
-        const StatusCard(
-          'No lab results yet',
-          'Nothing logged yet.',
+        StatusCard(
+          'No lab results',
+          'Nothing logged. Anything you add here stays on this device, and '
+              'anything you remove is gone from it.',
           icon: LucideIcons.testTube,
         )
       else ...[
@@ -1246,7 +1310,9 @@ class _HealthScreenState extends State<HealthScreen> {
           child: Column(children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) Divider(color: p.line, height: 1),
-              _lab(p, byKey[rows[i]['marker'].toString()], rows[i], sex),
+              _lab(p, byKey[rows[i]['marker'].toString()], rows[i], sex,
+                  () => _removeResult(byKey[rows[i]['marker'].toString()],
+                      rows[i], l)),
             ],
           ]),
         ),
@@ -1254,6 +1320,7 @@ class _HealthScreenState extends State<HealthScreen> {
         Text('Last panel ${lastDraw ?? ''} · logged by hand',
             style: F.over.copyWith(color: p.ink3)),
       ],
+      if (mine.isNotEmpty) _myMarkers(p, mine, counts),
       const SizedBox(height: S.x4),
       BigButton('Add a result',
           icon: LucideIcons.plus,
@@ -1269,52 +1336,175 @@ class _HealthScreenState extends State<HealthScreen> {
     ]);
   }
 
-  Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex) {
+  Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
+      VoidCallback onRemove) {
     final v = (r['value'] as num?)?.toDouble();
     final unit = (r['unit'] ?? m?.unit ?? '').toString();
     final range = m?.rangeFor(sex);
     final inRange = v == null || m == null ? null : m.inRange(v, sex: sex);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            // No interval means NO OPINION — a grey dot, never a green one.
-            color: inRange == null
-                ? p.ink3
-                : (inRange ? p.on(C.green) : p.on(C.orange)),
-            shape: BoxShape.circle,
+    // The whole row is the control, with the bin as its affordance — the same
+    // shape a logged meal takes, and it costs no width, which at 3x text is
+    // the difference between a row that fits and one that overflows.
+    return Pressable(
+      onTap: onRemove,
+      semanticLabel:
+          'Remove ${m?.label ?? r['marker']} from ${r['taken_on']}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              // No interval means NO OPINION — a grey dot, never a green one.
+              color: inRange == null
+                  ? p.ink3
+                  : (inRange ? p.on(C.green) : p.on(C.orange)),
+              shape: BoxShape.circle,
+            ),
           ),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(m?.label ?? r['marker'].toString(),
-                style: F.body.copyWith(color: p.ink)),
-            Text(
-                range == null
-                    ? 'No reference interval · ${r['taken_on']}'
-                    : 'Typical ${_num(range.low)}–${_num(range.high)} · '
-                        '${r['taken_on']}',
-                style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(m?.label ?? r['marker'].toString(),
+                  style: F.body.copyWith(color: p.ink)),
+              Text(
+                  range == null
+                      ? 'No reference interval · ${r['taken_on']}'
+                      : 'Typical ${_num(range.low)}–${_num(range.high)} · '
+                          '${r['taken_on']}',
+                  style: F.over.copyWith(color: p.ink3)),
+            ]),
+          ),
+          const SizedBox(width: S.x2),
+          Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(v == null ? '' : (m?.format(v) ?? v.toString()),
+                    style: F.n17.copyWith(
+                        color: inRange == false ? p.on(C.orange) : p.ink)),
+                const SizedBox(width: 3),
+                Text(unit, style: F.over.copyWith(color: p.ink3)),
+              ]),
+          // This is the user's own blood work in an app that keeps it on their
+          // phone; being able to take it back out is the premise, not a setting.
+          const SizedBox(width: S.x2),
+          Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+        ]),
+      ),
+    );
+  }
+
+  /// One reading of one marker on one date. Named in full before it goes:
+  /// there is no undo here, and a generic "are you sure?" over a column of
+  /// blood results is how the wrong one is lost.
+  Future<void> _removeResult(
+      LabMarker? m, Map<String, dynamic> r, LabsData l) async {
+    final marker = r['marker'].toString();
+    final takenOn = r['taken_on'].toString();
+    final label = m?.label ?? marker;
+    final v = (r['value'] as num).toDouble();
+    final unit = (r['unit'] ?? m?.unit ?? '').toString();
+    // The row on screen is the NEWEST draw of its marker, so an earlier one
+    // takes its place rather than the marker disappearing — which without
+    // being told reads as the delete having failed.
+    final older = l.results.firstWhere(
+      (o) => o['marker'] == marker && o['taken_on'] != takenOn,
+      orElse: () => const <String, dynamic>{},
+    )['taken_on'];
+
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove $label from $takenOn?',
+      body: 'The ${m?.format(v) ?? _num(v)} $unit you logged for that draw. '
+          'It leaves this device and there is no undo.'
+          '${older == null ? '' : ' Your $older draw stays, and shows here instead.'}',
+    );
+    if (!ok || !mounted) return;
+    await LocalDb.deleteLabResult(marker, takenOn);
+    _l = null;
+    await _loadLabs();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(older == null
+          ? 'Removed $label from $takenOn. No $label results left.'
+          : 'Removed $label from $takenOn. Showing your $older draw now.'),
+    ));
+  }
+
+  /// Markers the user named. Only the DEFINITION is theirs to remove here —
+  /// see [_removeMarker] for why one holding results is refused.
+  Widget _myMarkers(P p, List<LabMarker> mine, Map<String, int> counts) =>
+      Section(
+        'Markers you named',
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(children: [
+            for (var i = 0; i < mine.length; i++) ...[
+              if (i > 0) Divider(color: p.line, height: 1),
+              Pressable(
+                semanticLabel: 'Remove the ${mine[i].label} marker',
+                onTap: () => _removeMarker(mine[i], counts[mine[i].key] ?? 0),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: S.x3),
+                  child: Row(children: [
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(mine[i].label,
+                                style: F.body.copyWith(color: p.ink)),
+                            Text(
+                                switch (counts[mine[i].key] ?? 0) {
+                                  0 => 'Nothing logged under it',
+                                  1 => '1 result · ${mine[i].unit}',
+                                  final n => '$n results · ${mine[i].unit}',
+                                },
+                                style: F.over.copyWith(color: p.ink3)),
+                          ]),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+                  ]),
+                ),
+              ),
+            ],
           ]),
         ),
-        const SizedBox(width: S.x2),
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(v == null ? '' : (m?.format(v) ?? v.toString()),
-                  style: F.n17.copyWith(
-                      color: inRange == false ? p.on(C.orange) : p.ink)),
-              const SizedBox(width: 3),
-              Text(unit, style: F.over.copyWith(color: p.ink3)),
-            ]),
-      ]),
+      );
+
+  /// Removing a marker DEFINITION, which is not the same act as removing its
+  /// readings — `deleteLabMarkerDef` deliberately leaves those alone, because
+  /// they were real draws and each row carries its own unit.
+  ///
+  /// But this screen labels a result THROUGH its marker, so a definition
+  /// deleted out from under one leaves the reading rendering as its raw
+  /// storage key with no interval. Both ways out of that are worse than this
+  /// one: deleting the readings too destroys blood work nobody asked to
+  /// destroy, and keeping them degrades a number this app calls absolute. So
+  /// a marker that still holds results is refused, and says how to proceed —
+  /// the results are one screen up, each removable on its own.
+  Future<void> _removeMarker(LabMarker m, int results) async {
+    if (results > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${m.label} still holds $results '
+            '${results == 1 ? 'result' : 'results'}. Remove those first — the '
+            'marker is what labels them.'),
+      ));
+      return;
+    }
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${m.label}?',
+      body: 'It leaves the marker list, so you can no longer log it. Nothing '
+          'measured goes with it — you have no results under it.',
     );
+    if (!ok || !mounted) return;
+    await LocalDb.deleteLabMarkerDef(m.key);
+    _l = null;
+    await _loadLabs();
   }
 
   String _num(double v) =>

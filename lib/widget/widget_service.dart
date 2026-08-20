@@ -507,11 +507,16 @@ class _Ring {
   /// What to sweep, 0…1 — negative when there is nothing honest to sweep.
   final double frac;
 
-  const _Ring(this.key,
+  /// CLAMPED HERE, not at the three call sites. Sleeping longer than your need
+  /// is a fraction above 1, and the native readers take this as a sweep — an
+  /// arc that laps itself, or a progress bar that draws past its own end,
+  /// depending on which of the four targets is reading. The number the ring
+  /// shows is the real one ("8h 10m of 7h 30m"); only the arc is bounded.
+  _Ring(this.key,
       {this.state = 0,
       required this.value,
       this.sub = '',
       this.why = '',
       double? frac})
-      : frac = frac ?? -1;
+      : frac = frac == null ? -1 : frac.clamp(0.0, 1.0);
 }

@@ -54,8 +54,8 @@ const _sleepHealthTypes = <HealthDataType>{
   // The night's envelope. Health Connect models it as a SleepSessionRecord
   // parent; HealthKit has no session record, so the enclosing bar is an
   // `inBed` sleepAnalysis sample. Only one of the two is ever asked for —
-  // see `_types` and `_sleepEnvelopeFor` — but both belong to the sleep
-  // delete SCOPE, which is what this set answers.
+  // see `_types`. Native writers own delete+write on both stores; this set is
+  // the authorization scope, not the plugin rewrite loop.
   HealthDataType.SLEEP_SESSION,
   HealthDataType.SLEEP_IN_BED,
 };
@@ -73,6 +73,9 @@ HealthDataType _foreignSleepEnvelope(bool isApplePlatform) => isApplePlatform
     : HealthDataType.SLEEP_IN_BED;
 
 List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
+  // Sleep and (on Android) minute HR are owned by native replace writers.
+  // Keeping sleep on the plugin delete list re-opens the HealthKit hang:
+  // unknown keys map to bodyMass and `delete()` never callbacks.
   final types = <HealthDataType>[
     HealthDataType.RESTING_HEART_RATE,
     isApplePlatform
@@ -83,38 +86,30 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.BASAL_ENERGY_BURNED,
     HealthDataType.STEPS,
-    for (final t in _sleepHealthTypes)
-      if (t != _foreignSleepEnvelope(isApplePlatform)) t,
     HealthDataType.WORKOUT,
   ];
   return isApplePlatform
       ? types
-      : types
-            .where(
-              (type) =>
-                  !_sleepHealthTypes.contains(type) &&
-                  type != HealthDataType.HEART_RATE,
-            )
-            .toList();
+      : types.where((type) => type != HealthDataType.HEART_RATE).toList();
 }
 
-/// The span a day's SLEEP-type delete has to cover.
-///
-/// The calendar day is not it. Stage samples are written at TRUE epoch, so a
-/// night that began at 23:10 sits in the PREVIOUS day — deleting only
-/// `[dayStart, dayEnd)` leaves that half behind and every re-export appends
-/// another copy of it. Widen to the union of the day and the night; with no
-/// night to write, the day window is already right.
-({DateTime start, DateTime end}) sleepCleanupWindow({
-  required DateTime dayStart,
-  required DateTime dayEnd,
-  HealthSleepSession? night,
-}) => (
-  start: (night != null && night.start.isBefore(dayStart))
-      ? night.start
-      : dayStart,
-  end: (night != null && night.end.isAfter(dayEnd)) ? night.end : dayEnd,
-);
+/// Cursor for the one-shot Apple Health sleep rewrite. Bump when the writer
+/// changes enough that nights already sitting in HealthKit should be replaced
+/// (plugin Core/in-bed misses, leftover 11pm fragments). Does not bump
+/// `kAlgoVersion` — derived metrics are unchanged.
+const kHealthSleepExportEpoch = 'apple-native-1';
+const kHealthSleepExportEpochCursor = 'health_sleep_export_epoch';
+
+Future<void> ensureHealthSleepExportEpoch({
+  required Future<String?> Function(String name) getCursor,
+  required Future<void> Function(String name, String value) setCursor,
+  String epoch = kHealthSleepExportEpoch,
+}) async {
+  if (await getCursor(kHealthSleepExportEpochCursor) == epoch) return;
+  await setCursor('health_export_through', '');
+  await setCursor('health_export_retry_state', '');
+  await setCursor(kHealthSleepExportEpochCursor, epoch);
+}
 
 bool shouldAttemptHealthExport({
   required int attempts,
@@ -205,6 +200,9 @@ class HealthExporter {
   final _androidSleep = HealthConnectSleepSessionExporter(
     writer: MethodChannelHealthConnectSleepSessionWriter(),
   );
+  final _appleSleep = HealthKitSleepSessionExporter(
+    writer: MethodChannelHealthKitSleepSessionWriter(),
+  );
   final HealthConnectHeartRateWriter _androidHeartRate;
   bool _configured = false;
 
@@ -260,30 +258,24 @@ class HealthExporter {
   String get _hrvScalarKey => isApple ? 'sdnn' : 'rmssd';
 
   List<HealthDataType> get _types => [
-        HealthDataType.RESTING_HEART_RATE,
-        _hrvType,
-        HealthDataType.RESPIRATORY_RATE,
-        HealthDataType.HEART_RATE,
-        HealthDataType.ACTIVE_ENERGY_BURNED,
-        HealthDataType.BASAL_ENERGY_BURNED,
-        // STEPS is requested for DELETE SCOPE ONLY — nothing writes steps any
-        // more (see the block further down for why). We still need the write
-        // permission to purge the fabricated step samples earlier versions put
-        // into Apple Health / Health Connect, which is why WRITE_STEPS stays in
-        // the Android manifest. That purge is a ONE-SHOT migration and does not
-        // belong in the per-day rewrite loop — see [_purgeLegacyStepsIfNeeded]
-        // and [_rewriteTypes].
-        HealthDataType.STEPS,
-        HealthDataType.SLEEP_DEEP,
-        HealthDataType.SLEEP_REM,
-        HealthDataType.SLEEP_LIGHT,
-        HealthDataType.SLEEP_AWAKE,
-        // The envelope, in whichever form the platform actually has. Asking
-        // for the other one sends a type name that store has never heard of
-        // (SLEEP_SESSION is Health-Connect-only, SLEEP_IN_BED HealthKit-only).
-        isApple ? HealthDataType.SLEEP_IN_BED : HealthDataType.SLEEP_SESSION,
-        HealthDataType.WORKOUT,
-      ];
+    HealthDataType.RESTING_HEART_RATE,
+    _hrvType,
+    HealthDataType.RESPIRATORY_RATE,
+    HealthDataType.HEART_RATE,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    HealthDataType.BASAL_ENERGY_BURNED,
+    // STEPS is requested for DELETE SCOPE ONLY — nothing writes steps any
+    // more (see the block further down for why). We still need the write
+    // permission to purge the fabricated step samples earlier versions put
+    // into Apple Health / Health Connect, which is why WRITE_STEPS stays in
+    // the Android manifest. That purge is a ONE-SHOT migration and does not
+    // belong in the per-day rewrite loop — see [_purgeLegacyStepsIfNeeded]
+    // and [_rewriteTypes].
+    HealthDataType.STEPS,
+    for (final t in _sleepHealthTypes)
+      if (t != _foreignSleepEnvelope(isApple)) t,
+    HealthDataType.WORKOUT,
+  ];
 
   /// The types the per-day delete-then-write pass touches.
   ///
@@ -293,9 +285,9 @@ class HealthExporter {
   /// finalized) tail, forever, and would let that delete's failure flip a day's
   /// export to unsuccessful.
   /// Composes both intents on this seam:
-  ///   * `healthDeleteTypes` (platform-aware) drops the sleep types and
-  ///     HEART_RATE on Android, because the native SleepSessionRecord writer
-  ///     and the minute-HR batch own their own cleanup there.
+  ///   * `healthDeleteTypes` (platform-aware) drops sleep on both stores and
+  ///     HEART_RATE on Android, because the native sleep replace writers and
+  ///     the minute-HR batch own their own cleanup there.
   ///   * STEPS is then removed on top, because NOTHING writes steps any more.
   ///     Deleting a type we never write would run on every re-export of the
   ///     not-yet-finalized tail forever, and — since a false `delete()` flips
@@ -303,9 +295,9 @@ class HealthExporter {
   ///     historical fabricated samples are handled once by
   ///     [_purgeLegacyStepsIfNeeded] instead, outside the success accounting.
   List<HealthDataType> get _rewriteTypes => [
-        for (final t in healthDeleteTypes(isApplePlatform: isApple))
-          if (t != HealthDataType.STEPS) t,
-      ];
+    for (final t in healthDeleteTypes(isApplePlatform: isApple))
+      if (t != HealthDataType.STEPS) t,
+  ];
 
   /// Cursor for the one-shot legacy-STEPS purge: the newest day already purged.
   static const _kStepsPurgeCursor = 'health_steps_purged_through';
@@ -493,6 +485,10 @@ class HealthExporter {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     try {
+      await ensureHealthSleepExportEpoch(
+        getCursor: LocalDb.getCursor,
+        setCursor: (name, value) => LocalDb.setCursor(name, value),
+      );
       if (reset) {
         await LocalDb.setCursor('health_export_through', '');
         await LocalDb.setCursor(_kRetryCursor, '');
@@ -739,9 +735,8 @@ class HealthExporter {
     // write on failure (best-effort, idempotent re-export corrects it later).
     var success = true;
 
-    // Sleep is the smallest, highest-value Android write. Do it before the
-    // high-volume minute-HR export can consume Health Connect's API quota.
-    // The native replace owns SleepSessionRecord cleanup on Android.
+    // Sleep is the smallest, highest-value write. Native replace owns cleanup
+    // on both stores (Health Connect SleepSessionRecord; HealthKit inBed+Core).
     if (Platform.isAndroid && !androidSleepAlreadyWritten) {
       try {
         if (!await _androidSleep.replace(b)) {
@@ -753,35 +748,35 @@ class HealthExporter {
         success = false;
       }
     }
+    if (isApple) {
+      try {
+        if (!await _appleSleep.replace(
+          bundle: b,
+          dayStart: dayStart,
+          dayEnd: dayEnd,
+        )) {
+          debugPrint('[health] write Apple sleep session returned false');
+          success = false;
+        }
+      } catch (e) {
+        debugPrint('[health] write Apple sleep session: $e');
+        success = false;
+      }
+    }
 
     // One-shot cleanup of the fabricated step samples earlier versions wrote.
     // Outside the success accounting on purpose — see the method doc.
     await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
 
-    // The night this day owns, normalized ONCE: stages clipped to the sleep
-    // window, sorted, de-overlapped. Shared by the delete window below and the
-    // Apple write further down so both cover exactly the same span. Android
-    // gets this from its native writer instead (see [_androidSleep] above).
-    final night = isApple ? normalizeHealthSleepSession(b) : null;
-
-    // Sleep deletes are night-scoped, everything else stays day-scoped —
-    // `HealthConnectSleepWriter.sleepCleanupRange` already does the equivalent
-    // on Android.
-    final sleepWindow = sleepCleanupWindow(
-      dayStart: dayStart,
-      dayEnd: dayEnd,
-      night: night,
-    );
-
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
+    // Sleep is not in this list — native replace already deleted it.
     for (final t in _rewriteTypes) {
-      final isSleep = _sleepHealthTypes.contains(t);
       try {
         final deleted = await _health.delete(
           type: t,
-          startTime: isSleep ? sleepWindow.start : dayStart,
-          endTime: isSleep ? sleepWindow.end : dayEnd,
+          startTime: dayStart,
+          endTime: dayEnd,
         );
         if (!deleted) {
           debugPrint('[health] delete ${t.name} returned false');
@@ -988,55 +983,12 @@ class HealthExporter {
     // The "estimate" qualifier every in-app surface carries is also lost the
     // moment a sample lands in Apple Health as a bare STEPS count, so a wrong
     // number here contaminates every other app on the device.
-
-    // Health Connect models stages as children of ONE SleepSessionRecord. The
-    // health 11.1.1 generic SLEEP_* writer instead creates one parent record
-    // per call, fragmenting a night. Android therefore uses our typed native
-    // replace API; Apple Health keeps its existing per-stage samples.
-    if (isApple && night != null) {
-      // THE ENVELOPE FIRST. Bare stage bars with nothing enclosing them is why
-      // readers (Bevel and friends) reconstruct a night as a short sleep plus a
-      // scatter of naps — HealthKit has no session record, so the wrapper is an
-      // `inBed` sleepAnalysis sample spanning the night.
-      //
-      // The span is the DETECTED sleep window, which is the same wall-clock
-      // number the app already reports as in-bed time (`in_bed_sec` is
-      // offset - onset). Nothing is invented: no window, no envelope, and a
-      // bundle without one writes no stages either — which is also why an
-      // unstaged night (an import, a night staging refused) contributes no
-      // fragments here.
-      try {
-        final wrote = await _health.writeHealthData(
-          value: 0,
-          type: HealthDataType.SLEEP_IN_BED,
-          startTime: night.start,
-          endTime: night.end,
-        );
-        if (!wrote) success = false;
-      } catch (e) {
-        debugPrint('[health] write sleep envelope: $e');
-        success = false;
-      }
-      // Stages come from the SAME normalization Android uses, so they are
-      // clipped to the sleep window instead of spilling past either end of it
-      // — which is what let a pre-midnight segment survive the day-scoped
-      // delete and pile up a fresh copy on every retry.
-      for (final seg in night.stages) {
-        final type = _sleepType(seg.stage);
-        try {
-          final wrote = await _health.writeHealthData(
-            value: 0,
-            type: type,
-            startTime: seg.start,
-            endTime: seg.end,
-          );
-          if (!wrote) success = false;
-        } catch (e) {
-          debugPrint('[health] write sleep ${type.name}: $e');
-          success = false;
-        }
-      }
-    }
+    //
+    // Sleep is written natively at the top of this method (Health Connect
+    // SleepSessionRecord on Android; HealthKit inBed + asleepCore/Deep/REM
+    // on Apple). The plugin per-stage writer is not used: on HealthKit it
+    // dropped Core, skipped in-bed, and left 11pm fragments outside the
+    // detected window (#225/#239/#249).
 
     // Workouts (manual/live/detected) finalized in this calendar day. Upper
     // bound is exclusive (dayEnd - 1s) for the same midnight-boundary reason
@@ -1142,19 +1094,6 @@ class HealthExporter {
     } catch (e) {
       debugPrint('[health] exportWorkout: $e');
       return false;
-    }
-  }
-
-  HealthDataType _sleepType(HealthSleepStage stage) {
-    switch (stage) {
-      case HealthSleepStage.deep:
-        return HealthDataType.SLEEP_DEEP;
-      case HealthSleepStage.rem:
-        return HealthDataType.SLEEP_REM;
-      case HealthSleepStage.light:
-        return HealthDataType.SLEEP_LIGHT;
-      case HealthSleepStage.awake:
-        return HealthDataType.SLEEP_AWAKE;
     }
   }
 

@@ -107,6 +107,10 @@ import CoreMotion
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
       HealthRouteBridge.register(messenger: registrar.messenger())
     }
+    // HealthKit sleep replace (inBed + Core/Deep/REM). See HealthKitSleepWriter.swift.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthKitSleepWriter") {
+      HealthKitSleepWriter.register(messenger: registrar.messenger())
+    }
     // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
       BackgroundTaskManager.wireChannel(messenger: registrar.messenger())

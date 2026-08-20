@@ -56,17 +56,13 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
   final rawStages = series is Map ? series['hypnogram'] : null;
   final candidates = <HealthSleepStageInterval>[];
   if (rawStages is List) {
-    for (final raw in rawStages) {
-      if (raw is! Map) continue;
-      final startSeconds = (raw['start'] as num?)?.toInt();
-      final endSeconds = (raw['end'] as num?)?.toInt();
-      final stage = healthSleepStageOf(raw['stage']?.toString());
-      if (startSeconds == null || endSeconds == null || stage == null) continue;
-
-      final rawStart = DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
-      final rawEnd = DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000);
-      final clippedStart = rawStart.isBefore(start) ? start : rawStart;
-      final clippedEnd = rawEnd.isAfter(end) ? end : rawEnd;
+    for (final interval in _hypnogramIntervals(rawStages)) {
+      final stage = healthSleepStageOf(interval.stage);
+      if (stage == null) continue;
+      final clippedStart = interval.start.isBefore(start)
+          ? start
+          : interval.start;
+      final clippedEnd = interval.end.isAfter(end) ? end : interval.end;
       if (!clippedStart.isBefore(clippedEnd)) continue;
       candidates.add(
         HealthSleepStageInterval(
@@ -83,41 +79,177 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
     return byStart != 0 ? byStart : a.end.compareTo(b.end);
   });
 
+  // Imported / unstaged nights have a window and no hypnogram. Do not invent
+  // a full-night "awake" session — Android treats that as a no-op so a CSV
+  // day cannot wipe Health Connect, and Apple writes only the in-bed bar.
+  if (candidates.isEmpty) {
+    return HealthSleepSession(start: start, end: end, stages: const []);
+  }
+
+  // Tile the in-bed envelope. Dropping unknown labels used to leave holes, so
+  // Health Time Asleep was only the REM/Deep slivers that survived — #225's
+  // ~2 h night, #239's missing Core. Fill remaining gaps as awake.
   final normalized = <HealthSleepStageInterval>[];
   var cursor = start;
+  void append(DateTime from, DateTime to, HealthSleepStage stage) {
+    if (!from.isBefore(to)) return;
+    if (normalized.isNotEmpty &&
+        normalized.last.stage == stage &&
+        !normalized.last.end.isBefore(from)) {
+      normalized[normalized.length - 1] = HealthSleepStageInterval(
+        start: normalized.last.start,
+        end: to.isAfter(normalized.last.end) ? to : normalized.last.end,
+        stage: stage,
+      );
+      return;
+    }
+    normalized.add(
+      HealthSleepStageInterval(start: from, end: to, stage: stage),
+    );
+  }
+
   for (final candidate in candidates) {
     final normalizedStart = candidate.start.isBefore(cursor)
         ? cursor
         : candidate.start;
+    if (cursor.isBefore(normalizedStart)) {
+      append(cursor, normalizedStart, HealthSleepStage.awake);
+    }
     if (!normalizedStart.isBefore(candidate.end)) continue;
-    normalized.add(
-      HealthSleepStageInterval(
-        start: normalizedStart,
-        end: candidate.end,
-        stage: candidate.stage,
-      ),
-    );
-    cursor = candidate.end;
+    append(normalizedStart, candidate.end, candidate.stage);
+    if (candidate.end.isAfter(cursor)) cursor = candidate.end;
+  }
+  if (cursor.isBefore(end)) {
+    append(cursor, end, HealthSleepStage.awake);
   }
 
   return HealthSleepSession(start: start, end: end, stages: normalized);
+}
+
+/// Epoch seconds or milliseconds → a wall instant. Older/imported hypnograms
+/// have mixed units; treating ms as seconds writes samples in the year 56000
+/// (or, after a failed write, leaves last night's fragments behind).
+DateTime healthInstantFromEpoch(num raw) {
+  final n = raw.toInt();
+  final ms = n.abs() >= 100000000000 ? n : n * 1000;
+  return DateTime.fromMillisecondsSinceEpoch(ms);
+}
+
+class _RawHypnoInterval {
+  const _RawHypnoInterval({
+    required this.start,
+    required this.end,
+    required this.stage,
+  });
+  final DateTime start;
+  final DateTime end;
+  final String stage;
+}
+
+/// Stored hypnograms are `{start,end,stage}` segments. The sleep screen also
+/// materializes `{t,stage}` points. Accept both so Health is not empty when
+/// a reader round-trips the UI shape into `series.hypnogram`.
+List<_RawHypnoInterval> _hypnogramIntervals(List<dynamic> rawStages) {
+  final segmented = <_RawHypnoInterval>[];
+  for (final raw in rawStages) {
+    if (raw is! Map) continue;
+    final stage = raw['stage']?.toString();
+    if (stage == null) continue;
+    final startRaw = raw['start'] as num?;
+    final endRaw = raw['end'] as num?;
+    if (startRaw != null && endRaw != null) {
+      final start = healthInstantFromEpoch(startRaw);
+      final end = healthInstantFromEpoch(endRaw);
+      if (start.isBefore(end)) {
+        segmented.add(_RawHypnoInterval(start: start, end: end, stage: stage));
+      }
+    }
+  }
+  if (segmented.isNotEmpty) return segmented;
+
+  final points = <({DateTime t, String stage})>[];
+  for (final raw in rawStages) {
+    if (raw is! Map) continue;
+    final t = raw['t'] as num?;
+    final stage = raw['stage']?.toString();
+    if (t == null || stage == null) continue;
+    points.add((t: healthInstantFromEpoch(t), stage: stage));
+  }
+  points.sort((a, b) => a.t.compareTo(b.t));
+  final out = <_RawHypnoInterval>[];
+  for (var i = 0; i + 1 < points.length; i++) {
+    final a = points[i];
+    final b = points[i + 1];
+    if (!a.t.isBefore(b.t)) continue;
+    out.add(_RawHypnoInterval(start: a.t, end: b.t, stage: a.stage));
+  }
+  return out;
 }
 
 HealthSleepStage? healthSleepStageOf(String? stage) {
   switch (stage) {
     case 'wake':
     case 'awake':
+    case 'unobserved':
       return HealthSleepStage.awake;
     case 'rem':
       return HealthSleepStage.rem;
     case 'light':
     case 'nrem':
+    case 'core':
       return HealthSleepStage.light;
     case 'deep':
       return HealthSleepStage.deep;
     default:
       return null;
   }
+}
+
+/// Noon-to-noon around the night's wake, matching Android
+/// `HealthConnectSleepWriter.sleepCleanupRange`.
+///
+/// A later derive that moves onset (23:00 → 01:06) leaves the previous
+/// HealthKit samples *outside* `[night.start, night.end)`. Deleting only the
+/// detected window is #225: Health keeps 11pm REM/Awake and a ~2 h remainder.
+({DateTime start, DateTime end}) sleepSessionCleanupRange(
+  HealthSleepSession night,
+) {
+  final localEnd = night.end;
+  final wakeMidnight = DateTime(localEnd.year, localEnd.month, localEnd.day);
+  final endDate = localEnd.hour < 12
+      ? wakeMidnight
+      : wakeMidnight.add(const Duration(days: 1));
+  final cleanupEnd = DateTime(endDate.year, endDate.month, endDate.day, 12);
+  final prevDate = DateTime(endDate.year, endDate.month, endDate.day - 1);
+  final calculatedStart = DateTime(
+    prevDate.year,
+    prevDate.month,
+    prevDate.day,
+    12,
+  );
+  return (
+    start: night.start.isBefore(calculatedStart)
+        ? night.start
+        : calculatedStart,
+    end: cleanupEnd,
+  );
+}
+
+/// The span a day's SLEEP-type delete has to cover.
+///
+/// Union of the calendar day and [sleepSessionCleanupRange], so pre-midnight
+/// leftovers and the exported date's own samples both go. No night → day only.
+({DateTime start, DateTime end}) sleepCleanupWindow({
+  required DateTime dayStart,
+  required DateTime dayEnd,
+  HealthSleepSession? night,
+}) {
+  if (night == null) return (start: dayStart, end: dayEnd);
+  final session = sleepSessionCleanupRange(night);
+  return (
+    start: session.start.isBefore(dayStart) ? session.start : dayStart,
+    end: session.end.isAfter(dayEnd) ? session.end : dayEnd,
+  );
 }
 
 abstract interface class HealthConnectSleepSessionWriter {
@@ -182,5 +314,78 @@ class HealthConnectSleepSessionExporter {
     // verified on a device.
     if (session.stages.isEmpty) return true;
     return writer.replace(session);
+  }
+}
+
+abstract interface class HealthKitSleepSessionWriter {
+  Future<bool> replace({
+    required DateTime cleanupStart,
+    required DateTime cleanupEnd,
+    HealthSleepSession? session,
+  });
+}
+
+class MethodChannelHealthKitSleepSessionWriter
+    implements HealthKitSleepSessionWriter {
+  MethodChannelHealthKitSleepSessionWriter({
+    this.channel = const MethodChannel('openstrap/healthkit_sleep'),
+  });
+
+  final MethodChannel channel;
+  Future<void> _pending = Future<void>.value();
+
+  @override
+  Future<bool> replace({
+    required DateTime cleanupStart,
+    required DateTime cleanupEnd,
+    HealthSleepSession? session,
+  }) {
+    final result = Completer<bool>();
+    _pending = _pending.then((_) async {
+      try {
+        final args = <String, Object>{
+          'cleanupStartTime': cleanupStart.millisecondsSinceEpoch,
+          'cleanupEndTime': cleanupEnd.millisecondsSinceEpoch,
+          if (session != null) ...session.toMap(),
+        };
+        result.complete(
+          await channel.invokeMethod<bool>('replaceSleepSession', args) == true,
+        );
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+}
+
+/// HealthKit has no SleepSessionRecord. One native replace writes `inBed` plus
+/// stages (`asleepCore` for light) and deletes *our* overlapping samples in the
+/// noon-to-noon window Dart already computed.
+///
+/// The Flutter `health` plugin is not used on this path: unknown keys (notably
+/// SLEEP_SESSION) map to bodyMass and hang `delete()`, and SLEEP_LIGHT / inBed
+/// writes have been failing on recent iOS as Core-less ~2 h nights (#239/#225).
+class HealthKitSleepSessionExporter {
+  const HealthKitSleepSessionExporter({required this.writer});
+
+  final HealthKitSleepSessionWriter writer;
+
+  Future<bool> replace({
+    required Map<String, dynamic> bundle,
+    required DateTime dayStart,
+    required DateTime dayEnd,
+  }) {
+    final session = normalizeHealthSleepSession(bundle);
+    final window = sleepCleanupWindow(
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+      night: session,
+    );
+    return writer.replace(
+      cleanupStart: window.start,
+      cleanupEnd: window.end,
+      session: session,
+    );
   }
 }

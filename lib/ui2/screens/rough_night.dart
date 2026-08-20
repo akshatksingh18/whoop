@@ -200,15 +200,23 @@ class RoughNight {
 /// is not among them: [day] is passed in because the caller already knows which
 /// night it is looking at.
 Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
+  // MEASURED ONLY. This is a detection, not a chart: the night is called
+  // rough by comparing it against the spread of the days behind it, and a
+  // day another vendor's algorithm derived is not the same measurement.
+  // A picture may splice two algorithms; a statistic may not.
+  //
+  // Read ONCE for all four series rather than passing `measuredOnly: true`
+  // four times: that flag inlines the mask as a subquery whose expensive half
+  // is a LIKE over whole `day_result` bundles, so four series meant four full
+  // scans of the user's history for one answer (see LocalDb.importedDates).
+  final imported = await LocalDb.importedDates();
   final series = <String, Map<String, double>>{};
   for (final key in const [_kRhr, _kRmssd, _kDip, _kTempZ]) {
     series[key] = {
-      // MEASURED ONLY. This is a detection, not a chart: the night is called
-      // rough by comparing it against the spread of the days behind it, and a
-      // day another vendor's algorithm derived is not the same measurement.
-      // A picture may splice two algorithms; a statistic may not.
-      for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
-        if (r['date'] is String && r['value'] is num)
+      for (final r in await LocalDb.metricSeries(key))
+        if (r['date'] is String &&
+            r['value'] is num &&
+            !imported.contains(r['date']))
           r['date'] as String: (r['value'] as num).toDouble(),
     };
   }

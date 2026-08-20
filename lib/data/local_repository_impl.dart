@@ -3160,19 +3160,28 @@ class LocalRepositoryImpl extends LocalRepository {
       },
     ];
 
+    // MEASURED DAYS ONLY. This is a comparison of the user against
+    // themselves; an imported day is another vendor's derived score on a
+    // different scale, and it lands in the window mean every tagged day is
+    // priced against (see LocalDb.importedDates). The chart underneath still
+    // shows those days — a picture may be spliced, a statistic may not.
+    //
+    // TAKEN ONCE AND FILTERED IN DART, which is what the mask is a Set for.
+    // `measuredOnly: true` inlines it as a subquery, and the half of it that
+    // matters is a LIKE over `day_result.payload_json` — whole day bundles,
+    // tens of kilobytes each, re-scanned per series. Four outcomes made that
+    // four full passes over the user's entire history to build four maps off
+    // one answer that cannot change between them.
+    final imported = await LocalDb.importedDates();
     // date → value maps for each outcome.
     final maps = <String, Map<String, double>>{};
     for (final od in outcomeDefs) {
       final key = od['key'] as String;
       final m = <String, double>{};
-      // MEASURED DAYS ONLY. This is a comparison of the user against
-      // themselves; an imported day is another vendor's derived score on a
-      // different scale, and it lands in the window mean every tagged day is
-      // priced against (see LocalDb.importedDates). The chart underneath still
-      // shows those days — a picture may be spliced, a statistic may not.
-      for (final r in await LocalDb.metricSeries(key, measuredOnly: true)) {
+      for (final r in await LocalDb.metricSeries(key)) {
+        final d = r['date'];
         final v = (r['value'] as num?)?.toDouble();
-        if (v != null) m[r['date'] as String] = v;
+        if (v != null && d is String && !imported.contains(d)) m[d] = v;
       }
       maps[key] = m;
     }

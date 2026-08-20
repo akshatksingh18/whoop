@@ -6122,12 +6122,22 @@ class LocalDb {
   /// single NULL inside a `NOT IN (…)` list makes the whole predicate NULL for
   /// EVERY row — one stray row would silently empty every baseline in the app
   /// rather than filter one day out of it.
+  /// THE SERVED VERSION ONLY on the `day_result` half, for the same reason
+  /// every other reader uses [_servedDayJoin]: `PRIMARY KEY (day_id,
+  /// algo_version)` makes versions siblings, so an imported day that the band
+  /// LATER re-derived keeps its old imported row sitting beside the new
+  /// measured one. Testing every row made that day imported FOREVER — masked
+  /// out of the baselines it is now entitled to be in, with no way back
+  /// short of deleting the superseded row. `metric_series_version` needs no
+  /// such guard: it is `PRIMARY KEY (date)` and the last writer replaces it,
+  /// which is exactly why the stamp exists.
   static const String _importedDatesSql =
       'SELECT date FROM metric_series_version '
       "WHERE date IS NOT NULL AND source IS NOT NULL AND source <> 'band' "
       'UNION '
-      'SELECT day_id FROM day_result '
-      "WHERE day_id IS NOT NULL AND payload_json LIKE '%\"imported\":true%'";
+      'SELECT r.day_id FROM day_result r '
+      '$_servedDayJoin '
+      "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
 
   /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
   ///

@@ -20,7 +20,28 @@ const String kRouteWater = '/water';
 /// pushes a focused review of the detected activity (log or adjust) — the plain
 /// `/workouts` route only selected the tab, leaving the suggestion buried in the
 /// history list (issue #113).
+///
+/// Carries the bout it is about as `?id=<workout_suggestions.id>` — see
+/// [workoutSuggestionRoute]. The bare path still resolves (older payloads, and
+/// anything that just wants the review screen).
 const String kRouteWorkoutSuggestion = '/workouts/suggestion';
+
+/// The deep link for ONE detected bout. The id is the `workout_suggestions`
+/// row's, so the screen can open on that bout rather than a list the user has
+/// to find it in.
+String workoutSuggestionRoute(String id) =>
+    Uri(path: kRouteWorkoutSuggestion, queryParameters: {'id': id}).toString();
+
+/// A deep link's path, without the `?id=` a route may carry.
+///
+/// EVERY route comparison goes through this. The tables below, `classOf`,
+/// `shouldFireOs`'s auto-detect switch and app.dart's two switches all match on
+/// route EQUALITY, so an id-carrying payload silently misses all of them —
+/// which for the gate means the off switch stops working.
+String routePath(String route) => Uri.tryParse(route)?.path ?? route;
+
+/// The bout/record id a deep link carries, or null when it carries none.
+String? routeId(String route) => Uri.tryParse(route)?.queryParameters['id'];
 
 /// The medication reminder. Lands on Wellness, where the Medication tab's
 /// checklist is the thing that records the dose.
@@ -92,9 +113,12 @@ const Map<String, int> _screenRoutes = {
 };
 
 TapTarget resolveTapRoute(String route) {
-  final tab = _tabRoutes[route];
+  // Match on the PATH; hand the full route (id and all) back as the screen
+  // request, so whatever the shell pushes still knows which bout it is about.
+  final path = routePath(route);
+  final tab = _tabRoutes[path];
   if (tab != null) return TapTarget(tab);
-  final base = _screenRoutes[route];
+  final base = _screenRoutes[path];
   if (base != null) return TapTarget(base, route);
   return const TapTarget(0); // unknown payload from an older build → Today
 }

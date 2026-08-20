@@ -71,6 +71,32 @@ void main() {
       expect(find.text('—'), findsNothing);
     });
 
+    test('the deep link narrows to its own bout, and falls back honestly', () {
+      final all = [_sug(), _sug(id: 'b')];
+      // No id (opened from the Workouts tab) — review everything.
+      expect(focusSuggestions(all, null), all);
+      // The notification named 'b': that is the one it promised.
+      expect(focusSuggestions(all, 'b').single.id, 'b');
+      // Logged or dismissed between the buzz and the tap. The others are still
+      // waiting, so they are shown — an empty screen would claim this one was
+      // handled when what happened is that a DIFFERENT one was.
+      expect(focusSuggestions(all, 'gone'), all);
+    });
+
+    testWidgets('opened from the notification, only that bout is on screen',
+        (t) async {
+      await _pump(
+        t,
+        WorkoutSuggestionScreen(
+          preloaded: [_sug(), _sug(id: 'b', avg: 96, peak: 110)],
+          focusId: 'b',
+        ),
+      );
+      expect(find.text('Log it'), findsOneWidget); // one card, not two
+      expect(find.textContaining('110'), findsOneWidget);
+      expect(find.textContaining('171'), findsNothing);
+    });
+
     testWidgets('nothing overflows at 2x text', (t) async {
       t.view.physicalSize = const Size(390 * 3, 3000 * 3);
       t.view.devicePixelRatio = 3;

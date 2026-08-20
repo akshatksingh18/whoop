@@ -226,7 +226,10 @@ class NotificationPrefs {
     // gate the user set for THIS notification, and route is what identifies it
     // (the category it is emitted on is shared with everything else on the
     // recovery channel).
-    if (!autoDetectEnabled && event.route == kRouteWorkoutSuggestion) {
+    // (On the PATH: the payload carries the bout as `?id=…`, and an equality
+    // check against the bare route would miss every real one.)
+    if (!autoDetectEnabled &&
+        routePath(event.route ?? '') == kRouteWorkoutSuggestion) {
       return false;
     }
     final klass = classOf(event);

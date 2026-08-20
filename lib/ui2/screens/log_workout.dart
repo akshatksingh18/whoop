@@ -84,16 +84,37 @@ class Suggestion {
   }
 }
 
+/// [all] narrowed to the one bout the notification named, or [all] unchanged
+/// when it named none — or named one that is no longer waiting, because it was
+/// logged or dismissed between the buzz and the tap. The remaining bouts are
+/// still real, so they are shown rather than an empty screen.
+List<Suggestion> focusSuggestions(List<Suggestion> all, String? focusId) {
+  if (focusId == null) return all;
+  final one = [for (final s in all) if (s.id == focusId) s];
+  return one.isEmpty ? all : one;
+}
+
 // ══════════════════ THE REVIEW SCREEN ══════════════════
 
 /// Where "Did you work out?" lands. Every active bout, each with the two
 /// answers that are honest — it happened, or it didn't — and the third that
 /// matters more than either: the window is wrong.
 class WorkoutSuggestionScreen extends StatefulWidget {
-  const WorkoutSuggestionScreen({super.key, this.preloaded});
+  const WorkoutSuggestionScreen({super.key, this.preloaded, this.focusId});
 
   /// Injected in tests and goldens. Null means read the table.
   final List<Suggestion>? preloaded;
+
+  /// The one bout the notification was about (`workout_suggestions.id`), from
+  /// the deep link's `?id=`. Null when the screen is opened from the Workouts
+  /// tab, which reviews everything.
+  ///
+  /// A notification that says "we spotted ~40 min" and opens a list of four is
+  /// the same broken promise as landing on the plain tab was. If the id is no
+  /// longer active — logged or dismissed between the buzz and the tap — the
+  /// rest of the list is shown rather than an empty screen, because those are
+  /// still real and still waiting.
+  final String? focusId;
 
   @override
   State<WorkoutSuggestionScreen> createState() =>
@@ -113,7 +134,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   void initState() {
     super.initState();
     if (widget.preloaded != null) {
-      _items = widget.preloaded;
+      _items = focusSuggestions(widget.preloaded!, widget.focusId);
     } else {
       _load();
     }
@@ -133,7 +154,8 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     try {
       final rows = await LocalDb.activeWorkoutSuggestions();
       if (!mounted) return;
-      setState(() => _items = [for (final r in rows) ?Suggestion.from(r)]);
+      final all = [for (final r in rows) ?Suggestion.from(r)];
+      setState(() => _items = focusSuggestions(all, widget.focusId));
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }

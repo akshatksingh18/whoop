@@ -72,6 +72,21 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   /// of it and forget the other.
   bool stillNewest(Object key, int token) => mounted && _reads[key] == token;
 
+  /// Whether [key] has ever been read — the honest test for "this resource is
+  /// live", which "its cached value is non-null" only approximates.
+  ///
+  /// A [reload] that re-reads on the cache being non-null skips the sub-tab
+  /// whose FIRST read is still in flight: its cache is null, so no newer token
+  /// is issued for that key, so the pre-revision read passes [stillNewest] and
+  /// commits data older than the revision — the exact race the token exists to
+  /// stop, in the window where it matters most, the first load after an
+  /// import. Re-issuing is also what un-sticks it: dropping the old read
+  /// without starting a new one would leave the tab spinning forever.
+  ///
+  /// Still lazy: a sub-tab the user has never opened never called [beginRead],
+  /// so it is not re-read here either.
+  bool hasRead(Object key) => _reads.containsKey(key);
+
   /// False for a screen that was handed its data (a golden, the gallery, a
   /// preview): there is nothing behind it to re-read.
   bool get revisionReloads => true;

@@ -9,6 +9,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:openstrap_edge/notify/notification_relay.dart';
 import 'package:openstrap_edge/ui2/profile/band_notifications.dart';
@@ -113,6 +114,40 @@ void main() {
         scale: 2,
       );
       expect(t.takeException(), isNull);
+    });
+  });
+
+  // The picker draws one row per SEEN package, so what falls out of that list
+  // is what the user can no longer reach.
+  group('the seen list', () {
+    test('an armed app is never evicted out of the picker', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      final relay =
+          NotificationRelay(buzz: () async {}, isConnected: () => false);
+      relay.packages.add('com.armed');
+      relay.noteSeen('com.armed', null);
+      // A week of a chatty phone on top of it. The armed one is now the
+      // OLDEST, which is exactly the entry the old cap threw away — leaving an
+      // app that still buzzes the strap with no row to turn it off from.
+      for (var i = 0; i < NotificationRelay.maxSeen + 20; i++) {
+        relay.noteSeen('com.chatty.$i', null);
+      }
+      expect(relay.seenPackages, contains('com.armed'));
+      // And the cap still holds — an unarmed neighbour went instead.
+      expect(relay.seenPackages.length, NotificationRelay.maxSeen);
+    });
+
+    test('unarmed apps are still capped', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      final relay =
+          NotificationRelay(buzz: () async {}, isConnected: () => false);
+      for (var i = 0; i < NotificationRelay.maxSeen + 20; i++) {
+        relay.noteSeen('com.chatty.$i', null);
+      }
+      expect(relay.seenPackages.length, NotificationRelay.maxSeen);
+      expect(relay.seenPackages.first, 'com.chatty.79');
     });
   });
 

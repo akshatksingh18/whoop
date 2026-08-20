@@ -604,6 +604,17 @@ void main() {
       expect(await isNoopExport(path), isFalse);
     });
 
+    test('a file exactly as long as the read window keeps its last record',
+        () async {
+      // A full buffer used to MEAN truncated, so a file whose length is exactly
+      // the window — and whose final record has no trailing newline — had that
+      // record thrown away and went to the vendor importer.
+      final body = '${'# pad\n' * 678}unix_s,iso_utc,stream,hr_bpm';
+      expect(body.length, 4096);
+      final path = await write('export.csv', utf8.encode(body));
+      expect(await isNoopExport(path), isTrue);
+    });
+
     test('a header past the read ceiling is not guessed at', () async {
       // 4 KB of comments, then the header. Bounded read means bounded answer:
       // it declines rather than materialising the file to be sure.

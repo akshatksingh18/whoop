@@ -84,7 +84,18 @@ const kOffConsentKey = 'nutrition.barcode_lookup';
 bool get offLookupAllowed =>
     Prefs.loaded && Prefs.getBool(kOffConsentKey, true);
 
-void setOffLookupAllowed(bool on) => Prefs.setBool(kOffConsentKey, on);
+/// Record the choice, and say whether it was actually RECORDED.
+///
+/// The one write in this app that is not fire-and-forget. SharedPreferences
+/// updates its cache optimistically and never rolls it back, so a revocation
+/// whose disk write fails reads as off for the rest of the session and is
+/// silently back ON at the next launch — the app sending a barcode for
+/// somebody who turned it off, which is the single thing a revocable consent
+/// must never do. In-session it is already fail-closed (the cache is off, so
+/// nothing goes out); what the caller has to do with a `false` here is TELL
+/// the person, because it will not survive a restart.
+Future<bool> setOffLookupAllowed(bool on) =>
+    Prefs.setBoolAcked(kOffConsentKey, on);
 
 // ══════════════════ RESULT ══════════════════
 

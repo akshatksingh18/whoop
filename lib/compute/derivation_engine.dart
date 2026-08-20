@@ -40,7 +40,7 @@ import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
-import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
+import '../notify/tap_router.dart' show workoutSuggestionRoute;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
@@ -3488,21 +3488,39 @@ class DerivationEngine {
         });
       }
       final nb = blocks.notifBout;
-      if (nb != null) {
+      // Only for a bout that is STILL waiting on an answer. The detector is
+      // pure and re-derives the same bouts every pass; dismissing one, logging
+      // it, or logging any session that covers its window retires the row
+      // (`supersededSuggestionIds`), and none of that reaches the detector. So
+      // the live table is what decides, not the detection — a notification
+      // about a workout already in the log is how someone turns all of them
+      // off. `putWorkoutSuggestion` ran a few lines up, so the row is there.
+      final live = nb == null
+          ? false
+          : (await LocalDb.activeWorkoutSuggestions())
+              .any((r) => r['id'] == nb.id);
+      if (nb != null && live) {
         await NotificationCenter.instance.emit(
           NotificationEvent(
             // Per-bout, not per-day — a per-day key silently swallowed the
             // notification for a second real workout later the same day
-            // (fire-once-per-key by design). endSec is stable across re-derive
-            // passes re-detecting the SAME bout, so that case still dedupes.
-            dedupeKey: '${day.date}:auto_workout:${nb.endSec}',
-            category: NotifCategory.recovery,
+            // (fire-once-per-key by design). The suggestion id is stable across
+            // re-derive passes re-detecting the SAME bout, so that case still
+            // dedupes, and it is date-prefixed so the fired-key store prunes it.
+            dedupeKey: '${nb.id}:auto_workout',
+            // NOT `recovery`. That channel is where "your recovery is ready"
+            // lived and `classOf` drops everything on it, so this notification
+            // has never once reached anybody: the suggestion row was written,
+            // the user was never told. This is a prompt about something that
+            // happened — reminders channel, NotifClass.prompt, and it respects
+            // quiet hours like every prompt should.
+            category: NotifCategory.reminders,
             priority: NotifPriority.normal,
             title: 'Did you work out?',
             body: 'We spotted ~${nb.durationMin} min of elevated activity. '
                 'Tap to log it.',
             date: day.date,
-            route: kRouteWorkoutSuggestion,
+            route: workoutSuggestionRoute(nb.id),
           ),
           // This runs from headless background derivation too — never prompt
           // for permission from a background context (violates the OS
@@ -6934,11 +6952,15 @@ class DerivationEngine {
       // don't resurface 90 days of prompts.
       final recent = (dataNowSec - dayEndSec) < 36 * 3600;
       final toPersist = <Map<String, dynamic>>[];
-      ({int endSec, int durationMin})? notif;
+      ({String id, int durationMin})? notif;
+      // ONE definition of the row id. The notification checks the table by it
+      // and opens the screen on it, so a second copy of the format here would
+      // drift into a prompt that silently never fires again.
+      String sugId(int startSec) => '$date:$startSec';
       if (recent && bouts.isNotEmpty) {
         for (final b in bouts) {
           toPersist.add({
-            'id': '$date:${b.startSec}',
+            'id': sugId(b.startSec),
             'date': date,
             'start_ts': b.startSec,
             'end_ts': b.endSec,
@@ -6956,7 +6978,10 @@ class DerivationEngine {
         // above so they surface in the Workouts screen; we just don't ping for them.
         final newest = bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
         if ((dataNowSec - newest.endSec) < 2 * 3600) {
-          notif = (endSec: newest.endSec, durationMin: newest.durationMin);
+          notif = (
+            id: sugId(newest.startSec),
+            durationMin: newest.durationMin,
+          );
         }
       }
       return _WorkoutCompute(
@@ -7459,7 +7484,7 @@ class _DayBlocksOutput {
   final Map<String, dynamic> wake;
   final List<Map<String, dynamic>> suggestionsToPersist;
   final List<(String, double)> sessionHrrWrites;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _DayBlocksOutput({
     required this.bundlePatch,
     required this.seriesPatch,
@@ -7478,7 +7503,7 @@ class _WorkoutCompute {
   final double? hrrTauS;
   final List<(String, double)> sessionHrrWrites;
   final List<Map<String, dynamic>> suggestionsToPersist;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _WorkoutCompute({
     required this.boutJson,
     required this.hrrBpm,

@@ -11,7 +11,7 @@
 //
 // Whether an emitted event fires an OS notification is decided by
 // NotificationPrefs:
-//   • it must be one of the three sanctioned NotifClasses (see classOf), AND
+//   • it must be one of the four sanctioned NotifClasses (see classOf), AND
 //   • its category must be enabled, AND
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.

@@ -158,7 +158,11 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     if (!offLookupAllowed) {
       final agreed = await _askLookupConsent(context);
       if (agreed != true || !mounted) return;
-      setOffLookupAllowed(true);
+      // Awaited so the consent is on disk before the camera opens. A write
+      // that fails only means being asked again next launch — the direction
+      // that cannot hurt anyone.
+      await setOffLookupAllowed(true);
+      if (!mounted) return;
     }
     final code = await scanBarcode(context);
     if (code == null || !mounted) return;

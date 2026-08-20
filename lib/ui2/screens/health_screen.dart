@@ -456,15 +456,20 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   /// that was invisible here until the app was relaunched. The already-loaded
   /// sub-tabs are re-read too — they cache on `!= null`, which is the same
   /// load-once bug one level down.
+  ///
+  /// EVERY SUB-TAB THAT HAS EVER READ, not every sub-tab that holds data. This
+  /// gated on `!= null` and so skipped the one case that matters most — a
+  /// sub-tab whose first read is still in flight when the revision lands, which
+  /// is the ordinary state of the first load after an import. See [hasRead].
   @override
   void reload() {
     _load();
-    if (_v != null) _loadVitals(force: true);
-    if (_l != null) {
+    if (hasRead(#vitals)) _loadVitals(force: true);
+    if (hasRead(#labs)) {
       _l = null;
       _loadLabs();
     }
-    if (_e != null) {
+    if (hasRead(#explore)) {
       _e = null;
       _loadExplore();
     }
@@ -1282,12 +1287,21 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       ..sort((a, b) => (byKey[a['marker']]?.label ?? '')
           .compareTo(byKey[b['marker']]?.label ?? ''));
     final lastDraw = l.results.isEmpty ? null : l.results.first['taken_on'];
+    // Markers the user named themselves — the only ones whose DEFINITION is
+    // theirs to remove. A catalogue marker is the app's and stays.
+    final mine = l.markers.where((m) => m.custom).toList();
+    final counts = <String, int>{};
+    for (final r in l.results) {
+      final k = r['marker'].toString();
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (rows.isEmpty)
-        const StatusCard(
-          'No lab results yet',
-          'Nothing logged yet.',
+        StatusCard(
+          'No lab results',
+          'Nothing logged. Anything you add here stays on this device, and '
+              'anything you remove is gone from it.',
           icon: LucideIcons.testTube,
         )
       else ...[
@@ -1296,7 +1310,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           child: Column(children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) Divider(color: p.line, height: 1),
-              _lab(p, byKey[rows[i]['marker'].toString()], rows[i], sex),
+              _lab(p, byKey[rows[i]['marker'].toString()], rows[i], sex,
+                  () => _removeResult(byKey[rows[i]['marker'].toString()],
+                      rows[i], l)),
             ],
           ]),
         ),
@@ -1304,6 +1320,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         Text('Last panel ${lastDraw ?? ''} · logged by hand',
             style: F.over.copyWith(color: p.ink3)),
       ],
+      if (mine.isNotEmpty) _myMarkers(p, mine, counts),
       const SizedBox(height: S.x4),
       BigButton('Add a result',
           icon: LucideIcons.plus,
@@ -1319,52 +1336,175 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ]);
   }
 
-  Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex) {
+  Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
+      VoidCallback onRemove) {
     final v = (r['value'] as num?)?.toDouble();
     final unit = (r['unit'] ?? m?.unit ?? '').toString();
     final range = m?.rangeFor(sex);
     final inRange = v == null || m == null ? null : m.inRange(v, sex: sex);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            // No interval means NO OPINION — a grey dot, never a green one.
-            color: inRange == null
-                ? p.ink3
-                : (inRange ? p.on(C.green) : p.on(C.orange)),
-            shape: BoxShape.circle,
+    // The whole row is the control, with the bin as its affordance — the same
+    // shape a logged meal takes, and it costs no width, which at 3x text is
+    // the difference between a row that fits and one that overflows.
+    return Pressable(
+      onTap: onRemove,
+      semanticLabel:
+          'Remove ${m?.label ?? r['marker']} from ${r['taken_on']}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              // No interval means NO OPINION — a grey dot, never a green one.
+              color: inRange == null
+                  ? p.ink3
+                  : (inRange ? p.on(C.green) : p.on(C.orange)),
+              shape: BoxShape.circle,
+            ),
           ),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(m?.label ?? r['marker'].toString(),
-                style: F.body.copyWith(color: p.ink)),
-            Text(
-                range == null
-                    ? 'No reference interval · ${r['taken_on']}'
-                    : 'Typical ${_num(range.low)}–${_num(range.high)} · '
-                        '${r['taken_on']}',
-                style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(m?.label ?? r['marker'].toString(),
+                  style: F.body.copyWith(color: p.ink)),
+              Text(
+                  range == null
+                      ? 'No reference interval · ${r['taken_on']}'
+                      : 'Typical ${_num(range.low)}–${_num(range.high)} · '
+                          '${r['taken_on']}',
+                  style: F.over.copyWith(color: p.ink3)),
+            ]),
+          ),
+          const SizedBox(width: S.x2),
+          Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(v == null ? '' : (m?.format(v) ?? v.toString()),
+                    style: F.n17.copyWith(
+                        color: inRange == false ? p.on(C.orange) : p.ink)),
+                const SizedBox(width: 3),
+                Text(unit, style: F.over.copyWith(color: p.ink3)),
+              ]),
+          // This is the user's own blood work in an app that keeps it on their
+          // phone; being able to take it back out is the premise, not a setting.
+          const SizedBox(width: S.x2),
+          Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+        ]),
+      ),
+    );
+  }
+
+  /// One reading of one marker on one date. Named in full before it goes:
+  /// there is no undo here, and a generic "are you sure?" over a column of
+  /// blood results is how the wrong one is lost.
+  Future<void> _removeResult(
+      LabMarker? m, Map<String, dynamic> r, LabsData l) async {
+    final marker = r['marker'].toString();
+    final takenOn = r['taken_on'].toString();
+    final label = m?.label ?? marker;
+    final v = (r['value'] as num).toDouble();
+    final unit = (r['unit'] ?? m?.unit ?? '').toString();
+    // The row on screen is the NEWEST draw of its marker, so an earlier one
+    // takes its place rather than the marker disappearing — which without
+    // being told reads as the delete having failed.
+    final older = l.results.firstWhere(
+      (o) => o['marker'] == marker && o['taken_on'] != takenOn,
+      orElse: () => const <String, dynamic>{},
+    )['taken_on'];
+
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove $label from $takenOn?',
+      body: 'The ${m?.format(v) ?? _num(v)} $unit you logged for that draw. '
+          'It leaves this device and there is no undo.'
+          '${older == null ? '' : ' Your $older draw stays, and shows here instead.'}',
+    );
+    if (!ok || !mounted) return;
+    await LocalDb.deleteLabResult(marker, takenOn);
+    _l = null;
+    await _loadLabs();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(older == null
+          ? 'Removed $label from $takenOn. No $label results left.'
+          : 'Removed $label from $takenOn. Showing your $older draw now.'),
+    ));
+  }
+
+  /// Markers the user named. Only the DEFINITION is theirs to remove here —
+  /// see [_removeMarker] for why one holding results is refused.
+  Widget _myMarkers(P p, List<LabMarker> mine, Map<String, int> counts) =>
+      Section(
+        'Markers you named',
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(children: [
+            for (var i = 0; i < mine.length; i++) ...[
+              if (i > 0) Divider(color: p.line, height: 1),
+              Pressable(
+                semanticLabel: 'Remove the ${mine[i].label} marker',
+                onTap: () => _removeMarker(mine[i], counts[mine[i].key] ?? 0),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: S.x3),
+                  child: Row(children: [
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(mine[i].label,
+                                style: F.body.copyWith(color: p.ink)),
+                            Text(
+                                switch (counts[mine[i].key] ?? 0) {
+                                  0 => 'Nothing logged under it',
+                                  1 => '1 result · ${mine[i].unit}',
+                                  final n => '$n results · ${mine[i].unit}',
+                                },
+                                style: F.over.copyWith(color: p.ink3)),
+                          ]),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+                  ]),
+                ),
+              ),
+            ],
           ]),
         ),
-        const SizedBox(width: S.x2),
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(v == null ? '' : (m?.format(v) ?? v.toString()),
-                  style: F.n17.copyWith(
-                      color: inRange == false ? p.on(C.orange) : p.ink)),
-              const SizedBox(width: 3),
-              Text(unit, style: F.over.copyWith(color: p.ink3)),
-            ]),
-      ]),
+      );
+
+  /// Removing a marker DEFINITION, which is not the same act as removing its
+  /// readings — `deleteLabMarkerDef` deliberately leaves those alone, because
+  /// they were real draws and each row carries its own unit.
+  ///
+  /// But this screen labels a result THROUGH its marker, so a definition
+  /// deleted out from under one leaves the reading rendering as its raw
+  /// storage key with no interval. Both ways out of that are worse than this
+  /// one: deleting the readings too destroys blood work nobody asked to
+  /// destroy, and keeping them degrades a number this app calls absolute. So
+  /// a marker that still holds results is refused, and says how to proceed —
+  /// the results are one screen up, each removable on its own.
+  Future<void> _removeMarker(LabMarker m, int results) async {
+    if (results > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${m.label} still holds $results '
+            '${results == 1 ? 'result' : 'results'}. Remove those first — the '
+            'marker is what labels them.'),
+      ));
+      return;
+    }
+    final ok = await confirmRemove(
+      context,
+      title: 'Remove ${m.label}?',
+      body: 'It leaves the marker list, so you can no longer log it. Nothing '
+          'measured goes with it — you have no results under it.',
     );
+    if (!ok || !mounted) return;
+    await LocalDb.deleteLabMarkerDef(m.key);
+    _l = null;
+    await _loadLabs();
   }
 
   String _num(double v) =>

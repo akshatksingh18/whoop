@@ -114,6 +114,24 @@ class _MoreSettingsState extends State<MoreSettings> {
     _setDev(true);
   }
 
+  /// The one preference here that is awaited. A revocation that never reached
+  /// storage is back ON at the next launch, so it does not get to fail quietly
+  /// — the switch still moves (in-session it really is off, nothing is sent),
+  /// and the person is told it did not stick.
+  Future<void> _toggleBarcode(BuildContext c) async {
+    final want = !_barcode;
+    final messenger = ScaffoldMessenger.of(c);
+    final saved = await setOffLookupAllowed(want);
+    if (!mounted) return;
+    setState(() => _barcode = want);
+    if (!saved) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('That could not be saved — it may be back next time you '
+            'open the app.'),
+      ));
+    }
+  }
+
   void _setDev(bool on) {
     Prefs.setBool(Prefs.devMode, on);
     setState(() {
@@ -170,10 +188,7 @@ class _MoreSettingsState extends State<MoreSettings> {
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
-      onToggleBarcodeLookup: () {
-        setOffLookupAllowed(!_barcode);
-        setState(() => _barcode = !_barcode);
-      },
+      onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleHealthSync: () => _toggleHealthSync(app),
       onToggleUpdateChecks: () =>

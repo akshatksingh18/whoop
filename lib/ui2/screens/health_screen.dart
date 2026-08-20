@@ -476,11 +476,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final t = beginRead(#day);
     try {
       final d = await HealthData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (stillNewest(#day, t)) setState(() => (_d = d, _loading = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#day, t)) setState(() => _loading = false);
     }
   }
 
@@ -497,11 +498,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
     if (repo == null || (_v != null && !force)) return;
+    // Keyed per sub-tab: steering to another day starts a read that must beat
+    // the one already in flight, and neither may cancel Labs or Explore.
+    final t = beginRead(#vitals);
     try {
       final v = await VitalsData.load(repo, want: _vDay);
-      if (mounted) setState(() => (_v = v, _vFailed = false));
+      if (stillNewest(#vitals, t)) setState(() => (_v = v, _vFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _vFailed = true);
+      if (stillNewest(#vitals, t)) setState(() => _vFailed = true);
     }
   }
 
@@ -512,11 +516,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   Future<void> _loadLabs() async {
     if (_l != null) return;
+    final t = beginRead(#labs);
     try {
       final l = await LabsData.load();
-      if (mounted) setState(() => (_l = l, _lFailed = false));
+      if (stillNewest(#labs, t)) setState(() => (_l = l, _lFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _lFailed = true);
+      if (stillNewest(#labs, t)) setState(() => _lFailed = true);
     }
   }
 
@@ -533,11 +538,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   Future<void> _loadExplore() async {
     if (_e != null) return;
+    final t = beginRead(#explore);
     try {
       final e = await ExploreData.load();
-      if (mounted) setState(() => (_e = e, _eFailed = false));
+      if (stillNewest(#explore, t)) setState(() => (_e = e, _eFailed = false));
     } catch (_) {
-      if (mounted) setState(() => _eFailed = true);
+      if (stillNewest(#explore, t)) setState(() => _eFailed = true);
     }
   }
 

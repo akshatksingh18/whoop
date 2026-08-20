@@ -41,6 +41,37 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   /// never on a rebuild, so it is safe for it to be expensive.
   void reload();
 
+  /// The newest read claimed per resource key. See [beginRead].
+  final Map<Object, int> _reads = {};
+
+  /// LAST WRITER WINS IS THE BUG. Two durable writes land in quick succession
+  /// — an import finishing while a derive commits — and this mixin starts a
+  /// second [reload] while the first one's queries are still in flight. They
+  /// are separate futures against a database that is being written, so they
+  /// can finish in either order, and the loser is whichever one the scheduler
+  /// resumes last. When that is the OLDER read, its `setState` puts
+  /// pre-import data back on screen and the screen stays wrong until the next
+  /// revision — which for a tab the IndexedStack keeps alive means until the
+  /// app is relaunched, the exact failure this mixin was written to end.
+  ///
+  /// So every loader claims a token before it awaits and checks it before it
+  /// commits: `final t = beginRead(#x); … if (stillNewest(#x, t)) setState(…)`.
+  ///
+  /// A TOKEN, NOT A QUEUE. Serialising reloads would be the other obvious fix
+  /// and is worse on both counts: the newest data waits behind a read it has
+  /// already superseded, and a loader that hangs blocks every later one
+  /// forever. Overlapping reads are fine — only overlapping COMMITS are not.
+  ///
+  /// One counter per [key], because a screen's sub-tabs are independent
+  /// resources: Vitals re-reading for a different day must not invalidate the
+  /// Labs read that started before it. Symbols (`#vitals`) are the cheap key.
+  int beginRead(Object key) => _reads[key] = (_reads[key] ?? 0) + 1;
+
+  /// Whether [token] is still the newest read of [key] AND this State is still
+  /// mounted — the whole commit guard, so a call site cannot remember one half
+  /// of it and forget the other.
+  bool stillNewest(Object key, int token) => mounted && _reads[key] == token;
+
   /// False for a screen that was handed its data (a golden, the gallery, a
   /// preview): there is nothing behind it to re-read.
   bool get revisionReloads => true;

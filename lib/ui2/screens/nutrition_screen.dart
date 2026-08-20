@@ -68,6 +68,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   void reload() => _load();
 
   Future<void> _load() async {
+    final t = beginRead(#nutrition);
     final app = context.read<AppState>();
     final db = await LocalDb.instance;
     final week = await NutritionDb.window(db, days: 7);
@@ -80,7 +81,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       if (daily is Map) burned = Metric.parse(daily['calories_total']);
       water = (await repo.getJournalMetrics(_date))['water_ml']?.value;
     }
-    if (!mounted) return;
+    if (!stillNewest(#nutrition, t)) return;
     setState(() {
       _week = week;
       _burned = burned;

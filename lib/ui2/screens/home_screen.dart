@@ -1114,11 +1114,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final t = beginRead(#home);
     try {
       final d = await HomeData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false, _failed = false));
+      if (stillNewest(#home, t)) {
+        setState(() => (_d = d, _loading = false, _failed = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => (_loading = false, _failed = true));
+      if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
     }
   }
 

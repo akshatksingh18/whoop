@@ -1324,30 +1324,42 @@ class PendingCommand {
 
   PendingCommand._(this._owner, this.seq, this.opcode, this.timeout);
 
-  /// The correlated reply, or null once [timeout] expires.
+  Timer? _expiry;
+
+  /// Start the one-shot expiry. Idempotent: the timeout is applied EXACTLY
+  /// ONCE and there is no automatic resend — retry, disconnect and abort
+  /// belong to the calling state machine.
   ///
-  /// The timeout is applied EXACTLY ONCE and there is no automatic resend
-  /// — retry, disconnect and abort belong to
-  /// the calling state machine. Lazily built, so registering a command that is
-  /// never awaited never arms a timer.
-  late final Future<CorrelatedResponse?> response = _completer.future.timeout(
-    timeout,
-    onTimeout: () {
+  /// Called from [CommandAwaiter.register] rather than lazily from [response],
+  /// so a command that is registered and then never awaited still leaves the
+  /// registry after [timeout]. Arming here starts the clock fractionally
+  /// before the write returns, which costs a few ms of a multi-second window
+  /// and buys the invariant that nothing can outlive its timeout.
+  void _armExpiry() {
+    _expiry ??= Timer(timeout, () {
       _owner._forget(this);
-      return null;
-    },
-  );
+      if (!_completer.isCompleted) _completer.complete(null);
+    });
+  }
+
+  /// The correlated reply, or null once [timeout] expires.
+  Future<CorrelatedResponse?> get response {
+    _armExpiry();
+    return _completer.future;
+  }
 
   bool get isCompleted => _completer.isCompleted;
 
   /// Give up without waiting out the timeout — the write never went out, or
   /// the link died under it.
   void cancel() {
+    _expiry?.cancel();
     _owner._forget(this);
     if (!_completer.isCompleted) _completer.complete(null);
   }
 
   void _complete(CorrelatedResponse r) {
+    _expiry?.cancel();
     _owner._forget(this);
     if (!_completer.isCompleted) _completer.complete(r);
   }
@@ -1416,6 +1428,12 @@ class CommandAwaiter {
   }) {
     final p = PendingCommand._(this, seq, opcode, timeout);
     _pending.add(p);
+    // Arm now, not on first await. An entry that is registered and never
+    // awaited would otherwise sit in `_pending` for the life of the
+    // connection, and `deliver` would refuse every later sequence-zero
+    // fallback for that opcode because the stale entry makes the match
+    // ambiguous.
+    p._armExpiry();
     return p;
   }
 
@@ -1471,7 +1489,8 @@ class CommandAwaiter {
   void _forget(PendingCommand p) => _pending.remove(p);
 }
 
-/// The identity half of as an OBSERVATION.
+/// The identity half of the bootstrap readiness check, kept as an
+/// OBSERVATION rather than a gate.
 ///
 /// A strict readiness gate requires the serial and CPU strings to match
 /// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
@@ -1514,7 +1533,7 @@ class HelloIdentity {
       '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
 }
 
-/// The bootstrap clock gate from .
+/// The bootstrap clock gate.
 ///
 /// The pinned flow compares the timestamp hello already returned (or, as a
 /// fallback, a `GET_CLOCK` reply) against host time and writes NOTHING below
@@ -1546,8 +1565,7 @@ class BootstrapClockGate {
       driftSec == null || driftSec.abs() >= toleranceSeconds;
 }
 
-/// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack
-///.
+/// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack.
 ///
 /// "A response is usable only if its pack address/name field is non-empty and
 /// is not `00:00:00:00:00:00`" — the band answers the command while it is still

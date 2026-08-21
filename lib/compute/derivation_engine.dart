@@ -1317,8 +1317,19 @@ const int kAlgoVersion = 76;
 // which re-orders a float summation — that is computed before the sort now, and
 // the real overnight capture staged identically down to the last digit of
 // confidence.
+//
+// The protocol repin to b7990e1 also holds at 76, and this one is checkable
+// rather than argued: diff the two pins and the gen4 record decoder
+// (`lib/src/records.dart`) is untouched, as is every gen4 line in the package
+// export. What moved is the gen5 surface — the hello map, the control plane,
+// the command surface and the v18/v20/v22/v26 field maps — plus their tests.
+// For anyone on a gen4 strap every number out of this package is byte-identical
+// across the repin, so a bump would invalidate every stored day to recompute
+// the same answers. The gen5 records it adds are new: no released build could
+// decode them, so no stored day at v76 was derived from one, and there is
+// nothing for a same-version serve to confuse.
 const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
-const String kProtocolPin = 'c761f29bcbed73886b1b059dcd9e92e4333574f5';
+const String kProtocolPin = 'b7990e1499f9ae83dbd4c1fa8481dbe8413e7337';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

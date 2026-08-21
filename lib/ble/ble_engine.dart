@@ -283,6 +283,24 @@ bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
 /// infinite re-request loop.
 const int kBurstValidationAttemptLimit = 15;
 
+/// How long a terminal `Stuck` keeps refusing drain work within one connection.
+///
+/// The latch exists to survive the band's re-offer storm: after an abort it
+/// keeps re-offering the same HISTORY_END about every 2.5 s, and every re-offer
+/// used to re-enter validation and abort again (14+ times in 12 s on a real
+/// strap). This window has to outlast that storm AND the 60 s idle watchdog
+/// that ends the offload.
+///
+/// It is deliberately NOT "the rest of the connection". Continuation after
+/// `Stuck` comes from a later connection, a scheduler tick or an explicit
+/// trigger; a session-scoped latch refuses the last two outright, which is
+/// stricter than the behaviour it models. Three CRC-corrupt frames on a
+/// marginal link must not cost every later drain on a connection that may stay
+/// up for hours. Once the window passes a genuinely new trigger gets a fresh
+/// validation cycle; the band still holds its checkpoint, so nothing already
+/// committed is re-fetched.
+const Duration kHistoryStuckCooldown = Duration(minutes: 2);
+
 @visibleForTesting
 int burstCountSlack(int consecutiveFailedValidations) =>
     consecutiveFailedValidations >= 3 ? 2 : 0;
@@ -494,6 +512,21 @@ class _Session {
   /// session-scoped is the whole mechanism: a reconnect builds a new [_Session]
   /// and the next connection drains normally from the band's checkpoint.
   bool historyStuck = false;
+
+  /// When [historyStuck] latched. Drives [historyStuckActive].
+  DateTime? historyStuckAt;
+
+  /// Whether the latch is still refusing work.
+  ///
+  /// Read this, never [historyStuck] directly, on any path that decides whether
+  /// to refuse a drain, drop a marker or suppress a terminal. [historyStuck]
+  /// stays true as a session diagnostic ("this connection hit Stuck at least
+  /// once") after the window has passed.
+  bool get historyStuckActive {
+    final at = historyStuckAt;
+    if (!historyStuck || at == null) return false;
+    return DateTime.now().difference(at) < kHistoryStuckCooldown;
+  }
 
   /// Markers dropped, and drain triggers refused, by [historyStuck]
   /// (diagnostics). Each kind logs its FIRST occurrence and then stays silent:
@@ -1479,7 +1512,12 @@ class BleEngine {
   /// [kBurstValidationAttemptLimit] times and the abort went out. Nothing may
   /// start another drain on this link; continuation belongs to a later
   /// connection. Callers that loop over sync sessions must stop on it.
-  bool get historyStuckThisSession => _session?.historyStuck ?? false;
+  /// Whether a terminal `Stuck` is currently refusing drain work.
+  ///
+  /// Windowed, not the raw latch -- callers use this to mirror the engine's own
+  /// refusal, so it has to go false when the engine starts accepting triggers
+  /// again. The raw latch stays visible in diagnostics as `history_stuck`.
+  bool get historyStuckThisSession => _session?.historyStuckActive ?? false;
 
   Map<String, dynamic> get offloadSnapshot => {
     'active': _offloadActive,
@@ -2516,7 +2554,7 @@ class BleEngine {
     // continuation loop — so refusing here closes all of them at once. The
     // FIRST drain of a fresh session is untouched: the latch lives on the
     // session object, so a reconnect clears it.
-    if (session!.historyStuck) {
+    if (session!.historyStuckActive) {
       session.stuckRefreshesRefused++;
       if (session.stuckRefreshesRefused == 1) {
         _log(
@@ -4043,6 +4081,7 @@ class BleEngine {
       // the whole 15-failure cycle to the backfill continuation. Terminal has
       // to mean terminal for the session.
       session.historyStuck = true;
+      session.historyStuckAt = DateTime.now();
       _log(
         '[SYNC] burst still short after '
         '${d.consecutiveValidationFailures} attempts — aborting history for '
@@ -4264,7 +4303,7 @@ class BleEngine {
     // nothing, and swallowing it left `onComplete()` unreachable once the
     // latch was set, so every `awaitComplete()` waiter ran out its full
     // timeout against a drain that had already ended.
-    if (session.historyStuck && m.sub != SyncMeta.historyComplete) {
+    if (session.historyStuckActive && m.sub != SyncMeta.historyComplete) {
       session.stuckMarkersDropped++;
       if (session.stuckMarkersDropped == 1) {
         _log(
@@ -4278,7 +4317,7 @@ class BleEngine {
     }
     // Stuck: the COMPLETE passing through above must not re-arm the watchdog
     // it deliberately left dead.
-    if (!session.historyStuck) _armIdleWatchdog();
+    if (!session.historyStuckActive) _armIdleWatchdog();
     _log(
       '[SYNC] META sub=${m.sub} inner='
       '${frame.inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
@@ -4696,7 +4735,7 @@ class BleEngine {
       if (d == null) return;
       // After a Stuck abort the offload flag is already down by design — that
       // is not an out-of-band COMPLETE, so don't record it as one.
-      if (!_offloadActive && !session.historyStuck) {
+      if (!_offloadActive && !session.historyStuckActive) {
         _setHpsTerminal(
           _HpsTerminalKind.metadataWhileNotSyncing,
           reason: 'history_complete_while_not_syncing',

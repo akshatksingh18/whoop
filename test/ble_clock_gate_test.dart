@@ -136,7 +136,7 @@ void _transportTests() {
   int seqOf(Uint8List frame) => frame[5];
 
   /// A GET_CLOCK reply CORRELATED to the request that asked for it: the read
-  /// only accepts a reply echoing both its sequence and its opcode (doc 02), so
+  /// only accepts a reply echoing both its sequence and its opcode, so
   /// a test reply without the sequence proves nothing about the gate.
   Decoded clockReply(int strapEpoch, int reqSeq) => Decoded('cmd_response', {
         'opcode': Cmd.getClock,

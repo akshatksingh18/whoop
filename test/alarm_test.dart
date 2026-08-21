@@ -3,7 +3,7 @@
 //     7-byte time-only form) and the RUN/DISABLE bodies (AlarmPayloads),
 //   - the strap-event confirmation state machine (AlarmConfirmation), and
 //   - the arm/run decision made on the correlated reply's alarm-status byte
-//     (doc 07), driven over the engine's fake-link seam.
+//, driven over the engine's fake-link seam.
 // No radio and no DB — everything here is deterministic.
 
 import 'dart:typed_data';
@@ -18,7 +18,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 /// A gen5 link with no radio behind it, plus the seq of every command written.
 /// Same seam as `command_correlation_test.dart`: the reply is injected from
 /// INSIDE the write, i.e. before the write call returns, which is the ordering
-/// doc 02 demands and the one a fast strap actually produces.
+/// the correlation contract demands and the one a fast strap produces.
 class _Link {
   final logs = <String>[];
   final written = <({int seq, int opcode})>[];
@@ -288,93 +288,8 @@ void main() {
     });
   });
 
-  group('ConditionalWakePolicy — wake early, never later', () {
-    const deadline = 1750000000; // the armed stored alarm
-    const opensAt = deadline - 2 * 3600; // official 2-hour window
 
-    ConditionalWakeAction run(
-      ConditionalWakePolicy p, {
-      required int now,
-      bool met = false,
-      bool enabled = true,
-      int? dl = deadline,
-    }) =>
-        p.tick(
-          nowEpoch: now,
-          deadlineEpoch: dl,
-          conditionMet: met,
-          enabled: enabled,
-        );
-
-    test('does nothing before the window, opens it on entry', () {
-      final p = ConditionalWakePolicy();
-      expect(run(p, now: opensAt - 60, met: true), ConditionalWakeAction.none,
-          reason: 'a met condition before the window must NOT wake anyone');
-      expect(run(p, now: opensAt + 1), ConditionalWakeAction.openWindow);
-      expect(run(p, now: opensAt + 2), ConditionalWakeAction.none,
-          reason: 'window already open — no repeat command');
-    });
-
-    test('fires once, and only once, when the condition is met inside it', () {
-      final p = ConditionalWakePolicy();
-      run(p, now: opensAt + 1); // opens
-      expect(run(p, now: opensAt + 600, met: true),
-          ConditionalWakeAction.fireNow);
-      // Every later tick — including more met ticks — must stay silent.
-      expect(
-          run(p, now: opensAt + 601, met: true), ConditionalWakeAction.none);
-      expect(
-          run(p, now: opensAt + 900, met: true), ConditionalWakeAction.none);
-      expect(p.fired, isTrue);
-    });
-
-    test('past the deadline the strap RTC owns the wake — never a late fire',
-        () {
-      final p = ConditionalWakePolicy();
-      run(p, now: opensAt + 1);
-      // The single most important negative: this policy may only move a wake
-      // EARLIER. After the deadline it must go quiet and let the band fire.
-      expect(run(p, now: deadline, met: true), ConditionalWakeAction.closeWindow);
-      expect(run(p, now: deadline + 60, met: true), ConditionalWakeAction.none);
-      expect(p.fired, isFalse);
-    });
-
-    test('opt-out and a cleared alarm both close the window', () {
-      final p = ConditionalWakePolicy();
-      run(p, now: opensAt + 1);
-      expect(run(p, now: opensAt + 2, enabled: false),
-          ConditionalWakeAction.closeWindow);
-
-      final q = ConditionalWakePolicy();
-      run(q, now: opensAt + 1);
-      expect(run(q, now: opensAt + 2, dl: null),
-          ConditionalWakeAction.closeWindow);
-    });
-
-    test('a rescheduled alarm is a new night: the latch resets', () {
-      final p = ConditionalWakePolicy();
-      run(p, now: opensAt + 1);
-      expect(run(p, now: opensAt + 60, met: true), ConditionalWakeAction.fireNow);
-
-      const tomorrow = deadline + 86400;
-      // Same policy object, new deadline — the previous night's latch must not
-      // suppress tomorrow's early wake.
-      expect(
-        run(p, now: tomorrow - 3600, met: true, dl: tomorrow),
-        ConditionalWakeAction.fireNow,
-      );
-    });
-
-    test('a restored latch survives a restart and cannot re-wake', () {
-      final p = ConditionalWakePolicy()
-        ..restore(deadlineEpoch: deadline, alreadyFired: true);
-      expect(run(p, now: opensAt + 600, met: true), ConditionalWakeAction.openWindow,
-          reason: 'window may reopen, but the wake must not repeat');
-      expect(run(p, now: opensAt + 700, met: true), ConditionalWakeAction.none);
-    });
-  });
-
-  // doc 07 §"Command bodies": the SET_ALARM_TIME reply carries a haptics/alarm
+  // the SET_ALARM_TIME reply carries a haptics/alarm
   // status byte "in addition to the ordinary outer command result — check
   // both". Before this, the engine treated a successful WRITE as an armed
   // alarm, so a strap that answered `invalid alarm time` left the app showing
@@ -473,60 +388,4 @@ void main() {
     });
   });
 
-  // RUN_ALARM(68) is the wake-in-green trigger and has never been verified on
-  // WHOOP 5 hardware with the rev-2 body. Its `[02, status]` reply is the
-  // evidence trail a hardware re-test reads back out of the snapshot.
-  group('engine wiring — runStoredAlarm records what the strap answered', () {
-    test('the reply status lands in the offload snapshot', () async {
-      final link = _Link(
-        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
-            ? _alarmReply(opcode, seq, proto.AlarmStatus.playedSuccessfully,
-                revision: 2)
-            : null,
-      );
-
-      expect(await link.engine.runStoredAlarm(), isTrue,
-          reason: 'the bool is the WRITE — the wake stays best-effort');
-      await pumpEventQueue();
-
-      final snap = link.engine.offloadSnapshot;
-      expect(snap['last_run_alarm_status'], proto.AlarmStatus.playedSuccessfully);
-      expect(snap['last_run_alarm_status_name'], 'played_successfully');
-      expect(snap['last_run_alarm_ts'], isNotNull);
-      expect(link.logged('RUN_ALARM reply'), isTrue);
-    });
-
-    test('a haptics failure is recorded too, not swallowed', () async {
-      final link = _Link(
-        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
-            ? _alarmReply(opcode, seq, proto.AlarmStatus.hapticsFailure,
-                outer: 0, revision: 2)
-            : null,
-      );
-
-      // Still true: the write went out. The verdict lives in the snapshot.
-      expect(await link.engine.runStoredAlarm(), isTrue);
-      await pumpEventQueue();
-      expect(link.engine.offloadSnapshot['last_run_alarm_status_name'],
-          'haptics_failure');
-    });
-
-    test('the RUN_ALARM frame is correlated on its own sequence', () async {
-      final link = _Link(
-        replyTo: (seq, opcode) => opcode == proto.Cmd.runAlarm
-            ? _alarmReply(opcode, seq, proto.AlarmStatus.playedSuccessfully,
-                revision: 2)
-            : null,
-      );
-      await link.engine.runStoredAlarm();
-      await pumpEventQueue();
-      // The frame is built by the protocol helper, so the awaiter's sequence
-      // has to be threaded THROUGH it — a hard-coded seq inside cmdRunAlarm
-      // would never match.
-      final run =
-          link.written.lastWhere((w) => w.opcode == proto.Cmd.runAlarm);
-      expect(run.seq, greaterThanOrEqualTo(SeqAllocator.liveFloor));
-      expect(link.engine.pendingCommandCount, 0);
-    });
-  });
 }

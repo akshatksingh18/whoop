@@ -652,10 +652,10 @@ packages:
     dependency: "direct main"
     description:
       name: health
-      sha256: "148ce984c2119f50224b4d187552d751b91aa47f4de8968daf05e6e596ddee50"
+      sha256: "0432c4e5c5348164adff57e78ca3191c88f0cdf7c2b0d72b6785a6af965177ac"
       url: "https://pub.dev"
     source: hosted
-    version: "11.1.1"
+    version: "12.2.1"
   home_widget:
     dependency: "direct main"
     description:
@@ -924,17 +924,19 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: bfea5e56e74f336c3e3d83743123e58da225617d
-      resolved-ref: bfea5e56e74f336c3e3d83743123e58da225617d
+      ref: d9362a66fbeac326d5d7d7b1fe27b28e41169a79
+      resolved-ref: d9362a66fbeac326d5d7d7b1fe27b28e41169a79
       url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "../protocol"
-      relative: true
-    source: path
+      path: "."
+      ref: c761f29bcbed73886b1b059dcd9e92e4333574f5
+      resolved-ref: c761f29bcbed73886b1b059dcd9e92e4333574f5
+      url: "https://github.com/OpenStrap/protocol.git"
+    source: git
     version: "1.0.0"
   ota_update:
     dependency: "direct main"

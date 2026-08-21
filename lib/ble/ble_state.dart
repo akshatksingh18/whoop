@@ -617,69 +617,11 @@ enum TrimAckVerdict {
   /// received traffic — some arrived corrupted or never arrived at all. The
   /// rows we DID get are already committed; refusing the token asks the band
   /// to re-send the chunk so the missing seconds get another chance instead of
-  /// being trimmed out of flash forever. Strictly bounded by
-  /// [BurstShortfallGate] — see the history in that class.
+  /// being trimmed out of flash forever. Strictly bounded by the caller —
+  /// an unbounded refusal wedged sync forever once.
   blockedBurstShortfall,
 }
 
-/// The bound on "refuse the trim token because the burst was short".
-///
-/// An UNCONDITIONAL refusal on shortfall is not an option: it was the old
-/// behaviour, and it wedged sync forever — nothing about a retry changes the
-/// count relationship when the shortfall is systematic (`expectedPacketCount`'s
-/// exact semantics are not fully reverse-engineered), so the band re-delivered
-/// the same block indefinitely and the cursor never moved. Accepting every
-/// short burst is the opposite failure: the gap is counted, logged, and then
-/// authorised for deletion.
-///
-/// So: refuse ONCE, then take whatever arrives. A transient radio glitch —
-/// the common case — is recovered on the re-delivery; a systematic shortfall
-/// costs exactly one extra round trip and then proceeds.
-///
-/// Bounded three ways, because only the first assumes the token is stable:
-///   * per TOKEN — a chunk is refused at most once, so a stable token cannot
-///     ping-pong;
-///   * per SESSION — [maxPerSession], in case the band re-issues a fresh token
-///     for the same data (which would defeat the per-token bound);
-///   * per ENGINE RUN — [maxTotal], the backstop for a link that is short on
-///     every burst. Past it, shortfalls are telemetry again.
-///
-/// Pure: no clock, no I/O.
-class BurstShortfallGate {
-  BurstShortfallGate({this.maxPerSession = 1, this.maxTotal = 3});
-
-  final int maxPerSession;
-  final int maxTotal;
-
-  /// Bounded so a long-lived engine cannot grow this without limit; a token
-  /// evicted here can be refused once more, which the two counters still cap.
-  static const int _maxTracked = 64;
-  final Set<String> _refusedTokens = <String>{};
-  int _thisSession = 0;
-  int _total = 0;
-
-  int get refusalsThisSession => _thisSession;
-  int get refusalsTotal => _total;
-
-  /// Whether this HISTORY_END token should be refused over a positive
-  /// shortfall. Records the refusal when it returns true — call it once per
-  /// decision, at the point of decision.
-  bool refuse(String tokenHex) {
-    if (_thisSession >= maxPerSession || _total >= maxTotal) return false;
-    if (!_refusedTokens.add(tokenHex)) return false;
-    if (_refusedTokens.length > _maxTracked) {
-      _refusedTokens.remove(_refusedTokens.first);
-    }
-    _thisSession++;
-    _total++;
-    return true;
-  }
-
-  /// New link — the per-session budget refills. [maxTotal] deliberately does
-  /// not, so a band that is short on every burst of every session stops
-  /// costing round trips.
-  void onSessionStart() => _thisSession = 0;
-}
 
 /// THE gate on the one irreversible act in the whole offload protocol: echoing
 /// a HISTORY_END continuation token, which is what tells the band it may trim
@@ -719,7 +661,7 @@ class TrimAckPolicy {
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
-  /// [shortfallRetry]  — [BurstShortfallGate] has budget to spend one refusal
+  /// [shortfallRetry]  — the caller has budget to spend one refusal
   ///                     on this token's positive shortfall. Pass `false` on
   ///                     the PRE-commit call: this refusal must happen only
   ///                     AFTER the rows we did receive are durable, or the
@@ -858,7 +800,7 @@ enum FrameRoute {
   /// position, where the burst COUNT for it is applied.
   ///
   /// Burst count members that are not type-47 data (events 48, console 50,
-  /// puffin wrappers 53/54/55 — doc 05 §"Count membership") arrive on a
+  /// puffin wrappers 53/54/55 — ) arrive on a
   /// different characteristic than the data frames but over the SAME ACL link,
   /// so the band's transmit order is the arrival order. Counting them inline
   /// while the data frames and their HISTORY_END queue up REORDERS the count:
@@ -884,7 +826,7 @@ enum FrameRoute {
 class FrameRoutePolicy {
   const FrameRoutePolicy._();
 
-  /// [isBurstCountMember] is doc 05 §"Count membership" for the non-data
+  /// [isBurstCountMember] is for the non-data
   /// families (48/50/53/54/55); [offloadActive] is whether a history session is
   /// running at all, since outside one there is no burst to count into.
   static FrameRoute route({
@@ -1319,116 +1261,11 @@ class AlarmConfirmation {
   }
 }
 
-/// What a [ConditionalWakePolicy] tick wants the caller to do.
-enum ConditionalWakeAction {
-  /// Nothing to do — outside the window, or already handled.
-  none,
-
-  /// Open the wake window: ask the strap for more frequent sync prompts.
-  openWindow,
-
-  /// Close it again (window passed, alarm cleared, or feature turned off).
-  closeWindow,
-
-  /// The condition is met — fire the STORED alarm NOW, once.
-  fireNow,
-}
-
-/// The "wake me when I'm recovered, but no later than X" decision, as a pure
-/// function of time and inputs. The engine/app owns the I/O; this owns the
-/// rules.
-///
-/// The band does NOT decide this. It holds one absolute deadline and can be
-/// told to run that alarm early — that is the whole mechanism (reversing-whoop
-/// doc 14 "The implementation boundary" / "Wake in green"). WHOOP's own client
-/// asks its server whether the condition is met; an on-device app that already
-/// computes recovery locally can answer the same question itself, with no
-/// network at all — and unlike the official flow, it still works offline.
-///
-/// Two properties matter more than cleverness here, because the failure mode is
-/// waking a person at the wrong time:
-///
-///  * **The deadline is the safety net.** The stored alarm is programmed first
-///    and left armed. Everything below only ever moves the wake EARLIER, inside
-///    the window. If this policy never fires — app killed, band out of range,
-///    condition never met — the strap still wakes them from its own RTC.
-///  * **Fire exactly once.** [fired] latches, so a second qualifying tick (or a
-///    replayed/duplicated input) cannot wake someone twice. The caller must
-///    persist the latch before doing anything retryable, per the same doc.
-class ConditionalWakePolicy {
-  /// How long before the deadline the window opens. The official client uses
-  /// two hours, and the high-frequency sync duration (7200 s) matches it.
-  static const Duration window = Duration(hours: 2);
-
-  /// Latched once the early wake has been sent, so it can never repeat.
-  bool fired = false;
-
-  /// True while the strap has been asked for frequent prompts.
-  bool windowOpen = false;
-
-  /// The deadline this policy is currently tracking, so a rescheduled alarm
-  /// resets the latch instead of inheriting the previous night's.
-  int? trackedDeadlineEpoch;
-
-  /// Decide what to do at [nowEpoch].
-  ///
-  /// [deadlineEpoch] is the armed stored alarm (null = no alarm). [conditionMet]
-  /// is the caller's own answer to "is the user recovered?" — deliberately a
-  /// plain bool, because this class must not know or care how that was computed.
-  /// [enabled] is the user's opt-in.
-  ConditionalWakeAction tick({
-    required int nowEpoch,
-    required int? deadlineEpoch,
-    required bool conditionMet,
-    required bool enabled,
-  }) {
-    // A new/changed/cleared deadline is a new night: forget the old latch.
-    if (deadlineEpoch != trackedDeadlineEpoch) {
-      trackedDeadlineEpoch = deadlineEpoch;
-      fired = false;
-    }
-    if (!enabled || deadlineEpoch == null) {
-      return _close();
-    }
-    // Past the deadline the strap's own RTC owns the wake; nothing to add.
-    if (nowEpoch >= deadlineEpoch) return _close();
-
-    final opensAt = deadlineEpoch - window.inSeconds;
-    if (nowEpoch < opensAt) return _close();
-
-    // Inside the window.
-    if (conditionMet && !fired) {
-      fired = true;
-      // Leave the window open: the caller still wants the strap reachable, and
-      // closing it is a separate decision once the wake is acknowledged.
-      return ConditionalWakeAction.fireNow;
-    }
-    if (!windowOpen) {
-      windowOpen = true;
-      return ConditionalWakeAction.openWindow;
-    }
-    return ConditionalWakeAction.none;
-  }
-
-  ConditionalWakeAction _close() {
-    if (!windowOpen) return ConditionalWakeAction.none;
-    windowOpen = false;
-    return ConditionalWakeAction.closeWindow;
-  }
-
-  /// Restore the fire-once latch from storage (call before the first [tick] of
-  /// a process, so a restart cannot re-wake the user).
-  void restore({required int? deadlineEpoch, required bool alreadyFired}) {
-    trackedDeadlineEpoch = deadlineEpoch;
-    fired = alreadyFired;
-  }
-}
-
-// ── command/response correlation (doc 02) ────────────────────────────────────
+// ── command/response correlation ────────────────────────────────────
 
 /// A command response that was matched to a request we actually made.
 ///
-/// Wire layout (doc 02 "Command response"):
+/// Wire layout:
 /// `[36][response seq][echoed opcode][originating seq][result][body…]`.
 class CorrelatedResponse {
   /// The echoed opcode — equal to the opcode of the request by construction.
@@ -1467,8 +1304,7 @@ enum CommandDelivery {
   /// It satisfied a pending request, which is now complete.
   completed,
 
-  /// It matched a pending request whose PENDING is non-terminal (doc 02's
-  /// per-command table) — the await stays open for the terminal result.
+  /// It matched a pending request whose PENDING is non-terminal — the await stays open for the terminal result.
   pendingHeld,
 
   /// Nothing was waiting for it, or it failed the match rules (wrong opcode
@@ -1477,7 +1313,7 @@ enum CommandDelivery {
 }
 
 /// One outstanding command transaction. Created by [CommandAwaiter.register]
-/// BEFORE the write goes out (doc 02 "Ordering").
+/// BEFORE the write goes out.
 class PendingCommand {
   final int seq;
   final int opcode;
@@ -1491,7 +1327,7 @@ class PendingCommand {
   /// The correlated reply, or null once [timeout] expires.
   ///
   /// The timeout is applied EXACTLY ONCE and there is no automatic resend
-  /// (doc 02 "Timeouts and retries") — retry, disconnect and abort belong to
+  /// — retry, disconnect and abort belong to
   /// the calling state machine. Lazily built, so registering a command that is
   /// never awaited never arms a timer.
   late final Future<CorrelatedResponse?> response = _completer.future.timeout(
@@ -1518,7 +1354,7 @@ class PendingCommand {
 }
 
 /// The registry that turns fire-and-forget writes into real request/response
-/// transactions (doc 02 "Sequence allocation and response correlation").
+/// transactions.
 ///
 /// Match rule — a response is accepted only when **both** fields agree:
 /// ```text
@@ -1535,7 +1371,7 @@ class PendingCommand {
 /// sequence, frames and writes; this only says which reply belongs to which
 /// request.
 class CommandAwaiter {
-  /// doc 02 "Timeouts and retries" — the generic command await.
+  /// The generic five-second command await.
   static const Duration defaultTimeout = Duration(milliseconds: 5000);
 
   static const int statusFailure = 0;
@@ -1543,13 +1379,12 @@ class CommandAwaiter {
   static const int statusPending = 2;
   static const int statusUnsupported = 3;
 
-  /// The only commands whose `PENDING` is NON-terminal (doc 02 "`PENDING` is
-  /// per-command"): GET_HELLO(145) and GET_DATA_RANGE(34) keep waiting for a
+  /// The only commands whose `PENDING` is NON-terminal: GET_HELLO(145) and GET_DATA_RANGE(34) keep waiting for a
   /// terminal failure/success/unsupported. Every other command completes on
   /// the first matching response, PENDING included.
   static const Set<int> pendingIsNonTerminal = <int>{0x91, 0x22};
 
-  /// Whether to honour doc 02's optional "Sequence-zero compatibility path":
+  /// Whether to honour the optional sequence-zero compatibility path:
   /// a response whose originating sequence is 0 may match a nonzero request by
   /// opcode. The doc's own caveat is that two outstanding requests with the
   /// same opcode then become ambiguous — so a fallback match is only taken
@@ -1572,7 +1407,7 @@ class CommandAwaiter {
   bool hasPendingSeq(int seq) => _pending.any((p) => p.seq == seq);
 
   /// Install an observer for a command about to be written. Call this BEFORE
-  /// the write (doc 02 "Ordering") so a fast response cannot arrive before its
+  /// the write so a fast response cannot arrive before its
   /// observer exists.
   PendingCommand register(
     int seq,
@@ -1636,9 +1471,9 @@ class CommandAwaiter {
   void _forget(PendingCommand p) => _pending.remove(p);
 }
 
-/// The identity half of doc 01 §"What gates READY", as an OBSERVATION.
+/// The identity half of as an OBSERVATION.
 ///
-/// The official client requires the serial and CPU strings to match
+/// A strict readiness gate requires the serial and CPU strings to match
 /// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
 /// verdict and logs it rather than dropping the link: a hard disconnect on an
 /// identity read we have far less hardware evidence for would turn a cosmetic
@@ -1679,9 +1514,9 @@ class HelloIdentity {
       '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
 }
 
-/// The bootstrap clock gate from doc 01 §"Clock contract".
+/// The bootstrap clock gate from .
 ///
-/// The official client compares the timestamp hello already returned (or, as a
+/// The pinned flow compares the timestamp hello already returned (or, as a
 /// fallback, a `GET_CLOCK` reply) against host time and writes NOTHING below
 /// two whole seconds of absolute drift: "Below 2 whole seconds, succeed with no
 /// BLE write. At 2 or more, send one `SET_CLOCK(10)`". This app used to send
@@ -1712,7 +1547,7 @@ class BootstrapClockGate {
 }
 
 /// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack
-/// (doc 01 §"Charging follow-up", doc 03 §`GET_BATTERY_PACK_INFO`).
+///.
 ///
 /// "A response is usable only if its pack address/name field is non-empty and
 /// is not `00:00:00:00:00:00`" — the band answers the command while it is still
@@ -1728,46 +1563,13 @@ class BatteryPackInfoGate {
 
   static bool usable({required String identifier, required String name}) {
     final id = identifier.trim().toLowerCase();
+    final nm = name.trim().toLowerCase();
     if (id == unsetAddress) return false;
-    return id.isNotEmpty || name.trim().isNotEmpty;
+    if (id.isNotEmpty) return true;
+    // No identifier: a name alone carries the reply only when it is a real
+    // name — the sentinel address leaking through the name field is still
+    // "no pack yet".
+    return nm.isNotEmpty && nm != unsetAddress;
   }
 }
 
-/// The last `STRAP_CONDITION_REPORT(29)` event the band volunteered
-/// (doc 04 §"Type 48 — events").
-///
-/// OBSERVABILITY ONLY. This is the band telling us, unasked, how far behind its
-/// flash we are — the cheapest sync-progress signal there is — but nothing here
-/// starts an offload; the backfill triggers are unchanged.
-///
-/// [pagesBehind] is the SAME modular PAGE span `GET_DATA_RANGE` reports, not a
-/// packet or record count (doc 05, ~15 records/page nominal). [wristState] is
-/// the raw tri-state byte: the doc names no mapping for its three values, so
-/// wear truth still comes from WRIST_ON/WRIST_OFF and hello, never from here.
-/// Every field is nullable because a short body decodes to its prefix only.
-class StrapConditionReport {
-  /// The event's own strap timestamp — the band re-serves buffered events on
-  /// connect, so a report is only evidence about the moment it names.
-  final int tsEpoch;
-  final int? pagesBehind;
-  final double? backlog;
-  final double? socPct;
-  final int? flash;
-  final bool? charging;
-  final int? wristState;
-
-  const StrapConditionReport({
-    required this.tsEpoch,
-    this.pagesBehind,
-    this.backlog,
-    this.socPct,
-    this.flash,
-    this.charging,
-    this.wristState,
-  });
-
-  @override
-  String toString() => 'pages_behind=$pagesBehind backlog=$backlog '
-      'soc=$socPct% flash=$flash charging=$charging wrist=$wristState '
-      'ts=$tsEpoch';
-}

@@ -348,7 +348,7 @@ void main() {
 
     test('INIT no longer re-sends the hello — it belongs to connect setup',
         () async {
-      // The official order is hello FIRST, during setup, so its timestamp can
+      // The pinned order is hello FIRST, during setup, so its timestamp can
       // drive the clock decision and its identity fields are available to
       // everything after. Sending it again at INIT would be a second identity
       // exchange after every consumer has already run.
@@ -363,9 +363,9 @@ void main() {
       expect(opcodes, contains(Cmd.sendHistoricalData));
     });
 
-    test('the wake window uses the official 180 s / 7200 s Smart Alarm values',
+    test('the wake window uses the pinned 180 s / 7200 s Smart Alarm values',
         () async {
-      // doc 14: ENTER_HIGH_FREQ_SYNC(96) body `02 b4 00 20 1c` — rev 2, then
+      // ENTER_HIGH_FREQ_SYNC(96) body `02 b4 00 20 1c` — rev 2, then
       // interval 180 s and duration 7200 s as u16 LE. The old 61 s/90 min
       // defaults were picked only to clear gen5's "> 60" floor.
       final w = _Wire(band: BandProfile.gen5);
@@ -381,30 +381,18 @@ void main() {
       ]);
     });
 
-    test('runStoredAlarm sends the official rev-2 body with the alarm id',
+    test('gen5 reads the clock with the established GET_CLOCK(11), empty body',
         () async {
-      // doc 14 "Run alarm now — opcode 68": body `02 01`. This is the early-wake
-      // mechanism; the rev-1 gen4 body does nothing on gen5.
-      final w = _Wire(band: BandProfile.gen5);
-      await w.engine.runStoredAlarm();
-      expect(w.lastCommandOf(3),
-          <int>[Cmd.runAlarm, 0x02, AlarmPayloads.gen5Slot]);
-      expect(AlarmPayloads.gen5Slot, 1);
-    });
-
-    test('gen5 reads the clock with the OFFICIAL GET_CLOCK(11), empty body',
-        () async {
-      // Opcode 147 ("GET_CLOCK_GEN5") appears nowhere in the official 75-opcode
-      // enum. The confirmed gen5 contract is the shared opcode 11 with an EMPTY
-      // body — physically exercised on a real WHOOP 5 (the probe read the clock
-      // this way and measured ~2410 ms drift before setting it).
+      // Opcode 147 ("GET_CLOCK_GEN5") is not an established WHOOP opcode.
+      // The confirmed gen5 contract is the shared opcode 11 with an EMPTY
+      // body — hardware-confirmed on a real WHOOP 5.
       final w = _Wire(band: BandProfile.gen5);
       await w.engine.getClock();
       expect(w.lastCommandOf(1), <int>[Cmd.getClock]);
       expect(Cmd.getClock, 11);
     });
 
-    test('gen5 sets the clock with the OFFICIAL SET_CLOCK(10), 8-byte body',
+    test('gen5 sets the clock with the established SET_CLOCK(10), 8-byte body',
         () async {
       // <u32 whole seconds><u32 subseconds>, no revision byte — the form that
       // returned SUCCESS from a real WHOOP 5. A wrong clock write is silent:
@@ -510,7 +498,7 @@ void main() {
 
 /// A type-48 EVENT inner:
 /// `[0x30][u8 seq][u16 id][u32 unix][u16 subsec][u16 body len][body…]`
-/// (doc 04 §"Type 48 — events"). Built directly rather than through
+///. Built directly rather than through
 /// `buildFrame` because the engine's receive path consumes inners.
 Uint8List _eventInner(int id, List<int> body, {int ts = 1786000000}) {
   final inner = Uint8List(12 + body.length);
@@ -534,11 +522,16 @@ void _events() {
         onState: (_) {},
         log: logs.add,
       );
+      // These event bodies are gen5-scoped in the protocol decoder; a gen4
+      // link keeps them numeric and un-decoded.
+      engine.debugInstallFakeLink(
+        onWrite: (_) async => true,
+        band: BandProfile.gen5,
+      );
       return (engine: engine, logs: logs);
     }
 
-    test('STRAP_CONDITION_REPORT(29) lands in the offload snapshot and the log',
-        () {
+    test('STRAP_CONDITION_REPORT(29) is logged, and only logged', () {
       final r = rig();
       // pages behind 4321, backlog 45.6, SoC 87.2%, flash 3, charging, wrist 2.
       r.engine.debugProcessImmediateFrame(Frame(
@@ -554,16 +547,12 @@ void _events() {
         true,
       ));
 
-      final snap = r.engine.offloadSnapshot;
-      expect(snap['condition_pages_behind'], 4321,
-          reason: 'a modular PAGE span (doc 05), not a packet count');
-      expect(snap['condition_backlog'], closeTo(45.6, 1e-9));
-      expect(snap['condition_soc_pct'], closeTo(87.2, 1e-9));
-      expect(snap['condition_charging'], isTrue);
-      expect(snap['condition_wrist_state'], 2);
-      expect(snap['condition_ts'], 1786000123);
-      expect(r.logs.where((l) => l.contains('[SYNC] strap condition')),
-          isNotEmpty);
+      final line = r.logs
+          .where((l) => l.contains('[SYNC] strap condition report'))
+          .single;
+      expect(line, contains('pages_behind=4321'));
+      expect(line, contains('soc=87.2'));
+      expect(line, contains('charging=true'));
     });
 
     test('a condition report is observability only — it starts no offload', () {
@@ -578,8 +567,6 @@ void _events() {
       // trigger. The backfill policy stays the only thing that starts one.
       expect(r.engine.offloadActive, isFalse);
       expect(r.engine.offloadSnapshot['history_requests'], 0);
-      // The raw tri-state byte must not be laundered into wear state.
-      expect(r.engine.offloadSnapshot['condition_wrist_state'], 0);
     });
 
     test('HAPTICS_TERMINATED(100) code 2 records the wearer double-tap', () {
@@ -616,18 +603,18 @@ void _events() {
 
 // ── T11: the doc-01 bootstrap sequence ──────────────────────────────────────
 //
-// doc 01 §"Phase sequence" specifies the exact order — and the exact silences —
+// specifies the exact order — and the exact silences —
 // between the bond and READY. Four of its steps were missing here:
 //   - the two observed client delays (600 ms before notification registration,
 //     500 ms after the last CCC write);
 //   - the ≥2 s clock gate: this app wrote SET_CLOCK on EVERY connect, where the
-//     official client makes no BLE write at all below two whole seconds of
+//     pinned bootstrap makes no BLE write at all below two whole seconds of
 //     drift;
 //   - GET_ADVERTISING_NAME(141) as the final pre-READY command (sent, never a
 //     readiness gate);
 //   - the charging follow-up, GET_BATTERY_PACK_INFO(151) ×5, 5 s apart, which
 //     must never touch READY and must never run off the charger.
-// All four are gen5-only: doc 01 describes the WHOOP 5 bootstrap, and gen4's
+// All four are gen5-only: the pinned bootstrap is WHOOP 5's, and gen4's
 // flow is hardware-proven, so these tests also pin gen4's *absence* of them.
 
 /// A gen4/gen5 link with no radio behind it that records every command written
@@ -640,7 +627,7 @@ class _BootstrapLink {
 
   /// Answers to inject as the reply to a written command. Injected from INSIDE
   /// the write, i.e. before `_sendAwaited` has even returned — the ordering
-  /// doc 02 demands.
+  /// the correlation contract demands.
   Decoded? Function(int seq, int opcode)? replyTo;
 
   late final BleEngine engine;
@@ -681,7 +668,7 @@ class _BootstrapLink {
   }
 }
 
-/// A revision-1 gen5 hello body (doc 01 §"Revision-1 hello body"), parsed by
+/// A revision-1 gen5 hello body, parsed by
 /// the real protocol decoder so the timestamp and charge bit under test are the
 /// ones a band would actually produce.
 Uint8List _gen5HelloBody({required int tsSeconds, bool charging = false}) {
@@ -741,7 +728,7 @@ bool _runBootstrap(_BootstrapLink link, FakeAsync async) {
 }
 
 void _bootstrap() {
-  group('T11 — the two delays (doc 01)', () {
+  group('T11 — the two delays', () {
     test('gen5 writes nothing for 500 ms after the last CCC write', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
@@ -752,7 +739,7 @@ void _bootstrap() {
 
         async.elapse(const Duration(milliseconds: 499));
         expect(link.commands, isEmpty,
-            reason: 'doc 01: 500 ms after registration, before the '
+            reason: '500 ms after registration, before the '
                 'higher-level state machine runs');
         async.elapse(const Duration(milliseconds: 2));
         expect(link.opcodes.first, Cmd.getHello,
@@ -793,7 +780,7 @@ void _bootstrap() {
     });
   });
 
-  group('T11 — the ≥2 s SET_CLOCK gate (doc 01 "Clock contract")', () {
+  group('T11 — the ≥2 s SET_CLOCK gate', () {
     test('BootstrapClockGate: below two whole seconds, no correction', () {
       expect(BootstrapClockGate.toleranceSeconds, 2);
       expect(BootstrapClockGate.needsCorrection(0), isFalse);
@@ -817,7 +804,7 @@ void _bootstrap() {
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 0,
-            reason: 'doc 01: below 2 s, succeed with NO BLE write');
+            reason: 'below 2 s, succeed with NO BLE write');
         expect(link.count(Cmd.getClock), 0,
             reason: 'and no read-back either — nothing was written');
         expect(link.logged('no correction needed'), isTrue);
@@ -833,7 +820,7 @@ void _bootstrap() {
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 1,
-            reason: 'doc 01: at 2 or more, send ONE SET_CLOCK');
+            reason: 'at 2 or more, send ONE SET_CLOCK');
         expect(link.opcodes.indexOf(Cmd.setClock),
             greaterThan(link.opcodes.indexOf(Cmd.getHello)),
             reason: 'the clock decision comes after hello supplies the time');
@@ -847,7 +834,7 @@ void _bootstrap() {
         // Before the bootstrap-window fix, BOTH writers fired — the absorb
         // handler's own re-correction on the hello reply AND the bootstrap
         // clock step — sending a fresh band two SET_CLOCKs back to back,
-        // against doc 01's "send one SET_CLOCK(10)".
+        // against the one-SET_CLOCK-per-bootstrap rule.
         final link = _BootstrapLink();
         link.replyTo = (seq, op) => op == Cmd.getHello
             ? _helloReply(seq, tsSeconds: 1000)
@@ -855,7 +842,7 @@ void _bootstrap() {
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 1,
-            reason: 'doc 01: ONE SET_CLOCK per bootstrap — the absorb '
+            reason: 'ONE SET_CLOCK per bootstrap — the absorb '
                 'handler must stand down inside the bootstrap window');
       });
     });
@@ -889,7 +876,7 @@ void _bootstrap() {
     });
   });
 
-  group('T11 — GET_ADVERTISING_NAME is the final pre-READY step (doc 01)', () {
+  group('T11 — GET_ADVERTISING_NAME is the final pre-READY step', () {
     test('gen5 sends it last, after the clock step', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
@@ -900,7 +887,7 @@ void _bootstrap() {
 
         expect(link.opcodes.last, Cmd.getCustomAdvertisingName);
         expect(link.commands.last.body.first, revision1,
-            reason: 'doc 01: body 01');
+            reason: 'body 01');
       });
     });
 
@@ -912,7 +899,7 @@ void _bootstrap() {
             : null;
         // Nothing ever answers opcode 141 here.
         expect(_runBootstrap(link, async), isTrue,
-            reason: 'doc 01: the response content and result are NOT a '
+            reason: 'the response content and result are NOT a '
                 'readiness gate');
         async.elapse(const Duration(seconds: 6));
         expect(link.logged('GET_ADVERTISING_NAME went unanswered'), isTrue);
@@ -931,7 +918,7 @@ void _bootstrap() {
     });
   });
 
-  group('T11 — the charging follow-up, opcode 151 (doc 01)', () {
+  group('T11 — the charging follow-up, opcode 151', () {
     /// Bootstrap a gen5 link whose hello reports [charging], answering
     /// GET_BATTERY_PACK_INFO with [packAddress] when one is given.
     _BootstrapLink chargingRig(
@@ -968,6 +955,12 @@ void _bootstrap() {
               identifier: 'aa:bb:cc:dd:ee:ff', name: ''),
           isTrue);
       expect(BatteryPackInfoGate.usable(identifier: '', name: 'Puffin'), isTrue);
+      expect(
+          BatteryPackInfoGate.usable(
+              identifier: '', name: '00:00:00:00:00:00'),
+          isFalse,
+          reason: 'the sentinel leaking through the NAME field is still '
+              '"no pack yet"');
     });
 
     test('it never runs when the band is not charging', () {
@@ -975,7 +968,7 @@ void _bootstrap() {
         final link = chargingRig(async, charging: false);
         async.elapse(const Duration(seconds: 40));
         expect(link.count(Cmd.getBatteryPackInfo), 0,
-            reason: 'doc 01: this lookup does not run on a non-charging '
+            reason: 'this lookup does not run on a non-charging '
                 'READY transition');
       });
     });
@@ -986,13 +979,13 @@ void _bootstrap() {
             chargingRig(async, charging: true, packAddress: '00:00:00:00:00:00');
         expect(link.count(Cmd.getBatteryPackInfo), 1);
         expect(link.commands.last.body.first, revision1,
-            reason: 'doc 01/03: body 01');
+            reason: 'body 01');
 
         for (var expected = 2; expected <= 5; expected++) {
           async.elapse(const Duration(seconds: 5));
           expect(link.count(Cmd.getBatteryPackInfo), expected);
         }
-        // doc 01: the fifth unusable attempt is followed by the delay too.
+        // the fifth unusable attempt is followed by the delay too.
         async.elapse(const Duration(seconds: 5));
         expect(link.count(Cmd.getBatteryPackInfo), BleEngine.kBatteryPackInfoAttempts,
             reason: 'five attempts, and no sixth');
@@ -1052,7 +1045,7 @@ void _bootstrap() {
 
 // ── T14: burst count membership must follow the band's arrival order ─────────
 //
-// doc 05 §"Count membership": every complete type-47/48/50/53/54/55 frame the
+// every complete type-47/48/50/53/54/55 frame the
 // band sends between HISTORY_START and HISTORY_END counts exactly once toward
 // `HISTORY_END.expected_count` (= its own data_pkt_cnt + event_pkt_cnt).
 //
@@ -1065,7 +1058,7 @@ void _bootstrap() {
 // the PREVIOUS burst open (where the next HISTORY_START's rearm wipes it), so
 // its own burst came up short by exactly those frames, every single retry.
 //
-// Field capture 2026-08-19 (WHOOP 5, fw 50.40.1.0): earlier bursts carried a
+// On a real WHOOP 5, earlier bursts carried a
 // growing console surplus (console=5, 7, 9 …) while the burst behind them went
 // `expected=52, actual=48, breakdown={V18=42, events=1, console=5}` and then,
 // after the strap's adaptive burst-size drop, `expected=16, actual=12,
@@ -1116,6 +1109,9 @@ Uint8List _consoleInner(int index, {int ts = 1786000000}) {
 /// A type-49 METADATA HISTORY_START inner.
 Uint8List _historyStart() =>
     Uint8List.fromList(<int>[PacketType.metadata, 0x01, SyncMeta.historyStart]);
+
+Uint8List _historyComplete() => Uint8List.fromList(
+    <int>[PacketType.metadata, 0x03, SyncMeta.historyComplete]);
 
 /// A type-49 METADATA HISTORY_END inner: `expected_count` u32 @9 and the
 /// 8-byte trim token @13:21 the result echoes verbatim.
@@ -1269,14 +1265,14 @@ void _burstOrdering() {
 
     test(
         'a type-47 frame we cannot decode still counts — deep buffers and '
-        'unknown revisions are burst members (doc 05)', () async {
+        'unknown revisions are burst members', () async {
       final b = _Burst();
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 4000));
       // A gen5 deep buffer (v22 research telemetry: identified, archived, not
       // a 1 Hz sample) and a future firmware's unknown revision. The band
       // counted both when it wrote expected=3 — "unknown revisions still
-      // count" is doc 05's rule 4, and an R22-enabled strap puts one of these
+      // count" is the membership rule, and an R22-enabled strap puts one of these
       // in most bursts, so leaving them uncounted starves the gate exactly
       // like the mis-binned event frames did.
       b.rx(_rawHistInner(rev: 22, counter: 4001));
@@ -1293,26 +1289,28 @@ void _burstOrdering() {
   group('T14 — the 15th failed validation is terminal for the session', () {
     final ts = _wallNow() - 3600;
 
-    /// Deliver one burst the band says is longer than it is.
-    Future<void> shortBurst(_Burst b, int token) async {
+    /// One short burst, then marker-only re-offers of its END — the band
+    /// re-offers the terminal roughly every 2.5 s WITHOUT resending frames,
+    /// so the attempt count accumulates on one HISTORY_START.
+    Future<void> stuckAfterFifteen(_Burst b) async {
       b.rx(_historyStart());
-      b.rx(_gen5V18Inner(ts: ts, counter: 4000 + token));
-      b.rx(_historyEnd(expected: 5, token: token));
-      await pumpEventQueue();
+      b.rx(_gen5V18Inner(ts: ts, counter: 4001));
+      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
+        b.rx(_historyEnd(expected: 5, token: 0x8600));
+        await pumpEventQueue();
+      }
     }
 
     test('15 failures abort ONCE, then the re-offered burst is dropped without '
         'validating or aborting again', () async {
       final b = _Burst();
-      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
-        await shortBurst(b, 0x8600 + i);
-      }
+      await stuckAfterFifteen(b);
 
       expect(b.shortLines, hasLength(kBurstValidationAttemptLimit));
       expect(
         b.opcodes.where((o) => o == Cmd.abortHistoricalTransmits).length,
         1,
-        reason: 'ONE abort at the boundary — doc 05 §"Retry boundary"',
+        reason: 'ONE abort at the boundary — ',
       );
       // Attempts 1..14 send a failure result; the 15th deliberately does not.
       expect(
@@ -1323,11 +1321,12 @@ void _burstOrdering() {
 
       // The band does not know the session is over and re-offers the burst
       // roughly every 2.5 s. Each re-offer used to re-enter validation — which
-      // was already past the limit — and abort again: 14+ aborts in 12 s in the
-      // field capture.
+      // was already past the limit — and abort again: 14+ aborts in 12 s on a
+      // real strap.
       final before = b.opcodes.length;
       for (var i = 0; i < 4; i++) {
-        await shortBurst(b, 0x8700 + i);
+        b.rx(_historyEnd(expected: 5, token: 0x8600));
+        await pumpEventQueue();
       }
       expect(b.shortLines, hasLength(kBurstValidationAttemptLimit),
           reason: 'no further validation at all');
@@ -1343,13 +1342,11 @@ void _burstOrdering() {
     test('a same-session drain trigger is refused; a new session drains',
         () async {
       final b = _Burst();
-      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
-        await shortBurst(b, 0x8600 + i);
-      }
+      await stuckAfterFifteen(b);
 
       expect(await b.engine.debugStartHistoricalRefresh(), isFalse,
           reason: 'continuation belongs to a later connection, not to a '
-              'retry on this one (doc 05 §"Retry boundary")');
+              'retry on this one');
       expect(b.engine.offloadSnapshot['stuck_refreshes_refused'], 1);
 
       // A reconnect is the remedy: the latch is session-scoped, so the next
@@ -1364,6 +1361,134 @@ void _burstOrdering() {
       expect(b.shortLines, hasLength(shortBefore),
           reason: 'the fresh session validated its burst normally');
       expect(b.acceptedCounts.last, 1);
+    });
+
+    test('HISTORY_COMPLETE still completes the drain after Stuck', () async {
+      final b = _Burst();
+      await stuckAfterFifteen(b);
+      expect(b.engine.historyStuckThisSession, isTrue);
+
+      b.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(
+        b.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
+        isTrue,
+        reason: 'COMPLETE ACKs nothing and must not be swallowed by the '
+            'latch, or every awaitComplete waiter runs out its timeout',
+      );
+    });
+  });
+
+  group('#260 review — burst boundaries the gate must respect', () {
+    final ts = _wallNow() - 3600;
+
+    test('a new HISTORY_START starts a fresh validation cycle', () async {
+      final b = _Burst();
+      // Burst A fails three times (slack stays 0 through attempt 3).
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 4100));
+      for (var i = 0; i < 3; i++) {
+        b.rx(_historyEnd(expected: 5, token: 0x8620));
+        await pumpEventQueue();
+      }
+      expect(b.shortLines, hasLength(3));
+
+      // Burst B delivers 1 frame against expected 3. With burst A's three
+      // failures inherited, attempt 4's slack of 2 would ACCEPT 1/3 and let
+      // the band trim two frames never tallied. A fresh burst's first
+      // attempt demands every frame.
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts + 1, counter: 4101));
+      b.rx(_historyEnd(expected: 3, token: 0x8621));
+      await pumpEventQueue();
+      expect(b.shortLines, hasLength(4),
+          reason: 'burst B is judged at attempt one, slack zero');
+      expect(b.acceptedCounts, isEmpty);
+    });
+
+    test('chatter after HISTORY_END cannot push a short burst over the line',
+        () async {
+      final b = _Burst();
+      b.rx(_historyStart());
+      b.rx(_gen5V18Inner(ts: ts, counter: 4200));
+      b.rx(_historyEnd(expected: 3, token: 0x8630));
+      await pumpEventQueue();
+      expect(b.shortLines, hasLength(1)); // 1 of 3 — refused
+
+      // Two console lines land during the re-offer window — numerically
+      // exactly the two frames the tally is missing, but they are NOT part
+      // of the window the band counted.
+      b.rx(_consoleInner(1), role: 'events');
+      b.rx(_consoleInner(2), role: 'events');
+      b.rx(_historyEnd(expected: 3, token: 0x8630));
+      await pumpEventQueue();
+      expect(b.shortLines, hasLength(2),
+          reason: 're-validation judges the tally frozen at the terminal');
+      expect(b.acceptedCounts, isEmpty);
+    });
+
+    test('console chatter does not keep a stalled offload alive', () {
+      fakeAsync((async) {
+        final b = _Burst();
+        b.rx(_historyStart());
+        b.rx(_gen5V18Inner(ts: _wallNow() - 3600, counter: 4300));
+        async.flushMicrotasks();
+
+        // 55 s of chatter-only traffic. Each console line is a count member
+        // riding the offload queue, and each used to re-arm the idle
+        // watchdog — so a strap that stalled mid-burst but kept logging
+        // never hit the timeout.
+        for (var i = 0; i < 5; i++) {
+          async.elapse(const Duration(seconds: 11));
+          b.rx(_consoleInner(10 + i), role: 'events');
+          async.flushMicrotasks();
+        }
+        expect(b.opcodes, isNot(contains(Cmd.abortHistoricalTransmits)));
+
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+        expect(b.opcodes, contains(Cmd.abortHistoricalTransmits),
+            reason: 'the fuse measures real drain progress, not chatter');
+      });
+    });
+
+    test('gen4 keeps the advisory-only count behaviour', () async {
+      final logs = <String>[];
+      final frames = <Uint8List>[];
+      final engine = BleEngine(
+        onRecord: (_, _) async {},
+        onState: (_) {},
+        log: logs.add,
+      );
+      engine.debugInstallFakeLink(
+        onWrite: (f) async {
+          frames.add(f);
+          return true;
+        },
+        band: BandProfile.gen4,
+      );
+      engine.debugReceiveFrame(Frame(_historyStart(), true, true),
+          role: 'data');
+      engine.debugReceiveFrame(
+        Frame(_gen4Inner(version: 24, ts: _wallNow() - 3600, counter: 9000),
+            true, true),
+        role: 'data',
+      );
+      engine.debugReceiveFrame(
+          Frame(_historyEnd(expected: 5, token: 0x9900), true, true),
+          role: 'data');
+      await pumpEventQueue();
+
+      expect(logs.any((l) => l.contains('ADVISORY, gen4')), isTrue,
+          reason: 'the mismatch is still visible');
+      expect(logs.any((l) => l.contains('Burst packet-count SHORT')), isFalse,
+          reason: 'but never refused — gen4 count semantics are unpinned');
+      final ops = frames
+          .map((f) => parseFrame(f))
+          .where((p) => p != null && p.valid)
+          .map((p) => p!.inner[2]);
+      expect(ops, isNot(contains(Cmd.abortHistoricalTransmits)));
+      expect(engine.historyStuckThisSession, isFalse);
     });
   });
 }

@@ -3331,7 +3331,7 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
-      // Terminal `Stuck` (doc 05 §"Retry boundary"): a burst failed validation
+      // Terminal `Stuck`: a burst failed validation
       // 15 times and the abort went out, so this connection's history is over.
       // The engine refuses every further drain trigger, but stopping here too
       // keeps the loop from spending its remaining sessions waiting out an idle
@@ -3598,11 +3598,12 @@ class AppState extends ChangeNotifier {
       // Do NOT persist or start the confirmation machine, or we'd strand a
       // phantom alarm "waiting for the strap to confirm" that can never fire.
       // Null now covers two cases: the write never left the phone, and the
-      // strap answered and REFUSED the alarm (doc 07's alarm-status byte —
-      // see BleEngine.setAlarm). Both mean the band holds no alarm, so both
+      // strap answered and REFUSED the alarm. Both mean the band holds no alarm, so both
       // must stay out of persistence; the engine log says which one it was.
       _log('[alarm] the band did not take the alarm — not persisting.');
-      throw Exception('Alarm not set — the strap did not accept it');
+      // Neutral on purpose: null covers both a write that never left the
+      // phone and an explicit refusal — the engine log says which.
+      throw Exception('Alarm not set');
     }
     final epoch = armed.millisecondsSinceEpoch ~/ 1000;
     _savedAlarm = epoch;

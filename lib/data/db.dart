@@ -6379,6 +6379,19 @@ class LocalDb {
                     if (cols.contains(e.key)) e.key: e.value,
                 };
                 if (row.isEmpty) continue;
+                if (t == 'decoded_onehz') {
+                  // A pre-v46 export still carries the retired columns as
+                  // VALUES (the disproven on_wrist/hr_valid reads and the
+                  // -50.00 °C skin-temp error sentinel). Importing them
+                  // verbatim would reinstate exactly the rows the v46
+                  // data-retirement cleaned, so the same rule applies at this
+                  // boundary — the migration only runs on version bumps and
+                  // never sees imported rows.
+                  if (cols.contains('on_wrist')) row['on_wrist'] = null;
+                  if (cols.contains('hr_valid')) row['hr_valid'] = null;
+                  final st = row['skin_temp_c'];
+                  if (st is num && st <= -49.995) row['skin_temp_c'] = null;
+                }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
                     '${row['day_id']}|${row['algo_version']}',

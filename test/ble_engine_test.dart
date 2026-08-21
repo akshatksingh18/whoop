@@ -122,8 +122,8 @@ void main() {
       );
     });
 
-    // The official rule is one-sided with a failure-dependent slack, NOT
-    // equality (doc 05 "Collector and count gate").
+    // The pinned rule is one-sided with a failure-dependent slack, NOT
+    // equality.
     test('SURPLUS passes — there is no upper bound', () {
       // The strap re-offers an unacknowledged burst and may re-deliver frames,
       // so tallying more than expected is normal. Equality failed this.

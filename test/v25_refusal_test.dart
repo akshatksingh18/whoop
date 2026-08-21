@@ -44,18 +44,18 @@ void main() {
     await LocalDb.close();
   });
 
-  test('protocol still hands us the vector — this is the thing we refuse', () {
-    // Not a change request against protocol (SEALED): asserted so that if the
-    // decoder ever DOES change, this test tells whoever changed it that edge
-    // is deliberately dropping the record.
+  test('protocol refuses the vector upstream now — pin the handoff', () {
+    // protocol stopped emitting the v25 "gravity" itself (accelG comes back
+    // EMPTY, not (0,0,0)) — the same refusal this file pins on edge's own
+    // seams. Asserted so that if the decoder ever hands values back again,
+    // this test tells whoever changed it that edge deliberately drops the
+    // record either way.
     final r = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25a));
     expect(r, isNotNull);
     expect(r!.histVersion, 25);
     expect(r.hr, 0, reason: 'v25 carries no heart rate');
-    // The tell: the same "y" value on both records, and a "z" of zero.
-    final s = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25b))!;
-    expect(r.accelG[1], s.accelG[1], reason: 'a wrist axis that never moves');
-    expect(r.accelG[2], 0.0);
+    expect(r.accelG, isEmpty,
+        reason: 'no fabricated stillness from upstream either');
   });
 
   test('decodeSubstrate drops v25 rather than banking a still wrist', () {

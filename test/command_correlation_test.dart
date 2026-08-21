@@ -1,4 +1,4 @@
-// Command/response correlation — doc 02 "Sequence allocation and response
+// Command/response correlation — sequence allocation and response
 // correlation", "Sequence-zero compatibility path", "Ordering", "`PENDING` is
 // per-command" and "Timeouts and retries".
 //
@@ -23,7 +23,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 const _fast = Duration(milliseconds: 40);
 
-/// A synthetic revision-1 gen5 hello body (doc 01 "Revision-1 hello body"),
+/// A synthetic revision-1 gen5 hello body,
 /// parsed by the real protocol decoder so the identity fields under test are
 /// the ones a strap would actually produce.
 Uint8List _helloBody({String serial = 'W5AB12CD34', int tsSeconds = 0}) {
@@ -82,7 +82,8 @@ class _Link {
         written.add((seq: seq, opcode: opcode));
         if (!writesSucceed) return false;
         // The reply is injected from INSIDE the write, i.e. before the write
-        // call has even returned to `_sendAwaited`. That is the ordering doc 02
+        // call has even returned to `_sendAwaited`. That is the ordering the
+        // contract
         // demands: install the observer, then write. A registry built the other
         // way round loses every fast response.
         final reply = replyTo?.call(seq, opcode);
@@ -101,7 +102,7 @@ void main() {
   setUp(BleEngine.resetBandClaimForTest);
   tearDown(BleEngine.resetBandClaimForTest);
 
-  group('CommandAwaiter — both fields must match (doc 02)', () {
+  group('CommandAwaiter — both fields must match', () {
     test('a reply echoing the sequence AND the opcode satisfies the await',
         () async {
       final a = CommandAwaiter();
@@ -133,7 +134,7 @@ void main() {
       expect(
         a.deliver(opcode: Cmd.getClock, reqSeq: 0xA0, status: 1),
         CommandDelivery.unmatched,
-        reason: 'doc 02: a sequence match by itself is insufficient',
+        reason: 'a sequence match by itself is insufficient',
       );
       expect(a.pendingCount, 1, reason: 'the await must stay open');
       expect(await p.response, isNull, reason: 'and then expire');
@@ -171,7 +172,7 @@ void main() {
     });
   });
 
-  group('CommandAwaiter — sequence-zero compatibility path (doc 02)', () {
+  group('CommandAwaiter — sequence-zero compatibility path', () {
     test('an originating seq of 0 matches a nonzero request by opcode',
         () async {
       final a = CommandAwaiter();
@@ -195,7 +196,7 @@ void main() {
 
     test('two outstanding requests for one opcode make it AMBIGUOUS — refuse',
         () async {
-      // doc 02's own caveat: "if you implement this fallback, serialize command
+      // The fallback's own caveat: "if you implement this fallback, serialize command
       // transactions, otherwise two outstanding requests with the same opcode
       // become ambiguous". Guessing which one a seq-0 reply belongs to is how
       // an old request's answer becomes the new request's result.
@@ -220,7 +221,7 @@ void main() {
     });
   });
 
-  group('CommandAwaiter — PENDING is per-command (doc 02)', () {
+  group('CommandAwaiter — PENDING is per-command', () {
     test('GET_HELLO(145) waits past PENDING for a terminal result', () async {
       final a = CommandAwaiter();
       final p = a.register(7, Cmd.getHello, timeout: _fast);
@@ -308,7 +309,7 @@ void main() {
     });
   });
 
-  group('CommandAwaiter — timeouts and lifetime (doc 02)', () {
+  group('CommandAwaiter — timeouts and lifetime', () {
     test('the timeout is 5,000 ms, applied once, with no resend', () async {
       expect(CommandAwaiter.defaultTimeout, const Duration(milliseconds: 5000));
       final a = CommandAwaiter();
@@ -354,7 +355,7 @@ void main() {
     });
   });
 
-  group('HelloIdentity — doc 01 "What gates READY", observed not enforced', () {
+  group('HelloIdentity — the READY identity gate, observed not enforced', () {
     test('alphanumeric serial and CPU pass', () {
       final id = HelloIdentity.evaluate(serial: 'W5AB12CD34', cpuHex: 'abc123');
       expect(id.ok, isTrue);
@@ -382,7 +383,7 @@ void main() {
         cpuHex: 'ab',
         eepromFailureSignal: true,
       );
-      expect(id.ok, isTrue, reason: 'doc 01: not a reject on its own');
+      expect(id.ok, isTrue, reason: 'not a reject on its own');
       expect(id.eepromFailureSignal, isTrue);
     });
   });
@@ -442,7 +443,7 @@ void main() {
       final hello = link.engine.debugReadGen5Hello();
       await pumpEventQueue();
       expect(link.engine.pendingCommandCount, 1,
-          reason: 'GET_HELLO(145) waits past PENDING (doc 02)');
+          reason: 'GET_HELLO(145) waits past PENDING');
 
       link.engine.debugAbsorbDecoded(_helloReply(link.seqOf(Cmd.getHello)));
       expect(await hello, isTrue);
@@ -460,7 +461,7 @@ void main() {
     });
   });
 
-  group('engine wiring — hello failures and the bond reset (doc 01)', () {
+  group('engine wiring — hello failures and the bond reset', () {
     test('failures accumulate and the fifth resets the counter + the bond',
         () async {
       final link = _Link(writesSucceed: false);
@@ -472,7 +473,7 @@ void main() {
       }
       expect(await link.engine.debugReadGen5Hello(), isFalse);
       expect(link.engine.helloFailureCount, 0,
-          reason: 'doc 01: at five, reset the counter');
+          reason: 'at five, reset the counter');
       expect(link.logs.any((l) => l.contains('bond')), isTrue,
           reason: 'and remove the platform bond before starting over');
       expect(BleEngine.kHelloFailuresBeforeBondReset, 5);
@@ -504,7 +505,7 @@ void main() {
     });
   });
 
-  group('engine wiring — identity is logged, never enforced (doc 01)', () {
+  group('engine wiring — identity is logged, never enforced', () {
     test('a non-alphanumeric serial is flagged but the hello still succeeds',
         () async {
       final link = _Link(

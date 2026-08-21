@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-  Small metrics widget: 2x2 ring grid (Ready · Strain / Sleep · HRV) — mirrors
-  SmallView in OpenStrapWidget.swift, sized for a 2x2 Android cell (~110-140dp).
-  Colours/backgrounds set at render time.
+  The 2x2 face. Three columns of "7h 17m" do not fit across 110dp, so this is
+  Home's OWN accessibility layout instead — dial left, type in the width it
+  needs — rather than a squeezed version of the wide one. Same ids as
+  widget_openstrap.xml, so the provider renders both through one path.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -9,181 +10,131 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="8dp">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+    android:padding="10dp">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:layout_marginTop="0dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <FrameLayout
-                android:layout_width="40dp"
-                android:layout_height="40dp">
+            <ImageView
+                android:id="@+id/dial_recovery"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:importantForAccessibility="no" />
 
-                <ImageView
-                    android:id="@+id/ring_readiness"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/val_readiness"
+                    android:id="@+id/cap_recovery"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:textSize="12sp"
+                    android:textSize="8sp"
                     android:textStyle="bold"
+                    android:letterSpacing="0.05"
                     android:maxLines="1" />
-            </FrameLayout>
 
-            <TextView
-                android:id="@+id/cap_readiness"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="READY"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.09"
-                android:maxLines="1" />
+                <TextView
+                    android:id="@+id/val_recovery"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="8sp"
+                    android:autoSizeMaxTextSize="14sp"
+                    android:autoSizeStepGranularity="1sp"
+                    android:textSize="14sp"
+                    android:maxLines="1" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <FrameLayout
-                android:layout_width="40dp"
-                android:layout_height="40dp">
+            <ImageView
+                android:id="@+id/dial_strain"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:importantForAccessibility="no" />
 
-                <ImageView
-                    android:id="@+id/ring_strain"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/cap_strain"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="8sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.05"
+                    android:maxLines="1" />
 
                 <TextView
                     android:id="@+id/val_strain"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="8sp"
+                    android:autoSizeMaxTextSize="14sp"
+                    android:autoSizeStepGranularity="1sp"
+                    android:textSize="14sp"
                     android:maxLines="1" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/cap_strain"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="STRAIN"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.09"
-                android:maxLines="1" />
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <FrameLayout
-                android:layout_width="40dp"
-                android:layout_height="40dp">
+            <ImageView
+                android:id="@+id/dial_sleep"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:importantForAccessibility="no" />
 
-                <ImageView
-                    android:id="@+id/ring_sleep"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/cap_sleep"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="8sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.05"
+                    android:maxLines="1" />
 
                 <TextView
                     android:id="@+id/val_sleep"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:gravity="center"
-                    android:paddingStart="7dp"
-                    android:paddingEnd="7dp"
                     android:autoSizeTextType="uniform"
                     android:autoSizeMinTextSize="8sp"
-                    android:autoSizeMaxTextSize="11sp"
+                    android:autoSizeMaxTextSize="14sp"
                     android:autoSizeStepGranularity="1sp"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
+                    android:textSize="14sp"
                     android:maxLines="1" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/cap_sleep"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="SLEEP"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.09"
-                android:maxLines="1" />
+            </LinearLayout>
         </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center_horizontal">
-
-            <FrameLayout
-                android:layout_width="40dp"
-                android:layout_height="40dp">
-
-                <ImageView
-                    android:id="@+id/ring_hrv"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no" />
-
-                <TextView
-                    android:id="@+id/val_hrv"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:maxLines="1" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/cap_hrv"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="HRV"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.09"
-                android:maxLines="1" />
-        </LinearLayout>
-    </LinearLayout>
 </LinearLayout>

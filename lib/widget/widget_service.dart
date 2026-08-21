@@ -11,8 +11,9 @@ import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
 
 import '../data/local_repository.dart';
+import '../models/metric.dart';
 import '../models/payloads.dart';
-import '../ui2/screens/home_screen.dart' show readinessBand;
+import '../ui2/screens/home_screen.dart' show hm, readinessBand;
 
 class WidgetService {
   static const _platform = MethodChannel('openstrap/ios_config');
@@ -33,6 +34,22 @@ class WidgetService {
 
   /// Android provider class for the Band Battery widget.
   static const String _batteryAndroidName = 'OpenStrapBatteryWidgetProvider';
+
+  /// The other two faces on the same snapshot: last night's sleep, and the
+  /// overnight autonomic pair (HRV + resting HR). They read the keys [push]
+  /// writes, so they reload with it — a widget left holding yesterday because
+  /// nobody told it to re-read is the failure this list exists to stop.
+  static const List<(String, String)> _snapshotWidgets = [
+    (_iOSName, _androidName),
+    ('OpenStrapSleepWidget', 'SleepWidgetProvider'),
+    ('OpenStrapOvernightWidget', 'OvernightWidgetProvider'),
+  ];
+
+  static Future<void> _reloadSnapshotWidgets() async {
+    for (final (ios, android) in _snapshotWidgets) {
+      await HomeWidget.updateWidget(iOSName: ios, androidName: android);
+    }
+  }
 
   static bool _inited = false;
   static Future<void> init() async {
@@ -105,11 +122,26 @@ class WidgetService {
   static Future<void> push(TodayData t) async {
     try {
       await init();
-      final hrv = t.hrv;
+      // WHICH NIGHT IS THIS. `getToday` holds the last night that scored over
+      // until today's settles, so every morning before the first sync the
+      // overnight block belongs to the night BEFORE last. Home refuses those
+      // numbers rather than printing them in the today slot (`overnightMetric`
+      // in lib/ui2/screens/home_screen.dart) — a figure in the today slot is
+      // read as today's before any caption under it is, and that is even truer
+      // on a home screen than in the app. So the same refusal happens here, and
+      // the reason travels in the numbers' place.
+      final heldWhy = _heldOverWhy(t.status);
+      Metric ov(Metric m) => heldWhy == null ? m : Metric(note: heldWhy);
+
+      final readiness = ov(t.readiness);
+      // The DAY's strain, not the night's — Home does not refuse it either
+      // (home_screen.dart: `strain: metricOf(d('strain'))`).
       final s = t.strain;
-      final sleep = t.sleepDuration;
+      final sleep = ov(t.sleepDuration);
       final need = t.sleepNeed;
-      final rhr = t.restingHr;
+      final eff = ov(t.sleepEfficiency);
+      final rhr = ov(t.restingHr);
+      final hrv = heldWhy == null ? t.hrv : null;
 
       Future<void> setI(String k, int v) =>
           HomeWidget.saveWidgetData<int>(k, v);
@@ -122,8 +154,8 @@ class WidgetService {
       // answer, and the alternative is a readiness score from last week with
       // nothing on it to say so.
       await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty && !isStale(t));
-      // Headline composite Readiness + the three rings (Strain · Sleep · HRV).
-      final rv = t.readiness.isEmpty ? null : t.readiness.value;
+      // Headline composite Readiness — the Recovery ring on Home.
+      final rv = readiness.isEmpty ? null : readiness.value;
       await setI('readiness', rv == null ? -1 : rv.round());
       // The banding, published rather than re-derived. The widget, the Watch
       // and Siri each carried their own thresholds, so the same 65 read green
@@ -159,16 +191,66 @@ class WidgetService {
       // it empty.
       await setI('sleep_need_min', need.isEmpty ? -1 : need.value!.round());
       await setI('rhr', rhr.isEmpty ? -1 : rhr.value!.round());
+      // Sleep efficiency, % — the second number the Sleep widget shows. -1 when
+      // the night has none, like every other int key here.
+      await setI('sleep_efficiency', eff.isEmpty ? -1 : eff.value!.round());
+      // Why the overnight numbers are missing, for the surfaces that show only
+      // those (the Overnight widget's HRV and resting HR). '' when they are
+      // today's own.
+      await HomeWidget.saveWidgetData<String>('overnight_why', heldWhy ?? '');
       await HomeWidget.saveWidgetData<String>(
         'coach_line',
         _coachLine(t.coach),
       );
+
+      // THE THREE HOME RINGS, RESOLVED HERE. Recovery · Strain · Sleep, the
+      // same trio and the same four states as `RingTrio` on Home.
+      //
+      // Resolved in Dart rather than three times in Swift, Kotlin and Watch
+      // Swift for the reason `readiness_tier` already exists: a rule copied
+      // into four build targets is four rules. Two of these states cannot be
+      // worked out natively at all — the calibration counts and the pipeline's
+      // own reason both live in a metric's `note`, which never crossed the App
+      // Group. Until now a widget drew a blank dimmed circle for BOTH of them,
+      // so "four more nights and this fills in" and "the band recorded nothing"
+      // looked identical, forever.
+      for (final r in [
+        rv == null
+            ? _gapRing('recovery', readiness, 'Not scored')
+            : _Ring('recovery',
+                value: '${rv.round()}',
+                sub: band.label,
+                frac: rv / 100),
+        s.isEmpty
+            // 0–21 is the scale's own ceiling, not a target invented here.
+            ? _gapRing('strain', s, 'No strain', unit: 'days')
+            : _Ring('strain',
+                value: s.value!.toStringAsFixed(1),
+                sub: 'of 21',
+                frac: s.value! / 21),
+        sleep.isEmpty
+            ? _gapRing('sleep', sleep, 'No sleep',
+                fallbackWhy: 'No night long enough to score was recorded.')
+            : _Ring('sleep',
+                value: hm(sleep.value),
+                // No computed need means no denominator. The hardcoded 480 in
+                // the sleep bundle is not this user's need and must never be
+                // shown as one, so the ring stays open and says so.
+                sub: need.isEmpty ? 'No target yet' : 'of ${hm(need.value)}',
+                frac: need.isEmpty || need.value! <= 0
+                    ? null
+                    : sleep.value! / need.value!),
+      ]) {
+        await setI('ring_${r.key}_state', r.state);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_value', r.value);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_sub', r.sub);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_why', r.why);
+        await HomeWidget.saveWidgetData<double>('ring_${r.key}_frac', r.frac);
+      }
+
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
-      await HomeWidget.updateWidget(
-        iOSName: _iOSName,
-        androidName: _androidName,
-      );
+      await _reloadSnapshotWidgets();
       await _syncWatch();
     } catch (_) {
       /* widgets unavailable / not configured yet — ignore */
@@ -197,14 +279,25 @@ class WidgetService {
         'hrv_baseline',
         'sleep_min',
         'sleep_need_min',
+        'sleep_efficiency',
         'rhr',
         'batt_pct',
       ]) {
         await HomeWidget.saveWidgetData<int>(k, -1);
       }
       await HomeWidget.saveWidgetData<double>('strain', -1.0);
+      // The three resolved home rings. `state: 2` with no reason and no arc is
+      // the honest shape of a wiped database — not a ring reporting zero.
+      for (final r in const ['recovery', 'strain', 'sleep']) {
+        await HomeWidget.saveWidgetData<int>('ring_${r}_state', 2);
+        await HomeWidget.saveWidgetData<double>('ring_${r}_frac', -1.0);
+        for (final f in const ['value', 'sub', 'why']) {
+          await HomeWidget.saveWidgetData<String>('ring_${r}_$f', '');
+        }
+      }
       for (final k in const [
         'readiness_band',
+        'overnight_why',
         'coach_line',
         'batt_name',
         // A route a Siri intent asked for before the wipe is not a route we
@@ -223,10 +316,7 @@ class WidgetService {
       ]) {
         await HomeWidget.saveWidgetData<bool>(k, false);
       }
-      await HomeWidget.updateWidget(
-        iOSName: _iOSName,
-        androidName: _androidName,
-      );
+      await _reloadSnapshotWidgets();
       await HomeWidget.updateWidget(
         iOSName: _batteryIOSName,
         androidName: _batteryAndroidName,
@@ -277,10 +367,7 @@ class WidgetService {
     try {
       await init();
       await HomeWidget.saveWidgetData<bool>('theme_dark', dark);
-      await HomeWidget.updateWidget(
-        iOSName: _iOSName,
-        androidName: _androidName,
-      );
+      await _reloadSnapshotWidgets();
       // The battery widget shares the Ember/Char surface — retheme it too.
       await HomeWidget.updateWidget(
         iOSName: _batteryIOSName,
@@ -348,6 +435,45 @@ class WidgetService {
     return false;
   }
 
+  /// Why the overnight block on offer is not today's, or null when it is.
+  ///
+  /// Two absences that are not interchangeable and the same two sentences
+  /// `staleOvernightNote` uses on Home — one resolves on its own, the other
+  /// wants a sync. Written out here rather than imported because that helper
+  /// takes the raw `getToday()` map and this seam is handed the parsed payload.
+  static String? _heldOverWhy(TodayStatus? s) {
+    if (s == null || !s.showingPriorOvernight) return null;
+    return s.overnightBuilding
+        ? 'Last night is still being worked out.'
+        : 'Nothing from last night has reached the app yet.';
+  }
+
+  /// The absent half of a ring: CALIBRATING when the note says the gate is a
+  /// baseline still filling — the one absence that is progress and can honestly
+  /// draw an arc — otherwise the word and the pipeline's own reason.
+  /// Mirrors `_gap` in lib/ui2/screens/home_screen.dart.
+  static _Ring _gapRing(String key, Metric m, String word,
+      {String unit = 'nights', String fallbackWhy = ''}) {
+    final counts = baselineCountsFromNote(m.note);
+    if (counts != null) {
+      return _Ring(key,
+          state: 1,
+          value: 'Calibrating',
+          sub: '${counts.have} of ${counts.need} $unit',
+          frac: (counts.have / counts.need).clamp(0.0, 1.0));
+    }
+    return _Ring(key,
+        state: 2,
+        value: word,
+        // THE PIPELINE'S REASON FIRST, a sentence written here second, and
+        // where there is neither the ring says it does not know rather than
+        // guessing a cause.
+        why: whyFromNote(m.note, unit: unit) ??
+            (fallbackWhy.isNotEmpty
+                ? fallbackWhy
+                : 'Nothing recorded says why this is missing.'));
+  }
+
   static String _coachLine(CoachData? c) {
     if (c == null) return '';
     if (c.plan.isNotEmpty) return c.plan.first.title;
@@ -355,4 +481,42 @@ class WidgetService {
     if (tgt != null) return 'Aim for strain ${tgt.value.toStringAsFixed(0)}';
     return c.summary;
   }
+}
+
+/// One home ring as the native surfaces receive it: already-formatted text, a
+/// sweep, and which of the four states it is in. Nothing downstream of this
+/// decides what a metric means.
+class _Ring {
+  final String key;
+
+  /// 0 measured · 1 calibrating (arc is progress, drawn muted) · 2 absent.
+  final int state;
+
+  /// The number, or the absence in words. Never a bare dash and never empty:
+  /// a widget is the surface most likely to be read out of context, and a blank
+  /// circle says nothing at all.
+  final String value;
+
+  /// What the number is out of ("of 21", "of 7h 30m", the readiness band), or
+  /// the calibration count.
+  final String sub;
+
+  /// The pipeline's own reason, absent rings only. '' otherwise.
+  final String why;
+
+  /// What to sweep, 0…1 — negative when there is nothing honest to sweep.
+  final double frac;
+
+  /// CLAMPED HERE, not at the three call sites. Sleeping longer than your need
+  /// is a fraction above 1, and the native readers take this as a sweep — an
+  /// arc that laps itself, or a progress bar that draws past its own end,
+  /// depending on which of the four targets is reading. The number the ring
+  /// shows is the real one ("8h 10m of 7h 30m"); only the arc is bounded.
+  _Ring(this.key,
+      {this.state = 0,
+      required this.value,
+      this.sub = '',
+      this.why = '',
+      double? frac})
+      : frac = frac == null ? -1 : frac.clamp(0.0, 1.0);
 }

@@ -64,9 +64,10 @@ because a sideloaded app has no store to tell you a security fix exists.
 
 **Barcode lookup for food logging**
 The food log can read a barcode with the camera and fill in the nutrition
-figures for you. Doing that means asking a database, so it is **off until you
-turn it on**, and the App asks you before the first lookup ever happens — not
-after.
+figures for you. Doing that means asking a database, so it is **on by
+default**: what leaves is a number the manufacturer printed on the packet, and
+nothing about you goes with it. Turn it off and the scan stops asking anybody
+anything.
 
 - **What is sent is the barcode.** It goes to openfoodfacts.org, the free and
   open food database. Nothing about you, your meals, your health or your device
@@ -157,7 +158,7 @@ moment you tap it:
   further upload immediately, and the App tells you when the last one was.
 - **Check for updates** — turning it off stops the App making any network
   request of its own accord.
-- **Look barcodes up online** — off by default; turning it off stops any
+- **Look barcodes up online** — on by default; turning it off stops any
   further lookup immediately, and the food log keeps working by hand.
 
 You can also disable AI Coach or Health app integration at any time in Settings

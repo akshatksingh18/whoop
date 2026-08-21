@@ -147,14 +147,21 @@ void main() {
   group('readiness banding', () {
     test('tiers at the boundaries', () {
       expect(readinessBand(100).tier, 3);
-      expect(readinessBand(80).tier, 3);
-      expect(readinessBand(79.9).tier, 2);
-      expect(readinessBand(65).tier, 2);
-      expect(readinessBand(60).tier, 2);
-      expect(readinessBand(59.9).tier, 1);
-      expect(readinessBand(40).tier, 1);
-      expect(readinessBand(38).tier, 0);
+      expect(readinessBand(61).tier, 3);
+      expect(readinessBand(60.9).tier, 2);
+      expect(readinessBand(50).tier, 2);
+      expect(readinessBand(37).tier, 2);
+      expect(readinessBand(36.9).tier, 1);
+      expect(readinessBand(26).tier, 1);
+      expect(readinessBand(25.9).tier, 0);
       expect(readinessBand(0).tier, 0);
+    });
+
+    // The bug the cut-offs above exist to fix (#250): the score's centre is 50
+    // by construction, so whatever band contains 50 is the one a typical night
+    // gets. It must not be a warning.
+    test('a night at personal median is the neutral band, not a warning', () {
+      expect(readinessBand(50).label, 'Steady');
     });
 
     test('an unscored day is tier -1, which every native reader paints grey',
@@ -171,9 +178,9 @@ void main() {
     test('the tier and its label are published for the native surfaces',
         () async {
       await WidgetService.push(TodayData.fromJson({
-        'daily': {'readiness': 65},
+        'daily': {'readiness': 50},
       }));
-      expect(written['readiness'], 65);
+      expect(written['readiness'], 50);
       expect(written['readiness_tier'], 2);
       expect(written['readiness_band'], 'Steady');
     });
@@ -190,6 +197,125 @@ void main() {
       await WidgetService.clear();
       expect(written['readiness_tier'], -1);
       expect(written['readiness_band'], '');
+    });
+  });
+
+  // The three home rings, resolved in Dart because two of their four states
+  // CANNOT be worked out natively: the calibration counts and the pipeline's
+  // reason both live in a metric's `note`, which never used to cross the App
+  // Group. The widget drew one dimmed empty circle for both, so "four more
+  // nights and this fills in" and "the band recorded nothing" were the same
+  // picture, forever.
+  group('the home rings', () {
+    test('a measured ring publishes the number, what it is out of, and a sweep',
+        () async {
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {
+          'readiness': 74,
+          'strain': 12.4,
+        },
+        'sleep': {'duration_min': 437, 'need_min': 465},
+      }));
+      expect(written['ring_recovery_state'], 0);
+      expect(written['ring_recovery_value'], '74');
+      expect(written['ring_recovery_sub'], 'Good to go');
+      expect(written['ring_strain_value'], '12.4');
+      expect(written['ring_strain_sub'], 'of 21');
+      expect(written['ring_sleep_value'], '7h 17m');
+      expect(written['ring_sleep_sub'], 'of 7h 45m');
+      expect(written['ring_sleep_frac'], closeTo(437 / 465, 1e-9));
+      // Nothing is missing, so nothing has a reason.
+      expect(written['ring_recovery_why'], '');
+    });
+
+    // The one absence that is PROGRESS rather than a gap, and the only one a
+    // ring may honestly draw an arc for.
+    test('a baseline still filling is calibration progress, not a low score',
+        () async {
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {
+          'readiness': {'value': null, 'note': 'need_baseline:have=2,need=5'},
+        },
+      }));
+      expect(written['readiness'], -1);
+      expect(written['ring_recovery_state'], 1);
+      expect(written['ring_recovery_value'], 'Calibrating');
+      expect(written['ring_recovery_sub'], '2 of 5 nights');
+      expect(written['ring_recovery_frac'], closeTo(0.4, 1e-9));
+    });
+
+    test('an absence is a word and a reason — never a dash, never an arc',
+        () async {
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {'readiness': null},
+        'sleep': const {},
+      }));
+      expect(written['ring_sleep_state'], 2);
+      expect(written['ring_sleep_value'], 'No sleep');
+      expect(written['ring_sleep_frac'], -1.0);
+      // Every absent ring says something. A blank circle says nothing at all,
+      // which on a home screen is worse than a number.
+      for (final r in const ['recovery', 'strain', 'sleep']) {
+        expect(written['ring_${r}_value'], isNotEmpty, reason: r);
+        expect(written['ring_${r}_value'], isNot(contains('—')), reason: r);
+        expect(written['ring_${r}_why'], isNotEmpty, reason: r);
+      }
+    });
+
+    test('sleep with no learned need is measured but unscaled, not filled to 8h',
+        () async {
+      await WidgetService.push(TodayData.fromJson({
+        'sleep': {'duration_min': 437},
+      }));
+      expect(written['ring_sleep_state'], 0);
+      expect(written['ring_sleep_value'], '7h 17m');
+      expect(written['ring_sleep_sub'], 'No target yet');
+      expect(written['ring_sleep_frac'], -1.0);
+    });
+  });
+
+  // `getToday` holds the last night that scored over until today's settles, so
+  // every morning before the first sync the overnight block belongs to the
+  // night BEFORE last. Home refuses those numbers rather than printing them in
+  // the today slot (`overnightMetric`), and a home screen is the surface where
+  // a number is read as today's hardest of all.
+  group('a night that is not today\'s', () {
+    Map<String, dynamic> heldOver(String state) => {
+          'daily': {'readiness': 74, 'resting_hr': 52, 'strain': 9.1},
+          'sleep': {'duration_min': 437},
+          'hrv': {'rmssd': 62.0, 'baseline': 58.0},
+          'status': {
+            'showing_prior_overnight': true,
+            'overnight_state': state,
+            'overnight_day': todayLabel(),
+          },
+        };
+
+    test('its numbers are refused and the reason travels in their place',
+        () async {
+      await WidgetService.push(TodayData.fromJson(heldOver('missing')));
+      expect(written['readiness'], -1);
+      expect(written['readiness_tier'], -1);
+      expect(written['sleep_min'], -1);
+      expect(written['hrv'], -1);
+      expect(written['rhr'], -1);
+      expect(written['ring_recovery_value'], 'Not scored');
+      expect(written['ring_recovery_why'],
+          'Nothing from last night has reached the app yet.');
+      expect(written['overnight_why'],
+          'Nothing from last night has reached the app yet.');
+    });
+
+    test('a night still being worked out is a different sentence — it resolves '
+        'on its own and asks nothing of anyone', () async {
+      await WidgetService.push(TodayData.fromJson(heldOver('building')));
+      expect(written['ring_sleep_why'], 'Last night is still being worked out.');
+    });
+
+    test('the DAY\'s strain is not an overnight figure and survives', () async {
+      await WidgetService.push(TodayData.fromJson(heldOver('missing')));
+      expect(written['strain'], 9.1);
+      expect(written['ring_strain_value'], '9.1');
     });
   });
 

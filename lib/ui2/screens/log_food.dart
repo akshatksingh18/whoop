@@ -147,16 +147,22 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
 
   // ── the barcode path ──────────────────────────────────────────────────────
 
-  /// Scan, then look the code up — but only after the user has agreed to the
-  /// one outbound call this screen can make.
+  /// Scan, then look the code up.
   ///
-  /// The consent is asked BEFORE the camera opens, not after: someone who
-  /// would decline should not have pointed their phone at a packet first.
+  /// Lookup is on by default, so this normally goes straight to the camera.
+  /// The prompt below is for the person who turned it OFF and then tapped
+  /// Scan: refusing silently there reads as a broken scanner. It is asked
+  /// BEFORE the camera opens, not after — someone who would decline should not
+  /// have pointed their phone at a packet first.
   Future<void> _scan() async {
     if (!offLookupAllowed) {
       final agreed = await _askLookupConsent(context);
       if (agreed != true || !mounted) return;
-      setOffLookupAllowed(true);
+      // Awaited so the consent is on disk before the camera opens. A write
+      // that fails only means being asked again next launch — the direction
+      // that cannot hurt anyone.
+      await setOffLookupAllowed(true);
+      if (!mounted) return;
     }
     final code = await scanBarcode(context);
     if (code == null || !mounted) return;

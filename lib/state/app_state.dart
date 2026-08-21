@@ -45,6 +45,9 @@ import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
+import '../data/journal_fields.dart'
+    show JournalMetricValue, kJournalFieldsByKey;
+import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart'
     show BackupCadence, BackupOutcome, runBackup;
 import '../stress/breath_phases.dart';
@@ -192,7 +195,6 @@ class AppState extends ChangeNotifier {
   // "last data: …" indicator must show. Seeded from the DB at init, advanced as
   // records (drained + live) flow in.
   int? _lastRecTs;
-  Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
   bool busy = false;
 
@@ -368,6 +370,11 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastNoopImport = res;
+    // The rows are durable — tell the screens that read them. Without this an
+    // import landed days, sessions and journal rows into a database every live
+    // tab had already finished reading, and the only way to see them was to
+    // relaunch the app.
+    bumpInsights();
     notifyListeners();
     return res.days;
   }
@@ -396,6 +403,7 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastWhoopImport = res;
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     return res.days;
   }
@@ -409,44 +417,18 @@ class AppState extends ChangeNotifier {
 
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
-    // The app's OWN automatic backup is gzipped (`.db.gz`, see
-    // auto_backup.dart's kBackupExtension) and `importFromDbFile` opens a
-    // SQLite file, so restoring one on a new phone failed — the most important
-    // import path there is, and the only one where the user has already lost
-    // the original. Detected by magic bytes rather than by extension so a
-    // renamed file still restores.
-    String src = path;
-    String? inflated;
-    try {
-      final head = await File(path).openRead(0, 2).first;
-      if (head.length >= 2 && head[0] == 0x1f && head[1] == 0x8b) {
-        inflated = '$path.inflated.db';
-        final sink = File(inflated).openWrite();
-        await File(path).openRead().transform(gzip.decoder).pipe(sink);
-        src = inflated;
-      }
-    } catch (_) {
-      // Unreadable header — hand the original to the importer and let its own
-      // error be the one the user sees.
-      src = path;
-    }
-    final counts = await () async {
-      try {
-        return await LocalDb.importFromDbFile(src);
-      } finally {
-        if (inflated != null) {
-          try {
-            await File(inflated).delete();
-          } catch (_) {}
-        }
-      }
-    }();
+    // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
+    // do not add it back here. Its inflate checks the gzip trailer, so a
+    // truncated backup fails loudly; `gzip.decoder` returns partial output
+    // without raising and would restore short while reporting success.
+    final counts = await LocalDb.importFromDbFile(path);
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
     } catch (e) {
       importRollupError = '$e';
     }
+    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
     // DAYS, not rows. `_days` is a distinct day_id count taken from the source
     // file; the caller reports "N days imported" and a row total is not that.
@@ -454,12 +436,18 @@ class AppState extends ChangeNotifier {
   }
 
   // ── platform health export (Apple Health / Health Connect) ──────────────────
-  final HealthExporter _healthExport = HealthExporter();
+  // The shared instance, not a private one: the coach and the log-workout
+  // sheet reach the exporter through `HealthExporter.exportWorkoutId` with no
+  // AppState in hand, and two exporters would mean two `Health()` handles and
+  // two Health-Connect availability probes doing the same work.
+  final HealthExporter _healthExport = HealthExporter.shared;
   final HealthExportSingleFlight _healthExportSingleFlight =
       HealthExportSingleFlight();
   HealthLinkState healthState = HealthLinkState.unknown;
   bool healthSyncEnabled = false;
-  static const String _kHealthSync = 'health_sync';
+  // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
+  // switch from callers that never see this class.
+  static const String _kHealthSync = kHealthSyncPref;
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
@@ -692,13 +680,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// Session-triggered Health export for one just-finished workout (issue
-  /// #130) — used by callers outside this class (e.g. confirming an
-  /// auto-detected workout in workouts_screen.dart) that write a `sessions`
-  /// row directly rather than going through [stopWorkout]. See
+  /// #130) — for callers outside this class that write a `sessions` row
+  /// directly rather than going through [stopWorkout]. See
   /// [HealthExporter.exportWorkout] for why this can't just wait for the next
   /// day export. Best-effort, never throws.
-  Future<bool> exportWorkoutToHealth(Map<String, Object?> session) =>
-      _healthExport.exportWorkout(session);
+  ///
+  /// This used to take the row, and its only two call sites went out with the
+  /// old `lib/ui/workouts` — leaving it callerless while `logManualWorkout`
+  /// paths (the coach, the log-workout sheet) exported nothing at all. Those
+  /// callers hold the `workout_id` the repo hands back, not the row, and most
+  /// of them have no AppState to reach for either, so the seam that matters is
+  /// [HealthExporter.exportWorkoutId] and this just forwards to it.
+  Future<bool> exportWorkoutToHealth(String? sessionId) =>
+      HealthExporter.exportWorkoutId(sessionId);
 
   // ── companion: anonymous telemetry + health-data contribution ────────────────
   // All anchored to a stable anonymous install id (no account). Two SEPARATE
@@ -1138,6 +1132,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onMarkMoment: _markMomentFromGesture,
       onWorkoutToggle: _toggleWorkoutFromGesture,
+      onLogWater: _logWaterFromGesture,
     );
     engine = BleEngine(
       onRecord: _onRecord,
@@ -1225,6 +1220,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onMarkMoment: _markMomentFromGesture,
       onWorkoutToggle: _toggleWorkoutFromGesture,
+      onLogWater: _logWaterFromGesture,
     );
     this.engine = engine ??
         BleEngine(
@@ -1386,7 +1382,6 @@ class AppState extends ChangeNotifier {
         heavy: heavy,
         onDayDone: (day, index, total) async {
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
@@ -1410,7 +1405,7 @@ class AppState extends ChangeNotifier {
         _log('[derive] session rescore failed: $e');
       }
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
+      bumpInsights();
       notifyListeners(); // screens re-fetch from the derived store
       // Same signal, for the surfaces that can't listen: home/lock-screen
       // widget, Watch mirror, Siri intents (WidgetService.refresh).
@@ -1772,6 +1767,13 @@ class AppState extends ChangeNotifier {
     if (nowMs - _lastStillnessScheduleMs < 10 * 60 * 1000) return;
     _lastStillnessScheduleMs = nowMs;
     try {
+      // Opt-in, off by default. Read here rather than cached because this runs
+      // at most once every ten minutes and SharedPreferences is already in
+      // memory — and because the switch has to bite on the next movement, not
+      // at the next launch. It is also what makes the slot allow-listed at all
+      // (NotificationService.schedulableIds): a nudge with no off switch was
+      // refused there, and had never once fired.
+      if (!(await NotificationPrefs.load()).movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
       final at =
           DateTime.fromMillisecondsSinceEpoch(nowMs).add(const Duration(hours: 2));
@@ -1815,14 +1817,12 @@ class AppState extends ChangeNotifier {
         onDayDone: (day, index, total) async {
           reanalyzeProgress = 'Analyzing $index/$total';
           if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
             notifyListeners();
           }
         },
       );
       await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
-      dbCounts = await LocalDb.counts();
+      bumpInsights();
       return n;
     } catch (e) {
       _log('[derive] reanalyze failed: $e');
@@ -1890,7 +1890,9 @@ class AppState extends ChangeNotifier {
     try {
       await _derive.run(_profile, force: true);
       await LocalDb.refreshComputeFreshness();
-      dbCounts = await LocalDb.counts();
+      // The day_result rows just changed — without this no RevisionReload screen
+      // re-reads, so an override/nap edit only showed up after a restart.
+      bumpInsights();
     } catch (e) {
       _log('[derive] sleep-override re-derive failed: $e');
     } finally {
@@ -1905,40 +1907,6 @@ class AppState extends ChangeNotifier {
   /// when they are finalized.
   Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
 
-  Future<int> reanalyzeDays(Set<String> days) async {
-    if (days.isEmpty || reanalyzing) return 0;
-    reanalyzing = true;
-    final ordered = days.toList()..sort();
-    reanalyzeProgress =
-        'Analyzing ${ordered.length} day${ordered.length == 1 ? '' : 's'}…';
-    notifyListeners();
-    try {
-      final n = await _derive.runDays(
-        _profile,
-        days,
-        force: true,
-        onDayDone: (day, index, total) async {
-          reanalyzeProgress = 'Analyzing $index/$total';
-          if (index == total || index == 1 || index % 3 == 0) {
-            dbCounts = await LocalDb.counts();
-            notifyListeners();
-          }
-        },
-      );
-      await LocalDb.refreshComputeFreshness();
-      _bumpInsightsRevision();
-      dbCounts = await LocalDb.counts();
-      return n;
-    } catch (e) {
-      _log('[derive] reanalyze selected failed: $e');
-      return 0;
-    } finally {
-      reanalyzing = false;
-      reanalyzeProgress = '';
-      notifyListeners();
-    }
-  }
-
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
       LocalDb.dataHistoryDays();
 
@@ -1950,15 +1918,20 @@ class AppState extends ChangeNotifier {
   Future<int> deleteDays(Set<String> dayIds) async {
     final deleted = await LocalDb.deleteDays(dayIds);
     await LocalDb.refreshComputeFreshness();
-    dbCounts = await LocalDb.counts();
     lastSynced = await LocalDb.latestSample();
+    // Deleting days is a durable write like any other, so the screens holding a
+    // cached read have to be told. `notifyListeners()` alone leaves a
+    // RevisionReload screen showing days that are gone until some unrelated
+    // bump or a restart — and this is the one write where the stale copy is of
+    // data the user explicitly asked to destroy.
+    if (deleted > 0) bumpInsights();
     notifyListeners();
     return deleted;
   }
 
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
-  /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
+  /// LIGHT derive over the affected day(s).
   ///
   /// This is also THE reliable place to refresh `_lastRecTs` (the "last data"
   /// freshness banner reads it). `_runSyncBurst`'s own before/after frontier
@@ -1967,13 +1940,12 @@ class AppState extends ChangeNotifier {
   /// checkpoint-based refresh can miss a burst entirely. This callback fires
   /// on EVERY successful persist path (foreground burst, background/headless
   /// drain, live-triggered store) after the write is durable, so it can't
-  /// race it — same guarantee dbCounts already relies on above.
+  /// race it.
   void _onDataStored() {
     // Synchronously, before the async read below: this is the moment records
     // became durable, and it is the only path that sees every commit.
     _markSyncActivity();
     unawaited(() async {
-      dbCounts = await LocalDb.counts();
       final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
@@ -2066,7 +2038,6 @@ class AppState extends ChangeNotifier {
     // policies already trust).
     _lastRecTs =
         await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
-    dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // Band-gesture mapping: load the saved action + query native capabilities so the
@@ -2197,9 +2168,13 @@ class AppState extends ChangeNotifier {
     try {
       final prefs = await NotificationPrefs.load();
       final bedtimeMin = await _recommendedBedtimeMin();
+      final meds = await _medScheduleToday(prefs);
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
         bedtimeMinOfDay: bedtimeMin,
+        checkInDoneToday: await _checkInDoneToday(),
+        medDefs: meds.defs,
+        medDosesToday: meds.doses,
       );
       // AI slots. The nightly sweep is armed only when today actually produced
       // a finding — see [_sweepHeadlineNow], which is also where the body of
@@ -2234,6 +2209,49 @@ class AppState extends ChangeNotifier {
       return (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
     } catch (_) {
       return null; // no recommendation → the fixed fallback times
+    }
+  }
+
+  /// Whether today's self-report is already written — the check-in prompt's
+  /// "do not ask for something already logged" gate.
+  ///
+  /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
+  /// `markJournalDone` would set and nothing anywhere calls: it is false for
+  /// every user on every day. The journal rows are the truth.
+  /// NULL, NOT FALSE, when the journal could not be read. The scheduler reads
+  /// `false` as "today is known to be unanswered" and arms the prompt on it —
+  /// so a transient read failure asked a user who had already written their
+  /// rating how their day was. Null is the answer it already has a branch for:
+  /// leave the check-in exactly as it is and let the next pass decide.
+  Future<bool?> _checkInDoneToday() async {
+    try {
+      return NotificationCenter.checkInDone(
+          await LocalDb.journalMetricsForDay(todayLabel()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The medication schedule + today's recorded doses. Two indexed reads, only
+  /// on the path that will use them.
+  ///
+  /// NULL `defs` means UNREAD — the switch is off, or the read threw — and is
+  /// not the same answer as an empty list, which means "this user has no
+  /// medications". The scheduler cancels the armed doses on the second and
+  /// preserves them on the first; returning `[]` for a failed read handed it
+  /// the wrong one of those.
+  Future<({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})>
+      _medScheduleToday(NotificationPrefs prefs) async {
+    const empty = <String, Map<int, Map<String, Object?>>>{};
+    if (!prefs.medsEnabled) return (defs: null, doses: empty);
+    try {
+      final db = await LocalDb.instance;
+      return (
+        defs: await MedDb.defs(db),
+        doses: await MedDb.dosesForDay(db, todayLabel()),
+      );
+    } catch (_) {
+      return (defs: null, doses: empty);
     }
   }
 
@@ -2310,7 +2328,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _bumpInsightsRevision() {
+  /// Say that the DURABLE data changed, so every screen reading it re-reads.
+  ///
+  /// Public because the writers are not all in here: the log-workout sheet
+  /// writes a session, and an import writes days, sessions and journal rows.
+  /// `notifyListeners` is NOT that signal — it also ticks at ~1 Hz with live
+  /// HR, so screens listen to this instead and re-read only when something
+  /// actually landed.
+  void bumpInsights() {
     insightsRevision.value = insightsRevision.value + 1;
   }
 
@@ -3293,7 +3318,6 @@ class AppState extends ChangeNotifier {
         '(${report.complete ? "complete" : "stopped early"}).',
       );
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
       }
     } catch (e) {
@@ -3508,6 +3532,12 @@ class AppState extends ChangeNotifier {
     await engine.disconnect();
     _releaseForegroundLease();
     await PairedDevice.clear();
+    // Everything the old band told us about itself. The engine's DeviceState
+    // lives as long as the process and the persisted strap name outlives even
+    // that, so without both of these a re-pair — with a DIFFERENT band —
+    // inherits the forgotten one's name, serial, generation and bond verdicts.
+    device.reset();
+    Prefs.setString(_kStrapName, '');
     paired = null;
     notifyListeners();
   }
@@ -3867,7 +3897,7 @@ class AppState extends ChangeNotifier {
       // The foreground guard stops a wake from fighting this live session for the band.
       IosBleRestore.foregroundActive = true;
       IosBleRestore.arm(band.remoteId);
-      _log('===== SESSION START ===== raw=${dbCounts['raw']}');
+      _log('===== SESSION START =====');
       await _ensureForegroundLease();
       // connect() now subscribes → SET_CLOCK → INIT, so the historical offload is
       // ALREADY streaming the moment this returns.
@@ -3908,14 +3938,12 @@ class AppState extends ChangeNotifier {
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
       await engine.enableLiveStreams();
-      dbCounts = await LocalDb.counts();
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
           _log(
             'Backlog drained: ${report.records} records in ${report.batches} '
             'batches (${report.complete ? "complete" : "stopped early"}).',
           );
-          dbCounts = await LocalDb.counts();
           // Re-evaluate the high-frequency wake window now the backlog landed.
           await _refreshHighFreqWakeWindow();
           // The whole backlog landed → heavy foreground finalize (full sleep
@@ -4043,7 +4071,6 @@ class AppState extends ChangeNotifier {
           _log('Reconnected — live on; draining backlog in background.');
           unawaited(
             _kickSyncBurst(kickFirst: false).then((report) async {
-              dbCounts = await LocalDb.counts();
               _log('Reconnect backlog drained: ${report.records} records.');
               // Re-evaluate the high-frequency wake window now the backlog
               // landed.
@@ -4106,7 +4133,6 @@ class AppState extends ChangeNotifier {
         await _syncBurst;
       }
       await _kickSyncBurst(kickFirst: true);
-      dbCounts = await LocalDb.counts();
       notifyListeners();
       // A just-finished workout window landed from flash → derive it (light).
       _deriveScheduler.markStoredData();
@@ -4152,7 +4178,6 @@ class AppState extends ChangeNotifier {
       if (!await engine.requestForegroundSync()) return;
       final report = await _kickSyncBurst(kickFirst: false);
       if (report.records > 0) {
-        dbCounts = await LocalDb.counts();
         _deriveScheduler.markStoredData();
         notifyListeners();
       }
@@ -5104,7 +5129,7 @@ class AppState extends ChangeNotifier {
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
-      _bumpInsightsRevision();
+      bumpInsights();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();
@@ -5213,6 +5238,39 @@ class AppState extends ChangeNotifier {
       await HapticFeedback.mediumImpact();
     } catch (e) {
       _log('[gesture] workout toggle failed: $e');
+    }
+  }
+
+  /// One water write at a time. `_logWaterFromGesture` reads the day, awaits, then
+  /// writes the whole map back, and `postJournalMetrics` REPLACES the day — so two
+  /// taps overlapping that await both read the same total and the second write eats
+  /// the first glass. Same guard the nutrition screen's `+` already uses. This is not
+  /// a second debounce (the dispatcher owns that); it is the read-modify-write lock.
+  bool _writingWaterFromGesture = false;
+
+  /// Double-tap → add one glass to today's water. Step and ceiling come from the
+  /// journal field spec, so a wrist tap and the on-screen `+` always agree.
+  Future<void> _logWaterFromGesture() async {
+    final r = repo;
+    if (r == null || _writingWaterFromGesture) return;
+    _writingWaterFromGesture = true;
+    try {
+      final spec = kJournalFieldsByKey['water_ml']!;
+      final date = todayLabel();
+      // Inside the try: the READ can throw too, and a guard set before it would
+      // stay set forever. Spread into a fresh map — postJournalMetrics rewrites
+      // the whole day from what it is handed.
+      final fields = {...await r.getJournalMetrics(date)};
+      final now = fields['water_ml']?.value ?? 0;
+      fields['water_ml'] =
+          JournalMetricValue((now + spec.step).clamp(0, spec.max).toDouble());
+      await r.postJournalMetrics(date, fields);
+      _log('[gesture] water logged (+${spec.step.round()} ${spec.unit})');
+      await HapticFeedback.mediumImpact();
+    } catch (e) {
+      _log('[gesture] log water failed: $e');
+    } finally {
+      _writingWaterFromGesture = false;
     }
   }
 
@@ -5382,6 +5440,20 @@ class LiveWorkoutState {
       calories = 0.0;
       return;
     }
+    // THE gate, from the one place that defines it. This used to be the
+    // arithmetic inlined below, which is the third copy of it — and
+    // `Calories`' own docstring says a second copy is how the day and the bout
+    // came to disagree in the first place. It also got none of the anchor
+    // validation: a non-finite resting HR makes the gate NaN, every
+    // `bpm < gate` is then false, and EVERY sample bills at the active rate.
+    // Null means the anchors cannot define a gate, and the live gauge abstains
+    // exactly as the re-score does.
+    final gate = ana.Calories.activeGateHr(maxHr, rhr);
+    if (gate == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
     if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
       _caloriesScored = false;
       calories = 0.0;
@@ -5395,7 +5467,6 @@ class LiveWorkoutState {
     // floor. Defaulted to match `computeManualSessionStats`, so the two paths
     // cannot disagree for a profile that carries no height.
     final heightCm = profile.heightCm ?? 170.0;
-    final gate = rhr + ana.Calories.activeHRRFraction * (maxHr - rhr);
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
 

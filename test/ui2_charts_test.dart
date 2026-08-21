@@ -367,7 +367,7 @@ void main() {
   });
 
   // ── THE AXIS-LESS PATH ──────────────────────────────────────────────────
-  // TrendCard and the MetricRow spark go through the painters' own fallback
+  // TrendCard and the MetricRow series go through the painters' own fallback
   // and never see AxisSpec, so every fix that landed there has to land here
   // too or half the app keeps the bug.
   group('the auto-scale fallback', () {

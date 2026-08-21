@@ -27,6 +27,7 @@ import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
+import 'ui2/screens/log_workout.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
@@ -309,12 +310,15 @@ ShellDomain domainForTab(int tab) => switch (tab) {
 /// Every `kRoute*` in `tap_router.dart` is here, and unknown routes fall back
 /// to Home rather than crashing a cold launch on a payload from an older
 /// build.
-ShellDomain domainForRoute(String route) => switch (route) {
+ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
       kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
       // Water is a journal field that lives on Nutrition — that is the tab
       // behind the log screen, and where a "back" from it should land.
       kRouteWater => ShellDomain.nutrition,
+      // The medication reminder. Wellness owns the Medication tab and its
+      // checklist, which is where a dose is actually recorded.
+      kRouteMeds => ShellDomain.wellness,
       kRouteWorkoutSuggestion => ShellDomain.workout,
       // Emitted by the battery forecast (`app_state.dart`) and the weekly
       // recap (`notification_center.dart`), and declared in `tap_router`
@@ -337,14 +341,15 @@ ShellDomain domainForRoute(String route) => switch (route) {
 /// The focused screen a deep link pushes on top of its domain, when one
 /// exists. Null means the domain itself is the destination.
 ///
-/// One route still resolves to null and should not: `/workouts/suggestion`
-/// ("Tap to log it" has nothing to tap through to — nothing reads
-/// `workout_suggestions`). It is recorded in the sweep; the fix is to stop
-/// making the promise, not to route it somewhere plausible.
+/// `/workouts/suggestion` used to be in that list, and it was the one route
+/// where the fallback was a broken promise: "Tap to log it" landed on the
+/// plain Workouts tab, because the screen that could log it was deleted with
+/// `lib/ui/workouts/` and nothing read `workout_suggestions`. There is a
+/// destination again, and confirming on it writes a real session.
 ///
-/// `/ai/*` used to be in that list. It now lands on the briefing itself, which
-/// also carries the exact snapshot that was sent to produce it.
-Widget? screenForRoute(String route) => switch (route) {
+/// `/ai/*` used to be in that list too. It now lands on the briefing itself,
+/// which also carries the exact snapshot that was sent to produce it.
+Widget? screenForRoute(String route) => switch (routePath(route)) {
       kRouteAiMorning =>
         const AiBriefingScreen(period: BriefingPeriod.morning),
       kRouteAiEvening =>
@@ -357,6 +362,20 @@ Widget? screenForRoute(String route) => switch (route) {
       // which is how the tile that everybody actually used stayed add-only for
       // so long — the thing that could clear a value was behind a notification.
       kRouteWater => const NutritionScreen(),
+      // The detected bout, with the three answers to it: log it, adjust the
+      // times first, or say it never happened.
+      // The medication reminder pushes NOTHING, and still lands on the
+      // checklist: it is a SUB-TAB of Wellness, so pushing anything would put
+      // a second copy of a shell tab over the shell. `_consume` asks Wellness
+      // for the tab instead (`WellnessScreen.tabRequest`) — the deep link is
+      // wired, the answer here stays null.
+      kRouteMeds => null,
+      // A CONSTRUCTOR ARGUMENT is right here and wrong for `/meds` above: this
+      // screen is PUSHED by `_consume`, so every tap builds a fresh one and the
+      // id reaches it. Wellness is a shell tab kept alive in the IndexedStack,
+      // never rebuilt on a tap, which is why that one needs a request notifier.
+      kRouteWorkoutSuggestion =>
+        WorkoutSuggestionScreen(focusId: routeId(route)),
       // Battery, band and sources all live behind this one.
       kRouteProfile => const ProfileHome(),
       // The weekly recap used to land on the Health tab and push nothing,
@@ -439,6 +458,15 @@ class _ShellState extends State<_Shell> {
     // the base the payload was built with, not a second destination.
     if (s != null && s.isNotEmpty) {
       _go(domainForRoute(s));
+      // A route whose destination is a SUB-tab, which no pushed screen can
+      // express. Asked for AFTER `_go` (which may re-key the shell and build a
+      // fresh Wellness) and cleared a frame later, so whichever state ends up
+      // on screen has seen it — see `WellnessScreen.tabRequest`.
+      if (routePath(s) == kRouteMeds) {
+        WellnessScreen.tabRequest.value = WellnessScreen.medsTab;
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => WellnessScreen.tabRequest.value = -1);
+      }
       final screen = screenForRoute(s);
       if (screen != null) {
         Navigator.of(context)

@@ -16,6 +16,7 @@ import '../coach/coach_config.dart';
 import '../coach/coach_engine.dart';
 import '../data/day_label.dart';
 import '../data/local_repository.dart';
+import '../ui2/screens/home_screen.dart' as ring show readinessBand;
 import 'briefing.dart';
 import 'nightly_sweep.dart';
 
@@ -224,18 +225,21 @@ String partOfDay(DateTime now) {
 /// and can contradict the score itself (a 16/100 read as "strong overnight
 /// recovery"). The band is declared authoritative in the system prompt.
 ///
-/// THE single source of truth for readiness-score banding — also used by
-/// the Today ring's status word (`TodayVitals._orbitHero` in
-/// today_screen.dart maps good/moderate/low → Push/Focus/Recover).
-/// These cuts (40/66) MUST match the ring's own thresholds: a briefing band
-/// computed from different cuts than the ring's word is exactly the
-/// tone-vs-score contradiction this function exists to prevent, just moved
-/// from "sub-metrics vs score" to "briefing vs ring".
-String readinessBand(num v) {
-  if (v < 40) return 'low';
-  if (v < 66) return 'moderate';
-  return 'good';
-}
+/// DERIVED FROM THE RING, never re-declared. It used to carry its own 40/66
+/// cuts with a comment insisting they match the ring's — and then #250 moved
+/// the ring to the score's own quantiles (26/37/61) and left these behind. A
+/// 61 was "Good to go" on Home and "moderate" in the briefing on the same
+/// morning: the tone-vs-score contradiction this function exists to prevent,
+/// arrived from the one direction the comment could not police.
+///
+/// So there is one classifier ([readinessBand] in home_screen.dart) and this
+/// is a PRESENTATION of it: four tiers folded to the three words the prompt
+/// speaks, with both warning tiers reading "low".
+String readinessBand(num v) => switch (ring.readinessBand(v).tier) {
+      3 => 'good',
+      2 => 'moderate',
+      _ => 'low',
+    };
 
 /// The nightly sweep's rules.
 ///

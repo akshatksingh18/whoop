@@ -34,7 +34,9 @@ import '../activity/summary.dart';
 import '../charts.dart';
 import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
+import '../revision.dart';
 import '../theme.dart';
+import 'log_workout.dart';
 import 'start_card.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -44,56 +46,26 @@ class WorkoutScreen extends StatefulWidget {
   State<WorkoutScreen> createState() => _WorkoutScreenState();
 }
 
-class _WorkoutScreenState extends State<WorkoutScreen> {
+class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   int tab = 0;
   static const _tabs = ['For you', 'Activities', 'History'];
 
   Future<_WorkoutData>? _load;
 
-  /// The revision this screen's data was loaded at.
-  ///
-  /// `_load ??=` alone meant the screen read the database exactly once, for the
-  /// life of the widget — so a session you had just finished was absent from
-  /// History, "This week", "Tracked" and the weekly load until the app was
-  /// restarted. `AppState.insightsRevision` already ticks after every derive
-  /// and now after a session is durably written, so re-reading when it moves
-  /// covers the manual finish, the gesture path and the Live Activity alike.
-  int _loadedAt = -1;
-
-  /// Held so the listener can be removed in [dispose], where `context.read`
-  /// is not safe, and so a second `didChangeDependencies` cannot subscribe
-  /// twice — `ValueNotifier.addListener` stacks duplicates.
-  ValueNotifier<int>? _rev;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final app = context.read<AppState>();
-    if (!identical(_rev, app.insightsRevision)) {
-      _rev?.removeListener(_onRevision);
-      _rev = app.insightsRevision..addListener(_onRevision);
-    }
-    if (_load == null) {
-      _loadedAt = app.insightsRevision.value;
-      _load = _loadWorkoutData(app);
-    }
-  }
-
-  void _onRevision() {
-    if (!mounted) return;
-    final app = context.read<AppState>();
-    if (app.insightsRevision.value == _loadedAt) return;
-    setState(() {
-      _loadedAt = app.insightsRevision.value;
-      _load = _loadWorkoutData(app);
-    });
+    // `_load ??=` alone meant the screen read the database exactly once, for
+    // the life of the widget — so a session you had just finished was absent
+    // from History, "This week", "Tracked" and the weekly load until the app
+    // was restarted. `RevisionReload` re-reads when the data moves: the manual
+    // finish, the gesture path, the Live Activity and an import alike.
+    _load ??= _loadWorkoutData(context.read<AppState>());
   }
 
   @override
-  void dispose() {
-    _rev?.removeListener(_onRevision);
-    super.dispose();
-  }
+  void reload() =>
+      setState(() => _load = _loadWorkoutData(context.read<AppState>()));
 
   @override
   Widget build(BuildContext c) {
@@ -457,26 +429,74 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   // ─────────────── HISTORY ───────────────
+
+  /// Open a screen that can write a session, then re-read. Every write path on
+  /// this tab goes through here: `RevisionReload` covers the writers that bump
+  /// `AppState.insightsRevision`, and this covers the ones that do not.
+  Future<void> _push(BuildContext c, Widget w) async {
+    await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
+    if (mounted) reload();
+  }
+
+  /// The detector's unreviewed bouts, at the top of History where the sessions
+  /// they might become are listed.
+  ///
+  /// This is the surface that was missing, not a second copy of one: for the
+  /// whole time the notification was emitted on the `recovery` channel it was
+  /// dropped by `classOf` and never fired, so these rows accumulated unseen.
+  /// It fires now (reminders channel, NotifClass.prompt) and lands on the one
+  /// bout it is about — but only for a bout detected in the last ~2 h, so
+  /// everything drained later still has to be reviewable here.
+  List<Widget> _suggestionCards(BuildContext c, _WorkoutData d) {
+    if (d.suggestions.isEmpty) return const [];
+    final n = d.suggestions.length;
+    return [
+      StatusCard(
+        n == 1
+            ? 'One effort we spotted but did not log'
+            : '$n efforts we spotted but did not log',
+        'The band saw sustained work and nothing was started for it. Nothing '
+            'is logged until you say so.',
+        fix: 'Review ${n == 1 ? 'it' : 'them'}',
+        icon: LucideIcons.radar,
+        onFix: () =>
+            _push(c, WorkoutSuggestionScreen(preloaded: d.suggestions)),
+      ),
+      const SizedBox(height: S.x5),
+    ];
+  }
+
+  /// Back-log a session the band never saw, or never saw the whole of.
+  Widget _logPastCard(BuildContext c) => StatusCard(
+        'Did something the band missed?',
+        'Enter the times yourself and it is scored from the heart rate '
+            'recorded across them, like any other session.',
+        fix: 'Log a past workout',
+        icon: LucideIcons.calendarPlus,
+        onFix: () => _push(c, const LogWorkout()),
+      );
+
   List<Widget> _history(BuildContext c, _WorkoutData d) {
     final p = P.of(c);
     if (d.workouts.isEmpty) {
       return [
+        ..._suggestionCards(c, d),
         StatusCard(
           'No sessions recorded yet',
-          // Auto-detection writes `workout_suggestions` and nothing reads it
-          // (lib/app.dart:339), so a detected effort never arrives here. The
-          // string used to tell the user to wait for it.
           'Sessions appear here once you start one.',
           fix: 'Start a workout',
           onFix: () => _openPicker(c, d),
           icon: LucideIcons.dumbbell,
         ),
         const SizedBox(height: S.x5),
+        _logPastCard(c),
+        const SizedBox(height: S.x5),
         ..._importCard(c, d),
       ];
     }
     final importedThisWeek = d.weekImported;
     return [
+      ..._suggestionCards(c, d),
       Row(children: [
         Expanded(child: _sum(p, '${d.workoutsTracked ?? d.workouts.length}',
             'Tracked')),
@@ -506,9 +526,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
-        _HistoryRow(w, weightKg: d.weightKg),
+        _HistoryRow(w,
+            weightKg: d.weightKg,
+            // A retime is a re-score over the new window, so it is offered
+            // only where there is something of ours to re-score: an imported
+            // row's times belong to the app that recorded it, and this band
+            // measured nothing across them.
+            onRetime: w.importedFrom == null && w.id.isNotEmpty
+                ? () => _push(
+                      c,
+                      LogWorkout(
+                        sessionId: w.id,
+                        start: w.start,
+                        end: w.start.add(w.duration),
+                        activity: w.activity,
+                        title: 'Fix the times',
+                      ),
+                    )
+                : null),
         const SizedBox(height: S.x3),
       ],
+      const SizedBox(height: S.x3),
+      _logPastCard(c),
       const SizedBox(height: S.x3),
       ..._importCard(c, d),
     ];
@@ -734,7 +773,12 @@ class _QuickTile extends StatelessWidget {
 class _HistoryRow extends StatelessWidget {
   final _PastWorkout w;
   final double? weightKg;
-  const _HistoryRow(this.w, {this.weightKg});
+
+  /// Widen or correct this session's window. Null for an imported row, and for
+  /// a session with no id to retime.
+  final VoidCallback? onRetime;
+
+  const _HistoryRow(this.w, {this.weightKg, this.onRetime});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -835,6 +879,23 @@ class _HistoryRow extends StatelessWidget {
             value: stats[i].$2,
             unit: stats[i].$3,
             accent: p.on(a.color),
+          ),
+        ],
+        // The way to correct a window the detector clipped, or one a session
+        // started late. Nested inside the card's own tap: the inner Pressable
+        // wins, so the row still opens the summary everywhere else.
+        if (onRetime != null) ...[
+          Divider(color: p.line, height: S.x5),
+          Pressable(
+            onTap: onRetime,
+            semanticLabel: 'Fix the times on this session',
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
+              const SizedBox(width: S.x2),
+              Text('Fix the times',
+                  style: F.cap.copyWith(
+                      color: p.on(C.blue), fontWeight: FontWeight.w600)),
+            ]),
           ),
         ],
       ]),
@@ -1521,6 +1582,15 @@ class _WorkoutData {
   /// which takes months, and that is the honest state until then.
   final List<MorningEffect> morningAfter;
 
+  /// The detector's active bouts — every "did you work out?" that has neither
+  /// been logged nor dismissed. Empty when auto-detection is switched off.
+  ///
+  /// These rows have been written on every derive since the detector shipped
+  /// and read by nothing, so a detected effort was invisible unless a
+  /// notification happened to catch you — and until the emit moved off the
+  /// dropped `recovery` channel, no notification ever did.
+  final List<Suggestion> suggestions;
+
   /// When the phone's health store last handed us a workout, or null for
   /// never. It is the whole difference between an Import button and a Refresh
   /// one — see health_import_state.dart for why the store cannot be asked.
@@ -1544,6 +1614,7 @@ class _WorkoutData {
     this.setHistory = const {},
     this.overreach,
     this.morningAfter = const [],
+    this.suggestions = const [],
     this.importedLast,
   });
 
@@ -1778,6 +1849,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       setHistory: history,
       overreach: overreach,
       morningAfter: morningAfter,
+      suggestions: await activeSuggestions(),
       importedLast: await lastImportAt(HealthImport.workouts),
     );
 }

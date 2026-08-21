@@ -8,46 +8,56 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import androidx.core.content.ContextCompat
 
 /**
- * Shared bits for the home-screen widgets (see OpenStrapWidgetProvider /
- * OpenStrapBatteryWidgetProvider) — the palette, readers for the home_widget
- * snapshot, the freshness rule, and the arc-ring renderer.
+ * Shared bits for the home-screen widgets — the palette, readers for the
+ * home_widget snapshot, the freshness rule, and the dial renderer. The Kotlin
+ * half of ios/OpenStrapWidget/StrapWidgetKit.swift, so the two platforms read
+ * as the same product.
  *
- * The palette and all value/colour rules mirror the Swift widgets under
- * ios/OpenStrapWidget exactly, so the two platforms read as the same product.
- * Both now spend lib/ui2/theme.dart's tokens rather than the retired
- * lib/theme/tokens.dart ones. Rings are pre-rendered as bitmaps because
- * RemoteViews can't draw arcs.
+ * WHAT THIS SIDE DECIDES: layout, and nothing else. Whether a ring is a
+ * reading, calibration progress or an absence — and what any of them SAY —
+ * arrives already resolved from `WidgetService.push`, which mirrors `RingTrio`
+ * on Home. The rule used to live in Dart AND Swift AND here, and the three
+ * copies disagreed about the same day.
+ *
+ * Dials are pre-rendered as bitmaps because RemoteViews cannot draw arcs.
  */
 internal object StrapWidgets {
 
-    // ── lib/ui2/theme.dart (mirrors Pal in OpenStrapWidget.swift) ───────────
-    // A widget is a card, so surfaces are `P.card` over a `P.track` ring track
-    // and `P.ink3` captions. `onGood`/`onWarn`/`onBad`/`onNone` are the tier
-    // accents as TEXT — `P.on()`'s output, which nudges an accent toward the
-    // page ink until it clears WCAG AA on the worst surface it can land on.
-    // Arcs are non-text UI and spend the raw `C.*` pigment below.
+    // ── lib/ui2/theme.dart (mirrors SW.Pal in StrapWidgetKit.swift) ────────
+    // A widget is a card, so surfaces are `P.card` over a `P.track` ring track,
+    // `P.ink` numerals and `P.ink3` captions.
     class Pal(
         val bgRes: Int,
         val ink: Int,
+        val ink2: Int,
         val inkMuted: Int,
         val track: Int,
-        val onGood: Int,
-        val onWarn: Int,
-        val onBad: Int,
-        val onNone: Int,
+        val good: Int,
+        val warn: Int,
+        val bad: Int,
+        val sleep: Int,
+        val move: Int,
     )
 
+    // `P.on(accent)` per brightness — ui2 nudges an accent toward the page ink
+    // until it clears WCAG AA 4.5:1 on the worst surface it can land on, and a
+    // ring spends that solved value for BOTH its arc and its number (see
+    // `_RingState.arc` / `.ink` in home_screen.dart). Recomputing these means
+    // running P.on's binary search, not eyeballing a hex.
     private val LIGHT = Pal(
-        R.drawable.widget_bg_paper, 0xFF0F172A.toInt(),
-        0xFF627188.toInt(), 0xFFE2E8F0.toInt(),
-        0xFF1A7948.toInt(), 0xFFA5521D.toInt(), 0xFFB9393E.toInt(), 0xFF606B80.toInt(),
+        R.drawable.widget_bg_paper,
+        0xFF0F172A.toInt(), 0xFF475569.toInt(), 0xFF627188.toInt(), 0xFFE2E8F0.toInt(),
+        0xFF1A7A48.toInt(), 0xFFA5521D.toInt(), 0xFFB9393E.toInt(),
+        0xFF2F66C0.toInt(), 0xFF734FCF.toInt(),
     )
     private val DARK = Pal(
-        R.drawable.widget_bg_char, 0xFFF1F5F9.toInt(),
-        0xFF7F8DA0.toInt(), 0xFF232D3B.toInt(),
-        0xFF22C55E.toInt(), 0xFFF87F2A.toInt(), 0xFFEF7373.toInt(), 0xFF97A6BA.toInt(),
+        R.drawable.widget_bg_char,
+        0xFFF1F5F9.toInt(), 0xFF94A3B8.toInt(), 0xFF7F8DA0.toInt(), 0xFF232D3B.toInt(),
+        0xFF22C55E.toInt(), 0xFFF87E28.toInt(), 0xFFF07374.toInt(),
+        0xFF689EF7.toInt(), 0xFFA988F7.toInt(),
     )
 
     // Raw pigment — `C` in lib/ui2/theme.dart. Arcs and fills only.
@@ -71,9 +81,17 @@ internal object StrapWidgets {
      */
     private const val STALE_AFTER_SEC = 26L * 3600
 
+    /** The three home rings, in Home's order. */
+    val RING_KEYS = listOf("recovery", "strain", "sleep")
+
     /** Is the published snapshot still today's answer? */
     fun fresh(prefs: SharedPreferences): Boolean {
         if (!prefs.getBoolean("has_data", false)) return false
+        // A snapshot written by an app version older than the rings has every
+        // ring value empty, which draws circles with nothing in them. It heals
+        // on the first push (the app publishes on every foreground); until then
+        // the no-data state is the honest picture.
+        if (RING_KEYS.all { prefs.getString("ring_${it}_value", "").isNullOrEmpty() }) return false
         val at = readLong(prefs, "updated_at", 0)
         // An unknown timestamp is not a claim of staleness (matching
         // WidgetService.isStale); a snapshot never pushed has has_data false.
@@ -82,24 +100,17 @@ internal object StrapWidgets {
     }
 
     /**
-     * Readiness tier -> arc pigment. The THRESHOLDS are not here: Dart publishes
-     * `readiness_tier` (see `readinessBand` in lib/ui2/screens/home_screen.dart)
-     * so the phone, the widget, the watch and Siri cannot disagree about what a
-     * score of 65 means. Never re-derive a band from the raw number.
+     * Readiness tier -> its accent, arc and numeral alike. The THRESHOLDS are
+     * not here: Dart publishes `readiness_tier` (see `readinessBand` in
+     * lib/ui2/screens/home_screen.dart) so the phone, the widget, the watch and
+     * Siri cannot disagree about what a score of 65 means. Never re-derive a
+     * band from the raw number.
      */
-    fun readinessArc(tier: Int): Int = when (tier) {
-        3, 2 -> GREEN
-        1 -> ORANGE
-        0 -> RED
-        else -> N400
-    }
-
-    /** The same tier, solved for TEXT. */
-    fun readinessColor(tier: Int, pal: Pal): Int = when (tier) {
-        3, 2 -> pal.onGood
-        1 -> pal.onWarn
-        0 -> pal.onBad
-        else -> pal.onNone
+    fun tierColor(tier: Int, pal: Pal): Int = when (tier) {
+        3, 2 -> pal.good
+        1 -> pal.warn
+        0 -> pal.bad
+        else -> pal.inkMuted
     }
 
     /// The app mirrors its in-app appearance into `theme_dark` (see
@@ -138,6 +149,35 @@ internal object StrapWidgets {
             is Int -> v.toDouble()
             else -> def
         }
+
+    // ── the resolved rings ───────────────────────────────────────────────────
+    /** One home ring exactly as Dart published it. */
+    class RingData(
+        /** 0 measured · 1 calibrating · 2 absent. */
+        val state: Int,
+        /** The number, or the absence IN WORDS — never a dash. */
+        val value: String,
+        /** What it is out of, the readiness band, or the nights banked. */
+        val sub: String,
+        /** The pipeline's own reason. Absent rings only. */
+        val why: String,
+        /** What to sweep, 0..1 — negative when there is nothing honest to sweep. */
+        val frac: Double,
+    ) {
+        val measured: Boolean get() = state == 0
+
+        /** Arc and numeral share one colour, and the colour IS the signal that
+         *  this is not a reading. */
+        fun color(accent: Int, pal: Pal): Int = if (measured) accent else pal.inkMuted
+    }
+
+    fun ring(prefs: SharedPreferences, key: String): RingData = RingData(
+        readInt(prefs, "ring_${key}_state", 2),
+        prefs.getString("ring_${key}_value", "") ?: "",
+        prefs.getString("ring_${key}_sub", "") ?: "",
+        prefs.getString("ring_${key}_why", "") ?: "",
+        readDouble(prefs, "ring_${key}_frac", -1.0),
+    )
 
     // ── formatting ───────────────────────────────────────────────────────────
     /** "45m" / "7h 05m" — the phone's own `hm()` (lib/ui2/screens/home_screen.dart),
@@ -178,6 +218,36 @@ internal object StrapWidgets {
             paint.color = color
             canvas.drawArc(rect, -90f, (360.0 * frac).toFloat(), false, paint)
         }
+        return bmp
+    }
+
+    /**
+     * The dial: the arc with the ring's ICON at its centre, as on Home. The
+     * number lives UNDER the dial, not inside it — inside is where "7h 45m"
+     * overflows its own circle at the first accessibility step, and nothing
+     * about that string gets shorter.
+     *
+     * The icon is drawn into the same bitmap rather than stacked as a second
+     * RemoteViews child: one view per dial, and the tint cannot drift from the
+     * arc it sits in.
+     */
+    fun dialBitmap(
+        context: Context,
+        sizeDp: Int,
+        strokeDp: Float,
+        trackColor: Int,
+        color: Int,
+        t: Double,
+        iconRes: Int,
+    ): Bitmap {
+        val bmp = ringBitmap(context, sizeDp, strokeDp, trackColor, color, t)
+        val icon = ContextCompat.getDrawable(context, iconRes) ?: return bmp
+        val px = bmp.width
+        val side = (px * 0.34f).toInt().coerceAtLeast(1)
+        val left = (px - side) / 2
+        icon.setBounds(left, left, left + side, left + side)
+        icon.setTint(color)
+        icon.draw(Canvas(bmp))
         return bmp
     }
 

@@ -32,6 +32,23 @@ void main() {
     expect(t.screen, kRouteWorkoutSuggestion); // focused log/adjust review
   });
 
+  test('the id-carrying suggestion payload resolves, id intact', () {
+    // The real notification names the bout. Matching the tables on the whole
+    // string would drop it into the unknown-route fallback — Today, from a
+    // notification about a workout.
+    const id = '2026-08-19:1755625800';
+    final t = resolveTapRoute(workoutSuggestionRoute(id));
+    expect(t.tab, 4);
+    expect(routePath(t.screen!), kRouteWorkoutSuggestion);
+    expect(routeId(t.screen!), id, reason: 'the shell needs it to open on it');
+  });
+
+  test('routePath/routeId survive a route with no query, and a junk one', () {
+    expect(routePath(kRouteWater), kRouteWater);
+    expect(routeId(kRouteWater), isNull);
+    expect(routeId('/nope'), isNull);
+  });
+
   test('plain /workouts still resolves to the tab with no sub-screen', () {
     // The auto-detect notification now uses kRouteWorkoutSuggestion, but the
     // bare tab route must keep working for any other caller.

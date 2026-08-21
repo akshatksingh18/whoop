@@ -126,6 +126,17 @@ class NotificationService {
   static const int idMorningBrief = 2005; // scheduled daily (AI morning briefing)
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
+  static const int idCheckIn = 2201; // daily ("how was today?" → the journal)
+
+  /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
+  /// scheduled dose that is still upcoming, armed by
+  /// [NotificationCenter.scheduleStandingReminders] from the user's own
+  /// `med_def` schedule. One-shot rather than a daily repeat because whether a
+  /// dose is still due changes every day and a repeat cannot know: it would go
+  /// on asking for a dose already taken, which is the fastest way to get every
+  /// notification in the app turned off. Re-armed on each foreground pass.
+  static const int idMedsBase = 2300;
+  static const int maxMedSlots = 12;
 
   /// Slot band [idWaterBase .. idWaterBase + maxWaterSlots) — one daily-repeating
   /// OS notification per hydration slot, armed by
@@ -155,22 +166,45 @@ class NotificationService {
   ///     reminder is switched on, at the interval the user picked.
   ///   • [idEveningBrief] — armed only when the nightly sweep found something
   ///     unusual for this user, and its body IS the finding.
-  /// Wind-down, the morning briefing, the journal prompt and the "time to move"
-  /// one-shot are none of those, and are still refused. Their callers keep
-  /// CANCELLING, which is how an upgrade cleans out whatever an older build
-  /// left standing.
-  static const Set<int> schedulableIds = {idWeeklyRecap, idEveningBrief};
+  ///   • [idStillness] — armed only while `NotificationPrefs.movementEnabled`
+  ///     is on (opt-in, off by default), and only by two hours of no movement
+  ///     in the band's own live IMU. Its body IS that measurement. It was
+  ///     refused here for as long as it had no switch, which is the real reason
+  ///     issue #123 never fired: the cancel on every foreground resume was the
+  ///     visible half, but `scheduleOnce` had been dropping it at this gate
+  ///     before the cancel ever mattered.
+  ///   • [idCheckIn] — armed only while `NotificationPrefs.checkInEnabled` is
+  ///     on (opt-in, off by default), at a time derived from the user's own
+  ///     bedtime, and NOT armed for a day whose self-report is already
+  ///     written.
+  ///   • the medication band ([isMedSlot]) — armed only while
+  ///     `NotificationPrefs.medsEnabled` is on, at the times in the user's own
+  ///     `med_def` schedule, and only for a dose still upcoming.
+  /// Wind-down, the morning briefing and the AI journal prompt are none of
+  /// those, and are still refused. Their callers keep CANCELLING, which is how
+  /// an upgrade cleans out whatever an older build left standing.
+  static const Set<int> schedulableIds = {
+    idWeeklyRecap,
+    idEveningBrief,
+    idStillness,
+    idCheckIn,
+  };
 
   /// Whether [id] is one of the hydration slots. A band rather than a set
   /// member, which is the only reason [maySchedule] exists as a function.
   static bool isWaterSlot(int id) =>
       id >= idWaterBase && id < idWaterBase + maxWaterSlots;
 
+  /// Whether [id] is one of the medication slots — same band reasoning as
+  /// [isWaterSlot].
+  static bool isMedSlot(int id) =>
+      id >= idMedsBase && id < idMedsBase + maxMedSlots;
+
   /// The gate itself — see [schedulableIds]. Public because
   /// [NotificationCenter.scheduleAiReminders] filters its plan through it
   /// rather than arming a slot and having it refused one line later.
   static bool maySchedule(int id) =>
-      schedulableIds.contains(id) || isWaterSlot(id);
+      schedulableIds.contains(id) || isWaterSlot(id) || isMedSlot(id);
 
   AndroidNotificationChannel _channelFor(NotifCategory c) => switch (c) {
         NotifCategory.health => _healthChannel,

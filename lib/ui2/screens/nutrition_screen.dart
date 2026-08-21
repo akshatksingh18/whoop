@@ -36,7 +36,7 @@ class NutritionScreen extends StatefulWidget {
   State<NutritionScreen> createState() => _NutritionScreenState();
 }
 
-class _NutritionScreenState extends State<NutritionScreen> {
+class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   int _tab = 0;
   static const _tabs = ['Today', 'Week', 'Goals'];
 
@@ -60,7 +60,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
     _load();
   }
 
+  /// Burned calories and water come from the derived store and the journal,
+  /// both of which are written from elsewhere in the app — an import, a derive
+  /// after a sync, water logged on Wellness. This tab is never disposed, so
+  /// without this it showed launch-time figures all day.
+  @override
+  void reload() => _load();
+
   Future<void> _load() async {
+    final t = beginRead(#nutrition);
     final app = context.read<AppState>();
     final db = await LocalDb.instance;
     final week = await NutritionDb.window(db, days: 7);
@@ -73,7 +81,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
       if (daily is Map) burned = Metric.parse(daily['calories_total']);
       water = (await repo.getJournalMetrics(_date))['water_ml']?.value;
     }
-    if (!mounted) return;
+    if (!stillNewest(#nutrition, t)) return;
     setState(() {
       _week = week;
       _burned = burned;

@@ -108,7 +108,7 @@ void main() {
     final n0 = sub.length;
     final tiles = (1800 / n0).ceil() + 1;
     final dayTs = <int>[], dayHr = <int>[];
-    final sRed = <int>[], sIr = <int>[], sTemp = <int>[];
+    final sTemp = <int>[];
     final rrTs = <double>[], rrMs = <double>[];
     final base = sub.tsSec.first;
     for (var t = 0; t < tiles; t++) {
@@ -116,8 +116,6 @@ void main() {
       for (var i = 0; i < n0; i++) {
         dayTs.add(base + shift + i);
         dayHr.add(sub.hr[i]);
-        sRed.add(sub.spo2Red[i]);
-        sIr.add(sub.spo2Ir[i]);
         sTemp.add(sub.skinTemp[i]);
       }
       // Re-anchor each RR beat into this tile's second (preserves order/spacing).
@@ -140,8 +138,6 @@ void main() {
       sleepHr: dayHr,
       sleepRrTsMs: rrTs,
       sleepRrMs: rrMs,
-      sleepSpo2Red: sRed,
-      sleepSpo2Ir: sIr,
       sleepSkinTemp: sTemp,
       sleepJson: day.sleep.toJson(),
       hypnoStages: hypno,
@@ -249,8 +245,6 @@ void main() {
         sleepHr: hr,
         sleepRrTsMs: const [],
         sleepRrMs: const [],
-        sleepSpo2Red: List<int>.filled(n, 0),
-        sleepSpo2Ir: List<int>.filled(n, 0),
         // One temp sample every `tempEvery` seconds; 0 is the absent sentinel.
         sleepSkinTemp: <int>[
           for (var i = 0; i < n; i++) i % tempEvery == 0 ? 3000 : 0,
@@ -428,8 +422,6 @@ Map<String, dynamic> _nightBundle({required int hours}) {
     sleepHr: hr,
     sleepRrTsMs: rrTs,
     sleepRrMs: rrMs,
-    sleepSpo2Red: List<int>.filled(tsSec.length, 0),
-    sleepSpo2Ir: List<int>.filled(tsSec.length, 0),
     sleepSkinTemp: List<int>.filled(tsSec.length, 0),
     sleepJson: const {},
     hypnoStages: const [],

@@ -150,8 +150,6 @@ void main() {
       sleepHr: hr,
       sleepRrTsMs: rrTsMs,
       sleepRrMs: rrMs,
-      sleepSpo2Red: List<int>.filled(1800, 0),
-      sleepSpo2Ir: List<int>.filled(1800, 0),
       sleepSkinTemp: List<int>.filled(1800, 0),
       sleepJson: {
         'tst_sec': 1800,

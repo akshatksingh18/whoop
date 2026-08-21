@@ -40,11 +40,12 @@ import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
-import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
+import '../notify/tap_router.dart' show workoutSuggestionRoute;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
-import 'hr_max.dart' show estimatedMaxHr, kHrFloorBpm;
+import 'hr_max.dart'
+    show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -1233,7 +1234,60 @@ import 'substrate.dart';
 //      deliberately so — it is gen5/MG-only, so gating on it makes the same
 //      night answer differently on two straps. The refusal's construct argument
 //      is untouched and is the one that carries it.
-const int kAlgoVersion = 74;
+// v75 — THE ISSUE AUDIT. Every issue and discussion ever filed was re-checked
+// against the shipped tree; these are the ones that were still true. Four
+// numbers move, and each moved because it was wrong, not because it was tuned:
+//   1. READINESS carries its fourth driver. `tempInput` refused on every night
+//      ever shipped, because `settledFraction` was never passed from this side
+//      — the driver was documented, weighted 0.10, and unreachable. The other
+//      three renormalised over 0.90 and quietly absorbed it. Nights the strap
+//      cannot vouch for (device_family NULL, pre-schema-41, imports, gen5) are
+//      refused BY NAME now instead of silently.
+//   2. READINESS BANDS are the score's own quantiles. The composite is a
+//      logistic with no scale parameter, so its centre is 50 — and 50 was
+//      labelled "Take it easy". Half of every user's nights read as a warning
+//      by construction, and "Good to go" needed every input ~1.4 SD above
+//      personal median at once. The score did not change; the verdict did.
+//   3. PEAK HR stopped contradicting itself. The workout producers smoothed
+//      through hr_max.dart, the day peak still did reduce(math.max) over raw
+//      1 Hz — so the strain card and the timeline printed different numbers off
+//      the same beats (#127, closed once already). Manual saves and the
+//      below-coverage reconcile fed it unsmoothed too.
+//   4. CALORIES and STRAIN follow the analytics gates above, and both abstain
+//      rather than guess: a day with no resting HR now has no calorie figure
+//      instead of billing every waking minute as active.
+// Also here, changing nothing derived: a night never re-stages shorter than the
+// one already banked (#242 — the guard only fired on a FAILED pass and never
+// compared tst_sec, which is why a fixed night came back wrong a few syncs
+// later), and absent accel stays absent instead of coalescing to zero.
+// v76 — IMPORTED DAYS WERE SETTING THE BASELINE THEY ARE SUPPOSED TO STAY OUT
+// OF. The rule that a vendor export never feeds a personal baseline was enforced
+// on the WRITE path only — three call sites check `isMeasuredDay`, while
+// `_BaselineHistoryCache.load()` read `metric_series` with no source filter at
+// all. Both importers write real series rows through `putDayResult`, so four of
+// the eight baselines (`rhr`, `rmssd`, `readiness`, `resp_rate`) were being set
+// partly by somebody else's algorithm. The other four escaped by accident, not
+// design — the importers happen to write `skin_temp_z` rather than
+// `skin_temp_adc`.
+//
+// NOOP is NOT foreign, which is the part worth remembering: `NoopIngest` holds a
+// DerivationEngine and feeds it reconstructed 1 Hz substrate, so those days are
+// our own maths and are stamped `source: 'band'`. Only `whoop_export` and
+// `cloud_v2` are somebody else's.
+//
+// `source` is NULL for every day written before schema 43 and the backfill
+// deliberately never fills it, so filtering on `source = 'band'` would have
+// deleted genuine early history — a pollution bug traded for a data-loss one.
+// It is decidable anyway: both importers put `imported: true` in the day
+// bundle, which is what the write path has always tested. `importedDates()` is
+// the union of both eras and the seam everything else reads through.
+//
+// Readiness, the illness CUSUM, and the training-zone and live-strain RHR
+// anchors all move for anyone with an import in range. For a user who never
+// imported this is a strict no-op: the set is empty and every read is unchanged.
+// Days already finalized keep the score they were derived with — raw is pruned,
+// so no bump can heal them.
+const int kAlgoVersion = 76;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1244,14 +1298,27 @@ const int kAlgoVersion = 74;
 /// so it is not repairable after the fact. That is exactly what happened
 /// between v67 and v68. Repinning without touching this block fails the suite,
 /// one line above the constant you then have to bump.
-// Both siblings are on MAIN now (protocol #29, analytics #46, merged
-// 2026-08-19). kAlgoVersion is deliberately NOT bumped with this repin: the
-// analytics hop is two comment lines in tests and touches no lib/ file at all,
-// and the protocol hop only adds `rr_ms` to decodeFrame's R10 branch, which
-// nothing in edge reads. No derived number moves, so forcing every install to
-// recompute would be churn with nothing on the other side of it.
-const String kAnalyticsPin = 'bfea5e56e74f336c3e3d83743123e58da225617d';
-const String kProtocolPin = 'fe3b681a3e9ca76f8a0865339035f949f36f6000';
+// Both siblings move with this bump, and both move NUMBERS this time — which
+// is the whole reason the version goes up. analytics: one active-energy gate
+// on heart-rate reserve instead of %HRmax (the day and the bout used to
+// disagree by 8-35 bpm depending on age and rest), and a measured quiet-waking
+// level under strain instead of a population constant that scored a day with
+// no activity at all somewhere between 6.9 and 12.1 out of 21. protocol: v25
+// stops emitting a gravity vector from offsets that were refuted on real data.
+// Both siblings moved again after their own review passes, and kAlgoVersion
+// deliberately did NOT: those fixes reject NaN and ±inf, which no sensor ever
+// produced and no baseline ever held. For a user whose data is valid, every
+// number out of both packages is byte-identical, so a bump would invalidate
+// every stored day to recompute the same answers.
+//
+// This repin picks up the analytics perf pass, and kAlgoVersion holds at 76 for
+// the same reason: the stager does the same arithmetic in fewer passes. The one
+// place that could have gone wrong was sorting the HR window before `stddev`,
+// which re-orders a float summation — that is computed before the sort now, and
+// the real overnight capture staged identically down to the last digit of
+// confidence.
+const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
+const String kProtocolPin = 'c761f29bcbed73886b1b059dcd9e92e4333574f5';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1430,7 +1497,21 @@ class _BaselineHistoryCache {
   /// window possible at all. It must NOT be given a `limit` (that is `date ASC
   /// LIMIT n`, i.e. the OLDEST n — the opposite of a trailing window); the
   /// trailing window is taken here, in Dart, per target day.
+  ///
+  /// IMPORTED DAYS ARE EXCLUDED. `LocalDb.isMeasuredDay` kept another vendor's
+  /// export from OVERWRITING a measured day, but nothing kept it out of the
+  /// window on the way back in: a WHOOP or cloud import writes real
+  /// `metric_series` rows for `rhr`, `rmssd`, `readiness` and `resp_rate`, and
+  /// this load read them like any other day. Their scores are a different
+  /// algorithm's output over a different (or no) substrate, so blending them in
+  /// moves the median every personal z-score is taken against — silently, for
+  /// as long as the window is, and worst exactly when someone imports their
+  /// history on day one and has nothing else in the window at all.
+  ///
+  /// The mask is taken ONCE per load and applied to every key, because the
+  /// query behind it scans day bundles (see [LocalDb.importedDates]).
   static Future<_BaselineHistoryCache> load() async {
+    final imported = await LocalDb.importedDates();
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key);
       final out = <_DatedValue>[];
@@ -1438,6 +1519,7 @@ class _BaselineHistoryCache {
         final date = row['date'];
         final value = row['value'];
         if (date is! String || date.isEmpty || value is! num) continue;
+        if (imported.contains(date)) continue;
         out.add((date: date, value: value.toDouble()));
       }
       return out;
@@ -2264,6 +2346,41 @@ class DerivationEngine {
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
     if (override == null) {
+      // NEVER RE-STAGE A NIGHT SHORTER THAN THE ONE ALREADY BANKED (#242).
+      //
+      // A day re-stages on every pass for its first 48 h, and the substrate it
+      // stages over does not only grow: `pruneDecodedBeforeRecTs` runs once the
+      // covering day is derived, so a later pass can look at the same night
+      // through less data and produce a shorter one — which then REPLACED the
+      // good candidate, and the day rebuilt from it. That is the reported "it
+      // got fixed, then a few syncs later it went back", and it is a write-path
+      // defect, not a staging one (a mid-night wake bridges and sums correctly).
+      //
+      // The guard belongs HERE rather than on the day result: the candidate is
+      // upstream of the sleep block, the hypnogram AND every sleep scalar, so
+      // keeping the richer one keeps the whole day internally consistent.
+      // Swapping a richer sleep block into a thinner day's bundle would pair
+      // last pass's night with this pass's stage minutes.
+      //
+      // Keyed at this algo version, so a bump still re-stages from scratch —
+      // that is what a bump is for. An override never reaches this branch, so a
+      // user shortening their own night is untouched.
+      final stored = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+      final storedJson = stored?['payload_json'];
+      if (storedJson is String && storedJson.isNotEmpty) {
+        try {
+          final prev = SleepSessionCandidate.fromJson(
+              (jsonDecode(storedJson) as Map).cast<String, dynamic>());
+          if (isRicherSleep(prev, candidate)) {
+            _log('derive $dayId: kept the banked night '
+                '(${_tstSec(prev)} s) over this pass\'s '
+                '${_tstSec(candidate)} s — less substrate, not a shorter night');
+            return prev;
+          }
+        } catch (_) {
+          // Undecodable stored candidate — the fresh one is strictly better.
+        }
+      }
       await LocalDb.putSleepSessionCandidate(
         dayId: dayId,
         algoVersion: kAlgoVersion,
@@ -3062,8 +3179,6 @@ class DerivationEngine {
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
-      sleepSpo2Red: sleepSub.spo2Red,
-      sleepSpo2Ir: sleepSub.spo2Ir,
       sleepSkinTemp: sleepSub.skinTemp,
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
@@ -3090,7 +3205,6 @@ class DerivationEngine {
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
-    _logSpo2Diagnostics(day, input, bundle);
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside
     // Isolate.run so it couldn't call Firebase itself; it just returned the
@@ -3381,21 +3495,39 @@ class DerivationEngine {
         });
       }
       final nb = blocks.notifBout;
-      if (nb != null) {
+      // Only for a bout that is STILL waiting on an answer. The detector is
+      // pure and re-derives the same bouts every pass; dismissing one, logging
+      // it, or logging any session that covers its window retires the row
+      // (`supersededSuggestionIds`), and none of that reaches the detector. So
+      // the live table is what decides, not the detection — a notification
+      // about a workout already in the log is how someone turns all of them
+      // off. `putWorkoutSuggestion` ran a few lines up, so the row is there.
+      final live = nb == null
+          ? false
+          : (await LocalDb.activeWorkoutSuggestions())
+              .any((r) => r['id'] == nb.id);
+      if (nb != null && live) {
         await NotificationCenter.instance.emit(
           NotificationEvent(
             // Per-bout, not per-day — a per-day key silently swallowed the
             // notification for a second real workout later the same day
-            // (fire-once-per-key by design). endSec is stable across re-derive
-            // passes re-detecting the SAME bout, so that case still dedupes.
-            dedupeKey: '${day.date}:auto_workout:${nb.endSec}',
-            category: NotifCategory.recovery,
+            // (fire-once-per-key by design). The suggestion id is stable across
+            // re-derive passes re-detecting the SAME bout, so that case still
+            // dedupes, and it is date-prefixed so the fired-key store prunes it.
+            dedupeKey: '${nb.id}:auto_workout',
+            // NOT `recovery`. That channel is where "your recovery is ready"
+            // lived and `classOf` drops everything on it, so this notification
+            // has never once reached anybody: the suggestion row was written,
+            // the user was never told. This is a prompt about something that
+            // happened — reminders channel, NotifClass.prompt, and it respects
+            // quiet hours like every prompt should.
+            category: NotifCategory.reminders,
             priority: NotifPriority.normal,
             title: 'Did you work out?',
             body: 'We spotted ~${nb.durationMin} min of elevated activity. '
                 'Tap to log it.',
             date: day.date,
-            route: kRouteWorkoutSuggestion,
+            route: workoutSuggestionRoute(nb.id),
           ),
           // This runs from headless background derivation too — never prompt
           // for permission from a background context (violates the OS
@@ -3612,86 +3744,6 @@ class DerivationEngine {
     _log('froze headline readiness ${next.value} for ${next.day}');
   }
 
-  void _logSpo2Diagnostics(
-    PreparedDerivationDay day,
-    DayBundleInput input,
-    Map<String, dynamic> bundle,
-  ) {
-    final red = input.sleepSpo2Red;
-    final ir = input.sleepSpo2Ir;
-    final ts = input.sleepTsSec;
-    if (red.isEmpty || ir.isEmpty || ts.isEmpty) {
-      _log('[spo2-detect] {"day":"${day.date}","status":"no_sleep_spo2"}');
-      return;
-    }
-
-    int minInt(List<int> xs) => xs.reduce((a, b) => a < b ? a : b);
-    int maxInt(List<int> xs) => xs.reduce((a, b) => a > b ? a : b);
-    double meanInt(List<int> xs) =>
-        xs.isEmpty ? 0 : xs.reduce((a, b) => a + b) / xs.length;
-
-    final redNonZero = red.where((v) => v > 0).length;
-    final irNonZero = ir.where((v) => v > 0).length;
-    final spo2 = (bundle['spo2'] as Map?)?.cast<String, dynamic>();
-    final ratios = <double>[
-      for (var i = 0; i < red.length && i < ir.length; i++)
-        if (red[i] > 0 && ir[i] > 0) red[i] / ir[i],
-    ];
-    double? meanDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
-    double? minDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a < b ? a : b);
-    double? maxDouble(List<double> xs) =>
-        xs.isEmpty ? null : xs.reduce((a, b) => a > b ? a : b);
-
-    final payload = <String, dynamic>{
-      'day': day.date,
-      'sleep_samples': ts.length,
-      'sleep_span_sec': ts.last - ts.first,
-      'feature_disabled': spo2?['disabled'] == true,
-      'red': <String, dynamic>{
-        'non_zero': redNonZero,
-        'zero': red.length - redNonZero,
-        'coverage': redNonZero / red.length,
-        'unique': red.toSet().length,
-        'min': minInt(red),
-        'max': maxInt(red),
-        'mean': meanInt(red).toStringAsFixed(2),
-        'first10': red.take(10).toList(),
-      },
-      'ir': <String, dynamic>{
-        'non_zero': irNonZero,
-        'zero': ir.length - irNonZero,
-        'coverage': irNonZero / ir.length,
-        'unique': ir.toSet().length,
-        'min': minInt(ir),
-        'max': maxInt(ir),
-        'mean': meanInt(ir).toStringAsFixed(2),
-        'first10': ir.take(10).toList(),
-      },
-      'ratio': <String, dynamic>{
-        'samples': ratios.length,
-        'min': minDouble(ratios)?.toStringAsFixed(6),
-        'max': maxDouble(ratios)?.toStringAsFixed(6),
-        'mean': meanDouble(ratios)?.toStringAsFixed(6),
-        'first10': ratios.take(10).map((v) => v.toStringAsFixed(6)).toList(),
-      },
-      'odi': <String, dynamic>{
-        'disabled': spo2?['disabled'],
-        'note': spo2?['note'],
-        'value': spo2?['odi_per_hour'],
-        'dip_count': spo2?['dip_count'],
-        'signal_coverage': spo2?['signal_coverage'],
-        'trusted_coverage': spo2?['trusted_coverage'],
-        'confidence': spo2?['confidence'],
-        'reject_counts': spo2?['reject_counts'],
-        'severity_counts': spo2?['severity_counts'],
-        'debug': spo2?['debug'],
-      },
-    };
-    _log('[spo2-detect] ${jsonEncode(payload)}');
-  }
-
   /// Skip reasons that describe a TRANSIENT failure of this particular pass
   /// rather than a permanently pathological day. These must never finalize:
   /// finalizing locks the day out of every future pass at this algo version.
@@ -3748,6 +3800,33 @@ class DerivationEngine {
       }
     }
     return carried;
+  }
+
+  /// The night's measured total sleep, seconds. Null when this candidate has no
+  /// night in it at all.
+  static num? _tstSec(SleepSessionCandidate c) =>
+      c.sleepJson['tst_sec'] as num?;
+
+  /// Whether the already-banked [prev] night is RICHER than the freshly staged
+  /// [next] one, measured by total sleep time (#242).
+  ///
+  /// TST, not confidence and not the window: it is the quantity the user sees
+  /// change, and the failure mode this guards is a re-stage over a pruned
+  /// substrate seeing less of the same night. A night that grows is a night the
+  /// band handed over more of, and it wins.
+  ///
+  /// A candidate with no night at all is never richer than one that has one, and
+  /// EQUAL is not richer — a pass that reproduces the same night writes, so an
+  /// otherwise-identical candidate still refreshes.
+  @visibleForTesting
+  static bool isRicherSleep(
+    SleepSessionCandidate prev,
+    SleepSessionCandidate next,
+  ) {
+    final p = _tstSec(prev);
+    if (p == null) return false;
+    final n = _tstSec(next);
+    return n == null || p > n;
   }
 
   /// How a day should be filed after its second half failed and the previous
@@ -4609,10 +4688,15 @@ class DerivationEngine {
   static ({double active, double basal, double total})? wakeDayEnergy(
     List<double> wakeHrPerMin, {
     required Profile profile,
+    required double? restingHr,
     int? dayMinutes,
     String? deviceFamily,
   }) {
     if (!profile.hasCalorieAnchors) return null;
+    // The active gate is a %HRR flex point, so it needs BOTH ends of the
+    // reserve. No resting HR, no gate — and no gate means every wake minute
+    // bills as active. Abstain, same as an absent ceiling below.
+    if (restingHr == null) return null;
     // `dailyEnergy`'s flex gate is a fraction of HRmax, so an absent ceiling is
     // an absent gate — the whole triple abstains rather than bill a day against
     // some other strap's number. See hr_max.dart.
@@ -4636,8 +4720,13 @@ class DerivationEngine {
         sex: _workoutSex(profile.sex),
       ),
       hrmax: hrmax,
+      restingHr: restingHr,
       dayMinutes: dayMinutes ?? 1440,
     );
+    // Anchors that cannot define an active gate are an ABSENT day's energy,
+    // not a day billed entirely as active. `dailyEnergy` abstains; so does the
+    // day, which is what every other caller of this method already expects.
+    if (e == null) return null;
     return (active: e.active, basal: e.basal, total: e.total);
   }
 
@@ -5278,6 +5367,9 @@ class DerivationEngine {
           final score = ana.strainScoreMetric(
             trimp.value,
             wakeMinutes: perMin.length.toDouble(),
+            // Reference level, not this user's — see onehz_pipeline's
+            // `strainMetric` for why, and edge#226 for the fix.
+            quietHrr: ana.quietWakingHrr,
             female: _workoutSex(sex) == 'female',
           );
           if (score.present) strain = score.value;
@@ -5331,6 +5423,9 @@ class DerivationEngine {
       final energy = wakeDayEnergy(
         perMin,
         profile: profile,
+        // The same anchor the TRIMP above is scored against — a nocturnal RHR
+        // or the one the user entered, never a daytime fallback.
+        restingHr: rhrForTrimp,
         dayMinutes: motion.length,
         deviceFamily: daySub.deviceFamily,
       );
@@ -5340,11 +5435,19 @@ class DerivationEngine {
         caloriesBasal = energy.basal;
       }
     }
+    // Same peak, same smoothing as the pipeline's copy and as every workout
+    // producer — see `hr_max.dart` and the note beside the pipeline's `hrStats`.
+    // A bare max over raw 1 Hz let one PPG transient be the day's "Peak HR"
+    // (#127).
+    final dayHrInt = [for (final h in dayHrValid) h.round()];
+    final age = profile.ageYears?.round();
     final hrStats = dayHrValid.isEmpty
         ? null
         : {
-            'max': dayHrValid.reduce(math.max).round(),
-            'min': dayHrValid.reduce(math.min).round(),
+            'max': smoothedMaxHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.max).round(),
+            'min': smoothedMinHr(dayHrInt, age: age) ??
+                dayHrValid.reduce(math.min).round(),
             'avg': _meanWake(dayHrValid)?.round(),
           };
     return {
@@ -6856,11 +6959,15 @@ class DerivationEngine {
       // don't resurface 90 days of prompts.
       final recent = (dataNowSec - dayEndSec) < 36 * 3600;
       final toPersist = <Map<String, dynamic>>[];
-      ({int endSec, int durationMin})? notif;
+      ({String id, int durationMin})? notif;
+      // ONE definition of the row id. The notification checks the table by it
+      // and opens the screen on it, so a second copy of the format here would
+      // drift into a prompt that silently never fires again.
+      String sugId(int startSec) => '$date:$startSec';
       if (recent && bouts.isNotEmpty) {
         for (final b in bouts) {
           toPersist.add({
-            'id': '$date:${b.startSec}',
+            'id': sugId(b.startSec),
             'date': date,
             'start_ts': b.startSec,
             'end_ts': b.endSec,
@@ -6878,7 +6985,10 @@ class DerivationEngine {
         // above so they surface in the Workouts screen; we just don't ping for them.
         final newest = bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
         if ((dataNowSec - newest.endSec) < 2 * 3600) {
-          notif = (endSec: newest.endSec, durationMin: newest.durationMin);
+          notif = (
+            id: sugId(newest.startSec),
+            durationMin: newest.durationMin,
+          );
         }
       }
       return _WorkoutCompute(
@@ -7381,7 +7491,7 @@ class _DayBlocksOutput {
   final Map<String, dynamic> wake;
   final List<Map<String, dynamic>> suggestionsToPersist;
   final List<(String, double)> sessionHrrWrites;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _DayBlocksOutput({
     required this.bundlePatch,
     required this.seriesPatch,
@@ -7400,7 +7510,7 @@ class _WorkoutCompute {
   final double? hrrTauS;
   final List<(String, double)> sessionHrrWrites;
   final List<Map<String, dynamic>> suggestionsToPersist;
-  final ({int endSec, int durationMin})? notifBout;
+  final ({String id, int durationMin})? notifBout;
   const _WorkoutCompute({
     required this.boutJson,
     required this.hrrBpm,

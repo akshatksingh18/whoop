@@ -10,6 +10,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'notification_event.dart';
+import 'tap_router.dart';
 
 class NotificationPrefs {
   /// The day's aggregated health exception (illness, unusual physiology,
@@ -50,6 +51,48 @@ class NotificationPrefs {
   static const int waterIntervalMinAllowed = 30;
   static const int waterIntervalMaxAllowed = 360;
 
+  /// Whether the auto-detected-workout surfaces are on: the "did you work out?"
+  /// notification and the review cards the detector feeds. Asked for twice
+  /// (issues #102, #149) and never built — the detector has never had an off
+  /// switch of any kind.
+  ///
+  /// WHAT IT DOES NOT DO: stop the detection itself. The bouts are computed
+  /// inside the day derivation and written to `workout_suggestions` there; this
+  /// switch silences every surface that shows them, which is the part the user
+  /// experiences. The rows stay, unread, and turning it back on shows them
+  /// again rather than losing a week of them.
+  final bool autoDetectEnabled;
+
+  /// The "time to move" nudge: a one-shot OS notification two hours after the
+  /// last movement the band's live IMU saw, re-armed on every movement so it
+  /// only ever fires on a genuinely uninterrupted still stretch.
+  ///
+  /// Opt-in, off by default, and it is what earns the nudge its place on
+  /// [NotificationService.schedulableIds] — the rule that list enforces is that
+  /// a scheduled slot must be one the user asked for by name. Without a switch
+  /// it was refused, which is why it has never fired for anyone (issue #123).
+  final bool movementEnabled;
+
+  /// The medication reminder: one notification per scheduled dose the user
+  /// entered themselves, and ONLY for a dose that is still upcoming — a slot
+  /// already marked taken or deliberately skipped is not armed at all.
+  ///
+  /// This is the one prompt in the app whose time is not a guess: it is the
+  /// schedule in `med_def.schedule_json`, which the user typed. Opt-in and off
+  /// by default like every other outbound path, because someone who wants a
+  /// water reminder has not thereby asked to be told about their pills.
+  final bool medsEnabled;
+
+  /// The daily check-in: one prompt, once, to write the day's self-report
+  /// (mood, energy, stress, soreness, sleep quality — the whole journal, not
+  /// one field at a time).
+  ///
+  /// Suppressed for the day the moment any rating is written, so it can never
+  /// ask for something already answered. It is NOT armed for a day that was
+  /// missed — there is no catching up on a self-report, and a prompt that
+  /// fires because yesterday is blank is a streak wearing a different hat.
+  final bool checkInEnabled;
+
   const NotificationPrefs({
     this.healthEnabled = true,
     this.recoveryEnabled = true,
@@ -61,6 +104,10 @@ class NotificationPrefs {
     this.criticalOverridesQuiet = true,
     this.waterEnabled = false,
     this.waterIntervalMin = 120, // every 2 hours
+    this.autoDetectEnabled = true,
+    this.movementEnabled = false,
+    this.medsEnabled = false,
+    this.checkInEnabled = false,
   });
 
   static const _kHealth = 'notif_health';
@@ -73,6 +120,10 @@ class NotificationPrefs {
   static const _kCriticalOverride = 'notif_critical_override';
   static const _kWater = 'notif_water';
   static const _kWaterInterval = 'notif_water_interval';
+  static const _kAutoDetect = 'notif_auto_detect';
+  static const _kMovement = 'notif_movement';
+  static const _kMeds = 'notif_meds';
+  static const _kCheckIn = 'notif_checkin';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -87,6 +138,10 @@ class NotificationPrefs {
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
       waterEnabled: p.getBool(_kWater) ?? false,
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
+      autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
+      movementEnabled: p.getBool(_kMovement) ?? false,
+      medsEnabled: p.getBool(_kMeds) ?? false,
+      checkInEnabled: p.getBool(_kCheckIn) ?? false,
     );
   }
 
@@ -102,6 +157,10 @@ class NotificationPrefs {
     await p.setBool(_kCriticalOverride, criticalOverridesQuiet);
     await p.setBool(_kWater, waterEnabled);
     await p.setInt(_kWaterInterval, waterIntervalMin);
+    await p.setBool(_kAutoDetect, autoDetectEnabled);
+    await p.setBool(_kMovement, movementEnabled);
+    await p.setBool(_kMeds, medsEnabled);
+    await p.setBool(_kCheckIn, checkInEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -115,6 +174,10 @@ class NotificationPrefs {
     bool? criticalOverridesQuiet,
     bool? waterEnabled,
     int? waterIntervalMin,
+    bool? autoDetectEnabled,
+    bool? movementEnabled,
+    bool? medsEnabled,
+    bool? checkInEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -128,6 +191,10 @@ class NotificationPrefs {
             criticalOverridesQuiet ?? this.criticalOverridesQuiet,
         waterEnabled: waterEnabled ?? this.waterEnabled,
         waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
+        autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
+        movementEnabled: movementEnabled ?? this.movementEnabled,
+        medsEnabled: medsEnabled ?? this.medsEnabled,
+        checkInEnabled: checkInEnabled ?? this.checkInEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {
@@ -155,6 +222,16 @@ class NotificationPrefs {
   /// a check at each of the emit sites, which is how twenty-two kinds accreted
   /// in the first place.
   bool shouldFireOs(NotifEvent event, int minuteOfDay) {
+    // The auto-detect off switch, applied before anything else: it is the one
+    // gate the user set for THIS notification, and route is what identifies it
+    // (the category it is emitted on is shared with everything else on the
+    // recovery channel).
+    // (On the PATH: the payload carries the bout as `?id=…`, and an equality
+    // check against the bare route would miss every real one.)
+    if (!autoDetectEnabled &&
+        routePath(event.route ?? '') == kRouteWorkoutSuggestion) {
+      return false;
+    }
     final klass = classOf(event);
     if (klass == null) return false; // not one of the three — never fires
     // The alarm is the one thing quiet hours must not silence: the user armed

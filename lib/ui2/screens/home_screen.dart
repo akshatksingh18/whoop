@@ -479,11 +479,39 @@ String prettyDay(String? dayId) {
 /// palettes instead of each keeping a private copy of the cut-offs. They did,
 /// and a 65 rendered green on the phone, orange on the widget and yellow on
 /// the wrist. -1 = not scored.
+///
+/// THE CUT-OFFS ARE THE SCORE'S OWN QUANTILES, NOT ROUND NUMBERS (issue #250).
+/// `readinessComposite` is `100 / (1 + exp(-z̄))` with no scale parameter, and
+/// z̄ is a weight-renormalised mean of per-input robust z's — each ~N(0,1)
+/// against that person's OWN baseline. So the score is a percentile of self
+/// whose CENTRE IS 50 BY CONSTRUCTION: a night exactly at personal median
+/// scores 50, and the old 40/60/80 bands filed that median night under "Take it
+/// easy". Roughly a quarter of all nights fell under "Rest today" and 1.7 %
+/// could ever reach "Good to go" — it needed every input ~1.4 SD above median
+/// at once. A warning that fires on the typical night is not a warning.
+///
+/// z̄'s own SD is NOT 1: averaging the disclosed weights (.40/.30/.20/.10,
+/// renormalised over present inputs) gives σ ≈ 0.55-0.60 if the inputs were
+/// independent, ~0.70 at the positive correlation HRV/RHR/RR actually have.
+/// σ ≈ 0.65 is the middle of that, and the cut-offs below are its quantiles:
+///
+///   score = 100 / (1 + exp(-0.65 · Φ⁻¹(p)))
+///     p=.05 → 26   p=.20 → 37   p=.75 → 61
+///
+/// which lands 5 % of nights on "Rest today", 15 % on "Take it easy", 55 % on
+/// "Steady" and 25 % on "Good to go". The median night is now the neutral band,
+/// which is the whole point. Under the old cut-offs the same distribution read
+/// 27 / 47 / 25 / 2.
+///
+/// σ is the one soft number here — it is a property of how correlated a given
+/// person's four inputs are, and it moves with how many of them are present.
+/// Re-derive it from a real `metric_series` readiness distribution when there
+/// is one long enough to measure; do not nudge the cut-offs by feel.
 ({String label, Color color, int tier}) readinessBand(num? v) {
   if (v == null) return (label: 'Not scored', color: C.n400, tier: -1);
-  if (v >= 80) return (label: 'Good to go', color: C.green, tier: 3);
-  if (v >= 60) return (label: 'Steady', color: C.green, tier: 2);
-  if (v >= 40) return (label: 'Take it easy', color: C.orange, tier: 1);
+  if (v >= 61) return (label: 'Good to go', color: C.green, tier: 3);
+  if (v >= 37) return (label: 'Steady', color: C.green, tier: 2);
+  if (v >= 26) return (label: 'Take it easy', color: C.orange, tier: 1);
   return (label: 'Rest today', color: C.red, tier: 0);
 }
 
@@ -1049,7 +1077,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
 
@@ -1057,15 +1085,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// database is a read problem, and telling a user with three months of
   /// history that their band has never produced data is the wrong answer to it.
   bool _failed = false;
-
-  /// The revision this screen's data was loaded at, and the notifier it came
-  /// from — the same pattern `WorkoutScreen` already uses. Home used to load
-  /// once post-frame and never listen, so the "Sync the band" button it renders
-  /// could not change what the screen showed: the offload landed, the derive
-  /// ran, and Home kept saying "Nothing derived yet" until the app was
-  /// relaunched.
-  int _loadedAt = -1;
-  ValueNotifier<int>? _rev;
 
   @override
   void initState() {
@@ -1078,36 +1097,16 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  /// Handed its data (golden, gallery) — the screen just renders what it has.
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (widget.data != null) return;
-    // No AppState above us in a golden — the screen just renders what it has.
-    final AppState app;
-    try {
-      app = context.read<AppState>();
-    } catch (_) {
-      return;
-    }
-    if (!identical(_rev, app.insightsRevision)) {
-      _rev?.removeListener(_onRevision);
-      _rev = app.insightsRevision..addListener(_onRevision);
-      _loadedAt = app.insightsRevision.value;
-    }
-  }
+  bool get revisionReloads => widget.data == null;
 
-  void _onRevision() {
-    final r = _rev;
-    if (!mounted || r == null || r.value == _loadedAt) return;
-    _loadedAt = r.value;
-    _load();
-  }
-
+  /// Home used to load once post-frame and never listen, so the "Sync the
+  /// band" button it renders could not change what the screen showed: the
+  /// offload landed, the derive ran, and Home kept saying "Nothing derived
+  /// yet" until the app was relaunched.
   @override
-  void dispose() {
-    _rev?.removeListener(_onRevision);
-    super.dispose();
-  }
+  void reload() => _load();
 
   Future<void> _load() async {
     final repo = repoOf(context);
@@ -1115,11 +1114,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final t = beginRead(#home);
     try {
       final d = await HomeData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false, _failed = false));
+      if (stillNewest(#home, t)) {
+        setState(() => (_d = d, _loading = false, _failed = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => (_loading = false, _failed = true));
+      if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
     }
   }
 

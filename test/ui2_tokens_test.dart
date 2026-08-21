@@ -198,10 +198,21 @@ const _notComponents = {
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   'MyDevices', 'MyDevicesView', 'DeviceDetail', 'DeviceDetailView', 'RePair',
+  // The strap-buzz relay picker: a Scaffold route over a live
+  // NotificationRelay, whose list is whatever the OS notification stream has
+  // handed us this session. `BandNotificationsView` is the pure half and is
+  // what `band_notifications_test.dart` pumps.
+  'BandNotifications', 'BandNotificationsView',
   // Both are Scaffold routes that read the database and ask the OS for a
   // permission on tap — a gallery case would either mock all of that or
   // trigger a real health-store prompt from a screenshot sweep.
   'PhoneImport', 'AutomationSettings',
+  // The double-tap picker. A Scaffold route whose whole content is decided by
+  // what the OS answered to a method channel, so a gallery case would be a
+  // photograph of a fixture rather than of the screen. Rendered instead by
+  // band_gestures_test.dart, at a real phone width, in both the has-native and
+  // the native-unreachable state.
+  'BandGestures', 'BandGesturesView',
   // FULL-BLEED, so it is a screen element rather than a component: it takes
   // the whole window width back off its parent's padding via OverflowBox. The
   // gallery lays every case out in a ~179 logical-px cell, which is narrower
@@ -245,4 +256,10 @@ const _notComponents = {
   'LiveFlow', 'LiveMatch', 'LiveInterval',
   // the activity flow: pick → set up → do → summarise → share
   'ActivityPicker', 'ActivitySetup', 'ActivitySummary', 'ShareSheet',
+  // The two write routes for a session the band did not capture as it
+  // happened. Both are Scaffolds that read `sessions` / `workout_suggestions`
+  // and write through the repo; the second also asks the OS for a date and a
+  // time picker on tap. Covered by `log_workout_test.dart`, which pumps each
+  // at a real phone width against injected rows.
+  'WorkoutSuggestionScreen', 'LogWorkout',
 };

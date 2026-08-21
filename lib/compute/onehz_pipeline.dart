@@ -22,6 +22,7 @@
 //         the curve series the UI needs + indexed scalars. Survives jsonEncode.
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:openstrap_analytics/onehz.dart';
 
@@ -29,7 +30,8 @@ import 'package:openstrap_analytics/onehz.dart';
 // does not compromise this file's isolate safety. It is here so the sex
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
-import 'hr_max.dart' show estimatedMaxHr, trainingZones;
+import 'hr_max.dart'
+    show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
 import 'profile.dart' show workoutSex;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
@@ -125,8 +127,6 @@ class DayBundleInput {
   final List<int> sleepHr;
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
-  final List<int> sleepSpo2Red;
-  final List<int> sleepSpo2Ir;
   final List<int> sleepSkinTemp;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
@@ -191,8 +191,6 @@ class DayBundleInput {
     required this.sleepHr,
     required this.sleepRrTsMs,
     required this.sleepRrMs,
-    required this.sleepSpo2Red,
-    required this.sleepSpo2Ir,
     required this.sleepSkinTemp,
     required this.sleepJson,
     required this.hypnoStages,
@@ -221,8 +219,6 @@ class DayBundleInput {
     'sleep_hr': sleepHr,
     'sleep_rr_ts_ms': sleepRrTsMs,
     'sleep_rr_ms': sleepRrMs,
-    'sleep_spo2_red': sleepSpo2Red,
-    'sleep_spo2_ir': sleepSpo2Ir,
     'sleep_skin_temp': sleepSkinTemp,
     'sleep_json': sleepJson,
     'hypno_stages': hypnoStages,
@@ -244,9 +240,20 @@ class DayBundleInput {
   static DayBundleInput fromJson(Map<String, dynamic> m) {
     List<int> ints(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    List<double> dbls(String k) => ((m[k] as List?) ?? const [])
-        .map((e) => (e as num).toDouble())
-        .toList();
+    // The substrate packs these as Float64List and the isolate boundary hands
+    // them back typed; unboxing them into a plain List<double> was re-boxing
+    // every element for nothing. Always a COPY, never an alias: on the direct
+    // (synchronous, in-test) path returning the caller's list would share the
+    // substrate's arrays across two repos with nobody enforcing read-only.
+    List<double> dbls(String k) {
+      final v = (m[k] as List?) ?? const [];
+      if (v is List<double>) return Float64List.fromList(v);
+      final out = Float64List(v.length);
+      for (var i = 0; i < v.length; i++) {
+        out[i] = (v[i] as num).toDouble();
+      }
+      return out;
+    }
     List<String> strs(String k) =>
         ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
     return DayBundleInput(
@@ -259,8 +266,6 @@ class DayBundleInput {
       sleepHr: ints('sleep_hr'),
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
       sleepRrMs: dbls('sleep_rr_ms'),
-      sleepSpo2Red: ints('sleep_spo2_red'),
-      sleepSpo2Ir: ints('sleep_spo2_ir'),
       sleepSkinTemp: ints('sleep_skin_temp'),
       sleepJson: ((m['sleep_json'] as Map?) ?? const {})
           .cast<String, dynamic>(),
@@ -455,7 +460,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   const kSpo2Refusal = 'refused: the red and IR channels are one signal — '
       'ir − red is a fixed offset within a session, so any ratio built from '
       'them measures baseline drift, not oxygenation';
-  final odiTs = [for (final t in d.sleepTsSec) t.toDouble()];
   const odi = Metric<RelativeOdiResult>.absent(
     tier: Tier.relative,
     inputs_used: ['spo2_red_raw', 'spo2_ir_raw'],
@@ -480,6 +484,33 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final double? skinTempCoverage = (inBedSec == null || inBedSec <= 0)
       ? null
       : (tempValid.length / inBedSec).clamp(0.0, 1.0);
+  // HOW MUCH OF THE NIGHT THE STRAP SPENT AT SKIN TEMPERATURE (#250).
+  //
+  // `tempInput` refuses readiness's temp driver outright when this is null, and
+  // nothing in this app has ever passed it — so the documented FOURTH DRIVER
+  // has never contributed on any night, the other three renormalised over 0.90,
+  // and "Skin temperature" could not appear in a breakdown. This is the number
+  // it wants: the share of the night's valid samples sitting within the
+  // family's settle band of the night's OWN median (warm-up and off-body read
+  // low; a fever reads high and passes through).
+  //
+  // MEASURED HERE, GATED IN `tempInput` — hence `minSettledFraction: 0`.
+  // `nightlySkinTemp` would otherwise go absent on an unsettled night and the
+  // fraction would be lost, which lands on the "nobody measured it" refusal
+  // instead of the true "the strap was cold for two hours" one. It still goes
+  // absent for a family whose settle band nobody has measured (gen5 has none)
+  // and for a night under sixty samples, and those genuinely ARE "no fraction
+  // measured".
+  //
+  // Ts is not read by `nightlySkinTemp` (it is a median + a mean over the
+  // night's samples), and `tempValid` has no parallel timestamp series, so 0
+  // is passed rather than a fabricated clock.
+  final settledTemp = nightlySkinTemp(
+    [for (final v in tempValid) AdcSample(0, v)],
+    deviceFamily: d.deviceFamily,
+    minSettledFraction: 0.0,
+  );
+  final double? skinTempSettledFrac = settledTemp.value?.settledFraction;
   // STEP 2 — z-score today's RAW mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
@@ -509,7 +540,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // Feed the RAW ADC mean + the RAW-ADC baseline so the composite computes its
     // own oriented robust-z internally (consistent with the other inputs, which
     // pass raw values + their raw baselines).
-    tempInput(skinTempAdc, d.skinTempAdcHistory),
+    //
+    // The mean stays RAW — value and baseline have to be the same quantity, and
+    // the stored history is a series of raw nightly means. The settled fraction
+    // is the GATE on using it at all: below 0.80 the driver is refused for this
+    // night, by name, and readiness renormalises over the three that are left.
+    tempInput(
+      skinTempAdc,
+      d.skinTempAdcHistory,
+      settledFraction: skinTempSettledFrac,
+    ),
   ]);
   // Diagnostic only — populated when readiness comes back absent, so the main
   // isolate can log WHY to Crashlytics instead of a bare null (this runs
@@ -545,6 +585,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         'value': skinTempAdc != null,
         'baseline_n': d.skinTempAdcHistory.length,
         'baseline_sd': _stddev(d.skinTempAdcHistory),
+        // The gate, not the value: a temp driver can be refused with a perfectly
+        // good mean and a full baseline. Null = the fraction was unmeasurable.
+        'settled_frac': skinTempSettledFrac,
       },
       'note': composite.note,
     };
@@ -684,10 +727,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // active figure this line publishes (about 117 kcal/day across a
     // 150-195 cm profile). `wakeDayEnergy` abstains for that reason; so does
     // this, or Today shows an imputed number the derived day then withdraws.
+    //
+    // The RESTING HR is required for the same class of reason: `dailyEnergy`'s
+    // active gate is a %HRR flex point, so without the lower reserve anchor
+    // there is no gate and every wake minute bills as active. `wakeDayEnergy`
+    // abstains without it; so does this, or the two drift again.
     if (age != null &&
         sex != null &&
         weightKg != null &&
-        heightCm != null) {
+        heightCm != null &&
+        rhrForTrimp != null) {
       caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
@@ -697,7 +746,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           sex: workoutSex(sex),
         ),
         hrmax: hrMax,
-      ).active; // active-energy component (Keytel surplus over basal)
+        restingHr: rhrForTrimp,
+        // `?.` — `dailyEnergy` abstains outright when the anchors cannot
+        // define a gate, rather than billing every waking minute as active.
+        // Absent stays absent here, same as every other input on this seam.
+      )?.active; // active-energy component (Keytel surplus over basal)
     }
   }
 
@@ -708,6 +761,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final strainMetric = strainScoreMetric(
     rawTrimp,
     wakeMinutes: perMin.isEmpty ? null : perMin.length.toDouble(),
+    // THE REFERENCE LEVEL, NOT THIS USER'S (edge#226 is still open). analytics
+    // stopped defaulting the quiet-waking level so every caller has to state
+    // which one it means; `quietWakingHrr` is the constant the anchor table was
+    // generated at, so passing it reproduces the strain this app ships today
+    // and nobody's number moves on this commit. The real level is
+    // `dailyQuietWakingHrr` fed through a rolling personal median — a trait,
+    // not a day, and the workout scorers need the same one the day uses or a
+    // bout subtracts its own effort away. That plumbing is edge#226.
+    // ponytail: population constant, swap for the rolling personal median when
+    // edge#226 lands — see the same comment at the other four call sites.
+    quietHrr: quietWakingHrr,
     female: workoutSex(sex) == 'female',
   );
 
@@ -983,7 +1047,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
     'note': kSpo2Refusal,
     'debug': <String, dynamic>{
-      'sleep_samples': odiTs.length,
+      'sleep_samples': d.sleepTsSec.length,
     },
   };
 
@@ -1008,11 +1072,23 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   }
 
   // ── HR stats over the day's valid HR (for the strain detail hr {max,avg,min}).
+  //
+  // THE DAY PEAK GOES THROUGH THE SAME SMOOTHING AS EVERY WORKOUT PEAK (#127).
+  // This used to be a bare `reduce(math.max)` over raw 1 Hz, so one PPG motion
+  // transient WAS the day's "Peak HR" on the strain card while the Heart page —
+  // reading per-minute means — showed the real peak: the 160-vs-143 pair the
+  // issue reported, moved to a different screen rather than fixed. `hr_max.dart`
+  // is the one definition (physiological reject + 5 s rolling median, which
+  // steps over a 1-2 s spike but keeps a genuine brief effort peak). Min is the
+  // symmetric case: a 1 s dropout must not define the day's low either.
+  final dayHrInt = [for (final h in dayHrValid) h.round()];
   final hrStats = dayHrValid.isEmpty
       ? null
       : {
-          'max': dayHrValid.reduce(math.max).round(),
-          'min': dayHrValid.reduce(math.min).round(),
+          'max': smoothedMaxHr(dayHrInt, age: age?.round()) ??
+              dayHrValid.reduce(math.max).round(),
+          'min': smoothedMinHr(dayHrInt, age: age?.round()) ??
+              dayHrValid.reduce(math.min).round(),
           'avg': _mean(dayHrValid)!.round(),
         };
 
@@ -1236,6 +1312,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'skin_temp_coverage_frac': skinTempCoverage == null
           ? null
           : _round(skinTempCoverage, 4),
+      // RD-15 — the settled fraction readiness's temp driver is gated on, so a
+      // night whose driver was refused can be told apart from one where the
+      // gate never ran. NULL means the fraction itself is unmeasurable (no
+      // settle band for this band's family, or under sixty samples).
+      'skin_temp_settled_frac': skinTempSettledFrac == null
+          ? null
+          : _round(skinTempSettledFrac, 4),
       'sdnn': hrvT.present ? hrvT.value!.sdnn : null,
       // CV-03 — deceleration capacity (ms). Personal trend only: PRSA anchors on
       // decelerations and pulse-arrival jitter attenuates DC by an amount that
@@ -1519,7 +1602,14 @@ List<Map<String, num>> _strainCurve(
     out.add({
       't': p.tsSec,
       'v': _round(
-        strainScore(trimp, wakeMinutes: wakeMin, female: female),
+        strainScore(
+          trimp,
+          wakeMinutes: wakeMin,
+          // Reference level, not this user's — see onehz_pipeline's
+          // `strainMetric` for why, and edge#226 for the fix.
+          quietHrr: quietWakingHrr,
+          female: female,
+        ),
         2,
       ),
     });

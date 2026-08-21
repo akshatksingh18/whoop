@@ -10,6 +10,7 @@ import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_ids.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
+import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 
 NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
@@ -19,6 +20,19 @@ NotificationEvent _ev(NotifCategory c, NotifPriority p) => NotificationEvent(
       title: 't',
       body: 'b',
       date: '2026-06-27',
+    );
+
+/// The auto-detected-workout prompt exactly as `derivation_engine` emits it —
+/// reminders channel, normal priority, and a route carrying the bout's id.
+NotificationEvent _autoWorkout({String? route, NotifPriority? priority}) =>
+    NotificationEvent(
+      dedupeKey: '2026-06-27:1750000000:auto_workout',
+      category: NotifCategory.reminders,
+      priority: priority ?? NotifPriority.normal,
+      title: 'Did you work out?',
+      body: 'We spotted ~42 min of elevated activity. Tap to log it.',
+      date: '2026-06-27',
+      route: route ?? workoutSuggestionRoute('2026-06-27:1750000000'),
     );
 
 void main() {
@@ -44,8 +58,8 @@ void main() {
     });
   });
 
-  group('the three classes', () {
-    test('classOf recognises exactly three, and nothing else', () {
+  group('the four classes', () {
+    test('classOf recognises exactly four, and nothing else', () {
       // The exception: health findings and the band's own failures.
       expect(classOf(_ev(NotifCategory.health, NotifPriority.critical)),
           NotifClass.exception);
@@ -54,11 +68,36 @@ void main() {
       // The alarm, and only the alarm, claims reminders+critical.
       expect(classOf(_ev(NotifCategory.reminders, NotifPriority.critical)),
           NotifClass.alarm);
+      // The detected workout, and it alone, claims reminders+normal — by
+      // ROUTE, so the pair keeps meaning "no" for anything else that lands on
+      // it. It was emitted on `recovery` and dropped: written, never told.
+      expect(classOf(_autoWorkout()), NotifClass.prompt);
       // Everything that used to make up the other nineteen kinds.
       expect(classOf(_ev(NotifCategory.recovery, NotifPriority.normal)), isNull);
       expect(classOf(_ev(NotifCategory.reminders, NotifPriority.low)), isNull);
       expect(
           classOf(_ev(NotifCategory.reminders, NotifPriority.normal)), isNull);
+      // The route is what opens the gate, not the channel: a new nudge on the
+      // same channel is still refused.
+      expect(classOf(_autoWorkout(route: '/workouts')), isNull);
+      // BOTH halves, not either. The route alone was enough until now, so a
+      // low-priority event carrying it walked through a gate documented as
+      // reminders + NORMAL only.
+      expect(classOf(_autoWorkout(priority: NotifPriority.low)), isNull);
+    });
+
+    test('the id-carrying payload is what actually gets classified', () {
+      // The real emit carries `?id=…`. Every route check in the system is an
+      // equality test, so a path-blind one silently classifies the live
+      // notification as null — the same "written, never told" failure in a new
+      // place. Both halves of the gate are checked on the real payload.
+      final e = _autoWorkout();
+      expect(e.route, contains('?id='));
+      expect(classOf(e), NotifClass.prompt);
+      expect(
+          const NotificationPrefs(autoDetectEnabled: false)
+              .shouldFireOs(e, 12 * 60),
+          isFalse);
     });
   });
 
@@ -66,8 +105,14 @@ void main() {
     // The OS fires a zonedSchedule with no Dart running, so shouldFireOs never
     // sees one. What may be SCHEDULED is a separate, narrower list: a slot the
     // user asked for by name, at a time or interval they picked.
-    test('allows the lookback, the hydration band and the nightly sweep', () {
+    test('allows the lookback, the hydration band, the sweep and the nudge', () {
       expect(NotificationService.maySchedule(NotificationService.idWeeklyRecap),
+          isTrue);
+      // The movement nudge earned its place by growing an off switch
+      // (NotificationPrefs.movementEnabled). Refused here for as long as it had
+      // none, which is why issue #123 never fired for anyone — the cancel on
+      // every foreground resume was the visible half of it.
+      expect(NotificationService.maySchedule(NotificationService.idStillness),
           isTrue);
       expect(NotificationService.maySchedule(NotificationService.idEveningBrief),
           isTrue);
@@ -85,7 +130,6 @@ void main() {
         NotificationService.idWindDown,
         NotificationService.idJournalLog,
         NotificationService.idMorningBrief,
-        NotificationService.idStillness,
         NotificationService.idLowBattery,
         NotificationService.idWaterBase - 1,
         NotificationService.idWaterBase + NotificationService.maxWaterSlots,
@@ -107,7 +151,20 @@ void main() {
       expect(p.shouldFireOs(_ev(NotifCategory.device, NotifPriority.normal),
           2 * 60), isFalse);
     });
-    test('a kind that is not one of the three never fires, quiet or not', () {
+    test('the detected-workout prompt reaches the OS, and is not shouty', () {
+      final e = _autoWorkout();
+      // The whole point: it fires. A test that only asserts the suggestion row
+      // was written passes on the build where this never reached anyone.
+      expect(p.shouldFireOs(e, 12 * 60), isTrue);
+      // A prompt, not an alarm: 02:00 is not the time to ask about a workout.
+      expect(p.shouldFireOs(e, 2 * 60), isFalse);
+      // And the Reminders channel switch turns it off like everything on it.
+      expect(
+          const NotificationPrefs(remindersEnabled: false)
+              .shouldFireOs(e, 12 * 60),
+          isFalse);
+    });
+    test('a kind that is not one of the four never fires, quiet or not', () {
       for (final minute in [2 * 60, 12 * 60]) {
         expect(
             p.shouldFireOs(
@@ -118,6 +175,31 @@ void main() {
                 _ev(NotifCategory.reminders, NotifPriority.low), minute),
             isFalse);
       }
+    });
+    // The auto-detect off switch (issues #102, #149). The detector has never
+    // had one — the row is written, the notification is emitted, and nothing
+    // anywhere could stop either.
+    test('the detected-workout prompt is silenced by its own switch', () {
+      const on = NotificationPrefs();
+      const off = NotificationPrefs(autoDetectEnabled: false);
+      const e = NotificationEvent(
+        dedupeKey: '2026-06-27:auto_workout:1',
+        // health, so the three-class rule is not what is being measured here:
+        // the point is that the switch outranks a category that WOULD fire.
+        category: NotifCategory.health,
+        priority: NotifPriority.normal,
+        title: 'Did you work out?',
+        body: 'b',
+        date: '2026-06-27',
+        route: kRouteWorkoutSuggestion,
+      );
+      expect(on.shouldFireOs(e, 12 * 60), isTrue);
+      expect(off.shouldFireOs(e, 12 * 60), isFalse);
+      // and it silences nothing else
+      expect(
+          off.shouldFireOs(_ev(NotifCategory.health, NotifPriority.normal),
+              12 * 60),
+          isTrue);
     });
     test('critical overrides quiet hours when allowed', () {
       expect(p.shouldFireOs(_ev(NotifCategory.health, NotifPriority.critical),

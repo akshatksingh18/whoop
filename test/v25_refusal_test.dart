@@ -44,18 +44,21 @@ void main() {
     await LocalDb.close();
   });
 
-  test('protocol refuses the vector upstream now — pin the handoff', () {
-    // protocol stopped emitting the v25 "gravity" itself (accelG comes back
-    // EMPTY, not (0,0,0)) — the same refusal this file pins on edge's own
-    // seams. Asserted so that if the decoder ever hands values back again,
-    // this test tells whoever changed it that edge deliberately drops the
-    // record either way.
+  test('protocol hands us no vector at all now — and we still drop the record',
+      () {
+    // This used to assert the opposite: protocol handed over a "gravity"
+    // vector from inner[69/71/73] and edge dropped the record anyway. Those
+    // offsets were refuted on real data and protocol 60676cf stopped emitting
+    // them, so `accelG` is empty — absent, not (0,0,0), the same idiom gen5's
+    // `gravityG` uses. Asserted so that if the decoder changes again, whoever
+    // changes it learns edge is deliberately dropping the record either way.
     final r = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25a));
     expect(r, isNotNull);
     expect(r!.histVersion, 25);
     expect(r.hr, 0, reason: 'v25 carries no heart rate');
-    expect(r.accelG, isEmpty,
-        reason: 'no fabricated stillness from upstream either');
+    expect(r.accelG, isEmpty, reason: 'absent, never a still wrist');
+    final s = proto.FirmwareAwareR24Decoder().decode(proto.hexToBytes(_v25b))!;
+    expect(s.accelG, isEmpty);
   });
 
   test('decodeSubstrate drops v25 rather than banking a still wrist', () {

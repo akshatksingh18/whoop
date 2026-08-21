@@ -2672,7 +2672,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
-      final raw = computeManualSessionStats(
+      final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
@@ -2682,19 +2682,10 @@ class LocalRepositoryImpl extends LocalRepository {
         zoneSet: _zoneSetFor(
             row['device_family'] as String?, await _zoneAnchors()),
       );
-      // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
-      // writes a PPG spike into the column `getWorkout` deliberately refuses to
-      // floor against (issue #127) — and once raw ages out past retention the
-      // list has no smoothed value left to prefer, so the artefact would become
-      // permanent. Store the spike-suppressed peak instead.
-      final stats = ManualSessionStats(
-        avgHr: raw.avgHr,
-        maxHr: smoothedMaxHr(hrBpm, age: _profileAge()) ?? raw.maxHr,
-        strain: raw.strain,
-        calories: raw.calories,
-        zoneMinutes: raw.zoneMinutes,
-        hrSampleCount: raw.hrSampleCount,
-      );
+      // The peak is smoothed inside `computeManualSessionStats` now — one
+      // definition for the manual save, this re-score and the workout list
+      // (#127), instead of the raw peak being re-smoothed here and banked raw
+      // everywhere else. Nothing to re-wrap.
 
       // "Complete" = the band has handed over essentially the whole window.
       // 1 Hz means one sample per second, so sample count vs window seconds is
@@ -3169,14 +3160,28 @@ class LocalRepositoryImpl extends LocalRepository {
       },
     ];
 
+    // MEASURED DAYS ONLY. This is a comparison of the user against
+    // themselves; an imported day is another vendor's derived score on a
+    // different scale, and it lands in the window mean every tagged day is
+    // priced against (see LocalDb.importedDates). The chart underneath still
+    // shows those days — a picture may be spliced, a statistic may not.
+    //
+    // TAKEN ONCE AND FILTERED IN DART, which is what the mask is a Set for.
+    // `measuredOnly: true` inlines it as a subquery, and the half of it that
+    // matters is a LIKE over `day_result.payload_json` — whole day bundles,
+    // tens of kilobytes each, re-scanned per series. Four outcomes made that
+    // four full passes over the user's entire history to build four maps off
+    // one answer that cannot change between them.
+    final imported = await LocalDb.importedDates();
     // date → value maps for each outcome.
     final maps = <String, Map<String, double>>{};
     for (final od in outcomeDefs) {
       final key = od['key'] as String;
       final m = <String, double>{};
       for (final r in await LocalDb.metricSeries(key)) {
+        final d = r['date'];
         final v = (r['value'] as num?)?.toDouble();
-        if (v != null) m[r['date'] as String] = v;
+        if (v != null && d is String && !imported.contains(d)) m[d] = v;
       }
       maps[key] = m;
     }
@@ -3389,7 +3394,10 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getWeekdayEffect({
     String key = 'readiness',
   }) async {
-    final rows = await LocalDb.metricSeries(key);
+    // MEASURED DAYS ONLY — a permutation test over a series spliced from two
+    // different algorithms reports the splice, not the weekday (same reasoning
+    // as the journal outcomes above).
+    final rows = await LocalDb.metricSeries(key, measuredOnly: true);
     if (rows.isEmpty) return const {};
     final dates = <String>[];
     final values = <double?>[];

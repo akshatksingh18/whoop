@@ -17,16 +17,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import 'package:openstrap_edge/app.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/data/models.dart' show DeviceState;
 import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/sync/paired_device.dart' show PairedDevice;
 import 'package:openstrap_edge/import/backup_crypto.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
+import 'package:openstrap_edge/ui2/screens/log_workout.dart'
+    show WorkoutSuggestionScreen;
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
@@ -164,6 +169,23 @@ void main() {
       // Unknown / retired routes must not crash a cold launch.
       expect(domainForRoute(''), ShellDomain.home);
       expect(screenForRoute('/nope'), isNull);
+    });
+
+    test('the detected-workout deep link opens on THAT bout', () {
+      // "We spotted ~42 min. Tap to log it." has to land on those 42 minutes.
+      // Landing on the Workouts tab was issue #113; landing on a list of every
+      // unreviewed bout is the same broken promise one screen further in.
+      const id = '2026-08-19:1755625800';
+      final route = workoutSuggestionRoute(id);
+      expect(domainForRoute(route), ShellDomain.workout);
+      final screen = screenForRoute(route);
+      expect(screen, isA<WorkoutSuggestionScreen>());
+      expect((screen! as WorkoutSuggestionScreen).focusId, id);
+      // A payload from a build that carried no id still reviews everything.
+      expect(
+          (screenForRoute(kRouteWorkoutSuggestion)! as WorkoutSuggestionScreen)
+              .focusId,
+          isNull);
     });
 
     test('the tab index the shell persists round-trips through the enum', () {
@@ -439,6 +461,108 @@ void main() {
       ));
       // Exactly one "Not connected": the row. No card repeating it.
       expect(find.text('Not connected'), findsOneWidget);
+    });
+  });
+
+  // The dead end this group exists for: forget the band and the only route
+  // back to pairing disappeared. The pair affordance lived inside
+  // `sources.isEmpty`, and a phone reporting steps is a source — so one
+  // steps-only row was enough to hide it, and the app became unusable as a
+  // band app with no way to say so.
+  //
+  // Driven through the real screen over a real AppState, because reading the
+  // widget tree is exactly what missed it: both halves look right on their
+  // own.
+  group('the way back to pairing survives a forget', () {
+    testWidgets('the band goes, the phone stays, the pair affordance appears',
+        (tester) async {
+      _tallView(tester);
+      final app = AppState()
+        ..paired = PairedDevice('AA:BB:CC:DD:EE:FF', 'SER1')
+        ..phoneStepsEnabled = true
+        ..phoneStepsLastSyncedDays = 1
+        ..phoneStepsLastTotal = 4200;
+      addTearDown(app.dispose);
+
+      await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: MaterialApp(
+            theme: buildTheme(Brightness.light), home: const MyDevices()),
+      ));
+      expect(find.text('WHOOP band'), findsOneWidget);
+      expect(find.text('Pair a band'), findsNothing);
+
+      // Forget. `unpair()` itself is platform-bound (ASK, the engine, the
+      // foreground service); what it leaves behind for this screen is this.
+      app.paired = null;
+      app.notifyListeners();
+      await tester.pump();
+
+      expect(find.text('WHOOP band'), findsNothing);
+      expect(find.text('This phone'), findsOneWidget,
+          reason: 'the phone row is what used to swallow the empty state');
+      expect(find.text('Pair a band'), findsOneWidget);
+    });
+
+    testWidgets('and for someone who only ever had the phone', (tester) async {
+      _tallView(tester);
+      var pairs = 0;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(
+          sources: [
+            const HealthSource(
+                name: 'This phone',
+                kind: 'Motion coprocessor',
+                tier: SourceTier.phone,
+                icon: LucideIcons.smartphone,
+                connected: true),
+          ],
+          onPair: () => pairs++,
+        ),
+      ));
+      await tester.tap(find.text('Pair a band'));
+      expect(pairs, 1);
+    });
+
+    // The other half of the same dead end: getting back to pairing is no good
+    // if the band you pair next inherits the forgotten one's identity. The
+    // engine holds one DeviceState for the life of the process.
+    test('forgetting drops what the old band said about itself', () {
+      final d = DeviceState(connection: 'connected')
+        ..serial = 'SER1'
+        ..strapName = 'Old band'
+        ..generation = 'gen4'
+        ..batteryPct = 71
+        ..autoReconnectPaused = true
+        ..bondRefusals = 5;
+      d.reset();
+      expect(d.serial, isNull);
+      expect(d.strapName, isNull);
+      expect(d.generation, isNull,
+          reason: 'a gen5 band must not be calibrated as the gen4 it replaced');
+      expect(d.batteryPct, isNull);
+      expect(d.connection, 'disconnected');
+      expect(d.autoReconnectPaused, isFalse,
+          reason: 'the next band starts with a clean reconnect loop');
+      expect(d.bondRefusals, 0);
+    });
+
+    testWidgets('a paired band is not asked to pair again', (tester) async {
+      _tallView(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(sources: [
+          const HealthSource(
+              name: 'WHOOP 4.0',
+              kind: '',
+              tier: SourceTier.wristOptical,
+              icon: LucideIcons.watch,
+              connected: true,
+              isBand: true),
+        ], onPair: () {}),
+      ));
+      expect(find.text('Pair a band'), findsNothing);
     });
   });
 

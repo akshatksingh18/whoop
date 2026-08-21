@@ -23,7 +23,6 @@ import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
 import '../../health/health_profile_import.dart';
-import '../../notify/notification_center.dart';
 import '../../platform/tasker_bridge.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
@@ -35,8 +34,10 @@ import '../../telemetry/health_uploader.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import 'alarm.dart';
+import 'band_notifications.dart';
 import 'data.dart';
 import 'gallery.dart';
+import 'gestures.dart';
 import 'profile.dart';
 
 /// Unwind the profile stack back to the gate.
@@ -113,6 +114,24 @@ class _MoreSettingsState extends State<MoreSettings> {
     _setDev(true);
   }
 
+  /// The one preference here that is awaited. A revocation that never reached
+  /// storage is back ON at the next launch, so it does not get to fail quietly
+  /// — the switch still moves (in-session it really is off, nothing is sent),
+  /// and the person is told it did not stick.
+  Future<void> _toggleBarcode(BuildContext c) async {
+    final want = !_barcode;
+    final messenger = ScaffoldMessenger.of(c);
+    final saved = await setOffLookupAllowed(want);
+    if (!mounted) return;
+    setState(() => _barcode = want);
+    if (!saved) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('That could not be saved — it may be back next time you '
+            'open the app.'),
+      ));
+    }
+  }
+
   void _setDev(bool on) {
     Prefs.setBool(Prefs.devMode, on);
     setState(() {
@@ -169,10 +188,7 @@ class _MoreSettingsState extends State<MoreSettings> {
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
-      onToggleBarcodeLookup: () {
-        setOffLookupAllowed(!_barcode);
-        setState(() => _barcode = !_barcode);
-      },
+      onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleHealthSync: () => _toggleHealthSync(app),
       onToggleUpdateChecks: () =>
@@ -497,7 +513,7 @@ class MoreSettingsView extends StatelessWidget {
     this.healthState = HealthLinkState.unknown,
     this.healthStore = 'Apple Health',
     this.telemetry = false,
-    this.barcodeLookup = false,
+    this.barcodeLookup = true,
     this.cycleTracking = false,
     this.showHealthShare = false,
     this.healthShare = false,
@@ -600,6 +616,14 @@ class MoreSettingsView extends StatelessWidget {
                       onTap: onToggleHealthSync),
                 ]),
                 settingsGroup(c, 'Automation', [
+                  // The picker died with the old ui tree and the engine kept
+                  // running against a mapping nothing could set — the whole
+                  // feature was live code pinned at "do nothing".
+                  Builder(
+                      builder: (c) => SetRow(
+                          LucideIcons.hand, C.orange, 'Double-tap',
+                          sub: 'What a double-tap on the band does',
+                          onTap: () => goto(c, const BandGestures()))),
                   SetRow(LucideIcons.workflow, C.indigo, 'Tasker and Shortcuts',
                       // The row states the asymmetry rather than leaving it to
                       // the screen: someone on an iPhone should learn what they
@@ -727,13 +751,25 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     });
   }
 
+  /// Whether the strap-buzz relay exists on this platform. Android only —
+  /// iOS gives no app access to another app's notifications — and the row is
+  /// absent rather than disabled there, so there is nothing to explain.
+  bool get _relaySupported =>
+      defaultTargetPlatform == TargetPlatform.android;
+
   Future<void> _apply(NotificationPrefs next) async {
     setState(() => _prefs = next);
     await next.save();
     // Re-run the scheduler so a switch that was just turned off actually
     // cancels what it was standing for, rather than taking effect at some
     // later resume.
-    await NotificationCenter.instance.scheduleStandingReminders(next);
+    //
+    // Through AppState, not straight at the NotificationCenter: the medication
+    // slots need the med schedule and the check-in needs today's journal, and
+    // only AppState can read either. Calling the centre directly cancels what
+    // the switch turned off and arms nothing back, so meds stayed silent until
+    // the next foreground pass.
+    if (mounted) await context.read<AppState>().refreshAiReminders();
     // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
     // the switch only takes effect at the next launch.
     if (mounted) await context.read<AppState>().armWaterReminder(next);
@@ -753,6 +789,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
       prefs: p ?? const NotificationPrefs(),
       loaded: p != null,
       granted: _granted,
+      relaySupported: _relaySupported,
       onChanged: _apply,
       onRequestPermission: _requestPermission,
     );
@@ -762,6 +799,11 @@ class _NotificationSettingsState extends State<NotificationSettings> {
 class NotificationSettingsView extends StatelessWidget {
   final NotificationPrefs prefs;
   final bool loaded, granted;
+
+  /// Android only. False hides the strap-buzz relay row entirely rather than
+  /// showing a control that cannot work.
+  final bool relaySupported;
+
   final Future<void> Function(NotificationPrefs next)? onChanged;
   final VoidCallback? onRequestPermission;
 
@@ -770,6 +812,7 @@ class NotificationSettingsView extends StatelessWidget {
     this.prefs = const NotificationPrefs(),
     this.loaded = true,
     this.granted = true,
+    this.relaySupported = false,
     this.onChanged,
     this.onRequestPermission,
   });
@@ -828,6 +871,56 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             remindersEnabled: !prefs.remindersEnabled))),
+                    // The auto-detector's off switch, asked for twice (#102,
+                    // #149) and never built: the bouts were written, the
+                    // prompt was emitted, and nothing anywhere could stop
+                    // either. The sub-line says exactly what it stops,
+                    // because it does NOT stop the detection itself.
+                    SetRow(LucideIcons.radar, C.green, 'Detected workouts',
+                        sub: 'Ask about efforts the band spotted that you did '
+                            'not start. Off hides the prompt and the review '
+                            'cards; the band goes on measuring either way',
+                        value: prefs.autoDetectEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            autoDetectEnabled: !prefs.autoDetectEnabled))),
+                    // Off by default, and it is the switch that lets the nudge
+                    // be scheduled at all — see
+                    // NotificationService.schedulableIds. It had none, so it
+                    // was refused there and had never once fired.
+                    SetRow(LucideIcons.footprints, C.orange, 'Movement nudge',
+                        sub: 'One notification after two hours with no '
+                            'movement at all, and only while the band is on '
+                            'and connected. Never inside 21:00–09:00',
+                        value: prefs.movementEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            movementEnabled: !prefs.movementEnabled))),
+                    // The one prompt whose time is not a guess: it is the
+                    // schedule already typed into the Medication tab. Only a
+                    // dose still due is armed, and the notification names no
+                    // drug — it lands on a lock screen in front of whoever is
+                    // in the room.
+                    SetRow(LucideIcons.pill, C.blue, 'Medication reminders',
+                        sub: 'One notification per scheduled dose, at the '
+                            'times you entered. Nothing is sent for a dose '
+                            'already marked taken or skipped',
+                        value: prefs.medsEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () =>
+                            set(prefs.copyWith(medsEnabled: !prefs.medsEnabled))),
+                    // ONE prompt for the whole journal, not one per field —
+                    // mood, energy, stress and the rest are all the same
+                    // screen, so five rows would be five interruptions for one
+                    // minute of typing.
+                    SetRow(LucideIcons.notebookPen, C.purple, 'Daily check-in',
+                        sub: 'One prompt in the evening to write the day — '
+                            'mood, energy, stress. Skipped once the day '
+                            'already has a rating in it',
+                        value: prefs.checkInEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            checkInEnabled: !prefs.checkInEnabled))),
                     // A prompt to log, not a reading. The app measures no
                     // hydration and this row may never imply it does.
                     SetRow(LucideIcons.glassWater, C.teal, 'Water reminder',
@@ -848,6 +941,17 @@ class NotificationSettingsView extends StatelessWidget {
                               waterIntervalMin:
                                   _nextEvery(prefs.waterIntervalMin)))),
                   ]),
+                  if (relaySupported)
+                    settingsGroup(c, 'The strap', [
+                      // The other direction: not what this app sends you, but
+                      // what your phone's apps make the band do. The permission
+                      // for it has been in the manifest all along with nothing
+                      // in the app that could reach it.
+                      SetRow(LucideIcons.bellRing, C.purple,
+                          'Buzz on app notifications',
+                          sub: 'Pick which phone apps make the strap buzz',
+                          onTap: () => goto(c, const BandNotifications())),
+                    ]),
                   settingsGroup(c, 'Quiet hours', [
                     SetRow(LucideIcons.moon, C.indigo, 'Quiet hours',
                         sub: 'Nothing buzzes inside this window',

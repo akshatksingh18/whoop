@@ -1076,7 +1076,17 @@ class _LiveStrengthState extends State<LiveStrength> {
   final logged = <LoggedSet>[];
 
   static const restTarget = 90;
-  int restLeft = 0;
+
+  /// A listenable rather than a field behind `setState`, for the same reason
+  /// [LiveShellState.clock] is one: the countdown ticks once a second for a
+  /// minute and a half between sets, and putting it behind `setState` rebuilt
+  /// this state, and with it the whole [LiveShell] — header, transport,
+  /// footer, body — when the only thing that moved was the ring.
+  ///
+  /// `setState` still runs at the ZERO CROSSING, where the screen genuinely
+  /// changes shape: the footer flips back to Log set and the body back to the
+  /// entry pad.
+  final restLeft = ValueNotifier<int>(0);
   Timer? _rest;
 
   @override
@@ -1089,6 +1099,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   @override
   void dispose() {
     _rest?.cancel();
+    restLeft.dispose();
     super.dispose();
   }
 
@@ -1164,15 +1175,17 @@ class _LiveStrengthState extends State<LiveStrength> {
           rpe: rpe,
           restSec: prior == null ? null : now.difference(prior).inSeconds,
           at: now));
-      restLeft = restTarget;
     });
+    restLeft.value = restTarget;
     _persist();
     _rest?.cancel();
     _rest = Timer.periodic(Motion.tick, (t) {
       if (!mounted) return;
-      setState(() => restLeft--);
-      if (restLeft <= 0) {
+      restLeft.value--;
+      if (restLeft.value <= 0) {
         t.cancel();
+        // The one tick the shell has to see — see [restLeft].
+        setState(() {});
         HapticFeedback.mediumImpact();
         // A buzz is not a message. The rest-over moment was reachable only by
         // feeling the watch, or by watching a number nobody was told to watch.
@@ -1184,10 +1197,8 @@ class _LiveStrengthState extends State<LiveStrength> {
   void goExercise(int i) {
     if (i < 0 || i >= plan.length) return;
     _rest?.cancel();
-    setState(() {
-      index = i;
-      restLeft = 0;
-    });
+    restLeft.value = 0;
+    setState(() => index = i);
     _seedFromHistory();
   }
 
@@ -1250,13 +1261,15 @@ class _LiveStrengthState extends State<LiveStrength> {
           widget.feed?.call() ?? LiveFeed.none, widget.weightKg, elapsed,
           widget.private,
           strength: log),
-      footer: (ctx) => restLeft > 0
+      footer: (ctx) => restLeft.value > 0
           ? Row(children: [
               Expanded(
                 child: BigButton('+30s',
                     color: C.teal,
                     soft: true,
-                    onTap: () => setState(() => restLeft += 30)),
+                    // No `setState`: nothing on the shell changes shape while
+                    // the countdown stays above zero, and the ring listens.
+                    onTap: () => restLeft.value += 30),
               ),
               const SizedBox(width: S.x3),
               Expanded(
@@ -1265,7 +1278,8 @@ class _LiveStrengthState extends State<LiveStrength> {
                     color: C.teal,
                     onTap: () {
                       _rest?.cancel();
-                      setState(() => restLeft = 0);
+                      restLeft.value = 0;
+                      setState(() {});
                     }),
               ),
             ])
@@ -1355,7 +1369,13 @@ class _LiveStrengthState extends State<LiveStrength> {
               fontFeatures: const [FontFeature.tabularFigures()])),
       const SizedBox(height: S.x6),
 
-      if (restLeft > 0) _rest_(p) else ..._entry(p),
+      if (restLeft.value > 0)
+        ValueListenableBuilder<int>(
+          valueListenable: restLeft,
+          builder: (_, _, _) => _rest_(p),
+        )
+      else
+        ..._entry(p),
 
       const SizedBox(height: S.x6),
       if (setsHere.isNotEmpty) ...[
@@ -1483,9 +1503,10 @@ class _LiveStrengthState extends State<LiveStrength> {
           child: Stack(alignment: Alignment.center, children: [
             CustomPaint(
                 size: const Size(170, 170),
-                painter: Ring(restLeft / restTarget, p.on(C.teal), p.track)),
+                painter:
+                    Ring(restLeft.value / restTarget, p.on(C.teal), p.track)),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(clock(restLeft), style: F.n34.copyWith(color: p.ink)),
+              Text(clock(restLeft.value), style: F.n34.copyWith(color: p.ink)),
               if (logged.isNotEmpty)
                 Text(
                     logged.last.loadKg == null
@@ -1784,9 +1805,18 @@ class _LiveFlowState extends State<LiveFlow>
     super.initState();
     pose = (LiveDraft.current?.data['pose'] as num?)?.toInt() ?? 0;
     reached = (LiveDraft.current?.data['pose_max'] as num?)?.toInt() ?? pose;
+    // No `setState`: this body follows the shell's clock, which already
+    // rebuilds it once a second, so the wrapper only bought a second rebuild
+    // of the same subtree at the same rate.
+    //
+    // WHICH IS WHY THE PAUSE CHECK IS HERE. A paused session stops advancing
+    // `elapsedSec`, so the shell stops repainting — and a hold that kept
+    // counting behind a frozen screen would sit there wrong and then jump on
+    // resume. It is a pacer for a pose being held; a paused session is not
+    // holding anything.
     _hold = Timer.periodic(Motion.tick, (_) {
-      if (!mounted) return;
-      setState(() => hold = hold > 0 ? hold - 1 : 30);
+      if (!mounted || LiveDraft.current?.pausedAt != null) return;
+      hold = hold > 0 ? hold - 1 : 30;
     });
   }
 

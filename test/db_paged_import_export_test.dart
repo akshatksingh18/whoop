@@ -277,4 +277,59 @@ void main() {
       }
     });
   });
+
+  group('importFromDbFile applies the v46 data rule at the seam', () {
+    test('a pre-v46 backup cannot reinstate the retired columns', () async {
+      await clearLocal();
+      // A pre-v46 export: rows still carry the disproven on_wrist/hr_valid
+      // values and the -50.00 °C skin-temp error sentinel. The v46 migration
+      // only runs on version bumps, so the import seam is the ONLY line of
+      // defence for these rows.
+      await databaseFactory.deleteDatabase(srcPath);
+      final src = await databaseFactory.openDatabase(srcPath);
+      await src.execute('''
+        CREATE TABLE decoded_onehz (
+          rec_ts INTEGER PRIMARY KEY, counter INTEGER NOT NULL,
+          hr INTEGER, skin_temp_c REAL, on_wrist INTEGER, hr_valid INTEGER)
+      ''');
+      await src.insert('decoded_onehz', {
+        'rec_ts': 1786200000,
+        'counter': 1,
+        'hr': 62,
+        'skin_temp_c': -50.0, // the unavailable/error sentinel
+        'on_wrist': 1,
+        'hr_valid': 1,
+      });
+      await src.insert('decoded_onehz', {
+        'rec_ts': 1786200001,
+        'counter': 2,
+        'hr': 63,
+        'skin_temp_c': 30.57, // a real reading must survive untouched
+        'on_wrist': 1,
+        'hr_valid': 0,
+      });
+      await src.close();
+
+      await LocalDb.importFromDbFile(srcPath);
+
+      final db = await LocalDb.instance;
+      final rows = await db.rawQuery(
+        'SELECT rec_ts, hr, skin_temp_c, on_wrist, hr_valid '
+        'FROM decoded_onehz WHERE rec_ts IN (1786200000, 1786200001) '
+        'ORDER BY rec_ts',
+      );
+      expect(rows, hasLength(2));
+      expect(rows[0]['hr'], 62, reason: 'the honest fields import normally');
+      expect(rows[0]['skin_temp_c'], isNull,
+          reason: 'the -50.00 °C sentinel is an absence, not a temperature');
+      expect(rows[1]['skin_temp_c'], closeTo(30.57, 1e-9),
+          reason: 'a real reading is not collateral damage');
+      for (final r in rows) {
+        expect(r['on_wrist'], isNull,
+            reason: 'no honest writer exists for on_wrist');
+        expect(r['hr_valid'], isNull,
+            reason: 'no honest writer exists for hr_valid');
+      }
+    });
+  });
 }

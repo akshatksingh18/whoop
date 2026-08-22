@@ -1,14 +1,23 @@
 // The per-second fields a gen5 band computes ITSELF — its pedometer's
 // cumulative step count and cadence, its activity class, a calibrated skin
-// temperature in °C, its on-wrist determination, and the HR-validity flag plus
-// the corroborating second HR byte — are decoded off every record and now
-// PERSISTED (schema v34) instead of being dropped on the floor.
+// temperature in °C and the corroborating second HR byte — are decoded off
+// every record and PERSISTED (schema v34) instead of being dropped on the
+// floor.
 //
 // The invariant these tests exist to protect is ABSENCE, not presence: a gen4
 // band sends none of this, so a gen4 second must store NULL. Zeroing them would
 // mint a 0-step second and a 0 °C skin temperature for every gen4 record in the
 // ledger — indistinguishable from a real reading downstream, and exactly the
 // class of fabrication this codebase keeps having to undo.
+//
+// `on_wrist` and `hr_valid` are the same story taken one step further: the v18
+// bits v34 filled them from are DISPROVEN (body 60 bits 0-1 are the
+// primary-flags bit-8 snapshot, not wear; body 15 bit7 is not HR validity), so
+// from v35 they have no writer at all and every new row stores NULL. The tests
+// here still exercise the columns' storage contract — a nullable INTEGER that
+// tells 0 from NULL — because the columns are kept for a source that could one
+// day supply them honestly; `gen5_sample_mapping_test.dart` is what pins that
+// the real decode path never does.
 //
 // Runs the REAL LocalDb over sqflite_ffi, so the DDL, the migration ladder and
 // the read paths are the shipping ones.
@@ -32,6 +41,37 @@ const _v33DecodedDdl = [
     spo2_red_raw INTEGER NOT NULL,
     spo2_ir_raw INTEGER NOT NULL,
     skin_temp_raw INTEGER NOT NULL)
+''',
+  'CREATE INDEX idx_decoded_onehz_counter ON decoded_onehz(counter)',
+  '''
+  CREATE TABLE decoded_rr (
+    rec_ts INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+    rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+    PRIMARY KEY (rec_ts, beat_index))
+''',
+];
+
+/// The v34 `decoded_onehz` shape — identical DDL to today's, because v35 is a
+/// DATA migration, not a schema one. What a v34 install differs in is its
+/// CONTENT: it banked `on_wrist` from gen5 v18 body 60 bits 0-1, `hr_valid`
+/// from body 15 bit7, and the raw -50.00 °C skin-temp sentinel.
+const _v34DecodedDdl = [
+  '''
+  CREATE TABLE decoded_onehz (
+    rec_ts INTEGER PRIMARY KEY,
+    counter INTEGER NOT NULL,
+    hr INTEGER NOT NULL,
+    ax REAL NOT NULL, ay REAL NOT NULL, az REAL NOT NULL,
+    spo2_red_raw INTEGER NOT NULL,
+    spo2_ir_raw INTEGER NOT NULL,
+    skin_temp_raw INTEGER NOT NULL,
+    step_count INTEGER,
+    step_cadence INTEGER,
+    activity_class INTEGER,
+    skin_temp_c REAL,
+    on_wrist INTEGER,
+    hr_valid INTEGER,
+    hr_alt INTEGER)
 ''',
   'CREATE INDEX idx_decoded_onehz_counter ON decoded_onehz(counter)',
   '''
@@ -313,5 +353,113 @@ void main() {
     expect(fresh['hr_alt'], isNull);
 
     expect((await LocalDb.schemaHealth())['ok'], isTrue);
+  });
+
+  // v35. The columns were always the right SHAPE (nullable, no DEFAULT); what
+  // was wrong was what v34 put in two of them. `on_wrist` came from gen5 v18
+  // body 60 bits 0-1 — the primary-flags bit-8 snapshot, not wear — and
+  // `hr_valid` from body 15 bit7, which toggles ~50/50 independently of HR
+  // presence across 1,587,671 retained records. `skin_temp_c` could also hold
+  // the AS6221 -50.00 °C unavailable code. The writer stopped emitting all
+  // three; this migration retires what it already banked, so a later reader
+  // cannot pick up a confident answer the data never supported.
+  test('upgrading a v34 database retires the disproven values it banked',
+      () async {
+    const name = 'openstrap_v34_retire_fields_test.db';
+    created.add(name);
+    final path = await _dbPath(name);
+    await LocalDb.close();
+    await databaseFactory.deleteDatabase(path);
+
+    const disproven = 1781000000; // a second v34 filled from the bad bits
+    const sentinel = 1781000060; // …and one whose skin temp was the error code
+    const honest = 1781000120; // …and one carrying only real values
+    final old = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 34,
+        onCreate: (db, _) async {
+          for (final s in _v34DecodedDdl) {
+            await db.execute(s);
+          }
+        },
+      ),
+    );
+    Future<void> insert(int recTs, Map<String, Object?> extra) => old.insert(
+      'decoded_onehz',
+      {
+        'rec_ts': recTs,
+        'counter': recTs % 1000,
+        'hr': 61,
+        'ax': 0.0,
+        'ay': 0.0,
+        'az': 1.0,
+        'spo2_red_raw': 0,
+        'spo2_ir_raw': 0,
+        'skin_temp_raw': 3000,
+        ...extra,
+      },
+    );
+    await insert(disproven, {
+      'skin_temp_c': 30.57,
+      'on_wrist': 1,
+      'hr_valid': 1,
+      'step_count': 8080,
+      'hr_alt': 62,
+    });
+    await insert(sentinel, {'skin_temp_c': -50.0, 'on_wrist': 0, 'hr_valid': 0});
+    await insert(honest, {'skin_temp_c': 22.5, 'step_count': 8081});
+    await old.close();
+
+    LocalDb.dbName = name;
+    final db = await LocalDb.instance;
+    expect(
+      ((await db.rawQuery('PRAGMA user_version')).first.values.first as num)
+          .toInt(),
+      LocalDb.schemaVersion,
+    );
+
+    // Both disproven columns are cleared on EVERY row — including the row that
+    // recorded a confident 0 ("off wrist" / "HR invalid"), which is exactly as
+    // fabricated as a confident 1.
+    for (final ts in const [disproven, sentinel, honest]) {
+      final row = await _rowAt(ts);
+      expect(row['on_wrist'], isNull, reason: 'on_wrist at $ts');
+      expect(row['hr_valid'], isNull, reason: 'hr_valid at $ts');
+    }
+
+    // The sentinel becomes absence; real temperatures are untouched.
+    expect((await _rowAt(sentinel))['skin_temp_c'], isNull);
+    expect(
+      ((await _rowAt(disproven))['skin_temp_c'] as num).toDouble(),
+      closeTo(30.57, 1e-9),
+    );
+    expect(
+      ((await _rowAt(honest))['skin_temp_c'] as num).toDouble(),
+      closeTo(22.5, 1e-9),
+    );
+
+    // Nothing else in the row was collateral damage — the migration only
+    // touches the three columns it is about.
+    final row = await _rowAt(disproven);
+    expect(row['hr'], 61);
+    expect(row['skin_temp_raw'], 3000);
+    expect(row['step_count'], 8080, reason: 'the step counter is REAL (T3)');
+    expect(row['hr_alt'], 62);
+
+    // The typed read seam agrees: absent, not "off wrist" / "invalid" / -50.
+    final s = (await LocalDb.samplesInRange(sentinel, sentinel)).single;
+    expect(s.skinTempC, isNull);
+    expect(s.onWrist, isNull);
+    expect(s.hrValid, isNull);
+    expect(s.hr, 61);
+
+    expect((await LocalDb.schemaHealth())['ok'], isTrue);
+
+    // Idempotent: reopening runs no migration and changes nothing.
+    await LocalDb.close();
+    await LocalDb.instance;
+    expect((await _rowAt(honest))['step_count'], 8081);
+    expect((await _rowAt(disproven))['on_wrist'], isNull);
   });
 }

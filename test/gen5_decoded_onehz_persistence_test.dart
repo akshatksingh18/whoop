@@ -55,6 +55,36 @@ Uint8List _buildGen5V18LenientInner({
   return inner;
 }
 
+/// A v18 inner the decoder ACCEPTS (unlike [_buildGen5V18LenientInner], whose
+/// gravity vector deliberately fails the magnitude gate), so the whole
+/// decode → map → persist path runs. [skinTempRaw] is the AS6221 i16 at body
+/// 52; the two flag bytes are the readings T10 disproved.
+Uint8List _buildGen5V18DecodableInner({
+  required int unix,
+  required int counter,
+  required int skinTempRaw,
+  int hrQualityFlags = 0,
+  int sleepStateByte = 0,
+}) {
+  final inner = Uint8List(112);
+  final view = inner.buffer.asByteData();
+  inner[0] = PacketType.historicalData;
+  inner[1] = 18;
+  inner[2] = 0x80;
+  view.setUint32(3, counter, Endian.little);
+  view.setUint32(7, unix, Endian.little);
+  inner[14] = 61; // heart rate
+  inner[15] = 0; // no RR slots
+  inner[28] = hrQualityFlags;
+  view.setFloat32(33, 0.5, Endian.little);
+  view.setFloat32(37, 0.0, Endian.little);
+  view.setFloat32(41, 0.0, Endian.little);
+  view.setFloat32(45, 1.0, Endian.little); // magSq 1.0 — inside the gate
+  view.setInt16(65, skinTempRaw, Endian.little);
+  inner[73] = sleepStateByte;
+  return inner;
+}
+
 void main() {
   setUpAll(() async {
     sqfliteFfiInit();
@@ -119,6 +149,14 @@ void main() {
     // CORROBORATION, never a stage — see Sample.bandSleepState.
     expect(rows.first['ts_subsec'], 18022);
     expect(rows.first['band_sleep_state'], 0);
+    // The band's own calibrated °C reading is real and is kept…
+    expect((rows.first['skin_temp_c'] as num).toDouble(), closeTo(30.57, 1e-9));
+    // …but this second stores NO wear state and NO HR-validity claim, even
+    // though the capture's body-15 bit7 is SET and its body-60 bits 0-1 read
+    // 0. Both of those readings are disproven (see sampleFromGen5Historical),
+    // so the columns must be NULL rather than "valid" / "off wrist".
+    expect(rows.first['on_wrist'], isNull);
+    expect(rows.first['hr_valid'], isNull);
 
     final rr = await db.query(
       'decoded_rr',
@@ -174,6 +212,92 @@ void main() {
     expect(rows.first['spo2_red_raw'], isNull);
     expect(rows.first['spo2_ir_raw'], isNull);
     expect(rows.first['skin_temp_raw'], isNull);
+  });
+
+  // The -50.00 °C sentinel is the sensor saying "I have nothing", and it must
+  // reach the ledger as NULL. Stored verbatim it is a number 70 °C below any
+  // wrist sitting in a column readers are entitled to treat as a temperature —
+  // the exact shape of the fabrication AGENTS.md §3.3 forbids. Nulling one
+  // field never costs the second: HR and the counter still land.
+  test('a v18 second whose skin temp is the sentinel stores NULL, not -50',
+      () async {
+    const unix = 1785900000;
+    const counter = 77;
+    final inner = _buildGen5V18DecodableInner(
+      unix: unix,
+      counter: counter,
+      skinTempRaw: -5000, // the AS6221 unavailable/error code
+      hrQualityFlags: 0xFF, // every disproven bit set…
+      sleepStateByte: 0x03, // …on both bytes
+    );
+    final sample = sampleFromGen5Historical(parseGen5Historical(inner));
+    expect(sample, isNotNull);
+
+    await LocalDb.commitSyncBatch([
+      RawRecord(
+        counter: counter,
+        packetType: PacketType.historicalData,
+        hex: _bytesToHex(inner),
+        capturedAt: unix * 1000,
+        recTs: unix,
+      ),
+    ], [
+      sample,
+    ]);
+
+    final db = await LocalDb.instance;
+    final rows = await db.query(
+      'decoded_onehz',
+      where: 'rec_ts = ?',
+      whereArgs: [unix],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.first['skin_temp_c'], isNull);
+    expect(rows.first['on_wrist'], isNull);
+    expect(rows.first['hr_valid'], isNull);
+    expect(rows.first['hr'], 61, reason: 'the rest of the second survives');
+
+    // …and it reads back absent through the typed seam too, rather than as a
+    // temperature, an "off wrist" or an "HR invalid".
+    final s = (await LocalDb.samplesInRange(unix, unix)).single;
+    expect(s.skinTempC, isNull);
+    expect(s.onWrist, isNull);
+    expect(s.hrValid, isNull);
+  });
+
+  // A REAL sub-zero reading is a reading. The sentinel check is exact, so an
+  // honest cold-wrist value must not be swallowed along with it.
+  test('a genuine sub-zero skin temperature still persists', () async {
+    const unix = 1785900060;
+    const counter = 78;
+    final inner = _buildGen5V18DecodableInner(
+      unix: unix,
+      counter: counter,
+      skinTempRaw: -1234,
+    );
+    final sample = sampleFromGen5Historical(parseGen5Historical(inner));
+    await LocalDb.commitSyncBatch([
+      RawRecord(
+        counter: counter,
+        packetType: PacketType.historicalData,
+        hex: _bytesToHex(inner),
+        capturedAt: unix * 1000,
+        recTs: unix,
+      ),
+    ], [
+      sample,
+    ]);
+
+    final db = await LocalDb.instance;
+    final rows = await db.query(
+      'decoded_onehz',
+      where: 'rec_ts = ?',
+      whereArgs: [unix],
+    );
+    expect(
+      (rows.single['skin_temp_c'] as num).toDouble(),
+      closeTo(-12.34, 1e-9),
+    );
   });
 
   test('R10-lite + complete preferred → no decoded_onehz row', () async {

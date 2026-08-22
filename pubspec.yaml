@@ -74,7 +74,12 @@ dependencies:
       # Repinned to the #27 head after its own review pass. NO kAlgoVersion
       # bump: the fixes only reject NaN/±inf, which was never a measurement, so
       # for any user whose data is valid the output is byte-identical.
-      ref: c761f29bcbed73886b1b059dcd9e92e4333574f5
+      #
+      # REPIN (this branch): protocol main @ b7990e1, the #31 merge commit.
+      # #31 carries the gen5 hello map, the real clock opcodes and the v18
+      # record field map this branch's decoders need. main's pre-gen5 pin is
+      # deliberate THERE; this is the branch that wants gen5.
+      ref: b7990e1499f9ae83dbd4c1fa8481dbe8413e7337
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

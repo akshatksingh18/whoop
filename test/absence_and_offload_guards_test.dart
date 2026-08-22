@@ -92,32 +92,6 @@ void main() {
     });
   });
 
-  group('BurstShortfallGate — bounded, because always-FAIL wedged sync', () {
-    test('the first short burst is refused, the redelivery is not', () {
-      final g = BurstShortfallGate();
-      expect(g.refuse('aa'), isTrue);
-      expect(g.refuse('aa'), isFalse,
-          reason: 'a stable token must never ping-pong');
-    });
-
-    test('a fresh token in the same session is still capped', () {
-      final g = BurstShortfallGate();
-      expect(g.refuse('aa'), isTrue);
-      // A band re-issuing a NEW token for the same data would defeat the
-      // per-token bound; the per-session budget catches it.
-      expect(g.refuse('bb'), isFalse);
-    });
-
-    test('a new session refills the session budget but not the run total', () {
-      final g = BurstShortfallGate(maxPerSession: 1, maxTotal: 2);
-      expect(g.refuse('a'), isTrue);
-      g.onSessionStart();
-      expect(g.refuse('b'), isTrue);
-      g.onSessionStart();
-      expect(g.refuse('c'), isFalse, reason: 'run total is the backstop');
-      expect(g.refusalsTotal, 2);
-    });
-  });
 
   group('TrimAckPolicy — the shortfall refusal is last, and only post-commit',
       () {

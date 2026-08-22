@@ -25,6 +25,34 @@ Uint8List hex(String s) {
   return out;
 }
 
+/// A synthetic v18 inner that `Gen5V18Decoder` actually accepts: valid header,
+/// an HR inside 25..230, a dynamic-accel inside 0..8 g and a gravity vector
+/// inside the 0.5..1.8 g magnitude gate. Only the three bytes these tests care
+/// about — the skin-temp i16 and the two disproven flag bytes — are parameters.
+Uint8List v18Inner({
+  required int skinTempRaw,
+  int hrQualityFlags = 0,
+  int sleepStateByte = 0,
+}) {
+  final inner = Uint8List(kGen5V18InnerLen);
+  final v = inner.buffer.asByteData();
+  inner[0] = PacketType.historicalData;
+  inner[1] = 18;
+  inner[2] = 0x80;
+  v.setUint32(3, 4242, Endian.little); // record index
+  v.setUint32(7, 1780916150, Endian.little); // unix
+  inner[14] = 64; // heart rate
+  inner[15] = 0; // no RR slots declared
+  inner[28] = hrQualityFlags; // body 15 — bit7 is the disproven "HR valid"
+  v.setFloat32(33, 0.5, Endian.little); // dynamic acceleration
+  v.setFloat32(37, 0.0, Endian.little); // gravity x
+  v.setFloat32(41, 0.0, Endian.little); // gravity y
+  v.setFloat32(45, 1.0, Endian.little); // gravity z — magSq 1.0
+  v.setInt16(65, skinTempRaw, Endian.little); // AS6221 skin temp, °C = raw/100
+  inner[73] = sleepStateByte; // body 60 — bits 0-1 are the disproven "on wrist"
+  return inner;
+}
+
 void main() {
   group('sampleFromGen5Historical — v18 (real fixture)', () {
     // "worn" capture, unix=1780916150 — CRC16+CRC32 both verified. Same
@@ -85,6 +113,32 @@ void main() {
       expect(sample!.tempCh3C, 26.5);
       expect(sample!.signalQualityLogVar, isNotNull);
     });
+
+    test('maps the calibrated °C skin temperature through', () {
+      expect(sample!.skinTempC, closeTo(30.57, 1e-9));
+    });
+
+    test('claims NO wear state and NO HR-validity for this second', () {
+      // This capture is the counter-example in the flesh. Its body-15 byte is
+      // 0x8D — bit7 SET — and its body-60 bits 0-1 are 0, so the mapping that
+      // used to read those bits recorded "HR is valid" AND "on-wrist code 0"
+      // for a second the band was plainly worn for (HR 102, a gravity vector
+      // at 1 g). bit7 is not validity (disproven on 1,587,671 records; it
+      // toggles ~50/50 independently of HR presence) and bits 0-1 are the
+      // primary-flags bit-8 snapshot, not wear. Absence is the honest answer.
+      expect(sample!.hr, 102, reason: 'the wearer definitely had a pulse');
+      expect(
+        sample!.onWrist,
+        isNull,
+        reason: 'body 60 bits 0-1 are the primary-flags bit-8 snapshot, '
+            'not a wear determination',
+      );
+      expect(
+        sample!.hrValid,
+        isNull,
+        reason: 'body 15 bit7 is not HR/RR validity — HR presence is `hr`',
+      );
+    });
   });
 
   // The band's own wake/sleep envelope: modelled by protocol, polarity already
@@ -120,9 +174,11 @@ void main() {
         final s = sampleFromGen5Historical(parseGen5Historical(hex(e.value)));
         expect(s, isNotNull, reason: 'state ${e.key} failed to decode');
         expect(s!.bandSleepState, e.key);
-        // The neighbouring 2-bit field in the same byte still reads
-        // independently — proof the nibble is being sliced, not the byte.
-        expect(s.onWrist, isNotNull);
+        // The neighbouring 2-bit field in the same byte is NOT mapped: bits
+        // 0-1 are the primary-flags bit-8 snapshot, not wear (disproven on
+        // 1.59M records), so onWrist stays absent while the nibble beside it
+        // decodes — proof the byte is being sliced, not read whole.
+        expect(s.onWrist, isNull);
       }
     });
 
@@ -138,6 +194,58 @@ void main() {
       // Nothing in the gen4 mapper sets it, and it must stay null there rather
       // than defaulting to 0 — which is `wake`, a claim, not an absence.
       expect(Sample(tsEpoch: 1, counter: 1, hr: 60).bandSleepState, isNull);
+    });
+  });
+
+  group('sampleFromGen5Historical — v18 skin-temp sentinel', () {
+    test('-50.00 °C is the unavailable code and maps to null, not a reading',
+        () {
+      final s = sampleFromGen5Historical(
+        parseGen5Historical(v18Inner(skinTempRaw: -5000)),
+      );
+      expect(s, isNotNull);
+      expect(
+        s!.skinTempC,
+        isNull,
+        reason: 'raw -5000 is the AS6221 unavailable/error sentinel',
+      );
+      // Abstaining on one field never costs the rest of the second.
+      expect(s.hr, 64);
+      expect(s.tsEpoch, 1780916150);
+    });
+
+    test('a real reading just below the sentinel is NOT swallowed', () {
+      // The gate is the exact sentinel, not "negative means absent" — an i16
+      // skin temp is signed and -12.34 °C is a value, not an error code.
+      final s = sampleFromGen5Historical(
+        parseGen5Historical(v18Inner(skinTempRaw: -1234)),
+      );
+      expect(s!.skinTempC, closeTo(-12.34, 1e-9));
+    });
+  });
+
+  group('sampleFromGen5Historical — the disproven bits are never read', () {
+    test('flipping both of them changes nothing in the mapped Sample', () {
+      Sample map(int quality, int sleepState) => sampleFromGen5Historical(
+            parseGen5Historical(
+              v18Inner(
+                skinTempRaw: 3000,
+                hrQualityFlags: quality,
+                sleepStateByte: sleepState,
+              ),
+            ),
+          )!;
+
+      // All bits set vs all bits clear: if either byte were still feeding a
+      // column, these two seconds would disagree about wear and validity.
+      final allSet = map(0xFF, 0x03);
+      final allClear = map(0x00, 0x00);
+      for (final s in [allSet, allClear]) {
+        expect(s.onWrist, isNull);
+        expect(s.hrValid, isNull);
+      }
+      expect(allSet.skinTempC, closeTo(30.0, 1e-9));
+      expect(allClear.skinTempC, closeTo(30.0, 1e-9));
     });
   });
 

@@ -3355,6 +3355,18 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
+      // Terminal `Stuck`: a burst failed validation
+      // 15 times and the abort went out, so this connection's history is over.
+      // The engine refuses every further drain trigger, but stopping here too
+      // keeps the loop from spending its remaining sessions waiting out an idle
+      // timeout apiece against a link that will never answer.
+      if (engine.historyStuckThisSession) {
+        _log(
+          'Backfill stop — history is terminal (Stuck) for this connection; '
+          'the band keeps its checkpoint until the next one.',
+        );
+        break;
+      }
       // rec_ts_hw, not lastDecodedRecTs() — see the boot-time seed above for
       // why: an R10-lite-heavy backlog can genuinely advance without ever
       // touching decoded_onehz, and this "did we make progress" check must
@@ -3615,8 +3627,13 @@ class AppState extends ChangeNotifier {
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
       // phantom alarm "waiting for the strap to confirm" that can never fire.
-      _log('[alarm] arm write FAILED — not persisting; alarm not set.');
-      throw Exception('Alarm not sent — the strap did not accept the write');
+      // Null now covers two cases: the write never left the phone, and the
+      // strap answered and REFUSED the alarm. Both mean the band holds no alarm, so both
+      // must stay out of persistence; the engine log says which one it was.
+      _log('[alarm] the band did not take the alarm — not persisting.');
+      // Neutral on purpose: null covers both a write that never left the
+      // phone and an explicit refusal — the engine log says which.
+      throw Exception('Alarm not set');
     }
     final epoch = armed.millisecondsSinceEpoch ~/ 1000;
     _savedAlarm = epoch;

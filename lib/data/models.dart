@@ -40,15 +40,26 @@ class Sample {
   /// baseline before it means anything) this is usable on its first second.
   final double? skinTempC;
 
-  /// The band's own on-wrist determination for this second (2-bit code).
+  /// The band's own on-wrist determination for this second, if a decoder can
+  /// ever honestly supply one. **Nothing supplies it today** — gen4 has no such
+  /// field, and the gen5 v18 bits once read as wear (body 60 bits 0-1) are the
+  /// primary-flags bit-8 snapshot, disproven as a wear signal. Wear truth lives
+  /// in the HELLO body, the wrist on/off events and the wear-gated streams, not
+  /// in a per-second column. Do not re-wire those bits here; see
+  /// `sampleFromGen5Historical`.
   final int? onWrist;
 
-  /// The band's own "HR and RR are valid this second" flag.
+  /// The band's own "HR and RR are valid this second" flag, if a decoder can
+  /// ever honestly supply one. **Nothing supplies it today** — gen5 v18's
+  /// body-15 bit7 was disproven as a validity flag on 1.59M retained records
+  /// (it toggles ~50/50 independently of HR presence). HR presence is read off
+  /// [hr] itself (the decoders already gate it to 25..230, and readers use
+  /// `hr > 0`), never from this column.
   final bool? hrValid;
 
   /// A second heart-rate byte the band reports alongside [hr]. It CORROBORATES
-  /// [hr] (agreement runs ~58-75%, best when [hrValid]); it is not a substitute
-  /// heart rate and must never be displayed as one.
+  /// [hr] (agreement runs ~58-75%); it is not a substitute heart rate and must
+  /// never be displayed as one.
   final int? hrAlt;
 
   /// Ambient-light ADC count — GEN4 ONLY (gen5 sends no per-second equivalent).

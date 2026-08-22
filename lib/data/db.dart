@@ -250,7 +250,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 45;
+  static const int schemaVersion = 46;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -766,6 +766,14 @@ class LocalDb {
           await _ensureBandBatteryChargeUnits(db);
           await _backfillBandBatteryFromEvents(db);
         }
+        if (oldV < 46) {
+          // Retire the disproven gen5 columns that v34-era dev builds banked
+          // (`on_wrist` / `hr_valid`, plus the -50.00 °C skin-temp sentinel).
+          // Data-only: the DDL is untouched, so this does NOT diverge an
+          // upgraded install's schema from a fresh one. See
+          // _retireDisprovenOneHzColumns for the evidence.
+          await _retireDisprovenOneHzColumns(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1028,6 +1036,40 @@ class LocalDb {
   /// for one PRAGMA without spending a schema version.
   static Future<void> _ensureBeatTimeColumn(Database db) =>
       _addColumnIfMissing(db, 'decoded_rr', 'beat_ts_ms', 'INTEGER');
+
+
+  /// v46: retire what v34 banked into `on_wrist` / `hr_valid`, and any
+  /// `skin_temp_c` that is really the sensor's unavailable sentinel.
+  ///
+  /// v34 filled `on_wrist` from gen5 v18 body 60 bits 0-1 and `hr_valid` from
+  /// body 15 bit7. Both readings are disproven: bits 0-1 are the primary-flags
+  /// bit-8 snapshot (not wear), and bit7 toggles ~50/50 independently of HR
+  /// presence across 1,587,671 retained records (not validity). `skin_temp_c`
+  /// could likewise hold the AS6221 -50.00 °C unavailable/error code, which is
+  /// not a temperature. The writer stopped emitting all three
+  /// (`sampleFromGen5Historical`); this clears what it already stored, so no
+  /// future reader can pick up a confident answer the data never supported.
+  ///
+  /// DDL-NEUTRAL on purpose: the columns stay, nullable, exactly as v34 created
+  /// them, so a fresh install and an upgraded one still end at the same schema
+  /// (the fields remain the right shape should an honest source ever appear).
+  /// Idempotent — a second run matches no rows. Cheap enough for the iOS
+  /// open-database watchdog: `decoded_onehz` is bounded by `rawRetentionDays`,
+  /// this is one scan, and it writes only the rows that carry a value.
+  static Future<void> _retireDisprovenOneHzColumns(Database db) async {
+    final have = await _columnsOf(db, 'decoded_onehz');
+    // Pre-v34 tables never had the columns; nothing to retire.
+    if (!have.contains('on_wrist')) return;
+    await db.execute(
+      'UPDATE decoded_onehz SET '
+      'on_wrist = NULL, '
+      'hr_valid = NULL, '
+      'skin_temp_c = CASE WHEN skin_temp_c <= -49.995 THEN NULL '
+      'ELSE skin_temp_c END '
+      'WHERE on_wrist IS NOT NULL OR hr_valid IS NOT NULL '
+      'OR skin_temp_c <= -49.995',
+    );
+  }
 
   static Future<void> _ensureDayResultSkippedColumn(Database db) =>
       _addColumnIfMissing(
@@ -3263,6 +3305,12 @@ class LocalDb {
     // optical/thermal ADCs at all, so those three are ALWAYS absent there.
     // Absence now lands as NULL. `_relaxDecodedSensorNulls` (v39) rebuilds the
     // table on existing installs.
+    // `on_wrist` and `hr_valid` currently have NO honest writer at all — the
+    // gen5 v18 bits once mapped onto them are disproven (see
+    // `sampleFromGen5Historical` and _retireDisprovenOneHzColumns), so every
+    // row written since that mapping change stores NULL. The columns are kept, nullable and
+    // correctly shaped, for a source that can actually supply them; they are
+    // NOT a place to park a plausible-looking bit.
     await _ensureDecodedOneHzBandFields(db);
     // NO index on `counter`. There was one, described as a forensic-only
     // lookup — and nothing in the app ever filtered or ordered by `counter`
@@ -3780,9 +3828,11 @@ class LocalDb {
             stepCount: g.stepMotionCounter,
             stepCadence: g.stepCadence,
             activityClass: g.activityClassKnown,
-            skinTempC: g.skinTempC,
-            onWrist: g.onWristRaw,
-            hrValid: g.hrRrValidThisSecond,
+            // Same honesty contract as the live mapper: the -50.00 °C code is
+            // the sensor's unavailable sentinel, and body-60 bits 0-1 / body-15
+            // bit7 are disproven as wear / HR-validity (see
+            // sampleFromGen5Historical) — a replay must not resurrect them.
+            skinTempC: g.skinTempCOrNull,
             hrAlt: g.heartRateAlt,
             // MT-12's three columns exist (v43) and the write below names
             // them. Carried here because they are free and the point of
@@ -6400,6 +6450,19 @@ class LocalDb {
                     if (cols.contains(e.key)) e.key: e.value,
                 };
                 if (row.isEmpty) continue;
+                if (t == 'decoded_onehz') {
+                  // A pre-v46 export still carries the retired columns as
+                  // VALUES (the disproven on_wrist/hr_valid reads and the
+                  // -50.00 °C skin-temp error sentinel). Importing them
+                  // verbatim would reinstate exactly the rows the v46
+                  // data-retirement cleaned, so the same rule applies at this
+                  // boundary — the migration only runs on version bumps and
+                  // never sees imported rows.
+                  if (cols.contains('on_wrist')) row['on_wrist'] = null;
+                  if (cols.contains('hr_valid')) row['hr_valid'] = null;
+                  final st = row['skin_temp_c'];
+                  if (st is num && st <= -49.995) row['skin_temp_c'] = null;
+                }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
                     '${row['day_id']}|${row['algo_version']}',

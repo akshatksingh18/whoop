@@ -8,6 +8,7 @@
 // Keeping this layer pure makes the race-prone transitions unit-testable
 // without a real WHOOP band.
 
+import 'dart:async';
 import 'dart:math';
 
 import '../sync/sync_policy.dart' show isPlausibleUnix;
@@ -616,69 +617,11 @@ enum TrimAckVerdict {
   /// received traffic — some arrived corrupted or never arrived at all. The
   /// rows we DID get are already committed; refusing the token asks the band
   /// to re-send the chunk so the missing seconds get another chance instead of
-  /// being trimmed out of flash forever. Strictly bounded by
-  /// [BurstShortfallGate] — see the history in that class.
+  /// being trimmed out of flash forever. Strictly bounded by the caller —
+  /// an unbounded refusal wedged sync forever once.
   blockedBurstShortfall,
 }
 
-/// The bound on "refuse the trim token because the burst was short".
-///
-/// An UNCONDITIONAL refusal on shortfall is not an option: it was the old
-/// behaviour, and it wedged sync forever — nothing about a retry changes the
-/// count relationship when the shortfall is systematic (`expectedPacketCount`'s
-/// exact semantics are not fully reverse-engineered), so the band re-delivered
-/// the same block indefinitely and the cursor never moved. Accepting every
-/// short burst is the opposite failure: the gap is counted, logged, and then
-/// authorised for deletion.
-///
-/// So: refuse ONCE, then take whatever arrives. A transient radio glitch —
-/// the common case — is recovered on the re-delivery; a systematic shortfall
-/// costs exactly one extra round trip and then proceeds.
-///
-/// Bounded three ways, because only the first assumes the token is stable:
-///   * per TOKEN — a chunk is refused at most once, so a stable token cannot
-///     ping-pong;
-///   * per SESSION — [maxPerSession], in case the band re-issues a fresh token
-///     for the same data (which would defeat the per-token bound);
-///   * per ENGINE RUN — [maxTotal], the backstop for a link that is short on
-///     every burst. Past it, shortfalls are telemetry again.
-///
-/// Pure: no clock, no I/O.
-class BurstShortfallGate {
-  BurstShortfallGate({this.maxPerSession = 1, this.maxTotal = 3});
-
-  final int maxPerSession;
-  final int maxTotal;
-
-  /// Bounded so a long-lived engine cannot grow this without limit; a token
-  /// evicted here can be refused once more, which the two counters still cap.
-  static const int _maxTracked = 64;
-  final Set<String> _refusedTokens = <String>{};
-  int _thisSession = 0;
-  int _total = 0;
-
-  int get refusalsThisSession => _thisSession;
-  int get refusalsTotal => _total;
-
-  /// Whether this HISTORY_END token should be refused over a positive
-  /// shortfall. Records the refusal when it returns true — call it once per
-  /// decision, at the point of decision.
-  bool refuse(String tokenHex) {
-    if (_thisSession >= maxPerSession || _total >= maxTotal) return false;
-    if (!_refusedTokens.add(tokenHex)) return false;
-    if (_refusedTokens.length > _maxTracked) {
-      _refusedTokens.remove(_refusedTokens.first);
-    }
-    _thisSession++;
-    _total++;
-    return true;
-  }
-
-  /// New link — the per-session budget refills. [maxTotal] deliberately does
-  /// not, so a band that is short on every burst of every session stops
-  /// costing round trips.
-  void onSessionStart() => _thisSession = 0;
-}
 
 /// THE gate on the one irreversible act in the whole offload protocol: echoing
 /// a HISTORY_END continuation token, which is what tells the band it may trim
@@ -718,7 +661,7 @@ class TrimAckPolicy {
   /// [droppedThisBurst] — RecordGate rejects during this burst. Combined with
   ///                     `!hadDurableRows`, refuses trim so gate-only bursts
   ///                     cannot delete flash we never stored.
-  /// [shortfallRetry]  — [BurstShortfallGate] has budget to spend one refusal
+  /// [shortfallRetry]  — the caller has budget to spend one refusal
   ///                     on this token's positive shortfall. Pass `false` on
   ///                     the PRE-commit call: this refusal must happen only
   ///                     AFTER the rows we did receive are durable, or the
@@ -852,6 +795,23 @@ enum FrameRoute {
 
   /// Handled inline (command responses, events, live high-rate frames).
   immediate,
+
+  /// Handled inline AND enqueued on the serialized queue at its true arrival
+  /// position, where the burst COUNT for it is applied.
+  ///
+  /// Burst count members that are not type-47 data (events 48, console 50,
+  /// puffin wrappers 53/54/55 — ) arrive on a
+  /// different characteristic than the data frames but over the SAME ACL link,
+  /// so the band's transmit order is the arrival order. Counting them inline
+  /// while the data frames and their HISTORY_END queue up REORDERS the count:
+  /// a member could be tallied into the burst before its HISTORY_START opened
+  /// the window (where the next rearm wipes it) or after its HISTORY_END had
+  /// already validated — which is exactly how a burst goes permanently short
+  /// by its event/console members. Enqueueing the count at the arrival
+  /// position restores the band's ordering; the frame is still PROCESSED
+  /// inline, so wrist/battery/alarm handling is never delayed behind an
+  /// offload commit.
+  immediateAndCount,
 }
 
 /// Pure routing decision for [FrameRoute].
@@ -866,13 +826,21 @@ enum FrameRoute {
 class FrameRoutePolicy {
   const FrameRoutePolicy._();
 
+  /// [isBurstCountMember] is for the non-data
+  /// families (48/50/53/54/55); [offloadActive] is whether a history session is
+  /// running at all, since outside one there is no burst to count into.
   static FrameRoute route({
     required bool isMetadata,
     required bool isHistorical,
     required bool isDataRole,
+    bool isBurstCountMember = false,
+    bool offloadActive = false,
   }) {
     if (isMetadata) return FrameRoute.serializedQueue;
     if (isHistorical && isDataRole) return FrameRoute.serializedQueue;
+    if (isBurstCountMember && offloadActive) {
+      return FrameRoute.immediateAndCount;
+    }
     return FrameRoute.immediate;
   }
 }
@@ -1292,3 +1260,334 @@ class AlarmConfirmation {
     }
   }
 }
+
+// ── command/response correlation ────────────────────────────────────
+
+/// A command response that was matched to a request we actually made.
+///
+/// Wire layout:
+/// `[36][response seq][echoed opcode][originating seq][result][body…]`.
+class CorrelatedResponse {
+  /// The echoed opcode — equal to the opcode of the request by construction.
+  final int opcode;
+
+  /// The sequence WE allocated for the request (not necessarily the byte on
+  /// the wire: see [viaSeqZeroFallback]).
+  final int seq;
+
+  /// `result`: 0 FAILURE, 1 SUCCESS, 2 PENDING, 3 UNSUPPORTED. `-1` when the
+  /// response was too short to carry one.
+  final int status;
+
+  /// The decoded response field map (whatever the protocol decoder produced).
+  final Map<String, dynamic> fields;
+
+  /// True when this reply carried originating sequence 0 and was matched by
+  /// opcode alone — the doc-02 compatibility path.
+  final bool viaSeqZeroFallback;
+
+  const CorrelatedResponse({
+    required this.opcode,
+    required this.seq,
+    required this.status,
+    this.fields = const {},
+    this.viaSeqZeroFallback = false,
+  });
+
+  bool get success => status == CommandAwaiter.statusSuccess;
+  bool get failed => status == CommandAwaiter.statusFailure;
+  bool get unsupported => status == CommandAwaiter.statusUnsupported;
+}
+
+/// What [CommandAwaiter.deliver] did with a response.
+enum CommandDelivery {
+  /// It satisfied a pending request, which is now complete.
+  completed,
+
+  /// It matched a pending request whose PENDING is non-terminal — the await stays open for the terminal result.
+  pendingHeld,
+
+  /// Nothing was waiting for it, or it failed the match rules (wrong opcode
+  /// for that sequence, or an ambiguous sequence-zero fallback).
+  unmatched,
+}
+
+/// One outstanding command transaction. Created by [CommandAwaiter.register]
+/// BEFORE the write goes out.
+class PendingCommand {
+  final int seq;
+  final int opcode;
+  final Duration timeout;
+  final CommandAwaiter _owner;
+  final Completer<CorrelatedResponse?> _completer =
+      Completer<CorrelatedResponse?>();
+
+  PendingCommand._(this._owner, this.seq, this.opcode, this.timeout);
+
+  Timer? _expiry;
+
+  /// Start the one-shot expiry. Idempotent: the timeout is applied EXACTLY
+  /// ONCE and there is no automatic resend — retry, disconnect and abort
+  /// belong to the calling state machine.
+  ///
+  /// Called from [CommandAwaiter.register] rather than lazily from [response],
+  /// so a command that is registered and then never awaited still leaves the
+  /// registry after [timeout]. Arming here starts the clock fractionally
+  /// before the write returns, which costs a few ms of a multi-second window
+  /// and buys the invariant that nothing can outlive its timeout.
+  void _armExpiry() {
+    _expiry ??= Timer(timeout, () {
+      _owner._forget(this);
+      if (!_completer.isCompleted) _completer.complete(null);
+    });
+  }
+
+  /// The correlated reply, or null once [timeout] expires.
+  Future<CorrelatedResponse?> get response {
+    _armExpiry();
+    return _completer.future;
+  }
+
+  bool get isCompleted => _completer.isCompleted;
+
+  /// Give up without waiting out the timeout — the write never went out, or
+  /// the link died under it.
+  void cancel() {
+    _expiry?.cancel();
+    _owner._forget(this);
+    if (!_completer.isCompleted) _completer.complete(null);
+  }
+
+  void _complete(CorrelatedResponse r) {
+    _expiry?.cancel();
+    _owner._forget(this);
+    if (!_completer.isCompleted) _completer.complete(r);
+  }
+}
+
+/// The registry that turns fire-and-forget writes into real request/response
+/// transactions.
+///
+/// Match rule — a response is accepted only when **both** fields agree:
+/// ```text
+/// response.originating_sequence == request.sequence
+/// response.echoed_opcode        == request.opcode
+/// ```
+/// A sequence match with the wrong opcode is NOT a success: it is rejected and
+/// the surrounding await is left to time out. That is the whole point — the
+/// old ad-hoc completers in the engine keyed off "a reply of roughly the right
+/// shape arrived", so an unrelated command's answer could satisfy a read the
+/// app then acted on.
+///
+/// This class is deliberately transport-free: the engine allocates the
+/// sequence, frames and writes; this only says which reply belongs to which
+/// request.
+class CommandAwaiter {
+  /// The generic five-second command await.
+  static const Duration defaultTimeout = Duration(milliseconds: 5000);
+
+  static const int statusFailure = 0;
+  static const int statusSuccess = 1;
+  static const int statusPending = 2;
+  static const int statusUnsupported = 3;
+
+  /// The only commands whose `PENDING` is NON-terminal: GET_HELLO(145) and GET_DATA_RANGE(34) keep waiting for a
+  /// terminal failure/success/unsupported. Every other command completes on
+  /// the first matching response, PENDING included.
+  static const Set<int> pendingIsNonTerminal = <int>{0x91, 0x22};
+
+  /// Whether to honour the optional sequence-zero compatibility path:
+  /// a response whose originating sequence is 0 may match a nonzero request by
+  /// opcode. The doc's own caveat is that two outstanding requests with the
+  /// same opcode then become ambiguous — so a fallback match is only taken
+  /// when EXACTLY ONE pending request carries that opcode, and refused
+  /// otherwise rather than guessing.
+  final bool seqZeroFallback;
+
+  CommandAwaiter({this.seqZeroFallback = true});
+
+  final List<PendingCommand> _pending = <PendingCommand>[];
+
+  int get pendingCount => _pending.length;
+
+  /// The (seq, opcode) pairs currently outstanding — diagnostics/tests.
+  List<String> get pendingKeys =>
+      _pending.map((p) => '${p.seq}/${p.opcode}').toList(growable: false);
+
+  bool hasPendingOpcode(int opcode) => _pending.any((p) => p.opcode == opcode);
+
+  bool hasPendingSeq(int seq) => _pending.any((p) => p.seq == seq);
+
+  /// Install an observer for a command about to be written. Call this BEFORE
+  /// the write so a fast response cannot arrive before its
+  /// observer exists.
+  PendingCommand register(
+    int seq,
+    int opcode, {
+    Duration timeout = defaultTimeout,
+  }) {
+    final p = PendingCommand._(this, seq, opcode, timeout);
+    _pending.add(p);
+    // Arm now, not on first await. An entry that is registered and never
+    // awaited would otherwise sit in `_pending` for the life of the
+    // connection, and `deliver` would refuse every later sequence-zero
+    // fallback for that opcode because the stale entry makes the match
+    // ambiguous.
+    p._armExpiry();
+    return p;
+  }
+
+  /// Offer a decoded command response to the registry.
+  CommandDelivery deliver({
+    required int? opcode,
+    required int? reqSeq,
+    int? status,
+    Map<String, dynamic> fields = const {},
+  }) {
+    // Without an echoed opcode or an originating sequence there is nothing to
+    // correlate on, so nothing may be satisfied.
+    if (opcode == null || reqSeq == null) return CommandDelivery.unmatched;
+    PendingCommand? match;
+    var viaFallback = false;
+    for (final p in _pending) {
+      if (p.seq == reqSeq && p.opcode == opcode) {
+        match = p;
+        break;
+      }
+    }
+    if (match == null && seqZeroFallback && reqSeq == 0) {
+      final sameOpcode = _pending.where((p) => p.opcode == opcode).toList();
+      if (sameOpcode.length != 1) return CommandDelivery.unmatched;
+      match = sameOpcode.single;
+      viaFallback = true;
+    }
+    if (match == null) return CommandDelivery.unmatched;
+    final result = status ?? -1;
+    if (result == statusPending && pendingIsNonTerminal.contains(opcode)) {
+      return CommandDelivery.pendingHeld;
+    }
+    match._complete(CorrelatedResponse(
+      opcode: opcode,
+      seq: match.seq,
+      status: result,
+      fields: fields,
+      viaSeqZeroFallback: viaFallback,
+    ));
+    return CommandDelivery.completed;
+  }
+
+  /// Abandon every outstanding command (the link went down). Each await
+  /// resolves null immediately instead of holding its caller for the full
+  /// timeout on a connection that no longer exists.
+  void failAll() {
+    for (final p in List<PendingCommand>.of(_pending)) {
+      p.cancel();
+    }
+    _pending.clear();
+  }
+
+  void _forget(PendingCommand p) => _pending.remove(p);
+}
+
+/// The identity half of the bootstrap readiness check, kept as an
+/// OBSERVATION rather than a gate.
+///
+/// A strict readiness gate requires the serial and CPU strings to match
+/// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
+/// verdict and logs it rather than dropping the link: a hard disconnect on an
+/// identity read we have far less hardware evidence for would turn a cosmetic
+/// mismatch into an unreachable band, and the CPU string is lowercase hex by
+/// construction so it can only fail if it is empty.
+///
+/// An all-zero serial is an EEPROM-failure signal, NOT a rejection — it passes
+/// the alphanumeric gate, and the doc says so explicitly.
+class HelloIdentity {
+  static final RegExp alphanumeric = RegExp(r'^[a-zA-Z0-9]+$');
+
+  final bool serialOk;
+  final bool cpuOk;
+  final bool eepromFailureSignal;
+
+  const HelloIdentity({
+    required this.serialOk,
+    required this.cpuOk,
+    required this.eepromFailureSignal,
+  });
+
+  bool get ok => serialOk && cpuOk;
+
+  static HelloIdentity evaluate({
+    required String serial,
+    required String cpuHex,
+    bool eepromFailureSignal = false,
+  }) =>
+      HelloIdentity(
+        serialOk: alphanumeric.hasMatch(serial),
+        cpuOk: alphanumeric.hasMatch(cpuHex),
+        eepromFailureSignal: eepromFailureSignal,
+      );
+
+  @override
+  String toString() => 'serial=${serialOk ? 'ok' : 'BAD'} '
+      'cpu=${cpuOk ? 'ok' : 'BAD'}'
+      '${eepromFailureSignal ? ' serial=all-zero(EEPROM)' : ''}';
+}
+
+/// The bootstrap clock gate.
+///
+/// The pinned flow compares the timestamp hello already returned (or, as a
+/// fallback, a `GET_CLOCK` reply) against host time and writes NOTHING below
+/// two whole seconds of absolute drift: "Below 2 whole seconds, succeed with no
+/// BLE write. At 2 or more, send one `SET_CLOCK(10)`". This app used to send
+/// SET_CLOCK unconditionally on every connect, i.e. one guaranteed write per
+/// connection that the band never needed.
+///
+/// Deliberately NOT part of [ClockPolicy] (sync_policy.dart): that class owns
+/// the *repair* rules — a drift over a day, an unset RTC, a phone we do not
+/// trust — which are a different question with a different threshold. This is
+/// only the bootstrap sequence's "is a correction needed at all" step, and it
+/// sits with the rest of the doc-01 bootstrap logic ([HelloIdentity]).
+class BootstrapClockGate {
+  /// Absolute whole-second drift at or above which exactly one SET_CLOCK goes
+  /// out. Below it the bootstrap makes no BLE write at all.
+  static const int toleranceSeconds = 2;
+
+  /// [driftSec] is `wall - strapRtc` ([ClockRef.driftSec]); the sign does not
+  /// matter, only the magnitude.
+  ///
+  /// A null drift means no correlation exists at this point — hello carried no
+  /// timestamp AND the GET_CLOCK fallback went unanswered, or the reading was
+  /// rejected as implausible (an unset band RTC reads decades low and is never
+  /// correlated). That must WRITE: an unset RTC left uncorrected stamps every
+  /// record and every alarm against a clock that was never set, which is the
+  /// one outcome worse than a redundant write.
+  static bool needsCorrection(int? driftSec) =>
+      driftSec == null || driftSec.abs() >= toleranceSeconds;
+}
+
+/// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack.
+///
+/// "A response is usable only if its pack address/name field is non-empty and
+/// is not `00:00:00:00:00:00`" — the band answers the command while it is still
+/// working out what it is sitting on, so an early reply carries the all-zero
+/// address, which is why the follow-up retries at all.
+///
+/// `attached` is deliberately not part of the gate: the doc names only the
+/// address/name field, and the flag is recorded alongside the reading rather
+/// than deciding whether the reading counts.
+class BatteryPackInfoGate {
+  /// The "no pack yet" address the band answers with before it knows.
+  static const String unsetAddress = '00:00:00:00:00:00';
+
+  static bool usable({required String identifier, required String name}) {
+    final id = identifier.trim().toLowerCase();
+    final nm = name.trim().toLowerCase();
+    if (id == unsetAddress) return false;
+    if (id.isNotEmpty) return true;
+    // No identifier: a name alone carries the reply only when it is a real
+    // name — the sentinel address leaking through the name field is still
+    // "no pack yet".
+    return nm.isNotEmpty && nm != unsetAddress;
+  }
+}
+

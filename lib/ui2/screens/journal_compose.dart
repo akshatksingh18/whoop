@@ -9,6 +9,8 @@
 // the ceiling exists so one mis-tap cannot enter forty coffees and dominate
 // every correlation that field appears in for months.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -21,6 +23,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show unitsOf;
+import 'custom_journal_field_sheet.dart';
 import 'metric_detail.dart' show detailScaffold;
 
 class JournalCompose extends StatefulWidget {
@@ -89,6 +92,43 @@ class _JournalComposeState extends State<JournalCompose> {
         );
       }
     });
+  }
+
+  bool _addingField = false;
+
+  /// #273 — define + persist a user-invented field, then pick it up.
+  Future<void> _addField() async {
+    if (_addingField) return;
+    final spec = await showCustomJournalFieldSheet(
+      context,
+      existingKeys: _specs.map((f) => f.key).toSet(),
+    );
+    if (spec == null || !mounted) return;
+    final repo = context.read<AppState>().repo;
+    // No repo means the sheet should never have been reachable; say so rather
+    // than eating the tap.
+    if (repo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not ready yet — open the app first.')),
+      );
+      return;
+    }
+    setState(() => _addingField = true);
+    try {
+      await repo.postCustomJournalField(spec);
+    } catch (_) {
+      if (!mounted) return;
+      // A failed persist must not read as success — the field would vanish
+      // from the list while the user believes it saved.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not save it — check storage and retry.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await _load();
+    if (mounted) setState(() => _addingField = false);
   }
 
   /// MT-06 — when the LAST one landed.
@@ -178,6 +218,28 @@ class _JournalComposeState extends State<JournalCompose> {
                                           ? () => _setTime(s.key)
                                           : null,
                                     ),
+                                  // #273 — custom fields come back. The old
+                                  // UI's "Track something else": define a
+                                  // personal numeric field and it behaves
+                                  // like a built-in everywhere after.
+                                  Pressable(
+                                    // Disabled (null onTap) while a write is
+                                    // in flight: two submits would race the
+                                    // create-only insert below.
+                                    onTap: _addingField
+                                        ? null
+                                        : () => unawaited(_addField()),
+                                    child: Row(
+                                      children: [
+                                        Icon(LucideIcons.plusCircle,
+                                            size: 18, color: p.ink3),
+                                        const SizedBox(width: S.x2),
+                                        Text('Track something else',
+                                            style:
+                                                F.body.copyWith(color: p.ink3)),
+                                      ],
+                                    ),
+                                  ),
                               ],
                             ),
                           ),

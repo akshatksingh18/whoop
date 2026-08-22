@@ -21,6 +21,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show unitsOf;
+import 'custom_journal_field_sheet.dart';
 import 'metric_detail.dart' show detailScaffold;
 
 class JournalCompose extends StatefulWidget {
@@ -89,6 +90,19 @@ class _JournalComposeState extends State<JournalCompose> {
         );
       }
     });
+  }
+
+  /// #273 — define + persist a user-invented field, then pick it up.
+  Future<void> _addField() async {
+    final spec = await showCustomJournalFieldSheet(
+      context,
+      existingKeys: _specs.map((f) => f.key).toSet(),
+    );
+    if (spec == null || !mounted) return;
+    final repo = context.read<AppState>().repo;
+    if (repo == null) return;
+    await repo.postCustomJournalField(spec);
+    await _load();
   }
 
   /// MT-06 — when the LAST one landed.
@@ -178,6 +192,23 @@ class _JournalComposeState extends State<JournalCompose> {
                                           ? () => _setTime(s.key)
                                           : null,
                                     ),
+                                  // #273 — custom fields come back. The old
+                                  // UI's "Track something else": define a
+                                  // personal numeric field and it behaves
+                                  // like a built-in everywhere after.
+                                  Pressable(
+                                    onTap: _addField,
+                                    child: Row(
+                                      children: [
+                                        Icon(LucideIcons.plusCircle,
+                                            size: 18, color: p.ink3),
+                                        const SizedBox(width: S.x2),
+                                        Text('Track something else',
+                                            style:
+                                                F.body.copyWith(color: p.ink3)),
+                                      ],
+                                    ),
+                                  ),
                               ],
                             ),
                           ),

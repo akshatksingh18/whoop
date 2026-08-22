@@ -1100,18 +1100,22 @@ class DeriveDebouncer {
 /// Alarm opcodes: SET_ALARM_TIME 0x42, GET_ALARM_TIME 0x43, RUN_ALARM 0x44,
 /// DISABLE_ALARM 0x45. Prefer [setPayloadForBand] for arming.
 ///
-/// WHICH SET FORM FIRES ON WHOOP 4 — settled on real hardware, 2026-08-19: the
-/// REV-1 9-byte form ([rev1]). It is what the official WHOOP app sends
-/// (btsnoop wire capture, noop PR #535), and an A/B experiment on our own
-/// band armed it and the band fired autonomously at the armed second (events
-/// 60 HAPTICS_FIRED + 57 STRAP_DRIVEN_ALARM_EXECUTED + 59 auto-disable, ~24 s
-/// buzz). The RICH 20-byte 0x04 form — shipped as "the firing form" until
-/// then — is stored, echoed and confirmed (event 56) exactly like a real arm
-/// but NEVER executes on gen4: zero event-57s across 1.07M lines of this
-/// band's history while it was the shipped form. The SHORT 7-byte form is
-/// rev1 minus the trailing haptic-mode u16 (ACKed, never fires) — those two
-/// bytes are the whole difference. WHOOP 5 keeps the rich 21-byte slot-1 form
-/// (#194, verified by its own users; the gen4 findings do not transfer).
+/// WHICH SET FORM FIRES ON WHOOP 4 — firmware-dependent (evidence: PR #265).
+/// On fw 41.17.4 (boot 17.2.2) the REV-1 9-byte form ([rev1]) fired
+/// autonomously at the armed second (events 60 HAPTICS_FIRED + 57
+/// STRAP_DRIVEN_ALARM_EXECUTED, then 59 auto-disable), while the RICH
+/// 20-byte 0x04 form latched (event 56 + GET_ALARM readback) but never
+/// executed — three controlled trials, 2026-08-19/20, plus zero event-57s
+/// across 1.07M lines of this band's history while rich was the shipped
+/// form. On another WHOOP 4 (fw not yet reported; 2026-08-11 export in the
+/// PR review) the RICH form DID execute — the observed discriminator is
+/// firmware version, not the form alone. The SHORT 7-byte form is rev1 minus
+/// the trailing haptic-mode u16; at haptic-mode 0 the two pad4 to
+/// byte-identical BLE frames, so there is no wire distinction between them
+/// and no separate short-form behaviour to claim. [rev1] is the arm form: it
+/// is what the official WHOOP app sends (btsnoop wire capture, noop PR #535)
+/// and no observed firmware fails to execute it. WHOOP 5 keeps the rich
+/// 21-byte slot-1 form (#194, verified by its own users).
 class AlarmPayloads {
   /// The strap's stock 12-byte wake-buzz haptic pattern:
   ///   [0..7]  eight waveform-effect slots (two active: 47, 152; six idle)
@@ -1129,8 +1133,8 @@ class AlarmPayloads {
   static int subsecOf(DateTime when) =>
       ((when.millisecondsSinceEpoch % 1000) * 32768) ~/ 1000;
 
-  /// REV-1 9-byte SET_ALARM_TIME payload — the form the gen4 firmware EXECUTES
-  /// (see the class doc for the evidence):
+  /// REV-1 9-byte SET_ALARM_TIME payload — the gen4 arm form: the official
+  /// app's wire form, fired on fw 41.17.4 (class doc for the evidence):
   /// `[0x01][u32 epoch-sec LE][u16 subsec LE][u16 haptic-mode LE]`.
   /// The byte layout has exactly one home, `openstrap_protocol`'s
   /// [alarmRev1Payload]; this is the app-side name for it. Haptic-mode stays
@@ -1138,10 +1142,11 @@ class AlarmPayloads {
   /// wire-captured from the official app, so we never send anything else.
   static List<int> rev1(DateTime when) => alarmRev1Payload(when);
 
-  /// RICH 20-byte SET_ALARM_TIME payload. On gen4 this is REFERENCE ONLY — the
-  /// band stores + confirms it (event 56) but never executes it (no event 57,
-  /// no buzz; this was the silent-alarm root cause). Gen5 arms a 21-byte
-  /// variant of this shape via [setPayloadForBand].
+  /// RICH 20-byte SET_ALARM_TIME payload. On gen4 this is REFERENCE ONLY —
+  /// execution is firmware-dependent: on fw 41.17.4 it latches (event 56)
+  /// without ever executing, while at least one other firmware executes it
+  /// (class doc). Gen5 arms a 21-byte variant of this shape via
+  /// [setPayloadForBand].
   /// `[0x04][u8 index][u32 epoch-sec LE][u16 subsec LE][12-byte haptic pattern]`.
   static List<int> rich(DateTime when, {int index = 0, List<int>? haptics}) {
     final ms = when.millisecondsSinceEpoch;
@@ -1162,9 +1167,9 @@ class AlarmPayloads {
     ];
   }
 
-  /// SHORT 7-byte time-only SET_ALARM_TIME payload (ACKs but does NOT fire —
-  /// it is [rev1] without the trailing haptic-mode u16, and those two bytes
-  /// are what separate a silent arm from a firing one). REFERENCE ONLY:
+  /// SHORT 7-byte time-only SET_ALARM_TIME payload — [rev1] without the
+  /// trailing haptic-mode u16. At haptic-mode 0 the two serialize to the SAME
+  /// padded frame, so this is not a distinct wire form. REFERENCE ONLY:
   /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Prefer [setPayloadForBand].
   static List<int> simple(DateTime when) {
     final ms = when.millisecondsSinceEpoch;
@@ -1183,11 +1188,11 @@ class AlarmPayloads {
 
   /// Generation-correct SET_ALARM_TIME body — 9 bytes on gen4, 21 on gen5.
   ///
-  /// WHOOP 4: the REV-1 form ([rev1]) — the only form the gen4 firmware
-  /// actually executes (on-device proof 2026-08-19; the rich slot-0 form this
-  /// used to build was confirmed-but-never-fired, the silent-alarm root
-  /// cause). [index]/[haptics]/[crescendo] do not exist in the rev-1 layout
-  /// and are ignored on gen4.
+  /// WHOOP 4: the REV-1 form ([rev1]) — the official app's wire form, which
+  /// fired on fw 41.17.4 where the rich slot-0 body this used to build
+  /// latched without executing (class doc for the firmware split).
+  /// [index]/[haptics]/[crescendo] do not exist in the rev-1 layout and are
+  /// ignored on gen4.
   ///
   /// WHOOP 5: rich 21-byte body at slot **index 1** (index 0 is rejected with
   /// console `arm info is invalid, error 0xb`; the [index] argument is ignored

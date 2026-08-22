@@ -272,7 +272,7 @@ void main() {
       expect(AlarmPayloads.disableForBand(isGen5: false), <int>[0x01]);
       expect(AlarmPayloads.getPayloadForBand(isGen5: false), <int>[0x01]);
       expect(AlarmPayloads.disable, <int>[0x01]);
-      // gen4 arms with the rev-1 9-byte body (the form the firmware executes);
+      // gen4 arms with the rev-1 9-byte body (the official app's wire form);
       // the exact layout is pinned against the wire capture in alarm_test.
       final when = DateTime.now();
       expect(AlarmPayloads.setPayloadForBand(when, isGen5: false),

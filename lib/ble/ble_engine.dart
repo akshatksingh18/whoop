@@ -5600,13 +5600,15 @@ class BleEngine {
   ///   [5..7]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
   ///   [7..9]   u16 haptic-mode   0 = the stock wake buzz
   /// ```
-  /// This is what the official WHOOP app sends (btsnoop wire capture) and it
-  /// is proven on our own band (2026-08-19): armed over BLE, the band fired
-  /// autonomously at the armed second (HAPTICS_FIRED 60 + STRAP_DRIVEN_ALARM_
-  /// EXECUTED 57, then auto-disable 59). The rich 0x04 form previously armed
-  /// here is stored + confirmed (event 56) but NEVER executed on gen4 — the
-  /// silent-alarm root cause. The 7-byte short form ([setAlarmSimple]) is
-  /// rev-1 minus the haptic-mode u16: ACKed, never fires.
+  /// This is what the official WHOOP app sends (btsnoop wire capture), and on
+  /// our band (fw 41.17.4, 2026-08-19/20) it fired autonomously at the armed
+  /// second (HAPTICS_FIRED 60 + STRAP_DRIVEN_ALARM_EXECUTED 57, then
+  /// auto-disable 59) while the rich 0x04 form previously armed here latched
+  /// (event 56) without executing. Execution of the rich form is
+  /// firmware-dependent — at least one other WHOOP 4 executes it (see
+  /// [AlarmPayloads]). The 7-byte short form ([setAlarmSimple]) is rev-1
+  /// minus the haptic-mode u16 — the same bytes on the wire once padded, not
+  /// a distinct form.
   ///
   /// WHOOP 5 — the rich 21-byte slot-1 body, unchanged (#194; index 0 is
   /// rejected with `arm info is invalid, error 0xb`).
@@ -5649,8 +5651,9 @@ class BleEngine {
     // latched / drift) the raw wall epoch fires at the wrong strap-time — or
     // never (a raw wall epoch is decades ahead of a strap clock still near its
     // factory epoch). (Historical note: drift was once blamed for the gen4
-    // silent alarm; the real cause was the payload form — see the doc above.
-    // The shift stays: it is correct for a genuinely offset RTC.) Fall back to
+    // silent alarm, and later the payload form — which held on fw 41.17.4 but
+    // is firmware-dependent, see the doc above. The shift stays either way:
+    // it is correct for a genuinely offset RTC.) Fall back to
     // the raw epoch when we have no correlation yet (e.g. just after a
     // reconnect, before this session's GET_CLOCK reply). Frame conversion +
     // generation dispatch live in the pure [AlarmPayloads]; the gen4 rev-1
@@ -5705,13 +5708,14 @@ class BleEngine {
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
   /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Kept for diagnostics/parity —
-  /// the band ACKs it but never fires it (it is the rev-1 form minus the
-  /// trailing haptic-mode u16, and those two bytes are what make the firmware
-  /// execute the alarm). Use [setAlarm].
+  /// it is the rev-1 form minus the trailing haptic-mode u16 and pads to the
+  /// identical frame when that u16 is 0, so it is not a distinct wire form.
+  /// Use [setAlarm], which also converts to the strap's RTC frame; this sends
+  /// the raw epoch.
   Future<void> setAlarmSimple(DateTime when) async {
     await _send(Cmd.setAlarmTime, AlarmPayloads.simple(when));
-    _log('SET_ALARM_TIME (simple 7B) → sec=${when.millisecondsSinceEpoch ~/ 1000} '
-        '(ACKs but will not fire)');
+    _log('SET_ALARM_TIME (simple 7B) → '
+        'sec=${when.millisecondsSinceEpoch ~/ 1000}');
   }
 
   /// Read the armed alarm back. Body is band-specific (see

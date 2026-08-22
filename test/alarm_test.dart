@@ -87,7 +87,7 @@ void main() {
           (999 * 32768) ~/ 1000);
     });
 
-    test('rev1 (9B, THE gen4 firing form) = 0x01 + u32 sec LE + u16 subsec + u16 mode', () {
+    test('rev1 (9B, the gen4 arm form) = 0x01 + u32 sec LE + u16 subsec + u16 mode', () {
       final p = AlarmPayloads.rev1(when);
       expect(p.length, 9);
       expect(p, <int>[
@@ -101,15 +101,16 @@ void main() {
     test('rev1 matches the official WHOOP app wire capture byte-for-byte', () {
       // btsnoop of the official app arming a real WHOOP 4.0 (noop PR #535):
       // epoch 1781912880 = 0x6A35D530 → [01, 30, D5, 35, 6A, 00, 00, 00, 00].
-      // The same 9-byte shape fired OUR band on-device (2026-08-19 18:55:00:
-      // events 60+57 stamped at the armed second). Never regress to the 7-byte
-      // form — dropping the trailing haptic-mode u16 arms silently.
+      // The same 9-byte shape fired OUR band on-device (fw 41.17.4,
+      // 2026-08-19 18:55:00: events 60+57 stamped at the armed second). This
+      // is the app-parity anchor: keep the payload byte-for-byte what the
+      // official app sends.
       final p = AlarmPayloads.rev1(
           DateTime.fromMillisecondsSinceEpoch(1781912880 * 1000, isUtc: true));
       expect(p, <int>[0x01, 0x30, 0xD5, 0x35, 0x6A, 0x00, 0x00, 0x00, 0x00]);
     });
 
-    test('rich (20B, gen4 reference only — confirmed but never executed) layout', () {
+    test('rich (20B, gen4 reference only — execution is fw-dependent) layout', () {
       final p = AlarmPayloads.rich(when);
       expect(p.length, 20);
       expect(p, <int>[
@@ -132,7 +133,7 @@ void main() {
       expect(p.sublist(8), custom);
     });
 
-    test('simple (7B) = 0x01 + u32 sec LE + u16 subsec LE (ACKs, never fires)', () {
+    test('simple (7B) = rev1 minus the haptic-mode u16 (same frame once padded)', () {
       final p = AlarmPayloads.simple(when);
       expect(p.length, 7);
       expect(p, <int>[0x01, 0x04, 0x03, 0x02, 0x01, 0x00, 0x40]);
@@ -140,17 +141,28 @@ void main() {
 
     test('setPayloadForBand: gen4 rev1 (9B), gen5 index1 rich (21B)', () {
       final g4 = AlarmPayloads.setPayloadForBand(when, isGen5: false);
-      final g5 = AlarmPayloads.setPayloadForBand(when, isGen5: true);
-      // gen4 = the rev-1 firing form, byte-identical to AlarmPayloads.rev1 —
-      // the rich slot-0 body it used to build arms silently (never executes).
+      // gen4 = the rev-1 form, byte-identical to AlarmPayloads.rev1 — the
+      // official app's wire form (see AlarmPayloads for the firmware
+      // evidence).
       expect(g4, AlarmPayloads.rev1(when));
       expect(g4.length, 9);
       expect(g4[0], 0x01);
-      expect(g5.length, 21); // gen5 adds the crescendo byte
-      expect(g5[0], 0x04);
-      expect(g5[1], 0x01); // gen5 arms slot 1
-      expect(g5.sublist(8, 20), AlarmPayloads.defaultHaptics);
-      expect(g5[20], 0, reason: 'crescendo flag, off by default');
+      // gen5: the full composed 21-byte body, exact bytes in field order.
+      expect(AlarmPayloads.setPayloadForBand(when, isGen5: true), <int>[
+        0x04, // rich-form marker
+        0x01, // slot 1 (index 0 is rejected on gen5)
+        0x04, 0x03, 0x02, 0x01, // sec LE
+        0x00, 0x40, // subsec LE (16384)
+        47, 152, 0, 0, 0, 0, 0, 0, // 8 waveform effects
+        0, 0, // loop control u16 LE
+        7, // overall loop
+        30, // duration seconds
+        0, // crescendo flag, off by default
+      ]);
+      expect(
+        AlarmPayloads.setPayloadForBand(when, isGen5: true, crescendo: 1).last,
+        1,
+      );
       // Gen5 ignores a caller-supplied index so slot 0 cannot be armed by accident.
       expect(
         AlarmPayloads.setPayloadForBand(when, isGen5: true, index: 0)[1],

@@ -70,6 +70,7 @@ import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
+import '../health/auto_workout_import.dart';
 import '../health/health_export.dart';
 import '../health/phone_pedometer.dart';
 import '../import/noop_import.dart';
@@ -1614,6 +1615,11 @@ class AppState extends ChangeNotifier {
       await _ensureRemindersScheduled();
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
+      // Opt-in auto-import of Health workouts (off by default; self-gates on
+      // permission + a 1 h throttle — see AutoWorkoutImport). Foreground
+      // cadence is the trigger: workouts are not live data, and this never
+      // prompts.
+      unawaited(AutoWorkoutImport.maybeRun());
       await _maybeGenerateBriefing();
       unawaited(_checkSchemaHealth()); // throttled internally to 24h
       // Staleness-escalation meta-layer: the SAME check the headless path

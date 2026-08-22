@@ -40,6 +40,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 
 import '../data/db.dart';
@@ -213,6 +214,23 @@ class WorkoutImportResult {
   final bool routesSupported;
 }
 
+const String _kTombstonesPref = 'health_workout_import_deleted';
+
+/// Health-store workout uuids the user has DELETED here. The source still has
+/// them, so without this list the next import would bring each one back.
+Future<Set<String>> deletedUuids() async {
+  final prefs = await SharedPreferences.getInstance();
+  return {...(prefs.getStringList(_kTombstonesPref) ?? const [])};
+}
+
+Future<void> rememberDeletedUuid(String uuid) async {
+  final prefs = await SharedPreferences.getInstance();
+  final set = await deletedUuids();
+  if (set.contains(uuid)) return;
+  await prefs.setStringList(_kTombstonesPref, [...set, uuid]);
+}
+
+
 class HealthWorkoutImporter {
   HealthWorkoutImporter({Health? health, bool? isApple})
       : _health = health ?? Health(),
@@ -225,6 +243,20 @@ class HealthWorkoutImporter {
   static const List<HealthDataType> types = [HealthDataType.WORKOUT];
 
   bool get routesSupported => _isApple;
+
+  /// NON-PROMPTING read-permission probe for the auto path: true only when
+  /// the store already granted WORKOUT read. Never shows a dialog — the
+  /// manual Import button's tap is the only place that question gets asked.
+  Future<bool> hasReadPermission() async {
+    try {
+      await _health.configure();
+      return await _health.hasPermissions(types,
+              permissions: [for (final _ in types) HealthDataAccess.READ]) ==
+          true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<bool> requestPermission() async {
     try {
@@ -265,8 +297,16 @@ class HealthWorkoutImporter {
     if (rows.isEmpty) {
       return WorkoutImportResult(routesSupported: routesSupported);
     }
-    await LocalDb.putImportedWorkouts([for (final r in rows) r.toRow()]);
-    final withRoutes = await _importRoutes(start, end);
+    // A workout the user DELETED must not resurrect on the next read: the
+    // uuid goes onto a tombstone list at delete time, and anything on it is
+    // dropped here (workout row AND its route) before it can come back.
+    final tombstones = await deletedUuids();
+    final alive = [
+      for (final r in rows)
+        if (!tombstones.contains(r.uuid)) r,
+    ];
+    await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
+    final withRoutes = await _importRoutes(start, end, skip: tombstones);
     return WorkoutImportResult(
       workouts: rows.length,
       withRoutes: withRoutes,
@@ -280,7 +320,8 @@ class HealthWorkoutImporter {
   /// One call rather than one per workout: each `HKWorkoutRoute` query is an
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
-  Future<int> _importRoutes(DateTime start, DateTime end) async {
+  Future<int> _importRoutes(DateTime start, DateTime end,
+      {Set<String> skip = const {}}) async {
     if (!routesSupported) return 0;
     List<Object?> payload;
     try {
@@ -303,6 +344,7 @@ class HealthWorkoutImporter {
       if (entry is! Map) continue;
       final uuid = entry['uuid'];
       if (uuid is! String || uuid.isEmpty) continue;
+      if (skip.contains(uuid)) continue;
       final rows = routeRowsFrom(entry);
       if (rows.isEmpty) continue;
       await LocalDb.appendRoutePoints(uuid, rows);

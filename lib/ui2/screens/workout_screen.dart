@@ -11,6 +11,7 @@
 // need fourteen days — the card is a StatusCard that says which, why and what
 // fixes it.
 
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
 import '../../health/health_import_state.dart';
+import '../../health/auto_workout_import.dart';
 import '../../health/health_workout_import.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
@@ -490,8 +492,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         ),
         const SizedBox(height: S.x5),
         _logPastCard(c),
-        const SizedBox(height: S.x5),
-        ..._importCard(c, d),
       ];
     }
     final importedThisWeek = d.weekImported;
@@ -523,11 +523,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ],
+      // The import card lives UP HERE, under the numbers it feeds — at the
+      // bottom of a long list nobody reached it without scrolling past every
+      // session it exists to fill.
+      const SizedBox(height: S.x3),
+      ..._importCard(c, d),
       ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
         _HistoryRow(w,
             weightKg: d.weightKg,
+            onDelete: w.id.isEmpty
+                ? null
+                : () => _confirmDeleteWorkout(c, w),
             // A retime is a re-score over the new window, so it is offered
             // only where there is something of ours to re-score: an imported
             // row's times belong to the app that recorded it, and this band
@@ -548,9 +556,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       ],
       const SizedBox(height: S.x3),
       _logPastCard(c),
-      const SizedBox(height: S.x3),
-      ..._importCard(c, d),
     ];
+  }
+
+  /// Delete one session — recorded or imported. For an IMPORTED session the
+  /// health-store uuid goes onto a tombstone list first, or the next import
+  /// (manual, or the hourly auto path) would bring the very row the user just
+  /// removed straight back. A copy in Apple Health / Health Connect itself is
+  /// out of our reach by design and the confirm says so.
+  Future<void> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
+    final ok = await confirmRemove(
+      c,
+      title: 'Delete this ${w.activity.name.toLowerCase()}?',
+      body: w.importedFrom == null
+          ? 'It disappears from OpenStrap. A copy in $storeName, if there is '
+              'one, stays where it is.'
+          : 'It disappears from OpenStrap and will not be re-imported. '
+              'The original in $storeName stays.',
+    );
+    if (!ok || !mounted) return;
+    if (w.importedFrom != null && w.id.isNotEmpty) {
+      await rememberDeletedUuid(w.id);
+      await LocalDb.deleteImportedWorkout(w.id);
+    } else {
+      await LocalDb.deleteSession(w.id);
+    }
+    if (!mounted) return;
+    setState(() => _load = _loadWorkoutData(context.read<AppState>()));
   }
 
   /// Bring in what another app recorded. On History because that is the list
@@ -561,30 +593,42 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return [
       Surface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(
-            'Runs, rides and sessions recorded by another app or watch'
-            '${isAppleHealth ? ', with their routes' : ''}. Each one is '
-            'listed above with the app or watch that recorded it named on it.',
-            style: F.cap.copyWith(color: p.ink3, height: 1.5),
-          ),
-          if (!isAppleHealth) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              // Said before the button rather than discovered afterwards, when
-              // a map fails to appear and reads as a bug.
-              'Routes are not included on Android. Health Connect keeps them '
-              'behind a separate, restricted permission this app has not '
-              'applied for, so the workouts arrive without coordinates.',
-              style: F.cap.copyWith(color: p.ink3, height: 1.5),
-            ),
-          ],
-          const SizedBox(height: S.x4),
-          BigButton(
-            importLabel(d.importedLast),
-            icon: LucideIcons.smartphone,
-            color: C.domMove,
-            soft: true,
-            onTap: _importing ? null : _importWorkouts,
+          // ONE ROW in the parent card — no nested box: tick = hourly sweep,
+          // ↻ = fetch NOW (only meaningful while the tick is on). The
+          // refresh tap is the only thing that ever prompts for access.
+          Row(
+            children: [
+              Pressable(
+                semanticLabel: _autoImport
+                    ? 'Auto-import on. Tap to turn off.'
+                    : 'Auto-import off. Tap to turn on.',
+                onTap: () => _setAutoImport(!_autoImport),
+                child: Icon(
+                  _autoImport ? LucideIcons.circleCheckBig : LucideIcons.circle,
+                  size: 22,
+                  color: _autoImport ? p.on(C.domMove) : p.ink3,
+                ),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Text('Import from $storeName',
+                    style: F.body.copyWith(
+                        color: p.ink, fontWeight: FontWeight.w600)),
+              ),
+              Pressable(
+                semanticLabel: 'Fetch workouts now',
+                onTap: (!_autoImport || _importing)
+                    ? null
+                    : () => unawaited(_importWorkouts()),
+                child: Padding(
+                  padding: const EdgeInsets.all(S.x2),
+                  child: _importing || !_autoImport
+                      ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
+                      : Icon(LucideIcons.refreshCw,
+                          size: 18, color: p.on(C.domMove)),
+                ),
+              ),
+            ],
           ),
           if (_importNote != null) ...[
             const SizedBox(height: S.x3),
@@ -600,8 +644,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   bool _importing = false;
+  bool _autoImport = false;
   String? _importNote;
   bool _importFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    () async {
+      final on = await AutoWorkoutImport.isEnabled();
+      if (!mounted) return;
+      setState(() => _autoImport = on);
+      if (on) unawaited(AutoWorkoutImport.maybeRun());
+    }();
+  }
+
+  Future<void> _setAutoImport(bool v) async {
+    setState(() => _autoImport = v);
+    await AutoWorkoutImport.setEnabled(v);
+    // Silent by design: the tick only arms the hourly sweep. The refresh
+    // icon beside it is what asks for access.
+    if (v) unawaited(AutoWorkoutImport.maybeRun());
+  }
 
   /// Read the store, then reload the tab so the new rows are in the list the
   /// user is looking at.
@@ -611,11 +675,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// a second pass over the same run updates that one row instead of stacking
   /// a copy. It also picks up a workout the source app edited or back-dated
   /// after the fact, which a "since last time" cursor would miss forever.
-  Future<void> _importWorkouts() async {
+  Future<void> _importWorkouts({bool silent = false}) async {
     if (_importing) return;
     setState(() {
       _importing = true;
-      _importNote = null;
+      // The auto path shares this body but must not speak over it: no note
+      // clearing, and its outcomes are silent by design.
+      if (!silent) _importNote = null;
     });
     final importer = HealthWorkoutImporter();
     try {
@@ -778,7 +844,11 @@ class _HistoryRow extends StatelessWidget {
   /// a session with no id to retime.
   final VoidCallback? onRetime;
 
-  const _HistoryRow(this.w, {this.weightKg, this.onRetime});
+  /// Remove this session locally. Null hides the control (no id to delete).
+  final VoidCallback? onDelete;
+
+  const _HistoryRow(this.w,
+      {this.weightKg, this.onRetime, this.onDelete});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -853,6 +923,18 @@ class _HistoryRow extends StatelessWidget {
               // this is one session's 0–21 strain, and the two were being
               // shown under the same word on the same screen.
               child: Text('strain', style: F.over.copyWith(color: p.ink3)),
+            ),
+          ],
+          if (onDelete != null) ...[
+            const SizedBox(width: S.x2),
+            Pressable(
+              semanticLabel: 'Delete this session',
+              onTap: onDelete,
+              child: Padding(
+                padding: const EdgeInsets.all(S.x1),
+                child:
+                    Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+              ),
             ),
           ],
         ]),

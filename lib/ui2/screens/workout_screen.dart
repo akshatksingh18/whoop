@@ -593,50 +593,42 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return [
       Surface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // ONE ROW, not a card with paragraphs: tick = auto-import sweeps
-          // about once an hour while you use the app; the refresh icon
-          // fetches NOW. The refresh tap is the only thing that ever
-          // prompts for access — after that grant the tick works silently.
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Row(
-              children: [
-                Pressable(
-                  semanticLabel: _autoImport
-                      ? 'Auto-import on. Tap to turn off.'
-                      : 'Auto-import off. Tap to turn on.',
-                  onTap: () => _setAutoImport(!_autoImport),
-                  child: Icon(
-                    _autoImport
-                        ? LucideIcons.circleCheckBig
-                        : LucideIcons.circle,
-                    size: 22,
-                    color: _autoImport ? p.on(C.domMove) : p.ink3,
-                  ),
+          // ONE ROW in the parent card — no nested box: tick = hourly sweep,
+          // ↻ = fetch NOW (only meaningful while the tick is on). The
+          // refresh tap is the only thing that ever prompts for access.
+          Row(
+            children: [
+              Pressable(
+                semanticLabel: _autoImport
+                    ? 'Auto-import on. Tap to turn off.'
+                    : 'Auto-import off. Tap to turn on.',
+                onTap: () => _setAutoImport(!_autoImport),
+                child: Icon(
+                  _autoImport ? LucideIcons.circleCheckBig : LucideIcons.circle,
+                  size: 22,
+                  color: _autoImport ? p.on(C.domMove) : p.ink3,
                 ),
-                const SizedBox(width: S.x3),
-                Expanded(
-                  child: Text('Import from \$storeName',
-                      style: F.body.copyWith(
-                          color: p.ink, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Text('Import from $storeName',
+                    style: F.body.copyWith(
+                        color: p.ink, fontWeight: FontWeight.w600)),
+              ),
+              Pressable(
+                semanticLabel: 'Fetch workouts now',
+                onTap: (!_autoImport || _importing)
+                    ? null
+                    : () => unawaited(_importWorkouts()),
+                child: Padding(
+                  padding: const EdgeInsets.all(S.x2),
+                  child: _importing || !_autoImport
+                      ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
+                      : Icon(LucideIcons.refreshCw,
+                          size: 18, color: p.on(C.domMove)),
                 ),
-                Pressable(
-                  semanticLabel: 'Fetch workouts now',
-                  onTap:
-                      _importing ? null : () => unawaited(_importWorkouts()),
-                  child: Padding(
-                    padding: const EdgeInsets.all(S.x2),
-                    child: _importing
-                        ? const SizedBox(
-                            width: 17,
-                            height: 17,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(LucideIcons.refreshCw,
-                            size: 18, color: p.on(C.domMove)),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
           if (_importNote != null) ...[
             const SizedBox(height: S.x3),

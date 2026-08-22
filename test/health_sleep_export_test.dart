@@ -248,25 +248,17 @@ void main() {
       );
     });
 
-    test('Apple delete scope never names the Health Connect envelope', () {
-      final types = healthDeleteTypes(isApplePlatform: true);
+    test(
+      'Apple generic cleanup never names sleep — native replace owns it',
+      () {
+        final types = healthDeleteTypes(isApplePlatform: true);
 
-      // SLEEP_SESSION is Health-Connect-only. On iOS the plugin resolves an
-      // unknown key to bodyMass, queries a type we never asked for, and its
-      // error path never calls back — `delete()` hangs and the day's export
-      // stalls behind it. Same failure #239/#225 fixed on the write side.
-      expect(types, isNot(contains(HealthDataType.SLEEP_SESSION)));
-      expect(types, contains(HealthDataType.SLEEP_IN_BED));
-      expect(
-        types,
-        containsAll(<HealthDataType>[
-          HealthDataType.SLEEP_DEEP,
-          HealthDataType.SLEEP_REM,
-          HealthDataType.SLEEP_LIGHT,
-          HealthDataType.SLEEP_AWAKE,
-        ]),
-      );
-    });
+        expect(types, contains(HealthDataType.HEART_RATE));
+        expect(types, isNot(contains(HealthDataType.SLEEP_SESSION)));
+        expect(types, isNot(contains(HealthDataType.SLEEP_IN_BED)));
+        expect(types.where((type) => type.name.startsWith('SLEEP_')), isEmpty);
+      },
+    );
 
     test('the sleep delete covers the pre-midnight half of the night', () {
       final dayStart = DateTime(2026, 8, 5);
@@ -283,8 +275,10 @@ void main() {
         dayEnd: dayEnd,
         night: night,
       );
-      expect(window.start, night.start);
-      expect(window.end, dayEnd, reason: 'the night ends well inside the day');
+      expect(window.start, DateTime(2026, 8, 4, 12));
+      expect(window.end, DateTime(2026, 8, 5, 12), reason:
+          'noon-to-noon only — the old calendar-day union reached into the '
+          'previous night and deleted samples nothing ever rewrites');
 
       // No night to write — nothing to widen for, and the day window still has
       // to be swept so stale samples from an earlier export go.
@@ -299,6 +293,10 @@ void main() {
       expect(healthSleepStageOf('rem'), HealthSleepStage.rem);
       expect(healthSleepStageOf('light'), HealthSleepStage.light);
       expect(healthSleepStageOf('nrem'), HealthSleepStage.light);
+      expect(healthSleepStageOf('core'), HealthSleepStage.light);
+      // Unobserved is NOT wake — it is unwatched time, and exporting it as
+      // measured wake fabricates a reading other apps trust.
+      expect(healthSleepStageOf('unobserved'), isNull);
       expect(healthSleepStageOf('deep'), HealthSleepStage.deep);
       expect(healthSleepStageOf('unknown'), isNull);
     });
@@ -412,7 +410,10 @@ void main() {
         HealthSleepStage.rem: 95,
         HealthSleepStage.light: 318,
         HealthSleepStage.deep: 16,
-      });
+      }, reason:
+          '07:36–07:46 had no label and stays unwritten — unobserved time '
+          'belongs to neither sleep nor wake, so Time Asleep is the sum of '
+          'the MEASURED stages only');
     });
 
     test(
@@ -668,6 +669,222 @@ void main() {
         expect(await second, isTrue);
         expect(calls, 2);
         expect(maxActiveCalls, 1);
+      },
+    );
+
+    test(
+      'noon-to-noon cleanup covers leftover fragments before a later onset',
+      () {
+        // Issue #225: in-app night is 01:06–08:42 but Health still shows REM
+        // from ~11pm — those samples sit outside [01:06, 08:42) and a
+        // night-scoped delete never touched them.
+        final night = HealthSleepSession(
+          start: DateTime(2026, 8, 5, 1, 6),
+          end: DateTime(2026, 8, 5, 8, 42),
+          stages: const [],
+        );
+        final leftover = DateTime(2026, 8, 4, 23, 0);
+        final range = sleepSessionCleanupRange(night);
+
+        expect(range.start, DateTime(2026, 8, 4, 12));
+        expect(range.end, DateTime(2026, 8, 5, 12));
+        expect(leftover.isBefore(range.start), isFalse);
+        expect(leftover.isBefore(range.end), isTrue);
+      },
+    );
+
+    test('leaves unlabelled gaps out of the stage list entirely', () {
+      final start = DateTime(2026, 8, 5, 1);
+      final end = DateTime(2026, 8, 5, 4);
+      final bundle = {
+        'sleep': {
+          'window': {
+            'value': {
+              'onset_ms': start.millisecondsSinceEpoch,
+              'offset_ms': end.millisecondsSinceEpoch,
+            },
+          },
+        },
+        'series': {
+          'hypnogram': [
+            _segment(start, start.add(const Duration(hours: 1)), 'light'),
+            _segment(start.add(const Duration(hours: 2)), end, 'rem'),
+          ],
+        },
+      };
+
+      final session = normalizeHealthSleepSession(bundle)!;
+      // The 1h-2h hole is UNOBSERVED, not wake. Exporting it as measured
+      // wake fabricates a reading other apps take as fact; Time Asleep sums
+      // asleep stages only, so the hole contributes nothing either way.
+      expect(session.stages, hasLength(2));
+      expect(session.stages[0].stage, HealthSleepStage.light);
+      expect(session.stages[1].stage, HealthSleepStage.rem);
+    });
+
+    test('accepts UI-shaped {t,stage} points and millisecond timestamps', () {
+      final start = DateTime(2026, 8, 5, 1);
+      final mid = DateTime(2026, 8, 5, 2);
+      final end = DateTime(2026, 8, 5, 3);
+      final bundle = {
+        'sleep': {
+          'window': {
+            'value': {
+              'onset_ms': start.millisecondsSinceEpoch,
+              'offset_ms': end.millisecondsSinceEpoch,
+            },
+          },
+        },
+        'series': {
+          'hypnogram': [
+            {'t': start.millisecondsSinceEpoch, 'stage': 'core'},
+            {'t': mid.millisecondsSinceEpoch, 'stage': 'deep'},
+            {'t': end.millisecondsSinceEpoch, 'stage': 'wake'},
+          ],
+        },
+      };
+
+      final session = normalizeHealthSleepSession(bundle)!;
+      expect(session.stages, hasLength(2));
+      expect(session.stages[0].stage, HealthSleepStage.light);
+      expect(session.stages[0].start, start);
+      expect(session.stages[0].end, mid);
+      expect(session.stages[1].stage, HealthSleepStage.deep);
+      expect(session.stages[1].end, end);
+    });
+
+    test('a new sleep-writer epoch clears the export cursor once', () async {
+      final stored = <String, String>{
+        'health_export_through': '2026-08-01',
+        'health_export_retry_state': '{"2026-08-02":1}',
+      };
+
+      await ensureHealthSleepExportEpoch(
+        getCursor: (name) async => stored[name],
+        setCursor: (name, value) async {
+          stored[name] = value;
+        },
+        isApplePlatform: true,
+      );
+      expect(stored['health_export_through'], '');
+      expect(stored['health_export_retry_state'], '');
+      expect(stored[kHealthSleepExportEpochCursor], kHealthSleepExportEpoch);
+
+      stored['health_export_through'] = '2026-08-05';
+      await ensureHealthSleepExportEpoch(
+        getCursor: (name) async => stored[name],
+        setCursor: (name, value) async {
+          stored[name] = value;
+        },
+        isApplePlatform: true,
+      );
+      expect(stored['health_export_through'], '2026-08-05');
+    });
+
+    test('the sleep-writer epoch never replays Health Connect bundles',
+        () async {
+      final stored = <String, String>{
+        'health_export_through': '2026-08-01',
+        'health_export_retry_state': '{"2026-08-02":1}',
+      };
+
+      await ensureHealthSleepExportEpoch(
+        getCursor: (name) async => stored[name],
+        setCursor: (name, value) async {
+          stored[name] = value;
+        },
+        isApplePlatform: false,
+      );
+      expect(stored['health_export_through'], '2026-08-01');
+      expect(stored['health_export_retry_state'], '{"2026-08-02":1}');
+      expect(stored.containsKey(kHealthSleepExportEpochCursor), isFalse,
+          reason: 'nothing about the HC writer changed — no replay, no bump');
+    });
+
+    test('Apple replace sends in-bed even when stages are empty', () async {
+      const channel = MethodChannel('openstrap/test_healthkit_sleep');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return true;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      final exporter = HealthKitSleepSessionExporter(
+        writer: MethodChannelHealthKitSleepSessionWriter(channel: channel),
+      );
+      final bundle = _overnightBundle();
+      ((bundle['series'] as Map)['hypnogram'] as List).clear();
+
+      expect(
+        await exporter.replace(
+          bundle: bundle,
+          dayStart: DateTime(2026, 8, 5),
+          dayEnd: DateTime(2026, 8, 6),
+        ),
+        isTrue,
+      );
+      expect(calls, hasLength(1));
+      final args = (calls.single.arguments as Map).cast<String, Object?>();
+      expect(args['startTime'], isNotNull);
+      expect(args['stages'] as List, isEmpty);
+      expect(
+        args['cleanupStartTime'],
+        DateTime(2026, 8, 4, 12).millisecondsSinceEpoch,
+      );
+    });
+
+    test(
+      'Apple replace carries Core stages and noon-to-noon cleanup',
+      () async {
+        const channel = MethodChannel('openstrap/test_healthkit_sleep_full');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls.add(call);
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final exporter = HealthKitSleepSessionExporter(
+          writer: MethodChannelHealthKitSleepSessionWriter(channel: channel),
+        );
+
+        expect(
+          await exporter.replace(
+            bundle: _overnightBundle(),
+            dayStart: DateTime(2026, 8, 5),
+            dayEnd: DateTime(2026, 8, 6),
+          ),
+          isTrue,
+        );
+        expect(calls, hasLength(1));
+        expect(calls.single.method, 'replaceSleepSession');
+        final args = (calls.single.arguments as Map).cast<String, Object?>();
+        expect(
+          args['cleanupStartTime'],
+          DateTime(2026, 8, 4, 12).millisecondsSinceEpoch,
+        );
+        expect(
+          args['cleanupEndTime'],
+          DateTime(2026, 8, 5, 12).millisecondsSinceEpoch,
+          reason:
+              'noon-to-noon only — the calendar-day union reached into the '
+              'previous night and deleted samples nothing rewrites',
+        );
+        final stages = args['stages'] as List;
+        expect(stages, isNotEmpty);
+        expect(
+          stages.map((raw) => (raw as Map)['stage']).toSet(),
+          containsAll(<String>['awake', 'rem', 'light', 'deep']),
+        );
       },
     );
   });

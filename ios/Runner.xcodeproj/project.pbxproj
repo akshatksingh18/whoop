@@ -21,6 +21,7 @@
 		53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E952FF6EE120061A61B /* WatchBridge.swift */; };
 		53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E942FF6EE120061A61B /* OpenStrapIntents.swift */; };
 		60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A2B400A52A2CA90242C195 /* HealthRoutes.swift */; };
+		B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */; };
 		630172CC9317145AD5F8F3B7 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
@@ -102,6 +103,7 @@
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		46A2B400A52A2CA90242C195 /* HealthRoutes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRoutes.swift; sourceTree = "<group>"; };
+		A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthKitSleepWriter.swift; sourceTree = "<group>"; };
 		5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OpenStrapWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5348973C2FDC19C80033A4D9 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		5348973E2FDC19C80033A4D9 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -299,6 +301,7 @@
 				ACCE55E7000000000000F11E /* AccessorySetup.swift */,
 				0BGTASK00000000000000002 /* BgSyncScheduler.swift */,
 				46A2B400A52A2CA90242C195 /* HealthRoutes.swift */,
+				A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -680,6 +683,7 @@
 				ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */,
 				0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */,
 				60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,
+				B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -61,6 +61,9 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
     setState(() {
       _kind = k;
       // Sensible shapes per kind, so the common case needs no further tapping.
+      // Every branch sets BOTH unit and time — otherwise a unit typed under
+      // one kind silently rides along when the kind changes.
+      const durStep = 15.0;
       switch (k) {
         case JournalFieldKind.rating:
           _max = 5;
@@ -70,10 +73,14 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
         case JournalFieldKind.dose:
           _max = 100;
           _step = 1;
+          _unitCtrl.text = '';
+          _hasTime = false;
         case JournalFieldKind.duration:
-          _max = 480;
-          _step = 15;
+          // A value the ceiling chips can actually produce (step x 20).
+          _step = durStep;
+          _max = durStep * 20;
           _unitCtrl.text = 'min';
+          _hasTime = false;
       }
     });
   }
@@ -87,8 +94,14 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
     final key = customJournalFieldKey(label);
     // A name that slugs to nothing ("???") would produce a bare `custom_`
     // key that every other such name also produces.
-    if (key == 'custom_') {
+    if (key == customJournalFieldKey('')) {
       setState(() => _error = 'Use at least one letter or number');
+      return;
+    }
+    // An amount with no unit renders as a bare number everywhere after —
+    // correlations, findings, CSV. Demand it up front.
+    if (_kind == JournalFieldKind.dose && _unitCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Say what it is counted in (mg, ml, cups…)');
       return;
     }
     if (widget.existingKeys.contains(key)) {
@@ -182,8 +195,14 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
                                 onTap: () => setState(() {
                                   _step = st;
                                   // The ceiling must stay above the step or
-                                  // the field can only ever hold 0.
-                                  if (_max < st) _max = st * 20;
+                                  // the field can only ever hold 0 — and it
+                                  // must be one of the chips below, or the
+                                  // selected state lies. Anything not an exact
+                                  // multiple of the new step snaps back to the
+                                  // step-derived default.
+                                  if (_max < st || _max % st != 0) {
+                                    _max = st * 20;
+                                  }
                                 }),
                                 child: Pill(
                                   st.round().toString(),

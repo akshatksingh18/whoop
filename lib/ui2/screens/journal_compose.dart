@@ -100,8 +100,27 @@ class _JournalComposeState extends State<JournalCompose> {
     );
     if (spec == null || !mounted) return;
     final repo = context.read<AppState>().repo;
-    if (repo == null) return;
-    await repo.postCustomJournalField(spec);
+    // No repo means the sheet should never have been reachable; say so rather
+    // than eating the tap.
+    if (repo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not ready yet — open the app first.')),
+      );
+      return;
+    }
+    try {
+      await repo.postCustomJournalField(spec);
+    } catch (_) {
+      if (!mounted) return;
+      // A failed persist must not read as success — the field would vanish
+      // from the list while the user believes it saved.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not save it — check storage and retry.')),
+      );
+      return;
+    }
+    if (!mounted) return;
     await _load();
   }
 

@@ -29,7 +29,10 @@ Future<void> _pump(WidgetTester t, Widget w, {double scale = 1}) async {
 void main() {
   group('the relay screen', () {
     testWidgets('off is one tap from on, and says what it will do', (t) async {
-      var toggled;
+      // Typed + initialized: `var toggled;` tripped
+      // prefer_typing_uninitialized_variables, which plain `flutter analyze`
+      // treats as fatal — the reason CI went red on a test that passes.
+      var toggled = false;
       await _pump(
         t,
         BandNotificationsView(onEnabled: (v) => toggled = v),

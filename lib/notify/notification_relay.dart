@@ -30,7 +30,10 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // Android rarely unbinds, foreground resume already heals eagerly, and a
   // missed buzz during the window costs nothing — while the timer itself ran
   // a platform-channel round trip forever in an always-alive process.
-  static const Duration _healEvery = Duration(minutes: 15);
+  // 120 s. The active-gate above already confines this timer to installs that
+  // actually use the relay, so the drain saved by a longer period is small
+  // and the cost is silent non-buzzing for up to the whole interval.
+  static const Duration _healEvery = Duration(seconds: 120);
   Timer? _healTimer;
 
   /// Fire the strap haptic. Wired by AppState to `engine.buzz()`. Best-effort.

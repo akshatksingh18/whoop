@@ -125,6 +125,46 @@ class WidgetService {
   /// write-time metadata, and any genuinely new data moves at least one value.
   static String? _lastPushFingerprint;
 
+  /// The keys the change gate fingerprints, IN ORDER. Documentation AND the
+  /// test hook: `test/battery_audit_policy_test.dart` asserts every key
+  /// [push] writes appears here, because a written-but-unfingerprinted key
+  /// silently freezes until its value changes by accident. Keep both sides
+  /// in lockstep when adding a key.
+  @visibleForTesting
+  static const List<String> fingerprintKeyOrder = [
+    'statusDay',
+    'has_data',
+    'readiness',
+    'readiness_tier',
+    'readiness_band',
+    'hrv',
+    'hrv_baseline',
+    'strain',
+    'sleep_min',
+    'sleep_need_min',
+    'rhr',
+    'sleep_efficiency',
+    'overnight_why',
+    'coach_line',
+    'ring_recovery_state',
+    'ring_recovery_value',
+    'ring_recovery_sub',
+    'ring_recovery_why',
+    'ring_recovery_frac',
+    'ring_strain_state',
+    'ring_strain_value',
+    'ring_strain_sub',
+    'ring_strain_why',
+    'ring_strain_frac',
+    'ring_sleep_state',
+    'ring_sleep_value',
+    'ring_sleep_sub',
+    'ring_sleep_why',
+    'ring_sleep_frac',
+    // 'updated_at' deliberately absent: write-time metadata. Any genuinely
+    // new data moves at least one fingerprinted value.
+  ];
+
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
   /// throws into the caller. Sentinels: ints use -1 / strings use '' for "no data".
   static Future<void> push(TodayData t) async {
@@ -234,7 +274,7 @@ class WidgetService {
       // add a key above, add it HERE too. `updated_at` is deliberately
       // excluded: write-time metadata, and any genuinely new data moves at
       // least one value in the list.
-      final fp = [
+      final fpValues = <Object>[
         statusDay,
         hasData,
         readinessInt,
@@ -250,7 +290,13 @@ class WidgetService {
         overnightWhy,
         coachLine,
         for (final r in rings) ...[r.state, r.value, r.sub, r.why, r.frac],
-      ].join('|');
+      ];
+      assert(
+        fpValues.length == fingerprintKeyOrder.length,
+        'widget fingerprint out of sync with push() — add new keys to '
+        'BOTH the writes above and fingerprintKeyOrder',
+      );
+      final fp = fpValues.join('|');
       if (fp == _lastPushFingerprint) return;
 
       await HomeWidget.saveWidgetData<bool>('has_data', hasData);

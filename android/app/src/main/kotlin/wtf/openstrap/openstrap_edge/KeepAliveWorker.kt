@@ -66,14 +66,12 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, para
     override fun doWork(): Result {
         val ctx = applicationContext
         if (!hasPairedDevice(ctx)) {
-            // Unpaired: there is nothing to keep alive, ever — cancel the chain
-            // rather than waking a dead process every ~15 min for the life of the
-            // install. Pairing re-schedules via EdgeTrackingService.onCreate.
-            try {
-                WorkManager.getInstance(ctx).cancelUniqueWork(WORK_NAME)
-            } catch (e: Exception) {
-                Log.w(TAG, "cancel failed: $e")
-            }
+            // Unpaired: nothing to keep alive this tick — succeed WITHOUT
+            // cancelling the unique chain. hasPairedDevice is a best-effort
+            // prefs read; a false negative here used to cancel the watchdog
+            // permanently for a paired user, which is exactly the state the
+            // watchdog exists for (fgs dead). One extra no-op wake per 15 min
+            // is the cheap side of that one-way door.
             return Result.success()
         }
         if (EdgeTrackingService.running) return Result.success() // healthy

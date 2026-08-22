@@ -280,6 +280,11 @@ class RouteTracker {
   /// call this, so stop() also runs [dispose]. Previously nothing ever called
   /// dispose(), which leaked the six ValueNotifiers (and their listeners) once
   /// per route workout. Read the notifiers BEFORE awaiting stop().
+  /// Stop tracking and flush the throttle's held-back tail vertices.
+  ///
+  /// A GPS fix still IN FLIGHT (added to the source stream but not yet handed
+  /// to us) is dropped: the subscription is cancelled before the final emit.
+  /// Callers read the notifiers right after this returns.
   Future<void> stop() async {
     if (_stopped) {
       dispose();

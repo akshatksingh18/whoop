@@ -38,5 +38,7 @@ Not lazy about: understanding the problem (read it fully and trace the real flow
 
 - This repo already carries `ponytail:` markers (grep `ponytail:` under `lib/` and `android/`). Treat each as a documented, deliberate ceiling — do not "fix" one without a real-world trigger, and when you cut a corner yourself, leave the marker.
 - Rung 2 is load-bearing here: pure policies live in `lib/ble/ble_state.dart` and `lib/sync/sync_policy.dart`, the single day-label helper is `lib/data/day_label.dart`, the single notification emitter is `lib/notify/notification_center.dart`. Check those before writing a new detector, policy, or helper.
-- Rung 5 candidates already installed: `clock` (injectable time), `archive` (zip), `pointycastle` (AEAD), `collection` (direct dep — `DeepCollectionEquality` etc.), `latlong2` (geo math), `workmanager` (background jobs), `flutter_local_notifications` + `timezone` (scheduling).
+- Rung 5 candidates already installed: `clock` (injectable time), `archive` (zip), `pointycastle` (AEAD), `collection` (direct dep — `DeepCollectionEquality` etc.), `latlong2` (geo math), `flutter_local_notifications` + `timezone` (scheduling).
+  (`workmanager` stays in pubspec ONLY to cancel the legacy periodic tasks it
+  once registered — do not build new background jobs on it.)
 - Semantics this repo protects that a "simpler" version must never change: the safe-trim invariant (commit before HISTORY_END ACK), ACK seq discipline, DST-correct day windows, the dangerous-opcode block, and the analytics/protocol pin gates in `lib/compute/derivation_engine.dart`.

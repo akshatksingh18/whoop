@@ -2099,6 +2099,10 @@ class AppState extends ChangeNotifier {
             // cold launch, so there is nothing to double-count.
             await _recoverOrphanedLiveSession();
             _resetLivePedometer();
+            // Settle any in-flight background downgrade FIRST — arming over
+            // a pending disable let its trailing OFF writes kill what we just
+            // armed.
+            await _settleBgLiveDowngrade();
             if (Platform.isIOS && !engine.liveEnabled) {
               // A background cold-launch connects with NO stream armed, and
               // _maybeDowngradeLiveForBackground no-ops when live is already
@@ -2428,11 +2432,15 @@ class AppState extends ChangeNotifier {
   ///     per day (each one decode → state mutation → notifyListeners) with no
   ///     consumer, the single largest steady drain on the phone. Liveness is
   ///     covered by the keep-alive's forced battery poll (see
-  ///     kNoStreamPollSilenceSeconds) and the resume paths judge freshness by
-  ///     the no-stream bar (isLinkStale liveStreamArmed: false). Nothing is
-  ///     lost: records keep landing via the 15-min flash backfill, and the
-  ///     wrist-on bit rides in with the historical records. wristOn/liveHr
-  ///     simply stop updating in realtime while backgrounded.
+  ///     kNoStreamPollSilenceSeconds) — a swap, not a removal: ~86,400
+  ///     notifications/day become ~1,440 get-battery round-trips/day, still
+  ///     the largest net win here. The resume paths judge freshness by the
+  ///     no-stream bar (isLinkStale liveStreamArmed: false), whose 90 s bar
+  ///     already tolerates one dropped poll reply. Records keep landing via
+  ///     the 15-min flash backfill. NOTE: `state.wristOn` is written from
+  ///     LIVE/hello paths only — it freezes for the backgrounded stretch
+  ///     (derived wear still comes from historical HR; nothing branches on
+  ///     the frozen flag). wristOn/liveHr simply stop updating in realtime.
   ///
   ///   • iOS: HR-only downgrade, as before. The inbound 1 Hz notification is
   ///     what keeps the suspended process schedulable (bluetooth-central
@@ -2457,6 +2465,22 @@ class AppState extends ChangeNotifier {
         ? engine.disableLiveStreams()
         : engine.enableHrOnlyLive();
     unawaited(_bgLiveDowngrade!);
+  }
+
+  /// Await every in-flight background live downgrade before (re-)arming live
+  /// streams, so ON writes cannot interleave with a disable's trailing OFF
+  /// writes. Drains CHAINED downgrades too: a newer one started while an
+  /// older was awaited is awaited as well, never dropped.
+  Future<void> _settleBgLiveDowngrade() async {
+    while (_bgLiveDowngrade != null) {
+      final pending = _bgLiveDowngrade!;
+      try {
+        await pending;
+      } catch (_) {/* a failed downgrade still cleared its flags or didn't;
+                       either way the reclaim re-reads live state fresh */}
+      // Only clear when no NEWER downgrade replaced it while we awaited.
+      if (identical(_bgLiveDowngrade, pending)) _bgLiveDowngrade = null;
+    }
   }
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
@@ -3275,11 +3299,13 @@ class AppState extends ChangeNotifier {
 
   /// Cadence of the reconnect supervisor. Cheap — the tick reads local flags
   /// and does nothing at all unless the app is paired, wants a link, and does
-  /// not have one. 5 min, not 1: the condition it catches (a loop wedged for
-  /// ≥25 min, sync_policy staleAfter) tolerates minutes of detection latency,
-  /// and this timer runs for the whole life of a Doze-exempt process — 288
-  /// wakes/day instead of 1,440.
-  static const Duration _reconnectSupervisorInterval = Duration(minutes: 5);
+  /// not have one.
+  ///
+  /// Deliberately 1 min, not lengthened for battery: this supervisor is what
+  /// restarts a dead link (#208), and stretching it trades a few free boolean
+  /// reads inside an already-doze-exempt, link-holding process for up to 5
+  /// minutes of lost sync after exactly the failure it exists to catch.
+  static const Duration _reconnectSupervisorInterval = Duration(minutes: 1);
 
   /// Start the level-triggered reconnect supervision (issue #208).
   ///
@@ -3931,12 +3957,7 @@ class AppState extends ChangeNotifier {
     // completion). Let it finish before any reclaim path below re-arms live, so
     // the re-arm sees settled flags and its ON writes can't interleave with the
     // disable's trailing OFF writes.
-    if (_bgLiveDowngrade != null) {
-      try {
-        await _bgLiveDowngrade;
-      } catch (_) {}
-      _bgLiveDowngrade = null;
-    }
+    await _settleBgLiveDowngrade();
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
@@ -4170,6 +4191,7 @@ class AppState extends ChangeNotifier {
           // fully OFF (the FGS keeps the process alive; the 1 Hz stream has no
           // consumer — see _maybeDowngradeLiveForBackground); iOS arms HR-only
           // (the inbound notification keeps the suspended process schedulable).
+          await _settleBgLiveDowngrade();
           if (_background && !_hasLiveConsumer) {
             if (!Platform.isAndroid) {
               await engine.enableHrOnlyLive();
@@ -4531,6 +4553,7 @@ class AppState extends ChangeNotifier {
     _windowRowStartedAt = null;
     _breathingFrames.clear();
     notifyListeners();
+    await _settleBgLiveDowngrade();
     try {
       if (!engine.liveEnabled) {
         await engine.enableLiveStreams();
@@ -4616,6 +4639,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
+      // A background downgrade may be mid-write (band double-tap start right
+      // after backgrounding is exactly this case): settle it first so its
+      // trailing OFF writes cannot kill the streams we arm here.
+      await _settleBgLiveDowngrade();
       // OWNERSHIP: only claim "we enabled it" when
       // live was actually OFF, so ending the session can never turn off
       // streams the open session still expects on.
@@ -4890,12 +4917,18 @@ class AppState extends ChangeNotifier {
     // user action — retry the full live set; detectors re-trip if it can't
     // hold. No ownership flag: the background downgrade / session close
     // manage the stream lifecycle exactly as for openSession's arming.
-    if (isConnected &&
-        (!engine.liveEnabled ||
-            engine.liveHrOnly ||
-            device.standardHrFallback)) {
-      unawaited(engine.retryFullLiveStreams());
-    }
+    unawaited(() async {
+      // The band double-tap lands while backgrounded by definition — settle
+      // the background HR-only downgrade BEFORE retrying full live, or its
+      // trailing OFF writes (~300 ms of them) kill exactly what we arm.
+      await _settleBgLiveDowngrade();
+      if (isConnected &&
+          (!engine.liveEnabled ||
+              engine.liveHrOnly ||
+              device.standardHrFallback)) {
+        await engine.retryFullLiveStreams();
+      }
+    }());
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();

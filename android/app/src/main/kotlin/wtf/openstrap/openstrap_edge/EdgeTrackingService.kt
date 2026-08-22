@@ -20,7 +20,8 @@ import androidx.core.content.ContextCompat
  *
  * STICKY: the service asks the OS to recreate it after a memory-pressure kill
  * (START_STICKY). Recreating the service restarts the process, which re-runs
- * EdgeApplication.onCreate → pre-warms the FlutterEngine → Dart main() detects the
+ * EdgeApplication.ensureEngine() → creates the long-lived FlutterEngine on first
+ * need → Dart main() detects the
  * headless launch and auto-connects to the paired band (see headless_boot.dart) —
  * so one OS kill no longer means "no sync until the app is reopened". A periodic
  * WorkManager watchdog (KeepAliveWorker) backs this up for the cases START_STICKY

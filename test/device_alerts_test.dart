@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/notify/charge_alert_policy.dart';
 import 'package:openstrap_edge/notify/device_alerts.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 
 class _Shown {
@@ -565,6 +566,37 @@ void main() {
       final a = alerts();
       a.onDeviceState(batteryPct: 12, charging: true, chargingTs: tsAged(2));
       await a.settled;
+      expect(sink.countOf(NotificationService.idLowBattery), 0);
+    });
+
+    test('a user threshold replaces the 15% default', () async {
+      // NotificationPrefs.batteryPctPrefKey is what the settings screen
+      // writes; DeviceAlerts reads it back through the same store seam on
+      // restore. At a 30% threshold, 20% is low — at the default it is not.
+      store.values[NotificationPrefs.batteryPctPrefKey] = 30;
+      final a = alerts();
+      a.onDeviceState(batteryPct: 20);
+      await a.settled;
+      expect(sink.countOf(NotificationService.idLowBattery), 1);
+
+      // Hysteresis rides the threshold too: re-arm at threshold+10 (=40
+      // here), so a climb to 40 re-arms and another dip under 30 fires again.
+      a.onDeviceState(batteryPct: 41);
+      await a.settled;
+      a.onDeviceState(batteryPct: 29);
+      await a.settled;
+      expect(sink.countOf(NotificationService.idLowBattery), 2);
+    });
+
+    test('a stored threshold above the hysteresis ceiling still clamps sane',
+        () async {
+      // Hand-edited or stale values cannot push the alert out of the range
+      // NotificationPrefs enforces on the write side either.
+      store.values[NotificationPrefs.batteryPctPrefKey] = 99;
+      final a = alerts();
+      a.onDeviceState(batteryPct: 45, charging: false, chargingTs: tsAged(2));
+      await a.settled;
+      // Clamped to batteryPctMax=40 → 45% is above it and must NOT fire.
       expect(sink.countOf(NotificationService.idLowBattery), 0);
     });
   });

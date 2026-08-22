@@ -65,6 +65,7 @@ import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
 import '../data/series_codec.dart';
 import '../notify/battery_forecast.dart';
+import '../notify/med_buzzer.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
@@ -179,6 +180,17 @@ class AppState extends ChangeNotifier {
   /// Fires a strap haptic at each water-reminder slot (best-effort, only when
   /// the band is connected). Armed at launch + whenever the toggle changes.
   late final WaterBuzzer _waterBuzzer = WaterBuzzer(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
+
+  /// Fires a strap haptic at each scheduled medication dose (best-effort, only
+  /// when the band is connected). Same trade as [_waterBuzzer]: the OS
+  /// notification is what actually reminds; the buzz is the bonus half that
+  /// only works with a live link. Armed from `_ensureRemindersScheduled`,
+  /// which is where the med schedule is already read for the OS slots — one
+  /// read feeds both surfaces, so they cannot drift apart.
+  late final MedBuzzer _medBuzzer = MedBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
   );
@@ -1280,6 +1292,7 @@ class AppState extends ChangeNotifier {
     _releaseForegroundLease();
     _deriveScheduler.dispose();
     _waterBuzzer.dispose();
+    _medBuzzer.dispose();
     // Owned notifiers/observers. notificationRelay in particular holds a
     // WidgetsBindingObserver, a 120 s Timer.periodic and a StreamSubscription —
     // its observer accumulated on the binding across every hot restart.
@@ -1358,6 +1371,13 @@ class AppState extends ChangeNotifier {
       enabled: p.waterEnabled,
       slotMinutes: NotificationCenter.waterSlotMinutes(p),
     );
+  }
+
+  /// Push a just-saved low-battery threshold into the device-alert pipeline.
+  /// DeviceAlerts restores its threshold once per process; without this a
+  /// change made in Settings would not apply until the next restart.
+  Future<void> refreshBatteryThreshold(NotificationPrefs prefs) async {
+    _deviceAlerts.refreshThreshold();
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
@@ -1552,7 +1572,11 @@ class AppState extends ChangeNotifier {
           title: 'Your recovery is ready',
           body: 'Recovery $score$slept.',
           date: dayId,
-          route: '/today',
+          // kRouteRecovery, NOT the bare /today: this event sat dead for
+          // months because the recovery channel was one `classOf` dropped —
+          // it is the route that re-sanctions it as a prompt (and
+          // recoveryEnabled that mutes it).
+          route: kRouteRecovery,
         ),
       );
       if (fired) {
@@ -1635,7 +1659,7 @@ class AppState extends ChangeNotifier {
       // tonight's sweep at 20:00 for a user whose slot is 21:45, off a day
       // that was not over yet.
       final eveningMin = ai.resolvedEveningMin(
-        bedtimeMinOfDay: await _recommendedBedtimeMin(),
+        bedtimeMinOfDay: (await _readCrossdaySummary()).bedtimeMin,
       );
       if (ai.eveningEnabled && minOfDay >= eveningMin) {
         want = BriefingPeriod.evening;
@@ -1686,11 +1710,15 @@ class AppState extends ChangeNotifier {
         e: NotificationEvent(
           dedupeKey: '$date:step_goal',
           category: NotifCategory.reminders,
-          priority: NotifPriority.low,
+          // NORMAL + kRouteSteps, not low + /today: reminders-at-low was one
+          // of the dropped pairs, so this achievement never once reached a
+          // shade. It is a prompt now (route-keyed), muted via
+          // stepGoalEnabled.
+          priority: NotifPriority.normal,
           title: 'Step goal reached',
           body: 'You hit about $steps steps — at or above your $goal goal.',
           date: date,
-          route: '/today',
+          route: kRouteSteps,
         ),
       );
     } catch (_) {
@@ -1704,6 +1732,14 @@ class AppState extends ChangeNotifier {
   /// is a short rolling ~15 min window, not a monotonic idle timer, so it
   /// doesn't translate into a single OS-scheduled instant the way the
   /// "time to move" nudge below does; still foreground-only for now).
+  ///
+  /// WIRED under the Movement-nudge switch: this event used to emit on
+  /// reminders/low with a bare `/today` route — exactly the pair `classOf`
+  /// drops — so it never once reached a shade (the stillness nudge's own
+  /// history, pre-schedulableIds). It now rides [kRouteMovement] at prompt
+  /// class, gated by `movementEnabled`, and on a real present it also buzzes
+  /// the band — safe because this only ever runs with recent live IMU, i.e. a
+  /// link that was alive moments ago.
   static const String _kLastInactivityMs = 'last_inactivity_ms';
   Future<void> _maybeNotifyInactivity() async {
     try {
@@ -1733,15 +1769,23 @@ class AppState extends ChangeNotifier {
         NotificationEvent(
           dedupeKey: '$today:posture:${nowMs ~/ (2 * 60 * 60 * 1000)}',
           category: NotifCategory.reminders,
-          priority: NotifPriority.low,
-          title: 'Posture Check & Stretch',
+          // NORMAL, not low: reminders-at-low is one of the dropped pairs,
+          // and prompt class requires normal priority.
+          priority: NotifPriority.normal,
+          title: 'Time to move',
           body:
               'You’ve been in a typing posture for over 90 minutes without walking.',
           date: today,
-          route: '/today',
+          route: kRouteMovement,
         ),
       );
-      if (fired) await prefs.setInt(_kLastInactivityMs, nowMs);
+      if (fired) {
+        await prefs.setInt(_kLastInactivityMs, nowMs);
+        // Strap haptic alongside the shade card — the WaterBuzzer trade in a
+        // place that doesn't need its own timer: the live IMU feed this check
+        // just read IS the proof of a recent link.
+        unawaited(engine.buzz());
+      }
     } catch (_) {
       /* best-effort */
     }
@@ -2167,15 +2211,42 @@ class AppState extends ChangeNotifier {
   Future<void> _ensureRemindersScheduled() async {
     try {
       final prefs = await NotificationPrefs.load();
-      final bedtimeMin = await _recommendedBedtimeMin();
+      // ONE crossday read feeds every schedule that hangs off the rollup:
+      // the Sleep Coach bedtime (check-in, wind-down, nightly sweep) AND the
+      // weekly lookback's finding. Two separate baseline reads were how this
+      // used to be written; the second one is also where the weekly finding
+      // silently never got computed at all.
+      final cd = await _readCrossdaySummary();
       final meds = await _medScheduleToday(prefs);
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
-        bedtimeMinOfDay: bedtimeMin,
+        bedtimeMinOfDay: cd.bedtimeMin,
+        weeklyFinding: prefs.remindersEnabled
+            ? NotificationCenter.weeklyLookbackFinding(cd.recent)
+            : null,
         checkInDoneToday: await _checkInDoneToday(),
         medDefs: meds.defs,
         medDosesToday: meds.doses,
       );
+      // The strap-buzz half of the medication reminder, off the SAME schedule
+      // read the OS dose slots above were armed from — one read feeds both
+      // surfaces. Three answers, matching the scheduler's own rule: the
+      // switch OFF is an explicit choice and CLEARS the armed buzzes (a timer
+      // left standing would buzz for doses the user has muted); a real
+      // (possibly empty) schedule re-arms from it; only a FAILED read while
+      // enabled preserves, because cancelling would disarm doses that are
+      // still real.
+      if (!prefs.medsEnabled) {
+        _medBuzzer.configure(slotInstants: const []);
+      } else if (meds.defs != null) {
+        final instants = <DateTime>[];
+        for (final s in NotificationCenter.medPromptSlots(
+            prefs, meds.defs!, meds.doses)) {
+          final at = NotificationCenter.medSlotInstant(s);
+          if (at != null) instants.add(at);
+        }
+        _medBuzzer.configure(slotInstants: instants);
+      }
       // AI slots. The nightly sweep is armed only when today actually produced
       // a finding — see [_sweepHeadlineNow], which is also where the body of
       // that notification comes from.
@@ -2184,7 +2255,7 @@ class AppState extends ChangeNotifier {
         prefs,
         ai,
         aiConfigured: coachConfig?.hasKey ?? false,
-        bedtimeMinOfDay: bedtimeMin,
+        bedtimeMinOfDay: cd.bedtimeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
         sweepHeadline: await _sweepHeadlineNow(),
       );
@@ -2193,22 +2264,41 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// The Sleep Coach's recommended bedtime (local minutes past midnight) from
-  /// the crossday rollup, or null when it has not learned one. Read in one
-  /// place because two schedules hang off it — the nightly sweep an hour
-  /// before it, the journal prompt half an hour before it — and a second copy
-  /// of this parse is a second thing to get wrong.
-  Future<double?> _recommendedBedtimeMin() async {
+  /// Everything the reminder scheduler needs from the crossday rollup, in ONE
+  /// read: the Sleep Coach's recommended bedtime (local minutes past midnight,
+  /// or null when not yet learned) and the per-day `recent[]` rows the weekly
+  /// lookback's finding summarizes. Read in one place because three schedules
+  /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
+  /// a second copy of this parse is a second thing to get wrong.
+  Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
+      _readCrossdaySummary() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
-      if (m is! String) return null;
+      if (m is! String) {
+        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+      }
       final j = jsonDecode(m);
-      final bt = j is Map ? ((j['sleep_coach'] as Map?)?['bedtime']) : null;
+      if (j is! Map) {
+        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+      }
+      final bt = (j['sleep_coach'] as Map?)?['bedtime'];
       final v = bt is Map ? bt['value'] : null;
-      return (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+      final bedtime =
+          (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+      // Same rows `DerivationEngine._runNotifications` consumes for the daily
+      // exception — {date, rhr, unsettled, illness, anomaly, temp}.
+      final rawRecent = j['recent'];
+      final recent = <Map<String, dynamic>>[
+        if (rawRecent is List)
+          for (final r in rawRecent)
+            if (r is Map) r.cast<String, dynamic>(),
+      ];
+      return (bedtimeMin: bedtime, recent: recent);
     } catch (_) {
-      return null; // no recommendation → the fixed fallback times
+      // No rollup → no learned bedtime and an empty week: every consumer has
+      // its own honest silence for that.
+      return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
     }
   }
 

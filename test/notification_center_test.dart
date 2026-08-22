@@ -127,15 +127,28 @@ void main() {
     test('refuses everything else, including the ids either side of the band',
         () {
       for (final id in [
-        NotificationService.idWindDown,
+        // The AI journal prompt is STILL refused: the daily check-in owns
+        // that moment now, and two prompts for one journal is how people
+        // mute everything.
         NotificationService.idJournalLog,
-        NotificationService.idMorningBrief,
         NotificationService.idLowBattery,
         NotificationService.idWaterBase - 1,
         NotificationService.idWaterBase + NotificationService.maxWaterSlots,
       ]) {
         expect(NotificationService.maySchedule(id), isFalse, reason: '$id');
       }
+    });
+
+    test('wind-down and the morning briefing earned their places', () {
+      // Wind-down: armed only from a LEARNED bedtime behind its own switch
+      // (NotificationCenter.windDownSlot); morning brief: only for a BYOK user
+      // with their own AI morning switch on (aiReminderPlan).
+      expect(
+          NotificationService.maySchedule(NotificationService.idWindDown),
+          isTrue);
+      expect(
+          NotificationService.maySchedule(NotificationService.idMorningBrief),
+          isTrue);
     });
   });
 

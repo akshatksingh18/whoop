@@ -773,6 +773,11 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
     // the switch only takes effect at the next launch.
     if (mounted) await context.read<AppState>().armWaterReminder(next);
+    // the low-battery threshold is restored once per process — push the new
+    // value into the alert pipeline or it applies only after a restart.
+    if (mounted) {
+      await context.read<AppState>().refreshBatteryThreshold(next);
+    }
   }
 
   /// The one contextual moment left where prompting is honest: the user is
@@ -856,17 +861,38 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             deviceEnabled: !prefs.deviceEnabled))),
-                    // Says what it DOES, which is nothing yet: every caller of
-                    // `scheduleStandingReminders` omits `weeklyFinding`, and
-                    // the lookback is armed only when one is passed — so the
-                    // row promised a Sunday notification no install has ever
-                    // received. The switch stays because it is the off switch
-                    // for the day something does write that finding.
+                    // The low-battery threshold, only while band alerts are
+                    // on — an interval for a muted alert is furniture, same
+                    // rule as the water row below.
+                    if (prefs.deviceEnabled)
+                      SetRow(LucideIcons.batteryLow, C.orange,
+                          'Alert me at',
+                          sub: 'Warn when the band drops under this charge '
+                              'level',
+                          value: '${prefs.batteryAlertPct}%',
+                          chevron: false,
+                          onTap: () => set(prefs.copyWith(
+                              batteryAlertPct:
+                                  _nextBatteryPct(prefs.batteryAlertPct)))),
+                    // The retained recovery-channel switch, now with a real
+                    // event behind it again: the morning "recovery is ready"
+                    // note. It was cut in the three-class cull and sat dead —
+                    // emitted, classified null, dropped.
+                    SetRow(LucideIcons.activity, C.green, 'Recovery ready',
+                        sub: 'One note when your morning recovery score '
+                            'lands',
+                        value: prefs.recoveryEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            recoveryEnabled: !prefs.recoveryEnabled))),
+                    // Says what it DOES now: the finding is computed from the
+                    // week's own crossday rollup (medical flags first, then a
+                    // plainly-stated resting-HR drift), and most weeks still
+                    // say nothing — which is the point.
                     SetRow(LucideIcons.calendarDays, C.purple,
                         'Weekly lookback',
-                        sub: 'Sunday evening, for a week that found something. '
-                            'Nothing writes that finding yet, so none has been '
-                            'sent',
+                        sub: 'Sunday evening, but only for a week that '
+                            'actually found something. Most weeks are quiet',
                         value: prefs.remindersEnabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -887,15 +913,39 @@ class NotificationSettingsView extends StatelessWidget {
                     // Off by default, and it is the switch that lets the nudge
                     // be scheduled at all — see
                     // NotificationService.schedulableIds. It had none, so it
-                    // was refused there and had never once fired.
+                    // was refused there and had never once fired. Covers BOTH
+                    // sedentary surfaces: the OS-scheduled two-hour-still
+                    // one-shot, and the foreground desk-posture check (which
+                    // also buzzes the band when it fires).
                     SetRow(LucideIcons.footprints, C.orange, 'Movement nudge',
-                        sub: 'One notification after two hours with no '
-                            'movement at all, and only while the band is on '
-                            'and connected. Never inside 21:00–09:00',
+                        sub: 'Nudges you after a still stretch — two hours '
+                            'with no movement at all, or 90 minutes in a '
+                            'desk posture. Phone notification plus a buzz '
+                            'on the band while it is connected',
                         value: prefs.movementEnabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             movementEnabled: !prefs.movementEnabled))),
+                    // The wind-down nudge. Silent until the Sleep Coach has
+                    // actually LEARNED a bedtime — the nudge's whole content
+                    // is that time, so there is no honest fallback.
+                    SetRow(LucideIcons.moonStar, C.indigo, 'Wind-down',
+                        sub: 'A heads-up about 45 minutes before the bedtime '
+                            'learned from your own nights, kept clear of your '
+                            'quiet hours. Appears after about a week of wear',
+                        value: prefs.windDownEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            windDownEnabled: !prefs.windDownEnabled))),
+                    // The step-goal achievement's off switch. On by default:
+                    // once a day at most, and only on a real crossing.
+                    SetRow(LucideIcons.trophy, C.orange, 'Step goal alerts',
+                        sub: 'Tells you once when today crosses your steps '
+                            'goal',
+                        value: prefs.stepGoalEnabled ? 'On' : 'Off',
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            stepGoalEnabled: !prefs.stepGoalEnabled))),
                     // The one prompt whose time is not a guess: it is the
                     // schedule already typed into the Medication tab. Only a
                     // dose still due is armed, and the notification names no
@@ -903,7 +953,8 @@ class NotificationSettingsView extends StatelessWidget {
                     // in the room.
                     SetRow(LucideIcons.pill, C.blue, 'Medication reminders',
                         sub: 'One notification per scheduled dose, at the '
-                            'times you entered. Nothing is sent for a dose '
+                            'times you entered — with a buzz on the band if '
+                            'it is connected. Nothing is sent for a dose '
                             'already marked taken or skipped',
                         value: prefs.medsEnabled ? 'On' : 'Off',
                         chevron: false,
@@ -1017,6 +1068,16 @@ class NotificationSettingsView extends StatelessWidget {
   static int _nextEvery(int min) {
     final i = waterEvery.indexWhere((e) => e.$1 == min);
     return waterEvery[(i + 1) % waterEvery.length].$1;
+  }
+
+  /// Low-battery alert thresholds, tapped through in place like [waterEvery].
+  /// Bounds match NotificationPrefs.batteryPctMin/Max, so every choice here is
+  /// one the pref will store unclamped.
+  static const batteryChoices = [10, 15, 20, 25, 30, 40];
+
+  static int _nextBatteryPct(int pct) {
+    final i = batteryChoices.indexOf(pct);
+    return batteryChoices[(i + 1) % batteryChoices.length];
   }
 
   static String _hhmm(int minuteOfDay) {

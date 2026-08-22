@@ -26,6 +26,32 @@ const String kRouteWater = '/water';
 /// anything that just wants the review screen).
 const String kRouteWorkoutSuggestion = '/workouts/suggestion';
 
+/// The sedentary/movement nudges ("time to move", the desk-posture check).
+///
+/// A DEDICATED PATH, not the plain `/today`, and that is load-bearing: the
+/// notification gate classifies on category + priority + route, and
+/// reminders-at-low was deliberately the pair every deleted nudge used to
+/// arrive on. Keying the movement prompt to this route is what lets it (and
+/// only it) through while every other reminders event stays dropped — the same
+/// mechanism `kRouteWorkoutSuggestion` uses.
+///
+/// Lands on Home (Today) and pushes nothing: there is no move screen to push,
+/// and Today is where the rings/steps a nudge points at already live.
+const String kRouteMovement = '/today/movement';
+
+/// "Your recovery is ready" — the morning recovery note. DEDICATED PATH for
+/// the same reason [kRouteMovement] is: the recovery channel was where dead
+/// nudges went (`classOf` dropped all of it), so re-opening the CHANNEL would
+/// resurrect them; keying on this route sanctions exactly one event. Its off
+/// switch is NotificationPrefs.recoveryEnabled (the retained pref for that
+/// channel). Lands on Home/Today, where the recovery ring lives.
+const String kRouteRecovery = '/today/recovery';
+
+/// "Step goal reached" — same mechanism again: reminders-at-low was a dropped
+/// pair, so the achievement rides its own route at prompt class. Off switch:
+/// NotificationPrefs.stepGoalEnabled.
+const String kRouteSteps = '/today/steps';
+
 /// The deep link for ONE detected bout. The id is the `workout_suggestions`
 /// row's, so the screen can open on that bout rather than a list the user has
 /// to find it in.

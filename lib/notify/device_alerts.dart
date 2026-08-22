@@ -3,8 +3,9 @@
 // Fed the latest DeviceState on every BLE update (AppState._onEngineState), but
 // it is EDGE-TRIGGERED and de-duped, so it fires at most once per real event —
 // never on every tick:
-//   • Low battery (< 15%, not charging): once per drain. Re-arms only after the
-//     battery recovers past 25% (hysteresis) or goes back on the charger.
+//   • Low battery (below the user's threshold — default 15% — not charging):
+//     once per drain. Re-arms only after the battery recovers past
+//     threshold+10 (hysteresis) or goes back on the charger.
 //   • Charging started: once per plug-in, gated by [ChargeAlertPolicy].
 //
 // THE EDGE STATE IS PERSISTED (issue #179). It used to live only in RAM, which
@@ -34,6 +35,7 @@ import '../data/day_label.dart';
 import 'charge_alert_policy.dart';
 import 'notification_center.dart';
 import 'notification_event.dart';
+import 'notification_prefs.dart';
 import 'notification_service.dart';
 import 'tap_router.dart';
 
@@ -91,8 +93,15 @@ class _PrefsDeviceAlertStore implements DeviceAlertStore {
 }
 
 class DeviceAlerts {
-  static const double _lowPct = 15;
-  static const double _rearmPct = 25; // hysteresis so we don't re-fire near 15%
+  /// The default low-battery threshold. The live value is the user's
+  /// [NotificationPrefs.batteryAlertPct], read back from the persisted store
+  /// in [_restore] (same key the settings screen writes) — this constant is
+  /// only what a store with nothing in it degrades to.
+  static const int _defaultLowPct = NotificationPrefs.batteryPctDefault;
+
+  /// How far above the threshold the battery must climb before a low alert
+  /// re-arms (hysteresis so we don't re-fire around the threshold).
+  static const int _rearmGapPct = 10;
 
   static const String _kLastChargeTs = 'device_alerts.last_charge_event_ts';
   static const String _kLastChargeWall = 'device_alerts.last_charge_wall_sec';
@@ -115,6 +124,12 @@ class DeviceAlerts {
   bool _cancelledForOff = false; // already cleared the card for this off-state
   int? _lastAnnouncedEventTs; // strap ts of the last announced charge session
   int? _lastAnnouncedWallSec; // wall time of that announcement
+
+  /// The live low-battery threshold, in percent. Set in [_restore] from the
+  /// user's pref (NotificationPrefs.batteryPctPrefKey); until that read lands,
+  /// [_defaultLowPct]. An int from prefs, held as double because the battery
+  /// percentage arriving off the strap is one.
+  double _lowPct = _defaultLowPct.toDouble();
 
   final DeviceAlertSink _notes;
   final DeviceAlertStore _store;
@@ -156,10 +171,38 @@ class DeviceAlerts {
       _lastAnnouncedEventTs = (eventTs != null && eventTs > 0) ? eventTs : null;
       _lastAnnouncedWallSec = wallSec;
       if (armed != null) _lowArmed = armed != 0;
+      // The user's threshold. Same key NotificationPrefs writes; clamped to
+      // the same bounds, so a hand-edited or stale value can't push the alert
+      // out of its sane range.
+      final pct = await _store.readInt(NotificationPrefs.batteryPctPrefKey);
+      if (pct != null) {
+        _lowPct = pct
+            .clamp(NotificationPrefs.batteryPctMin, NotificationPrefs.batteryPctMax)
+            .toDouble();
+      }
     } catch (_) {
       _lastAnnouncedEventTs = null;
       _lastAnnouncedWallSec = null;
     }
+  }
+
+  /// Re-read the user's threshold from the persisted store. Called when
+  /// NotificationPrefs change (the settings screen saves first) — [_restore]
+  /// is memoised, so without this a threshold change would not apply until
+  /// the next process create. Rides the same serialized queue as
+  /// [onDeviceState] so the mutation can't interleave an in-flight decision.
+  void refreshThreshold() {
+    _queue = _queue.then((_) async {
+      final pct = await _store.readInt(NotificationPrefs.batteryPctPrefKey);
+      if (pct != null) {
+        _lowPct = pct
+            .clamp(
+                NotificationPrefs.batteryPctMin, NotificationPrefs.batteryPctMax)
+            .toDouble();
+      }
+    }).catchError((_) {
+      // A stale threshold for one drain beats breaking the state pipeline.
+    });
   }
 
   /// Call with the latest device state. Cheap and safe to call on every update.
@@ -258,9 +301,10 @@ class DeviceAlerts {
 
     // Low-battery hysteresis, same precedence as before: a real plug-in re-arms
     // the next drain, so does a battery that recovered past the ceiling.
+    final rearmPct = _lowPct + _rearmGapPct;
     var lowArmed = _lowArmed;
     if (announce) lowArmed = true;
-    if (batteryPct != null && batteryPct >= _rearmPct) lowArmed = true;
+    if (batteryPct != null && batteryPct >= rearmPct) lowArmed = true;
     final fireLow = batteryPct != null &&
         charging != true &&
         batteryPct < _lowPct &&

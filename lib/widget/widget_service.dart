@@ -267,34 +267,12 @@ class WidgetService {
       await HomeWidget.saveWidgetData<String>('overnight_why', overnightWhy);
       await HomeWidget.saveWidgetData<String>('coach_line', coachLine);
       for (final r in rings) {
-        await setI('ring_\${r.key}_state', r.state);
-        await HomeWidget.saveWidgetData<String>('ring_\${r.key}_value', r.value);
-        await HomeWidget.saveWidgetData<String>('ring_\${r.key}_sub', r.sub);
-        await HomeWidget.saveWidgetData<String>('ring_\${r.key}_why', r.why);
-        await HomeWidget.saveWidgetData<double>('ring_\${r.key}_frac', r.frac);
+        await setI('ring_${r.key}_state', r.state);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_value', r.value);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_sub', r.sub);
+        await HomeWidget.saveWidgetData<String>('ring_${r.key}_why', r.why);
+        await HomeWidget.saveWidgetData<double>('ring_${r.key}_frac', r.frac);
       }
-      // The banding, published rather than re-derived. The widget, the Watch
-      // and Siri each carried their own thresholds, so the same 65 read green
-      // here, orange on the widget and yellow on the wrist. They now render
-      // `readiness_tier` (colour) and `readiness_band` (label) and decide
-      // nothing themselves — see `readinessBand`, the only copy of the cut-offs.
-      final band = readinessBand(rv);
-      // '' for "no data", like every other string key here. Every native
-      // reader gates its label on `readiness >= 0` anyway, so "Not scored"
-      // would only ever be text nobody sees.
-      final bandLabel = band.tier < 0 ? '' : band.label;
-      final hrvV = hrv == null ? -1 : hrv.rmssd.round();
-      final hrvBase = hrv?.baseline == null ? -1 : hrv!.baseline!.round();
-      final strainV = s.isEmpty ? -1.0 : s.value!.toDouble();
-      final sleepMin = sleep.isEmpty ? -1 : sleep.value!.round();
-      // -1, like every other int key here, whenever the payload carries no
-      // learned sleep need. `/today` used to hand this side a hard 480 —
-      // `_sleepSummary` wrote `need_min: 480` unconditionally — so this branch
-      // could never fire and the home widget, the Watch and the lock screen all
-      // drew their sleep ring as a fraction of a fabricated 8h00m denominator.
-      // The payload now omits the key until `sleep_coach.need` exists; the
-      // native readers gate their ring on `needMin > 0`, so the sentinel leaves
-      // it empty.
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
       await _reloadSnapshotWidgets();

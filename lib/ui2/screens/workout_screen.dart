@@ -593,60 +593,47 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return [
       Surface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(
-            'Runs, rides and sessions recorded by another app or watch'
-            '${isAppleHealth ? ', with their routes' : ''}. Each one is '
-            'listed above with the app or watch that recorded it named on it.',
-            style: F.cap.copyWith(color: p.ink3, height: 1.5),
-          ),
-          if (!isAppleHealth) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              // Said before the button rather than discovered afterwards, when
-              // a map fails to appear and reads as a bug.
-              'Routes are not included on Android. Health Connect keeps them '
-              'behind a separate, restricted permission this app has not '
-              'applied for, so the workouts arrive without coordinates.',
-              style: F.cap.copyWith(color: p.ink3, height: 1.5),
-            ),
-          ],
-          const SizedBox(height: S.x4),
-          BigButton(
-            importLabel(d.importedLast),
-            icon: LucideIcons.smartphone,
-            color: C.domMove,
-            soft: true,
-            onTap: _importing ? null : _importWorkouts,
-          ),
-          const SizedBox(height: S.x3),
-          // #? — auto-import, opt-in. The switch turning ON is a user tap, so
-          // THAT moment may ask for permission; every later run is silent and
-          // throttled (see AutoWorkoutImport).
+          // ONE ROW, not a card with paragraphs: tick = auto-import sweeps
+          // about once an hour while you use the app; the refresh icon
+          // fetches NOW. The refresh tap is the only thing that ever
+          // prompts for access — after that grant the tick works silently.
           Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
             child: Row(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Auto-import workouts',
-                          style: F.body.copyWith(
-                              color: p.ink, fontWeight: FontWeight.w600)),
-                      Text(
-                        'Brings in workouts from $storeName about once an '
-                        'hour while you use the app. Needs one manual '
-                        'import first to grant access.',
-                        style: F.cap.copyWith(color: p.ink3, height: 1.4),
-                      ),
-                    ],
+                Pressable(
+                  semanticLabel: _autoImport
+                      ? 'Auto-import on. Tap to turn off.'
+                      : 'Auto-import off. Tap to turn on.',
+                  onTap: () => _setAutoImport(!_autoImport),
+                  child: Icon(
+                    _autoImport
+                        ? LucideIcons.circleCheckBig
+                        : LucideIcons.circle,
+                    size: 22,
+                    color: _autoImport ? p.on(C.domMove) : p.ink3,
                   ),
                 ),
-                Switch(
-                  value: _autoImport,
-                  activeThumbColor: p.on(C.domMove),
-                  activeTrackColor: p.fill(C.domMove),
-                  onChanged: (v) => _setAutoImport(v),
+                const SizedBox(width: S.x3),
+                Expanded(
+                  child: Text('Import from \$storeName',
+                      style: F.body.copyWith(
+                          color: p.ink, fontWeight: FontWeight.w600)),
+                ),
+                Pressable(
+                  semanticLabel: 'Fetch workouts now',
+                  onTap:
+                      _importing ? null : () => unawaited(_importWorkouts()),
+                  child: Padding(
+                    padding: const EdgeInsets.all(S.x2),
+                    child: _importing
+                        ? const SizedBox(
+                            width: 17,
+                            height: 17,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(LucideIcons.refreshCw,
+                            size: 18, color: p.on(C.domMove)),
+                  ),
                 ),
               ],
             ),
@@ -683,11 +670,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   Future<void> _setAutoImport(bool v) async {
     setState(() => _autoImport = v);
     await AutoWorkoutImport.setEnabled(v);
-    if (v) {
-      // The opt-in tap is a contextual moment: this one run MAY prompt for
-      // permission (it reuses the button's asking path). Later runs never do.
-      await _importWorkouts(silent: true);
-    }
+    // Silent by design: the tick only arms the hourly sweep. The refresh
+    // icon beside it is what asks for access.
+    if (v) unawaited(AutoWorkoutImport.maybeRun());
   }
 
   /// Read the store, then reload the tab so the new rows are in the list the

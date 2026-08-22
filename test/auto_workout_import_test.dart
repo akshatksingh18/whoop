@@ -102,7 +102,15 @@ void main() {
   });
 
   group('AutoWorkoutImport.maybeRun', () {
+    test('DEFAULT IS ON: no pref written still runs when granted', () async {
+      final imp = _FakeImporter(true, 2);
+      expect(await AutoWorkoutImport.maybeRun(importer: imp),
+          AutoImportOutcome.ran);
+      expect(imp.syncCalls, 1);
+    });
+
     test('switch off → skipped, importer untouched', () async {
+      await AutoWorkoutImport.setEnabled(false); // explicit: default is ON
       final imp = _FakeImporter(true, 5);
       final out = await AutoWorkoutImport.maybeRun(importer: imp);
       expect(out, AutoImportOutcome.skipped);

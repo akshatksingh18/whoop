@@ -387,12 +387,14 @@ class NotificationCenter {
     }
   }
 
-  /// The daily wind-down nudge, as a repeating slot at the learned bedtime.
+  /// The daily wind-down nudge, as a repeating slot before the learned bedtime.
   ///
   /// A daily REPEAT is right here (unlike the weekly lookback's one-shot):
   /// the body names a TIME, not one week's facts, so it stays true every day.
-  /// `skipToday: true` — once tonight's slot has passed, arming it for today
-  /// would fire a wind-down after bedtime; the repeat resumes tomorrow.
+  /// No skip-today: a user who opts in mid-evening should get TONIGHT's
+  /// reminder if the slot is still ahead — `nextInstanceOf` already resolves
+  /// to the next occurrence strictly after now, and same-id re-scheduling
+  /// replaces rather than stacks.
   Future<void> _armWindDown(NotificationService svc, int minuteOfDay) async {
     await svc.scheduleDaily(
       id: NotificationService.idWindDown,
@@ -403,12 +405,14 @@ class NotificationCenter {
       hour: minuteOfDay ~/ 60,
       minute: minuteOfDay % 60,
       route: kRouteBreathing,
-      skipToday: true,
     );
   }
 
   /// How long before the learned bedtime the wind-down lands.
   static const int windDownBeforeBedMin = 45;
+
+  /// How far inside the quiet window's edge the slot must stay clear of.
+  static const int _windDownQuietMarginMin = 30;
 
   /// The wind-down's wall-clock minute, or null when it must not be armed.
   ///
@@ -418,11 +422,28 @@ class NotificationCenter {
   /// bedtime yet, the nudge waits. (The check-in may fall back to a stated
   /// fixed time because its copy says "evening"; this one's whole content IS
   /// the time, so there is nothing honest to fall back to.)
+  ///
+  /// The offset wraps across midnight: a learned bedtime of 00:20 wants its
+  /// wind-down at 23:35 the SAME evening, which `scheduleDaily`'s
+  /// next-occurrence arithmetic delivers from a 23:35 minutes-of-day value.
+  ///
+  /// OS-scheduled notifications fire with no Dart running, so
+  /// [NotificationPrefs.shouldFireOs] never sees one — quiet hours must be
+  /// applied HERE. Same shape as the check-in: cap to half an hour before
+  /// quiet opens, and refuse outright if the slot would still land inside
+  /// the protected window.
   static int? windDownSlot(NotificationPrefs prefs, double? bedtimeMinOfDay) {
     if (!prefs.windDownEnabled || bedtimeMinOfDay == null) return null;
-    final t =
-        bedtimeMinOfDay.round() - windDownBeforeBedMin;
-    if (t < 0 || t >= 24 * 60) return null;
+    // Wrap across midnight, staying non-negative (Dart % can go negative for
+    // negative operands only when the modulus is... it cannot here — but the
+    // +1440 makes the intent explicit and survives sign changes).
+    var t = ((bedtimeMinOfDay.round() - windDownBeforeBedMin) % 1440 + 1440) %
+        1440;
+    if (prefs.quietEnabled && prefs.quietStartMin > prefs.quietEndMin) {
+      final cap = prefs.quietStartMin - _windDownQuietMarginMin;
+      if (t > cap) t = cap;
+    }
+    if (prefs.inQuietHours(t)) return null;
     return t;
   }
 

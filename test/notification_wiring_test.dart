@@ -123,20 +123,29 @@ void main() {
           isNull);
     });
 
-    test('fires 45 minutes before the learned bedtime', () {
+    test('fires 45 minutes before the learned bedtime, when quiet allows',
+        () {
+      // Learned bedtime 23:00 → raw slot 22:15 lands INSIDE the default
+      // 22:00–07:00 quiet window, so it caps to half an hour before quiet
+      // opens (the check-in's own rule).
       final t = NotificationCenter.windDownSlot(
           const NotificationPrefs(windDownEnabled: true), 23 * 60 + 0.0);
+      expect(t, 21 * 60 + 30);
+    });
+
+    test('no quiet window means the true pre-bedtime slot', () {
+      final t = NotificationCenter.windDownSlot(
+          const NotificationPrefs(windDownEnabled: true, quietEnabled: false),
+          23 * 60 + 0.0);
       expect(t, 22 * 60 + 15);
     });
 
-    test('a bedtime that would land before midnight wraps sanely or refuses',
-        () {
-      // 00:20 bedtime → −25 min is not a real slot; refuse rather than arm
-      // 23:55 of the previous day's frame.
-      expect(
-          NotificationCenter.windDownSlot(
-              const NotificationPrefs(windDownEnabled: true), 20.0),
-          isNull);
+    test('a post-midnight bedtime wraps to the SAME evening', () {
+      // Bedtime 00:20 → raw −25 min → wrapped 23:35 → inside quiet → capped
+      // like any other late slot rather than disabling the feature.
+      final t = NotificationCenter.windDownSlot(
+          const NotificationPrefs(windDownEnabled: true), 20.0);
+      expect(t, 21 * 60 + 30);
     });
   });
 

@@ -1373,6 +1373,13 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// Push a just-saved low-battery threshold into the device-alert pipeline.
+  /// DeviceAlerts restores its threshold once per process; without this a
+  /// change made in Settings would not apply until the next restart.
+  Future<void> refreshBatteryThreshold(NotificationPrefs prefs) async {
+    _deviceAlerts.refreshThreshold();
+  }
+
   /// Compute trigger: kick the DerivationEngine after data is persisted.
   /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
   /// else the latest pending day); [heavy]=true is the foreground finalize
@@ -2223,10 +2230,15 @@ class AppState extends ChangeNotifier {
       );
       // The strap-buzz half of the medication reminder, off the SAME schedule
       // read the OS dose slots above were armed from — one read feeds both
-      // surfaces. NULL defs (switch off, or the read threw) leaves the timer
-      // exactly as it is, matching the scheduler's own null-vs-empty rule:
-      // only an EMPTY list is an answer that may cancel what is standing.
-      if (meds.defs != null) {
+      // surfaces. Three answers, matching the scheduler's own rule: the
+      // switch OFF is an explicit choice and CLEARS the armed buzzes (a timer
+      // left standing would buzz for doses the user has muted); a real
+      // (possibly empty) schedule re-arms from it; only a FAILED read while
+      // enabled preserves, because cancelling would disarm doses that are
+      // still real.
+      if (!prefs.medsEnabled) {
+        _medBuzzer.configure(slotInstants: const []);
+      } else if (meds.defs != null) {
         final instants = <DateTime>[];
         for (final s in NotificationCenter.medPromptSlots(
             prefs, meds.defs!, meds.doses)) {

@@ -186,6 +186,25 @@ class DeviceAlerts {
     }
   }
 
+  /// Re-read the user's threshold from the persisted store. Called when
+  /// NotificationPrefs change (the settings screen saves first) — [_restore]
+  /// is memoised, so without this a threshold change would not apply until
+  /// the next process create. Rides the same serialized queue as
+  /// [onDeviceState] so the mutation can't interleave an in-flight decision.
+  void refreshThreshold() {
+    _queue = _queue.then((_) async {
+      final pct = await _store.readInt(NotificationPrefs.batteryPctPrefKey);
+      if (pct != null) {
+        _lowPct = pct
+            .clamp(
+                NotificationPrefs.batteryPctMin, NotificationPrefs.batteryPctMax)
+            .toDouble();
+      }
+    }).catchError((_) {
+      // A stale threshold for one drain beats breaking the state pipeline.
+    });
+  }
+
   /// Call with the latest device state. Cheap and safe to call on every update.
   ///
   /// [chargingTs] is the strap timestamp of the event that last set [charging]

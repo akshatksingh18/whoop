@@ -181,9 +181,9 @@ class NotificationPrefs {
       movementEnabled: p.getBool(_kMovement) ?? false,
       medsEnabled: p.getBool(_kMeds) ?? false,
       checkInEnabled: p.getBool(_kCheckIn) ?? false,
-      batteryAlertPct:
-          (p.getInt(_kBatteryPct) ?? batteryPctDefault)
-              .clamp(batteryPctMin, batteryPctMax),
+      batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault)
+              .clamp(batteryPctMin, batteryPctMax))
+          .toInt(),
       stepGoalEnabled: p.getBool(_kStepGoal) ?? true,
       windDownEnabled: p.getBool(_kWindDown) ?? false,
     );
@@ -206,7 +206,7 @@ class NotificationPrefs {
     await p.setBool(_kMeds, medsEnabled);
     await p.setBool(_kCheckIn, checkInEnabled);
     await p.setInt(
-        _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax));
+        _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt());
     await p.setBool(_kStepGoal, stepGoalEnabled);
     await p.setBool(_kWindDown, windDownEnabled);
   }

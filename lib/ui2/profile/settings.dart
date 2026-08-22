@@ -773,6 +773,11 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
     // the switch only takes effect at the next launch.
     if (mounted) await context.read<AppState>().armWaterReminder(next);
+    // the low-battery threshold is restored once per process — push the new
+    // value into the alert pipeline or it applies only after a restart.
+    if (mounted) {
+      await context.read<AppState>().refreshBatteryThreshold(next);
+    }
   }
 
   /// The one contextual moment left where prompting is honest: the user is
@@ -926,8 +931,8 @@ class NotificationSettingsView extends StatelessWidget {
                     // is that time, so there is no honest fallback.
                     SetRow(LucideIcons.moonStar, C.indigo, 'Wind-down',
                         sub: 'A heads-up about 45 minutes before the bedtime '
-                            'learned from your own nights. Appears after '
-                            'about a week of wear',
+                            'learned from your own nights, kept clear of your '
+                            'quiet hours. Appears after about a week of wear',
                         value: prefs.windDownEnabled ? 'On' : 'Off',
                         chevron: false,
                         onTap: () => set(prefs.copyWith(

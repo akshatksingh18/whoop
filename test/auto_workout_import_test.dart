@@ -79,7 +79,6 @@ void main() {
 
     test('inside the hour it throttles; past it, it goes', () {
       final last = DateTime(2026, 8, 22, 11);
-      final now = DateTime(2026, 8, 22, 12);
       expect(
         shouldAutoImport(
           enabled: true,

@@ -9,6 +9,8 @@
 // the ceiling exists so one mis-tap cannot enter forty coffees and dominate
 // every correlation that field appears in for months.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -92,8 +94,11 @@ class _JournalComposeState extends State<JournalCompose> {
     });
   }
 
+  bool _addingField = false;
+
   /// #273 — define + persist a user-invented field, then pick it up.
   Future<void> _addField() async {
+    if (_addingField) return;
     final spec = await showCustomJournalFieldSheet(
       context,
       existingKeys: _specs.map((f) => f.key).toSet(),
@@ -108,6 +113,7 @@ class _JournalComposeState extends State<JournalCompose> {
       );
       return;
     }
+    setState(() => _addingField = true);
     try {
       await repo.postCustomJournalField(spec);
     } catch (_) {
@@ -122,6 +128,7 @@ class _JournalComposeState extends State<JournalCompose> {
     }
     if (!mounted) return;
     await _load();
+    if (mounted) setState(() => _addingField = false);
   }
 
   /// MT-06 — when the LAST one landed.
@@ -216,7 +223,12 @@ class _JournalComposeState extends State<JournalCompose> {
                                   // personal numeric field and it behaves
                                   // like a built-in everywhere after.
                                   Pressable(
-                                    onTap: _addField,
+                                    // Disabled (null onTap) while a write is
+                                    // in flight: two submits would race the
+                                    // create-only insert below.
+                                    onTap: _addingField
+                                        ? null
+                                        : () => unawaited(_addField()),
                                     child: Row(
                                       children: [
                                         Icon(LucideIcons.plusCircle,

@@ -7777,8 +7777,22 @@ class LocalDb {
     ];
   }
 
+  /// Create-only. A conflicting key THROWS instead of replacing: REPLACE
+  /// would silently rewrite another definition's metadata (label, unit, kind)
+  /// while its recorded history stayed — a field that means something else
+  /// wearing the old rows. The UI rejects duplicates before it gets here; the
+  /// throw is the race/programmatic-caller backstop.
   static Future<void> putJournalFieldDef(JournalFieldSpec spec) async {
     final db = await instance;
+    final exists = await db.query(
+      'journal_field_def',
+      where: 'key = ?',
+      whereArgs: [spec.key],
+      limit: 1,
+    );
+    if (exists.isNotEmpty) {
+      throw StateError('journal field already exists: ${spec.key}');
+    }
     await db.insert('journal_field_def', {
       'key': spec.key,
       'label': spec.label,
@@ -7788,7 +7802,7 @@ class LocalDb {
       'step': spec.step,
       'has_time': spec.hasTime ? 1 : 0,
       'created_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   // ── nap edits ─────────────────────────────────────────────────────────────

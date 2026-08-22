@@ -641,17 +641,28 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     if (name == null || name.isEmpty || !mounted) return;
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
-    await repo.postCustomJournalField(
-      JournalFieldSpec(
-        key: customJournalFieldKey(name),
-        label: name,
-        kind: JournalFieldKind.rating,
-        unit: '',
-        max: 1,
-        step: 1,
-        custom: true,
-      ),
-    );
+    try {
+      await repo.postCustomJournalField(
+        JournalFieldSpec(
+          key: customJournalFieldKey(name),
+          label: name,
+          kind: JournalFieldKind.rating,
+          unit: '',
+          max: 1,
+          step: 1,
+          custom: true,
+        ),
+      );
+    } on StateError catch (_) {
+      // putJournalFieldDef is create-only now — a duplicate lands here
+      // instead of silently rewriting the first one's definition.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You already track "$name".')),
+        );
+        return;
+      }
+    }
     await _load();
   }
 

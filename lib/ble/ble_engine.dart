@@ -782,7 +782,17 @@ class BleEngine {
   }
 
   // ── OS-managed pending reconnect (background fallback) ───────────────────────
-  static const Duration _osAutoConnectPoll = Duration(seconds: 5);
+  // Cancellation-poll cadence while parked in the OS-autoConnect wait. The
+  // actual connect is fully OS-driven (the connectionState listener completes
+  // the wait); this timer exists ONLY to notice `keepWaiting` flipping false,
+  // so 60 s of latency on unpair/give-up is fine — at 5 s it was 12 needless
+  // CPU wakes/min, around the clock, whenever the band was out of range.
+  static const Duration _osAutoConnectPoll = Duration(seconds: 60);
+
+  /// Consecutive autoConnect ARM failures (not connect timeouts — the arm
+  /// itself throwing, e.g. adapter wedged). Drives the bounded backoff below;
+  /// reset by a successful arm.
+  int _autoConnectArmFailures = 0;
 
   /// Arm a flutter_blue_plus `autoConnect` pending connection and wait for the
   /// OS to complete it. Unlike the direct `connect(autoConnect:false)` retry
@@ -814,17 +824,37 @@ class BleEngine {
     bool Function()? keepWaiting,
   }) async {
     final device = BluetoothDevice.fromId(remoteId);
+    // Adapter not on (Bluetooth toggled off, permission revoked): arming would
+    // just throw, once per pass, all night. Park on the adapterState stream —
+    // a native event — until it reports `on`, the caller stops wanting the
+    // link, or the window ends, then hand back false so the caller's loop
+    // re-enters and arms against a live adapter.
+    try {
+      final adapter = await FlutterBluePlus.adapterState.first
+          .timeout(const Duration(seconds: 5));
+      if (adapter != BluetoothAdapterState.on) {
+        _log('OS autoConnect: adapter is ${adapter.name} — waiting for it to '
+            'come back (event-driven, max ${wait.inMinutes} min) instead of '
+            'arming a connect that cannot succeed.');
+        await _waitForAdapterOn(wait: wait, keepWaiting: keepWaiting);
+        return false;
+      }
+    } catch (_) {/* adapter state unavailable — fall through to the arm */}
     try {
       // Arm under the op lock so it can't overlap a connect/disconnect.
       await _locked(() => device.connect(autoConnect: true, mtu: null));
+      _autoConnectArmFailures = 0;
     } catch (e) {
-      // Cost the caller the poll interval before handing back a failure. The
-      // reconnect loop's OS-pending branch has no backoff of its own (only the
-      // direct-connect branch delays), so returning immediately — which is what
-      // an arm against a powered-off adapter does — spun that loop at
-      // event-loop rate, burning CPU/battery for as long as Bluetooth was off.
-      _log('autoConnect arm failed: $e');
-      await Future.delayed(_osAutoConnectPoll);
+      // Bounded backoff before handing back the failure. The reconnect loop's
+      // OS-pending branch has no backoff of its own (only the direct-connect
+      // branch delays), so this delay is the only thing between the loop and
+      // an all-night retry spin when the arm keeps failing for a reason the
+      // adapter-state gate above didn't catch.
+      _autoConnectArmFailures++;
+      final delay = reconnectPolicy.delayFor(_autoConnectArmFailures);
+      _log('autoConnect arm failed (attempt $_autoConnectArmFailures): $e — '
+          'backing off ${delay.inSeconds}s.');
+      await Future.delayed(delay);
       return false;
     }
     _log('OS autoConnect armed for $remoteId — waiting (max '
@@ -858,6 +888,35 @@ class BleEngine {
       _log('OS autoConnect completed — running the normal setup path.');
     }
     return ok;
+  }
+
+  /// Park until the Bluetooth adapter reports `on`, the caller stops wanting
+  /// the link ([keepWaiting] false, checked on the cancellation poll), or
+  /// [wait] elapses. Event-driven off the native adapterState stream — zero
+  /// per-attempt platform calls while the adapter stays off.
+  Future<void> _waitForAdapterOn({
+    required Duration wait,
+    bool Function()? keepWaiting,
+  }) async {
+    final done = Completer<void>();
+    final sub = FlutterBluePlus.adapterState.listen((s) {
+      if (s == BluetoothAdapterState.on && !done.isCompleted) done.complete();
+    });
+    final poll = Timer.periodic(_osAutoConnectPoll, (_) {
+      if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
+        done.complete();
+      }
+    });
+    final deadline = Timer(wait, () {
+      if (!done.isCompleted) done.complete();
+    });
+    try {
+      await done.future;
+    } finally {
+      await sub.cancel();
+      poll.cancel();
+      deadline.cancel();
+    }
   }
 
   // Historical-offload bookkeeping. A controller is live for the whole connection
@@ -1084,6 +1143,15 @@ class BleEngine {
     if (_backgrounded == value) return;
     _backgrounded = value;
     unawaited(_applyLinkPriority());
+    // The debounced derive trigger's one-shot deadline was computed for the
+    // OLD tier — a foreground flip must re-evaluate promptly (the user is
+    // looking at the screen; the foreground tier fires within 15 s), not at a
+    // background-tier deadline minutes away.
+    if (_deriveTimer != null) {
+      _deriveTimer!.cancel();
+      _deriveTimer = null;
+      _armDeriveTimer(const Duration(seconds: 1));
+    }
   }
 
   /// Bring the link to the priority the current state calls for.
@@ -1477,22 +1545,46 @@ class BleEngine {
     final now = DateTime.now();
     _lastStored = now;
     _firstPending ??= now;
-    _deriveTimer ??= Timer.periodic(const Duration(seconds: 2), (_) {
-      final fp = _firstPending;
-      if (fp == null) return;
+    _armDeriveTimer();
+  }
+
+  /// One-shot timer armed at the debouncer's computed next boundary — replaces
+  /// the old 2 s Timer.periodic poll, which during continuous background
+  /// listening ran for the whole pending window (a permanent 0.5 Hz CPU wake,
+  /// 24/7 with a healthy link). Fires, re-evaluates, and either delivers
+  /// [onDataStored] or re-arms at the next boundary. Only armed when none is
+  /// pending, so record floods don't churn timers; tier flips are handled by
+  /// the [setBackground] poke below.
+  void _armDeriveTimer([Duration? delay]) {
+    if (_deriveTimer != null) return;
+    final fp = _firstPending;
+    if (fp == null) return;
+    final d = delay ??
+        deriveDebouncer.nextCheckDelay(
+          sinceLastRecord: DateTime.now().difference(_lastStored),
+          sinceFirstPending: DateTime.now().difference(fp),
+          dataStaleness: deriveDataStaleness(),
+          isForeground: isForegroundActive(),
+          isBackgrounded: _backgrounded,
+        );
+    _deriveTimer = Timer(d, () {
+      _deriveTimer = null;
+      final pending = _firstPending;
+      if (pending == null) return;
       final fire = deriveDebouncer.shouldDerive(
         hasPending: true,
         sinceLastRecord: DateTime.now().difference(_lastStored),
-        sinceFirstPending: DateTime.now().difference(fp),
+        sinceFirstPending: DateTime.now().difference(pending),
         dataStaleness: deriveDataStaleness(),
         isForeground: isForegroundActive(),
+        isBackgrounded: _backgrounded,
       );
       if (fire) {
         _firstPending = null;
-        _deriveTimer?.cancel();
-        _deriveTimer = null;
         onDataStored!.call();
+        return;
       }
+      _armDeriveTimer();
     });
   }
 
@@ -2036,6 +2128,20 @@ class BleEngine {
             shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
           return;
         }
+        // Backgrounded: 60 s cadence. LINK_VALID is an app-level write, not
+        // link-layer maintenance — the controller keeps the connection alive on
+        // its own, and offloads already pause this write for minutes at a time
+        // with no link loss, so a 60 s gap is proven safe on real hardware.
+        // 10 s stays for foreground (cheap there, and the responsive case is
+        // where a firmware-side idle policy would first show).
+        if (_backgrounded) {
+          final last = _lastLinkValidAt;
+          if (last != null &&
+              DateTime.now().difference(last) < const Duration(seconds: 60)) {
+            return;
+          }
+        }
+        _lastLinkValidAt = DateTime.now();
         _send(Cmd.linkValid, const [0x00]);
       });
       // Keep-alive (30s): liveness watchdog (bounce a silently-dead link), periodic
@@ -2401,7 +2507,20 @@ class BleEngine {
           _send(Cmd.sendR10R11Realtime, const [0x01]);
         }
       }
-      _send(Cmd.toggleRealtimeHr, const [0x01]);
+      // Evidence-gated: the HR re-arm exists to recover a stream that silently
+      // died, so send it only when the stream is demonstrably NOT delivering
+      // (no valid reading for >60 s — off-wrist stamps nothing, which
+      // correctly degrades to the old blind re-arm there). Blindly re-sending
+      // every 30 s was ~2,880 write-with-response round trips/day whose
+      // payload was a no-op. The IMU re-arm above stays unconditional: it runs
+      // only in foreground full-live (bounded by screen-on time), and a
+      // flowing HR stream is no proof the IMU stream is alive.
+      final hrAtMs = state.liveHrAt;
+      final hrDelivering = hrAtMs != null &&
+          DateTime.now().millisecondsSinceEpoch - hrAtMs < 60 * 1000;
+      if (!hrDelivering) {
+        _send(Cmd.toggleRealtimeHr, const [0x01]);
+      }
     }
     // Battery is a DISPLAY value that moves over hours. Polling it on every
     // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
@@ -2416,7 +2535,16 @@ class BleEngine {
     // and force one as soon as silence approaches the fuse.
     unawaited(
       _pollBatteryIfDue(
-        force: sinceLastRx.inSeconds > kLivenessFuseSeconds ~/ 2,
+        // With no live stream armed (Android background keeps live fully OFF)
+        // the battery REPLY is the only inbound traffic this link generates,
+        // and resume-time staleness is judged against
+        // kLinkFreshnessNoStreamSeconds — so force the poll well under that
+        // bar (~every other 30 s tick ⇒ sinceLastRx stays ≤ ~65 s). With a
+        // stream armed, the original fuse/2 threshold stands.
+        force: sinceLastRx.inSeconds >
+            (_liveEnabled
+                ? kLivenessFuseSeconds ~/ 2
+                : kNoStreamPollSilenceSeconds),
       ),
     );
     // Cheap retry hook for a priority request that failed earlier: a no-op
@@ -2425,6 +2553,10 @@ class BleEngine {
   }
 
   DateTime? _lastBatteryPollAt;
+
+  /// Last LINK_VALID heartbeat actually sent — drives the backgrounded 60 s
+  /// stretch in the 10 s heartbeat timer above.
+  DateTime? _lastLinkValidAt;
 
   /// Ask the band for its battery level, at most once per
   /// [kBatteryPollIntervalSeconds].
@@ -5806,6 +5938,7 @@ class BleEngine {
     // level once rather than inheriting the last link's 5-minute cooldown.
     _appliedPriority = null;
     _lastBatteryPollAt = null;
+    _lastLinkValidAt = null;
     // Every failure exit in `_doConnect` between setting this and `sendInit`
     // skips the clear in sendInit's finally, which would leave the target
     // pinned at `high` for the life of the process.

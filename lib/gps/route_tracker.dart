@@ -92,7 +92,13 @@ class RouteTracker {
     this.rejectStreakLimit = 3,
     this.zoneNow,
     this.stallAfter = const Duration(seconds: 15),
+    this.pathEmitEvery = const Duration(seconds: 1),
   });
+
+  /// Minimum spacing between [path] emissions (the ~1/s throttle — see the fix
+  /// handler). Injectable so tests that feed many fixes inside one wall-clock
+  /// second can pass [Duration.zero] and assert per-fix vertices.
+  final Duration pathEmitEvery;
 
   /// The full path so far, coloured by live zone — drives the live map.
   final ValueNotifier<List<RouteVertex>> path =
@@ -127,6 +133,9 @@ class RouteTracker {
   int _movingMs = 0;
   bool _stopped = false;
   DateTime _lastFixAt = clock.now();
+  // Wall-ms of the last `path` emission (see the ~1/s throttle in the fix
+  // handler). 0 ⇒ the first accepted fix always emits.
+  int _lastPathEmitMs = 0;
 
   bool get isRunning => _sub != null && !_stopped;
   int get pointCount => _seq;
@@ -231,8 +240,16 @@ class RouteTracker {
     _buffer.add(p);
 
     _vertices.add(RouteVertex(p.latLng, zoneNow?.call(), gapBefore: gapBefore));
-    // Emit a fresh list so ValueNotifier listeners rebuild.
-    path.value = List<RouteVertex>.unmodifiable(_vertices);
+    // Emit a fresh list so ValueNotifier listeners rebuild — throttled to ~1/s.
+    // Per-fix emission was an O(n) unmodifiable copy + full polyline rebuild on
+    // EVERY accepted fix (O(n²) over a long ride: ~10k points at a 5 m filter),
+    // and the map cannot visually resolve per-5-m updates anyway. `current`/
+    // speed stay per-fix, so the position dot and pace never lag.
+    final nowMs = clock.now().millisecondsSinceEpoch;
+    if (nowMs - _lastPathEmitMs >= pathEmitEvery.inMilliseconds) {
+      _lastPathEmitMs = nowMs;
+      path.value = List<RouteVertex>.unmodifiable(_vertices);
+    }
     current.value = p.latLng;
 
     if (_buffer.length >= batchSize) {
@@ -263,6 +280,11 @@ class RouteTracker {
   /// call this, so stop() also runs [dispose]. Previously nothing ever called
   /// dispose(), which leaked the six ValueNotifiers (and their listeners) once
   /// per route workout. Read the notifiers BEFORE awaiting stop().
+  /// Stop tracking and flush the throttle's held-back tail vertices.
+  ///
+  /// A GPS fix still IN FLIGHT (added to the source stream but not yet handed
+  /// to us) is dropped: the subscription is cancelled before the final emit.
+  /// Callers read the notifiers right after this returns.
   Future<void> stop() async {
     if (_stopped) {
       dispose();
@@ -273,6 +295,9 @@ class RouteTracker {
     _watchdog = null;
     await _sub?.cancel();
     _sub = null;
+    // Final emit: the ~1/s throttle can be holding up to a second of tail
+    // vertices — the caller reads the notifiers right after stop().
+    path.value = List<RouteVertex>.unmodifiable(_vertices);
     await _flush();
     if (_buffer.isNotEmpty) await _flush(); // one retry for the tail
     dispose();

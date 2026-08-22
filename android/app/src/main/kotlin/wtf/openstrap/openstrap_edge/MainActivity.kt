@@ -6,7 +6,8 @@ import android.os.Bundle
 import io.flutter.embedding.android.FlutterFragmentActivity
 
 /**
- * Attaches to the long-lived engine pre-warmed in [EdgeApplication] rather than spinning
+ * Attaches to the single long-lived engine owned by [EdgeApplication] (created lazily
+ * via ensureEngine(), then cached) rather than spinning
  * up its own, and refuses to destroy that engine when the Activity is finished. Combined
  * with the EdgeTracking foreground service keeping the process alive, this lets the Dart
  * side (BLE connection + notification relay) keep running after the app is swiped from
@@ -32,6 +33,10 @@ class MainActivity : FlutterFragmentActivity() {
     override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The shared engine is created lazily now (EdgeApplication.ensureEngine).
+        // getCachedEngineId() is consulted during super.onCreate, so the cache
+        // entry must exist before it runs.
+        EdgeApplication.ensureEngine(applicationContext)
         activityAttached = true
         clearPendingHeadlessBoot()
         super.onCreate(savedInstanceState)

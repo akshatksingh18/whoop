@@ -190,6 +190,12 @@ object PhoneStepCounter : SensorEventListener {
         // accumulates while the application processor sleeps and delivers in one go,
         // so this costs approximately nothing. Today's count therefore trails real
         // life by up to a minute, which no screen can tell.
+        //
+        // NOT raised further: attribution is delivery-time (onSensorChanged, `now`),
+        // so the batch window is also the worst-case misattribution across a bin/day
+        // boundary — a longer latency credits pre-midnight steps to the next day. The
+        // per-delivery full-prefs-XML rewrite is the real cost here; the fix is the
+        // SQLite move (see audit follow-ups), which cuts writes WITHOUT widening this.
         registered = sm.registerListener(this, s, SensorManager.SENSOR_DELAY_NORMAL, 60_000_000)
     }
 

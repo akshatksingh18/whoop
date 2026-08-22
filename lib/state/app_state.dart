@@ -145,8 +145,9 @@ class AppState extends ChangeNotifier {
   LocalRepository? repo;
 
   /// The on-device compute orchestrator. Kicked (light) after every drain/flush
-  /// completion, and (heavy) on foreground finalize. Background heavy passes run
-  /// via WorkManager (Android) — see lib/compute/background_derivation.dart.
+  /// completion, and (heavy) on foreground finalize + throttled reconnect
+  /// backlogs. (The old WorkManager background heavy pass was removed — see the
+  /// tombstone in lib/compute/background_derivation.dart.)
   // `background` is final on the engine and picks the concurrency + per-day
   // timeout, so seeding the scheduler alone left a headless first sweep running
   // the foreground budget. Late-initialized, so this reads the value both
@@ -239,6 +240,22 @@ class AppState extends ChangeNotifier {
   bool? _widgetBattCharging;
   String? _widgetBattName;
   int? _storedBatteryPct;
+
+  /// Raw strapName last seen from the engine — change-gates the per-tick
+  /// cleanDeviceLabel/Prefs work in [_onEngineState].
+  String? _lastSeenStrapNameRaw;
+
+  /// Minute-of-day last checked by [_maybeWarnOvernightBattery]'s clock
+  /// pre-gate (it runs off the ~1 Hz engine-state pipeline).
+  int? _lastForecastGateMin;
+
+  /// Last backgrounded heavy-derive request — throttles reconnect-driven heavy
+  /// passes while a flappy link churns in the background (30-min floor).
+  DateTime? _lastBackgroundHeavyAt;
+
+  /// Last backgrounded wake-window re-plan (its inputs change at most daily;
+  /// see the throttle in [_runPeriodicBackfill]).
+  DateTime? _lastWakeWindowRefreshAt;
 
   /// Last time the overnight battery forecast ran. `_onEngineState` fires on
   /// every device-state update, and the forecast reads a few hundred rows, so
@@ -2126,7 +2143,21 @@ class AppState extends ChangeNotifier {
             // cold launch, so there is nothing to double-count.
             await _recoverOrphanedLiveSession();
             _resetLivePedometer();
-            _maybeDowngradeLiveForBackground();
+            // Settle any in-flight background downgrade FIRST — arming over
+            // a pending disable let its trailing OFF writes kill what we just
+            // armed.
+            await _settleBgLiveDowngrade();
+            if (Platform.isIOS && !engine.liveEnabled) {
+              // A background cold-launch connects with NO stream armed, and
+              // _maybeDowngradeLiveForBackground no-ops when live is already
+              // off — but on iOS zero inbound traffic can stall the suspended
+              // process's Dart timers (the 1 Hz notification is what keeps it
+              // schedulable; see the downgrade doc). Arm HR-only directly.
+              // Android correctly stays stream-less here.
+              unawaited(engine.enableHrOnlyLive());
+            } else {
+              _maybeDowngradeLiveForBackground();
+            }
             _startBackfillTimer();
           } else {
             // Connect attempt didn't succeed on this background cold-launch —
@@ -2483,14 +2514,63 @@ class AppState extends ChangeNotifier {
   bool get _hasLiveConsumer =>
       activeWorkout != null || breathingActive || breathingWindowOpen;
 
-  /// Downgrade live to HR-only when backgrounded with no live consumer. The
-  /// keep-alive re-arm respects the HR-only mode, so the downgrade sticks until
-  /// [openSession]'s fast reclaim (or a reconnect in the foreground) restores
-  /// the full set.
+  /// Step live down when backgrounded with no live consumer. Platform-split:
+  ///
+  ///   • Android: live goes fully OFF. The EdgeTracking foreground service
+  ///     keeps the process alive without any inbound stream, so the 1 Hz
+  ///     HR-only stream bought nothing here — it was ~86,400 CPU/radio wakes
+  ///     per day (each one decode → state mutation → notifyListeners) with no
+  ///     consumer, the single largest steady drain on the phone. Liveness is
+  ///     covered by the keep-alive's forced battery poll (see
+  ///     kNoStreamPollSilenceSeconds) — a swap, not a removal: ~86,400
+  ///     notifications/day become ~1,440 get-battery round-trips/day, still
+  ///     the largest net win here. The resume paths judge freshness by the
+  ///     no-stream bar (isLinkStale liveStreamArmed: false), whose 90 s bar
+  ///     already tolerates one dropped poll reply. Records keep landing via
+  ///     the 15-min flash backfill. NOTE: `state.wristOn` is written from
+  ///     LIVE/hello paths only — it freezes for the backgrounded stretch
+  ///     (derived wear still comes from historical HR; nothing branches on
+  ///     the frozen flag). wristOn/liveHr simply stop updating in realtime.
+  ///
+  ///   • iOS: HR-only downgrade, as before. The inbound 1 Hz notification is
+  ///     what keeps the suspended process schedulable (bluetooth-central
+  ///     resumes us per notification) — with zero inbound traffic the Dart
+  ///     timers (keep-alive, backfill) may never run, stalling continuous
+  ///     background capture. The stream is load-bearing there, not waste.
+  ///
+  /// [openSession]'s fast reclaim (or a foreground reconnect) restores the
+  /// full set either way.
+  /// The in-flight background live downgrade, if any. `disableLiveStreams`
+  /// (Android) clears `liveEnabled`/`liveHrOnly` only AFTER its ~300 ms write
+  /// sequence, so a foreground reclaim landing inside that window must AWAIT
+  /// this before deciding whether to re-arm — otherwise it reads stale
+  /// full-live flags, skips `enableLiveStreams`, and the pending disable's OFF
+  /// writes then leave foreground live off. See [openSession].
+  Future<void>? _bgLiveDowngrade;
+
   void _maybeDowngradeLiveForBackground() {
     if (!engine.isConnected || !engine.liveEnabled) return;
     if (_hasLiveConsumer) return;
-    unawaited(engine.enableHrOnlyLive());
+    _bgLiveDowngrade = Platform.isAndroid
+        ? engine.disableLiveStreams()
+        : engine.enableHrOnlyLive();
+    unawaited(_bgLiveDowngrade!);
+  }
+
+  /// Await every in-flight background live downgrade before (re-)arming live
+  /// streams, so ON writes cannot interleave with a disable's trailing OFF
+  /// writes. Drains CHAINED downgrades too: a newer one started while an
+  /// older was awaited is awaited as well, never dropped.
+  Future<void> _settleBgLiveDowngrade() async {
+    while (_bgLiveDowngrade != null) {
+      final pending = _bgLiveDowngrade!;
+      try {
+        await pending;
+      } catch (_) {/* a failed downgrade still cleared its flags or didn't;
+                       either way the reclaim re-reads live state fresh */}
+      // Only clear when no NEWER downgrade replaced it while we awaited.
+      if (identical(_bgLiveDowngrade, pending)) _bgLiveDowngrade = null;
+    }
   }
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
@@ -3103,6 +3183,15 @@ class AppState extends ChangeNotifier {
       if (last != null && now.difference(last) < const Duration(minutes: 15)) {
         return;
       }
+      // Clock-only pre-gate: this runs off _onEngineState, which fires ~1 Hz
+      // during live HR — and the 15-min stamp above is (deliberately) written
+      // only once the evening-window check passes, so outside the window every
+      // tick fell through to the prefs load below. One check per wall-clock
+      // minute is plenty; the first tick of a minute still runs the full path,
+      // so the first evening forecast is delayed by <1 min at most.
+      final gateMin = now.hour * 60 + now.minute;
+      if (gateMin == _lastForecastGateMin) return;
+      _lastForecastGateMin = gateMin;
 
       final prefs = await NotificationPrefs.load();
       final nowMin = now.hour * 60 + now.minute;
@@ -3188,10 +3277,16 @@ class AppState extends ChangeNotifier {
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
     // BLE side reads through it: a garbled response must never become the
-    // remembered name.
-    final nm = cleanDeviceLabel(s.strapName);
-    if (nm != null && nm != Prefs.getString(_kStrapName, '')) {
-      Prefs.setString(_kStrapName, nm);
+    // remembered name. Change-gated on the RAW value first (same pattern as
+    // _widgetBattName below): this handler fires ~1 Hz during live HR, and
+    // cleanDeviceLabel's regex work per tick is pure waste when the name
+    // hasn't moved.
+    if (s.strapName != _lastSeenStrapNameRaw) {
+      _lastSeenStrapNameRaw = s.strapName;
+      final nm = cleanDeviceLabel(s.strapName);
+      if (nm != null && nm != Prefs.getString(_kStrapName, '')) {
+        Prefs.setString(_kStrapName, nm);
+      }
     }
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(
@@ -3250,6 +3345,14 @@ class AppState extends ChangeNotifier {
       // and reset the counter. (No cadence calibration is involved: it was
       // removed with the 1 Hz step estimator at v55/v56.)
       unawaited(_finalizeLivePedometer());
+      // A new connection is a new live-HR session: without this the trace
+      // buffer spliced readings from before the drop (or from a previously
+      // paired band) onto the next session's chart as one continuous line.
+      if (_liveHrTrace.isNotEmpty) {
+        _liveHrTrace.clear();
+        _liveHrTraceAt = null;
+        liveHrTraceRev++;
+      }
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
         _log('Connection dropped — reconnecting…');
         _stopBackfillTimer();
@@ -3287,6 +3390,11 @@ class AppState extends ChangeNotifier {
   /// Cadence of the reconnect supervisor. Cheap — the tick reads local flags
   /// and does nothing at all unless the app is paired, wants a link, and does
   /// not have one.
+  ///
+  /// Deliberately 1 min, not lengthened for battery: this supervisor is what
+  /// restarts a dead link (#208), and stretching it trades a few free boolean
+  /// reads inside an already-doze-exempt, link-holding process for up to 5
+  /// minutes of lost sync after exactly the failure it exists to catch.
   static const Duration _reconnectSupervisorInterval = Duration(minutes: 1);
 
   /// Start the level-triggered reconnect supervision (issue #208).
@@ -3306,7 +3414,7 @@ class AppState extends ChangeNotifier {
 
   /// Stop supervising. Called from `dispose` and from every path that stops
   /// wanting a link at all (unpair / endSession) — otherwise the tick outlives
-  /// its purpose and keeps poking the engine once a minute forever.
+  /// its purpose and keeps poking the engine every few minutes forever.
   void _stopReconnectSupervisor() {
     _reconnectSupervisor?.cancel();
     _reconnectSupervisor = null;
@@ -3386,10 +3494,22 @@ class AppState extends ChangeNotifier {
       // 90-minute pre-wake window opens. Skipping it outright meant a band
       // that connected at 22:00 and stayed connected never armed high-frequency
       // sync for that night at all.
-      try {
-        await _refreshHighFreqWakeWindow();
-      } catch (e) {
-        _log('Wake-window refresh failed: $e');
+      //
+      // Throttled to every 25 min while backgrounded (every third 10-min
+      // tick): the plan's input (habitual wake median off 14 derived days)
+      // changes at most once a day, and the window it arms is 90 min wide —
+      // a ~30-min check still opens it with ≥60 min of lead. Re-running the
+      // 14-day DB read + JSON decode every 10 min all night bought nothing.
+      final lastRefresh = _lastWakeWindowRefreshAt;
+      if (lastRefresh == null ||
+          DateTime.now().difference(lastRefresh) >=
+              const Duration(minutes: 25)) {
+        _lastWakeWindowRefreshAt = DateTime.now();
+        try {
+          await _refreshHighFreqWakeWindow();
+        } catch (e) {
+          _log('Wake-window refresh failed: $e');
+        }
       }
       _log('Periodic history refresh skipped — backgrounded; the engine\'s '
           'floored 15-min backfill owns the offload.');
@@ -3923,6 +4043,11 @@ class AppState extends ChangeNotifier {
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
+    // A background live downgrade may still be writing (its flags clear only on
+    // completion). Let it finish before any reclaim path below re-arms live, so
+    // the re-arm sees settled flags and its ON writes can't interleave with the
+    // disable's trailing OFF writes.
+    await _settleBgLiveDowngrade();
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
@@ -3933,7 +4058,10 @@ class AppState extends ChangeNotifier {
       // notification arrived recently the link is genuinely live → keep the fast reclaim.
       // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
       // re-subscribes (the only place setNotifyValue runs) and drains the gap.
-      if (!isLinkStale(engine.sinceLastRx)) {
+      if (!isLinkStale(
+        engine.sinceLastRx,
+        liveStreamArmed: engine.liveEnabled,
+      )) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
         // connect path runs, so the cached battery %/charging/strap-name go stale.
         // Re-poll them in the background so the UI stays current. Non-blocking.
@@ -3945,9 +4073,12 @@ class AppState extends ChangeNotifier {
             await engine.getStrapName();
           } catch (_) {}
         }());
-        // Backgrounding downgraded live to HR-only (no raw flood) — restore the
-        // full live set now that the foreground UI is consuming it again.
-        if (engine.liveHrOnly) unawaited(engine.enableLiveStreams());
+        // Backgrounding downgraded live to HR-only (iOS) or fully OFF
+        // (Android) — restore the full live set now that the foreground UI is
+        // consuming it again.
+        if (!engine.liveEnabled || engine.liveHrOnly) {
+          unawaited(engine.enableLiveStreams());
+        }
         // FOREGROUND CATCH-UP: R24 drains on a ~15-min timer while backgrounded,
         // so "last data" can lag up to 15 min behind a healthy link. The user
         // just opened the app — pull the flash backlog now. Floored at 90 s
@@ -4146,10 +4277,15 @@ class AppState extends ChangeNotifier {
           // Live streams come up promptly; the FULL drain (no short timeout —
           // the ENTIRE offline backlog the band flashed while out of range)
           // runs concurrently, single-flight, exactly as in openSession.
-          // Background reconnect with no live consumer → HR-only live, so the
-          // raw flood can't starve the backlog drain we're about to run.
+          // Background reconnect with no live consumer: Android leaves live
+          // fully OFF (the FGS keeps the process alive; the 1 Hz stream has no
+          // consumer — see _maybeDowngradeLiveForBackground); iOS arms HR-only
+          // (the inbound notification keeps the suspended process schedulable).
+          await _settleBgLiveDowngrade();
           if (_background && !_hasLiveConsumer) {
-            await engine.enableHrOnlyLive();
+            if (!Platform.isAndroid) {
+              await engine.enableHrOnlyLive();
+            }
           } else {
             await engine.enableLiveStreams();
           }
@@ -4166,7 +4302,22 @@ class AppState extends ChangeNotifier {
               // landed.
               await _refreshHighFreqWakeWindow();
               // Backlog (often an overnight gap) just landed → derive it.
-              _deriveScheduler.requestHeavy();
+              // Backgrounded, a flappy link (routine arm-swing dropouts)
+              // reconnects many times an hour; each heavy pass spawns an
+              // isolate and re-stages the pending days, so throttle heavy to
+              // one per 30 min while backgrounded — the interim reconnects
+              // still get a light pass, and the foreground return finalizes
+              // with a real heavy anyway.
+              final now = DateTime.now();
+              final lastHeavy = _lastBackgroundHeavyAt;
+              if (_background &&
+                  lastHeavy != null &&
+                  now.difference(lastHeavy) < const Duration(minutes: 30)) {
+                _deriveScheduler.markStoredData();
+              } else {
+                if (_background) _lastBackgroundHeavyAt = now;
+                _deriveScheduler.requestHeavy();
+              }
               notifyListeners();
             }).catchError((Object e) {
               _log('Reconnect sync burst failed: $e');
@@ -4252,7 +4403,10 @@ class AppState extends ChangeNotifier {
   /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
     if (!engine.isConnected) return;
-    if (isLinkStale(engine.sinceLastRx)) {
+    if (isLinkStale(
+      engine.sinceLastRx,
+      liveStreamArmed: engine.liveEnabled,
+    )) {
       _log(
         'Foreground catch-up: no BLE data for ${engine.sinceLastRx.inSeconds}s '
         '— zombie link, forcing reconnect instead of a stale-link pull.',
@@ -4489,6 +4643,7 @@ class AppState extends ChangeNotifier {
     _windowRowStartedAt = null;
     _breathingFrames.clear();
     notifyListeners();
+    await _settleBgLiveDowngrade();
     try {
       if (!engine.liveEnabled) {
         await engine.enableLiveStreams();
@@ -4574,6 +4729,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
+      // A background downgrade may be mid-write (band double-tap start right
+      // after backgrounding is exactly this case): settle it first so its
+      // trailing OFF writes cannot kill the streams we arm here.
+      await _settleBgLiveDowngrade();
       // OWNERSHIP: only claim "we enabled it" when
       // live was actually OFF, so ending the session can never turn off
       // streams the open session still expects on.
@@ -4848,12 +5007,18 @@ class AppState extends ChangeNotifier {
     // user action — retry the full live set; detectors re-trip if it can't
     // hold. No ownership flag: the background downgrade / session close
     // manage the stream lifecycle exactly as for openSession's arming.
-    if (isConnected &&
-        (!engine.liveEnabled ||
-            engine.liveHrOnly ||
-            device.standardHrFallback)) {
-      unawaited(engine.retryFullLiveStreams());
-    }
+    unawaited(() async {
+      // The band double-tap lands while backgrounded by definition — settle
+      // the background HR-only downgrade BEFORE retrying full live, or its
+      // trailing OFF writes (~300 ms of them) kill exactly what we arm.
+      await _settleBgLiveDowngrade();
+      if (isConnected &&
+          (!engine.liveEnabled ||
+              engine.liveHrOnly ||
+              device.standardHrFallback)) {
+        await engine.retryFullLiveStreams();
+      }
+    }());
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
@@ -5243,6 +5408,12 @@ class AppState extends ChangeNotifier {
           : 'Live session ended. Burned $finalKcal kcal.',
     );
     LiveActivity.end();
+    // A workout stopped while backgrounded (band double-tap gesture) was the
+    // one path that left FULL live armed with no consumer — the keep-alive
+    // then faithfully re-armed the 100 Hz flood every 30 s until the next
+    // lifecycle transition. Re-run the background downgrade now the consumer
+    // is gone (no-op when foregrounded or already downgraded).
+    if (_background) _maybeDowngradeLiveForBackground();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
     // just-finished session isn't left with a gap.

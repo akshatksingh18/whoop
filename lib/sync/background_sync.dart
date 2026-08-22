@@ -3,11 +3,14 @@
 // Invoked by the iOS CoreBluetooth-restoration RECOVERY path (ios_ble_restore.dart)
 // when the band reappears after the live connection dropped.
 //
-// There is NO OS periodic scheduler (no WorkManager task, no BGTask): continuous
-// capture is the kept-alive live connection in AppState. This is purely the
-// relaunch-recovery fallback that pulls the band's offline flash backlog into the
-// local SQLite store (lib/data/db.dart), the system of record. A missed run is
-// harmless; the next reconnect catches up from the non-destructive cursor.
+// There is NO OS periodic scheduler on Android (the old WorkManager tasks were
+// removed — background_derivation.dart is a tombstone; main.dart still cancels
+// their persisted registrations by name). iOS registers opportunistic BGTasks
+// (ios_bg_task.dart) that are never guaranteed. Continuous capture is the
+// kept-alive live connection in AppState. This is purely the relaunch-recovery
+// fallback that pulls the band's offline flash backlog into the local SQLite
+// store (lib/data/db.dart), the system of record. A missed run is harmless;
+// the next reconnect catches up from the non-destructive cursor.
 
 import 'dart:convert';
 

@@ -40,13 +40,16 @@ class DeriveScheduler {
   bool _workoutActive = false;
 
   // While the app is backgrounded we must NOT run derivation: a derive pass
-  // decodes the whole retained substrate + runs the metric compute, and doing
+  // decodes the retained substrate + runs the metric compute, and doing
   // that on a short background BLE wake trips iOS's CPU watchdog
   // (cpu_resource_fatal) or memory jetsam → the app gets terminated. Capture
   // (persist + ACK) is lightweight and keeps running; the derive intent is
-  // durable in compute_jobs, so it simply waits and drains on foreground return
-  // (Android WorkManager / iOS BGProcessingTask still handle heavy passes with a
-  // proper OS budget). Held exactly like _offloadActive.
+  // durable in compute_jobs, so it simply waits and drains on foreground
+  // return. (No OS periodic scheduler backs this up — the old WorkManager
+  // registration was deliberately removed, see main.dart — so on Android,
+  // where the foreground service gives derivation a real budget, backgrounded
+  // derives DO run; their cadence is capped by DeriveDebouncer's background
+  // tier, not blocked here.) Held exactly like _offloadActive.
   bool _background = false;
   bool _running = false;
   bool _pendingLight = false;

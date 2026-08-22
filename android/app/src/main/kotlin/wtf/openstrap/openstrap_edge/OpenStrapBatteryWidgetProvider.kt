@@ -15,7 +15,8 @@ import es.antonborri.home_widget.HomeWidgetProvider
  * while the band was connected. It says so in words until we have ever seen the
  * band, and the reading is muted once it's > 24 h old — we genuinely don't know the current
  * level if we haven't talked to the band. updatePeriodMillis re-renders every
- * ~30 min so the staleness flip happens without the app's help.
+ * ~6 h so the staleness flip happens without the app's help (it moves at most
+ * once a day; see widget_band_battery_info.xml).
  */
 class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
 
@@ -42,7 +43,11 @@ class OpenStrapBatteryWidgetProvider : HomeWidgetProvider() {
         val at = w.readLong(prefs, "batt_at", 0)
         val rawName = (prefs.getString("batt_name", "") ?: "").trim()
         val name = rawName.ifEmpty { "Band" }
-        val stale = at > 0L && (System.currentTimeMillis() / 1000 - at) > 86_400L
+        // Mute window is 24 h MINUS the render cadence: a re-render lands at
+        // most ~6 h after the true 24 h line, and inside that gap a 24-30 h
+        // old figure would otherwise still render as current. Stale must
+        // never render as current, so we cross the line early instead.
+        val stale = at > 0L && (System.currentTimeMillis() / 1000 - at) > 86_400L - 21_600L
         // "charging" is a fact about the moment the app last wrote, so it goes
         // stale with the level it came with — the ⚡ used to sit there for days
         // after the band came off the puck. Mirrors BatteryEntry.chargingNow in

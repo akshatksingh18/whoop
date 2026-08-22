@@ -43,6 +43,11 @@ class PairedDevice {
   }
 }
 
+// Compiled once — cleanDeviceLabel is called from the ~1 Hz engine-state
+// pipeline, and RegExp construction per call was pure per-tick waste.
+final RegExp _labelSafeCharset = RegExp(r"^[A-Za-z0-9 '._-]+$");
+final RegExp _labelHasAlnum = RegExp(r'[A-Za-z0-9]');
+
 /// A WHOOP serial ("4C2248092") or a user-set strap name ("Abdul's WHOOP") is
 /// made of letters, digits, spaces and a little ordinary punctuation. Anything
 /// containing other characters (the "?*"-style junk a bad HELLO parse produced)
@@ -51,7 +56,7 @@ String? cleanDeviceLabel(String? s) {
   if (s == null) return null;
   final t = s.trim();
   if (t.isEmpty) return null;
-  if (!RegExp(r"^[A-Za-z0-9 '._-]+$").hasMatch(t)) return null; // safe charset
-  if (!RegExp(r'[A-Za-z0-9]').hasMatch(t)) return null; // needs ≥1 alnum
+  if (!_labelSafeCharset.hasMatch(t)) return null; // safe charset
+  if (!_labelHasAlnum.hasMatch(t)) return null; // needs ≥1 alnum
   return t;
 }

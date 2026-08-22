@@ -8,10 +8,12 @@
 // flag) would fire over and over (issue #136). This store makes emit() honour the
 // promise: a key that has already fired is skipped until a *new* key comes along.
 //
-// CROSS-ISOLATE. Derivation runs in TWO isolates: the long-lived foreground pass
-// (kept alive for BLE) and the WorkManager background pass
-// (background_derivation.dart) — both call emit()/this store, ~every drain and
-// ~every 15 min. The NotificationCenter lock only orders emits WITHIN one
+// CROSS-ISOLATE. Derivation ran in TWO isolates when this was written: the
+// long-lived foreground pass (kept alive for BLE) and the WorkManager
+// background pass (background_derivation.dart, since removed — its tombstone
+// explains why). The hardening below stays: the iOS headless/BGTask paths can
+// still run emit() from a second isolate, and the failure modes are the same.
+// The NotificationCenter lock only orders emits WITHIN one
 // isolate; it can't coordinate across them. Three distinct things went wrong
 // there, and a same-day key re-fired all day:
 //

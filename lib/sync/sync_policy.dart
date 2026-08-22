@@ -45,11 +45,29 @@ const int kHistoricalAbortRetryDelaySeconds =
 /// wake, a headless entry point.
 const int kLinkFreshnessSeconds = 30;
 
+/// The freshness bar when NO live stream is armed (Android background, where
+/// live is fully off and the only inbound traffic is the keep-alive's forced
+/// battery poll — see `BleEngine._keepAliveFire`). The poll lands roughly once
+/// per minute (forced past [kNoStreamPollSilenceSeconds] of silence, checked on
+/// 30 s ticks), so a healthy quiet link legitimately shows up to ~65 s of
+/// silence; judging it by the 30 s streaming bar would tear down a live link on
+/// every foreground resume.
+const int kLinkFreshnessNoStreamSeconds = 90;
+
+/// Silence threshold past which the keep-alive FORCES a battery poll when no
+/// live stream is armed, keeping `sinceLastRx` under
+/// [kLinkFreshnessNoStreamSeconds] on a healthy link.
+const int kNoStreamPollSilenceSeconds = 45;
+
 /// True when a connection reporting "connected" should NOT be trusted because
-/// no data has actually arrived within [kLinkFreshnessSeconds]. Pure — callers
-/// own the actual teardown/reconnect. See [kLinkFreshnessSeconds].
-bool isLinkStale(Duration sinceLastRx) =>
-    sinceLastRx.inSeconds >= kLinkFreshnessSeconds;
+/// no data has actually arrived recently. The bar depends on what inbound
+/// traffic a healthy link actually produces: [kLinkFreshnessSeconds] while a
+/// live stream is armed (≥1 Hz expected), [kLinkFreshnessNoStreamSeconds] when
+/// nothing is armed and only poll replies arrive. Pure — callers own the
+/// actual teardown/reconnect.
+bool isLinkStale(Duration sinceLastRx, {bool liveStreamArmed = true}) =>
+    sinceLastRx.inSeconds >=
+    (liveStreamArmed ? kLinkFreshnessSeconds : kLinkFreshnessNoStreamSeconds);
 
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
 const int kMinPlausibleUnix = 1700000000; // 2023-11 floor

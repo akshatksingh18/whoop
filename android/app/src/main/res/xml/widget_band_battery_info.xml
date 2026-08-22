@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?><!--
   Band-battery widget metadata. Renders the app's last BLE battery snapshot
-  (never fetches); the 30-min re-render exists so the >24 h staleness mute can
-  flip without the app running.
+  (never fetches); the periodic re-render exists ONLY so the >24 h staleness
+  mute can flip without the app running. 6 h, not 30 min: the mute moves once
+  a day at most, real content updates arrive via app pushes, and each alarm
+  starts the process — 4 broadcasts/day instead of 48 for a boolean that flips
+  within 6 h of its 24 h mark either way.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
@@ -9,7 +12,7 @@
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:resizeMode="none"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="21600000"
     android:initialLayout="@layout/widget_band_battery"
     android:previewLayout="@layout/widget_band_battery"
     android:description="@string/widget_battery_description"

@@ -19,6 +19,7 @@ import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
 import '../data/db.dart';
 import 'import_container.dart';
+import 'journal_csv_import.dart' show parseCsv;
 
 class WhoopImportResult {
   final int days;
@@ -404,52 +405,21 @@ class WhoopImporter {
     return t.isEmpty ? 'other' : t;
   }
 
-  /// Minimal quote-aware CSV reader (handles fields wrapped in double-quotes with
-  /// embedded commas / escaped ""). Streams lines so a large export isn't all in
-  /// memory at once for the split step.
+  /// Read a CSV via the repo's one RFC 4180 parser ([parseCsv],
+  /// journal_csv_import). The line-based reader that lived here split records
+  /// on newlines BEFORE quote-parsing, so a quoted WHOOP field containing an
+  /// embedded newline (free-text activity names/notes) was torn into two
+  /// malformed records — quote state cannot survive a LineSplitter. Lenient
+  /// decode preserved: a WHOOP export saved under a non-UTF-8 locale should
+  /// lose a character, not the whole import. Blank lines are dropped, as the
+  /// old reader did.
   static Future<List<List<String>>> _readCsv(String path) async {
-    final lines = File(path)
-        .openRead()
-        // Lenient: a WHOOP export saved under a non-UTF-8 locale should lose a
-        // character, not the whole import.
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .transform(const LineSplitter());
-    final out = <List<String>>[];
-    await for (final line in lines) {
-      if (line.isEmpty) continue;
-      out.add(_splitCsvLine(line));
-    }
-    return out;
-  }
-
-  static List<String> _splitCsvLine(String line) {
-    final out = <String>[];
-    final sb = StringBuffer();
-    var inQ = false;
-    for (var i = 0; i < line.length; i++) {
-      final c = line[i];
-      if (inQ) {
-        if (c == '"') {
-          if (i + 1 < line.length && line[i + 1] == '"') {
-            sb.write('"');
-            i++;
-          } else {
-            inQ = false;
-          }
-        } else {
-          sb.write(c);
-        }
-      } else if (c == '"') {
-        inQ = true;
-      } else if (c == ',') {
-        out.add(sb.toString());
-        sb.clear();
-      } else {
-        sb.write(c);
-      }
-    }
-    out.add(sb.toString());
-    return out;
+    final bytes = await File(path).readAsBytes();
+    final text = const Utf8Decoder(allowMalformed: true).convert(bytes);
+    return [
+      for (final r in parseCsv(text))
+        if (r.length != 1 || r.single.isNotEmpty) r,
+    ];
   }
 }
 

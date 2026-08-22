@@ -78,12 +78,7 @@ class TaskerReceiver : BroadcastReceiver() {
             .putInt(PENDING_PATTERN_KEY, pattern)
             .apply()
 
-        val svcIntent = Intent(context, EdgeTrackingService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(svcIntent)
-        } else {
-            context.startService(svcIntent)
-        }
+        EdgeTrackingService.start(context)
     }
 
     companion object {

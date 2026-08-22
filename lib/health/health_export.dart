@@ -125,9 +125,20 @@ bool shouldAttemptHealthExport({
   required DateTime now,
   required DateTime? lastAttempt,
   required Duration backoff,
+  DateTime? lastSuccess,
+  Duration minRewriteInterval = Duration.zero,
   bool force = false,
 }) {
   if (force) return true;
+  // Success-side throttle for the re-written recent tail: a NON-finalized day
+  // that just exported cleanly is byte-identical minutes later, but exportAll
+  // runs on every drain/derive pass, so without this the full delete+rewrite
+  // (hourly buckets + minute HR) hit the health store every ~10 min around the
+  // clock. Finalized days pass Duration.zero and are unaffected; forceRetry
+  // and finalization (which resets the retry entry) still bypass.
+  if (lastSuccess != null && now.difference(lastSuccess) < minRewriteInterval) {
+    return false;
+  }
   if (attempts >= maxAttempts) return false;
   return lastAttempt == null || now.difference(lastAttempt) >= backoff;
 }
@@ -139,6 +150,8 @@ bool shouldAttemptHealthBulkExport({
   required DateTime? lastAttempt,
   required Duration backoff,
   required bool prioritySleepAlreadyWritten,
+  DateTime? lastSuccess,
+  Duration minRewriteInterval = Duration.zero,
   bool force = false,
 }) => shouldAttemptHealthExport(
   attempts: attempts,
@@ -146,6 +159,8 @@ bool shouldAttemptHealthBulkExport({
   now: now,
   lastAttempt: lastAttempt,
   backoff: backoff,
+  lastSuccess: lastSuccess,
+  minRewriteInterval: minRewriteInterval,
   force: force || prioritySleepAlreadyWritten,
 );
 
@@ -463,6 +478,16 @@ class HealthExporter {
   // false is not success and must keep the day out of the exported prefix.
   static const _kRetryCursor = 'health_export_retry_state';
   static const _kMaxExportAttempts = 6;
+
+  /// Success-side floor for re-writing a NON-finalized day (the mutable recent
+  /// tail). exportAll runs on every drain/derive pass — every ~10 min while
+  /// connected — and each pass re-deletes and re-writes the whole current day
+  /// (hourly buckets + minute HR) into the health store; almost all of it
+  /// identical. New minutes reach Health Connect/HealthKit within this window;
+  /// finalization and forceRetry bypass it entirely, so the finalized prefix
+  /// and user-initiated exports are unaffected. Tracked per day as `ok_ms` in
+  /// the same retry-state JSON.
+  static const _kNonFinalizedRewriteInterval = Duration(minutes: 30);
   static const _kRetryBackoff = [
     Duration(minutes: 5),
     Duration(minutes: 30),
@@ -553,6 +578,7 @@ class HealthExporter {
                 ?.cast<String, dynamic>();
             var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
             var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+            final okMs = (entry?['ok_ms'] as num?)?.toInt();
             final wasFinalized = entry?['finalized'] as bool? ?? false;
             if (pendingPriorityDay.finalized && !wasFinalized && attempts > 0) {
               attempts = 0;
@@ -567,10 +593,29 @@ class HealthExporter {
                   ? null
                   : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
               backoff: _backoffFor(attempts),
+              lastSuccess: okMs == null
+                  ? null
+                  : DateTime.fromMillisecondsSinceEpoch(okMs),
+              minRewriteInterval: pendingPriorityDay.finalized
+                  ? Duration.zero
+                  : _kNonFinalizedRewriteInterval,
               force: forceRetry,
             );
             if (!shouldAttempt) {
-              if (attempts >= _kMaxExportAttempts) return exportBulk(null);
+              // The priority day is held back by the CAP or by the success-side
+              // rewrite throttle (it exported cleanly &lt;30 min ago) — in either
+              // case its sleep session is already in the store and is not what's
+              // blocking, so still export every OTHER pending day. Only a
+              // genuine retry backoff (recent FAILURE, still under the cap) holds
+              // bulk, matching the pre-throttle behaviour. A day with `ok_ms` set
+              // carries no pending failure (the success branch clears
+              // attempts/last_ms), so the two conditions are mutually exclusive.
+              final throttledBySuccess = okMs != null &&
+                  !pendingPriorityDay.finalized &&
+                  nowMs - okMs < _kNonFinalizedRewriteInterval.inMilliseconds;
+              if (attempts >= _kMaxExportAttempts || throttledBySuccess) {
+                return exportBulk(null);
+              }
               return 0;
             }
             Future<void> recordPriorityFailure() async {
@@ -630,6 +675,7 @@ class HealthExporter {
           final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
           var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
           var lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+          final okMs = (entry?['ok_ms'] as num?)?.toInt();
           final wasFinalized = entry?['finalized'] as bool? ?? false;
           if (finalized && !wasFinalized && attempts > 0) {
             // The day just transitioned non-finalized -> finalized: a
@@ -654,6 +700,11 @@ class HealthExporter {
                 : DateTime.fromMillisecondsSinceEpoch(lastAttemptMs),
             backoff: _backoffFor(attempts),
             prioritySleepAlreadyWritten: date == androidSleepAlreadyWritten,
+            lastSuccess: okMs == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(okMs),
+            minRewriteInterval:
+                finalized ? Duration.zero : _kNonFinalizedRewriteInterval,
             force: forceRetry,
           );
           if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
@@ -668,8 +719,19 @@ class HealthExporter {
               androidSleepAlreadyWritten: date == androidSleepAlreadyWritten,
             ); // delete-then-write (idempotent)
             if (ok) {
-              if (entry != null) {
-                retryState.remove(date);
+              if (finalized) {
+                // Finalized + exported → the cursor advances past it; no
+                // per-day state left behind.
+                if (entry != null) {
+                  retryState.remove(date);
+                  retryStateDirty = true;
+                }
+              } else {
+                // Non-finalized success: stamp ok_ms so the next passes skip
+                // the identical rewrite until _kNonFinalizedRewriteInterval
+                // elapses. Replacing the entry also resets any failure budget,
+                // exactly as the old remove-on-success did.
+                retryState[date] = {'ok_ms': nowMs};
                 retryStateDirty = true;
               }
             } else {

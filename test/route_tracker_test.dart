@@ -117,6 +117,9 @@ void main() {
       sink: (_) async {},
       batchSize: 100,
       zoneNow: () => 3,
+      // Fixes land within one wall-clock second here — disable the ~1/s path
+      // throttle so per-fix vertices can be asserted.
+      pathEmitEvery: Duration.zero,
     );
     t.start(ctrl.stream);
 
@@ -143,6 +146,7 @@ void main() {
       batchSize: 100,
       maxJumpM: 200,
       rejectStreakLimit: 3,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
     );
     t.start(ctrl.stream);
 
@@ -176,7 +180,12 @@ void main() {
   test('speed-based allowance: a far fix after a LONG gap is plausible travel '
       '(distance counted, no segment break)', () async {
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(sink: (_) async {}, batchSize: 100, maxJumpM: 200);
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      maxJumpM: 200,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
+    );
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0));
@@ -415,6 +424,7 @@ void main() {
       sink: (_) async {},
       batchSize: 100,
       minMovementM: 5,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
     );
     t.start(ctrl.stream);
 
@@ -444,7 +454,12 @@ void main() {
     // movement starts contributes exactly ONE vertex (the anchor), not one
     // per fix.
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(sink: (_) async {}, batchSize: 100, minMovementM: 5);
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      minMovementM: 5,
+      pathEmitEvery: Duration.zero, // per-fix path assertions below
+    );
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0, stepMeters: 0));
@@ -465,6 +480,48 @@ void main() {
 
     await t.stop();
     await ctrl.close();
+  });
+
+  test('default 1s throttle coalesces path emissions; stop() flushes the tail',
+      () {
+    fakeAsync((async) {
+      final ctrl = StreamController<GpsSample>();
+      // Production default pathEmitEvery (1s) — the throttle under test.
+      final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+      t.start(ctrl.stream);
+      // Move the fake wall clock well past the 0 sentinel so the first accepted
+      // fix crosses the throttle rather than depending on the epoch base.
+      async.elapse(const Duration(seconds: 2));
+
+      ctrl.add(_fix(0));
+      async.flushMicrotasks();
+      expect(t.path.value.length, 1); // first accepted fix always emits
+
+      ctrl.add(_fix(1)); // same wall-second → throttled, not emitted
+      async.flushMicrotasks();
+      expect(t.path.value.length, 1);
+
+      async.elapse(const Duration(seconds: 1));
+      ctrl.add(_fix(2)); // throttle window passed → emits all vertices so far
+      async.flushMicrotasks();
+      expect(t.path.value.length, 3);
+
+      ctrl.add(_fix(3)); // throttled again
+      async.flushMicrotasks();
+      expect(t.path.value.length, 3);
+
+      // stop() awaits _sub.cancel() BEFORE its final emit, so a fix whose
+      // stream handler has not run yet is DROPPED — _fix(3) above was added
+      // but never processed when cancel beat it. Documented behaviour of
+      // RouteTracker.stop(): the flush covers the THROTTLE's tail, not the
+      // subscription's. (Expected-4 got 3; that was this test racing the
+      // cancellation, not production losing a vertex that was on the path.)
+      unawaited(t.stop());
+      async.flushMicrotasks();
+      expect(t.path.value.length, 3);
+
+      unawaited(ctrl.close());
+    });
   });
 
   test('stalled never trips for a session shorter than stallAfter', () {

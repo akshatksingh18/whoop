@@ -138,9 +138,9 @@ class SleepProfilePolicy {
   //
   // An earlier revision serialised the fold with a `static Future` mutex. That
   // is not sufficient and is worse than nothing, because it looks sufficient:
-  // derivation runs in more than one isolate (`derivationDispatcher` is a
-  // vm:entry-point WorkManager entry that constructs its own DerivationEngine
-  // in a background isolate), and a Dart static has one copy PER ISOLATE. A
+  // derivation runs in more than one isolate (Android headless sync wakes
+  // construct their own DerivationEngine in a background isolate), and a Dart
+  // static has one copy PER ISOLATE. A
   // background heavy pass and a foreground sweep would each hold "the" lock and
   // still clobber each other.
   //

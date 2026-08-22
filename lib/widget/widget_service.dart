@@ -117,6 +117,54 @@ class WidgetService {
     return DateTime(y, m, d);
   }
 
+  /// Fingerprint of the last snapshot that fully landed (all keys + reload +
+  /// Watch sync). The change gate below — same pattern as [pushBattery]'s
+  /// caller — because push() runs after EVERY derive pass, and an unchanged
+  /// snapshot was still ~15 binder calls, a native widget re-render broadcast,
+  /// and a WCSession transfer. `updated_at` is deliberately excluded: it is
+  /// write-time metadata, and any genuinely new data moves at least one value.
+  static String? _lastPushFingerprint;
+
+  /// The keys the change gate fingerprints, IN ORDER. Documentation AND the
+  /// test hook: `test/battery_audit_policy_test.dart` asserts every key
+  /// [push] writes appears here, because a written-but-unfingerprinted key
+  /// silently freezes until its value changes by accident. Keep both sides
+  /// in lockstep when adding a key.
+  @visibleForTesting
+  static const List<String> fingerprintKeyOrder = [
+    'statusDay',
+    'has_data',
+    'readiness',
+    'readiness_tier',
+    'readiness_band',
+    'hrv',
+    'hrv_baseline',
+    'strain',
+    'sleep_min',
+    'sleep_need_min',
+    'rhr',
+    'sleep_efficiency',
+    'overnight_why',
+    'coach_line',
+    'ring_recovery_state',
+    'ring_recovery_value',
+    'ring_recovery_sub',
+    'ring_recovery_why',
+    'ring_recovery_frac',
+    'ring_strain_state',
+    'ring_strain_value',
+    'ring_strain_sub',
+    'ring_strain_why',
+    'ring_strain_frac',
+    'ring_sleep_state',
+    'ring_sleep_value',
+    'ring_sleep_sub',
+    'ring_sleep_why',
+    'ring_sleep_frac',
+    // 'updated_at' deliberately absent: write-time metadata. Any genuinely
+    // new data moves at least one fingerprinted value.
+  ];
+
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
   /// throws into the caller. Sentinels: ints use -1 / strings use '' for "no data".
   static Future<void> push(TodayData t) async {
@@ -143,9 +191,6 @@ class WidgetService {
       final rhr = ov(t.restingHr);
       final hrv = heldWhy == null ? t.hrv : null;
 
-      Future<void> setI(String k, int v) =>
-          HomeWidget.saveWidgetData<int>(k, v);
-
       // has_data is the ONE flag every native reader gates on (the WidgetKit
       // home + lock-screen widgets, the Watch mirror, the Siri intents), and it
       // is the only way this side can say "don't show a number" to any of them.
@@ -153,68 +198,49 @@ class WidgetService {
       // screen looking current — the widget's own no-data state is the honest
       // answer, and the alternative is a readiness score from last week with
       // nothing on it to say so.
-      await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty && !isStale(t));
+      Future<void> setI(String k, int v) =>
+          HomeWidget.saveWidgetData<int>(k, v);
+
+      // Resolve every value first — the change gate below needs the WHOLE
+      // snapshot before it decides anything. has_data is the ONE flag every
+      // native reader gates on (the WidgetKit home + lock-screen widgets, the
+      // Watch mirror, the Siri intents); a snapshot the app KNOWS is over a
+      // day old must not sit on a lock screen looking current.
+      final hasData = !t.isEmpty && !isStale(t);
       // Headline composite Readiness — the Recovery ring on Home.
       final rv = readiness.isEmpty ? null : readiness.value;
-      await setI('readiness', rv == null ? -1 : rv.round());
-      // The banding, published rather than re-derived. The widget, the Watch
-      // and Siri each carried their own thresholds, so the same 65 read green
-      // here, orange on the widget and yellow on the wrist. They now render
-      // `readiness_tier` (colour) and `readiness_band` (label) and decide
-      // nothing themselves — see `readinessBand`, the only copy of the cut-offs.
+      final readinessInt = rv == null ? -1 : rv.round();
       final band = readinessBand(rv);
-      await setI('readiness_tier', band.tier);
-      await HomeWidget.saveWidgetData<String>(
-        // '' for "no data", like every other string key here. Every native
-        // reader gates its label on `readiness >= 0` anyway, so "Not scored"
-        // would only ever be text nobody sees.
-        'readiness_band',
-        band.tier < 0 ? '' : band.label,
-      );
-      await setI('hrv', hrv == null ? -1 : hrv.rmssd.round());
-      await setI(
-        'hrv_baseline',
-        hrv?.baseline == null ? -1 : hrv!.baseline!.round(),
-      );
-      await HomeWidget.saveWidgetData<double>(
-        'strain',
-        s.isEmpty ? -1.0 : s.value!.toDouble(),
-      );
-      await setI('sleep_min', sleep.isEmpty ? -1 : sleep.value!.round());
-      // -1, like every other int key here, whenever the payload carries no
-      // learned sleep need. `/today` used to hand this side a hard 480 —
-      // `_sleepSummary` wrote `need_min: 480` unconditionally — so this branch
-      // could never fire and the home widget, the Watch and the lock screen all
-      // drew their sleep ring as a fraction of a fabricated 8h00m denominator.
-      // The payload now omits the key until `sleep_coach.need` exists; the
-      // native readers gate their ring on `needMin > 0`, so the sentinel leaves
-      // it empty.
-      await setI('sleep_need_min', need.isEmpty ? -1 : need.value!.round());
-      await setI('rhr', rhr.isEmpty ? -1 : rhr.value!.round());
-      // Sleep efficiency, % — the second number the Sleep widget shows. -1 when
-      // the night has none, like every other int key here.
-      await setI('sleep_efficiency', eff.isEmpty ? -1 : eff.value!.round());
-      // Why the overnight numbers are missing, for the surfaces that show only
-      // those (the Overnight widget's HRV and resting HR). '' when they are
-      // today's own.
-      await HomeWidget.saveWidgetData<String>('overnight_why', heldWhy ?? '');
-      await HomeWidget.saveWidgetData<String>(
-        'coach_line',
-        _coachLine(t.coach),
-      );
+      final tier = band.tier;
+      final bandLabel = tier < 0 ? '' : band.label;
+      final hrvV = hrv == null ? -1 : hrv.rmssd.round();
+      final hrvBase = hrv?.baseline == null ? -1 : hrv!.baseline!.round();
+      final strainV = s.isEmpty ? -1.0 : s.value!.toDouble();
+      final sleepMin = sleep.isEmpty ? -1 : sleep.value!.round();
+      final needMin = need.isEmpty ? -1 : need.value!.round();
+      final rhrV = rhr.isEmpty ? -1 : rhr.value!.round();
+      final effMin = eff.isEmpty ? -1 : eff.value!.round();
+      final overnightWhy = heldWhy ?? '';
+      final coachLine = _coachLine(t.coach);
+      // The day this snapshot describes leads the fingerprint — the SAME
+      // field `isStale` reads. Without it, two consecutive days with
+      // identical rounded metrics produce the same fingerprint, the push is
+      // skipped, `updated_at` never advances, and the native `fresh` check
+      // (updatedAt + 26 h) flips to "No recent data" on day 2 despite a
+      // clean current-day sync. Including it guarantees a new day always
+      // pushes while keeping the within-day skip that is the point of the
+      // gate.
+      final statusDay = t.status?.overnightDay ??
+          t.status?.activityDay ??
+          t.status?.todayDay ??
+          '';
 
       // THE THREE HOME RINGS, RESOLVED HERE. Recovery · Strain · Sleep, the
-      // same trio and the same four states as `RingTrio` on Home.
-      //
-      // Resolved in Dart rather than three times in Swift, Kotlin and Watch
-      // Swift for the reason `readiness_tier` already exists: a rule copied
-      // into four build targets is four rules. Two of these states cannot be
-      // worked out natively at all — the calibration counts and the pipeline's
-      // own reason both live in a metric's `note`, which never crossed the App
-      // Group. Until now a widget drew a blank dimmed circle for BOTH of them,
-      // so "four more nights and this fills in" and "the band recorded nothing"
-      // looked identical, forever.
-      for (final r in [
+      // same trio and the same four states as `RingTrio` on Home. Resolved in
+      // Dart rather than three times in Swift, Kotlin and Watch Swift for the
+      // reason `readiness_tier` already exists: a rule copied into four build
+      // targets is four rules.
+      final rings = [
         rv == null
             ? _gapRing('recovery', readiness, 'Not scored')
             : _Ring('recovery',
@@ -222,7 +248,7 @@ class WidgetService {
                 sub: band.label,
                 frac: rv / 100),
         s.isEmpty
-            // 0–21 is the scale's own ceiling, not a target invented here.
+            // 0-21 is the scale's own ceiling, not a target invented here.
             ? _gapRing('strain', s, 'No strain', unit: 'days')
             : _Ring('strain',
                 value: s.value!.toStringAsFixed(1),
@@ -233,25 +259,77 @@ class WidgetService {
                 fallbackWhy: 'No night long enough to score was recorded.')
             : _Ring('sleep',
                 value: hm(sleep.value),
-                // No computed need means no denominator. The hardcoded 480 in
-                // the sleep bundle is not this user's need and must never be
-                // shown as one, so the ring stays open and says so.
-                sub: need.isEmpty ? 'No target yet' : 'of ${hm(need.value)}',
-                frac: need.isEmpty || need.value! <= 0
+                sub: needMin <= 0 ? 'No target yet' : 'of ${hm(need.value)}',
+                frac: needMin <= 0 || sleep.isEmpty
                     ? null
                     : sleep.value! / need.value!),
-      ]) {
+      ];
+
+      // THE CHANGE GATE. push() runs after EVERY derive pass; an unchanged
+      // snapshot still costs ~30 binder calls, a native widget re-render
+      // broadcast and a WCSession transfer. The fingerprint covers EVERY key
+      // written below — a key missing here is a key that silently freezes,
+      // which already bit once inside this PR when #261 added ring_* /
+      // sleep_efficiency to push() and the fingerprint did not know. When you
+      // add a key above, add it HERE too. `updated_at` is deliberately
+      // excluded: write-time metadata, and any genuinely new data moves at
+      // least one value in the list.
+      final fpValues = <Object>[
+        statusDay,
+        hasData,
+        readinessInt,
+        tier,
+        bandLabel,
+        hrvV,
+        hrvBase,
+        strainV,
+        sleepMin,
+        needMin,
+        rhrV,
+        effMin,
+        overnightWhy,
+        coachLine,
+        for (final r in rings) ...[r.state, r.value, r.sub, r.why, r.frac],
+      ];
+      assert(
+        fpValues.length == fingerprintKeyOrder.length,
+        'widget fingerprint out of sync with push() — add new keys to '
+        'BOTH the writes above and fingerprintKeyOrder',
+      );
+      final fp = fpValues.join('|');
+      if (fp == _lastPushFingerprint) return;
+
+      await HomeWidget.saveWidgetData<bool>('has_data', hasData);
+      await setI('readiness', readinessInt);
+      await setI('readiness_tier', tier);
+      await HomeWidget.saveWidgetData<String>('readiness_band', bandLabel);
+      await setI('hrv', hrvV);
+      await setI('hrv_baseline', hrvBase);
+      await HomeWidget.saveWidgetData<double>('strain', strainV);
+      await setI('sleep_min', sleepMin);
+      await setI('sleep_need_min', needMin);
+      await setI('rhr', rhrV);
+      await setI('sleep_efficiency', effMin);
+      await HomeWidget.saveWidgetData<String>('overnight_why', overnightWhy);
+      await HomeWidget.saveWidgetData<String>('coach_line', coachLine);
+      for (final r in rings) {
         await setI('ring_${r.key}_state', r.state);
         await HomeWidget.saveWidgetData<String>('ring_${r.key}_value', r.value);
         await HomeWidget.saveWidgetData<String>('ring_${r.key}_sub', r.sub);
         await HomeWidget.saveWidgetData<String>('ring_${r.key}_why', r.why);
         await HomeWidget.saveWidgetData<double>('ring_${r.key}_frac', r.frac);
       }
-
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
       await _reloadSnapshotWidgets();
       await _syncWatch();
+      // Only after everything landed — a mid-write failure must retry on the
+      // next push, not be remembered as done. The Watch leg is best-effort:
+      // `_syncWatch` always resolves and WatchBridge uses updateApplicationContext
+      // (WCSession re-delivers the latest state on reconnect), so a transient
+      // WCSession failure self-heals on the next push — and the day-in-fingerprint
+      // above guarantees a push at least once per day.
+      _lastPushFingerprint = fp;
     } catch (_) {
       /* widgets unavailable / not configured yet — ignore */
     }
@@ -271,6 +349,8 @@ class WidgetService {
   static Future<void> clear() async {
     try {
       await init();
+      // The change gate must not swallow the first push after a wipe.
+      _lastPushFingerprint = null;
       await HomeWidget.saveWidgetData<bool>('has_data', false);
       for (final k in const [
         'readiness',

@@ -1812,7 +1812,11 @@ class DerivationEngine {
       
     Trace? runTrace;
     try {
-      if (Firebase.apps.isNotEmpty) {
+      // Heavy/force passes only. Light passes run many times a day (including
+      // all night in the background), and each trace is buffered + eventually
+      // uploaded — periodic radio wakeups from a local-first app, for timings
+      // the _diag map already captures locally.
+      if (Firebase.apps.isNotEmpty && (heavy || force)) {
         runTrace = FirebasePerformance.instance.newTrace('derivation_engine_run');
         await runTrace.start();
         runTrace.putAttribute('mode', force ? 'force' : (heavy ? 'heavy' : 'light'));
@@ -2465,13 +2469,13 @@ class DerivationEngine {
       rkMed: d('rk_med'),
     );
     // The whole read-modify-write happens inside ONE exclusive DB transaction.
-    // A Dart mutex cannot do this job: `derivationDispatcher` is a
-    // vm:entry-point WorkManager entry that builds its own DerivationEngine in
-    // a SEPARATE background isolate, and a `static` lock has one copy per
-    // isolate — so a background heavy pass and a foreground sweep would each
-    // read the same profile, fold, and clobber the other, losing both the fold
-    // and its day_id from folded_days. SQLite's write lock is cross-connection
-    // and therefore cross-isolate.
+    // A Dart mutex cannot do this job: derivation can run from MORE THAN ONE
+    // ISOLATE (Android headless sync wakes construct their own DerivationEngine
+    // off the main one), and a `static` lock has one copy per isolate — so a
+    // background heavy pass and a foreground sweep would each read the same
+    // profile, fold, and clobber the other, losing both the fold and its
+    // day_id from folded_days. SQLite's write lock is cross-connection and
+    // therefore cross-isolate.
     await LocalDb.updateBaseline('sleep_user_profile', (current) {
       // Re-derive freshness INSIDE the transaction: the value this day read
       // before staging is stale by definition, another lane may have folded

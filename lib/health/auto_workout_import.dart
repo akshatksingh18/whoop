@@ -82,7 +82,7 @@ class AutoWorkoutImport {
     try {
       final now = (nowFn ?? DateTime.now)();
       final prefs = await SharedPreferences.getInstance();
-      final enabled = prefs.getBool(kAutoWorkoutImportPref) ?? false;
+      final enabled = await isEnabled();
       final lastMs = prefs.getInt(kAutoWorkoutImportLastMs);
       // NON-PROMPTING probe: hasPermissions only. A denied/undecided store
       // means the user has not approved auto reads yet — the manual button's

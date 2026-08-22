@@ -319,6 +319,14 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // The medication reminder. Wellness owns the Medication tab and its
       // checklist, which is where a dose is actually recorded.
       kRouteMeds => ShellDomain.wellness,
+      // The movement/sedentary nudges. Today (Home) is where the steps/rings
+      // they point at live; there is no move screen to push, so
+      // screenForRoute returns null for it — same shape as /meds below.
+      kRouteMovement => ShellDomain.home,
+      // Recovery-ready and step-goal notes. Both are about what already lives
+      // on Today, and neither has a screen of its own to push.
+      kRouteRecovery => ShellDomain.home,
+      kRouteSteps => ShellDomain.home,
       kRouteWorkoutSuggestion => ShellDomain.workout,
       // Emitted by the battery forecast (`app_state.dart`) and the weekly
       // recap (`notification_center.dart`), and declared in `tap_router`

@@ -221,8 +221,14 @@ class NotificationCenter {
     Map<String, Map<int, Map<String, Object?>>> medDosesToday = const {},
   }) async {
     final svc = NotificationService.instance;
-    await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
+    // Wind-down follows the standing rule — cancel what this call cannot put
+    // back, and only that. A null slot (switch off, or no LEARNED bedtime yet)
+    // cancels; a real slot is armed below.
+    final windDownMin = windDownSlot(prefs, bedtimeMinOfDay);
+    if (windDownMin == null) {
+      await svc.cancel(NotificationService.idWindDown);
+    }
     // The check-in and the medication band follow the same rule as the
     // movement nudge below: cancel what the user just switched off, and
     // otherwise only what THIS call can put back.
@@ -284,13 +290,20 @@ class NotificationCenter {
             doneToday: checkInDoneToday, nowMin: now.hour * 60 + now.minute);
     final meds =
         medPromptSlots(prefs, medDefs ?? const [], medDosesToday, now: now);
-    if (water.isEmpty && !wantWeekly && checkIn == null && meds.isEmpty) return;
+    if (water.isEmpty &&
+        !wantWeekly &&
+        windDownMin == null &&
+        checkIn == null &&
+        meds.isEmpty) {
+      return;
+    }
     // Re-resolve the zone first: this runs on every foreground resume, and the
     // instants below are wall-clock. A phone that flew somewhere would otherwise
     // keep arming Sunday 18:00 in the zone the app first launched in.
     await svc.ensureTimezone();
     await _armWaterSlots(svc, water);
     if (wantWeekly) await _armWeeklyLookback(svc, weeklyFinding);
+    if (windDownMin != null) await _armWindDown(svc, windDownMin);
     if (checkIn != null) await _armCheckIn(svc, checkIn);
     await _armMedSlots(svc, meds);
   }
@@ -374,17 +387,108 @@ class NotificationCenter {
     }
   }
 
-  /// Arm the lookback as a ONE-SHOT at the next Sunday 18:00.
+  /// The daily wind-down nudge, as a repeating slot at the learned bedtime.
   ///
-  /// One-shot, not `matchDateTimeComponents: dayOfWeekAndTime`: a repeat would
-  /// go on re-announcing THIS week's finding every Sunday for the life of the
-  /// install, which is how the recap ended up firing unconditionally in the
-  /// first place. Re-armed by the next call that has a finding.
+  /// A daily REPEAT is right here (unlike the weekly lookback's one-shot):
+  /// the body names a TIME, not one week's facts, so it stays true every day.
+  /// `skipToday: true` — once tonight's slot has passed, arming it for today
+  /// would fire a wind-down after bedtime; the repeat resumes tomorrow.
+  Future<void> _armWindDown(NotificationService svc, int minuteOfDay) async {
+    await svc.scheduleDaily(
+      id: NotificationService.idWindDown,
+      category: NotifCategory.reminders,
+      title: 'Wind down',
+      body: 'Your bedtime is around ${_hhmm(minuteOfDay + windDownBeforeBedMin)}. '
+          'Start slowing down.',
+      hour: minuteOfDay ~/ 60,
+      minute: minuteOfDay % 60,
+      route: kRouteBreathing,
+      skipToday: true,
+    );
+  }
+
+  /// How long before the learned bedtime the wind-down lands.
+  static const int windDownBeforeBedMin = 45;
+
+  /// The wind-down's wall-clock minute, or null when it must not be armed.
   ///
-  /// The permission check lives inside [NotificationService.scheduleOnce] and
-  /// is non-prompting, so a transient "not granted" read can no longer wipe the
-  /// standing schedule and leave nothing behind — the cancels above are the
-  /// intended state when there is nothing to say.
+  /// Requires BOTH the switch and a LEARNED bedtime ([bedtimeMinOfDay] from
+  /// the Sleep Coach). A population fallback here would be a made-up time
+  /// pretending to know this user's sleep — if the coach hasn't learned a
+  /// bedtime yet, the nudge waits. (The check-in may fall back to a stated
+  /// fixed time because its copy says "evening"; this one's whole content IS
+  /// the time, so there is nothing honest to fall back to.)
+  static int? windDownSlot(NotificationPrefs prefs, double? bedtimeMinOfDay) {
+    if (!prefs.windDownEnabled || bedtimeMinOfDay == null) return null;
+    final t =
+        bedtimeMinOfDay.round() - windDownBeforeBedMin;
+    if (t < 0 || t >= 24 * 60) return null;
+    return t;
+  }
+
+  /// Two-digit HH:MM from minutes-past-midnight (notification bodies).
+  static String _hhmm(int minuteOfDay) {
+    final m = minuteOfDay % 1440;
+    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
+        '${(m % 60).toString().padLeft(2, '0')}';
+  }
+
+  // ── the weekly lookback finding ─────────────────────────────────────────
+
+  /// What Sunday's lookback says, or null when the week was quiet enough that
+  /// NOTHING should interrupt the user. PURE over the crossday rollup's
+  /// `recent[]` rows ({date, rhr, unsettled, illness, anomaly, temp}).
+  ///
+  /// The bar is deliberately high: most weeks must produce null. A weekly
+  /// notification that fires every Sunday is the recap problem all over again
+  /// — the reason the slot sat unwired for so long was that nothing honest
+  /// could fill it. Priority: medical flags first (they are the sanctioned
+  /// detections), then a plainly-stated resting-HR drift, then silence.
+  static String? weeklyLookbackFinding(
+      List<Map<String, dynamic>> recentDays) {
+    final days = recentDays
+        .where((d) => d['unsettled'] != true)
+        .toList(growable: false);
+    if (days.isEmpty) return null;
+
+    // Medical flags, counted per kind. These reuse the same detectors the
+    // daily health exception fires on — the weekly note only SUMMARIZES them.
+    final illness = days.where((d) => d['illness'] == true).length;
+    final anomaly = days.where((d) => d['anomaly'] == true).length;
+    final temp = days.where((d) => d['temp'] == true).length;
+    final parts = <String>[];
+    if (illness > 0) parts.add('possible illness onset ×$illness');
+    if (anomaly > 0) parts.add('unusual physiology ×$anomaly');
+    if (temp > 0) parts.add('elevated skin temperature ×$temp');
+    if (parts.isNotEmpty) {
+      return 'This week flagged: ${parts.join(', ')}. Details live on Health.';
+    }
+
+    // Resting-HR drift across the week: mean of the last three nights vs the
+    // first three. Plain arithmetic on stored nightly values, stated as such
+    // — no trend test dressed up as science. Needs ≥5 settled nights with an
+    // RHR on both ends, which is also what keeps this silent most weeks.
+    final rhrs = [
+      for (final d in days)
+        if (d['rhr'] is num) (d['rhr'] as num).toDouble(),
+    ];
+    if (rhrs.length >= 5) {
+      double mean(List<double> xs) => xs.reduce((a, b) => a + b) / xs.length;
+      final early = mean(rhrs.sublist(0, 3));
+      final late = mean(rhrs.sublist(rhrs.length - 3));
+      final delta = late - early;
+      if (delta >= 3) {
+        return 'Resting heart rate ran about ${delta.round()} bpm higher '
+            'late in the week than early.';
+      }
+      if (delta <= -3) {
+        return 'Resting heart rate ran about ${(-delta).round()} bpm lower '
+            'late in the week than early.';
+      }
+    }
+    return null;
+  }
+
   Future<void> _armWeeklyLookback(
       NotificationService svc, String finding) async {
     await svc.scheduleOnce(

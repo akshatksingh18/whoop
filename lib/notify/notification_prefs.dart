@@ -93,6 +93,33 @@ class NotificationPrefs {
   /// fires because yesterday is blank is a streak wearing a different hat.
   final bool checkInEnabled;
 
+  /// The low-battery alert threshold, in percent. DeviceAlerts used to
+  /// hard-code 15%; this is the same alert with the number in the user's
+  /// hands. Read back by DeviceAlerts through its own persisted store (same
+  /// key), so a headless BLE state update picks up a change without a full
+  /// NotificationPrefs load. Clamped to [batteryPctAllowed] when scheduling.
+  final int batteryAlertPct;
+
+  /// The step-goal achievement: one note on the day the step ESTIMATE first
+  /// crosses the user's goal. On by default — it fires at most once a day and
+  /// only when the goal is actually reached — with this as its off switch.
+  final bool stepGoalEnabled;
+
+  /// The nightly wind-down nudge: one heads-up before the bedtime the Sleep
+  /// Coach LEARNED from this user's own nights. Opt-in and off by default like
+  /// every other outbound scheduled nudge; it also stays silent until a
+  /// bedtime has actually been learned — see NotificationCenter.windDownSlot.
+  final bool windDownEnabled;
+
+  /// Allowed bounds for [batteryAlertPct]. Below 5% a band is dying, not low;
+  /// above 40% the alert would fire constantly and be muted forever.
+  static const int batteryPctMin = 5;
+  static const int batteryPctMax = 40;
+
+  /// The shipped default threshold — what an unset store degrades to (also
+  /// DeviceAlerts' fallback, so the number is spelled exactly once).
+  static const int batteryPctDefault = 15;
+
   const NotificationPrefs({
     this.healthEnabled = true,
     this.recoveryEnabled = true,
@@ -108,6 +135,9 @@ class NotificationPrefs {
     this.movementEnabled = false,
     this.medsEnabled = false,
     this.checkInEnabled = false,
+    this.batteryAlertPct = batteryPctDefault,
+    this.stepGoalEnabled = true,
+    this.windDownEnabled = false,
   });
 
   static const _kHealth = 'notif_health';
@@ -124,6 +154,15 @@ class NotificationPrefs {
   static const _kMovement = 'notif_movement';
   static const _kMeds = 'notif_meds';
   static const _kCheckIn = 'notif_checkin';
+
+  /// The low-battery alert threshold's persisted key. PUBLIC because
+  /// DeviceAlerts reads it back through its own store seam on headless BLE
+  /// state updates, without loading a full [NotificationPrefs]. Both sides of
+  /// that coupling must spell it once.
+  static const String batteryPctPrefKey = 'notif_battery_pct';
+  static const _kBatteryPct = batteryPctPrefKey;
+  static const _kStepGoal = 'notif_stepgoal';
+  static const _kWindDown = 'notif_winddown';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -142,6 +181,11 @@ class NotificationPrefs {
       movementEnabled: p.getBool(_kMovement) ?? false,
       medsEnabled: p.getBool(_kMeds) ?? false,
       checkInEnabled: p.getBool(_kCheckIn) ?? false,
+      batteryAlertPct:
+          (p.getInt(_kBatteryPct) ?? batteryPctDefault)
+              .clamp(batteryPctMin, batteryPctMax),
+      stepGoalEnabled: p.getBool(_kStepGoal) ?? true,
+      windDownEnabled: p.getBool(_kWindDown) ?? false,
     );
   }
 
@@ -161,6 +205,10 @@ class NotificationPrefs {
     await p.setBool(_kMovement, movementEnabled);
     await p.setBool(_kMeds, medsEnabled);
     await p.setBool(_kCheckIn, checkInEnabled);
+    await p.setInt(
+        _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax));
+    await p.setBool(_kStepGoal, stepGoalEnabled);
+    await p.setBool(_kWindDown, windDownEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -178,6 +226,9 @@ class NotificationPrefs {
     bool? movementEnabled,
     bool? medsEnabled,
     bool? checkInEnabled,
+    int? batteryAlertPct,
+    bool? stepGoalEnabled,
+    bool? windDownEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -195,6 +246,9 @@ class NotificationPrefs {
         movementEnabled: movementEnabled ?? this.movementEnabled,
         medsEnabled: medsEnabled ?? this.medsEnabled,
         checkInEnabled: checkInEnabled ?? this.checkInEnabled,
+        batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
+        stepGoalEnabled: stepGoalEnabled ?? this.stepGoalEnabled,
+        windDownEnabled: windDownEnabled ?? this.windDownEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {
@@ -230,6 +284,23 @@ class NotificationPrefs {
     // check against the bare route would miss every real one.)
     if (!autoDetectEnabled &&
         routePath(event.route ?? '') == kRouteWorkoutSuggestion) {
+      return false;
+    }
+    // The movement nudge's off switch, same shape and same reason as the
+    // auto-detect one above: the route identifies the event the user set THIS
+    // switch for. Covers both sedentary surfaces — the OS-scheduled
+    // two-hour-still one-shot (which never passes through here; it is gated at
+    // NotificationService.schedulableIds) and this foreground desk-posture
+    // check, which does.
+    if (!movementEnabled &&
+        routePath(event.route ?? '') == kRouteMovement) {
+      return false;
+    }
+    // The step-goal achievement's off switch — same route-keyed shape. (The
+    // recovery-ready note needs no extra branch here: it rides the recovery
+    // category, and categoryEnabled below already reads recoveryEnabled.)
+    if (!stepGoalEnabled &&
+        routePath(event.route ?? '') == kRouteSteps) {
       return false;
     }
     final klass = classOf(event);

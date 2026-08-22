@@ -180,12 +180,20 @@ class NotificationService {
   ///   • the medication band ([isMedSlot]) — armed only while
   ///     `NotificationPrefs.medsEnabled` is on, at the times in the user's own
   ///     `med_def` schedule, and only for a dose still upcoming.
-  /// Wind-down, the morning briefing and the AI journal prompt are none of
-  /// those, and are still refused. Their callers keep CANCELLING, which is how
-  /// an upgrade cleans out whatever an older build left standing.
+  ///   • [idWindDown] — armed only from a LEARNED bedtime (Sleep Coach), never
+  ///     a population fallback, and only while `windDownEnabled` is on.
+  ///   • [idMorningBrief] — armed by `aiReminderPlan` only for a user with a
+  ///     BYOK key AND their own AI morning switch on. Its body is static (the
+  ///     constraint above: no model text in the schedule); the screen it opens
+  ///     computes on arrival.
+  /// The AI journal prompt ([idJournalLog]) is none of those and is still
+  /// refused. Its caller keeps CANCELLING, which is how an upgrade cleans out
+  /// whatever an older build left standing.
   static const Set<int> schedulableIds = {
     idWeeklyRecap,
     idEveningBrief,
+    idMorningBrief,
+    idWindDown,
     idStillness,
     idCheckIn,
   };

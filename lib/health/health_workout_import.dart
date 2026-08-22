@@ -226,6 +226,20 @@ class HealthWorkoutImporter {
 
   bool get routesSupported => _isApple;
 
+  /// NON-PROMPTING read-permission probe for the auto path: true only when
+  /// the store already granted WORKOUT read. Never shows a dialog — the
+  /// manual Import button's tap is the only place that question gets asked.
+  Future<bool> hasReadPermission() async {
+    try {
+      await _health.configure();
+      return await _health.hasPermissions(types,
+              permissions: [for (final _ in types) HealthDataAccess.READ]) ==
+          true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> requestPermission() async {
     try {
       await _health.configure();

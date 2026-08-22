@@ -11,6 +11,7 @@
 // need fourteen days — the card is a StatusCard that says which, why and what
 // fixes it.
 
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
 import '../../health/health_import_state.dart';
+import '../../health/auto_workout_import.dart';
 import '../../health/health_workout_import.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
@@ -586,6 +588,39 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             soft: true,
             onTap: _importing ? null : _importWorkouts,
           ),
+          const SizedBox(height: S.x3),
+          // #? — auto-import, opt-in. The switch turning ON is a user tap, so
+          // THAT moment may ask for permission; every later run is silent and
+          // throttled (see AutoWorkoutImport).
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Auto-import workouts',
+                          style: F.body.copyWith(
+                              color: p.ink, fontWeight: FontWeight.w600)),
+                      Text(
+                        'Brings in workouts from $storeName about once an '
+                        'hour while you use the app. Needs one manual '
+                        'import first to grant access.',
+                        style: F.cap.copyWith(color: p.ink3, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _autoImport,
+                  activeThumbColor: p.on(C.domMove),
+                  activeTrackColor: p.fill(C.domMove),
+                  onChanged: (v) => _setAutoImport(v),
+                ),
+              ],
+            ),
+          ),
           if (_importNote != null) ...[
             const SizedBox(height: S.x3),
             Text(
@@ -600,8 +635,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   bool _importing = false;
+  bool _autoImport = false;
   String? _importNote;
   bool _importFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    () async {
+      final on = await AutoWorkoutImport.isEnabled();
+      if (!mounted) return;
+      setState(() => _autoImport = on);
+      if (on) unawaited(AutoWorkoutImport.maybeRun());
+    }();
+  }
+
+  Future<void> _setAutoImport(bool v) async {
+    setState(() => _autoImport = v);
+    await AutoWorkoutImport.setEnabled(v);
+    if (v) {
+      // The opt-in tap is a contextual moment: this one run MAY prompt for
+      // permission (it reuses the button's asking path). Later runs never do.
+      await _importWorkouts(silent: true);
+    }
+  }
 
   /// Read the store, then reload the tab so the new rows are in the list the
   /// user is looking at.
@@ -611,11 +668,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// a second pass over the same run updates that one row instead of stacking
   /// a copy. It also picks up a workout the source app edited or back-dated
   /// after the fact, which a "since last time" cursor would miss forever.
-  Future<void> _importWorkouts() async {
+  Future<void> _importWorkouts({bool silent = false}) async {
     if (_importing) return;
     setState(() {
       _importing = true;
-      _importNote = null;
+      // The auto path shares this body but must not speak over it: no note
+      // clearing, and its outcomes are silent by design.
+      if (!silent) _importNote = null;
     });
     final importer = HealthWorkoutImporter();
     try {

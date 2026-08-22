@@ -492,8 +492,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         ),
         const SizedBox(height: S.x5),
         _logPastCard(c),
-        const SizedBox(height: S.x5),
-        ..._importCard(c, d),
       ];
     }
     final importedThisWeek = d.weekImported;
@@ -525,11 +523,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ],
+      // The import card lives UP HERE, under the numbers it feeds — at the
+      // bottom of a long list nobody reached it without scrolling past every
+      // session it exists to fill.
+      const SizedBox(height: S.x3),
+      ..._importCard(c, d),
       ..._morningAfter(p, d),
       const SizedBox(height: S.x5),
       for (final w in d.workouts) ...[
         _HistoryRow(w,
             weightKg: d.weightKg,
+            onDelete: w.id.isEmpty
+                ? null
+                : () => _confirmDeleteWorkout(c, w),
             // A retime is a re-score over the new window, so it is offered
             // only where there is something of ours to re-score: an imported
             // row's times belong to the app that recorded it, and this band
@@ -550,9 +556,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       ],
       const SizedBox(height: S.x3),
       _logPastCard(c),
-      const SizedBox(height: S.x3),
-      ..._importCard(c, d),
     ];
+  }
+
+  /// Delete one session — recorded or imported. For an IMPORTED session the
+  /// health-store uuid goes onto a tombstone list first, or the next import
+  /// (manual, or the hourly auto path) would bring the very row the user just
+  /// removed straight back. A copy in Apple Health / Health Connect itself is
+  /// out of our reach by design and the confirm says so.
+  Future<void> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
+    final ok = await confirmRemove(
+      c,
+      title: 'Delete this ${w.activity.name.toLowerCase()}?',
+      body: w.importedFrom == null
+          ? 'It disappears from OpenStrap. A copy in $storeName, if there is '
+              'one, stays where it is.'
+          : 'It disappears from OpenStrap and will not be re-imported. '
+              'The original in $storeName stays.',
+    );
+    if (!ok || !mounted) return;
+    if (w.importedFrom != null && w.id.isNotEmpty) {
+      await rememberDeletedUuid(w.id);
+      await LocalDb.deleteImportedWorkout(w.id);
+    } else {
+      await LocalDb.deleteSession(w.id);
+    }
+    if (!mounted) return;
+    setState(() => _load = _loadWorkoutData(context.read<AppState>()));
   }
 
   /// Bring in what another app recorded. On History because that is the list
@@ -837,7 +867,11 @@ class _HistoryRow extends StatelessWidget {
   /// a session with no id to retime.
   final VoidCallback? onRetime;
 
-  const _HistoryRow(this.w, {this.weightKg, this.onRetime});
+  /// Remove this session locally. Null hides the control (no id to delete).
+  final VoidCallback? onDelete;
+
+  const _HistoryRow(this.w,
+      {this.weightKg, this.onRetime, this.onDelete});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -912,6 +946,18 @@ class _HistoryRow extends StatelessWidget {
               // this is one session's 0–21 strain, and the two were being
               // shown under the same word on the same screen.
               child: Text('strain', style: F.over.copyWith(color: p.ink3)),
+            ),
+          ],
+          if (onDelete != null) ...[
+            const SizedBox(width: S.x2),
+            Pressable(
+              semanticLabel: 'Delete this session',
+              onTap: onDelete,
+              child: Padding(
+                padding: const EdgeInsets.all(S.x1),
+                child:
+                    Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+              ),
             ),
           ],
         ]),

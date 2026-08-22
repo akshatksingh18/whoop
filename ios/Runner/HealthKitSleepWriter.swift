@@ -124,9 +124,18 @@ enum HealthKitSleepWriter {
   private static func sleepValue(_ stage: String?) -> HKCategoryValueSleepAnalysis? {
     switch stage {
     case "awake": return .awake
-    case "rem": return .asleepREM
-    case "light": return .asleepCore
-    case "deep": return .asleepDeep
+    case "rem":
+      if #available(iOS 16.0, *) { return .asleepREM }
+      return .asleep
+    case "light":
+      // .asleepCore is the iOS 16+ name for light sleep; on iOS 15 HealthKit
+      // only has the binary .asleep. The runner target is 15.0 — without the
+      // guard this file does not compile at all.
+      if #available(iOS 16.0, *) { return .asleepCore }
+      return .asleep
+    case "deep":
+      if #available(iOS 16.0, *) { return .asleepDeep }
+      return .asleep
     default: return nil
     }
   }

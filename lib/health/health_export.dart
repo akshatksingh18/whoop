@@ -104,7 +104,15 @@ Future<void> ensureHealthSleepExportEpoch({
   required Future<String?> Function(String name) getCursor,
   required Future<void> Function(String name, String value) setCursor,
   String epoch = kHealthSleepExportEpoch,
+  required bool isApplePlatform,
 }) async {
+  // APPLE ONLY. The cursor clear forces a full replay (up to 400 day
+  // bundles: type deletes, hourly energy, the minute-HR batch) so nights
+  // already in HealthKit get rewritten by the native writer. Nothing about
+  // the HEALTH CONNECT writer changed with this epoch — clearing on Android
+  // would replay every bundle for zero benefit. The caller passes the same
+  // platform flag it already computes for the delete types.
+  if (!isApplePlatform) return;
   if (await getCursor(kHealthSleepExportEpochCursor) == epoch) return;
   await setCursor('health_export_through', '');
   await setCursor('health_export_retry_state', '');
@@ -488,6 +496,9 @@ class HealthExporter {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
         setCursor: (name, value) => LocalDb.setCursor(name, value),
+        // Same platform flag the delete types use — the epoch rewrite is an
+        // Apple-HealthKit concern only.
+        isApplePlatform: isApple,
       );
       if (reset) {
         await LocalDb.setCursor('health_export_through', '');

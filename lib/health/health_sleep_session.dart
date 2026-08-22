@@ -86,9 +86,15 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
     return HealthSleepSession(start: start, end: end, stages: const []);
   }
 
-  // Tile the in-bed envelope. Dropping unknown labels used to leave holes, so
-  // Health Time Asleep was only the REM/Deep slivers that survived — #225's
-  // ~2 h night, #239's missing Core. Fill remaining gaps as awake.
+  // Tile the detected stages across the in-bed envelope. Overlap trimming
+  // stays (the native writers reject a stage starting before its predecessor
+  // ends); GAPS are left unwritten on purpose: an unobserved second is not a
+  // stage and not wake (onehz_pipeline.dart says it outright — "it belongs
+  // to neither side"), and exporting it as measured wake fabricates a
+  // reading other apps take as fact. Apple's Time Asleep is
+  // asleepCore+Deep+REM, so a gap adds zero; the in-bed envelope carries the
+  // span. Real 'wake' labels from the hypnogram still export as wake below —
+  // those were measured.
   final normalized = <HealthSleepStageInterval>[];
   var cursor = start;
   void append(DateTime from, DateTime to, HealthSleepStage stage) {
@@ -112,15 +118,9 @@ HealthSleepSession? normalizeHealthSleepSession(Map<String, dynamic> bundle) {
     final normalizedStart = candidate.start.isBefore(cursor)
         ? cursor
         : candidate.start;
-    if (cursor.isBefore(normalizedStart)) {
-      append(cursor, normalizedStart, HealthSleepStage.awake);
-    }
     if (!normalizedStart.isBefore(candidate.end)) continue;
     append(normalizedStart, candidate.end, candidate.stage);
     if (candidate.end.isAfter(cursor)) cursor = candidate.end;
-  }
-  if (cursor.isBefore(end)) {
-    append(cursor, end, HealthSleepStage.awake);
   }
 
   return HealthSleepSession(start: start, end: end, stages: normalized);
@@ -155,9 +155,13 @@ List<_RawHypnoInterval> _hypnogramIntervals(List<dynamic> rawStages) {
     if (raw is! Map) continue;
     final stage = raw['stage']?.toString();
     if (stage == null) continue;
-    final startRaw = raw['start'] as num?;
-    final endRaw = raw['end'] as num?;
-    if (startRaw != null && endRaw != null) {
+    // Runtime `is num` checks, not casts: a malformed row (a string epoch, a
+    // nested map) must SKIP the record, not throw through the whole export.
+    // (`as num?` throws TypeError on a non-num value rather than yielding
+    // null — an imported hypnogram with one bad row killed every write.)
+    final startRaw = raw['start'];
+    final endRaw = raw['end'];
+    if (startRaw is num && endRaw is num) {
       final start = healthInstantFromEpoch(startRaw);
       final end = healthInstantFromEpoch(endRaw);
       if (start.isBefore(end)) {
@@ -170,10 +174,10 @@ List<_RawHypnoInterval> _hypnogramIntervals(List<dynamic> rawStages) {
   final points = <({DateTime t, String stage})>[];
   for (final raw in rawStages) {
     if (raw is! Map) continue;
-    final t = raw['t'] as num?;
+    final tRaw = raw['t'];
     final stage = raw['stage']?.toString();
-    if (t == null || stage == null) continue;
-    points.add((t: healthInstantFromEpoch(t), stage: stage));
+    if (tRaw is! num || stage == null) continue;
+    points.add((t: healthInstantFromEpoch(tRaw), stage: stage));
   }
   points.sort((a, b) => a.t.compareTo(b.t));
   final out = <_RawHypnoInterval>[];
@@ -190,8 +194,13 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
   switch (stage) {
     case 'wake':
     case 'awake':
-    case 'unobserved':
       return HealthSleepStage.awake;
+    // 'unobserved' deliberately does NOT map to wake: it is the band's
+    // off-skin / unwatched time, and exporting it as measured wake
+    // fabricates a reading (see the gap-fill note in
+    // normalizeHealthSleepSession). Returning null drops it.
+    case 'unobserved':
+      return null;
     case 'rem':
       return HealthSleepStage.rem;
     case 'light':
@@ -216,9 +225,14 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
 ) {
   final localEnd = night.end;
   final wakeMidnight = DateTime(localEnd.year, localEnd.month, localEnd.day);
+  // Calendar-field arithmetic, never `add(Duration(days: 1))`: a 25-hour
+  // fall-back day would not advance the date and the window would widen into
+  // the PREVIOUS night (which the delete then wipes irrecoverably — see
+  // health_export.dart's note on this exact trap; the Kotlin this was ported
+  // from uses plusDays(1)).
   final endDate = localEnd.hour < 12
       ? wakeMidnight
-      : wakeMidnight.add(const Duration(days: 1));
+      : DateTime(wakeMidnight.year, wakeMidnight.month, wakeMidnight.day + 1);
   final cleanupEnd = DateTime(endDate.year, endDate.month, endDate.day, 12);
   final prevDate = DateTime(endDate.year, endDate.month, endDate.day - 1);
   final calculatedStart = DateTime(
@@ -237,19 +251,20 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
 
 /// The span a day's SLEEP-type delete has to cover.
 ///
-/// Union of the calendar day and [sleepSessionCleanupRange], so pre-midnight
-/// leftovers and the exported date's own samples both go. No night → day only.
+/// Just [sleepSessionCleanupRange] — the noon-to-noon window around the
+/// night's wake, same as Android. This used to UNION that with the whole
+/// calendar day, and for a night waking after local noon the two windows
+/// concatenated into one contiguous span reaching back into the PREVIOUS
+/// night; the native predicate matches on overlap, so it deleted the whole
+/// previous envelope sample — which is behind `health_export_through` and
+/// never gets rewritten. Irrecoverable deletion is not a cleanup.
 ({DateTime start, DateTime end}) sleepCleanupWindow({
   required DateTime dayStart,
   required DateTime dayEnd,
   HealthSleepSession? night,
 }) {
   if (night == null) return (start: dayStart, end: dayEnd);
-  final session = sleepSessionCleanupRange(night);
-  return (
-    start: session.start.isBefore(dayStart) ? session.start : dayStart,
-    end: session.end.isAfter(dayEnd) ? session.end : dayEnd,
-  );
+  return sleepSessionCleanupRange(night);
 }
 
 abstract interface class HealthConnectSleepSessionWriter {
@@ -348,8 +363,17 @@ class MethodChannelHealthKitSleepSessionWriter
           'cleanupEndTime': cleanupEnd.millisecondsSinceEpoch,
           if (session != null) ...session.toMap(),
         };
+        // FINITE timeout. A native handler that never calls completion (a
+        // killed extension, a missed callback) would otherwise leave this
+        // future pending FOREVER — and since every replace serialises behind
+        // `_pending`, one nonresponsive call stalls all later days and the
+        // whole exportAll behind it. TimeoutException flows through the same
+        // completeError path as any other failure.
         result.complete(
-          await channel.invokeMethod<bool>('replaceSleepSession', args) == true,
+          await channel
+              .invokeMethod<bool>('replaceSleepSession', args)
+              .timeout(const Duration(seconds: 30)) ==
+              true,
         );
       } catch (error, stackTrace) {
         result.completeError(error, stackTrace);

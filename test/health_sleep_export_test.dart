@@ -276,7 +276,9 @@ void main() {
         night: night,
       );
       expect(window.start, DateTime(2026, 8, 4, 12));
-      expect(window.end, dayEnd, reason: 'the night ends well inside the day');
+      expect(window.end, DateTime(2026, 8, 5, 12), reason:
+          'noon-to-noon only — the old calendar-day union reached into the '
+          'previous night and deleted samples nothing ever rewrites');
 
       // No night to write — nothing to widen for, and the day window still has
       // to be swept so stale samples from an earlier export go.
@@ -292,7 +294,9 @@ void main() {
       expect(healthSleepStageOf('light'), HealthSleepStage.light);
       expect(healthSleepStageOf('nrem'), HealthSleepStage.light);
       expect(healthSleepStageOf('core'), HealthSleepStage.light);
-      expect(healthSleepStageOf('unobserved'), HealthSleepStage.awake);
+      // Unobserved is NOT wake — it is unwatched time, and exporting it as
+      // measured wake fabricates a reading other apps trust.
+      expect(healthSleepStageOf('unobserved'), isNull);
       expect(healthSleepStageOf('deep'), HealthSleepStage.deep);
       expect(healthSleepStageOf('unknown'), isNull);
     });
@@ -401,18 +405,15 @@ void main() {
           ifAbsent: () => stage.duration.inMinutes,
         );
       }
-      expect(
-        minutesByStage,
-        {
-          HealthSleepStage.awake: 42,
-          HealthSleepStage.rem: 95,
-          HealthSleepStage.light: 318,
-          HealthSleepStage.deep: 16,
-        },
-        reason:
-            '07:36–07:46 had no label; filling that hole as awake is 10 min '
-            'on top of the 32 min of explicit wake',
-      );
+      expect(minutesByStage, {
+        HealthSleepStage.awake: 32,
+        HealthSleepStage.rem: 95,
+        HealthSleepStage.light: 318,
+        HealthSleepStage.deep: 16,
+      }, reason:
+          '07:36–07:46 had no label and stays unwritten — unobserved time '
+          'belongs to neither sleep nor wake, so Time Asleep is the sum of '
+          'the MEASURED stages only');
     });
 
     test(
@@ -495,62 +496,72 @@ void main() {
       expect(args['stages'] as List, hasLength(6));
     });
 
-    test('an empty normalized hypnogram is a benign no-op — it never replaces '
-        'native data, and it must not fail the whole day\'s export', () async {
-      const channel = MethodChannel('openstrap/test_health_connect_empty');
-      var calls = 0;
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls++;
-            return true;
-          });
-      addTearDown(() {
+    test(
+      'an empty normalized hypnogram is a benign no-op — it never replaces '
+      'native data, and it must not fail the whole day\'s export',
+      () async {
+        const channel = MethodChannel('openstrap/test_health_connect_empty');
+        var calls = 0;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(channel, null);
-      });
-      final exporter = HealthConnectSleepSessionExporter(
-        writer: MethodChannelHealthConnectSleepSessionWriter(channel: channel),
-      );
-      final bundle = _overnightBundle();
-      ((bundle['series'] as Map)['hypnogram'] as List).clear();
+            .setMockMethodCallHandler(channel, (call) async {
+              calls++;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthConnectSleepSessionExporter(
+          writer: MethodChannelHealthConnectSleepSessionWriter(
+            channel: channel,
+          ),
+        );
+        final bundle = _overnightBundle();
+        ((bundle['series'] as Map)['hypnogram'] as List).clear();
 
-      expect(
-        await exporter.replace(bundle),
-        isTrue,
-        reason:
-            'false is a HARD failure for the entire day in health_export.dart '
-            '(success = false stops the cursor advancing), so a missing '
-            'hypnogram used to withhold steps/calories/HR too. Imported days '
-            'carry a sleep window with no substrate to stage from, so they '
-            'could never export at all.',
-      );
-      expect(calls, 0, reason: 'empty stages must not delete native sleep');
-    });
+        expect(
+          await exporter.replace(bundle),
+          isTrue,
+          reason:
+              'false is a HARD failure for the entire day in health_export.dart '
+              '(success = false stops the cursor advancing), so a missing '
+              'hypnogram used to withhold steps/calories/HR too. Imported days '
+              'carry a sleep window with no substrate to stage from, so they '
+              'could never export at all.',
+        );
+        expect(calls, 0, reason: 'empty stages must not delete native sleep');
+      },
+    );
 
-    test('an IMPORTED-shaped day (sleep window, no series at all) is a no-op, '
-        'not a failure — this is the case that never exported', () async {
-      const channel = MethodChannel('openstrap/test_health_connect_imported');
-      var calls = 0;
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls++;
-            return true;
-          });
-      addTearDown(() {
+    test(
+      'an IMPORTED-shaped day (sleep window, no series at all) is a no-op, '
+      'not a failure — this is the case that never exported',
+      () async {
+        const channel = MethodChannel('openstrap/test_health_connect_imported');
+        var calls = 0;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(channel, null);
-      });
-      final exporter = HealthConnectSleepSessionExporter(
-        writer: MethodChannelHealthConnectSleepSessionWriter(channel: channel),
-      );
-      // A CSV import gives a window but no per-second substrate to stage
-      // from, so `series` is absent entirely rather than merely empty.
-      final bundle = _overnightBundle();
-      bundle.remove('series');
+            .setMockMethodCallHandler(channel, (call) async {
+              calls++;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthConnectSleepSessionExporter(
+          writer: MethodChannelHealthConnectSleepSessionWriter(
+            channel: channel,
+          ),
+        );
+        // A CSV import gives a window but no per-second substrate to stage
+        // from, so `series` is absent entirely rather than merely empty.
+        final bundle = _overnightBundle();
+        bundle.remove('series');
 
-      expect(await exporter.replace(bundle), isTrue);
-      expect(calls, 0);
-    });
+        expect(await exporter.replace(bundle), isTrue);
+        expect(calls, 0);
+      },
+    );
 
     test(
       'a day with NO sleep window and a day with a window but no stages agree '
@@ -682,7 +693,7 @@ void main() {
       },
     );
 
-    test('fills holes in the in-bed envelope as awake', () {
+    test('leaves unlabelled gaps out of the stage list entirely', () {
       final start = DateTime(2026, 8, 5, 1);
       final end = DateTime(2026, 8, 5, 4);
       final bundle = {
@@ -703,10 +714,12 @@ void main() {
       };
 
       final session = normalizeHealthSleepSession(bundle)!;
-      expect(session.stages, hasLength(3));
-      expect(session.stages[1].stage, HealthSleepStage.awake);
-      expect(session.stages[1].start, start.add(const Duration(hours: 1)));
-      expect(session.stages[1].end, start.add(const Duration(hours: 2)));
+      // The 1h-2h hole is UNOBSERVED, not wake. Exporting it as measured
+      // wake fabricates a reading other apps take as fact; Time Asleep sums
+      // asleep stages only, so the hole contributes nothing either way.
+      expect(session.stages, hasLength(2));
+      expect(session.stages[0].stage, HealthSleepStage.light);
+      expect(session.stages[1].stage, HealthSleepStage.rem);
     });
 
     test('accepts UI-shaped {t,stage} points and millisecond timestamps', () {
@@ -751,6 +764,7 @@ void main() {
         setCursor: (name, value) async {
           stored[name] = value;
         },
+        isApplePlatform: true,
       );
       expect(stored['health_export_through'], '');
       expect(stored['health_export_retry_state'], '');
@@ -762,8 +776,29 @@ void main() {
         setCursor: (name, value) async {
           stored[name] = value;
         },
+        isApplePlatform: true,
       );
       expect(stored['health_export_through'], '2026-08-05');
+    });
+
+    test('the sleep-writer epoch never replays Health Connect bundles',
+        () async {
+      final stored = <String, String>{
+        'health_export_through': '2026-08-01',
+        'health_export_retry_state': '{"2026-08-02":1}',
+      };
+
+      await ensureHealthSleepExportEpoch(
+        getCursor: (name) async => stored[name],
+        setCursor: (name, value) async {
+          stored[name] = value;
+        },
+        isApplePlatform: false,
+      );
+      expect(stored['health_export_through'], '2026-08-01');
+      expect(stored['health_export_retry_state'], '{"2026-08-02":1}');
+      expect(stored.containsKey(kHealthSleepExportEpochCursor), isFalse,
+          reason: 'nothing about the HC writer changed — no replay, no bump');
     });
 
     test('Apple replace sends in-bed even when stages are empty', () async {
@@ -839,8 +874,10 @@ void main() {
         );
         expect(
           args['cleanupEndTime'],
-          DateTime(2026, 8, 6).millisecondsSinceEpoch,
-          reason: 'union with the calendar day keeps the day-end sweep',
+          DateTime(2026, 8, 5, 12).millisecondsSinceEpoch,
+          reason:
+              'noon-to-noon only — the calendar-day union reached into the '
+              'previous night and deleted samples nothing rewrites',
         );
         final stages = args['stages'] as List;
         expect(stages, isNotEmpty);

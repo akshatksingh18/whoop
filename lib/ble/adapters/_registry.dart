@@ -5,17 +5,22 @@
 // E4), so this is a hand-maintained `const` list. Adding a band is a source
 // edit here and nothing else. Revisit past ~50 entries.
 //
-// SCOPE — this is the MINIMUM registry, not the adapter seam. It holds only
-// the facts `ble_engine.dart` used to hardcode:
+// SCOPE — this file is the IDENTITY half only. The session seam now exists in
+// `adapter.dart` (`BandAdapter` / `BandLink` / `BandEvent`) and an adapter
+// points BACK at its entry here rather than restating a service UUID that the
+// iOS AccessorySetupKit plist is generated from. Two declarations of one UUID
+// is one declaration too many.
+//
+// This file holds the facts `ble_engine.dart` used to hardcode:
 //
 //   • which service UUIDs the scan filters on            (D1)
 //   • which characteristics a link must expose to connect (D2)
 //   • where the inner-record fields sit                   (D3)
 //
-// There is deliberately NO `run(BandLink)`, no `BandEvent`, no `InputSignal`
-// and — per MULTIBAND_PLAN §3.1 — no capability booleans, ever. Declare the
-// INPUT signals a device physically emits when that lands (D9); never a
-// `supportsX()` claim about our own features.
+// `run(BandLink)`, `BandEvent` and `InputSignal` live in `adapter.dart` /
+// `signals.dart`. There are — per MULTIBAND_PLAN §3.1 — no capability
+// booleans here or there, ever: an adapter declares the INPUT signals a device
+// physically emits, never a `supportsX()` claim about our own features.
 //
 // WHAT THE FIRST NON-WHOOP ENTRY PROVED (D10, the `0x180D` strap below).
 // The identity half of this type held: id, label, service UUID and
@@ -30,14 +35,13 @@
 //      `protocol` is SEALED so neither can be widened there. So both are
 //      NULLABLE now: null means "not a framed WHOOP-family band", and
 //      [isFramed] is the predicate every WHOOP-only consumer filters on.
-//   2. There is no SESSION half at all. A [BandEntry] DESCRIBES a band; it
-//      cannot DRIVE one. Everything a session does — SET_CLOCK, INIT, the
-//      drain, `RecordGate`, the batch ACK, the liveness fuse — is hardcoded in
-//      `ble_engine._doConnect`, so a band that does not speak that sequence
-//      still needs its own code path (`hrs_link.dart`). That is the gap
-//      MULTIBAND_PLAN §3.1's `Stream<BandEvent> run(BandLink)` closes, and
-//      until it lands "third registry entry" buys shared IDENTITY, not shared
-//      PLUMBING.
+//   2. There was no SESSION half at all — a [BandEntry] DESCRIBES a band, it
+//      cannot DRIVE one. CLOSED by `adapter.dart`: the `0x180D` strap is now a
+//      `BandAdapter` whose whole session is one `run(BandLink)`, and this
+//      entry is what that adapter points at for its identity. gen4 and gen5
+//      still run through `ble_engine._doConnect`; moving them behind the seam
+//      is the next wave, and until then `isFramed` remains the predicate that
+//      tells the two worlds apart.
 
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 

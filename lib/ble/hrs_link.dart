@@ -1,13 +1,13 @@
-// A standard Bluetooth heart-rate sensor (GATT Heart Rate Service, 0x180D) as
-// a SESSION-SCOPED second opinion on exercise heart rate.
+// The HOST for a standard Bluetooth heart-rate sensor: connect it, drive
+// [BleHrsAdapter] over the link, and write what comes back into the substrate.
 //
-// This replaces `hr_sensor.dart`, which was a second, parallel 314-line
-// `flutter_blue_plus` stack. It existed for one reason: `_doConnect` demanded
-// four WHOOP characteristics or aborted, so a device with one notify
-// characteristic could not go through the engine at all. Wave 1 made that
-// requirement registry data (`BandEntry.requiredCharacteristics`), so the
-// parallel stack is gone — this file is the small remainder: connect, notify,
-// decode, write.
+// WHAT MOVED, AND WHY IT MATTERS. The decode and the session used to be in
+// this file. They are now `adapters/ble_hrs.dart` — a 40-line
+// `Stream<BandEvent> run(BandLink)` — and everything left here is host work a
+// contributor must never see: `flutter_blue_plus`, the paired-device row,
+// `sqflite`, the per-second write buffer, `device_id` discipline. The seam
+// between the two halves is `adapters/adapter.dart`, and this is its first
+// caller.
 //
 // WHAT IT IS NOT.
 //  * NOT a background source. Armed by a workout, disarmed when the workout
@@ -48,77 +48,9 @@ import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
 import 'adapters/_registry.dart';
-
-/// One Heart Rate Measurement notification.
-class HrsSample {
-  /// Beats per minute as the sensor reported it.
-  final int hr;
-
-  /// Beat-to-beat DURATIONS in milliseconds carried by this notification, in
-  /// the order the sensor sent them. Empty when the sensor does not report RR
-  /// (the flag is OPTIONAL in the SIG spec and plenty of straps send only a
-  /// bpm) — empty is "not reported", never "zero".
-  final List<int> rrMs;
-
-  /// The sensor's own contact claim: true/false when it reports one, null when
-  /// it does not support the field at all. Never inferred from HR.
-  final bool? contact;
-
-  const HrsSample({required this.hr, required this.rrMs, this.contact});
-}
-
-/// Parse a Heart Rate Measurement (0x2A37) value.
-///
-/// Layout (Bluetooth SIG, Heart Rate Service 1.0):
-///   byte 0  flags
-///     bit 0  HR format: 0 = uint8, 1 = uint16 little-endian
-///     bits 1-2  sensor contact: 0b00/0b01 = not supported, 0b10 = no contact,
-///               0b11 = contact
-///     bit 3  Energy Expended present (uint16, kJ) — skipped, we do not use it
-///     bit 4  RR-Interval present (one or more uint16, units of 1/1024 s)
-///   then HR, then energy expended if present, then RR intervals to the end.
-///
-/// Returns null for a value that cannot be read as this characteristic (too
-/// short, or a truncated field). A malformed notification is DROPPED, never
-/// patched up into a plausible-looking beat.
-HrsSample? parseHeartRateMeasurement(List<int> value) {
-  if (value.length < 2) return null;
-  final flags = value[0];
-  final wide = (flags & 0x01) != 0;
-  var i = 1;
-  final int hr;
-  if (wide) {
-    if (value.length < 3) return null;
-    hr = value[1] | (value[2] << 8);
-    i = 3;
-  } else {
-    hr = value[1];
-    i = 2;
-  }
-  // 0 bpm is not a measurement. Sensors emit it while searching for a signal;
-  // storing it would put a real-looking zero into a heart-rate series.
-  if (hr <= 0 || hr > 300) return null;
-
-  final contactBits = (flags >> 1) & 0x03;
-  final contact = contactBits < 2 ? null : contactBits == 3;
-
-  if ((flags & 0x08) != 0) i += 2; // energy expended — present, not used
-  final rr = <int>[];
-  if ((flags & 0x10) != 0) {
-    // Trailing RR intervals, uint16 LE, 1/1024 s each. A trailing odd byte is a
-    // malformed value: stop rather than reading past it.
-    while (i + 1 < value.length) {
-      final ticks = value[i] | (value[i + 1] << 8);
-      i += 2;
-      // 1024 ticks = 1 s. Round to the nearest millisecond.
-      final ms = (ticks * 1000 + 512) ~/ 1024;
-      // 250-3000 ms is 20-240 bpm. Outside that the value is not a beat
-      // interval, and a chest strap emits exactly this junk on a dropped beat.
-      if (ms >= 250 && ms <= 3000) rr.add(ms);
-    }
-  }
-  return HrsSample(hr: hr, rrMs: rr, contact: contact);
-}
+import 'adapters/adapter.dart';
+import 'adapters/ble_hrs.dart';
+import 'adapters/gatt_link.dart';
 
 /// One arrival second's worth of notifications.
 class _Second {
@@ -138,8 +70,9 @@ class HrsLink {
   static const Duration _flushEvery = Duration(seconds: 15);
 
   BluetoothDevice? _device;
-  StreamSubscription<List<int>>? _valueSub;
+  StreamSubscription<BandEvent>? _runSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
+  Completer<void>? _runDone;
   Timer? _flushTimer;
 
   /// Arrival second -> that second's readings. Keyed by second because that is
@@ -171,7 +104,7 @@ class HrsLink {
   /// same row, and that is what this reads to connect.
   static Future<Map<String, Object?>?> pairedSensorRow() async {
     for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kBleHrs.id) return r;
+      if (r['adapter_id'] == kBleHrsAdapter.id) return r;
     }
     return null;
   }
@@ -200,20 +133,22 @@ class HrsLink {
       final device = BluetoothDevice.fromId(remoteId);
       _device = device;
       await device.connect(timeout: const Duration(seconds: 12));
-      final services = await device.discoverServices();
-      BluetoothCharacteristic? measure;
-      for (final s in services) {
-        if (s.uuid != Guid(kHeartRateServiceUuid)) continue;
-        for (final c in s.characteristics) {
-          if (c.uuid == Guid(kHeartRateMeasurementUuid)) measure = c;
-        }
-      }
-      if (measure == null) {
+      // Connect, bond, MTU and discovery are HOST work and stay on this side
+      // of the seam. The adapter is handed the result and nothing else.
+      final link = GattBandLink(
+        entry: kBleHrsAdapter.entry,
+        services: await device.discoverServices(),
+        onLog: (m) => debugPrint('[hrs] $m'),
+      );
+      final missing =
+          link.missingCharacteristics(kBleHrsAdapter.entry.requiredCharacteristics);
+      if (missing.isNotEmpty) {
+        debugPrint('[hrs] ${kBleHrsAdapter.label}: missing required '
+            'characteristic(s) ${missing.map((u) => u.substring(0, 8)).join(", ")}.');
         await disarm();
         return false;
       }
-      _valueSub = measure.onValueReceived.listen(_onValue);
-      await measure.setNotifyValue(true);
+      _startRun(link);
       // A sensor that walks out of range mid-session ends the log there rather
       // than leaving the link claiming to be armed when it is gone.
       _connSub = device.connectionState.listen((s) {
@@ -234,8 +169,7 @@ class HrsLink {
   Future<void> disarm() async {
     _flushTimer?.cancel();
     _flushTimer = null;
-    await _valueSub?.cancel();
-    _valueSub = null;
+    await _stopRun();
     await _connSub?.cancel();
     _connSub = null;
     await _flush(all: true);
@@ -250,35 +184,94 @@ class HrsLink {
     }
   }
 
+  /// Drive the adapter over [link]. Cancelling [_runSub] is the ONLY way the
+  /// session ends from this side — an adapter does not get to hang up, so
+  /// every timer and buffer it owns dies with its `async*` body.
+  void _startRun(BandLink link) {
+    final done = Completer<void>();
+    _runDone = done;
+    void finish() {
+      if (!done.isCompleted) done.complete();
+    }
+
+    _runSub = kBleHrsAdapter.run(link).listen(
+      _onEvent,
+      onDone: finish,
+      onError: (Object e) {
+        debugPrint('[hrs] session ended on error: $e');
+        finish();
+        // ponytail: `setNotifyValue` is now awaited inside the link's stream
+        // rather than inside [arm], so a rejected subscribe surfaces HERE
+        // instead of propagating out of `arm()` as a `false`. The ceiling is
+        // that `arm()` can briefly answer true for a session that is already
+        // dying; the callers all ignore its result. Tearing down here is what
+        // stops the link sitting "armed" over a dead stream. Give `arm()` back
+        // its answer only if a caller ever starts reading it.
+        if (_armed) unawaited(disarm());
+      },
+      cancelOnError: true,
+    );
+  }
+
+  Future<void> _stopRun() async {
+    await _runSub?.cancel();
+    _runSub = null;
+    _runDone = null;
+  }
+
+  void _onEvent(BandEvent e) {
+    switch (e) {
+      case SampleBatch(:final samples, :final ephemeral):
+        // EPHEMERAL IS NEVER PERSISTED, and the check is the HOST's, not the
+        // adapter's promise. This band always sends false; the line exists so
+        // the one place that decides what reaches the database is the one
+        // place that reads the flag.
+        if (ephemeral) return;
+        for (final s in samples) {
+          final slot = _pending.putIfAbsent(s.tsEpoch, _Second.new);
+          // Last notification in the second wins.
+          if (s.hr != null) slot.hr = s.hr;
+          slot.rr.addAll(s.rrMs);
+        }
+      case OffloadCheckpoint():
+        // A sensor with no flash cannot have anything to forget. If this ever
+        // fires, the adapter grew a store and this host has no
+        // commit-then-confirm path to honour the safe-trim invariant with —
+        // so it must NOT be confirmed. Dropping it stalls; confirming it would
+        // authorise a delete of data we never banked.
+        assert(false, 'ble_hrs emitted an OffloadCheckpoint; it stores nothing');
+      case BandNote(:final key, :final value):
+        debugPrint('[hrs] $key = $value');
+    }
+  }
+
   /// Feed raw notification bytes as if a sensor with [deviceId] were armed,
   /// and write them. The only way in: the real entry point is a BLE
   /// notification and `flutter_blue_plus` has no simulator path, so without
   /// this seam nothing below the parser could be exercised at all.
+  ///
+  /// It replays through the SAME [BleHrsAdapter.run] the radio drives, over a
+  /// [ReplayBandLink]. A test seam that skipped the adapter would prove the
+  /// wrong thing.
   @visibleForTesting
   Future<void> ingestForTest(
     String deviceId,
     List<(int, List<int>)> arrivals,
   ) async {
     _deviceId = deviceId;
+    final link = ReplayBandLink();
+    _startRun(link);
     for (final (sec, value) in arrivals) {
-      _onValue(value, sec);
+      link.feed(kHeartRateMeasurementUuid, value, atSec: sec);
     }
+    // Close, then wait for `run()` to actually finish, rather than guessing at
+    // a delay: the adapter's `await for` is asynchronous and a flush racing it
+    // would silently drop the tail.
+    await link.close();
+    await _runDone?.future;
     await _flush(all: true);
+    await _stopRun();
     _deviceId = null;
-  }
-
-  void _onValue(List<int> value, [int? atSec]) {
-    final s = parseHeartRateMeasurement(value);
-    if (s == null) return;
-    // The sensor's own "no skin contact" is a refusal, not a low reading: a
-    // chest strap off the chest reports confident nonsense. Drop the sample.
-    if (s.contact == false) return;
-    // ARRIVAL, not measurement — see the header. This is the whole reason the
-    // registry entry declares `TimeAnchor.arrival`.
-    final sec = atSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final slot = _pending.putIfAbsent(sec, _Second.new);
-    slot.hr = s.hr; // last notification in the second wins
-    slot.rr.addAll(s.rrMs);
   }
 
   /// Write out every second that can no longer receive more notifications.
@@ -303,7 +296,7 @@ class HrsLink {
     // the beat actually was", and for an arrival-anchored source we do not know
     // — anchor-minus-durations would be a measured claim we cannot make. NULL
     // is the column's own word for "not kept".
-    assert(kBleHrs.timeAnchor == TimeAnchor.arrival);
+    assert(kBleHrsAdapter.entry.timeAnchor == TimeAnchor.arrival);
     // Its own transaction, NOT `commitSyncBatch`: that path is the ACK-gating
     // commit, it raises `synchronous` for the duration and it refuses a
     // non-primary `device_id` outright (the `sync_cursor` namespace is global).
@@ -328,8 +321,8 @@ class HrsLink {
               // db.dart is next open.
               'counter': 0,
               'hr': slot.hr,
-              'device_family': kBleHrs.id,
-              'source': kBleHrs.id,
+              'device_family': kBleHrsAdapter.id,
+              'source': kBleHrsAdapter.id,
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
@@ -343,8 +336,8 @@ class HrsLink {
                 'beat_index': i,
                 'rr_ts_ms': sec * 1000,
                 'rr_ms': slot.rr[i],
-                'device_family': kBleHrs.id,
-                'source': kBleHrs.id,
+                'device_family': kBleHrsAdapter.id,
+                'source': kBleHrsAdapter.id,
               },
               conflictAlgorithm: ConflictAlgorithm.replace,
             );

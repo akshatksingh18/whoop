@@ -72,6 +72,76 @@ enum TimeAnchor {
   arrival,
 }
 
+/// The two OBSERVED client delays in the WHOOP 5 bootstrap: 600 ms between the
+/// bond completing and notification registration, and 500 ms between the last
+/// CCC write and the first command (on a captured link GET_HELLO went out
+/// 585 ms after it). The firmware rationale is not documented anywhere, which
+/// is exactly why they are per-band values and not a global settle: WHOOP 4's
+/// flow is proven without them, and perturbing it for a reason nobody can state
+/// is how a working band stops working.
+const Duration kGen5PreRegistrationDelay = Duration(milliseconds: 600);
+const Duration kGen5PostRegistrationDelay = Duration(milliseconds: 500);
+
+/// The command table for one framed band.
+///
+/// Every field here was an `if (session.band.isGen5)` in `ble_engine.dart` that
+/// chose a VALUE — an opcode, a body, a wire fact. Each is transcribed verbatim
+/// from the arm it replaces (`band_registry_test.dart` pins them), and the code
+/// around it is now unconditional.
+///
+/// What is deliberately NOT here: anything that chooses a different SEQUENCE of
+/// operations — the gen5 HELLO step, the advertising-name read, the battery-pack
+/// follow-up, the deep-buffer unlock, the two INIT state machines, the gen5
+/// alarm pre-arm, the historical decoder. Those are behaviour; they stay in the
+/// engine where the order can be read top to bottom (ASSUMPTIONS G1-G4 — the
+/// `run(BandLink)` move was declined, so there is nowhere else for them to go).
+///
+/// It is a TABLE, not a policy: no field is computed, and no field decides
+/// WHETHER something happens except by being absent ([r10R11Realtime]).
+class BandWireCommands {
+  /// GET_HELLO and its body. WHOOP 5 does not implement the Harvard opcode.
+  final int hello;
+  final List<int> helloBody;
+
+  /// GET_ADVERTISING_NAME and its body — a different opcode pair on each
+  /// generation, and gen5's takes a revision byte where gen4 takes 0x00.
+  final int getAdvertisingName;
+  final List<int> getAdvertisingNameBody;
+
+  /// SET_ADVERTISING_NAME. Only the opcode differs; the body
+  /// (`[0x01][len][ascii][u32 0]`) is identical on both and stays at the call
+  /// site that builds it.
+  final int setAdvertisingName;
+
+  /// SEND_R10_R11 (0x3F), the high-rate raw live-stream toggle — or NULL on a
+  /// band that does not implement the opcode (a WHOOP 5 console answers
+  /// Unknown/Unhandled). Null is what the four live-stream paths read to skip
+  /// the toggle; it is an absent command, not a capability claim.
+  final int? r10R11Realtime;
+
+  /// Whether ENABLE_OPTICAL_DATA is this band's LIVE optical toggle.
+  ///
+  /// A wire-semantics fact and a safety boundary, not a preference: on WHOOP 5
+  /// the same opcode is the SAVE-to-history toggle, so arming it for a live
+  /// stream would write a persistent save-enable that leaves the LEDs on.
+  final bool opticalDataIsLiveToggle;
+
+  /// Body of the offload commands (GET_DATA_RANGE, SEND_HISTORICAL_DATA).
+  /// gen4 sends a single 0x00; gen5 sends an EMPTY body.
+  final List<int> offloadBody;
+
+  const BandWireCommands({
+    required this.hello,
+    required this.helloBody,
+    required this.getAdvertisingName,
+    required this.getAdvertisingNameBody,
+    required this.setAdvertisingName,
+    required this.r10R11Realtime,
+    required this.opticalDataIsLiveToggle,
+    required this.offloadBody,
+  });
+}
+
 /// One band the app can discover and connect to.
 ///
 /// The wire format itself stays in `protocol` ([BandProfile] = header length,
@@ -123,6 +193,46 @@ class BandEntry {
   /// payload. Framed entries only.
   final int innerCounterOffset;
 
+  final BandWireCommands? _commands;
+
+  /// This band's command table. Framed entries only — a notify-only sensor has
+  /// no command channel at all, which is why this throws rather than answering
+  /// with a plausible-looking WHOOP default.
+  BandWireCommands get commands => _commands!;
+
+  /// Pause between the bond completing and notification registration, and
+  /// between the last CCC write and the first command. [Duration.zero] means
+  /// "no pause", which is what every band does unless it has evidence for one.
+  final Duration preRegistrationDelay;
+  final Duration postRegistrationDelay;
+
+  /// Whether the bootstrap SET_CLOCK is gated on measured drift
+  /// (`BootstrapClockGate`) rather than written unconditionally.
+  ///
+  /// FALSE ON WHOOP 4 ON PURPOSE, and it is not an oversight to be tidied: its
+  /// unconditional write is the proven flow, and the WHOOP 5 bootstrap is where
+  /// the evidence for gating lives. Flipping it changes a band that works.
+  final bool setClockDriftGated;
+
+  /// Whether a burst's declared `expectedPacketCount` is trustworthy enough to
+  /// GATE the burst, or is advisory only.
+  ///
+  /// FALSE ON WHOOP 4 ON PURPOSE. The gap between expected and actual varies
+  /// run to run there with no fixed offset, so a hard gate becomes a permanent
+  /// stall — 15 validation failures, abort, terminal Stuck — on a band whose
+  /// count semantics nothing has pinned. False is also the SAFE default for a
+  /// band nobody has measured.
+  final bool burstCountGateEnforced;
+
+  /// Whether this band's decoded `console_log` frames are echoed into the
+  /// engine log. Debug visibility only — never persisted, never gated on.
+  ///
+  /// It is per-band because the value of the noise is: WHOOP 5's handshake and
+  /// offload are the untested ones, so its console is worth reading. Note that
+  /// `protocol` decodes a console frame on BOTH bands, so false here means a
+  /// WHOOP 4 that emits one is silently dropped on the floor.
+  final bool logsConsoleOutput;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -133,8 +243,15 @@ class BandEntry {
     required this.innerOpcodeOffset,
     required this.innerVersionOffset,
     required this.innerCounterOffset,
+    required BandWireCommands commands,
     List<String>? requiredCharacteristics,
+    this.preRegistrationDelay = Duration.zero,
+    this.postRegistrationDelay = Duration.zero,
+    this.setClockDriftGated = false,
+    this.burstCountGateEnforced = false,
+    this.logsConsoleOutput = false,
   })  : _requiredCharacteristics = requiredCharacteristics,
+        _commands = commands,
         _service = null,
         timeAnchor = TimeAnchor.measured;
 
@@ -155,6 +272,14 @@ class BandEntry {
         _requiredCharacteristics = characteristics,
         gatt = null,
         wire = null,
+        // No envelope, no command channel: [commands] throws for the same
+        // reason the offsets are -1.
+        _commands = null,
+        preRegistrationDelay = Duration.zero,
+        postRegistrationDelay = Duration.zero,
+        setClockDriftGated = false,
+        burstCountGateEnforced = false,
+        logsConsoleOutput = false,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -181,6 +306,11 @@ class BandEntry {
 }
 
 /// WHOOP 4 ("Harvard", 6108xxxx).
+///
+/// Every value below is the gen4 arm of an `isGen5` branch that used to live in
+/// `ble_engine.dart`, transcribed unchanged. The four session flags are written
+/// out rather than left to their defaults because this is a table, and a table
+/// that says nothing about a band is not evidence that the band does nothing.
 const BandEntry kWhoopGen4 = BandEntry.framed(
   id: 'gen4',
   label: 'WHOOP 4',
@@ -189,6 +319,21 @@ const BandEntry kWhoopGen4 = BandEntry.framed(
   innerOpcodeOffset: 2,
   innerVersionOffset: 1,
   innerCounterOffset: 3,
+  preRegistrationDelay: Duration.zero,
+  postRegistrationDelay: Duration.zero,
+  setClockDriftGated: false,
+  burstCountGateEnforced: false,
+  logsConsoleOutput: false,
+  commands: BandWireCommands(
+    hello: Cmd.getHelloHarvard,
+    helloBody: <int>[0x00],
+    getAdvertisingName: Cmd.getAdvertisingNameHarvard,
+    getAdvertisingNameBody: <int>[0x00],
+    setAdvertisingName: Cmd.setAdvertisingNameHarvard,
+    r10R11Realtime: Cmd.sendR10R11Realtime,
+    opticalDataIsLiveToggle: true,
+    offloadBody: <int>[0x00],
+  ),
 );
 
 /// WHOOP 5 / MG ("fd4b"). Same inner payload layout as gen4 — only the
@@ -201,6 +346,25 @@ const BandEntry kWhoopGen5 = BandEntry.framed(
   innerOpcodeOffset: 2,
   innerVersionOffset: 1,
   innerCounterOffset: 3,
+  preRegistrationDelay: kGen5PreRegistrationDelay,
+  postRegistrationDelay: kGen5PostRegistrationDelay,
+  setClockDriftGated: true,
+  burstCountGateEnforced: true,
+  logsConsoleOutput: true,
+  commands: BandWireCommands(
+    hello: Cmd.getHello,
+    helloBody: <int>[0x01],
+    getAdvertisingName: Cmd.getCustomAdvertisingName,
+    getAdvertisingNameBody: <int>[revision1],
+    setAdvertisingName: Cmd.setCustomAdvertisingName,
+    // 0x3F answers Unknown/Unhandled on a WHOOP 5 console.
+    r10R11Realtime: null,
+    // ENABLE_OPTICAL_DATA is the SAVE-to-history toggle here, not the realtime
+    // stream (the realtime one is the next opcode up) — arming it for live
+    // would write a persistent save-enable on every live-stream start.
+    opticalDataIsLiveToggle: false,
+    offloadBody: <int>[],
+  ),
 );
 
 /// Any standard Bluetooth heart-rate sensor — the SIG's Heart Rate Service.

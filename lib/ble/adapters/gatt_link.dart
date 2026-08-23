@@ -15,9 +15,11 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../ble_state.dart' show WriteChain;
 import '_registry.dart';
 import 'adapter.dart';
 
@@ -47,6 +49,36 @@ class GattBandLink implements BandLink {
   // recover from.
   static const Duration _notifyTimeout = Duration(seconds: 15);
   static const Duration _writeTimeout = Duration(seconds: 8);
+
+  /// One write in flight at a time — the same [WriteChain] `BleEngine._write`
+  /// runs on, one instance per link. Not shared with the engine's: two
+  /// peripherals queueing behind each other is exactly what the per-remoteId
+  /// ownership model exists to prevent.
+  final WriteChain _chain = WriteChain();
+
+  /// Set by the HOST when it tears this link down.
+  ///
+  /// This is `_write`'s `owner: session` guard, in the only currency a link
+  /// has. A link is valid for exactly ONE connection (see [BandLink]), but a
+  /// write queued before a teardown and reached after one would still land:
+  /// `flutter_blue_plus` resolves a [BluetoothCharacteristic] against whatever
+  /// connection to that peripheral is live NOW, not the one it was discovered
+  /// on. So a stale adapter's offload ACK, with a re-used sequence number,
+  /// writes onto a brand-new link — which is the failure `_write` has guarded
+  /// against since the batch-ACK path was written.
+  bool _closed = false;
+
+  /// Refuse every write from here on. Idempotent; call it from the host's
+  /// teardown, beside cancelling the `run()` subscription.
+  void close() => _closed = true;
+
+  /// Test seam onto the write, the counterpart of `BleEngine.debugWriteHook`.
+  /// [_closed] is checked BEFORE it, for the reason the engine's is: a seam
+  /// that skips the guard it stands in for makes every test using it prove the
+  /// wrong thing. `flutter_blue_plus` has no simulator path, so a link built
+  /// with no services is the only way to exercise the guards at all.
+  @visibleForTesting
+  Future<bool> Function(List<int> value)? debugWriteHook;
 
   /// Which of [uuids] this peripheral does NOT expose. The host aborts the
   /// connect when it is non-empty — WHICH characteristics a link must have is
@@ -84,7 +116,7 @@ class GattBandLink implements BandLink {
   }
 
   @override
-  Future<bool> write(String characteristicUuid, List<int> value) async {
+  Future<bool> write(String characteristicUuid, List<int> value) {
     // THE DANGEROUS-OPCODE BLOCK, at the one place every adapter's writes
     // funnel through. It is here rather than in adapter code precisely so no
     // adapter — including one a contributor wrote — can reach FORCE_TRIM
@@ -96,30 +128,41 @@ class GattBandLink implements BandLink {
     if (opcode != null &&
         (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode))) {
       log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at BandLink');
-      return false;
+      return Future.value(false);
     }
-    final c = _find(characteristicUuid);
-    if (c == null) {
-      log('write: no characteristic ${characteristicUuid.substring(0, 8)} on '
-          'this peripheral.');
-      return false;
-    }
-    try {
-      // withoutResponse: false is what triggers bonding AND what gets commands
-      // acknowledged; a without-response write is silently dropped by the band.
-      // allowLongWrite covers the one frame that exceeds the 20-byte ATT limit
-      // of a default MTU (the rich SET_ALARM_TIME), and is a no-op below it.
-      await c
-          .write(value, withoutResponse: false, allowLongWrite: true)
-          .timeout(_writeTimeout);
-      return true;
-    } on TimeoutException {
-      log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
-      return false;
-    } catch (e) {
-      log('write error: $e');
-      return false;
-    }
+    // Refused BEFORE the chain, as in the engine: a blocked opcode must not
+    // wait behind a parked write to be refused.
+    return _chain.add<bool>(() async {
+      try {
+        if (_closed) {
+          log('write skipped: it belongs to a link that is no longer live.');
+          return false;
+        }
+        final hook = debugWriteHook;
+        if (hook != null) return await hook(value);
+        final c = _find(characteristicUuid);
+        if (c == null) {
+          log('write: no characteristic ${characteristicUuid.substring(0, 8)} '
+              'on this peripheral.');
+          return false;
+        }
+        // withoutResponse: false is what triggers bonding AND what gets
+        // commands acknowledged; a without-response write is silently dropped
+        // by the band. allowLongWrite covers the one frame that exceeds the
+        // 20-byte ATT limit of a default MTU (the rich SET_ALARM_TIME), and is
+        // a no-op below it.
+        await c
+            .write(value, withoutResponse: false, allowLongWrite: true)
+            .timeout(_writeTimeout);
+        return true;
+      } on TimeoutException {
+        log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
+        return false;
+      } catch (e) {
+        log('write error: $e');
+        return false;
+      }
+    });
   }
 
   /// The command opcode carried by an already-framed outbound write, or null

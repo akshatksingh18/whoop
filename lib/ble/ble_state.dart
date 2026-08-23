@@ -1743,3 +1743,36 @@ Future<T> withScanLock<T>(Future<T> Function() body) {
 }
 
 Future<void> _scanLock = Future.value();
+
+/// One GATT write in flight at a time, per LINK.
+///
+/// Same idiom as [withScanLock] — chain onto the previous op, hand the caller a
+/// completer, swallow nothing — but INSTANCE-scoped, because the thing being
+/// serialised is one peripheral's command characteristic and two peripherals
+/// must not queue behind each other (the per-remoteId ownership model exists so
+/// a background drainer and a foreground link can run at once).
+///
+/// Why it has to exist at all: a with-response write issued before the previous
+/// one has been acknowledged is dropped or reordered by the stack, and the
+/// failure is SILENT — the frame simply never reaches the band. `BleEngine`
+/// has had this since the batch-ACK path was written; `GattBandLink` shipped
+/// without it (ASSUMPTIONS G5) and could not bite only because no adapter
+/// wrote anything yet.
+class WriteChain {
+  Future<void> _tail = Future.value();
+
+  /// Run [op] after everything already queued on this chain. The returned
+  /// future carries [op]'s result or its error; the chain itself never carries
+  /// the error, so one failed write cannot wedge every write after it.
+  Future<T> add<T>(Future<T> Function() op) {
+    final completer = Completer<T>();
+    _tail = _tail.then((_) async {
+      try {
+        completer.complete(await op());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+}

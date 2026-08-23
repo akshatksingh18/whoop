@@ -70,6 +70,11 @@ class HrsLink {
   static const Duration _flushEvery = Duration(seconds: 15);
 
   BluetoothDevice? _device;
+
+  /// Kept only so [disarm] can [GattBandLink.close] it. Closing is what stops a
+  /// write the adapter queued before the teardown from landing on a LATER
+  /// connection to the same strap — see the field's own doc.
+  GattBandLink? _link;
   StreamSubscription<BandEvent>? _runSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
   Completer<void>? _runDone;
@@ -140,6 +145,7 @@ class HrsLink {
         services: await device.discoverServices(),
         onLog: (m) => debugPrint('[hrs] $m'),
       );
+      _link = link;
       final missing =
           link.missingCharacteristics(kBleHrsAdapter.entry.requiredCharacteristics);
       if (missing.isNotEmpty) {
@@ -169,6 +175,10 @@ class HrsLink {
   Future<void> disarm() async {
     _flushTimer?.cancel();
     _flushTimer = null;
+    // Before the run subscription is cancelled: an adapter's `finally` can
+    // still write on the way out, and that write must not reach the radio.
+    _link?.close();
+    _link = null;
     await _stopRun();
     await _connSub?.cancel();
     _connSub = null;

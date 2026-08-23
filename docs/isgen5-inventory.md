@@ -1,79 +1,109 @@
 # `isGen5` inventory — DATA vs BEHAVIOUR
 
-Every band-specific branch in `lib/ble/ble_engine.dart`, classified. This is the
-spec for the next wave (change-list D4/D9); **the split itself is not done here**.
+Every band-specific branch in `lib/ble/ble_engine.dart`, classified — and, as
+of the D4/D9 wave, **the DATA half is done**: it lives in `BandEntry` /
+`BandWireCommands` in `lib/ble/adapters/_registry.dart` and the code around it
+is unconditional.
 
-Line numbers are against `ble_engine.dart` at the end of Phase 4 wave 1
-(6,818 lines). Re-derive them before acting — this file rots.
+Line numbers are against `ble_engine.dart` at **6,844 lines** (post-split).
+Re-derive them before acting — this file rots, and the previous revision's
+numbers had drifted by +21 to +23 while claiming 30 occurrences when there
+were 44.
 
 **DATA** — the branch chooses a *value*: an opcode, a payload, a delay, an
-offset, a flag. It belongs in the registry entry / `BandProfile`, and the code
-around it becomes unconditional.
+offset, a flag. It belongs in the registry entry; the code around it becomes
+unconditional.
 
 **BEHAVIOUR** — the branch chooses a *different sequence of operations*: an
 extra handshake step, a different decoder, a different failure policy. It
-belongs in the adapter (`run(BandLink)`).
+belongs in an adapter — except there is no adapter to put it in: the
+`run(BandLink)` move was DECLINED (ASSUMPTIONS G1–G4), so behaviour stays in
+the engine, deliberately, and this file no longer pretends otherwise.
 
-**Counts: 30 sites — 21 DATA, 9 BEHAVIOUR.**
+**Counts, re-derived: 24 `isGen5` reads left in the engine, from 44.**
+Sixteen logical sites moved to the table; what is left is 9 BEHAVIOUR sites,
+4 already-table-driven policy arguments, 3 log strings, and 1 site the previous
+revision misclassified.
 
 ---
 
-## DATA (21)
+## MOVED — the table (16 sites)
 
-| Line | Site | The value that differs | Note |
+Every value is transcribed verbatim from the arm it replaced and pinned in
+`test/band_registry_test.dart` ("the gen4/gen5 arm of every branch that moved").
+
+| Line | Site | Field it reads now | gen4 → gen5 |
 |---|---|---|---|
-| 2103 | `_bootstrapAfterRegistration` pre-registration pause | `kGen5PreRegistrationDelay`, gen4 = none | A per-band `Duration`, zero on gen4. The pause code is already shared. |
-| 2299 | `_bootstrapAfterRegistration` post-registration pause | `kGen5PostRegistrationDelay` | Same shape as above. |
-| 2411 | `_bootstrapSetClock` | whether SET_CLOCK is drift-gated or unconditional | Two-state policy flag. The gate (`BootstrapClockGate`) is already pure and shared; only "does this band use it" differs. **gen4's unconditional write is deliberate** — the comment says the gen5 evidence does not transfer. Carry the flag, do not unify the behaviour. |
-| 2549–2557 | keep-alive live re-arm | which command re-arms live: IMU toggle vs `sendR10R11Realtime 0x01` | A per-band "live re-arm command set". |
-| 3204 | `_offloadPayload` | `[0x00]` vs `[]` | Pure payload. Already centralised — the cleanest DATA site in the file. |
-| 3436 | console-log line | whether this band's console output is logged | Debug-visibility only. NOTE the gate is not describing the wire: protocol's `decodeFrame` produces `console_log` for `PacketType.consoleLogs` on BOTH bands (`control.dart:1352`), so a gen4 strap emitting one is silently suppressed here. A per-band "log the console" bool, or just delete the gate. |
-| 3643 | `kKnownRecordVersions` membership | the record versions this band's decoder claims | Per-band set, today a gen4-only global. See BEHAVIOUR/3603 — the two move together. |
-| 4578 | `gateEnforced = session.band.isGen5` | whether `expectedPacketCount` is trustworthy enough to gate a burst | One bool. **Do not flip gen4's** — an enforced gate on gen4 stalls the drain permanently (comment at 4572). |
-| 5321, 5332 | `setClock` | *nothing but the log string* | The body is byte-identical on both. This branch can be deleted outright and the label read from `BandEntry.label`. |
-| 5724, 5732, 5736 | `setAlarm` payload + log | `AlarmPayloads.setPayloadForBand(isGen5:)` | Already delegated to a pure policy in `ble_state.dart`; the policy takes `isGen5:` and would take the entry (or a payload-shape field) instead. Sibling-owned file — coordinate. |
-| 5787 | `getAlarm` payload | `AlarmPayloads.getPayloadForBand` | Same as above. |
-| 5801 | `runAlarm` | opcode + payload (`runHapticPatternMaverick` vs `runAlarm`) | Opcode swap. The "do NOT stop haptics first" note is a comment, not a code difference. |
-| 5820 | `disableAlarm` payload | `AlarmPayloads.disableForBand` | Same as 5724. |
-| 5828 | `getStrapName` | opcode + payload | Opcode swap. |
-| 5844 | `setStrapName` | opcode | Body identical on both — the comment says so. |
-| 5853 | `getHello` | opcode + payload (`0x91`/`[0x01]` vs Harvard/`[0x00]`) | Opcode swap. |
-| 5864 | `buzzPattern` | opcode + payload; gen5 ignores `pattern` | Opcode swap plus "this band has one fixed waveform" — a payload fact. |
-| 5894, 5907, 5912 | `enableLiveStreams` | which toggles are in the ON set | A per-band command LIST, not a branch. **Carries a real footgun**: `enableOpticalData` is the SAVE-to-history toggle on gen5 (comment at 5900). The list is the safety boundary. |
-| 5951 | `enableHrOnlyLive` | which toggles are in the OFF set | Same list shape. |
-| 5967 | `disableLiveStreams` | which toggles are in the OFF set | Same list shape. Three sites, one per-band list. |
-| 6170, 6187 | `_maybeAugmentClockEpoch` | GET_CLOCK opcode; body offset `3` vs `2` | Offset + opcode. Exactly the D3 shape already moved into `BandEntry` for the historical-record offsets. |
+| 2125 | pre-registration pause | `BandEntry.preRegistrationDelay` | `Duration.zero` → 600 ms |
+| 2323 | post-registration pause | `BandEntry.postRegistrationDelay` | `Duration.zero` → 500 ms |
+| 2436 | `_bootstrapSetClock` | `BandEntry.setClockDriftGated` | `false` → `true` |
+| 2575 | keep-alive live re-arm | `BandWireCommands.r10R11Realtime` | `0x3F` → `null` |
+| 3224 | `_offloadPayload` | `BandWireCommands.offloadBody` | `[0x00]` → `[]` |
+| 3457 | console-log line | `BandEntry.logsConsoleOutput` | `false` → `true` |
+| 4600 | `gateEnforced` | `BandEntry.burstCountGateEnforced` | `false` → `true` |
+| 5853 | `getStrapName` | `getAdvertisingName` + `…Body` | Harvard/`[0x00]` → custom/`[rev1]` |
+| 5867 | `setStrapName` | `setAdvertisingName` | Harvard → custom (body shared) |
+| 5878 | `getHello` | `hello` + `helloBody` | Harvard/`[0x00]` → `0x91`/`[0x01]` |
+| 5919 | `enableLiveStreams` R10/R11 | `r10R11Realtime` | send → omit |
+| 5933 | `enableLiveStreams` optical | `opticalDataIsLiveToggle` | `true` → `false` |
+| 5938 | `enableLiveStreams` log | `opticalDataIsLiveToggle` | string unchanged |
+| 5971 | `enableHrOnlyLive` | `r10R11Realtime` | send → omit |
+| 5989 | `disableLiveStreams` | `r10R11Realtime` | send → omit |
+| — | the two delays themselves | `kGen5Pre/PostRegistrationDelay` | moved out of `BleEngine` into `_registry.dart`; one copy, not two |
 
-## BEHAVIOUR (9)
+**Two of these are the rows marked DO NOT UNIFY, and they still are.**
+`setClockDriftGated` and `burstCountGateEnforced` are `false` on WHOOP 4 because
+its unconditional SET_CLOCK is the proven flow and an enforced burst gate on a
+band whose count semantics nothing has pinned is a permanent stall (15 failures
+→ abort → Stuck). Moving a flag is not flipping it; both comments travelled with
+the field and are repeated on the field's own doc.
+
+## BEHAVIOUR — stays in the engine (9 sites, 11 reads)
 
 | Line | Site | What actually differs |
 |---|---|---|
-| 2328 | `_readGen5Hello()` inside `_bootstrapAfterRegistration` | An extra handshake round-trip with its own link-death abort, ordered before the clock read. gen4 has no equivalent step. |
-| 2434 | `_readAdvertisingNameGen5` | A gen5-only setup command with its own "not a readiness gate" failure semantics. |
-| 2461 | `_maybeStartBatteryPackFollowUp` | A gen5-only background task with its own retry schedule and once-per-session latch. |
-| 3604–3643 | historical record dispatch | `decodeGen5HistoricalSample` vs the gen4 version-routed chain, and which record kinds fall through to `raw_archive`. The core adapter responsibility. |
-| 5102 | `enableGen5DeepBuffers` | A gen5-only multi-frame `SET_FF_VALUE` sequence behind the **one audited `allowDangerous: true`**. Whatever holds it must keep the dangerous-opcode block's carve-out explicit and single. |
-| 5128–5181 | `sendInit` | The whole handshake: gen5 = CLIENT_HELLO already done + `GET_DATA_RANGE` + `SEND_HISTORICAL_DATA`; gen4 = the 5-packet INIT loop. Two different state machines sharing one method. **Biggest single item.** |
-| 5701 | `setAlarm` pre-arm | gen5 issues a SET_CLOCK + 120 ms settle before arming; gen4 does not. A sequence, not a payload. |
-| 5146–5161 | gen5 deep-buffer ordering inside `sendInit` | Config flags must land *before* the offload trigger. An ordering constraint that only exists on one band. |
-| 6396 | `DrainController.onArchiveHistorical` reads `inner[1]` | Left as-is deliberately: per MULTIBAND_PLAN §3.1 `DrainController` stays in `ble_engine` as the **gen4 adapter's private collaborator**. Its WHOOP assumptions are correct where they are; it should be named honestly, not made band-generic. |
+| 2353 | `_readGen5Hello()` in `_bootstrapAfterRegistration` | An extra handshake round-trip with its own link-death abort, ordered before the clock read. |
+| 2459 | `_readAdvertisingNameGen5` | A gen5-only setup command with its own "not a readiness gate" failure semantics. |
+| 2486 | `_maybeStartBatteryPackFollowUp` | A gen5-only background task with its own retry schedule and once-per-session latch. |
+| 3625–3664 | historical record dispatch | `decodeGen5HistoricalSample` vs the gen4 version-routed chain, and which kinds fall through to `raw_archive`. |
+| 5124 | `enableGen5DeepBuffers` | A gen5-only multi-frame `SET_FF_VALUE` sequence behind the one audited `allowDangerous: true`. |
+| 5150 | `sendInit` | Two INIT state machines in one method. Biggest single item — **and it writes host connection-priority state**: its `finally` clears `_connectSetup`, and a throw above that clear leaves the link pinned at setup priority for the whole connection with `_applyLinkPriority` early-returning forever. That is host state; it does not become data. |
+| 5724 | `setAlarm` pre-arm | gen5 issues SET_CLOCK + a 120 ms settle before arming. A sequence, not a payload. |
+| 5823 | `runAlarm` | Opcode swap **plus a computed body** — see below. |
+| 5888 | `buzzPattern` | Opcode swap **plus a computed body** — see below. |
 
----
+## NOT MOVED, and why — the honest boundary
 
-## What this inventory says about the next wave
+**`runAlarm` (5823) and `buzzPattern` (5888) — DATA that a `const` table cannot
+hold.** Both pick opcode *and* body. gen5's body is
+`AlarmPayloads.gen5MaverickBuzz()`, a computed list; `kWhoopGen4`/`kWhoopGen5`
+are `const`, so a field could only hold the twelve bytes transcribed into a
+second place — which is exactly the duplication a named constant exists to
+prevent. Moving the opcode alone would leave the body branch anyway, so both
+stay whole.
 
-1. **21 of 30 are opcode/payload/offset/delay values.** Most of the `isGen5`
-   surface is not behaviour at all — it is a table. A `BandEntry` that carries
-   an opcode map, three command lists (live-on / live-off / re-arm), two
-   durations and three bools erases two thirds of the branches without an
-   adapter existing.
-2. **Three of the nine BEHAVIOUR sites are one thing**: the gen5 setup
-   sequence (2328, 2434, 2461). They are ordered steps of one handshake that
-   gen4 does not have.
-3. **The alarm payload sites already have the right shape** — a pure policy in
-   `ble_state.dart` taking a band discriminator. Widening `isGen5:` to the
-   entry is mechanical; that file is owned elsewhere, so it needs coordinating,
-   not redesigning.
-4. **Two branches must NOT be unified** even though they look like duplication:
-   the gen4 unconditional SET_CLOCK (2411) and the gen4 advisory-only burst
-   count gate (4578). Both comments record a failure that flipping them caused.
+**The four `AlarmPayloads` discriminators (5746, 5809, 5842, and `setAlarm`'s
+own 5723) are already table-driven.** They are not branches in the engine; they
+are one named ARGUMENT to a pure policy in `ble_state.dart` that already selects
+by band. Widening `isGen5:` to take the entry moves no decision, and that file is
+owned elsewhere. Left alone.
+
+**Three reads are log text only** (5343/5354 `SET_CLOCK (gen5)`, 5754/5758 the
+alarm log, and the live-stream log now keyed off `opticalDataIsLiveToggle`).
+Changing them changes a user-visible log line with no wire meaning.
+
+**`_maybeAugmentClockEpoch` (6196/6197/6213) is NOT a band branch — the previous
+revision got this wrong.** It reads `op == Cmd.getClockGen5` on the *received*
+response, not `session.band`, and edge sends `Cmd.getClock` (11) on both bands.
+It mirrors protocol's own `control.dart:928` (`op == Cmd.getClockGen5 ? 3 : 2`).
+Keying the offset off the session band would change behaviour for a `147` reply
+on either link and would diverge from the parse it exists to patch. Left as is,
+and it is the "1 offset" the old breakdown expected.
+
+## What this wave actually cost
+
+One new type (`BandWireCommands`, eight fields), five new `BandEntry` fields,
+two constants relocated. No new mechanism, no capability booleans about our own
+features, no command DSL: `r10R11Realtime` being `null` is an ABSENT COMMAND,
+not a `supportsX()` claim, and it is the only field that decides whether
+something happens rather than what gets sent.

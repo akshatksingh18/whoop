@@ -82,4 +82,68 @@ void main() {
     expect(bandEntryFor(BandProfile.gen4).id, 'gen4');
     expect(bandEntryFor(BandProfile.gen5).id, 'gen5');
   });
+
+  // ── the isGen5 split (D4/D9) ────────────────────────────────────────────
+  // Each expectation below is the LITERAL that used to sit in the matching arm
+  // of an `if (session.band.isGen5)` in `ble_engine.dart`. Nothing here is
+  // derived: a wrong entry does not throw, it sends the wrong bytes to a band
+  // nobody can test against.
+
+  test('D9 — the gen4 arm of every branch that moved, transcribed', () {
+    final c = kWhoopGen4.commands;
+    expect(c.hello, Cmd.getHelloHarvard); //  getHello()
+    expect(c.helloBody, const <int>[0x00]); //  getHello()
+    expect(c.getAdvertisingName, Cmd.getAdvertisingNameHarvard);
+    expect(c.getAdvertisingNameBody, const <int>[0x00]);
+    expect(c.setAdvertisingName, Cmd.setAdvertisingNameHarvard);
+    expect(c.r10R11Realtime, Cmd.sendR10R11Realtime); //  live on/off/re-arm
+    expect(c.opticalDataIsLiveToggle, isTrue); //  enableLiveStreams()
+    expect(c.offloadBody, const <int>[0x00]); //  _offloadPayload
+    expect(kWhoopGen4.preRegistrationDelay, Duration.zero);
+    expect(kWhoopGen4.postRegistrationDelay, Duration.zero);
+    expect(kWhoopGen4.setClockDriftGated, isFalse); //  unconditional SET_CLOCK
+    expect(kWhoopGen4.burstCountGateEnforced, isFalse); //  advisory only
+    expect(kWhoopGen4.logsConsoleOutput, isFalse);
+  });
+
+  test('D9 — the gen5 arm of every branch that moved, transcribed', () {
+    final c = kWhoopGen5.commands;
+    expect(c.hello, Cmd.getHello);
+    expect(c.helloBody, const <int>[0x01]);
+    expect(c.getAdvertisingName, Cmd.getCustomAdvertisingName);
+    expect(c.getAdvertisingNameBody, const <int>[revision1]);
+    expect(c.setAdvertisingName, Cmd.setCustomAdvertisingName);
+    // NULL, not 0x3F: a WHOOP 5 answers Unknown/Unhandled, and null is what
+    // the four live-stream paths read to omit the toggle entirely.
+    expect(c.r10R11Realtime, isNull);
+    // FALSE is the safety boundary: the same opcode is the SAVE-to-history
+    // toggle here, so arming it for live writes a persistent save-enable.
+    expect(c.opticalDataIsLiveToggle, isFalse);
+    expect(c.offloadBody, const <int>[]);
+    expect(kWhoopGen5.preRegistrationDelay, kGen5PreRegistrationDelay);
+    expect(kWhoopGen5.postRegistrationDelay, kGen5PostRegistrationDelay);
+    expect(kWhoopGen5.setClockDriftGated, isTrue);
+    expect(kWhoopGen5.burstCountGateEnforced, isTrue);
+    expect(kWhoopGen5.logsConsoleOutput, isTrue);
+  });
+
+  test('the two bands genuinely differ everywhere the branch said they did',
+      () {
+    // The failure this catches is a copy-paste row: a gen5 entry that silently
+    // carries gen4's opcodes still compiles and still passes every "is it the
+    // right value" assertion written against ONE band.
+    final a = kWhoopGen4.commands;
+    final b = kWhoopGen5.commands;
+    expect(a.hello, isNot(b.hello));
+    expect(a.getAdvertisingName, isNot(b.getAdvertisingName));
+    expect(a.setAdvertisingName, isNot(b.setAdvertisingName));
+    expect(a.r10R11Realtime, isNot(b.r10R11Realtime));
+    expect(a.offloadBody, isNot(b.offloadBody));
+  });
+
+  test('a notify-only sensor has no command table at all', () {
+    // Same rule as the -1 offsets: throwing beats answering with a
+    // plausible-looking WHOOP default that would be written to a chest strap.
+    expect(() => kBleHrs.commands, throwsA(isA<TypeError>()));
+  });
 }

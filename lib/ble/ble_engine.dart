@@ -784,7 +784,12 @@ class BleEngine {
   Future<void> _opLock = Future.value();
 
   final SeqAllocator _seq = SeqAllocator();
-  Future<void> _writeChain = Future.value();
+
+  /// This engine's link is ONE peripheral's command characteristic, so one
+  /// write is in flight at a time. Shared type with `GattBandLink`, which needs
+  /// the identical guarantee for the identical reason (ASSUMPTIONS G5) — one
+  /// chain each, never one between them.
+  final WriteChain _writeChain = WriteChain();
 
   /// Reconnection backoff schedule (bounded exponential + jitter). Owned by the
   /// transport; the caller's reconnect loop reads `reconnectDelay(attempt)` so the
@@ -1420,16 +1425,11 @@ class BleEngine {
   int _helloFailures = 0;
   static const int kHelloFailuresBeforeBondReset = 5;
 
-  /// the pinned bootstrap waits **600 ms** after the
-  /// bond, before notification registration, and **500 ms** after the last
-  /// registration before running the higher-level state machine — on a captured
-  /// link GET_HELLO went out 585 ms after the final CCC write. These are
-  /// OBSERVED client delays; the doc says outright that "the firmware rationale
-  /// is not documented", so they are applied on gen5 only rather than
-  /// perturbing the proven gen4 flow for a reason nobody can state.
-  static const Duration kGen5PreRegistrationDelay = Duration(milliseconds: 600);
-  static const Duration kGen5PostRegistrationDelay =
-      Duration(milliseconds: 500);
+  // The two bootstrap delays moved to `adapters/_registry.dart`
+  // ([kGen5PreRegistrationDelay] / [kGen5PostRegistrationDelay]) and are read
+  // per band off [BandEntry.preRegistrationDelay] — a band-specific duration is
+  // data, and keeping a second copy here would be the one thing an assumption's
+  // named constant exists to prevent.
 
   /// while the band reports charging, ask it what
   /// battery pack it is on — "five attempts, 5,000 ms between attempts", and
@@ -2090,8 +2090,7 @@ class BleEngine {
       session.applyBand(entry);
       state.generation = entry.id;
       _log('Detected ${entry.label} (${entry.id}) link.');
-      // Both non-null: `entry` came out of [kFramedBands].
-      final band = entry.wire!;
+      // Non-null: `entry` came out of [kFramedBands].
       final gatt = entry.gatt!;
       BluetoothCharacteristic? find(String uuid) {
         final prefix = uuid.substring(0, 8);
@@ -2120,13 +2119,14 @@ class BleEngine {
       final events = find(gatt.events);
       final data = find(gatt.data);
 
-      // (gen5 only — see [kGen5PreRegistrationDelay]):
-      // the bond is complete by here, so this is the 600 ms that precedes
-      // notification registration.
-      if (band.isGen5 &&
+      // The bond is complete by here, so this is the pause that precedes
+      // notification registration — [BandEntry.preRegistrationDelay], zero on
+      // a band with no evidence for one.
+      final preDelay = entry.preRegistrationDelay;
+      if (preDelay > Duration.zero &&
           !await _bootstrapPause(
             session,
-            kGen5PreRegistrationDelay,
+            preDelay,
             'the pre-registration delay',
           )) {
         return false;
@@ -2317,12 +2317,14 @@ class BleEngine {
   /// Returns false when the link died under one of the steps; the session has
   /// already been torn down in that case.
   Future<bool> _bootstrapAfterRegistration(_Session session) async {
-    // 500 ms after the last registration, before the
-    // higher-level state machine runs. gen5 only — see the constant.
-    if (session.band.isGen5 &&
+    // The pause after the last registration, before the higher-level state
+    // machine runs — [BandEntry.postRegistrationDelay], zero on a band with no
+    // evidence for one.
+    final postDelay = session.entry.postRegistrationDelay;
+    if (postDelay > Duration.zero &&
         !await _bootstrapPause(
           session,
-          kGen5PostRegistrationDelay,
+          postDelay,
           'the post-registration delay',
         )) {
       return false;
@@ -2431,7 +2433,7 @@ class BleEngine {
   /// the WHOOP 5 bootstrap is where the evidence lives.
   Future<void> _bootstrapSetClock(_Session session) async {
     if (_deferForClock) return;
-    if (session.band.isGen5) {
+    if (session.entry.setClockDriftGated) {
       final drift = _clockRef?.driftSec;
       if (!BootstrapClockGate.needsCorrection(drift)) {
         _log('[CLOCK] in sync (drift ${drift}s, tolerance '
@@ -2568,13 +2570,14 @@ class BleEngine {
       // Re-arm ONLY what the current live mode wants: re-sending the high-rate
       // R10/R11 toggle while in HR-only mode (background downgrade) or under the
       // marginal-radio fallback would silently undo the downgrade every 30 s.
-      // gen5: 0x3F is Unknown/Unhandled — re-arm IMU instead when full live.
-      final isGen5 = _session?.band.isGen5 ?? false;
+      // A band with no SEND_R10_R11 opcode (WHOOP 5: Unknown/Unhandled) carries
+      // its high-rate live stream on the IMU toggle, so that is what re-arms.
+      final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
       if (!_liveHrOnly && !state.standardHrFallback) {
-        if (isGen5) {
+        if (r10 == null) {
           _sendToggleImu(true);
         } else {
-          _send(Cmd.sendR10R11Realtime, const [0x01]);
+          _send(r10, const [0x01]);
         }
       }
       // Evidence-gated: the HR re-arm exists to recover a stream that silently
@@ -3063,9 +3066,7 @@ class BleEngine {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at _write');
       return Future.value(false);
     }
-    final completer = Completer<bool>();
-    _writeChain = _writeChain.then((_) async {
-      var ok = false;
+    return _writeChain.add<bool>(() async {
       try {
         // Readiness and ownership are checked BEFORE the test seam, not after,
         // so a hooked write rejects a stale-session ACK exactly like the real
@@ -3073,21 +3074,18 @@ class BleEngine {
         // makes every test that relies on it prove the wrong thing.
         if (session == null || !session.connected) {
           _log('write skipped: link not ready.');
-          return;
+          return false;
         }
         if (owner != null && !identical(owner, session)) {
           _log('write skipped: it belongs to a session that is no longer live.');
-          return;
+          return false;
         }
         final hook = debugWriteHook;
-        if (hook != null) {
-          ok = await hook(raw);
-          return;
-        }
+        if (hook != null) return await hook(raw);
         final cmd = session.cmdTo;
         if (cmd == null) {
           _log('write skipped: link not ready.');
-          return;
+          return false;
         }
         // allowLongWrite: the rich SET_ALARM_TIME frame is 32B — the only write
         // that exceeds the 20B ATT limit of a default (23B) MTU. Without a long
@@ -3097,16 +3095,15 @@ class BleEngine {
         await cmd
             .write(raw, withoutResponse: false, allowLongWrite: true)
             .timeout(_writeTimeout);
-        ok = true;
+        return true;
       } on TimeoutException {
         _log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
+        return false;
       } catch (e) {
         _log('write error: $e');
-      } finally {
-        completer.complete(ok);
+        return false;
       }
     });
-    return completer.future;
   }
 
   /// The command opcode carried by an already-framed outbound write, or null
@@ -3219,12 +3216,12 @@ class BleEngine {
   }
 
   // Offload commands whose PAYLOAD (not just the frame envelope) is
-  // generation-specific: gen4 sends a single 0x00, gen5 sends an EMPTY payload.
-  // Centralised so every offload trigger — the initial handshake, periodic
-  // backfill, manual refresh, and retry — emits the correct gen5 format on a
-  // gen5 link. (_send already frames with the session's BandProfile.)
+  // band-specific: gen4 sends a single 0x00, gen5 sends an EMPTY payload.
+  // Read from [BandWireCommands.offloadBody] so every offload trigger — the
+  // initial handshake, periodic backfill, manual refresh, and retry — emits the
+  // right one. (_send already frames with the session's BandProfile.)
   List<int> get _offloadPayload =>
-      (_session?.band.isGen5 ?? false) ? const <int>[] : const <int>[0x00];
+      (_session?.entry ?? kWhoopGen4).commands.offloadBody;
   /// IMU_SET_DATA_STREAM for the session's band. gen5 wants a leading revision
   /// byte where gen4 sends a bare on/off byte; protocol's `cmdToggleImu` owns
   /// that split. Sent the gen4 body, a gen5 strap reads the state from past the
@@ -3447,16 +3444,17 @@ class BleEngine {
         onEvent?.call(e.eventId, e.tsEpoch, _innerHex(frame.inner));
       }
     }
-    final band = _session?.band ?? BandProfile.gen4;
+    final entry = _session?.entry ?? kWhoopGen4;
+    final band = entry.wire!;
     final decoded = _maybeAugmentClockEpoch(
       frame,
       decodeFrame(frame, profile: band),
     );
-    // gen5-only, debug-visibility ONLY (never persisted, never gated on):
-    // log the strap's own console text (now decoded by protocol's
-    // `parseConsoleLog`, wired into `decodeFrame` above). Genuinely useful
-    // for diagnosing the untested gen5 handshake/offload on real hardware.
-    if (band.isGen5 && decoded.kind == 'console_log') {
+    // Debug-visibility ONLY (never persisted, never gated on): log the strap's
+    // own console text (decoded by protocol's `parseConsoleLog`, wired into
+    // `decodeFrame` above). Per-band because the value of the noise is — see
+    // [BandEntry.logsConsoleOutput].
+    if (entry.logsConsoleOutput && decoded.kind == 'console_log') {
       _log('[CONSOLE gen5] idx=${decoded.fields['record_index']} '
           'ts=${decoded.fields['ts_epoch']}: ${decoded.fields['text']}');
     }
@@ -4597,8 +4595,9 @@ class BleEngine {
       // and actual varies run to run with no fixed offset, and a hard gate
       // turns that into a permanent stall (15 failures → abort → Stuck) on a
       // band whose count semantics nothing has pinned — so gen4 keeps the
-      // advisory-only behaviour until a gen4 capture settles it.
-      final gateEnforced = session.band.isGen5;
+      // advisory-only behaviour until a gen4 capture settles it. That is the
+      // whole content of [BandEntry.burstCountGateEnforced]; do not flip it.
+      final gateEnforced = session.entry.burstCountGateEnforced;
       final validated = expected == null ||
           !gateEnforced ||
           d.validateBurst(
@@ -5847,10 +5846,12 @@ class BleEngine {
   }
 
   /// Read the strap's advertising name. gen5 does not implement gen4's
-  /// advertising-name opcodes at all — it has its own pair.
-  Future<void> getStrapName() => (_session?.band.isGen5 ?? false)
-      ? _send(Cmd.getCustomAdvertisingName, const [revision1])
-      : _send(Cmd.getAdvertisingNameHarvard, const [0x00]);
+  /// advertising-name opcodes at all — it has its own pair, which is why the
+  /// opcode AND the body come from the band's command table.
+  Future<void> getStrapName() {
+    final c = (_session?.entry ?? kWhoopGen4).commands;
+    return _send(c.getAdvertisingName, c.getAdvertisingNameBody);
+  }
 
   /// Rename the strap. Payload: [0x01][name length u8][ASCII name bytes][u32 0].
   /// Same body on both generations; only the opcode differs.
@@ -5862,9 +5863,8 @@ class BleEngine {
         .take(20)
         .toList();
     final payload = <int>[0x01, ascii.length, ...ascii, 0, 0, 0, 0];
-    final isGen5 = _session?.band.isGen5 ?? false;
     await _send(
-      isGen5 ? Cmd.setCustomAdvertisingName : Cmd.setAdvertisingNameHarvard,
+      (_session?.entry ?? kWhoopGen4).commands.setAdvertisingName,
       payload,
     );
     _log('SET_ADVERTISING_NAME → "$name"');
@@ -5873,9 +5873,10 @@ class BleEngine {
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and
   // the branch's gen5 HELLO, which is a different opcode on Maverick.
   Future<void> getBattery() => _pollBatteryIfDue(force: true);
-  Future<void> getHello() => (_session?.band.isGen5 ?? false)
-      ? _send(Cmd.getHello, const [0x01])
-      : _send(Cmd.getHelloHarvard, const [0x00]);
+  Future<void> getHello() {
+    final c = (_session?.entry ?? kWhoopGen4).commands;
+    return _send(c.hello, c.helloBody);
+  }
   Future<void> buzz() => buzzPattern(hapticShortPulse);
 
   /// Play a haptic buzz. gen5 ("Maverick") has a DIFFERENT buzz opcode and
@@ -5903,7 +5904,7 @@ class BleEngine {
     unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
-    final isGen5 = _session?.band.isGen5 ?? false;
+    final c = (_session?.entry ?? kWhoopGen4).commands;
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     // MARGINAL-RADIO FALLBACK: a weak radio can't sustain the high-rate R10/R11 +
     // IMU + optical flood, so once the detector trips we arm HR only.
@@ -5912,27 +5913,29 @@ class BleEngine {
       return;
     }
     await Future.delayed(const Duration(milliseconds: 100));
-    // gen5 console: 0x3F (R10/R11 realtime) is Unknown/Unhandled — skip it.
-    // Live steps ride toggleImuMode (gen5: 0x2B rec 0x15; gen4: 0x33).
-    if (!isGen5) {
-      await _send(Cmd.sendR10R11Realtime, const [0x01]);
+    // A band with no SEND_R10_R11 opcode (gen5 console: 0x3F is
+    // Unknown/Unhandled) skips it. Live steps ride toggleImuMode there
+    // (gen5: 0x2B rec 0x15; gen4: 0x33).
+    final r10 = c.r10R11Realtime;
+    if (r10 != null) {
+      await _send(r10, const [0x01]);
       await Future.delayed(const Duration(milliseconds: 100));
     }
     await _sendToggleImu(true);
     await Future.delayed(const Duration(milliseconds: 100));
-    // gen4 only. On gen5 this opcode is the SAVE-to-history toggle, not the
-    // realtime stream — the realtime one is the next opcode up — so arming it
-    // here would write a save enable on every live-stream start, next door to
-    // the persistent-optical footgun that leaves the LEDs on and drains the
-    // battery. gen5's own 1 Hz stream already carries per-second HR, so there
-    // is nothing to gain until the roles are confirmed on hardware. The OFF
-    // writes in disableLiveStreams stay unconditional.
-    if (!isGen5) {
+    // Only where ENABLE_OPTICAL_DATA is the LIVE toggle. On gen5 it is the
+    // SAVE-to-history toggle — the realtime one is the next opcode up — so
+    // arming it here would write a save enable on every live-stream start, next
+    // door to the persistent-optical footgun that leaves the LEDs on and drains
+    // the battery. gen5's own 1 Hz stream already carries per-second HR, so
+    // there is nothing to gain until the roles are confirmed on hardware. The
+    // OFF writes in disableLiveStreams stay unconditional.
+    if (c.opticalDataIsLiveToggle) {
       await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
     }
     _log(
       'Live streams enabled ('
-      '${isGen5 ? "gen5 IMU rev1; optical skipped" : "optical: wrist-gated"}).',
+      '${c.opticalDataIsLiveToggle ? "optical: wrist-gated" : "gen5 IMU rev1; optical skipped"}).',
     );
   }
 
@@ -5965,13 +5968,13 @@ class BleEngine {
     if (_session?.connected != true) return;
     _liveEnabled = true;
     _liveHrOnly = true;
-    final isGen5 = _session?.band.isGen5 ?? false;
+    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
     unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
     final offOps = <Future<bool> Function()>[
       () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
       () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (!isGen5) () => _send(Cmd.sendR10R11Realtime, const [0x00]),
+      if (r10 != null) () => _send(r10, const [0x00]),
       () => _sendToggleImu(false),
     ];
     for (final op in offOps) {
@@ -5983,11 +5986,11 @@ class BleEngine {
 
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
   Future<void> disableLiveStreams() async {
-    final isGen5 = _session?.band.isGen5 ?? false;
+    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
     final ops = <Future<bool> Function()>[
       () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
       () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (!isGen5) () => _send(Cmd.sendR10R11Realtime, const [0x00]),
+      if (r10 != null) () => _send(r10, const [0x00]),
       () => _sendToggleImu(false),
       () => _send(Cmd.toggleRealtimeHr, const [0x00]),
     ];

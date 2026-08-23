@@ -17,16 +17,23 @@
 // third "imported" tier; bringing a history in is data adoption, not device
 // support, and it never appears on a compatibility list.
 //
-// A tier rung is drawn when something in it exists. Tier 1 does not: the
-// generic Bluetooth heart-rate link is in this build but only inside a workout
-// and with no way to pair one, so it is named in the NOT YET list rather than
-// drawn as an empty rung people go hunting for.
+// A tier rung is drawn when something in it exists. Tier 1 is now reachable —
+// a standard Bluetooth heart-rate sensor can be paired from this screen — so it
+// is no longer named in the NOT YET list. What it CANNOT do is stated on the
+// sensor's own row instead: it captures beats during a workout and nothing
+// derives from it yet, because no one on this project has held one
+// (ASSUMPTIONS R6).
 
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show BluetoothDevice;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../ble/adapters/_registry.dart' show kBandRegistry;
+import '../../ble/adapters/_registry.dart'
+    show BandEntry, kBandRegistry, kBleHrs, kOura;
+import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
 import '../../notify/battery_forecast.dart';
@@ -35,6 +42,7 @@ import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
+import 'pair_sensor.dart' show PairSensorScreen;
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
 
@@ -122,14 +130,6 @@ class NotYet {
 /// someone can hold us to. These three are the ones already decided.
 const List<NotYet> kNotYet = [
   NotYet(
-    'Any standard Bluetooth heart-rate sensor',
-    'A chest strap reports beat timing electrically, which is better than a '
-        'wrist pulse can be. The link is in this build and runs during a '
-        'workout, but there is nowhere yet to pair one.',
-    'Being built',
-    LucideIcons.heartPulse,
-  ),
-  NotYet(
     'Polar 360 and Loop',
     'Screenless, no subscription, worn around the clock, with beat-to-beat '
         'intervals the vendor documents. Nobody has written the driver.',
@@ -150,7 +150,16 @@ const List<NotYet> kNotYet = [
 /// One thing that can produce measurements.
 class HealthSource {
   final String name, kind;
-  final SourceTier tier;
+
+  /// Where this source sits on the quality ladder, or NULL when it has no
+  /// place on it.
+  ///
+  /// Null is not "unknown", it is "none". The Oura ring is the case: it holds
+  /// a pairing key, drains history and banks every frame it is sent, and it
+  /// supplies no decoded signal at all (`OuraAdapter.signals` is `const {}`),
+  /// so there is no measurement quality to rank. Filing it under the phone's
+  /// rung would have told someone their ring was reporting steps.
+  final SourceTier? tier;
   final IconData icon;
   final bool connected;
 
@@ -161,8 +170,21 @@ class HealthSource {
   final bool charging;
   final DateTime? lastData;
 
-  /// True for the paired band — the only source with device controls.
+  /// True for the PRIMARY band — the only source the offload engine drives,
+  /// and the only one with band controls (rename, find, battery forecast).
+  ///
+  /// FALSE for a paired sensor, deliberately. A chest strap is a better beat
+  /// detector than the band and a worse everything-else: it measures nothing
+  /// while a workout is not running. Letting one satisfy `hasBand` would take
+  /// the "No band is paired" card off a screen belonging to someone whose
+  /// sleep, recovery and temperature are all still abstaining.
   final bool isBand;
+
+  /// The `device` row this source is, for a paired sensor. Null for the
+  /// primary band (whose row is `LocalDb.kPrimaryDeviceId`, `''`) and for the
+  /// phone. It is the `device_id` every measurement this source wrote carries,
+  /// which is what makes forgetting it possible without touching the data.
+  final String? deviceId;
 
   /// The ingest-stamped sensor family (`'gen4'` / `'gen5'`), or null when the
   /// link has not said yet. Not cosmetic: it is the key every sensor-dependent
@@ -172,8 +194,12 @@ class HealthSource {
   /// Publicly EXPERIMENTAL — this band is decoded but the owner has never held
   /// one (see [kOwnerConfirmedBandIds]). Not a quality tier and not a
   /// confidence: it says who has checked, not how good the numbers are.
+  /// NOT gated on [isBand]. A paired sensor is the case this exists for — it
+  /// is the one nobody here has held — and requiring `isBand` would have hidden
+  /// the label on exactly those rows while showing it on the band the owner
+  /// wears daily.
   bool get experimental =>
-      isBand && family != null && !kOwnerConfirmedBandIds.contains(family);
+      family != null && !kOwnerConfirmedBandIds.contains(family);
 
   const HealthSource({
     required this.name,
@@ -186,6 +212,7 @@ class HealthSource {
     this.charging = false,
     this.lastData,
     this.isBand = false,
+    this.deviceId,
     this.family,
   });
 }
@@ -223,9 +250,35 @@ class HealthSource {
   );
 }
 
+/// The glyph for a paired sensor. A ring is not a chest strap and the row is
+/// the only place a user can tell two paired sensors apart at a glance.
+IconData sensorIcon(String? adapterId) => switch (adapterId) {
+      'oura' => LucideIcons.circleDot,
+      _ => LucideIcons.heartPulse,
+    };
+
+/// The tier named by a `device.tier` column, or null when the column is blank
+/// or holds a name this build does not have.
+///
+/// Null is a refusal, the same way a null `adapter_id` is: a row written by a
+/// future version naming a rung this build cannot draw must not be quietly
+/// filed under the nearest one it knows.
+SourceTier? tierNamed(Object? name) {
+  for (final t in SourceTier.values) {
+    if (t.name == name) return t;
+  }
+  return null;
+}
+
 /// The sources that actually exist right now. Nothing is listed that cannot
 /// produce a number today — everything else is in [kNotYet], with its reason.
-List<HealthSource> liveSources(AppState app) => [
+///
+/// [sensorLive] is whether a paired sensor's link is up THIS INSTANT. It is
+/// passed in rather than read off `HrsLink` here because it changes on every
+/// beat: routing it through [AppState] would notify every listener in the app
+/// at 1 Hz for the duration of a workout, which is the rebuild storm this
+/// screen has already been fixed for once.
+List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
       if (app.isPaired)
         HealthSource(
           name: app.strapName ?? 'Your band',
@@ -245,6 +298,28 @@ List<HealthSource> liveSources(AppState app) => [
           lastData: app.lastRecordAt,
           isBand: true,
           family: app.device.generation,
+        ),
+      // Sensors paired alongside the band. One row each, ranked by their own
+      // tier like everything else — a beat-to-beat strap sorts ABOVE the wrist
+      // band, which is the whole point of the ladder being quality-first.
+      for (final r in app.sensors)
+        HealthSource(
+          // The advertised name the user picked, then the registry's word for
+          // what it is. Never a placeholder — `cleanDeviceLabel` already
+          // refused anything junk at pairing.
+          name: (r['label'] as String?) ??
+              bandLabelFor(r['adapter_id'] as String?) ??
+              'Paired sensor',
+          kind: bandLabelFor(r['adapter_id'] as String?) ?? 'Unknown sensor',
+          // Null when the column is blank (a source with nothing to rank) or
+          // names a rung this build does not have. Either way it is a refusal,
+          // never the nearest rung we happen to know.
+          tier: tierNamed(r['tier']),
+          icon: sensorIcon(r['adapter_id'] as String?),
+          connected: sensorLive,
+          isBand: false,
+          deviceId: r['id'] as String?,
+          family: r['adapter_id'] as String?,
         ),
       if (app.phoneStepsEnabled)
         HealthSource(
@@ -270,7 +345,9 @@ List<HealthSource> liveSources(AppState app) => [
 List<HealthSource> rankSources(List<HealthSource> sources) {
   final out = [...sources];
   out.sort((a, b) {
-    final byTier = a.tier.rank.compareTo(b.tier.rank);
+    // An unranked source sorts BELOW every ranked one — it is not competing
+    // for precedence, because it supplies nothing to compete with.
+    final byTier = (a.tier?.rank ?? 99).compareTo(b.tier?.rank ?? 99);
     if (byTier != 0) return byTier;
     final at = a.lastData, bt = b.lastData;
     if (at != null && bt != null && at != bt) return bt.compareTo(at);
@@ -289,8 +366,18 @@ class MyDevices extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
+    // The live reading is subscribed HERE and nowhere higher. It moves on every
+    // beat, so a listener on AppState would rebuild the whole app at 1 Hz for
+    // the length of a workout; this rebuilds one screen.
+    return ValueListenableBuilder<HrsReading?>(
+      valueListenable: HrsLink.instance.reading,
+      builder: (c, reading, _) => _build(c, app, reading != null),
+    );
+  }
+
+  Widget _build(BuildContext c, AppState app, bool sensorLive) {
     return MyDevicesView(
-      sources: rankSources(liveSources(app)),
+      sources: rankSources(liveSources(app, sensorLive: sensorLive)),
       // The band row's dot says connected or not. That covers six different
       // problems with six different fixes, and a user cannot fix a problem the
       // app will not name — so the engine's own verdict rides alongside it.
@@ -303,8 +390,72 @@ class MyDevices extends StatelessWidget {
       // months of data behind an onboarding screen), which makes this the only
       // way back to pairing. So push it.
       onPair: () => goto(c, const RePair()),
+      onAddSensor: () => addSensor(c),
     );
   }
+}
+
+/// Every sensor that can be paired from this screen — a second device
+/// alongside the band, never a replacement for it.
+///
+/// Data, not a switch statement, because the ONLY thing that differs between
+/// them is which entry the picker filters on and what has to happen once the
+/// user taps one. `PairSensorScreen` is generic over exactly that.
+final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDevice)? pick})>
+    kPairableSensors = [
+  (
+    entry: kBleHrs,
+    blurb: 'A chest strap or armband. Beat timing measured electrically, '
+        'which a wrist pulse cannot match. Runs during a workout.',
+    // Null means the plain notify-class pairing, which is the whole of what a
+    // heart-rate sensor needs.
+    pick: null,
+  ),
+  (
+    entry: kOura,
+    blurb: 'Reads the ring directly, with no Oura account and no subscription. '
+        'The ring must be factory reset FIRST — one that is already set up in '
+        'the Oura app cannot be re-keyed.',
+    pick: pairOuraRing,
+  ),
+];
+
+/// Choose which kind of sensor to pair, then hand off to the pairing screen.
+Future<void> addSensor(BuildContext c) async {
+  final p = P.of(c);
+  final choice = await showModalBottomSheet<int>(
+    context: c,
+    backgroundColor: p.bg,
+    builder: (d) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: S.x4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Row(children: [
+            Text('Add a sensor', style: F.t2.copyWith(color: p.ink)),
+          ]),
+        ),
+        const SizedBox(height: S.x3),
+        for (var i = 0; i < kPairableSensors.length; i++)
+          SetRow(
+            sensorIcon(kPairableSensors[i].entry.id),
+            C.green,
+            kPairableSensors[i].entry.label,
+            sub: kPairableSensors[i].blurb,
+            onTap: () => Navigator.of(d).pop(i),
+          ),
+        const SizedBox(height: S.x4),
+      ]),
+    ),
+  );
+  if (choice == null || !c.mounted) return;
+  final sensor = kPairableSensors[choice];
+  await goto(
+    c,
+    PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
+  );
+  // The screen writes a `device` row; nothing tells AppState that happened.
+  if (c.mounted) await c.read<AppState>().refreshSensors();
 }
 
 /// Pairing, pushed rather than gated.
@@ -329,13 +480,18 @@ class RePair extends StatelessWidget {
 
 class MyDevicesView extends StatelessWidget {
   final List<HealthSource> sources;
-  final VoidCallback? onPair;
+  final VoidCallback? onPair, onAddSensor;
 
   /// The band's own state, from `bandStatusFor`. Null when nothing is paired.
   final BandStatus? status;
 
-  const MyDevicesView(
-      {super.key, this.sources = const [], this.onPair, this.status});
+  const MyDevicesView({
+    super.key,
+    this.sources = const [],
+    this.onPair,
+    this.onAddSensor,
+    this.status,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -404,6 +560,17 @@ class MyDevicesView extends StatelessWidget {
                   ],
                   const SizedBox(height: S.x3),
                 ],
+                // At the foot of LIVE, because that is what it adds to. Not
+                // gated on having a band: a sensor is a second source, and
+                // someone with no band at all is exactly who benefits most
+                // from being able to pair one.
+                if (onAddSensor != null)
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: SetRow(LucideIcons.plus, C.green, 'Add a sensor',
+                        sub: 'A heart-rate strap or a ring, alongside the band',
+                        onTap: onAddSensor),
+                  ),
                 // NOT YET — with a reason and a permanence on every row. The
                 // reason is the honest part; the permanence is the part that
                 // stops "not yet" quietly meaning "no" for two years.
@@ -425,12 +592,13 @@ class MyDevicesView extends StatelessWidget {
                     style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x3),
                 for (final t in SourceTier.values)
-                  // An empty rung is information only while the rung is
-                  // reachable. Nobody can pair a tier-1 sensor in this build —
-                  // the NOT YET list says so in words — so the rung is drawn
-                  // only if one somehow exists.
-                  if (t != SourceTier.beatToBeat ||
-                      sources.any((s) => s.tier == t)) ...[
+                  // Every rung is drawn now, filled or not. The tier-1 rung
+                  // used to be hidden because nothing could reach it and an
+                  // unreachable empty rung is just something to go hunting
+                  // for; "Add a sensor" above is how it is reached, so an
+                  // empty one is now a genuine invitation rather than a dead
+                  // end.
+                  ...[
                     TierRow(t, filled: sources.any((s) => s.tier == t)),
                     const SizedBox(height: S.x3),
                   ],
@@ -449,6 +617,18 @@ class MyDevicesView extends StatelessWidget {
 /// it is either handing steps over or it is not, which is exactly the failure
 /// the row used to hide behind a hardcoded "Connected".
 String sourceState(HealthSource s) {
+  // A PAIRED SENSOR IS TESTED FOR FIRST, before the tier is consulted at all.
+  // It is armed by a workout and only by a workout, so "not connected" is its
+  // resting state and not a fault — and a sensor whose tier could not be named
+  // falls back to the phone's rung, where this function would otherwise have
+  // told the user their chest strap was reporting steps.
+  if (s.deviceId != null) {
+    if (s.connected) return 'Streaming beats';
+    // A source with no rung supplies no signal, so there is nothing for a
+    // workout to arm and nothing being derived. Say that, rather than promise
+    // a stream that will never start.
+    return s.tier == null ? 'Paired · storing what it sends' : 'Waiting for a workout';
+  }
   if (s.tier == SourceTier.phone) {
     return s.connected ? 'Reporting steps' : 'No steps arriving';
   }
@@ -528,7 +708,8 @@ class SourceRow extends StatelessWidget {
           ]),
         ),
         const SizedBox(width: S.x2),
-        Pill('Tier ${s.tier.rank}', s.tier.accent),
+        // No pill for an unranked source. A blank one reads as tier zero.
+        if (s.tier case final t?) Pill('Tier ${t.rank}', t.accent),
       ]),
     );
   }
@@ -645,9 +826,66 @@ class _DeviceDetailState extends State<DeviceDetail> {
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
           : null,
-      onForget: app == null ? null : () => _confirmForget(c, app, s.name),
+      // A sensor is forgotten through its own path: `unpair()` tears down the
+      // primary band's link, its restore identity and its trim cursor, none of
+      // which a sensor has — pointing this at it would have unpaired the
+      // WHOOP from a chest strap's page.
+      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onForget: s.deviceId != null
+          ? () => _confirmForgetSensor(c, s)
+          : app == null
+              ? null
+              : () => _confirmForget(c, app, s.name),
     );
   }
+}
+
+/// Drain the ring, now, because the user asked. The result is a sentence
+/// either way: a sync that silently did nothing is indistinguishable from a
+/// ring that had nothing to give, and those need different remedies.
+Future<void> _syncRing(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the ring…')));
+  final ok = await OuraLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the ring. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Forget a paired sensor. Same promise as forgetting the band — the source
+/// goes, the measurements stay — and it is true for the same reason: every row
+/// the sensor wrote keeps its own `device_id`, and nothing here touches them.
+Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
+  final id = s.deviceId;
+  if (id == null) return;
+  final app = c.read<AppState>();
+  final ok = await showDialog<bool>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: Text('Forget ${s.name}?'),
+      content: const Text(
+        'It stops being used during workouts and has to be paired again. '
+        'Everything already banked on this phone is kept — this removes the '
+        'source, not the data.',
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: const Text('Keep it paired')),
+        TextButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: const Text('Forget it')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  await HrsLink.forgetDevice(id);
+  await app.refreshSensors();
+  if (c.mounted) backToRoot(c);
 }
 
 /// Rename the strap.
@@ -752,7 +990,7 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
 
 class DeviceDetailView extends StatelessWidget {
   final HealthSource s;
-  final VoidCallback? onFind, onForget;
+  final VoidCallback? onFind, onForget, onSync;
 
   /// The beat arriving right now, or null when nothing fresh is streaming.
   /// Passed IN rather than read from a provider here: this view is rendered in
@@ -780,6 +1018,7 @@ class DeviceDetailView extends StatelessWidget {
       {super.key,
       this.onFind,
       this.onForget,
+      this.onSync,
       this.onRename,
       this.liveHr,
       this.status,
@@ -831,8 +1070,56 @@ class DeviceDetailView extends StatelessWidget {
                       fix: fault.fix ?? '', icon: LucideIcons.bluetoothOff),
                   const SizedBox(height: S.x5),
                 ],
-                TierRow(s.tier, filled: true),
-                const SizedBox(height: S.x5),
+                if (s.tier case final t?) ...[
+                  TierRow(t, filled: true),
+                  const SizedBox(height: S.x5),
+                ],
+                // A PAIRED SENSOR'S OWN CARD, not the band block below. It has
+                // no advertising name it owns, no battery this app reads and
+                // nothing to buzz — and it has the one thing a user needs
+                // before they trust the row at all: what is captured, and what
+                // is calculated from it. Today the answer to the second is
+                // NOTHING, for every sensor, and that has to be on the screen
+                // rather than inferred from a metric quietly still abstaining.
+                if (!s.isBand && s.deviceId != null) ...[
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: Column(children: [
+                      SetRow(LucideIcons.flaskConical, C.orange, 'Support',
+                          value: 'Experimental',
+                          sub: 'Decoded from the protocol, never checked '
+                              'against the hardware — nobody here owns one.',
+                          chevron: false),
+                      Divider(color: p.line, height: 1),
+                      SetRow(LucideIcons.database, C.teal, 'What it does',
+                          sub: s.tier == null
+                              ? 'Everything it sends is stored and attributed '
+                                  'to it. Nothing in the app is calculated '
+                                  'from it yet.'
+                              : 'Beat timing is stored and attributed to it '
+                                  'during a workout. Nothing in the app is '
+                                  'calculated from it yet.',
+                          chevron: false),
+                      Divider(color: p.line, height: 1),
+                      SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
+                          value: last == null ? '' : formatDayTime(last),
+                          sub: last == null ? 'Nothing banked yet' : '',
+                          chevron: false),
+                      // MANUAL, and only for a sensor that holds history.
+                      // A strap has no flash and nothing to fetch; a ring
+                      // does, and putting it on a schedule would have it
+                      // contending for the radio with the band's own link
+                      // for no reason a user asked for.
+                      if (onSync != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.downloadCloud, C.blue, 'Sync now',
+                            sub: 'Fetch whatever it has been holding',
+                            onTap: onSync),
+                      ],
+                    ]),
+                  ),
+                  const SizedBox(height: S.x5),
+                ],
                 // Band rows only. The phone has no radio link and no battery
                 // this app can read, so "Not reported since the last
                 // connection" named a connection it does not have — on the

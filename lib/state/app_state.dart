@@ -278,6 +278,29 @@ class AppState extends ChangeNotifier {
 
   bool get isPaired => paired != null;
 
+  /// Sensors paired ALONGSIDE the primary band — a chest strap, a ring.
+  ///
+  /// Raw `device` rows, minus the primary. Not `PairedDevice`: that type is the
+  /// one band the offload engine drives, and it holds a serial, a trim cursor
+  /// and a restore identity none of which a notify-class sensor has. These rows
+  /// are the whole of what a sensor is (`id`, `adapter_id`, `remote_id`,
+  /// `label`, `tier`), and `id` is the `device_id` its measurements carry.
+  ///
+  /// Read once at startup and after a pair or a forget — a `device` row only
+  /// changes when the user changes it, so nothing polls this.
+  List<Map<String, Object?>> _sensors = const [];
+  List<Map<String, Object?>> get sensors => _sensors;
+
+  /// Re-read the sensor rows. Call after pairing or forgetting one.
+  Future<void> refreshSensors() async {
+    final rows = await LocalDb.deviceRows();
+    _sensors = [
+      for (final r in rows)
+        if (r['id'] != LocalDb.kPrimaryDeviceId) r,
+    ];
+    notifyListeners();
+  }
+
   static const Duration _backfillInterval = Duration(minutes: 10);
 
   // ── local profile (was server-side; now device-local) ───────────────────────
@@ -2093,6 +2116,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _initSteps() async {
     paired = await PairedDevice.load();
+    await refreshSensors();
     await _loadProfile();
     await _refreshNightlyRhr();
     await _deriveScheduler.init();

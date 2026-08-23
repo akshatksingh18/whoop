@@ -180,6 +180,8 @@ void main() {
         final end = localDayEndSec(label)!;
         for (final ts in [start + 60, end - 90]) {
           await db.insert('decoded_onehz', {
+            // v47 key — see _createDecodedStore.
+            'ts_ms': ts * 1000,
             'rec_ts': ts,
             'counter': ts,
             'hr': 60,

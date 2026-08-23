@@ -1688,3 +1688,37 @@ class BatteryPackInfoGate {
   }
 }
 
+/// Process-wide BLE scan mutex.
+///
+/// The radio has ONE scanner and this app has two callers of it: the band scan
+/// (`BleEngine.scan`) and the heart-rate sensor scan (`HrSensorLink.scan`).
+/// Both stop whatever is already scanning and then wait for
+/// `FlutterBluePlus.isScanning` to go false — an await that any scan stopping
+/// satisfies, including the OTHER caller's. The loser's scan therefore
+/// "completed" the instant the winner called `stopScan`, having seen nothing,
+/// and the caller reported "no device found" with no error anywhere to say
+/// why. Serialising the two bodies is the whole fix.
+///
+/// Same idiom as `BleEngine._locked` — chain onto the previous op, hand the
+/// caller a completer, swallow nothing — hoisted out of the engine because the
+/// contention is BETWEEN objects, not between two ops on one engine. It has to
+/// stay static once a primary band and a secondary device can both scan.
+///
+/// ponytail: one global lock, so a queued scan waits out the running one's
+/// whole timeout (~12 s) rather than joining it. Give waiters the running
+/// scan's results only if a screen ever needs both scans at once.
+Future<T> withScanLock<T>(Future<T> Function() body) {
+  final completer = Completer<T>();
+  // A body that throws must not break the chain — the error goes to its own
+  // caller and the next scan still runs.
+  _scanLock = _scanLock.then((_) async {
+    try {
+      completer.complete(await body());
+    } catch (e, st) {
+      completer.completeError(e, st);
+    }
+  });
+  return completer.future;
+}
+
+Future<void> _scanLock = Future.value();

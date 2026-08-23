@@ -38,6 +38,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
+import 'ble_state.dart' show withScanLock;
 
 /// GATT Heart Rate Service and its Heart Rate Measurement characteristic.
 /// Written out in full 128-bit form rather than the 16-bit shorthand: the
@@ -183,9 +184,17 @@ class HrSensorLink {
   /// on the workout path — it shares one radio scanner with the band's own scan.
   ///
   /// Returns (remoteId, name) pairs, deduplicated, strongest first.
+  ///
+  /// Serialised process-wide through [withScanLock] against the band's scan:
+  /// one radio scanner, and the `isScanning == false` await below completes on
+  /// the OTHER scan's `stopScan` — which ends this one early with an empty
+  /// list that looks exactly like "no sensor is nearby".
   Future<List<(String, String)>> scan({
     Duration timeout = const Duration(seconds: 8),
-  }) async {
+  }) =>
+      withScanLock(() => _scanLocked(timeout));
+
+  Future<List<(String, String)>> _scanLocked(Duration timeout) async {
     if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
     final found = <String, (String, int)>{};
     final sub = FlutterBluePlus.onScanResults.listen((results) {
@@ -220,7 +229,15 @@ class HrSensorLink {
   /// Never scans: it connects straight to the stored remote id, so arming a
   /// workout cannot contend with the band's scan.
   Future<bool> arm(String sessionId) async {
-    if (armed.value) return true;
+    if (armed.value) {
+      // Re-arm on a link that is already up: keep the link, REBIND the session.
+      // Returning early without this filed every beat of the next workout under
+      // the previous workout's id. Nothing needs flushing first — `_onValue`
+      // stamps each buffered row with the id it was recorded under, so rows
+      // already queued keep pointing at the session they belong to.
+      _sessionId = sessionId;
+      return true;
+    }
     final paired = await PairedHrSensor.load();
     if (paired == null) return false;
     _sessionId = sessionId;

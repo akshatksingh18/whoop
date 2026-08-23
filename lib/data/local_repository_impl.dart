@@ -3771,7 +3771,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // enough heart rate" — and offered "wear the band for your normal hard
     // sessions". Measured on all three real databases, both are false: every
     // row is unstamped (`unknown_device_family:id=none` on `hr_ceiling`).
-    final ceilingNote = ceiling == null && ana.deviceFamilyOf(family) == null
+    final ceilingNote = ceiling == null &&
+            ana.calibrationFor(ana.hrCeilingMotionGateG, family) == null
         ? ana.unknownFamilyNote(family)
         : null;
     final set = trainingZones(

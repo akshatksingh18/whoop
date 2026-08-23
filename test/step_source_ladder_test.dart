@@ -40,9 +40,16 @@ CoverageSpan _phone(int fromSec, int toSec, int steps) => CoverageSpan(
 const _h = 3600;
 
 /// A 1 Hz substrate carrying [counters] (`-1` = this hardware has no counter).
-Substrate _sub(List<int> counters, {int step = 600}) {
+///
+/// STAMPED `gen5`, as every real substrate carrying this column is (ingest
+/// writes `decoded_onehz.device_family`). Since BANDAGNOSTIC C13 the stamp is
+/// what establishes the counter's BEHAVIOUR — cumulative, wraps at 65536, no
+/// midnight reset — and an unstamped one abstains rather than sum deltas off a
+/// counter that might reset at midnight and lose the day's pre-sync prefix.
+Substrate _sub(List<int> counters, {int step = 600, String? family = 'gen5'}) {
   final n = counters.length;
   return Substrate(
+    deviceFamily: family,
     tsSec: [for (var i = 0; i < n; i++) _t0 + i * step],
     hr: List<int>.filled(n, 60),
     rrTsMs: const [],

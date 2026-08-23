@@ -208,7 +208,6 @@ class Sample {
     bandSleepState: bandSleepState,
   );
 
-  bool get wristOn => hr > 0;
   bool get hasDecodedOneHz =>
       ax != null &&
       ay != null &&

@@ -315,6 +315,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 
   // ── HR over the SLEEP WINDOW (RHR / dip night-side) ────────────────────────
   final sleepHr = [for (final h in d.sleepHr) h.toDouble()];
+  // The clock for that series — parallel by construction (both are `Substrate`
+  // columns, 1:1 with `tsSec`). Seconds as doubles because that is what the
+  // analytics window helpers take.
+  final sleepTs = [for (final t in d.sleepTsSec) t.toDouble()];
 
   // ── RR over the SLEEP WINDOW → cleaned NN → HRV (the V2 fix) ───────────────
   // HRV/RHR are rest/sleep-only per the catalog. Running correctRr+hrvTime over
@@ -384,14 +388,22 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // heart rate at any tier — it is a different quantity wearing the label. The
   // only honest output is absence, so the card says why instead.
   //
-  // `sleepHr` must be a POSITIONALLY DENSE 1 Hz series where 0 means off-skin —
-  // `nocturnalRhr` slides its 30-minute window over wall-clock POSITIONS and
-  // enforces a minimum on-skin coverage per window. Passing a compacted series
-  // defeats that: with gaps squeezed out, 1800 consecutive entries could span
-  // many hours, so "lowest 30-minute mean" silently becomes "lowest mean over
-  // whatever 1800 samples happened to survive".
+  // THE 30 MINUTES ARE NOW 30 MINUTES. `nocturnalRhr` used to slide a window of
+  // 1800 POSITIONS, which is half an hour only where every position is exactly
+  // one second — so the series had to be positionally dense at 1 Hz or "the
+  // lowest 30-minute mean" quietly became "the lowest mean over whatever 1800
+  // samples survived". It is a real condition, not a hypothetical: the owner's
+  // own export has sleep windows missing 506 seconds of 25,262, and a 15 s band
+  // publishes a measured 59.7 bpm night as 66.4.
+  //
+  // Passing `sleepTs` moves the window onto the WALL CLOCK, so density stops
+  // being a precondition: 30 min is 30 min at any cadence, off-skin gaps are
+  // still never compacted away (a window must carry `minCoverage` of the
+  // samples it SHOULD hold at the stream's own measured cadence), and a stream
+  // with no measurable cadence yields ABSENCE rather than a guess. The
+  // no-sleep-no-RHR branch above is untouched by any of that.
   final rhr = (hasSleep && sleepHr.isNotEmpty)
-      ? nocturnalRhr(sleepHr)
+      ? nocturnalRhr(sleepHr, tsSec: sleepTs)
       : const Metric<NocturnalRhr>.absent(
           tier: Tier.high,
           inputs_used: ['hr_1hz', 'sleep_window'],
@@ -1554,7 +1566,10 @@ Map<String, int> _wakeZoneMinutesFromSeries(
   final samples = <HrSample>[
     for (final p in wakeHr) HrSample(p.tsSec * 1000.0, p.hr),
   ];
-  return HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
+  // Null = no cadence `sampleCadenceSeconds` will vouch for; `const {}` is the
+  // caller's existing absent state (see `hrZones` at its declaration).
+  return HeartRateZones.timeInZone(samples, zoneSet)?.toRoundedMinuteMap() ??
+      const {};
 }
 
 List<Map<String, num>> _zoneTimeline(

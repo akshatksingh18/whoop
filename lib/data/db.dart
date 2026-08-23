@@ -19,6 +19,8 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+
+import '../compute/substrate.dart' show beatTimesMs;
 // The ONE thing this layer takes from compute/: the running build's algo
 // version, which every day_result read applies as a CEILING (see [dayResult]).
 // `show` keeps the rest of the engine out of this namespace.
@@ -31,6 +33,7 @@ import 'live_coverage_policy.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
+import 'observation.dart';
 import 'series_codec.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
@@ -250,13 +253,27 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 46;
+  static const int schemaVersion = 48;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
   /// built from row data MUST be chunked below this; a single day of
   /// `decoded_onehz` is 86 400 counters. Same reason `commitSyncBatch` chunks.
   static const int _maxSqlVars = 500;
+
+  /// THE PRIMARY BAND'S `device_id`, and it is reserved permanently.
+  ///
+  /// Not a migration default — a standing rule, load-bearing twice over:
+  ///  * The newest-wins dedupe on `decoded_onehz` only works while every row
+  ///    from the one physical band shares one key value, so a post-reboot
+  ///    counter reset and a re-drained record still collide.
+  ///  * A BLE `remoteId` is NOT a stable identity (per-app CBPeripheral UUID
+  ///    on iOS, a rotating RPA on Android). Letting one reach the key would
+  ///    fragment one band into N identities across reinstalls.
+  ///
+  /// A SECONDARY device gets a real id, issued by its adapter from something
+  /// the band emits across the handshake — never from the link.
+  static const String kPrimaryDeviceId = '';
 
   /// Split [items] into `_maxSqlVars`-sized chunks for `IN (…)` binding.
   static Iterable<List<T>> _sqlVarChunks<T>(List<T> items) sync* {
@@ -774,6 +791,33 @@ class LocalDb {
           // _retireDisprovenOneHzColumns for the evidence.
           await _retireDisprovenOneHzColumns(db);
         }
+        if (oldV < 47) {
+          // Put `device_id` in front of the key of the three stores whose
+          // identity was a WHOOP-shaped quantity (a record second, the band's
+          // flash counter). The one item on the band-agnostic list that cannot
+          // be done after a second device has written — see
+          // [_rekeyStoresByDeviceId]. Rewrites no value and moves no derived
+          // number, so it ships without a kAlgoVersion bump.
+          //
+          // LAST on the ladder, after every ADD COLUMN above, because the
+          // rebuild reconstructs its DDL from `PRAGMA table_info` and so
+          // carries across exactly the columns that exist when it runs.
+          await _rekeyStoresByDeviceId(db);
+        }
+        if (oldV < 48) {
+          // The observation store — vendor-computed, typed-in and imported
+          // scalars. CREATE TABLE IF NOT EXISTS + two indexes and NOTHING
+          // else: no backfill, no rewrite, no ADD COLUMN, nothing read. It is
+          // a new empty table, so the CHECK and the UNIQUE index have no
+          // existing row to fail on — which matters, because a throw in here
+          // rolls the WHOLE ladder back and quarantines the user's database
+          // (invariant 11), and this rung runs after the v47 re-key that every
+          // upgrading install is already paying for on the launch path.
+          //
+          // Ships without a kAlgoVersion bump, deliberately: nothing writes
+          // this table, nothing reads it, and no derived number can move.
+          await _createObservation(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -832,6 +876,7 @@ class LocalDb {
     // version number here would collide with the other branches reaching for
     // the next one, and buy nothing a no-op CREATE does not already do.
     await _createImportedWorkout(db);
+    await _createObservation(db);
     await _createCycleSymptom(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
@@ -990,7 +1035,7 @@ class LocalDb {
   /// reading share `decoded_onehz`'s columns, so a wrong stamp is worse than no
   /// stamp. Existing rows — and anything imported, which came from no link at
   /// all — read NULL, meaning UNKNOWN PROVENANCE, which readers must treat as
-  /// its own case (analytics: `deviceFamilyOf` → null → refuse) rather than as
+  /// its own case (analytics: `calibrationFor` → null → refuse) rather than as
   /// gen4.
   ///
   /// Nullable TEXT, no DEFAULT, ever: a default would turn "we don't know" into
@@ -1435,6 +1480,117 @@ class LocalDb {
     );
   }
 
+  // ── OBSERVATIONS (vendor-computed / typed-in / imported scalars) ───────────
+  /// Everything that is NOT a raw sensor sample and NOT computed by us:
+  /// a `reports` band's own conclusions, the user's typed-in numbers, and
+  /// another app's history. See docs/OBSERVATION_SPEC.md.
+  ///
+  /// THE SINGLE INVARIANT, and it is the whole safety story: **nothing reads
+  /// this table into a baseline, into a trend that also carries derived
+  /// values, or into any input to a derivation.** Held the same way
+  /// `imported_measurement` holds its own version of the rule — a SEPARATE
+  /// table, so the only way to violate it is to name it somewhere new, and
+  /// `observation_isolation_test.dart` fails the moment anyone does. If it is
+  /// ever violated the failure is SILENT: an unexplained step change in a
+  /// long-horizon number, months later, with no way to tell which day broke it.
+  ///
+  /// IDENTITY IS AN EXPRESSION INDEX, NOT A PRIMARY KEY, and that is not a
+  /// stylistic choice. The spec's key is
+  /// `(device_id, ts_ms, source_kind, COALESCE(vendor_key, key))`, and SQLite
+  /// takes no expression in a table-level PRIMARY KEY. The two obvious repairs
+  /// both fail:
+  ///
+  ///  * A `GENERATED ALWAYS AS (COALESCE(...)) STORED` column is rejected
+  ///    outright — "generated columns cannot be part of the PRIMARY KEY" — and
+  ///    generated columns need SQLite 3.31 (2020) besides, which minSdk 26
+  ///    (Android 8 ships 3.18) does not have.
+  ///  * A plain composite `PRIMARY KEY (…, vendor_key, key)` COMPILES AND IS
+  ///    WRONG. A PRIMARY KEY on a rowid table is a UNIQUE INDEX, and SQLite
+  ///    treats NULLs in one as DISTINCT — so two rows with the same
+  ///    `vendor_key` and a NULL `key` do not collide, `INSERT OR REPLACE` does
+  ///    not replace, and a re-import silently doubles every composite it
+  ///    carries. Proven, not assumed.
+  ///
+  /// A UNIQUE INDEX may hold an expression (SQLite 3.9, 2015 — safely below
+  /// the Android 8 floor), `INSERT OR REPLACE` resolves against it exactly as
+  /// it would against a PRIMARY KEY, and `COALESCE` is non-NULL whenever the
+  /// CHECK holds, so the NULL-distinctness trap never arms. The CHECK is what
+  /// makes that true, which is why it is a DB constraint and not a Dart assert.
+  ///
+  /// `device_id = ''` is the primary band, permanently — the standing rule
+  /// established for `decoded_onehz` at v47, and for the same reason: a BLE
+  /// remoteId is not a stable identity.
+  ///
+  /// ponytail: scalars only (`value REAL` + `unit TEXT`). A vendor hypnogram
+  /// or a vendor GPS track is not a scalar and has no consumer — give it a
+  /// table of its own when something is actually going to read it.
+  static Future<void> _createObservation(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS observation (
+        device_id    TEXT NOT NULL DEFAULT '',
+        ts_ms        INTEGER NOT NULL,
+        date         TEXT NOT NULL,
+        source_kind  TEXT NOT NULL,
+        vendor_key   TEXT,
+        key          TEXT,
+        value        REAL,
+        unit         TEXT,
+        attribution  TEXT NOT NULL,
+        CHECK (vendor_key IS NOT NULL OR key IS NOT NULL)
+      )
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_identity '
+      'ON observation(device_id, ts_ms, source_kind, COALESCE(vendor_key, key))',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_observation_date '
+      'ON observation(date, source_kind)',
+    );
+  }
+
+  /// Upsert observations. Idempotent on `(device_id, ts_ms, source_kind, name)`
+  /// so re-running an import re-states rather than duplicates.
+  ///
+  /// `date` comes from [dayLabelOf] and nowhere else — the day model is LOCAL
+  /// calendar days, and a label computed any other way is wrong for 23 h/25 h
+  /// DST days and for every user whose local date differs from UTC's.
+  ///
+  /// There is deliberately NO reader here yet. Nothing writes observations
+  /// either: the adapter seam that will is phase 4, and wiring an existing
+  /// importer into this table today would move numbers users already see.
+  static Future<int> putObservations(
+    List<Observation> rows, {
+    String deviceId = kPrimaryDeviceId,
+  }) async {
+    if (rows.isEmpty) return 0;
+    final db = await instance;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final o in rows) {
+        batch.insert('observation', {
+          'device_id': deviceId,
+          'ts_ms': o.at.millisecondsSinceEpoch,
+          'date': o.date,
+          'source_kind': o.sourceKind.name,
+          'vendor_key': o.vendorKey,
+          'key': o.key,
+          'value': o.value.toDouble(),
+          'unit': o.unit,
+          'attribution': o.attribution,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+    return rows.length;
+  }
+
+  /// One observation. [putObservations] is the batch this delegates to.
+  static Future<int> putObservation(
+    Observation o, {
+    String deviceId = kPrimaryDeviceId,
+  }) => putObservations([o], deviceId: deviceId);
+
   // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────
   /// A workout some OTHER app recorded, held in its own table for the same
   /// reason `imported_measurement` is: so that it CANNOT become one of ours.
@@ -1781,6 +1937,14 @@ class LocalDb {
           // Anything not explicitly 'phone' is band — pre-v27 rows default to
           // it, and relabelling them would suppress a real band count.
           fromBand: r['source'] != kStepSourcePhone,
+          // ponytail: every row is the primary band's until `live_coverage`
+          // carries a `device_id` of its own (the decoded tables got one at
+          // schema 47; this table did not). `CoverageSpan.deviceId` defaults to
+          // `''` and `resolveDaySteps` treats one id as one sensor, so this is
+          // exactly today's behaviour — the day a second strap can write here,
+          // select the column and pass it, and the equal-rank double-count is
+          // already handled.
+
         ),
     ]);
   }
@@ -2006,7 +2170,28 @@ class LocalDb {
     // service discovery). Null = the caller could not name it, which lands as
     // NULL = unknown provenance. Never defaulted to gen4.
     String? deviceFamily,
+    // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
+    String deviceId = kPrimaryDeviceId,
   }) async {
+    // B4: `sync_cursor` is a SINGLE GLOBAL `name TEXT PRIMARY KEY` namespace
+    // shared with everything else that keeps a scalar (`frozen_headline`, …),
+    // and `band_backlog` carries `device_family` but no device id. So the trim
+    // token, `counter_hw`, `rec_ts_hw` and the data range of a SECOND
+    // offloading band would land on the first band's cursor and mis-trim its
+    // flash. Namespacing that key space is a phase-4 job (it needs the device
+    // table and a decision about which keys are per-device at all); refusing is
+    // the honest thing until then, and it refuses in the SAFE direction —
+    // nothing commits, so nothing is ACKed and the band keeps its data.
+    //
+    // ponytail: global cursor namespace, one offloading device. Per-device
+    // namespacing when a second adapter can actually offload.
+    if (deviceId != kPrimaryDeviceId) {
+      throw StateError(
+        'commitSyncBatch: sync_cursor is a single global namespace and cannot '
+        'hold a second offloading device (deviceId="$deviceId"). Namespace it '
+        'before enabling a non-primary offload path.',
+      );
+    }
     void checkpoint(String msg) {
       try {
         onCheckpoint?.call(msg);
@@ -2119,6 +2304,11 @@ class LocalDb {
           final sample = samples[i];
           if (sample != null) {
             batch.insert('samples', {
+              'device_id': deviceId,
+              // From `ts`, not `recTs`: `toDbMap` writes `ts: sample.tsEpoch`
+              // and the migration derives `ts_ms` from `ts`, so the key and the
+              // column it is built from must not be allowed to disagree.
+              'ts_ms': sample.tsEpoch * 1000,
               'counter': raw.counter,
               ...sample.toDbMap(),
             }, conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -2129,6 +2319,7 @@ class LocalDb {
             raw,
             sample,
             deviceFamily: deviceFamily,
+            deviceId: deviceId,
           );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
@@ -2257,6 +2448,28 @@ class LocalDb {
     try {
       await db.execute(
         'ALTER TABLE metric_series_version ADD COLUMN source TEXT',
+      );
+    } catch (_) {
+      /* already present */
+    }
+    // WHICH BAND'S UNITS this day's scalars are in (B5). Same table, same
+    // write, same read as `source` — and the same rules: nullable, no DEFAULT,
+    // NEVER retro-filled, because a guessed provenance is worse than none.
+    //
+    // This is live TODAY on a gen4→gen5 swap, with no second device involved:
+    // `skin_temp_adc` holds gen4 ADC COUNTS on one side of the swap and gen5
+    // CENTI-DEGREES on the other, under one `metric_series` key, feeding one
+    // 28-day baseline that every nightly z-score is taken against. The seam is
+    // a step change in the units, not in the person.
+    //
+    // NOT the same as [_importedDatesSql]'s question. Imported days are ANOTHER
+    // ALGORITHM'S OUTPUT and are masked out of every baseline. A foreign family
+    // is this app's own maths over a different sensor, so it is masked
+    // PER-METRIC — only where the seam makes the number WRONG (different
+    // units), never merely noisier. See [foreignFamilyDates].
+    try {
+      await db.execute(
+        'ALTER TABLE metric_series_version ADD COLUMN device_family TEXT',
       );
     } catch (_) {
       /* already present */
@@ -3221,12 +3434,22 @@ class LocalDb {
   // samples — LEGACY header-only record index (counter, ts, hr). Retained only
   // so pre-v11 databases stay readable if decoded_onehz backfill was partial.
   // New writes should go to decoded_onehz instead.
+  //
+  // v47: re-keyed off `counter` for the same reason decoded_onehz was re-keyed
+  // off it at v33 and off rec_ts now — `counter` is a WHOOP FLASH RECORD
+  // COUNTER, so a second offloading band's counter 500 is a different reading
+  // that collides with the first band's. The insert is IGNORE, so the collision
+  // DROPPED the newer row rather than replacing the older one, and
+  // [latestSample]'s fallback then served a stale second.
   static Future<void> _createSamples(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS samples (
-        counter INTEGER PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '',
+        ts_ms INTEGER NOT NULL DEFAULT 0,
+        counter INTEGER,
         ts INTEGER NOT NULL,
-        hr INTEGER
+        hr INTEGER,
+        PRIMARY KEY (device_id, ts_ms)
       )
     ''');
   }
@@ -3245,9 +3468,40 @@ class LocalDb {
     // on rec_ts is safe. `counter` is demoted to a NOT NULL forensic column (also
     // the keyset-cursor tiebreak in decodedOneHzBatchByRecTsRange, which never
     // fires now that rec_ts is unique).
+    //
+    // v47: KEYED BY (device_id, ts_ms), NOT rec_ts alone. `rec_ts` stays as the
+    // indexed READ key — every query in this file and in health_export ranges
+    // over it — but it can no longer be the identity, because a second device
+    // measuring the same second is a DIFFERENT reading, and REPLACE on a
+    // shared rec_ts silently deletes the first one (raw prunes at 3 days, so
+    // that loss is permanent). See [_rekeyTableByDevice].
+    //
+    // `device_id = ''` IS RESERVED PERMANENTLY FOR THE PRIMARY BAND. Not a
+    // migration default — a standing rule, and it is load-bearing twice over:
+    //  * The newest-wins dedupe above only works if every row from the one
+    //    physical band shares one key value. A post-reboot counter reset and a
+    //    re-drained record must still collide on (device_id, ts_ms).
+    //  * A BLE `remoteId` is NOT STABLE (per-app CBPeripheral UUID on iOS, a
+    //    rotating RPA on Android). Letting one reach this column would
+    //    fragment one band into N identities across reinstalls, each with its
+    //    own baseline. Only a SECONDARY device gets a real id, and only one an
+    //    adapter issues from something the band emits across the handshake.
+    //
+    // `ts_ms` is `rec_ts * 1000` for every WHOOP row and for every row this
+    // migration rewrites, so the key is EXACTLY as unique as it was — no
+    // number moves. The millisecond resolution is there so a source faster
+    // than 1 Hz has somewhere to land instead of REPLACE-ing itself down to
+    // one row per second, which is the same defect in a different table.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_onehz (
-        rec_ts INTEGER PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '',
+        ts_ms INTEGER NOT NULL DEFAULT 0,
+        -- NOT re-asserted NOT NULL, deliberately: [_rekeyTableByDevice] copies
+        -- this column verbatim out of a table where SQLite never enforced it
+        -- (a declared PRIMARY KEY on a legacy rowid table does not imply NOT
+        -- NULL), and a constraint failure inside onUpgrade's one exclusive
+        -- transaction quarantines the whole database (invariant 11).
+        rec_ts INTEGER,
         counter INTEGER NOT NULL,
         hr INTEGER,
         ax REAL,
@@ -3269,7 +3523,8 @@ class LocalDb {
         temp_ch2_c REAL,
         temp_ch3_c REAL,
         signal_quality_logvar REAL,
-        dyn_accel_g REAL
+        dyn_accel_g REAL,
+        PRIMARY KEY (device_id, ts_ms)
       )
     ''');
     // v43: `hr` IS NULLABLE TOO, and it is the last sensor column to get there.
@@ -3320,23 +3575,58 @@ class LocalDb {
     // and the inserts were NON-SEQUENTIAL because `counter` resets to ~0 on a
     // band reboot — so it was paying page splits on the ingest path for a
     // query nobody makes. Dropped for existing installs in _repairOpenSchema.
-    // decoded_rr shares the rec_ts key with its parent: PRIMARY KEY (rec_ts,
-    // beat_index). Parent and child now delete/replace by the SAME key, so no
-    // orphan guard is needed. rr_ts_ms (= rec_ts*1000) stays as the per-beat
-    // timestamp the compute worker reads. No secondary index: the rec_ts-range
-    // read path is served by the PK, and the old UNIQUE(rr_ts_ms, beat_index) is
-    // now implied by the PK (rr_ts_ms is rec_ts*1000).
+    // decoded_rr shares its parent's key EXACTLY, one level deeper: PRIMARY KEY
+    // (device_id, ts_ms, beat_index) against the parent's (device_id, ts_ms).
+    // Parent and child still delete/replace by the SAME key, so no orphan guard
+    // is needed — and that is the whole reason the two keys must move together.
+    // Before v47 `_queueRrBeats` cleared the second with an unscoped
+    // `DELETE ... WHERE rec_ts = ?`, which for a second device deleted the
+    // FIRST band's beats for that second and could not be undone.
+    // rr_ts_ms (= rec_ts*1000) stays as the per-beat timestamp the compute
+    // worker reads; `rec_ts` stays as the indexed range key.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_rr (
+        device_id TEXT NOT NULL DEFAULT '',
+        ts_ms INTEGER NOT NULL DEFAULT 0,
         rec_ts INTEGER NOT NULL,
         beat_index INTEGER NOT NULL,
         rr_ts_ms INTEGER NOT NULL,
         rr_ms INTEGER NOT NULL,
         device_family TEXT,
         source TEXT,
-        PRIMARY KEY (rec_ts, beat_index)
+        PRIMARY KEY (device_id, ts_ms, beat_index)
       )
     ''');
+    // rec_ts USED TO BE THE KEY, and the key was the only index — every read in
+    // this file and in health_export ranges over it. Without these the v47
+    // re-key turns each of them into a full table scan.
+    //
+    // GUARDED ON THE COLUMN, not on IF NOT EXISTS. This helper runs MID-LADDER
+    // too (`_rekeyDecodedStoreByRecTs`, oldV<33), where `decoded_rr` is still
+    // the counter-keyed shape and has no `rec_ts` at all — and an index on a
+    // missing column throws inside onUpgrade's one exclusive transaction and
+    // quarantines the whole database (invariant 11).
+    //
+    // TWO COLUMNS EACH, matching each table's `ORDER BY` exactly — `rec_ts,
+    // counter` on the parent and `rec_ts, beat_index` on the child — so the
+    // ordering comes out of the index and the planner needs no temp b-tree.
+    //
+    // ponytail: rec_ts kept as a second, indexed time axis. `ts_ms` is
+    // `rec_ts * 1000` for every row this app writes, so these reads COULD range
+    // on ts_ms and ride the PK for free — measured ~4.5 MB per 3-day store per
+    // index, on the hottest write path. Not done here because ~20 call sites in
+    // this file plus health_export range on rec_ts, and phase 2 is meant to
+    // change no read. Fold it in when a reader is being touched anyway.
+    for (final t in const {
+      'decoded_onehz': 'rec_ts, counter',
+      'decoded_rr': 'rec_ts, beat_index',
+    }.entries) {
+      if ((await _columnsOf(db, t.key)).contains('rec_ts')) {
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_${t.key}_rects ON ${t.key}(${t.value})',
+        );
+      }
+    }
     // Existing installs get these here (ADD COLUMN, idempotent).
     await _ensureDeviceFamilyColumns(db);
     await _ensureSourceColumns(db);
@@ -3524,6 +3814,138 @@ class LocalDb {
     await db.execute('ALTER TABLE _decoded_onehz_v39 RENAME TO decoded_onehz');
   }
 
+  /// One `CREATE TABLE (…)` body reconstructed from a live `PRAGMA
+  /// table_info`, for the rebuild-aside migrations in this file.
+  ///
+  /// DERIVED, NEVER HARDCODED. These tables' column sets are genuinely in flux
+  /// (`ambient_raw` v42, `device_family` v41, `source` + the MT-12 channels
+  /// v43, `ts_subsec` / `band_sleep_state` off-ladder), and a hardcoded list
+  /// silently DROPS every column added after it was written — data loss, in a
+  /// rung that runs once and cannot be re-run.
+  ///
+  /// THE PRIMARY KEY IS THE PART THAT NEEDS CARE. `PRAGMA table_info.pk` is a
+  /// 1-based POSITION, not a flag, so a composite key reports several columns.
+  /// A one-column key is emitted INLINE (`x INTEGER PRIMARY KEY`) because that
+  /// is the only spelling that keeps SQLite's rowid-alias behaviour; anything
+  /// wider must be a table-level `PRIMARY KEY (a, b)` clause, and emitting the
+  /// inline form for each of them instead throws "table has more than one
+  /// primary key".
+  ///
+  /// [prepend] columns are emitted first, verbatim, and are NOT in [info] — a
+  /// re-key adds its new key columns that way. [primaryKey] replaces the old
+  /// key entirely; omit it to carry the table's own key across.
+  /// [dropNotNull] relaxes named columns. Nothing here ever ADDS a constraint:
+  /// a constraint failure inside `onUpgrade`'s single exclusive transaction
+  /// rolls the whole ladder back and quarantines the database (invariant 11),
+  /// so a rebuild may only ever loosen.
+  static String _rebuildDdlBody(
+    List<Map<String, Object?>> info, {
+    Set<String> dropNotNull = const {},
+    List<String> prepend = const [],
+    List<String>? primaryKey,
+  }) {
+    final own = [
+      for (final c in info)
+        if ((((c['pk'] as num?)?.toInt()) ?? 0) > 0) c,
+    ]..sort(
+        (a, b) => ((a['pk'] as num).toInt()).compareTo((b['pk'] as num).toInt()),
+      );
+    final key = primaryKey ?? [for (final c in own) c['name'] as String];
+    final inline = key.length == 1 ? key.first : null;
+    final defs = <String>[...prepend];
+    for (final c in info) {
+      final name = c['name'] as String;
+      final dflt = c['dflt_value'];
+      final notNull =
+          (((c['notnull'] as num?)?.toInt()) ?? 0) == 1 &&
+          !dropNotNull.contains(name);
+      defs.add(
+        '$name ${(c['type'] as String?) ?? ''}'
+        '${name == inline ? ' PRIMARY KEY' : ''}'
+        '${notNull ? ' NOT NULL' : ''}'
+        '${dflt == null ? '' : ' DEFAULT $dflt'}',
+      );
+    }
+    if (inline == null && key.isNotEmpty) {
+      defs.add('PRIMARY KEY (${key.join(', ')})');
+    }
+    return defs.join(', ');
+  }
+
+  /// v47: put `device_id` in front of the key of every table whose identity was
+  /// a WHOOP-shaped quantity — a record second, or the band's flash counter.
+  ///
+  /// WHY THIS ONE IS NOT DEFERRABLE. `decoded_onehz` was `rec_ts INTEGER
+  /// PRIMARY KEY` written with REPLACE and `decoded_rr` was cleared by an
+  /// unscoped `DELETE … WHERE rec_ts = ?`, so a second device measuring the
+  /// same second did not merge with the first — it DELETED it, row and beats.
+  /// `raw_archive` prunes at `rawRetentionDays = 3`, so within three days the
+  /// bytes that could rebuild the evicted row are gone too. Every other item on
+  /// the band-agnostic roadmap can be done after a second device has written;
+  /// this one cannot.
+  ///
+  /// WHAT IT DOES NOT CHANGE. Every existing row is copied under
+  /// `device_id = ''` with `ts_ms = rec_ts * 1000`, which is exactly as unique
+  /// as `rec_ts` was — one row per second per device, same newest-wins REPLACE,
+  /// same dedupe. No stored value is rewritten and no derived number moves, so
+  /// there is no `kAlgoVersion` bump with it.
+  ///
+  /// Cheap enough for the launch-path CPU watchdog `onUpgrade` runs inside:
+  /// the decoded store is retention-capped at `rawRetentionDays`, ~260 k rows,
+  /// and every copy is a server-side `INSERT … SELECT` with zero host-bound
+  /// variables (so the iOS `SQLITE_MAX_VARIABLE_NUMBER` never applies and no
+  /// chunking is needed).
+  static Future<void> _rekeyStoresByDeviceId(Database db) async {
+    await _rekeyTableByDevice(db, 'decoded_onehz');
+    await _rekeyTableByDevice(db, 'decoded_rr', keyTail: const ['beat_index']);
+    await _rekeyTableByDevice(db, 'samples', timeCol: 'ts');
+  }
+
+  /// The rename-aside rebuild behind [_rekeyStoresByDeviceId], for one table.
+  ///
+  /// Self-skipping and idempotent: a table that already carries `device_id` is
+  /// left alone (so a fresh install at v47+ does no work at all), the temp
+  /// table is dropped up front so a crash mid-migration re-runs cleanly, and
+  /// the copy is keyed on identity.
+  static Future<void> _rekeyTableByDevice(
+    Database db,
+    String table, {
+    String timeCol = 'rec_ts',
+    List<String> keyTail = const [],
+  }) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    // Table absent on this upgrade path ⇒ the current DDL already carries the
+    // new key and there is nothing to rebuild.
+    if (info.isEmpty) return;
+    final names = [for (final c in info) c['name'] as String];
+    if (names.contains('device_id')) return;
+    final tmp = '_${table}_v47';
+    await db.execute('DROP TABLE IF EXISTS $tmp');
+    await db.execute(
+      'CREATE TABLE $tmp (${_rebuildDdlBody(
+        info,
+        prepend: const [
+          "device_id TEXT NOT NULL DEFAULT ''",
+          'ts_ms INTEGER NOT NULL DEFAULT 0',
+        ],
+        primaryKey: ['device_id', 'ts_ms', ...keyTail],
+      )})',
+    );
+    final cols = names.join(', ');
+    // COALESCE because a declared PRIMARY KEY on a legacy rowid table does NOT
+    // enforce NOT NULL — a NULL time column would put a NULL in the new key,
+    // where it compares unequal to itself and escapes the retention prune
+    // forever. 0 is behind every cutoff, so such a row is pruned on the next
+    // pass instead of leaking.
+    await db.execute(
+      'INSERT OR REPLACE INTO $tmp (device_id, ts_ms, $cols) '
+      "SELECT '', COALESCE($timeCol, 0) * 1000, $cols "
+      'FROM $table ORDER BY $timeCol ASC',
+    );
+    await db.execute('DROP TABLE IF EXISTS $table');
+    await db.execute('ALTER TABLE $tmp RENAME TO $table');
+  }
+
   /// v43 (SLP-05): drop `NOT NULL` from `decoded_onehz.hr`.
   ///
   /// See [_createDecodedStore] for WHY. This is the same rebuild shape as
@@ -3549,24 +3971,11 @@ class LocalDb {
     final hr = info.where((c) => c['name'] == 'hr');
     if (hr.isEmpty || (hr.first['notnull'] as num?)?.toInt() != 1) return;
 
-    String defOf(Map<String, Object?> c) {
-      final name = c['name'] as String;
-      final type = (c['type'] as String?) ?? '';
-      final dflt = c['dflt_value'];
-      // decoded_onehz's PK is the single column rec_ts, so the inline form is
-      // exact. `hr` is the one column that loses its NOT NULL.
-      final pk = ((c['pk'] as num?)?.toInt() ?? 0) > 0;
-      final notNull =
-          ((c['notnull'] as num?)?.toInt() ?? 0) == 1 && name != 'hr';
-      return '$name $type${pk ? ' PRIMARY KEY' : ''}'
-          '${notNull ? ' NOT NULL' : ''}'
-          '${dflt == null ? '' : ' DEFAULT $dflt'}';
-    }
-
     final names = [for (final c in info) c['name'] as String];
     await db.execute('DROP TABLE IF EXISTS _decoded_onehz_v43');
     await db.execute(
-      'CREATE TABLE _decoded_onehz_v43 (${info.map(defOf).join(', ')})',
+      'CREATE TABLE _decoded_onehz_v43 '
+      '(${_rebuildDdlBody(info, dropNotNull: const {'hr'})})',
     );
     final cols = names.join(', ');
     await db.execute(
@@ -3913,6 +4322,20 @@ class LocalDb {
     RawRecord raw,
     Sample? sample, {
     String? deviceFamily,
+    String deviceId = kPrimaryDeviceId,
+    // TRUE ONLY FROM A MID-LADDER REPLAY, and it is not a style choice. This
+    // map is also written by `_backfillDecodedStore` (rungs oldV<11 / oldV<20)
+    // and `redriveArchivedRecords` (rung oldV<44), both of which run BEFORE the
+    // v47 rung hands `device_id` / `ts_ms` back — and naming a column that does
+    // not exist yet throws inside onUpgrade's one exclusive transaction and
+    // quarantines the whole database. Their rows are re-keyed by
+    // [_rekeyTableByDevice] a few rungs later, from `rec_ts`, which is the same
+    // value this path would have written.
+    //
+    // The default is FALSE and the key columns are named, deliberately: the
+    // opposite default would let a forgotten argument write every row at
+    // ('', 0), where REPLACE collapses the entire store to ONE row.
+    bool preDeviceKey = false,
   }) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) {
@@ -3929,6 +4352,8 @@ class LocalDb {
           _recTsFrom(raw, sample),
           sample,
           deviceFamily: deviceFamily,
+          deviceId: deviceId,
+          preDeviceKey: preDeviceKey,
         );
       }
       return 0;
@@ -3943,6 +4368,16 @@ class LocalDb {
     // can no longer make one second's record evict another's (the pre-fix
     // counter-PK eviction that silently, unrecoverably deleted 1 Hz rows).
     batch.insert('decoded_onehz', {
+      // v47: WHICH DEVICE, in front of the key. '' is the primary band and
+      // nothing else may ever use it — see _createDecodedStore for why an
+      // unstable BLE remoteId must never reach this column.
+      'device_id': ?(preDeviceKey ? null : deviceId),
+      // `rec_ts * 1000` EXACTLY, never `+ tsSubsec`. The key has to stay as
+      // unique as `rec_ts` was or the newest-wins dedupe splits into one row
+      // per sub-second and every count in the app changes. The millisecond
+      // resolution is headroom for a faster-than-1-Hz source, not a place to
+      // put this record's own sub-second (which already has `ts_subsec`).
+      'ts_ms': ?(preDeviceKey ? null : recTs * 1000),
       'rec_ts': recTs,
       'counter': raw.counter,
       // v43: ABSENCE IS NULL HERE TOO. `hr == 0` is the off-skin sentinel, so
@@ -4009,7 +4444,14 @@ class LocalDb {
       'device_family': ?deviceFamily,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     return 1 /* the decoded_onehz insert */ +
-        _queueRrBeats(batch, recTs, decoded, deviceFamily: deviceFamily);
+        _queueRrBeats(
+          batch,
+          recTs,
+          decoded,
+          deviceFamily: deviceFamily,
+          deviceId: deviceId,
+          preDeviceKey: preDeviceKey,
+        );
   }
 
   /// `rec_ts` for one raw+decoded pair.
@@ -4026,61 +4468,6 @@ class LocalDb {
     return (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
   }
 
-  /// Where each beat in one record actually sits, in absolute epoch ms — or
-  /// null for a beat that cannot be placed. One entry per entry in [rrMs].
-  ///
-  /// TWO PARTS, AND THEY ARE NOT EQUALLY SOLID. Read them separately.
-  ///
-  /// THE ANCHOR IS MEASURED. `rec_ts + tsSubsec/32768` is the record's own
-  /// timestamp, whole seconds and sub-second, exactly as the strap sent it.
-  /// This app has dropped the second half of that since forever, pinning every
-  /// record to a whole second. With no sub-second there is no anchor and every
-  /// beat here is null; a whole second is NOT substituted for one, because the
-  /// whole point of this column is to say something the old one could not.
-  ///
-  /// THE PLACEMENT IS A MODEL, and it is one assumption wide: an R-R interval
-  /// is the gap ENDING at its beat (that part is the definition), and the LAST
-  /// beat a record reports sits at the record's timestamp. Everything else
-  /// follows — beat i is the anchor minus the intervals after it. The direction
-  /// is chosen because backwards is the only one that cannot place a beat in
-  /// the future, i.e. after the moment we were told about it; a forward walk
-  /// would also run every multi-beat record past its own second (the intervals
-  /// sum to 1,426 ms on a 2-beat record and 2,594 ms on a 4-beat one, measured)
-  /// and straight through the next record's.
-  ///
-  /// WHAT THE INTERVALS DO NOT DO IS TILE THE SECOND. Over 81 uninterrupted
-  /// runs of 300+ consecutive records in a real export, the intervals sum to
-  /// 0.967 of the `rec_ts` span (0.960-0.990 across runs) — so the beat train is
-  /// a CHAIN that runs a few percent short, which is what a handful of rejected
-  /// beats looks like, and not a set of per-second buckets. Several of a
-  /// record's intervals reach back out of its own second. Per-record placement
-  /// is nevertheless what THIS path can do — records arrive batched, out of
-  /// order and with gaps, so no cross-record chain is available at the write —
-  /// and a consumer that wants the chain can walk `rr_ms` itself.
-  ///
-  /// WHAT MOVES AND WHAT DOES NOT. Nothing shipped changes: time-domain HRV
-  /// (RMSSD, SDNN, pNNx) is built out of interval VALUES, which were always
-  /// right, and no reader of this column exists. What it makes possible is
-  /// anything needing absolute placement — a Lomb-Scargle periodogram handed
-  /// beats where they happened instead of a staircase, a beat put on the same
-  /// axis as a motion sample, a real inter-record gap.
-  ///
-  /// A non-positive interval BREAKS THE CHAIN: the gap before that beat is
-  /// unknown, so every EARLIER beat in the record becomes unplaceable and gets
-  /// null rather than a position computed as if the missing gap were zero.
-  @visibleForTesting
-  static List<int?> beatTimesMs(int recTs, int? tsSubsec, List<int> rrMs) {
-    final out = List<int?>.filled(rrMs.length, null);
-    if (tsSubsec == null || rrMs.isEmpty) return out;
-    final anchor = recTs * 1000 + (tsSubsec * 1000) ~/ 32768;
-    var back = 0;
-    for (var i = rrMs.length - 1; i >= 0; i--) {
-      out[i] = anchor - back;
-      if (rrMs[i] <= 0) break;
-      back += rrMs[i];
-    }
-    return out;
-  }
 
   /// Replaces this second's RR beats. Returns the ops queued.
   ///
@@ -4092,14 +4479,31 @@ class LocalDb {
     int recTs,
     Sample decoded, {
     String? deviceFamily,
+    String deviceId = kPrimaryDeviceId,
+    bool preDeviceKey = false,
   }) {
-    batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
+    // SCOPED TO THE WRITING DEVICE (v47). Unscoped, this cleared every device's
+    // beats for the second — so a second band writing one row deleted the
+    // first band's R-R for that second, permanently (raw prunes at 3 days).
+    // Same key prefix as the parent row, so the PK serves the delete.
+    if (preDeviceKey) {
+      batch.rawDelete('DELETE FROM decoded_rr WHERE rec_ts = ?', [recTs]);
+    } else {
+      batch.rawDelete(
+        'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
+        [deviceId, recTs * 1000],
+      );
+    }
     final beatTs = beatTimesMs(recTs, decoded.tsSubsec, decoded.rrIntervalsMs);
     var ops = 1;
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
       if (rr <= 0) continue;
       batch.insert('decoded_rr', {
+        // Same key prefix as the parent row — see _createDecodedStore. Omitted
+        // on the mid-ladder replay for the reason _queueDecodedOneHz gives.
+        'device_id': ?(preDeviceKey ? null : deviceId),
+        'ts_ms': ?(preDeviceKey ? null : recTs * 1000),
         'rec_ts': recTs,
         'beat_index': i,
         // UNCHANGED, DELIBERATELY. `rr_ts_ms` stays `rec_ts * 1000` and
@@ -4112,9 +4516,10 @@ class LocalDb {
         // NULL is "we did not keep the sub-second for this beat", which is
         // exactly the case for every row written before today.
         //
-        // It is also the column the compute layer reads (substrate.dart,
-        // derive_prepare.dart), and this change is deliberately invisible to
-        // it — see beatTimesMs on why no shipped number moves.
+        // The compute layer (substrate.dart, derive_prepare.dart) now prefers
+        // `beat_ts_ms` and falls back to this column, so `rr_ts_ms` stays the
+        // honest answer for every row that has no sub-second — which is every
+        // row written before the column existed.
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
         // Omitted when null — see _queueDecodedOneHz. Also newer than the
@@ -4167,7 +4572,9 @@ class LocalDb {
           capturedAt: (row['captured_at'] as num?)?.toInt() ?? 0,
           recTs: (row['rec_ts'] as num?)?.toInt(),
         );
-        _queueDecodedOneHz(batch, raw, null);
+        // MID-LADDER: `device_id` / `ts_ms` do not exist yet (v47 rung). See
+        // _queueDecodedOneHz's `preDeviceKey`.
+        _queueDecodedOneHz(batch, raw, null, preDeviceKey: true);
       }
       await batch.commit(noResult: true);
       afterCounter = (rows.last['counter'] as num?)?.toInt() ?? afterCounter;
@@ -4729,6 +5136,12 @@ class LocalDb {
       );
       if (present.isEmpty) return 0;
     }
+    // SELF-DETECTING, because this runs from BOTH sides of the v47 rung: from
+    // the oldV<44 ladder step, where `decoded_onehz` is still keyed by rec_ts
+    // alone and naming `device_id` would throw inside onUpgrade (quarantining
+    // the database), and from the app/tests on a re-keyed table. One PRAGMA.
+    final preDeviceKey =
+        !(await _columnsOf(db, 'decoded_onehz')).contains('device_id');
 
     final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
     // Paged on `hex`, which is the table's PRIMARY KEY — a stable, total order
@@ -4793,7 +5206,13 @@ class LocalDb {
         // `sample` is handed back as `preferred` so the hex is decoded once,
         // not twice; `_queueDecodedOneHz` returns it straight back out.
         // `deviceFamily` is deliberately omitted — see the doc comment.
-        if (_queueDecodedOneHz(batch, raw, sample) > 0) {
+        if (_queueDecodedOneHz(
+              batch,
+              raw,
+              sample,
+              preDeviceKey: preDeviceKey,
+            ) >
+            0) {
           queued++;
           recovered++;
         }
@@ -5293,7 +5712,12 @@ class LocalDb {
     final lo = fromRecTs <= toRecTs ? fromRecTs : toRecTs;
     final hi = fromRecTs <= toRecTs ? toRecTs : fromRecTs;
     return db.rawQuery(
-      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms FROM decoded_rr '
+      // `beat_ts_ms` is the MEASURED beat instant (`beatTimesMs`); `rr_ts_ms` is
+      // `rec_ts * 1000`, a whole-second staircase that says every beat inside
+      // one record happened at the same millisecond. Both are returned because
+      // `beat_ts_ms` is NULL on every row banked before the column existed and
+      // on every source that carries no sub-second — the reader coalesces.
+      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms FROM decoded_rr '
       'WHERE rec_ts >= ? AND rec_ts <= ? AND source IS NULL '
       'ORDER BY rec_ts ASC, beat_index ASC',
       [lo, hi],
@@ -5331,6 +5755,11 @@ class LocalDb {
     // the column is that a guessed provenance is worse than none. See
     // [_createMetricSeriesVersion].
     String? source,
+    // WHICH BAND'S UNITS these scalars are in — the substrate's own
+    // `device_family` stamp, which is already null when the window spans two
+    // straps or carries no stamp at all. Same rule as [source]: never guessed.
+    // See [_createMetricSeriesVersion] and [foreignFamilyDates].
+    String? deviceFamily,
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -5385,6 +5814,7 @@ class LocalDb {
             // included, so a caller that does not know its own writes NULL
             // here rather than inheriting the previous writer's claim.
             'source': source,
+            'device_family': deviceFamily,
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
@@ -6207,6 +6637,45 @@ class LocalDb {
     };
   }
 
+  /// The `metric_series` keys whose stored VALUES ARE IN THE BAND'S OWN UNITS,
+  /// so a day measured by a different band family is not on the same scale as
+  /// today's and must not sit in the same baseline.
+  ///
+  /// DELIBERATELY SHORT, and it is a list of UNIT MISMATCHES, not of things
+  /// that got noisier. `skin_temp_adc` is a gen4 thermistor ADC COUNT on one
+  /// side of a strap swap and a gen5 CENTI-DEGREE reading on the other — the
+  /// same key holding two different quantities, which is a wrong number, not a
+  /// less precise one. `rhr` and `rmssd` off a different wrist sensor are the
+  /// same quantity measured slightly differently: masking those would delete
+  /// the user's history from their own baseline to fix a bias smaller than the
+  /// window it is measured over. Nothing joins this set without a measured unit
+  /// difference behind it.
+  static const Set<String> familySeamKeys = {'skin_temp_adc'};
+
+  /// Day labels whose scalars were measured by a DIFFERENT band family than the
+  /// most recent stamped day — the mask for [familySeamKeys] baselines.
+  ///
+  /// Two properties that make this safe to apply unconditionally:
+  ///  * A NULL stamp is never foreign. Unknown provenance is its own case (see
+  ///    [_createMetricSeriesVersion]); every day written before the column
+  ///    existed reads NULL, and dropping those would delete a real user's whole
+  ///    history from their own baseline.
+  ///  * A single-family user gets the EMPTY SET, because nothing differs from
+  ///    the newest stamp. So this changes no number until a strap actually
+  ///    changes generation.
+  static Future<Set<String>> foreignFamilyDates() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT date FROM metric_series_version '
+      'WHERE date IS NOT NULL AND device_family IS NOT NULL '
+      'AND device_family <> ('
+      '  SELECT device_family FROM metric_series_version '
+      '  WHERE device_family IS NOT NULL ORDER BY date DESC LIMIT 1'
+      ')',
+    );
+    return {for (final r in rows) r['date'] as String};
+  }
+
   /// Import another device's exported OpenStrap DB ([path], from [exportCopy] +
   /// share) by MERGING its rows into this one (INSERT-OR-REPLACE). Covers derived
   /// results, the metric series, user data, and the raw ledger so the receiving
@@ -6287,6 +6756,11 @@ class LocalDb {
       'cycle_log',
       'cycle_symptom',
       'breathing_session',
+      // Vendor-computed, typed-in and imported scalars. In the hand-entered
+      // block because a third of it IS hand-entered and nothing regenerates
+      // any of it — a `reports` band trims its own history, and the app whose
+      // export the imported rows came from may be uninstalled by now.
+      'observation',
       'workout_route',
       'workout_split',
       // The user's sleep corrections. These are the ONLY copy of them — the
@@ -6490,6 +6964,22 @@ class LocalDb {
                   }
                   row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
                 }
+                // A PRE-v47 EXPORT CARRIES NO `device_id` / `ts_ms`. Left
+                // alone they take the column DEFAULTS — ('', 0) — so every
+                // imported row would collide on ONE primary key and REPLACE
+                // the whole table down to a single row. Derive the key exactly
+                // as [_rekeyTableByDevice] does: the primary band, and the
+                // row's own time in ms. AFTER the rec_ts recovery above, which
+                // is what decoded_rr's key is built from.
+                if (cols.contains('ts_ms') && row['ts_ms'] == null) {
+                  row['device_id'] ??= kPrimaryDeviceId;
+                  final t0 = row[t == 'samples' ? 'ts' : 'rec_ts'];
+                  // Non-numeric (storage classes are per VALUE in a foreign
+                  // export) ⇒ drop the one row rather than key it at 0, where
+                  // it would REPLACE another row that genuinely belongs there.
+                  if (t0 is! num) continue;
+                  row['ts_ms'] = t0.toInt() * 1000;
+                }
                 rows.add(row);
               }
               // REPLACE the beat set for a colliding second, don't patch it.
@@ -6509,7 +6999,10 @@ class LocalDb {
               // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
               // dense by construction, so "everything past the last one" is
               // exactly the stale local tail.
-              final highestBeat = <Object, int>{};
+              // v47: keyed on (device_id, ts_ms), the beat's real key — so the
+              // tail sweep can only ever clear the WRITING device's stale
+              // beats, never the other band's for the same second.
+              final highestBeat = <(Object?, Object?), int>{};
               for (final row in rows) {
                 batch.insert(
                   t,
@@ -6518,12 +7011,12 @@ class LocalDb {
                 );
                 copied++;
                 if (t == 'decoded_rr') {
-                  final recTs = row['rec_ts'];
                   final idx = row['beat_index'];
-                  if (recTs != null && idx is num) {
+                  final key = (row['device_id'], row['ts_ms']);
+                  if (key.$2 != null && idx is num) {
                     final n = idx.toInt();
-                    final prev = highestBeat[recTs];
-                    if (prev == null || n > prev) highestBeat[recTs] = n;
+                    final prev = highestBeat[key];
+                    if (prev == null || n > prev) highestBeat[key] = n;
                   }
                 }
                 if (++ops >= chunkOps) await flush();
@@ -6531,8 +7024,8 @@ class LocalDb {
               for (final e in highestBeat.entries) {
                 batch.delete(
                   'decoded_rr',
-                  where: 'rec_ts = ? AND beat_index > ?',
-                  whereArgs: [e.key, e.value],
+                  where: 'device_id = ? AND ts_ms = ? AND beat_index > ?',
+                  whereArgs: [e.key.$1, e.key.$2, e.value],
                 );
                 if (++ops >= chunkOps) await flush();
               }
@@ -6753,6 +7246,7 @@ class LocalDb {
       'external_hr',
       'imported_measurement',
       'imported_workout',
+      'observation',
     ];
 
     final missingTables = <String>[];
@@ -8315,6 +8809,13 @@ class LocalDb {
 
   /// 1 Hz heart-rate samples in [fromTs, toTs] (epoch SECONDS), ascending, used
   /// to colour a route and average HR per split. Only worn seconds (hr > 0).
+  ///
+  /// Band rows only (`source IS NULL`), for the same reason [sessionHrStats]
+  /// states below: a paired chest strap writes its own seconds into this table
+  /// with `source` set, and averaging the two together reports a session HR that
+  /// is neither sensor's. Today nothing writes a non-null source, so this filter
+  /// is a no-op — it is here so the six call sites are already correct on the
+  /// day one does.
   static Future<List<Map<String, dynamic>>> hrSamplesInRange(
     int fromTs,
     int toTs,
@@ -8323,7 +8824,7 @@ class LocalDb {
     return db.query(
       'decoded_onehz',
       columns: ['rec_ts', 'hr'],
-      where: 'rec_ts >= ? AND rec_ts <= ? AND hr > 0',
+      where: 'rec_ts >= ? AND rec_ts <= ? AND hr > 0 AND source IS NULL',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC',
     );

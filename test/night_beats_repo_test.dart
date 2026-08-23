@@ -43,6 +43,9 @@ Future<void> _seedBeats(Database db, int fromSec, int toSec) async {
   final batch = db.batch();
   for (var t = fromSec; t <= toSec; t++) {
     batch.insert('decoded_rr', {
+      // v47: the key is (device_id, ts_ms, beat_index). A hand-written row that
+      // omits ts_ms takes the DEFAULT 0 and collides with every other one.
+      'ts_ms': t * 1000,
       'rec_ts': t,
       'beat_index': 0,
       'rr_ts_ms': t * 1000,

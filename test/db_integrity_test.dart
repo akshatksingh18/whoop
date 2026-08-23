@@ -106,12 +106,15 @@ void main() {
     // Written straight in: nothing in the app writes a non-NULL source to
     // these tables today, and that is exactly the state the filter guards.
     await db.insert('decoded_onehz', {
+      // v47 key — see _createDecodedStore.
+      'ts_ms': (ts + 1) * 1000,
       'counter': 701,
       'rec_ts': ts + 1,
       'hr': 155,
       'source': 'Chest strap',
     });
     await db.insert('decoded_rr', {
+      'ts_ms': (ts + 1) * 1000,
       'rec_ts': ts + 1,
       'beat_index': 0,
       'rr_ts_ms': (ts + 1) * 1000,
@@ -144,6 +147,7 @@ void main() {
     // An old beat (its owning row absent — e.g. a leftover) is still deleted by
     // the plain rec_ts-range prune; no counter subquery, no orphan sweep needed.
     await db.insert('decoded_rr', {
+      'ts_ms': oldTs * 1000,
       'rec_ts': oldTs,
       'beat_index': 0,
       'rr_ts_ms': oldTs * 1000,

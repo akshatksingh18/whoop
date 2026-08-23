@@ -3,6 +3,7 @@
 // engine — the backoff schedule, the seq allocator, the drain stop conditions,
 // and the phase→legacy-string projection — none of which need a real band.
 
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -684,6 +685,42 @@ void main() {
       // assumption: it made two ordinary drops inside 8 s of setup latch the
       // re-pair guide on a band that was working.
       expect(isTimeoutDisconnect(null), isFalse);
+    });
+  });
+
+  group('withScanLock (process-wide scan mutex)', () {
+    test('a queued scan does not start until the running one finishes', () async {
+      // The bug this exists for: two overlapping scan bodies share ONE radio
+      // scanner, so the second one's `stopScan` ends the first scan early and
+      // the first reports "found nothing" with no error anywhere.
+      final order = <String>[];
+      final holdA = Completer<void>();
+      final a = withScanLock(() async {
+        order.add('a-start');
+        await holdA.future;
+        order.add('a-end');
+        return 'a';
+      });
+      final b = withScanLock(() async {
+        order.add('b-start');
+        return 'b';
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(order, ['a-start']); // b is queued, NOT running alongside a
+      holdA.complete();
+      expect(await a, 'a');
+      expect(await b, 'b');
+      expect(order, ['a-start', 'a-end', 'b-start']);
+    });
+
+    test('a scan that throws releases the lock', () async {
+      // A blocker (revoked permission, adapter off) throws out of the band
+      // scan; the next scan must still run rather than wait on a dead chain.
+      await expectLater(
+        withScanLock<void>(() async => throw StateError('adapter off')),
+        throwsStateError,
+      );
+      expect(await withScanLock(() async => 7), 7);
     });
   });
 }

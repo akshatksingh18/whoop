@@ -116,7 +116,10 @@ void main() {
     //    always used for "no heart rate this second" — never as a throw.
     final samples = await LocalDb.samplesInRange(2000, 2002);
     expect(samples.map((s) => s.hr), [60, 0, 80]);
-    expect(samples[1].wristOn, isFalse);
+    // `Sample.wristOn` (`hr > 0`) is GONE — BANDAGNOSTIC C11. It was the one
+    // reader in the app that turned "no usable heart rate this second" into
+    // "the band was off your wrist", and it had no callers. Wear truth is the
+    // HELLO body, the wrist on/off events and record presence.
 
     // 2. Every SQL read is gated `hr > 0`, which NULL fails — so the
     //    heart-rate readers simply do not see the second, rather than

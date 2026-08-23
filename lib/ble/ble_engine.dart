@@ -1719,9 +1719,17 @@ class BleEngine {
   /// Service-filtered scan (mandatory on iOS/macOS — passive scans hide the UUID).
   /// Start ONE scan, stop early on a match, otherwise let the timeout stop it.
   /// NEVER rapid start/stop (Android throttles → SCANNING_TOO_FREQUENTLY).
+  ///
+  /// Serialised process-wide through [withScanLock]: the HR-sensor scan shares
+  /// this one radio scanner, and the `isScanning == false` await below is
+  /// satisfied by ITS `stopScan` too — an unserialised scan silently ends
+  /// having seen nothing and reports "No WHOOP found".
   Future<BluetoothDevice?> scan({
     Duration timeout = const Duration(seconds: 12),
-  }) async {
+  }) =>
+      withScanLock(() => _scanLocked(timeout));
+
+  Future<BluetoothDevice?> _scanLocked(Duration timeout) async {
     // A phone-level blocker is NOT "nothing answered". Returning null for a
     // revoked Bluetooth permission classified it as `notFound` upstream, which
     // told the user to walk closer to a band that was never the problem — the

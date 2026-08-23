@@ -72,6 +72,33 @@ const _counterKeyedDecodedDdl = [
       'ON decoded_rr(rr_ts_ms, beat_index)',
 ];
 
+/// The PRE-v47 decoded store, exactly as a user on v43..46 has it: `rec_ts` is
+/// the whole primary key of `decoded_onehz`, `decoded_rr` hangs off it by
+/// `(rec_ts, beat_index)`, and `samples` is keyed by the band's flash counter.
+/// This is the shape the device re-key rebuilds, and the one every 3-day
+/// retention window of real 1 Hz data sits in.
+const _preDeviceKeyDecodedDdl = [
+  '''
+  CREATE TABLE decoded_onehz (
+    rec_ts INTEGER PRIMARY KEY,
+    counter INTEGER NOT NULL,
+    hr INTEGER, ax REAL, ay REAL, az REAL,
+    spo2_red_raw INTEGER, spo2_ir_raw INTEGER, skin_temp_raw INTEGER,
+    device_family TEXT, source TEXT, ts_subsec INTEGER)
+''',
+  '''
+  CREATE TABLE decoded_rr (
+    rec_ts INTEGER NOT NULL, beat_index INTEGER NOT NULL,
+    rr_ts_ms INTEGER NOT NULL, rr_ms INTEGER NOT NULL,
+    device_family TEXT, source TEXT, beat_ts_ms INTEGER,
+    PRIMARY KEY (rec_ts, beat_index))
+''',
+  '''
+  CREATE TABLE samples (
+    counter INTEGER PRIMARY KEY, ts INTEGER NOT NULL, hr INTEGER)
+''',
+];
+
 /// The v5-era derived tables, so step 9's derived_day → day_result copy is real.
 const _v5DerivedDdl = [
   '''
@@ -570,10 +597,17 @@ void main() {
       expect([for (final r in oh) r['rec_ts']],
           [1785000000, 1785000001, 1785000002]);
       expect([for (final r in oh) r['counter']], [100, 101, 102]);
-      // PK is now rec_ts, not counter.
+      // The key is no longer `counter` (v33) and, since v47, no longer rec_ts
+      // alone either: (device_id, ts_ms), with rec_ts demoted to the indexed
+      // range column and ts_ms carrying the same value it always had.
       final ohInfo = await db.rawQuery('PRAGMA table_info(decoded_onehz)');
-      expect(ohInfo.firstWhere((c) => c['name'] == 'rec_ts')['pk'], 1);
+      expect(ohInfo.firstWhere((c) => c['name'] == 'device_id')['pk'], 1);
+      expect(ohInfo.firstWhere((c) => c['name'] == 'ts_ms')['pk'], 2);
+      expect(ohInfo.firstWhere((c) => c['name'] == 'rec_ts')['pk'], 0);
       expect(ohInfo.firstWhere((c) => c['name'] == 'counter')['pk'], 0);
+      expect([for (final r in oh) r['device_id']], ['', '', '']);
+      expect([for (final r in oh) r['ts_ms']],
+          [1785000000000, 1785000001000, 1785000002000]);
 
       // Beats re-home onto their real second; decoded_rr loses its counter col.
       final rr =
@@ -847,6 +881,267 @@ void main() {
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'v47 re-keys decoded_onehz / decoded_rr / samples onto (device_id, ts_ms) '
+    'without losing or rewriting a row',
+    () async {
+      const name = 'migrate_v46_device_key_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        46,
+        [
+          ..._preDeviceKeyDecodedDdl,
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          for (var i = 0; i < 3; i++) {
+            await db.insert('decoded_onehz', {
+              'rec_ts': 1786000000 + i,
+              'counter': 500 + i,
+              'hr': 60 + i,
+              'ax': 0.1,
+              'ay': 0.2,
+              'az': 0.9,
+              'device_family': 'gen4',
+              'ts_subsec': 16384,
+            });
+            await db.insert('samples', {
+              'counter': 500 + i,
+              'ts': 1786000000 + i,
+              'hr': 60 + i,
+            });
+          }
+          for (var b = 0; b < 2; b++) {
+            await db.insert('decoded_rr', {
+              'rec_ts': 1786000000,
+              'beat_index': b,
+              'rr_ts_ms': 1786000000 * 1000,
+              'rr_ms': 800 + b,
+            });
+          }
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      // NOTHING IS LOST AND NOTHING IS REWRITTEN. Same rows, same values, plus
+      // a key that can tell two devices apart.
+      final oh = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
+      expect([for (final r in oh) r['rec_ts']],
+          [1786000000, 1786000001, 1786000002]);
+      expect([for (final r in oh) r['hr']], [60, 61, 62]);
+      expect([for (final r in oh) r['counter']], [500, 501, 502]);
+      // Columns added off-ladder survive the PRAGMA-derived rebuild — the whole
+      // reason the DDL is reconstructed instead of hardcoded.
+      expect([for (final r in oh) r['ts_subsec']], [16384, 16384, 16384]);
+      expect([for (final r in oh) r['device_family']], ['gen4', 'gen4', 'gen4']);
+      // '' is the primary band, reserved permanently; ts_ms is rec_ts*1000
+      // EXACTLY, so the key is as unique as rec_ts was.
+      expect([for (final r in oh) r['device_id']], ['', '', '']);
+      expect([for (final r in oh) r['ts_ms']],
+          [1786000000000, 1786000001000, 1786000002000]);
+
+      for (final t in const ['decoded_onehz', 'decoded_rr', 'samples']) {
+        final info = await db.rawQuery('PRAGMA table_info($t)');
+        expect(info.firstWhere((c) => c['name'] == 'device_id')['pk'], 1,
+            reason: t);
+        expect(info.firstWhere((c) => c['name'] == 'ts_ms')['pk'], 2,
+            reason: t);
+      }
+      // decoded_rr's key is its parent's, one level deeper.
+      final rrInfo = await db.rawQuery('PRAGMA table_info(decoded_rr)');
+      expect(rrInfo.firstWhere((c) => c['name'] == 'beat_index')['pk'], 3);
+      final rr =
+          await db.query('decoded_rr', orderBy: 'ts_ms ASC, beat_index ASC');
+      expect([for (final r in rr) r['rr_ms']], [800, 801]);
+      expect([for (final r in rr) r['ts_ms']],
+          [1786000000000, 1786000000000]);
+
+      // `samples` was keyed by the WHOOP flash counter; it is keyed by time now
+      // and `counter` is demoted to a plain column.
+      final sm = await db.query('samples', orderBy: 'ts ASC');
+      expect([for (final r in sm) r['ts_ms']],
+          [1786000000000, 1786000001000, 1786000002000]);
+      expect([for (final r in sm) r['counter']], [500, 501, 502]);
+
+      // rec_ts stops being the key, so it MUST become an index — every read in
+      // db.dart ranges over it and would otherwise scan the whole table.
+      final ix = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'index' "
+        "AND tbl_name IN ('decoded_onehz', 'decoded_rr')",
+      );
+      final ixNames = {for (final r in ix) r['name']};
+      expect(ixNames, contains('idx_decoded_onehz_rects'));
+      expect(ixNames, contains('idx_decoded_rr_rects'));
+
+      // No leaked temp tables.
+      expect(
+        await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE name LIKE '%\\_v47' ESCAPE '\\'",
+        ),
+        isEmpty,
+      );
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'THE DEDUPE REGRESSION: re-ingesting an already-migrated second leaves '
+    'EXACTLY ONE row — it fires on the next sync, not at migration time',
+    () async {
+      // The v47 re-key is only correct if `ts_ms = rec_ts * 1000` keeps the key
+      // exactly as unique as `rec_ts` was. Widen it by one sub-second and the
+      // band's post-reboot counter reset, a re-drained flash region and a
+      // re-delivered batch each start writing a SECOND row for a second that
+      // already has one — silently doubling the substrate. A ladder test cannot
+      // see that: it only shows up the next time the writer runs.
+      const name = 'v47_dedupe_test.db';
+      created.add(name);
+      await _seedOldDb(name, 46, [..._preDeviceKeyDecodedDdl, ..._v5DerivedDdl],
+          seedRows: (db) async {
+        await db.insert('decoded_onehz', {
+          'rec_ts': 1786000000,
+          'counter': 900,
+          'hr': 55,
+          'ts_subsec': 100,
+        });
+        await db.insert('decoded_rr', {
+          'rec_ts': 1786000000,
+          'beat_index': 0,
+          'rr_ts_ms': 1786000000 * 1000,
+          'rr_ms': 1000,
+        });
+      });
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // The SAME second re-offloaded under a DIFFERENT counter (what a band
+      // reboot produces) and with a different sub-second and a shrinking beat
+      // set — the three things that used to fight over the key.
+      await LocalDb.insertRecordsBatch(
+        [
+          RawRecord(
+            counter: 7,
+            packetType: 47,
+            hex: _v24RecordHex(
+              counter: 7,
+              tsEpoch: 1786000000,
+              hr: 58,
+              rrMs: 950,
+            ),
+            capturedAt: 1786000000 * 1000,
+            recTs: 1786000000,
+          ),
+        ],
+        [null],
+      );
+
+      final db = await LocalDb.instance;
+      final oh = await db.query('decoded_onehz');
+      expect(oh.length, 1, reason: 'newest-wins dedupe must survive the re-key');
+      expect(oh.first['hr'], 58, reason: 'the fresher offload wins');
+      expect(oh.first['ts_ms'], 1786000000000);
+      // The beat set is REPLACED, not merged — and the delete that does it is
+      // now scoped to the writing device.
+      final rr = await db.query('decoded_rr');
+      expect(rr.length, 1);
+      expect(rr.first['rr_ms'], 950);
+    },
+  );
+
+  test(
+    'THE POINT OF THE WHOLE PHASE: a primary row and a secondary row at the '
+    'SAME instant both survive',
+    () async {
+      // Before v47 this was impossible by construction: `decoded_onehz` was
+      // `rec_ts INTEGER PRIMARY KEY` written with REPLACE and `decoded_rr` was
+      // cleared by an unscoped `DELETE ... WHERE rec_ts = ?`, so the second
+      // device did not merge with the first — it DELETED it, row and beats, and
+      // raw_archive prunes at 3 days.
+      const name = 'v47_two_devices_test.db';
+      created.add(name);
+      await _seedOldDb(name, 46, [..._preDeviceKeyDecodedDdl, ..._v5DerivedDdl],
+          seedRows: (db) async {
+        await db.insert('decoded_onehz',
+            {'rec_ts': 1786000000, 'counter': 1, 'hr': 61});
+        await db.insert('decoded_rr', {
+          'rec_ts': 1786000000,
+          'beat_index': 0,
+          'rr_ts_ms': 1786000000 * 1000,
+          'rr_ms': 980,
+        });
+      });
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      await db.insert(
+        'decoded_onehz',
+        {
+          'device_id': 'polar-h10:AABBCC',
+          'ts_ms': 1786000000 * 1000,
+          'rec_ts': 1786000000,
+          'counter': 1,
+          'hr': 59,
+          'source': 'polar_h10',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await db.insert(
+        'decoded_rr',
+        {
+          'device_id': 'polar-h10:AABBCC',
+          'ts_ms': 1786000000 * 1000,
+          'rec_ts': 1786000000,
+          'beat_index': 0,
+          'rr_ts_ms': 1786000000 * 1000,
+          'rr_ms': 1010,
+          'source': 'polar_h10',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      final oh = await db.query('decoded_onehz', orderBy: 'device_id ASC');
+      expect(oh.length, 2);
+      expect([for (final r in oh) r['device_id']], ['', 'polar-h10:AABBCC']);
+      expect([for (final r in oh) r['hr']], [61, 59]);
+
+      final rr = await db.query('decoded_rr', orderBy: 'device_id ASC');
+      expect(rr.length, 2);
+      expect([for (final r in rr) r['rr_ms']], [980, 1010]);
+
+      // And the primary band writing that same second again clears only ITS OWN
+      // beats — the unscoped delete is what made a second device destructive.
+      await LocalDb.insertRecordsBatch(
+        [
+          RawRecord(
+            counter: 2,
+            packetType: 47,
+            hex: _v24RecordHex(
+              counter: 2,
+              tsEpoch: 1786000000,
+              hr: 62,
+              rrMs: 970,
+            ),
+            capturedAt: 1786000000 * 1000,
+            recTs: 1786000000,
+          ),
+        ],
+        [null],
+      );
+      final after = await db.query('decoded_rr', orderBy: 'device_id ASC');
+      expect(after.length, 2);
+      expect([for (final r in after) r['rr_ms']], [970, 1010]);
+      expect(
+        (await db.query('decoded_onehz')).length,
+        2,
+        reason: 'the strap must never evict the other device',
+      );
     },
   );
 }

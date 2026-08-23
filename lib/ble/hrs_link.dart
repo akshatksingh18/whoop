@@ -22,9 +22,10 @@
 //    `source IS NULL`. Resting HR from a chest strap and from wrist PPG differ
 //    systematically, and merging them quietly is how a step change lands in
 //    every long-horizon number with no visible cause.
-//  * NOT REACHABLE TODAY. There is no pairing screen, so nothing writes the
-//    `device` row [HrsLink.arm] reads, and arming is a no-op — exactly as it
-//    was before, when `PairedHrSensor.save()` had zero callers.
+//  * REACHABLE NOW, and it was not. [scanFor] finds a sensor and
+//    [pairNotifySensor] writes the `device` row [HrsLink.arm] reads, so
+//    arming stops being a no-op the moment a user picks one.
+//    `lib/ui2/profile/pair_sensor.dart` is the screen that drives both.
 //  * NOT hardware-verified. Nobody on this project owns a strap. Everything
 //    below is verified by the SIG spec, the fixtures in
 //    `test/hrs_link_test.dart` and the compiler. It ships EXPERIMENTAL
@@ -41,21 +42,51 @@
 // Lomb-Scargle / `cvhr_per_hour` / `spanSec` must refuse on it.
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
+import '../sync/paired_device.dart' show cleanDeviceLabel;
+import 'accessory_setup.dart';
 import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import 'ble_state.dart'
+    show BleBlocker, BleUnavailableException, classifyBleBlocker, withScanLock;
 
 /// One arrival second's worth of notifications.
 class _Second {
   int? hr;
   final List<int> rr = [];
+}
+
+/// One peripheral a pairing scan heard, in the shape a picker needs.
+///
+/// [label] is the advertised name AFTER `cleanDeviceLabel`, and it stays
+/// nullable: plenty of sensors advertise no name at all, and a made-up
+/// "Unknown device" would be a value where there is none. The screen shows the
+/// band's own label instead.
+typedef BandCandidate = ({BluetoothDevice device, String? label, int rssi});
+
+/// What a paired sensor is saying RIGHT NOW. Display only — see
+/// [HrsLink.reading].
+class HrsReading {
+  /// The last bpm the sensor reported, or null while the link is up and
+  /// nothing has arrived yet. A strap takes seconds to find a signal, and that
+  /// is a real state; it is never rendered as a zero. The parser already
+  /// refuses 0 bpm, so a non-null value here was measured.
+  final int? bpm;
+
+  /// Arrival second of [bpm] — `TimeAnchor.arrival`, same caveat as every
+  /// other timestamp on this path. Null with [bpm].
+  final int? atSec;
+
+  const HrsReading({this.bpm, this.atSec});
 }
 
 /// The live link to a paired heart-rate sensor. One instance; a second
@@ -93,6 +124,20 @@ class HrsLink {
 
   bool _armed = false;
 
+  /// What the sensor is saying right now, or null when none is armed.
+  ///
+  /// THE DISPLAY PATH, AND ONLY THAT. [_flush] stays the single writer into
+  /// `decoded_*`; this notifier persists nothing and is read by nothing that
+  /// derives. A second write path built on the live number is exactly how a
+  /// displayed value and a stored value start disagreeing with no way to tell
+  /// which one a metric used.
+  ///
+  /// A [ValueListenable] rather than a stream because there is one current
+  /// reading and every consumer wants the latest one — a late listener on a
+  /// broadcast stream would render nothing until the next beat.
+  ValueListenable<HrsReading?> get reading => _reading;
+  final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
+
   /// The `device` row for the paired heart-rate sensor, or null.
   ///
   /// The `device` table (schema 49) IS the pairing store now — this is what
@@ -112,6 +157,292 @@ class HrsLink {
       if (r['adapter_id'] == kBleHrsAdapter.id) return r;
     }
     return null;
+  }
+
+  // ── pairing: scan ─────────────────────────────────────────────────────────
+
+  /// How long a pairing scan runs. Longer than the engine's 12 s because this
+  /// scan does NOT stop at the first hit — the whole window is the list the
+  /// user chooses from, and a strap that has just been put on can take several
+  /// seconds to start advertising.
+  static const Duration _scanWindow = Duration(seconds: 15);
+
+  /// Same bound, and for the same reason, as `BleEngine._blockerProbe`:
+  /// `unknown` is CoreBluetooth's pre-init value, never a verdict.
+  static const Duration _blockerProbe = Duration(seconds: 2);
+
+  static const Duration _connectTimeout = Duration(seconds: 12);
+
+  /// Scan for peripherals advertising [entry]'s service and report them as
+  /// they are heard.
+  ///
+  /// NOT `BleEngine.scan`, and not a copy of it either. That one filters on
+  /// every FRAMED band's service and stops dead on the first match, because it
+  /// answers "where is MY band" — one answer, no choice. This answers a
+  /// different question: "what is in the room", for a class of device the user
+  /// has to pick out of a list of several. So it filters on ONE entry's
+  /// service, runs the whole window, and reports every distinct peripheral.
+  ///
+  /// [kFramedBands] is deliberately not consulted: a notify-class entry is
+  /// excluded from it on purpose (see the comment on `kFramedBands`), and a
+  /// framed band matched here would be handed to a pairing path that has no
+  /// handshake. Hence the assert.
+  ///
+  /// Generic over [entry] rather than pinned to [kBleHrs]: the next
+  /// notify-class band needs exactly this scan and a different pairing step,
+  /// and a second copy of this function is how the two drift apart.
+  ///
+  /// [onResults] is called with the whole ranked list each time it changes —
+  /// strongest signal first, which is very nearly "the one on your chest".
+  /// Throws [BleUnavailableException] when the phone's own stack is the
+  /// problem; see [scanHeldBackReason] for the iOS case that is not an error.
+  static Future<void> scanFor(
+    BandEntry entry, {
+    required void Function(List<BandCandidate>) onResults,
+    Duration timeout = _scanWindow,
+  }) {
+    assert(!entry.isFramed,
+        '${entry.id} is a framed band — pair it through BleEngine.scan.');
+    // Process-wide, because the radio has ONE scanner and the band's own scan
+    // shares it. Without this, whichever scan called `stopScan` first ended
+    // the other one having seen nothing, with no error to say why.
+    return withScanLock(() => _scanFor(entry, onResults, timeout));
+  }
+
+  static Future<void> _scanFor(
+    BandEntry entry,
+    void Function(List<BandCandidate>) onResults,
+    Duration timeout,
+  ) async {
+    // A phone-level blocker is NOT "nothing answered" — the same lesson
+    // `BleEngine._scanLocked` learned. Returning an empty list for a revoked
+    // Bluetooth permission tells the user to move closer to a sensor that was
+    // never the problem.
+    final pre = await _detectBlocker();
+    if (pre != null) throw BleUnavailableException(pre);
+    if (FlutterBluePlus.isScanningNow) {
+      await FlutterBluePlus.stopScan();
+    }
+    // Keyed by remote id: a scan re-reports the same peripheral several times
+    // a second, and a list that grows a row per advertisement is not a picker.
+    final seen = <String, BandCandidate>{};
+    final sub = FlutterBluePlus.onScanResults.listen((results) {
+      var changed = false;
+      for (final r in results) {
+        final id = r.device.remoteId.str;
+        final was = seen[id];
+        // The ADVERTISED name first. `platformName` is the OS's cached name
+        // for a peripheral it has seen before, which can be stale or empty;
+        // the advertisement is what this sensor is saying now. Both go through
+        // `cleanDeviceLabel`, and null survives as null rather than becoming a
+        // placeholder. A name that drops out of a later advertisement keeps
+        // the one we already had — losing it mid-scan would make the row the
+        // user is reaching for change under their finger.
+        final label = cleanDeviceLabel(r.advertisementData.advName) ??
+            cleanDeviceLabel(r.device.platformName) ??
+            was?.label;
+        final now = (device: r.device, label: label, rssi: r.rssi);
+        if (was == null || was.rssi != now.rssi || was.label != now.label) {
+          changed = true;
+        }
+        seen[id] = now;
+      }
+      if (changed) onResults(_ranked(seen));
+    });
+    try {
+      await FlutterBluePlus.startScan(
+        withServices: [Guid(entry.service)],
+        timeout: timeout,
+      );
+      // The scan's own timeout is what stops it; this waits that out.
+      await FlutterBluePlus.isScanning.where((on) => on == false).first;
+    } catch (e) {
+      // Android reports a missing runtime permission by throwing HERE rather
+      // than through the adapter state, so the pre-check above cannot see it.
+      final blocker = classifyBleBlocker(error: e);
+      if (blocker != null) throw BleUnavailableException(blocker);
+      debugPrint('[hrs] scan error: $e');
+    } finally {
+      await sub.cancel();
+    }
+    onResults(_ranked(seen));
+  }
+
+  static List<BandCandidate> _ranked(Map<String, BandCandidate> seen) =>
+      seen.values.toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
+
+  /// Why the phone's own stack cannot scan, or null when it can.
+  ///
+  /// A deliberate second copy of `BleEngine._detectBlocker`: that one is
+  /// private on an engine INSTANCE this file has no reference to and must not
+  /// grow one — the point of the sensor link is that it never routes through
+  /// the band's engine. The classifier itself ([classifyBleBlocker]) is
+  /// shared, which is the half that has to stay in one place.
+  static Future<BleBlocker?> _detectBlocker() async {
+    try {
+      final s = await FlutterBluePlus.adapterState
+          .firstWhere((s) => s != BluetoothAdapterState.unknown)
+          .timeout(_blockerProbe,
+              onTimeout: () => BluetoothAdapterState.unknown);
+      return classifyBleBlocker(adapterState: s.name);
+    } catch (e) {
+      return classifyBleBlocker(error: e);
+    }
+  }
+
+  /// One sentence saying why a scan should not be STARTED on this phone yet,
+  /// or null when it may run. Not an error — a warning the screen shows before
+  /// it does something it cannot take back within this app launch.
+  ///
+  /// THE iOS PROBLEM (ASSUMPTIONS I9), and it is real on this build. Verified
+  /// rather than assumed, because the whole question is whether a
+  /// `CBCentralManager` already exists by the time anyone reaches the pairing
+  /// screen — if one does, this scan changes nothing and the guard is theatre:
+  ///
+  ///  * `flutter_blue_plus_darwin` creates its central lazily, on the first
+  ///    method call that needs one — but `setLogLevel` and `setOptions` return
+  ///    BEFORE that init block, so `main()`'s two startup calls do not create
+  ///    one. Every other entry point (`getAdapterState`, `startScan`,
+  ///    `connect`) passes through it, so the first of those wins.
+  ///  * `AppState._initSteps` reaches flutter_blue_plus only under
+  ///    `if (isPaired)`.
+  ///
+  /// So on a phone with no WHOOP paired, no central exists, and starting one
+  /// here would make `AccessorySetup.showPicker()` fail with "CBManager is
+  /// active with global permissions" for the rest of the process. It is not
+  /// permanent — the next launch starts with no central — which is exactly
+  /// what the sentence has to say, because the alternative is a WHOOP that
+  /// silently cannot be paired and no way to guess why.
+  ///
+  /// Gated on `provisionedId() == null` and not on "is a band paired": once
+  /// ASK has provisioned the WHOOP the picker is not needed again, and a phone
+  /// that already has a live session already has a central anyway.
+  static Future<String?> scanHeldBackReason() async {
+    if (!Platform.isIOS) return null;
+    if (!await AccessorySetup.isSupported()) return null;
+    if (await AccessorySetup.provisionedId() != null) return null;
+    return 'Your WHOOP is not paired yet. Searching for a sensor now starts '
+        'Bluetooth in a way that hides the system WHOOP pairing sheet until '
+        'you restart the app — so pair the WHOOP first, or expect to restart '
+        'the app before you can.';
+  }
+
+  // ── pairing: the device row ───────────────────────────────────────────────
+
+  /// The `device.id` to store a peripheral under.
+  ///
+  /// MINTED, never the BLE remote id: that is a per-app CBPeripheral UUID on
+  /// iOS and a rotating RPA on Android, and letting one become the primary key
+  /// fragments one sensor into N identities whose rows can never be rejoined.
+  /// Never [LocalDb.kPrimaryDeviceId] either — `''` is the primary band,
+  /// permanently — which the `${entry.id}-` prefix makes structurally
+  /// impossible.
+  ///
+  /// DERIVED from the remote id rather than random, so re-pairing the same
+  /// sensor on the same phone lands back on its own row and its own history
+  /// instead of minting a stranger. When the remote id does rotate, the stored
+  /// one no longer connects either, so a new row is the truth: we cannot tell
+  /// it is the same strap.
+  static String mintDeviceId(BandEntry entry, String remoteId) =>
+      '${entry.id}-${_fnv1a(remoteId).toRadixString(16).padLeft(8, '0')}';
+
+  /// FNV-1a, 32-bit. `String.hashCode` is deliberately not used: Dart only
+  /// promises it is consistent within ONE run, and this value is a primary key
+  /// that has to name the same sensor after a restart.
+  static int _fnv1a(String s) {
+    var h = 0x811c9dc5;
+    for (final unit in s.codeUnits) {
+      h = (h ^ unit) & 0xffffffff;
+      h = (h * 0x01000193) & 0xffffffff;
+    }
+    return h;
+  }
+
+  /// Connect to [device], check it really exposes what [entry] requires, and
+  /// write the `device` row that makes it reachable. Returns null on success,
+  /// or a user-facing sentence on failure.
+  ///
+  /// The default pairing step for a notify-class band, which is the whole of
+  /// what a heart-rate strap needs: no handshake, no key, no clock. A band
+  /// that DOES need a key exchange supplies its own step to the screen and
+  /// never calls this.
+  ///
+  /// [tier] defaults to the strap's, and a band whose measurement quality
+  /// differs must say so rather than inherit it — the tier is what decides
+  /// precedence between two sources, so a wrong one is a silent wrong number.
+  ///
+  /// Nothing is written unless the peripheral passed the characteristic check:
+  /// a row pointing at a device that cannot answer is a sensor that appears
+  /// paired and never produces a beat.
+  static Future<String?> pairNotifySensor(
+    BandEntry entry,
+    BluetoothDevice device, {
+    String? label,
+    String tier = 'beatToBeat',
+  }) async {
+    try {
+      await device.connect(timeout: _connectTimeout);
+    } catch (e) {
+      debugPrint('[hrs] pair connect failed: $e');
+      return 'That sensor did not answer. It may have gone back to sleep, or '
+          'it may already be connected to another phone or app.';
+    }
+    try {
+      final services = await device.discoverServices();
+      final link = GattBandLink(
+        entry: entry,
+        services: services,
+        onLog: (m) => debugPrint('[hrs] pair: $m'),
+      );
+      final missing =
+          link.missingCharacteristics(entry.requiredCharacteristics);
+      link.close();
+      if (missing.isNotEmpty) {
+        return 'That device answered, but it does not expose the '
+            '${entry.label} data this needs '
+            '(missing ${missing.map((u) => u.substring(0, 8)).join(", ")}). '
+            'Nothing was saved.';
+      }
+      await LocalDb.upsertDevice(
+        id: mintDeviceId(entry, device.remoteId.str),
+        adapterId: entry.id,
+        remoteId: device.remoteId.str,
+        label: label,
+        tier: tier,
+      );
+      return null;
+    } catch (e) {
+      debugPrint('[hrs] pair setup failed: $e');
+      return 'That sensor disconnected before it could be set up. Nothing was '
+          'saved.';
+    } finally {
+      // The pairing connection is not the session. `arm()` opens its own when
+      // a workout starts, and holding this one would be a second GATT link
+      // nobody asked for.
+      try {
+        await device.disconnect();
+      } catch (_) {/* already gone */}
+    }
+  }
+
+  /// Forget a paired sensor.
+  ///
+  /// THE PROMISE IS "this removes the source, not the data". The `device` row
+  /// goes; every second and beat it wrote keeps its `device_id` in
+  /// `decoded_onehz` / `decoded_rr`, so the history stays attributable and a
+  /// re-pair of the same sensor ([mintDeviceId] is derived) finds it again.
+  ///
+  /// Refuses [LocalDb.kPrimaryDeviceId] outright: that row is the band, and
+  /// unpairing the band is a different flow with a different promise.
+  static Future<void> forgetDevice(String id) async {
+    if (id == LocalDb.kPrimaryDeviceId) {
+      debugPrint('[hrs] refusing to forget the primary band from here.');
+      return;
+    }
+    // Before the row goes, not after: a live session would keep writing rows
+    // under an id nothing can explain any more.
+    await instance.disarm();
+    await LocalDb.deleteDevice(id);
   }
 
   /// Connect to the paired sensor and start logging.
@@ -196,6 +527,9 @@ class HrsLink {
       });
       _flushTimer = Timer.periodic(_flushEvery, (_) => unawaited(_flush()));
       _armed = true;
+      // "Live, nothing yet" — a distinct state from "no sensor", and the one
+      // a surface shows for the seconds a strap spends finding a signal.
+      _reading.value = const HrsReading();
       return true;
     } catch (_) {
       await disarm();
@@ -222,6 +556,9 @@ class HrsLink {
     _device = null;
     _deviceId = null;
     _armed = false;
+    // Null, not the last reading: a number left on screen after the link died
+    // is the one lie this surface can tell.
+    _reading.value = null;
     if (d != null) {
       try {
         await d.disconnect();
@@ -277,6 +614,15 @@ class HrsLink {
           // Last notification in the second wins.
           if (s.hr != null) slot.hr = s.hr;
           slot.rr.addAll(s.rrMs);
+          // The live surface, updated from the SAME sample that was just
+          // buffered so the two can never disagree. It is below the
+          // `ephemeral` guard on purpose: no adapter emits an ephemeral batch
+          // today, and if one ever does, this publish moves ABOVE the guard —
+          // display-only is precisely what ephemeral means — while the guard
+          // itself stays where it is, deciding what reaches the database.
+          if (s.hr != null) {
+            _reading.value = HrsReading(bpm: s.hr, atSec: s.tsEpoch);
+          }
         }
       case OffloadCheckpoint():
         // A sensor with no flash cannot have anything to forget. If this ever
@@ -298,6 +644,9 @@ class HrsLink {
   /// It replays through the SAME [BleHrsAdapter.run] the radio drives, over a
   /// [ReplayBandLink]. A test seam that skipped the adapter would prove the
   /// wrong thing.
+  ///
+  /// [reading] is LEFT SET when this returns, exactly as a real session leaves
+  /// its last beat on screen — call [disarm] if a test needs it back at null.
   @visibleForTesting
   Future<void> ingestForTest(
     String deviceId,

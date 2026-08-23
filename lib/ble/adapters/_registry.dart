@@ -381,9 +381,10 @@ const BandEntry kWhoopGen5 = BandEntry.framed(
 /// Chest straps, optical armbands, some rings, and a WHOOP in broadcast mode.
 ///
 /// EXPERIMENTAL and it stays that way: nobody on this project owns one yet, so
-/// not a byte of this path has met hardware (ASSUMPTIONS R6). It is also not
-/// yet REACHABLE — there is no pairing screen, so nothing writes the `device`
-/// row `HrsLink.arm` reads, and arming is a no-op exactly as it was before.
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). It IS reachable
+/// now — `PairSensorScreen` writes the `device` row `HrsLink.arm` reads — but
+/// reachable is not verified, and `kDerivableSources` stays empty: a strap
+/// captures beats, and nothing derives from them until someone has held one.
 const BandEntry kBleHrs = BandEntry.notify(
   id: 'ble_hrs',
   label: 'Bluetooth heart rate sensor',

@@ -3345,7 +3345,6 @@ class DerivationEngine {
         if (v == null) continue;
         flat['${key}_value'] = v['value'];
         flat['${key}_baseline_n'] = v['baseline_n'];
-        flat['${key}_baseline_sd'] = v['baseline_sd'];
       }
       flat['note'] = diag['note'];
       TelemetryService.instance.record(
@@ -3378,8 +3377,7 @@ class DerivationEngine {
           final v = (diag[key] as Map?)?.cast<String, dynamic>();
           if (v == null) continue;
           summary.write(
-              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}'
-              '(sd=${v['baseline_sd']})');
+              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}');
         }
         summary.write(' | $note');
         TelemetryService.instance.recordNonFatal(

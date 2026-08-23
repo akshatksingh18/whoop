@@ -1710,9 +1710,10 @@ class BatteryPackInfoGate {
 
 /// Process-wide BLE scan mutex.
 ///
-/// The radio has ONE scanner and this app has two callers of it: the band scan
-/// (`BleEngine.scan`) and the heart-rate sensor scan (`HrSensorLink.scan`).
-/// Both stop whatever is already scanning and then wait for
+/// The radio has ONE scanner. Today `BleEngine.scan` is its only caller —
+/// `hr_sensor.dart`'s sensor scan had zero callers and went with the file, and
+/// a pairing screen for a second device is the next thing to take this lock.
+/// Every caller stops whatever is already scanning and then waits for
 /// `FlutterBluePlus.isScanning` to go false — an await that any scan stopping
 /// satisfies, including the OTHER caller's. The loser's scan therefore
 /// "completed" the instant the winner called `stopScan`, having seen nothing,

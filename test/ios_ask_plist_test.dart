@@ -1,4 +1,9 @@
-// The iOS AccessorySetupKit block in Info.plist is DERIVED from kBandRegistry.
+// The iOS AccessorySetupKit block in Info.plist is DERIVED from kFramedBands.
+//
+// kFramedBands and not the whole registry: ASK provisions the PRIMARY band —
+// the one that holds a link and gets its flash trimmed. A notify-only sensor
+// is connected straight from its stored remote id during a workout, so its
+// service in this array would only put chest straps in the WHOOP picker.
 //
 // This is the enforcement half of tool/gen_ios_ask_plist.dart: `flutter test`
 // runs on every PR, so a band added to the registry and forgotten in the plist
@@ -18,16 +23,16 @@ import '../tool/gen_ios_ask_plist.dart';
 void main() {
   final plist = File(kPlistPath).readAsStringSync();
 
-  test('Info.plist ASK block is in sync with kBandRegistry', () {
+  test('Info.plist ASK block is in sync with kFramedBands', () {
     expect(
-      applyBlocks(plist, kBandRegistry),
+      applyBlocks(plist, kFramedBands),
       plist,
       reason: 'stale — run `dart run tool/gen_ios_ask_plist.dart`',
     );
   });
 
-  test('every registry service is declared, uppercased', () {
-    for (final e in kBandRegistry) {
+  test('every framed service is declared, uppercased', () {
+    for (final e in kFramedBands) {
       expect(plist, contains('<string>${e.service.toUpperCase()}</string>'));
     }
   });
@@ -37,7 +42,7 @@ void main() {
     // back in the source is the drift this whole thing exists to prevent.
     final swift =
         File('ios/Runner/AccessorySetup.swift').readAsStringSync().toLowerCase();
-    for (final e in kBandRegistry) {
+    for (final e in kFramedBands) {
       expect(swift, isNot(contains(e.service.toLowerCase())));
     }
   });

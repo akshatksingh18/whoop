@@ -44,6 +44,90 @@ typedef DbRebuild = ({
   Map<String, int> salvaged,
 });
 
+// ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
+//    number ───────────────────────────────────────────────────────────────────
+//
+// THE THREE PROVENANCE COLUMNS ON `decoded_onehz` / `decoded_rr`, AND THE RULE
+// THAT THEY DO NOT OVERLAP:
+//
+//   device_id      WHICH UNIT.       '' is the primary band, permanently
+//                                    (see [_createDecodedStore]); a real id
+//                                    belongs to a secondary.
+//   device_family  THE CALIBRATION KEY. Which sensor's constants a metric must
+//                                    look itself up under. NULL = unknown, and
+//                                    unknown is its own case, never gen4.
+//   source         THE ADMISSION FLAG. NULL = the primary band. Non-NULL names
+//                                    the adapter that wrote the row.
+//
+// None of the three is a stand-in for another. `source` in particular is NOT a
+// provenance id you may read to find out what a row came from — `device_id` and
+// `device_family` are — it exists so this file can answer ONE question in SQL:
+// may this row become a number?
+//
+// Why an adapter's rows are stored but not derived by default: correctness of a
+// community decoder cannot be enforced by review, and a decoder with a 2x scale
+// error reads a resting 50 bpm as 100 and passes every generic physiological
+// bound. So an unverified adapter's seconds bank, sync, back up and show up in
+// diagnostics — and produce no metric at all until the owner has held that
+// hardware in his own hands (ASSUMPTIONS R6/E5/E6). Silent, on purpose: the
+// alternative is a plausible wrong number, which is the one failure this
+// project treats as worse than an absent one.
+//
+// NOTE THE DIFFERENCE FROM MULTIBAND_PLAN §3.3, which said a verified adapter
+// would write `source IS NULL` and so need no read-side change. It is written
+// the other way round here — every non-band writer stamps its id, always, and
+// ADMISSION IS A READ-SIDE DECISION — for two reasons that only show up later:
+// verification is then REVOCABLE (a decoder bug found in v3 of an adapter is
+// one edit to [kDerivableSources], not a data migration over rows that can no
+// longer be told apart), and `source` keeps meaning something after a strap is
+// verified, which is what lets [kPrimaryBandSourceSql] below still exist.
+
+/// Non-NULL `source` values admitted to derivation: adapters the OWNER has
+/// personally held and cross-confirmed (ASSUMPTIONS R6).
+///
+/// EMPTY TODAY, AND CORRECTLY SO. The only owner-confirmed band is the WHOOP 4,
+/// which is the primary band and therefore writes `source IS NULL` — so the set
+/// of *non-NULL* sources that may be derived from is genuinely empty, and
+/// [derivableSourceSql] renders byte-identical SQL to the bare predicate it
+/// replaced. It becomes non-empty the first time a strap earns it.
+///
+/// NOT the same set as `kOwnerConfirmedBandIds` in `ui2/profile/devices.dart`,
+/// and deliberately not shared with it: that one holds BAND FAMILY ids
+/// (`device_family`) and decides whether a badge says EXPERIMENTAL; this one
+/// holds SOURCE values and decides whether a row may become a number. They
+/// answer different questions off different columns and will diverge the moment
+/// a family is decoded but its adapter is not yet trusted. Both are `ponytail:`
+/// placeholders for the CODEOWNERS-gated `_verified.dart` (ASSUMPTIONS E5) —
+/// when that lands it owns the owner-confirmation fact and BOTH of these read
+/// from it. It must never become a CI rule, which hands the key to the PR
+/// author.
+const Set<String> kDerivableSources = <String>{};
+
+/// SQL fragment for every read whose rows may become a NUMBER — a metric, a
+/// baseline, a session aggregate, a day that gets derived.
+///
+/// [col] is the column expression, so a joined query passes `'d.source'`.
+///
+/// Interpolates [kDerivableSources] directly rather than binding parameters:
+/// these are compile-time `const` identifiers from this repo's own source, and
+/// the callers are `rawQuery` strings assembled at every call site. The
+/// admission test pins the ids to `[a-z0-9_]` so this cannot become an
+/// injection seam by accident.
+String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
+    ? '$col IS NULL'
+    : '($col IS NULL OR $col IN '
+          "(${kDerivableSources.map((s) => "'$s'").join(', ')}))";
+
+/// SQL fragment for the reads that mean THE PRIMARY BAND SPECIFICALLY, not
+/// "admitted to derive" — they look identical today and they are not the same
+/// question, which is the whole reason both have names.
+///
+/// Three sites, one meaning each: where the band's own data starts and ends,
+/// how far the band has synced, and what we are willing to write into the
+/// operating system's health store under our name. A verified chest strap must
+/// widen [derivableSourceSql] and must NOT widen this one.
+const String kPrimaryBandSourceSql = 'source IS NULL';
+
 class LocalDb {
   static Database? _db;
   static String dbName = 'openstrap.db';
@@ -1081,8 +1165,14 @@ class LocalDb {
   /// change into every long-horizon number the app keeps, which surfaces to the
   /// user as readiness reading wrong with no visible cause and no way to find
   /// it. So every read that feeds a baseline, a derive page or the data edge
-  /// filters `source IS NULL`, and the filter is in place while the answer is
+  /// filters on provenance, and the filter is in place while the answer is
   /// still trivially "all of them".
+  ///
+  /// THE COLUMN IS AN ADMISSION FLAG, NOT A PROVENANCE ID — see the
+  /// SUBSTRATE ADMISSION block at the top of this file, which states the
+  /// non-overlap rule for all three provenance columns and owns the two SQL
+  /// fragments ([derivableSourceSql], [kPrimaryBandSourceSql]) that every
+  /// reader must use instead of writing the predicate by hand.
   ///
   /// Nullable TEXT, no DEFAULT: the same reason `device_family` has none.
   static Future<void> _ensureSourceColumns(Database db) async {
@@ -5673,12 +5763,19 @@ class LocalDb {
     'hr_alt',
   ];
 
+  /// [kPrimaryBandSourceSql], and the `samples` fallback below is why: that
+  /// table has no `source` column at all, so it can only ever hold the band's
+  /// rows. Returning gated decoded rows from one branch and ungated legacy rows
+  /// from the other under one [Sample] type would make the provenance of the
+  /// result depend on which branch fired. (No production caller today — only
+  /// tests reach this; gated with its sibling rather than left as the one
+  /// decoded read whose answer changes when a strap is paired.)
   static Future<List<Sample>> samplesInRange(int fromTs, int toTs) async {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
       columns: _decodedSampleColumns,
-      where: 'rec_ts >= ? AND rec_ts <= ?',
+      where: 'rec_ts >= ? AND rec_ts <= ? AND $kPrimaryBandSourceSql',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC, counter ASC',
     );
@@ -5694,11 +5791,17 @@ class LocalDb {
     return rows.map(Sample.fromDbMap).toList();
   }
 
+  /// [kPrimaryBandSourceSql], for the [samplesInRange] reason above AND for its
+  /// own: its one caller keeps this as `lastSynced`, whose `tsEpoch` is the
+  /// fallback frontier behind the `rec_ts_hw` cursor — i.e. "how fresh is the
+  /// BAND". A peripheral sensor's second would make a band that has not synced
+  /// in two days read as current.
   static Future<Sample?> latestSample() async {
     final db = await instance;
     final decodedRows = await db.query(
       'decoded_onehz',
       columns: _decodedSampleColumns,
+      where: kPrimaryBandSourceSql,
       orderBy: 'rec_ts DESC, counter DESC',
       limit: 1,
     );
@@ -5730,9 +5833,14 @@ class LocalDb {
   }
 
   /// `(firstRecTs, lastRecTs)` in unix seconds over canonical decoded 1 Hz rows,
-  /// or `(null, null)` when nothing has been decoded yet. Used by the onboarding
-  /// "collecting your data" state to show a real progress bar (last record ts
-  /// vs. now, against a first-record anchor) instead of a bare raw-record count.
+  /// or `(null, null)` when nothing has been decoded yet.
+  ///
+  /// Its ONE production caller is [decodedRecTsMaxByDay], which uses it purely
+  /// as the span to walk — so this is an ADMISSION read ([derivableSourceSql]),
+  /// not a band-edge one. Band-only here would clip a verified second source's
+  /// days out of derivation entirely, before any of them reached the day walk.
+  /// (The old doc comment claimed the onboarding progress bar; that call site
+  /// is gone.)
   static Future<(int?, int?)> firstAndLastRecordTs() async {
     final db = await instance;
     final rows = await db.rawQuery(
@@ -5740,10 +5848,8 @@ class LocalDb {
       // row (e.g. via _queueDecodedOneHz's `raw.recTs ?? decoded.tsEpoch`,
       // which only substitutes on null, not on an explicit 0) would otherwise
       // make MIN(rec_ts) return 0 and render "Data from Jan 1" (1970 epoch).
-      // `source IS NULL` — the band's own rows. A chest-strap second is not
-      // "when your data starts" and must not move the onboarding anchor.
       'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz '
-      'WHERE rec_ts > 0 AND source IS NULL',
+      'WHERE rec_ts > 0 AND ${derivableSourceSql()}',
     );
     if (rows.isEmpty) return (null, null);
     final lo = (rows.first['lo'] as num?)?.toInt();
@@ -5783,7 +5889,8 @@ class LocalDb {
       if (end == null) break;
       final rows = await db.rawQuery(
         'SELECT MAX(rec_ts) AS mx FROM decoded_onehz '
-        'WHERE rec_ts > 0 AND source IS NULL AND rec_ts >= ? AND rec_ts < ?',
+        'WHERE rec_ts > 0 AND ${derivableSourceSql()} '
+        'AND rec_ts >= ? AND rec_ts < ?',
         [localDayStartSec(day) ?? 0, end],
       );
       final mx = rows.isEmpty ? null : (rows.first['mx'] as num?)?.toInt();
@@ -5814,7 +5921,7 @@ class LocalDb {
         'step_count, step_cadence, activity_class, skin_temp_c, '
         'on_wrist, hr_valid, hr_alt, device_family '
         'FROM decoded_onehz '
-        'WHERE rec_ts >= ? AND rec_ts <= ? AND source IS NULL '
+        'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
         [fromRecTs, toRecTs, limit],
       );
@@ -5825,7 +5932,7 @@ class LocalDb {
       'step_count, step_cadence, activity_class, skin_temp_c, '
       'on_wrist, hr_valid, hr_alt, device_family '
       'FROM decoded_onehz '
-      'WHERE rec_ts >= ? AND rec_ts <= ? AND source IS NULL '
+      'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
       'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
       [fromRecTs, toRecTs, afterRecTs, afterRecTs, afterCounter, limit],
@@ -5855,7 +5962,7 @@ class LocalDb {
       // `beat_ts_ms` is NULL on every row banked before the column existed and
       // on every source that carries no sub-second — the reader coalesces.
       'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms FROM decoded_rr '
-      'WHERE rec_ts >= ? AND rec_ts <= ? AND source IS NULL '
+      'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'ORDER BY rec_ts ASC, beat_index ASC',
       [lo, hi],
     );
@@ -6224,7 +6331,7 @@ class LocalDb {
       'COUNT(*) AS raw_count, '
       'MIN(rec_ts) AS min_rec_ts, '
       'MAX(rec_ts) AS max_rec_ts '
-      'FROM decoded_onehz WHERE rec_ts > 0 AND source IS NULL '
+      'FROM decoded_onehz WHERE rec_ts > 0 AND ${derivableSourceSql()} '
       'GROUP BY day_id ORDER BY day_id DESC',
     );
     final derivedRows = await db.rawQuery(
@@ -8964,12 +9071,12 @@ class LocalDb {
   /// 1 Hz heart-rate samples in [fromTs, toTs] (epoch SECONDS), ascending, used
   /// to colour a route and average HR per split. Only worn seconds (hr > 0).
   ///
-  /// Band rows only (`source IS NULL`), for the same reason [sessionHrStats]
-  /// states below: a paired chest strap writes its own seconds into this table
-  /// with `source` set, and averaging the two together reports a session HR that
-  /// is neither sensor's. Today nothing writes a non-null source, so this filter
-  /// is a no-op — it is here so the six call sites are already correct on the
-  /// day one does.
+  /// Admitted rows only ([derivableSourceSql]), for the same reason
+  /// [sessionHrStats] states below: an unverified adapter writes its own
+  /// seconds into this table with `source` set, and averaging the two together
+  /// reports a session HR that is neither sensor's. Today nothing writes a
+  /// non-null source, so this filter is a no-op — it is here so the six call
+  /// sites are already correct on the day one does.
   static Future<List<Map<String, dynamic>>> hrSamplesInRange(
     int fromTs,
     int toTs,
@@ -8978,7 +9085,8 @@ class LocalDb {
     return db.query(
       'decoded_onehz',
       columns: ['rec_ts', 'hr'],
-      where: 'rec_ts >= ? AND rec_ts <= ? AND hr > 0 AND source IS NULL',
+      where:
+          'rec_ts >= ? AND rec_ts <= ? AND hr > 0 AND ${derivableSourceSql()}',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC',
     );
@@ -9010,10 +9118,10 @@ class LocalDb {
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
       '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) AND d.hr > 0 '
-      // Band rows only. A paired chest strap writes its own seconds into this
-      // table with `source` set; averaging the two together would report a
+      // Admitted rows only. An unverified adapter writes its own seconds into
+      // this table with `source` set; averaging the two together would report a
       // session HR that is neither sensor's.
-      '  AND d.source IS NULL '
+      '  AND ${derivableSourceSql('d.source')} '
       'WHERE s.start_ts >= ? AND s.start_ts <= ? '
       'GROUP BY s.id',
       [fromTs, toTs],
@@ -9046,10 +9154,10 @@ class LocalDb {
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
       '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) AND d.hr > 0 '
-      // Band rows only. A paired chest strap writes its own seconds into this
-      // table with `source` set; averaging the two together would report a
+      // Admitted rows only. An unverified adapter writes its own seconds into
+      // this table with `source` set; averaging the two together would report a
       // session HR that is neither sensor's.
-      '  AND d.source IS NULL '
+      '  AND ${derivableSourceSql('d.source')} '
       'WHERE s.start_ts >= ? AND s.start_ts <= ? '
       'ORDER BY s.id, d.rec_ts ASC',
       [fromTs, toTs],
@@ -9314,10 +9422,20 @@ class LocalDb {
     final db = await instance;
     return Sqflite.firstIntValue(
       await db.rawQuery(
-        // The data edge is the BAND's edge: a peripheral sensor's second is not
-        // evidence the strap synced, and letting it move this would tell the
-        // sync engine it made progress it did not make.
-        'SELECT MAX(rec_ts) FROM decoded_onehz WHERE rec_ts > 0 AND source IS NULL',
+        // [kPrimaryBandSourceSql], NOT [derivableSourceSql]: the data edge is
+        // the BAND's edge. A peripheral sensor's second is not evidence the
+        // strap synced, and letting it move this would tell the sync engine it
+        // made progress it did not make.
+        //
+        // ponytail: the derive engine reads this as "now, in data time" (its
+        // finalization anchor, and `dataNowSec <= 0` short-circuits the whole
+        // pass), which is a DIFFERENT question — an install with a verified
+        // strap and no band would derive nothing. The upgrade is a sibling
+        // `lastAdmittedRecTs()` on [derivableSourceSql] for the derive callers,
+        // added when a second admitted source actually exists; splitting it now
+        // would be two names for one query.
+        'SELECT MAX(rec_ts) FROM decoded_onehz '
+        'WHERE rec_ts > 0 AND $kPrimaryBandSourceSql',
       ),
     );
   }

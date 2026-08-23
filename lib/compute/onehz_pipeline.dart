@@ -563,40 +563,42 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       settledFraction: skinTempSettledFrac,
     ),
   ]);
-  // Diagnostic only — populated when readiness comes back absent, so the main
-  // isolate can log WHY to Crashlytics instead of a bare null (this runs
-  // inside Isolate.run, so it can't call Firebase directly; it just returns
-  // data). Per-input value-presence + baseline length lets us distinguish
-  // "no value" / "baseline too short" from "everything present but MAD was
-  // degenerate" by elimination (readinessComposite doesn't surface the last
-  // case in its own note — see readiness_composite.dart's robustZ() null path).
-  // `baseline_sd` additionally distinguishes a TRULY zero-dispersion baseline
-  // (readinessComposite's documented, intentional "never fabricate against
-  // zero dispersion" abstain — see its rescue-vs-flat test) from some other,
-  // unexplained cause of a null z — so a future Crashlytics hit is diagnosable
-  // instead of another round of guessing from value/baseline_n alone.
+  // Populated when readiness comes back absent, so the main isolate can log WHY
+  // instead of a bare null (this runs inside Isolate.run, so it can't call
+  // Firebase directly; it just returns data). TWO consumers now, and the second
+  // is why the shape below is what it is: `readiness_detail.dart` renders these
+  // rows TO THE USER — "Measured · 6 nights of your own history" — so every key
+  // here is either something a person is owed or something a crash report needs.
+  //
+  // `baseline_sd` USED TO BE HERE and is gone. It existed to identify a
+  // degenerate-dispersion baseline BY ELIMINATION, back when readinessComposite
+  // abstained on that silently. It no longer does: the quantized inputs (RHR,
+  // temp) refuse by name with the number in the note —
+  // `baseline_dispersion_below_quantum:sd=…,quantum=…,n=…`. The two continuous
+  // inputs (lnRMSSD, resp) have no quantum and so still fall through to the
+  // mean/SD z, which only returns null on an EXACTLY constant baseline of
+  // doubles — a case that cannot be reached by real nightly values. So the
+  // field diagnosed nothing the note does not say, and shipped an unexplained
+  // number to a Crashlytics field that had to be read by someone who knew all
+  // of the above.
   Map<String, dynamic>? readinessAbsentDiag;
   if (!composite.present) {
     readinessAbsentDiag = {
       'hrv': {
         'value': lnToday != null,
         'baseline_n': d.lnRmssdHistory.length,
-        'baseline_sd': _stddev(d.lnRmssdHistory),
       },
       'rhr': {
         'value': rhrToday != null,
         'baseline_n': d.rhrHistory.length,
-        'baseline_sd': _stddev(d.rhrHistory),
       },
       'resp': {
         'value': respToday != null,
         'baseline_n': d.respHistory.length,
-        'baseline_sd': _stddev(d.respHistory),
       },
       'temp': {
         'value': skinTempAdc != null,
         'baseline_n': d.skinTempAdcHistory.length,
-        'baseline_sd': _stddev(d.skinTempAdcHistory),
         // The gate, not the value: a temp driver can be refused with a perfectly
         // good mean and a full baseline. Null = the fraction was unmeasurable.
         'settled_frac': skinTempSettledFrac,

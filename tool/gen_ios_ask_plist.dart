@@ -1,4 +1,9 @@
-// Info.plist's AccessorySetupKit block is DERIVED from the band registry.
+// Info.plist's AccessorySetupKit block is DERIVED from the band registry —
+// from [kFramedBands], not the whole of it. ASK provisions the PRIMARY band,
+// the one that holds a link and gets its flash trimmed. A notify-only sensor
+// is connected straight from its stored remote id during a workout and needs
+// no ASK descriptor, so declaring its service here would only put chest straps
+// in the WHOOP pairing picker.
 //
 // Apple requires every criterion an ASK discovery descriptor matches on to be
 // declared in Info.plist under NSAccessorySetupBluetoothServices. On iOS 18+
@@ -77,21 +82,21 @@ void main(List<String> args) {
     exit(2);
   }
   final current = file.readAsStringSync();
-  final wanted = applyBlocks(current, kBandRegistry);
+  final wanted = applyBlocks(current, kFramedBands);
   if (current == wanted) {
-    stdout.writeln('$kPlistPath is in sync with kBandRegistry.');
+    stdout.writeln('$kPlistPath is in sync with kFramedBands.');
     return;
   }
   if (args.contains('--check')) {
     stderr.writeln('$kPlistPath is STALE. Expected:\n'
-        '\t<key>$kServicesKey</key>\n\t<array>\n${_servicesBody(kBandRegistry)}'
+        '\t<key>$kServicesKey</key>\n\t<array>\n${_servicesBody(kFramedBands)}'
         '\t</array>\n'
-        '\t<key>$kLabelsKey</key>\n\t<dict>\n${_labelsBody(kBandRegistry)}'
+        '\t<key>$kLabelsKey</key>\n\t<dict>\n${_labelsBody(kFramedBands)}'
         '\t</dict>\n'
         'Run: dart run tool/gen_ios_ask_plist.dart');
     exit(1);
   }
   file.writeAsStringSync(wanted);
-  stdout.writeln('$kPlistPath updated from kBandRegistry '
-      '(${kBandRegistry.length} band(s)).');
+  stdout.writeln('$kPlistPath updated from kFramedBands '
+      '(${kFramedBands.length} band(s)).');
 }

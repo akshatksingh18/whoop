@@ -466,7 +466,11 @@ class _Session {
 
   /// This link's frame envelope profile. Owned by [entry]; kept as a getter
   /// because the wire format is `protocol`'s to define, not edge's.
-  BandProfile get band => entry.wire;
+  ///
+  /// Non-null by construction: this engine only ever drives framed bands
+  /// ([kFramedBands] is what the scan and the discovery match filter on), and
+  /// [applyBand] asserts it at the one place an entry gets pinned.
+  BandProfile get band => entry.wire!;
 
   final Map<String, FrameReassembler> asm = {
     'cmd_from': FrameReassembler(),
@@ -477,10 +481,15 @@ class _Session {
   /// Pin this session's band and rebuild the reassemblers with the matching
   /// header shape. Called once, at discovery, before any frame is fed.
   void applyBand(BandEntry e) {
+    final w = e.wire;
+    // A notify-only sensor has no envelope to reassemble and no command
+    // characteristic to write. It reaches the phone through `hrs_link.dart`,
+    // never through this engine — see the registry header.
+    assert(w != null, 'the offload engine only drives framed bands, not ${e.id}');
     entry = e;
-    asm['cmd_from'] = FrameReassembler(profile: e.wire);
-    asm['events'] = FrameReassembler(profile: e.wire);
-    asm['data'] = FrameReassembler(profile: e.wire);
+    asm['cmd_from'] = FrameReassembler(profile: w!);
+    asm['events'] = FrameReassembler(profile: w);
+    asm['data'] = FrameReassembler(profile: w);
   }
   final List<StreamSubscription> subs = [];
   Timer? heartbeat;
@@ -1646,6 +1655,13 @@ class BleEngine {
     // packet count before comparing against the band's expectedPacketCount.
     'gate_dropped_total': _recordGate.dropped,
     'gate_dropped_this_burst': _recordGate.dropped - _burstDroppedAtStart,
+    // EVERY gate rejection was "below the 2023-11 epoch floor" — the signature
+    // of a source whose time base is uptime, a sequence number or milliseconds
+    // rather than wall clock (ASSUMPTIONS F1). Nothing is lost when it fires
+    // (TrimAckPolicy refuses the trim on a drop-only burst) but nothing is
+    // stored either and the chunk is re-delivered forever, so it needs a
+    // reader. This is it.
+    'gate_time_base_not_wallclock': _recordGate.timeBaseNotWallClock,
     // CRC8/CRC32 frame failures — previously silent (see `_subscribe`). A
     // rising count with a healthy `gate_dropped_*` is the signature of a
     // degrading radio corrupting frames rather than a stale/implausible band.
@@ -1768,12 +1784,16 @@ class BleEngine {
       await FlutterBluePlus.stopScan();
     }
     _setPhase(BleConnState.scanning);
-    // Advertise-filter on every registered band's service UUID. This is an
+    // Advertise-filter on every FRAMED band's service UUID. This is an
     // OS-LEVEL filter: a device whose service is not in this list is invisible
     // to the callback below, so the registry — not a literal here — is what
     // decides which bands can be seen at all. The actual band is pinned later
     // at discovery.
-    final wanted = [for (final e in kBandRegistry) Guid(e.service)];
+    //
+    // [kFramedBands], not the whole registry: this is the "find my band" scan,
+    // and a notify-only sensor that matched here would be handed to
+    // `_doConnect`, which would then talk WHOOP at it.
+    final wanted = [for (final e in kFramedBands) Guid(e.service)];
     BluetoothDevice? found;
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
@@ -1787,7 +1807,7 @@ class BleEngine {
         if (found == null &&
             (name.contains('whoop') ||
                 advNames.any((s) =>
-                    kBandRegistry.any((e) => s.startsWith(e.servicePrefix))))) {
+                    kFramedBands.any((e) => s.startsWith(e.servicePrefix))))) {
           found = r.device;
           FlutterBluePlus.stopScan();
         }
@@ -2050,7 +2070,9 @@ class BleEngine {
       BandEntry? entry;
       for (final s in services) {
         final u = s.uuid.str.toLowerCase();
-        for (final e in kBandRegistry) {
+        // [kFramedBands], for the same reason the scan filters on it: this
+        // engine speaks a framed envelope and nothing else.
+        for (final e in kFramedBands) {
           if (u.startsWith(e.servicePrefix)) {
             svc = s;
             entry = e;
@@ -2061,15 +2083,16 @@ class BleEngine {
       }
       if (svc == null || entry == null) {
         _log('No known band service found on device (looked for: '
-            '${kBandRegistry.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
+            '${kFramedBands.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
         await _failConnect();
         return false;
       }
       session.applyBand(entry);
       state.generation = entry.id;
       _log('Detected ${entry.label} (${entry.id}) link.');
-      final band = entry.wire;
-      final gatt = entry.gatt;
+      // Both non-null: `entry` came out of [kFramedBands].
+      final band = entry.wire!;
+      final gatt = entry.gatt!;
       BluetoothCharacteristic? find(String uuid) {
         final prefix = uuid.substring(0, 8);
         for (final c in svc!.characteristics) {

@@ -32,7 +32,7 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
-import '../ble/hr_sensor.dart';
+import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
@@ -245,6 +245,10 @@ class AppState extends ChangeNotifier {
   /// Raw strapName last seen from the engine — change-gates the per-tick
   /// cleanDeviceLabel/Prefs work in [_onEngineState].
   String? _lastSeenStrapNameRaw;
+
+  /// Band id last seen from the engine — change-gates the `device.adapter_id`
+  /// write in [_onEngineState].
+  String? _lastSeenGeneration;
 
   /// Minute-of-day last checked by [_maybeWarnOvernightBattery]'s clock
   /// pre-gate (it runs off the ~1 Hz engine-state pipeline).
@@ -3287,6 +3291,16 @@ class AppState extends ChangeNotifier {
     // _widgetBattName below): this handler fires ~1 Hz during live HR, and
     // cleanDeviceLabel's regex work per tick is pure waste when the name
     // hasn't moved.
+    // WHICH band this is, the moment the link says so — service discovery is
+    // the only place it is ever known, and `_persistPaired` runs before any
+    // session exists. Without this `device.adapter_id` (schema 49) is
+    // structurally blank for everyone who paired once, and every per-family
+    // metric abstains for a reason that is our bookkeeping, not the band's.
+    // Change-gated: this handler fires ~1 Hz during live HR.
+    if (s.generation != null && s.generation != _lastSeenGeneration) {
+      _lastSeenGeneration = s.generation;
+      unawaited(LocalDb.upsertDevice(adapterId: s.generation));
+    }
     if (s.strapName != _lastSeenStrapNameRaw) {
       _lastSeenStrapNameRaw = s.strapName;
       final nm = cleanDeviceLabel(s.strapName);
@@ -3699,7 +3713,18 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistPaired(String remoteId, String? serial) async {
-    await PairedDevice.save(remoteId, serial ?? device.serial);
+    // Which band this is, if the link has already said. Passed HERE and not at
+    // the two call sites (`pairWith`, `pairViaAccessorySetup`) so neither can
+    // forget it — and COALESCE'd inside `upsertDevice`, so a null leaves
+    // whatever the row already knows.
+    //
+    // It is null on a FIRST pair, always: `DeviceState.generation` is only set
+    // at service discovery and pairing runs before any session exists. That is
+    // why `_onEngineState` stamps it too — this line alone would leave
+    // `device.adapter_id` blank on every install that pairs once and never
+    // re-pairs.
+    await PairedDevice.save(remoteId, serial ?? device.serial,
+        adapterId: device.generation);
     paired = await PairedDevice.load();
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
@@ -5110,7 +5135,7 @@ class AppState extends ChangeNotifier {
     unawaited(_maybeStartRouteTracking(id, type));
     // A paired heart-rate sensor is armed by a workout and only by a workout —
     // the same rule GPS follows. No-op when nothing is paired.
-    unawaited(HrSensorLink.instance.arm(id));
+    unawaited(HrsLink.instance.arm());
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -5295,7 +5320,7 @@ class AppState extends ChangeNotifier {
           // rows (`id` is unchanged), so the pre-restart part of the route is
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
-          unawaited(HrSensorLink.instance.arm(id));
+          unawaited(HrsLink.instance.arm());
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
@@ -5332,7 +5357,7 @@ class AppState extends ChangeNotifier {
     // would otherwise leave the screen pinned awake until the app is killed.
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrSensorLink.instance.disarm();
+    await HrsLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
@@ -5447,7 +5472,7 @@ class AppState extends ChangeNotifier {
     }
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrSensorLink.instance.disarm();
+    await HrsLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;

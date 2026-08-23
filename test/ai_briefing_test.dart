@@ -171,6 +171,106 @@ void main() {
     });
   });
 
+  // A metric the honesty layer REFUSED must not reach the prompt as a value,
+  // and must not reach it as a silence either — a silence is the shape the
+  // model fills in from whatever else it was handed (see kWithheldKey).
+  group('refused metrics', () {
+    test('a refusal is stated with its reason, never sent as a value',
+        () async {
+      final repo = _FakeRepo(
+        today: {
+          'daily': {
+            // Exactly what local_repository_impl._scalarMetric writes for an
+            // absent metric: the em-dash placeholder plus the machine note.
+            'readiness': {
+              'value': '—',
+              'confidence': 0,
+              'tier': 'HIGH',
+              'note': 'need_baseline:have=6,need=14',
+            },
+            'resting_hr': {
+              'value': '—',
+              'confidence': 0,
+              'tier': 'HIGH',
+              'note': 'need_input:name=scored_night',
+            },
+          },
+          'hrv': {'rmssd': 61.2},
+          'status': {'overnight_day': todayLabel()},
+        },
+        daySleep: {'has_sleep': true, 'duration_min': 445},
+      );
+      final inp = await collectBriefingInputs(repo, BriefingPeriod.morning);
+      expect(inp.containsKey('readiness'), isFalse);
+      expect(inp.containsKey('resting_hr'), isFalse);
+      expect(inp['hrv_rmssd'], 61.2);
+      final w = (inp[kWithheldKey] as List).cast<String>();
+      expect(w, contains('readiness (Need 8 more nights)'));
+      expect(
+          w,
+          contains('resting_hr (There is no scored night to read this '
+              'from.)'));
+      // A night with no deep/REM behind it is refused per field, not silently
+      // dropped — that is the one the model narrates from total sleep time.
+      expect(w, contains('deep_min'));
+      expect(w, contains('rem_min'));
+
+      final p = buildBriefingUserPrompt(
+          BriefingPeriod.morning, '2026-07-04', inp, 'morning');
+      expect(p, contains('withheld (refused'));
+      expect(p, contains('- readiness (Need 8 more nights)'));
+      // The refused number never appears as data.
+      expect(p, isNot(contains('readiness: ')));
+      expect(p, isNot(contains('resting_hr: ')));
+      expect(p, contains('hrv_rmssd: 61.2'));
+    });
+
+    test('a whole missing night is one refusal, not five', () async {
+      final repo = _FakeRepo(today: {'daily': {}});
+      final inp = await collectBriefingInputs(repo, BriefingPeriod.morning);
+      final w = (inp[kWithheldKey] as List).cast<String>();
+      expect(w, contains('sleep (no scored night)'));
+      expect(w.where((e) => e.startsWith('deep_min')), isEmpty);
+      // Nothing measured, so the prompt still says so — the refusals are not
+      // mistaken for a payload.
+      final p = buildBriefingUserPrompt(
+          BriefingPeriod.morning, '2026-07-04', inp, 'morning');
+      expect(p, contains('no metrics available'));
+      expect(p, contains('withheld (refused'));
+    });
+
+    test('an absent value can never render as prose, whoever built the map',
+        () {
+      // The structural half of the gate: `\$v` would print these as the word
+      // "null" and as an em dash, both of which read as a reading.
+      final p = buildBriefingUserPrompt(
+        BriefingPeriod.morning,
+        '2026-07-04',
+        {'readiness': null, 'resting_hr': '—', 'hrv_rmssd': 61.2},
+        'morning',
+      );
+      expect(p, isNot(contains('null')));
+      expect(p, isNot(contains('—')));
+      expect(p, contains('hrv_rmssd: 61.2'));
+    });
+
+    test('the system prompt forbids inferring a withheld metric', () {
+      final m = briefingSystemPrompt(BriefingPeriod.morning);
+      expect(m, contains('withheld'));
+      expect(m, contains('REFUSED'));
+      expect(m, contains('reasoned out of the numbers you WERE given'));
+    });
+
+    test('the evening sweep never carries a withheld list', () async {
+      final repo = _FakeRepo(
+        today: _sampleToday(),
+        charts: {'resting_hr': _series(_steady(54, 45), 68)},
+      );
+      final inp = await collectBriefingInputs(repo, BriefingPeriod.evening);
+      expect(inp.containsKey(kWithheldKey), isFalse);
+    });
+  });
+
   group('prompt building (pure)', () {
     test('system prompt scopes by period and forbids invention', () {
       final m = briefingSystemPrompt(BriefingPeriod.morning);

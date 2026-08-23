@@ -47,6 +47,7 @@ import '../data/models.dart';
 import '../platform/tasker_bridge.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
+import 'adapters/_registry.dart';
 import 'ble_state.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
@@ -457,11 +458,15 @@ class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
 
-  /// Which WHOOP generation this link speaks. Defaults to gen4 (WHOOP 4) and is
+  /// Which registered band this link speaks. Defaults to gen4 (WHOOP 4) and is
   /// pinned once during service discovery via [applyBand] — everything that
-  /// differs by generation (frame header/CRC, GATT UUIDs, command envelope,
-  /// history ACK, record decode) reads from here.
-  BandProfile band = BandProfile.gen4;
+  /// differs by band (frame header/CRC, GATT UUIDs, command envelope, history
+  /// ACK, record field offsets) reads from here.
+  BandEntry entry = kWhoopGen4;
+
+  /// This link's frame envelope profile. Owned by [entry]; kept as a getter
+  /// because the wire format is `protocol`'s to define, not edge's.
+  BandProfile get band => entry.wire;
 
   final Map<String, FrameReassembler> asm = {
     'cmd_from': FrameReassembler(),
@@ -469,13 +474,13 @@ class _Session {
     'data': FrameReassembler(),
   };
 
-  /// Pin this session's generation and rebuild the reassemblers with the
-  /// matching header shape. Called once, at discovery, before any frame is fed.
-  void applyBand(BandProfile b) {
-    band = b;
-    asm['cmd_from'] = FrameReassembler(profile: b);
-    asm['events'] = FrameReassembler(profile: b);
-    asm['data'] = FrameReassembler(profile: b);
+  /// Pin this session's band and rebuild the reassemblers with the matching
+  /// header shape. Called once, at discovery, before any frame is fed.
+  void applyBand(BandEntry e) {
+    entry = e;
+    asm['cmd_from'] = FrameReassembler(profile: e.wire);
+    asm['events'] = FrameReassembler(profile: e.wire);
+    asm['data'] = FrameReassembler(profile: e.wire);
   }
   final List<StreamSubscription> subs = [];
   Timer? heartbeat;
@@ -665,12 +670,23 @@ class BleEngine {
   // stuck at 28, duplicate ACKs, sync never completes). Enforce a single owner,
   // FOREGROUND-PRIORITY: a background drainer yields if the band is already owned;
   // a foreground engine preempts a background owner by dropping its link.
-  static BleEngine? _bandOwner;
+  //
+  // KEYED BY `remoteId`, because the hazard above is about ONE peripheral: two
+  // engines connected to two DIFFERENT devices never share a trim cursor, and
+  // a process-wide single owner made a second device's connect preempt the
+  // primary's link on every connect.
+  static final Map<String, BleEngine> _bandOwners = {};
 
-  /// Claim exclusive ownership of the band for this engine. Returns false only for
-  /// a background drainer when another engine already owns it (→ it must NOT touch
-  /// the band this cycle). A foreground engine always succeeds and preempts any
-  /// background owner by disconnecting it.
+  /// The peripheral this engine currently holds a claim on, if any. Kept
+  /// because [_releaseBand] is called from paths with no device in scope, and
+  /// it must release exactly the key it took.
+  String? _claimedBandId;
+
+  /// Claim exclusive ownership of the peripheral [remoteId] for this engine.
+  /// Returns false only for a background drainer when another engine already
+  /// owns THAT peripheral (→ it must NOT touch it this cycle); a claim on a
+  /// different device does not block it. A foreground engine always succeeds
+  /// and preempts any background owner of the same device by disconnecting it.
   ///
   /// SERIALIZED PREEMPTION: the preempted engine's teardown is AWAITED (bounded)
   /// before we proceed — firing our connect while its disconnect is still in
@@ -679,8 +695,11 @@ class BleEngine {
   /// GATT). A hung teardown can't wedge us forever: after the timeout we log and
   /// proceed (the preempted engine's own session guards make its late teardown
   /// harmless once we own the band).
-  Future<bool> _claimBand() async {
-    final other = _bandOwner;
+  Future<bool> _claimBand(String remoteId) async {
+    // Moving to a different peripheral: let the old one go first, or this
+    // engine holds two keys and the stale one starves a later drain.
+    if (_claimedBandId != null && _claimedBandId != remoteId) _releaseBand();
+    final other = _bandOwners[remoteId];
     final incumbentPresent = other != null && !identical(other, this);
     final decision = BandClaimPolicy.decide(
       incumbentPresent: incumbentPresent,
@@ -716,7 +735,8 @@ class BleEngine {
         }
         break;
     }
-    _bandOwner = this;
+    _bandOwners[remoteId] = this;
+    _claimedBandId = remoteId;
     return true;
   }
 
@@ -730,17 +750,20 @@ class BleEngine {
       _phase != BleConnState.idle &&
       _phase != BleConnState.error;
 
-  /// Test-only view of the process-wide single-owner claim.
+  /// Test-only view of the per-peripheral single-owner claim.
   @visibleForTesting
-  static bool get bandClaimed => _bandOwner != null;
+  static bool get bandClaimed => _bandOwners.isNotEmpty;
 
-  /// Test-only reset of the process-wide claim (static state otherwise leaks
-  /// across test cases).
+  /// Test-only reset of the claims (static state otherwise leaks across test
+  /// cases).
   @visibleForTesting
-  static void resetBandClaimForTest() => _bandOwner = null;
+  static void resetBandClaimForTest() => _bandOwners.clear();
 
   void _releaseBand() {
-    if (identical(_bandOwner, this)) _bandOwner = null;
+    final id = _claimedBandId;
+    if (id == null) return;
+    if (identical(_bandOwners[id], this)) _bandOwners.remove(id);
+    _claimedBandId = null;
   }
 
   // ── transport state machine ─────────────────────────────────────────────────
@@ -1027,7 +1050,7 @@ class BleEngine {
     );
     session.connected = true;
     session.sawConnected = true;
-    session.applyBand(band);
+    session.applyBand(bandEntryFor(band));
     _session = session;
     debugWriteHook = onWrite;
     _drain = DrainController(
@@ -1723,7 +1746,7 @@ class BleEngine {
   /// Serialised process-wide through [withScanLock]: the HR-sensor scan shares
   /// this one radio scanner, and the `isScanning == false` await below is
   /// satisfied by ITS `stopScan` too — an unserialised scan silently ends
-  /// having seen nothing and reports "No WHOOP found".
+  /// having seen nothing and reports "No band found".
   Future<BluetoothDevice?> scan({
     Duration timeout = const Duration(seconds: 12),
   }) =>
@@ -1745,10 +1768,12 @@ class BleEngine {
       await FlutterBluePlus.stopScan();
     }
     _setPhase(BleConnState.scanning);
-    // Advertise-filter on BOTH generations' service UUIDs (gen4 6108xxxx +
-    // gen5 fd4bxxxx); the actual generation is pinned later at discovery.
-    final gen4Svc = Guid(GattProfile.gen4.service);
-    final gen5Svc = Guid(GattProfile.gen5.service);
+    // Advertise-filter on every registered band's service UUID. This is an
+    // OS-LEVEL filter: a device whose service is not in this list is invisible
+    // to the callback below, so the registry — not a literal here — is what
+    // decides which bands can be seen at all. The actual band is pinned later
+    // at discovery.
+    final wanted = [for (final e in kBandRegistry) Guid(e.service)];
     BluetoothDevice? found;
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
@@ -1756,18 +1781,20 @@ class BleEngine {
         final advNames = r.advertisementData.serviceUuids.map(
           (g) => g.str.toLowerCase(),
         );
+        // ponytail: `whoop` name-match is a WHOOP-only fallback for a band that
+        // advertises its name but not its service UUID. A per-entry name
+        // matcher is D9's `BandDiscovery`; until then this one literal stays.
         if (found == null &&
             (name.contains('whoop') ||
                 advNames.any((s) =>
-                    s.startsWith('61080001') || s.startsWith('fd4b0001')))) {
+                    kBandRegistry.any((e) => s.startsWith(e.servicePrefix))))) {
           found = r.device;
           FlutterBluePlus.stopScan();
         }
       }
     });
     try {
-      await FlutterBluePlus.startScan(
-          withServices: [gen4Svc, gen5Svc], timeout: timeout);
+      await FlutterBluePlus.startScan(withServices: wanted, timeout: timeout);
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
       // Android reports a missing runtime permission by throwing here rather
@@ -1785,7 +1812,10 @@ class BleEngine {
     }
     if (found == null) {
       _setPhase(BleConnState.idle);
-      _log('No WHOOP found (force-quit the official app; band must be free).');
+      // The remedy in this line is still WHOOP-specific ("the official app").
+      // Per-band copy needs the per-entry discovery/label of D9; the registry
+      // does not make it fixable on its own.
+      _log('No band found (force-quit the official app; band must be free).');
     } else {
       _clearBlocker();
     }
@@ -1866,7 +1896,7 @@ class BleEngine {
     // band the foreground session already owns (duplicate ACKs corrupt the trim
     // cursor). Foreground engines preempt instead — awaiting the preempted
     // engine's teardown so two FBP ops never overlap. See [_claimBand].
-    if (!await _claimBand()) return false;
+    if (!await _claimBand(device.remoteId.str)) return false;
     // Any prior session is dead to us now — tear it down before a new one.
     await _teardownSession(intentional: true);
     try {
@@ -1889,7 +1919,7 @@ class BleEngine {
   /// down, drop to `idle`, AND RELEASE THE BAND CLAIM.
   ///
   /// [_claimBand] runs BEFORE the link is up, so a connect that threw used to
-  /// leave `_bandOwner` pointing at an engine with no link — and only
+  /// leave the claim pointing at an engine with no link — and only
   /// `disconnect()` ever released it, which nothing calls on this path. Every
   /// later background drain then saw a non-null owner and yielded forever.
   Future<void> _failConnect() async {
@@ -2013,52 +2043,59 @@ class BleEngine {
       final services = await device
           .discoverServices()
           .timeout(_serviceDiscoveryTimeout);
-      // Pin the generation from whichever service the peripheral exposes:
-      // gen4 "Harvard" 6108xxxx, or gen5 "fd4b" fd4bxxxx. This drives the frame
-      // header/CRC, command envelope, ACK, and record decode for the session.
+      // Pin the band from whichever registered service the peripheral exposes.
+      // This drives the frame header/CRC, command envelope, ACK, and record
+      // decode for the session.
       BluetoothService? svc;
-      BandProfile band = BandProfile.gen4;
+      BandEntry? entry;
       for (final s in services) {
         final u = s.uuid.str.toLowerCase();
-        if (u.startsWith(GattProfile.gen4.servicePrefix)) {
-          svc = s;
-          band = BandProfile.gen4;
-          break;
+        for (final e in kBandRegistry) {
+          if (u.startsWith(e.servicePrefix)) {
+            svc = s;
+            entry = e;
+            break;
+          }
         }
-        if (u.startsWith(GattProfile.gen5.servicePrefix)) {
-          svc = s;
-          band = BandProfile.gen5;
-          break;
-        }
+        if (svc != null) break;
       }
-      if (svc == null) {
-        _log('No WHOOP service (gen4 6108xxxx / gen5 fd4bxxxx) found on device.');
+      if (svc == null || entry == null) {
+        _log('No known band service found on device (looked for: '
+            '${kBandRegistry.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
         await _failConnect();
         return false;
       }
-      session.applyBand(band);
-      state.generation = band.isGen5 ? 'gen5' : 'gen4';
-      _log('Detected ${band.isGen5 ? "WHOOP 5 (gen5)" : "WHOOP 4 (gen4)"} link.');
-      final gatt = band.gatt;
-      BluetoothCharacteristic? find(String prefix) {
+      session.applyBand(entry);
+      state.generation = entry.id;
+      _log('Detected ${entry.label} (${entry.id}) link.');
+      final band = entry.wire;
+      final gatt = entry.gatt;
+      BluetoothCharacteristic? find(String uuid) {
+        final prefix = uuid.substring(0, 8);
         for (final c in svc!.characteristics) {
           if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
         }
         return null;
       }
 
-      session.cmdTo = find(gatt.cmdTo.substring(0, 8));
-      final cmdFrom = find(gatt.cmdFrom.substring(0, 8));
-      final events = find(gatt.events.substring(0, 8));
-      final data = find(gatt.data.substring(0, 8));
-      if (session.cmdTo == null ||
-          cmdFrom == null ||
-          events == null ||
-          data == null) {
-        _log('Missing one or more ${band.isGen5 ? "fd4b" : "Harvard"} characteristics.');
+      // WHICH characteristics a link must expose is registry data. Demanding
+      // all four unconditionally is why `hr_sensor.dart` exists as a second
+      // parallel BLE stack — a generic HRS device has ONE notify
+      // characteristic and would abort here.
+      final missing = [
+        for (final u in entry.requiredCharacteristics)
+          if (find(u) == null) u.substring(0, 8),
+      ];
+      if (missing.isNotEmpty) {
+        _log('${entry.label}: missing required characteristic(s) '
+            '${missing.join(", ")}.');
         await _failConnect();
         return false;
       }
+      session.cmdTo = find(gatt.cmdTo);
+      final cmdFrom = find(gatt.cmdFrom);
+      final events = find(gatt.events);
+      final data = find(gatt.data);
 
       // (gen5 only — see [kGen5PreRegistrationDelay]):
       // the bond is complete by here, so this is the 600 ms that precedes
@@ -2072,9 +2109,11 @@ class BleEngine {
         return false;
       }
       _setPhase(BleConnState.subscribing);
-      await _subscribe(session, cmdFrom, 'cmd_from');
-      await _subscribe(session, events, 'events');
-      await _subscribe(session, data, 'data');
+      // Null only for a band whose entry does not require the characteristic —
+      // the `missing` gate above has already aborted for one that does.
+      if (cmdFrom != null) await _subscribe(session, cmdFrom, 'cmd_from');
+      if (events != null) await _subscribe(session, events, 'events');
+      if (data != null) await _subscribe(session, data, 'data');
 
       if (!await _bootstrapAfterRegistration(session)) return false;
       // Fresh clock verification stamp — see kRtcReverifyIntervalSeconds.
@@ -2995,7 +3034,7 @@ class BleEngine {
     // FORCE_TRIM (whose full-erase form is two 0xFEFEFEFE args), REBOOT and
     // POWER_CYCLE cannot leave this engine by any path.
     final opcode =
-        allowDangerous ? null : _opcodeOfFrame(raw, session?.band ?? BandProfile.gen4);
+        allowDangerous ? null : _opcodeOfFrame(raw, session?.entry ?? kWhoopGen4);
     if (opcode != null &&
         (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode))) {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at _write');
@@ -3048,10 +3087,15 @@ class BleEngine {
   }
 
   /// The command opcode carried by an already-framed outbound write, or null
-  /// when [raw] is too short to carry one. Layout is `header | pktType | seq |
-  /// opcode | body…`, and only the header length differs by generation.
-  static int? _opcodeOfFrame(Uint8List raw, BandProfile band) {
-    final i = band.headerLen + 2;
+  /// when [raw] is too short to carry one. Where the opcode sits is registry
+  /// data ([BandEntry.frameOpcodeIndex] = the band's header length plus its
+  /// inner-payload opcode offset), not a WHOOP literal.
+  ///
+  /// This feeds the dangerous-opcode block, so a band whose entry gets this
+  /// wrong reads the wrong byte and the block stops protecting it — see the
+  /// guard's own test.
+  static int? _opcodeOfFrame(Uint8List raw, BandEntry entry) {
+    final i = entry.frameOpcodeIndex;
     return i < raw.length ? raw[i] : null;
   }
 
@@ -3536,7 +3580,9 @@ class BleEngine {
   void _ingestHistoricalFrame(Frame frame) {
     final pt = frame.packetType;
     if (pt != PacketType.historicalData) return;
-    final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
+    // Where the record-version byte sits is registry data, not a literal.
+    final vAt = (_session?.entry ?? kWhoopGen4).innerVersionOffset;
+    final recType = frame.inner.length > vAt ? frame.inner[vAt] : -1;
     final counter = _counterFromInner(frame.inner);
     // Explicit, observable band-reboot signal — see CounterRegressionDetector.
     // 0 is _counterFromInner's fallback for a too-short frame, not a real
@@ -5017,8 +5063,12 @@ class BleEngine {
     }
   }
 
-  int _counterFromInner(Uint8List inner) =>
-      inner.length >= 7 ? u32(inner, 3) : 0;
+  /// The record counter out of a historical record's inner payload. Where it
+  /// sits is registry data; 0 is the too-short fallback, not a real counter.
+  int _counterFromInner(Uint8List inner) {
+    final at = (_session?.entry ?? kWhoopGen4).innerCounterOffset;
+    return inner.length >= at + 4 ? u32(inner, at) : 0;
+  }
   static const _hexDigits = '0123456789abcdef';
   // Called once per stored record, once per archived record and once per live
   // frame, so it runs ~50k times in an offload on the UI isolate. The obvious

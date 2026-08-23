@@ -218,6 +218,32 @@ void main() {
       expect(g.dropped, 1);
     });
 
+    test('a below-floor time base is tellable from a wandering clock', () {
+      // Uptime-since-boot: every stamp is under kMinPlausibleUnix, forever.
+      final uptime = RecordGate();
+      expect(uptime.admit(3600, wallNow: wall), isFalse);
+      expect(uptime.admit(7200, wallNow: wall), isFalse);
+      expect(uptime.droppedBelowFloor, 2);
+      expect(uptime.timeBaseNotWallClock, isTrue);
+
+      // A wandering/future RTC drops too, but NOT below the floor — the case
+      // a reconnect or SET_CLOCK can still resolve.
+      final wandering = RecordGate();
+      expect(wandering.admit(wall + 10 * 86400, wallNow: wall), isFalse);
+      expect(wandering.dropped, 1);
+      expect(wandering.droppedBelowFloor, 0);
+      expect(wandering.timeBaseNotWallClock, isFalse);
+
+      // One below-floor drop among others is not a verdict about the source.
+      final mixed = RecordGate();
+      expect(mixed.admit(1000000000, wallNow: wall), isFalse);
+      expect(mixed.admit(wall + 10 * 86400, wallNow: wall), isFalse);
+      expect(mixed.timeBaseNotWallClock, isFalse);
+
+      // Never a verdict on a gate that has rejected nothing.
+      expect(RecordGate().timeBaseNotWallClock, isFalse);
+    });
+
     test('frontier seed from the durable cursor is honoured', () {
       final g = RecordGate(frontierTs: wall - 50);
       expect(g.frontierTs, wall - 50);

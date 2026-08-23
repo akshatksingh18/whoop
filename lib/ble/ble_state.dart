@@ -15,7 +15,7 @@ import 'dart:math';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
     show alarmRev1Payload;
 
-import '../sync/sync_policy.dart' show isPlausibleUnix;
+import '../sync/sync_policy.dart' show isPlausibleUnix, kMinPlausibleUnix;
 
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the
@@ -487,7 +487,26 @@ class RecordGate {
   /// Records rejected by the plausibility gate this connection.
   int dropped = 0;
 
+  /// Of [dropped], the ones that failed the ABSOLUTE floor
+  /// (`ts < kMinPlausibleUnix`) rather than the future or session-window tests.
+  /// The two have opposite prognoses: an unset or wandering RTC drifts back
+  /// into range (or SET_CLOCK pulls it back), while a source whose time base is
+  /// not a wall-clock epoch at all never will. Counted, never acted on — the
+  /// gate's verdict is identical either way, and must stay so.
+  int droppedBelowFloor = 0;
+
   RecordGate({this.frontierTs = 0});
+
+  /// True when this connection rejected records and EVERY rejection was below
+  /// the absolute floor — the signature of a source that does not stamp
+  /// wall-clock time (uptime-since-boot, a sequence number, milliseconds).
+  ///
+  /// Worth reporting apart from a transient clock problem because the stall is
+  /// PERMANENT: no retry, reconnect or SET_CLOCK resolves it, and the visible
+  /// symptom (records seen, nothing banked, the chunk re-delivered forever) is
+  /// identical to the transient case. See the `kMinPlausibleUnix` assumption
+  /// block in `sync_policy.dart` for the upgrade path.
+  bool get timeBaseNotWallClock => dropped > 0 && dropped == droppedBelowFloor;
 
   /// Should this record be stored? Records with no decodable time ([tsEpoch]
   /// null or <= 0) are always admitted (we can't gate them) and never advance
@@ -507,6 +526,7 @@ class RecordGate {
       sessionNewestUnix: sessionNewestUnix,
     )) {
       dropped++;
+      if (tsEpoch < kMinPlausibleUnix) droppedBelowFloor++;
       return false;
     }
     if (tsEpoch > frontierTs) frontierTs = tsEpoch;

@@ -16,7 +16,52 @@ import 'dart:math' as math;
 const int kBackfillIntervalSeconds = 900; // re-offload every 15 min (periodic)
 const int kKeepAliveIntervalSeconds =
     30; // re-arm realtime, poll battery, watchdog
+/// How long an open offload burst may sit silent before its un-committed chunk
+/// is abandoned (`BleEngine._armIdleWatchdog` → `DrainController.discardOpenChunk`).
+///
+/// ASSUMES: a healthy transfer never pauses this long, and abandoning the open
+/// chunk costs nothing because the band re-delivers it on the next offload.
+/// Both halves are WHOOP's flash-and-trim model — a draining band emits records
+/// back-to-back, and un-ACKed flash is kept by contract.
+/// FALSIFIED BY: any source whose NORMAL transfer pauses longer — a
+/// fetch-by-range device answering one page per request, a rate-limited
+/// transport, a band that idles between stored sessions inside one transfer.
+/// WHEN WRONG: every attempt discards its own work and restarts, so the device
+/// makes ZERO forward progress, permanently. The per-session retry cap
+/// (`_maxHistoricalRetriesPerSession`) only hands the same loop to the
+/// reconnect path; nothing counts it across sessions and nothing tells the
+/// user. It is at least LOUD — `[SYNC] idle watchdog` is logged on every
+/// expiry — so it is a stall findable in a log, not a silent one.
+/// HOW TO CHECK: two `[SYNC] idle watchdog` lines with no durable commit
+/// between them, repeating across reconnects.
+// ponytail: one timeout for every source, sized for WHOOP's continuous drain.
+// Upgrade path = the adapter declares its own maximum healthy inter-frame pause
+// AND whether an abandoned chunk is re-delivered at all. The cross-session
+// escalation to hang the "this keeps happening" report on already exists
+// ([NoDurableProgressEscalation]); the discard path just does not feed it.
+// Until both exist, do not point a slower source at this drain.
 const int kBackfillIdleTimeoutSeconds = 60; // strap went silent mid-offload
+
+/// Silence past which an ACTIVE session tears itself down (`_keepAliveFire`).
+///
+/// ASSUMES: a healthy link always produces inbound traffic inside two minutes.
+/// On WHOOP that holds only because WE manufacture the traffic — the 30 s
+/// keep-alive forces a GET_BATTERY_LEVEL once silence passes
+/// [kNoStreamPollSilenceSeconds] (or half this fuse, with a live stream armed).
+/// So the fuse measures "did our own poll come back", not "is this band alive".
+/// FALSIFIED BY: a source with no cheap pollable characteristic, or one that
+/// legitimately says nothing between readings — a fetch-by-range band, a sensor
+/// that notifies only on a detected beat.
+/// WHEN WRONG: the link is bounced every two minutes forever, each bounce
+/// costing a reconnect and re-handshake, so the device may never stay up long
+/// enough to transfer anything.
+/// HOW TO CHECK: `No data for >120s — bouncing the link.` repeating on a ~2 min
+/// cadence with no error between the bounces.
+// ponytail: the fuse and the keep-alive poll that satisfies it are ONE
+// mechanism, and both are WHOOP-shaped. Upgrade path = the adapter declares the
+// interval at which a healthy link of its kind produces inbound traffic (none =
+// no fuse) and what to poll to provoke it. [isLinkStale] already has the right
+// shape — one bar per traffic mode — it just cannot know a second band's modes.
 const int kLivenessFuseSeconds = 120; // no data for >fuse ⇒ bounce the link
 // Every existing RTC recheck is symptom-triggered (drift detected on the ONE
 // GET_CLOCK read at connect, or a defensive SET_CLOCK on StuckStrapDetector
@@ -70,6 +115,22 @@ bool isLinkStale(Duration sinceLastRx, {bool liveStreamArmed = true}) =>
     (liveStreamArmed ? kLinkFreshnessSeconds : kLinkFreshnessNoStreamSeconds);
 
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
+/// ASSUMES: every source stamps records with an ABSOLUTE wall-clock epoch, so a
+/// value under the 2023-11 floor is junk — an unset RTC, a previous owner's
+/// garbage, a misread offset. True of WHOOP, which carries a settable RTC.
+/// FALSIFIED BY: a source whose time base is uptime-since-boot, a sequence
+/// number, or milliseconds — each lands permanently under the floor.
+/// WHEN WRONG: every record is refused. Nothing is LOST (`TrimAckPolicy`
+/// correctly refuses the trim on a drop-only burst, so the band keeps its
+/// flash) but nothing is stored either, and the same chunk is re-delivered
+/// forever. [RecordGate.timeBaseNotWallClock] is what makes that case tellable
+/// from a transient wandering clock, which looks identical at the gate.
+/// HOW TO CHECK: `gate_dropped_total` climbing while `records_seen` stays flat,
+/// with `RecordGate.droppedBelowFloor == RecordGate.dropped`.
+// ponytail: an absolute floor, so a relative time base cannot be rescued here
+// at all. Upgrade path = the adapter supplies an epoch ANCHOR (the wall time
+// its zero corresponds to) and converts BEFORE the gate; the gate itself stays
+// absolute, which is the only reason it can still reject a wandering RTC.
 const int kMinPlausibleUnix = 1700000000; // 2023-11 floor
 const int kFutureMargin = 86400; // +1 day
 const int kSessionRangeMargin =

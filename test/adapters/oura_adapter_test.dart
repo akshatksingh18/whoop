@@ -168,15 +168,56 @@ void main() {
     expect(batches.first.ephemeral, isFalse);
   });
 
-  test('temperature lands in Celsius, and nothing else is claimed', () async {
+  test('no origin means no sample — the frames are still handed over', () async {
+    // The ring stamps on a counter with no documented epoch, and there is no
+    // command anywhere that reads its clock back. With neither a stored origin
+    // nor a `time_sync` in the drain there is no honest second to put on a
+    // reading, and the arrival of the notification is NOT one: it moves by the
+    // delivery jitter on every connect, so the same physiological second would
+    // be written twice under two keys REPLACE can never collapse.
     final (events, _) = await _drive(_adapter(), ringWithOneBatch);
+    final batch = events.whereType<SampleBatch>().first;
+    expect(batch.samples, isEmpty);
+    expect(batch.raw, hasLength(3), reason: 'the bytes are banked regardless');
+  });
+
+  test('an injected origin stamps a session that measures none', () async {
+    // 1000 ds = 1782043215, so the reading at 200 ds is 80 seconds earlier.
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, 1782043215),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      ringWithOneBatch,
+    );
     final samples = events.whereType<SampleBatch>().first.samples;
     expect(samples, hasLength(1));
+    expect(samples.first.tsEpoch, 1782043215 - 80);
     expect(samples.first.skinTempC, closeTo(34.36, 0.001));
     // A ring second that carried a temperature carried no heart rate. Absent is
     // null; a 0 here would read as the off-skin sentinel downstream.
     expect(samples.first.hr, isNull);
     expect(samples.first.rrMs, isEmpty);
+  });
+
+  test('a bookmark past the end of the ring is reported, not mistaken for '
+      'an empty ring', () async {
+    // The decisecond counter is an uptime, so a ring that reboots restarts it
+    // below a bookmark taken before the reboot. Every request from there matches
+    // nothing, forever, while the ring quietly fills up — and with no signal it
+    // reads exactly like "no new data". `bytesLeft` is what separates them.
+    final (events, _) = await _drive(_adapter(startCursorDs: 9391523), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) return [_summary(0, 4096)];
+      return const [];
+    });
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
+      isTrue,
+    );
   });
 
   test('battery reaches the host as a note, never as a sample', () async {
@@ -294,6 +335,13 @@ void main() {
     });
     final s = events.whereType<SampleBatch>().first.samples.single;
     expect(s.tsEpoch, syncUnix + 20);
+    expect(s.skinTempC, closeTo(34.36, 0.001));
+    // And the origin is handed back out, so the host persists the one this
+    // session measured instead of deriving a second one of its own.
+    expect(
+      events.whereType<BandNote>().firstWhere((n) => n.key == 'oura_anchor').value,
+      '1000,$syncUnix',
+    );
     // Still declared as arrival-anchored: one measured bridge in one session
     // does not make the origin stable across sessions, and the time-axis
     // metrics must keep refusing until it is.

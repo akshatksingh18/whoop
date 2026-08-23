@@ -15,7 +15,7 @@
 // gen4 is not behind this seam). Oura's is FETCH-BY-CURSOR: the ring never
 // deletes anything on our say-so, there is no acknowledgement in the protocol
 // at all, and the host's only state is a bookmark. Re-reading a range is
-// idempotent — 48.5% of the reference capture is the same records delivered
+// idempotent — 48.5% of our own capture is the same records delivered
 // twice, and `decoded_onehz` is keyed `(device_id, ts_ms)` with REPLACE, so a
 // re-read overwrites rather than duplicates.
 //
@@ -73,11 +73,14 @@ Uint8List ouraAuthResponse(List<int> key, List<int> nonce) {
 
 /// One Oura session.
 ///
-/// NOT const and not a registry singleton, because it needs two things a const
-/// adapter cannot hold: the pairing key, and the cursor to resume from. Both
-/// belong to the HOST — the key is a secret it stores, the cursor is a bookmark
-/// it persists — and handing them in at construction is what lets the seam stay
-/// a one-way `Stream<BandEvent>` instead of growing an inbound command channel.
+/// NOT const and not a registry singleton, because it needs three things a
+/// const adapter cannot hold: the pairing key, the cursor to resume from, and
+/// the time origin to stamp against. All three belong to the HOST — the key is
+/// a secret it stores, the other two are bookmarks it persists — and handing
+/// them in at construction is what lets the seam stay a one-way
+/// `Stream<BandEvent>` instead of growing an inbound command channel. Each one
+/// comes back out as a [BandNote] when it moves, so the host never has to
+/// re-derive a second copy of something this file already knows.
 class OuraAdapter extends BandAdapter {
   /// The 16-byte pairing key this phone generated and wrote to this ring.
   final List<int> key;
@@ -85,6 +88,19 @@ class OuraAdapter extends BandAdapter {
   /// Where to resume the history drain, on the ring's decisecond clock. 0 asks
   /// for everything the ring still holds.
   final int startCursorDs;
+
+  /// The `(ring decisecond, Unix second)` pair a previous session measured, if
+  /// the host kept one.
+  ///
+  /// THIS IS WHAT MAKES A TIMESTAMP REPRODUCIBLE ACROSS CONNECTS. The ring
+  /// stamps on a decisecond counter with no documented epoch and there is no
+  /// command anywhere in the protocol that reads its clock back — a measured
+  /// `time_sync` event is the ONLY bridge between the two, and it lands wherever
+  /// the ring happened to record one. Handing the last known pair in means a
+  /// given decisecond maps to the same second on every later session, so a
+  /// re-read overwrites its own row instead of writing a second copy of the
+  /// same physiological second under a key REPLACE can never collapse.
+  final (int ds, int unix)? anchor;
 
   /// Wall-clock now, in Unix seconds. Injected so a fixture replay is
   /// deterministic — `DateTime.now()` does not appear in this file.
@@ -101,11 +117,13 @@ class OuraAdapter extends BandAdapter {
   OuraAdapter({
     required this.key,
     this.startCursorDs = 0,
+    this.anchor,
     int Function()? nowSeconds,
     this.replyTimeout = const Duration(seconds: 5),
     this.confirmTimeout = const Duration(seconds: 30),
-  }) : nowSeconds = nowSeconds ??
-            (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
+  })  : nowSeconds = nowSeconds ??
+            (() => DateTime.now().millisecondsSinceEpoch ~/ 1000),
+        _anchor = anchor;
 
   @override
   BandEntry get entry => kOura;
@@ -136,20 +154,33 @@ class OuraAdapter extends BandAdapter {
 
   /// The (ring decisecond, Unix second) pair this session is stamping against.
   ///
-  /// Set once, from the first batch, and thereafter only IMPROVED — by a
-  /// `time_sync` event, which is the one record that carries both clocks and so
-  /// is the only measured bridge between them. It is not re-derived per batch:
-  /// a re-anchored batch would write the same physiological second under a
-  /// different `ts_ms` and duplicate rows that REPLACE cannot collapse.
+  /// Seeded from [anchor] and thereafter only IMPROVED — by a `time_sync`
+  /// event, the one record that carries both clocks. Never re-derived per
+  /// batch: a re-anchored batch would write the same physiological second under
+  /// a different `ts_ms` and duplicate rows that REPLACE cannot collapse.
   ///
-  /// ponytail: session-scoped. It resets on every connect, so two sessions can
-  /// still disagree by their arrival jitter about where a given record sits.
-  /// The fix is to persist the pair beside the cursor and detect a ring reboot
-  /// by the counter going backwards — do it when a host exists to persist it.
+  /// THERE IS NO FALLBACK, and that is the whole point. Seeding this from the
+  /// ARRIVAL of the first batch — the obvious-looking guess — produces an origin
+  /// that moves by the BLE delivery jitter on every connect, which is exactly
+  /// the duplication above with a plausible-looking number on it. When there is
+  /// no anchor there is no timestamp, and a sample without one is not emitted.
   (int ds, int unix)? _anchor;
 
-  int _anchorUnixFor(int ds) {
-    final a = _anchor!;
+  /// Readings decoded before an origin existed, as `(ds, °C)`.
+  ///
+  /// Every connect sets the ring's clock, so the ring records a fresh
+  /// `time_sync` — but it records it at its CURRENT decisecond, which is the
+  /// END of the drain. On a first pairing that is after the whole of its
+  /// history, so abstaining on the spot would throw all of it away. Held
+  /// instead, and stamped by the batch that finally carries an origin. If none
+  /// ever does, they are dropped: the frames are still handed over verbatim in
+  /// every [SampleBatch], so nothing is lost that was not already banked.
+  final List<(int ds, double tempC)> _held = [];
+
+  /// The Unix second [ds] falls on, or null when no origin is known.
+  int? _anchorUnixFor(int ds) {
+    final a = _anchor;
+    if (a == null) return null;
     // 10 deciseconds to the second. The subtraction is on the ring's own clock,
     // so the SPACING between records is exact however wrong the origin is.
     return a.$2 + (ds - a.$1) ~/ 10;
@@ -193,15 +224,36 @@ class OuraAdapter extends BandAdapter {
           link.log('oura: no batch summary within the reply window.');
           return;
         }
-        if (got.events.isEmpty) return;
+        if (got.events.isEmpty) {
+          // A CURSOR THE RING CANNOT ANSWER, told apart from an empty ring.
+          //
+          // The decisecond counter is an UPTIME, so a ring that reboots
+          // restarts it near zero — and a bookmark from before the reboot is
+          // then far AHEAD of everything it holds. Every request from there
+          // matches nothing, forever, and the sync looks exactly like "no new
+          // data" while the ring quietly fills up. `bytesLeft` is what
+          // separates them: data remaining and none delivered is not an empty
+          // ring, it is a bookmark pointing past the end. The host's remedy is
+          // to drop the bookmark and re-read from zero, which is free — a
+          // re-read of this band is idempotent by design.
+          if (got.summary.bytesLeft > 0) {
+            link.log('oura: the ring reports ${got.summary.bytesLeft} bytes '
+                'left but answered this cursor with nothing.');
+            yield const BandNote('oura_cursor_stranded');
+          }
+          return;
+        }
 
-        _anchor ??= (got.maxDs, got.arrivalSec);
         for (final e in got.events) {
           final unix = decodeTimeSync(e);
-          // A better origin for this record and every one after it. Applied
-          // BEFORE the batch is stamped so the batch carrying the sync is
-          // itself correct.
-          if (unix != null) _anchor = (e.tsDs, unix);
+          if (unix == null) continue;
+          // A better origin for this record and every one after it, and for
+          // everything still held. Applied BEFORE the batch is stamped so the
+          // batch carrying the sync is itself correct.
+          _anchor = (e.tsDs, unix);
+          // Surfaced so the host can persist it without re-deriving one of its
+          // own. Two implementations of an origin is two origins.
+          yield BandNote('oura_anchor', '${e.tsDs},$unix');
         }
 
         yield* _emit(link, got);
@@ -279,13 +331,12 @@ class OuraAdapter extends BandAdapter {
     final events = <OuraEvent>[];
     final raw = <Uint8List>[];
     var maxDs = 0;
-    var arrival = 0;
     while (true) {
       final rec = await inbox.next(replyTimeout);
       if (rec == null) return null;
-      final (at, f) = rec;
+      final (_, f) = rec;
       final summary = parseBatchSummary(f);
-      if (summary != null) return _Batch(events, raw, maxDs, arrival, summary);
+      if (summary != null) return _Batch(events, raw, maxDs, summary);
       if (ouraIsAuthRequired(f)) return null;
       final e = parseEvent(f);
       if (e == null) continue;
@@ -294,7 +345,6 @@ class OuraAdapter extends BandAdapter {
       // what the radio delivered rather than this file's idea of it.
       raw.add(Uint8List.fromList(<int>[f.tag, f.payload.length, ...f.payload]));
       if (e.tsDs > maxDs) maxDs = e.tsDs;
-      arrival = at;
     }
   }
 
@@ -309,13 +359,7 @@ class OuraAdapter extends BandAdapter {
           // The array's probes are not identified — one may be an ambient
           // reference — so the first is taken and the rest are left in the
           // archive rather than averaged into a number that means nothing.
-          if (t != null && t.isNotEmpty) {
-            samples.add(NeutralSample(
-              anchor: TimeAnchor.arrival,
-              tsEpoch: _anchorUnixFor(e.tsDs),
-              skinTempC: t.first,
-            ));
-          }
+          if (t != null && t.isNotEmpty) _held.add((e.tsDs, t.first));
         case kOuraEvtDebugData:
           final d = decodeDebugData(e.body);
           if (d == null) break;
@@ -324,6 +368,21 @@ class OuraAdapter extends BandAdapter {
           if (d.batteryMv != null) yield BandNote('battery_mv', d.batteryMv);
       }
     }
+    // Stamp everything an origin can now reach — this batch's readings and any
+    // held from earlier ones. What still cannot be stamped stays held for a
+    // later batch, and is dropped at the end of the drain rather than guessed
+    // at: a plausible wrong second is worse than a missing one, because nothing
+    // downstream can tell it apart from a measurement.
+    _held.removeWhere((h) {
+      final unix = _anchorUnixFor(h.$1);
+      if (unix == null) return false;
+      samples.add(NeutralSample(
+        anchor: TimeAnchor.arrival,
+        tsEpoch: unix,
+        skinTempC: h.$2,
+      ));
+      return true;
+    });
     // EVERY event frame is archived, including the ones just decoded and every
     // one that was not. Beat intervals, SpO2, the hypnogram and steps all live
     // in here undecoded, and that is the point: the bytes are banked now so a
@@ -338,12 +397,8 @@ class _Batch {
   final List<OuraEvent> events;
   final List<Uint8List> raw;
   final int maxDs;
-
-  /// When the last frame of this batch reached the phone. Only ever used as the
-  /// fallback origin for the very first batch of a session.
-  final int arrivalSec;
   final OuraBatchSummary summary;
-  const _Batch(this.events, this.raw, this.maxDs, this.arrivalSec, this.summary);
+  const _Batch(this.events, this.raw, this.maxDs, this.summary);
 }
 
 /// Frames off the notify characteristic, buffered so that a reply landing

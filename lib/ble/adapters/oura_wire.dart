@@ -269,6 +269,43 @@ OuraBatchSummary? parseBatchSummary(OuraFrame f) {
 // not get from this file, and `oura_adapter_test.dart` asserts that no such tag
 // ever reaches the link. Adding a builder for one re-opens the hole.
 
+/// Install this phone's 16-byte pairing key on a FACTORY-RESET ring.
+///
+/// The key goes out in the clear and the command is not authenticated — it
+/// cannot be, since it is what creates the credential the authentication
+/// handshake then uses. So this is the FIRST thing written on a pairing
+/// connection, before any nonce request, and it is the only command in this
+/// file that is not preceded by one.
+///
+/// The ring holds exactly one key and accepts a new one ONLY while it is
+/// factory reset, which makes the reset a PRECONDITION of pairing rather than
+/// a consequence of it: a ring that is currently onboarded elsewhere has to be
+/// reset before this can succeed, and resetting is what frees it. There is no
+/// state in which both work, and there is no way to read the installed key
+/// back — losing ours costs another reset and nothing more.
+///
+/// NOT DESTRUCTIVE, and worth saying because it sits next to a family of
+/// commands that are. It writes a credential; it erases nothing. Putting the
+/// ring INTO the state that accepts one is a separate command that has no
+/// builder here and never will (see the block above).
+List<int> ouraCmdSetAuthKey(List<int> key) {
+  if (key.length != 16) {
+    throw ArgumentError('the Oura pairing key is exactly 16 bytes');
+  }
+  return <int>[0x24, 0x10, ...key];
+}
+
+/// The status of a key install: 0 on success, non-zero for a refusal. Null when
+/// [f] is not the reply to one.
+///
+/// A ring that is NOT factory reset is the refusal that matters, and it does
+/// not necessarily answer at all — so a caller must treat silence as a refusal
+/// too, never as consent. There is no known way to tell the two apart, and
+/// guessing that a quiet ring took the key is how a user spends a factory reset
+/// and ends up with neither app working.
+int? ouraSetAuthKeyResult(OuraFrame f) =>
+    (f.tag == 0x25 && f.payload.isNotEmpty) ? f.payload[0] : null;
+
 /// Ask for a fresh authentication challenge.
 List<int> ouraCmdAuthNonce() => const <int>[0x2f, 0x01, 0x2b];
 
@@ -314,13 +351,32 @@ Uint8List? ouraAuthNonce(OuraFrame f) {
   return Uint8List.sublistView(f.payload, 1, 16);
 }
 
-/// The result of an authentication attempt: 0 on success, non-zero for a
-/// refusal (wrong key, ring in factory reset, not the onboarded device). Null
-/// when [f] is not an authentication reply at all.
+/// The result of an authentication attempt. Null when [f] is not an
+/// authentication reply at all.
+///
+/// The codes, because the REMEDIES differ and a caller that collapses them to
+/// "failed" tells the user the wrong thing:
+///
+///   * `0` — success.
+///   * [kOuraAuthWrongKey] — the ring holds a key and it is not ours.
+///     Re-pairing means another factory reset.
+///   * [kOuraAuthFactoryReset] — the ring holds NO key. It is waiting to be
+///     given one, which is [ouraCmdSetAuthKey], not a re-pair of the same key.
+///   * [kOuraAuthNotOnboarded] — a key matched but this is not the device the
+///     ring was onboarded to.
 int? ouraAuthResult(OuraFrame f) {
   if (f.tag != 0x2f || f.payload.length < 2 || f.payload[0] != 0x2e) return null;
   return f.payload[1];
 }
+
+/// The ring holds a key and the one presented is not it.
+const int kOuraAuthWrongKey = 0x01;
+
+/// The ring holds no key at all — it is factory reset and waiting for one.
+const int kOuraAuthFactoryReset = 0x02;
+
+/// Authenticated, but not as the device this ring was onboarded to.
+const int kOuraAuthNotOnboarded = 0x03;
 
 /// True when [f] is the ring refusing a command because the session has not
 /// authenticated. Distinguishing this from silence is what stops a drain loop

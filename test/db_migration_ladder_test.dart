@@ -25,6 +25,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -98,6 +100,19 @@ const _preDeviceKeyDecodedDdl = [
     counter INTEGER PRIMARY KEY, ts INTEGER NOT NULL, hr INTEGER)
 ''',
 ];
+
+/// The PRE-v49 `live_coverage`, exactly as a user on v27..48 has it: `source`
+/// says band-or-phone and NOTHING says WHICH band, which is why two straps on
+/// one walk could both be credited in full.
+const _preDeviceLiveCoverageDdl = '''
+  CREATE TABLE live_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    steps INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'band')
+''';
 
 /// The v5-era derived tables, so step 9's derived_day → day_result copy is real.
 const _v5DerivedDdl = [
@@ -197,6 +212,9 @@ Future<int> _openThroughLocalDb(String name) async {
 }
 
 void main() {
+  // SharedPreferences' mock needs a binding, and the pairing migration below
+  // reads it.
+  TestWidgetsFlutterBinding.ensureInitialized();
   final created = <String>[];
 
   setUpAll(() async {
@@ -1142,6 +1160,99 @@ void main() {
         2,
         reason: 'the strap must never evict the other device',
       );
+    },
+  );
+
+  test(
+    'v49 adds the device store and live_coverage.device_id without moving a '
+    'single day\'s step total',
+    () async {
+      const name = 'migrate_v48_device_table_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        48,
+        [_preDeviceLiveCoverageDdl, ..._v5DerivedDdl],
+        seedRows: (db) async {
+          // Two band rows over the SAME walk, which is what a re-import
+          // produces. One device ⇒ they sum, and that is what the table has
+          // always meant.
+          for (var i = 0; i < 2; i++) {
+            await db.insert('live_coverage', {
+              'start_ts': 1786000000,
+              'end_ts': 1786001800,
+              'steps': 3000,
+              'day': '2026-08-06',
+              'source': 'band',
+            });
+          }
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      // The rows are untouched and every one belongs to the primary band —
+      // which is exactly what a pre-v49 row has always meant, so no total moves.
+      final rows = await db.query('live_coverage', orderBy: 'id ASC');
+      expect([for (final r in rows) r['steps']], [3000, 3000]);
+      expect([for (final r in rows) r['device_id']], ['', '']);
+      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 6000);
+
+      // And THE POINT: a second strap over the same walk now competes instead
+      // of being credited in full. This could not fire before the column
+      // existed — the resolver had handled it since the ladder gained
+      // `CoverageSpan.deviceId` and never saw a second id.
+      await LocalDb.addLiveCoverage(
+        1786000000,
+        1786001800,
+        3000,
+        '2026-08-06',
+        deviceId: 'second-strap',
+      );
+      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 6000,
+          reason: 'the walk is counted once more, not twice more');
+
+      // The device store exists, is empty, and is not silently absent from the
+      // health check — the observation table's rung is the worked example.
+      expect(await LocalDb.deviceRow(), isNull);
+      expect(await LocalDb.deviceRows(), isEmpty);
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'the paired band survives the upgrade: the prefs pair migrates into the '
+    'device table on first load',
+    () async {
+      const name = 'migrate_v48_paired_device_test.db';
+      created.add(name);
+      await _seedOldDb(name, 48, [_preDeviceLiveCoverageDdl, ..._v5DerivedDdl]);
+      SharedPreferences.setMockInitialValues({
+        'paired_remote_id': 'AA:BB:CC:DD:EE:FF',
+        'paired_serial': '4C2248092',
+      });
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // A user mid-upgrade must not have to re-pair.
+      final paired = await PairedDevice.load();
+      expect(paired?.remoteId, 'AA:BB:CC:DD:EE:FF');
+      expect(paired?.serial, '4C2248092');
+      // …and the migration is a WRITE, not a read-through: the row is there for
+      // everything that joins on `device_id` from here on.
+      final row = await LocalDb.deviceRow();
+      expect(row?['remote_id'], 'AA:BB:CC:DD:EE:FF');
+      expect(row?['label'], '4C2248092');
+      expect(row?['id'], LocalDb.kPrimaryDeviceId);
+      // The link has not said which band it is, and NULL is that refusal —
+      // never a defaulted 'gen4'.
+      expect(row?['adapter_id'], isNull);
+
+      // Forgetting clears BOTH copies, or the mirror puts it straight back.
+      await PairedDevice.clear();
+      expect(await PairedDevice.load(), isNull);
+      expect(await LocalDb.deviceRow(), isNull);
     },
   );
 }

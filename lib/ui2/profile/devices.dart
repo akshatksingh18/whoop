@@ -10,15 +10,23 @@
 // recency only breaks a tie within a tier. There is no user preference and the
 // screen no longer claims one — no control ever set an order.
 //
-// A tier is drawn when something in it exists or could be paired today. Tier 1
-// is neither: there is no BLE Heart Rate Service client anywhere in the tree,
-// so drawing an empty "beat-to-beat" rung sent people hunting for a chest
-// strap pairing path that does not exist.
+// TWO BUCKETS AND ONLY TWO: what is measuring, and what is NOT YET — the
+// second with a reason and a PERMANENCE beside it. "Not yet" without a
+// permanence becomes a lie by slow motion: "no, an iPhone has no ANT radio" is
+// a different statement from "not yet, a few weeks". There is deliberately no
+// third "imported" tier; bringing a history in is data adoption, not device
+// support, and it never appears on a compatibility list.
+//
+// A tier rung is drawn when something in it exists. Tier 1 does not: the
+// generic Bluetooth heart-rate link is in this build but only inside a workout
+// and with no way to pair one, so it is named in the NOT YET list rather than
+// drawn as an empty rung people go hunting for.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/_registry.dart' show kBandRegistry;
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
 import '../../notify/battery_forecast.dart';
@@ -65,6 +73,74 @@ enum SourceTier {
   final Color accent;
 }
 
+/// This band's name, from the registry entry that decodes it — never asserted.
+///
+/// The two call sites here and in `day_steps.dart` both used to be
+/// `generation == 'gen5' ? 'WHOOP 5' : 'WHOOP 4'`, which does not name a band,
+/// it ASSERTS one: every future adapter, every imported day and every row
+/// banked before the family stamp existed was published as a WHOOP 4. Null is
+/// the honest answer for all of those, and every caller has a word for it.
+String? bandLabelFor(String? adapterId) {
+  if (adapterId == null || adapterId.isEmpty) return null;
+  for (final e in kBandRegistry) {
+    if (e.id == adapterId) return e.label;
+  }
+  return null;
+}
+
+/// Bands the owner has personally held and cross-confirmed. Everything else is
+/// publicly EXPERIMENTAL, however well its fixtures pass — a fixture proves
+/// determinism and physiological sanity, never correctness, and a decoder with
+/// a 2× scale error reads a resting 50 bpm as 100 and passes every generic
+/// bound. Hardware in his hands is the only promotion path.
+///
+/// ponytail: a const set here until the CODEOWNERS-gated `_verified.dart`
+/// exists (ASSUMPTIONS E5). Move it there and delete this — it must never
+/// become a CI rule, which would hand the key to the PR author.
+const Set<String> kOwnerConfirmedBandIds = {'gen4'};
+
+/// A device family this app does NOT speak today, and why.
+///
+/// [permanence] is the load-bearing half. It is a plain phrase, never a date —
+/// "being built" and "not a matter of time" are different promises and a user
+/// is owed the difference.
+class NotYet {
+  final String name, reason, permanence;
+  final IconData icon;
+  const NotYet(this.name, this.reason, this.permanence, this.icon);
+}
+
+/// The honest other half of this screen.
+///
+/// Short on purpose: a list gets checked, and every row on it is a claim
+/// someone can hold us to. These three are the ones already decided.
+const List<NotYet> kNotYet = [
+  NotYet(
+    'Any standard Bluetooth heart-rate sensor',
+    'A chest strap reports beat timing electrically, which is better than a '
+        'wrist pulse can be. The link is in this build and runs during a '
+        'workout, but there is nowhere yet to pair one.',
+    'Being built',
+    LucideIcons.heartPulse,
+  ),
+  NotYet(
+    'Polar 360 and Loop',
+    'Screenless, no subscription, worn around the clock, with beat-to-beat '
+        'intervals the vendor documents. Nobody has written the driver.',
+    'Planned',
+    LucideIcons.watch,
+  ),
+  NotYet(
+    'Fitbit, Withings, Xiaomi and Zepp bands',
+    'Their pairing key is issued by the vendor’s own server. A driver would '
+        'work only while their app stayed installed and signed in, and would '
+        'stop the day they changed it — so the band would be ours to support '
+        'and theirs to switch off.',
+    'Not a matter of time',
+    LucideIcons.cloudOff,
+  ),
+];
+
 /// One thing that can produce measurements.
 class HealthSource {
   final String name, kind;
@@ -86,6 +162,12 @@ class HealthSource {
   /// link has not said yet. Not cosmetic: it is the key every sensor-dependent
   /// metric looks its own constants up under, and null is a refusal.
   final String? family;
+
+  /// Publicly EXPERIMENTAL — this band is decoded but the owner has never held
+  /// one (see [kOwnerConfirmedBandIds]). Not a quality tier and not a
+  /// confidence: it says who has checked, not how good the numbers are.
+  bool get experimental =>
+      isBand && family != null && !kOwnerConfirmedBandIds.contains(family);
 
   const HealthSource({
     required this.name,
@@ -114,40 +196,40 @@ class HealthSource {
 /// is calibrated per sensor.
 (String value, String sub)? calibrationDisclosure(HealthSource s) {
   if (!s.isBand) return null;
-  return switch (s.family) {
-    'gen4' => (
-        'WHOOP 4',
-        'Metrics that depend on the sensor use this band’s own constants, so '
-            'a WHOOP 4 and a WHOOP 5 can land on different tiers for the same '
-            'physiology.'
-      ),
-    'gen5' => (
-        'WHOOP 5',
-        'Metrics that depend on the sensor use this band’s own constants, so '
-            'a WHOOP 5 and a WHOOP 4 can land on different tiers for the same '
-            'physiology.'
-      ),
-    // Null is the honest majority case, not an error: every row banked before
-    // the stamp existed, every import and every raw replay carries no family,
-    // and those metrics abstain rather than borrow gen4's numbers.
-    _ => (
-        'Not stated yet',
-        'This band has not said which generation it is, and imported or older '
-            'days never will. Metrics that depend on the sensor abstain rather '
-            'than borrow another band’s numbers.'
-      ),
-  };
+  final label = bandLabelFor(s.family);
+  if (label != null) {
+    return (
+      label,
+      'Metrics that depend on the sensor use this band’s own constants, so two '
+          'different bands can land on different tiers for the same physiology.'
+    );
+  }
+  // Null is the honest majority case, not an error: every row banked before
+  // the stamp existed, every import and every raw replay carries no family,
+  // and those metrics abstain rather than borrow gen4's numbers. A family this
+  // build has no registry entry for lands here too — an unknown band is not a
+  // WHOOP 4.
+  return (
+    'Not stated yet',
+    'This band has not said which generation it is, and imported or older '
+        'days never will. Metrics that depend on the sensor abstain rather '
+        'than borrow another band’s numbers.'
+  );
 }
 
 /// The sources that actually exist right now. Nothing is listed that cannot
-/// produce a number today.
+/// produce a number today — everything else is in [kNotYet], with its reason.
 List<HealthSource> liveSources(AppState app) => [
       if (app.isPaired)
         HealthSource(
-          name: app.strapName ?? 'WHOOP band',
-          kind: app.device.generation == 'gen5'
-              ? 'WHOOP 5 · wrist optical'
-              : 'WHOOP 4 · wrist optical',
+          name: app.strapName ?? 'Your band',
+          // The registry's own word for this band, or just what it is when the
+          // link has not said. Never an assertion that an unnamed band is a
+          // WHOOP 4.
+          kind: [
+            ?bandLabelFor(app.device.generation),
+            'wrist optical',
+          ].join(' · '),
           tier: SourceTier.wristOptical,
           icon: LucideIcons.watch,
           connected: app.isConnected,
@@ -299,6 +381,13 @@ class MyDevicesView extends StatelessWidget {
                   ),
                   if (sources.isNotEmpty) const SizedBox(height: S.x3),
                 ],
+                // LIVE — the first of the two buckets. Only drawn when there is
+                // something in it: a heading over nothing is the empty rung
+                // problem again, one level up.
+                if (sources.isNotEmpty) ...[
+                  Text('LIVE', style: F.over.copyWith(color: p.ink3)),
+                  const SizedBox(height: S.x3),
+                ],
                 for (final s in sources) ...[
                   SourceRow(s, onTap: () => goto(c, DeviceDetail(s))),
                   if (s.isBand && fault != null) ...[
@@ -309,14 +398,31 @@ class MyDevicesView extends StatelessWidget {
                   ],
                   const SizedBox(height: S.x3),
                 ],
+                // NOT YET — with a reason and a permanence on every row. The
+                // reason is the honest part; the permanence is the part that
+                // stops "not yet" quietly meaning "no" for two years.
+                const SizedBox(height: S.x5),
+                Text('NOT YET', style: F.over.copyWith(color: p.ink3)),
+                const SizedBox(height: S.x3),
+                Surface(
+                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                  child: Column(children: [
+                    for (final n in kNotYet) ...[
+                      if (n != kNotYet.first) Divider(color: p.line, height: 1),
+                      SetRow(n.icon, C.orange, n.name,
+                          value: n.permanence, sub: n.reason, chevron: false),
+                    ],
+                  ]),
+                ),
                 const SizedBox(height: S.x5),
                 Text('THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x3),
                 for (final t in SourceTier.values)
                   // An empty rung is information only while the rung is
-                  // reachable. Nothing in this build can produce a tier-1
-                  // source, so it is drawn only if one somehow exists.
+                  // reachable. Nobody can pair a tier-1 sensor in this build —
+                  // the NOT YET list says so in words — so the rung is drawn
+                  // only if one somehow exists.
                   if (t != SourceTier.beatToBeat ||
                       sources.any((s) => s.tier == t)) ...[
                     TierRow(t, filled: sources.any((s) => s.tier == t)),
@@ -406,6 +512,12 @@ class SourceRow extends StatelessWidget {
                   Text('${battery.round()}%',
                       style: F.over.copyWith(color: p.ink3)),
                 ]),
+              // IN THE WRAP, not a second trailing pill: this line already
+              // wraps at accessibility sizes, and a pill column beside it does
+              // not. The band's own page carries the explanation.
+              if (s.experimental)
+                Text('Experimental',
+                    style: F.over.copyWith(color: p.on(C.orange))),
             ]),
           ]),
         ),
@@ -536,7 +648,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
 ///
 /// This was in the old UI and did not survive the rebuild, which left the
 /// advertising name readable and not writable — and it is the one label a user
-/// with two straps needs, since both otherwise read "WHOOP band".
+/// with two straps needs, since both otherwise read "Your band".
 ///
 /// The band's own limits are the field's limits, checked here so a refusal is
 /// immediate instead of a silent truncation 20 characters in: 20 ASCII
@@ -560,7 +672,7 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
             autofocus: true,
             maxLength: 20,
             decoration: InputDecoration(
-              hintText: 'WHOOP band',
+              hintText: 'Your band',
               errorText: e,
               helperText: "Letters, numbers, space, and ' . _ -",
             ),
@@ -778,6 +890,19 @@ class DeviceDetailView extends StatelessWidget {
                         SetRow(LucideIcons.sliders, C.teal, 'Calibration',
                             value: calibration.$1,
                             sub: calibration.$2,
+                            chevron: false),
+                      ],
+                      // WHO HAS CHECKED, not how good the numbers are. Said
+                      // here rather than only as a word on the list row,
+                      // because "experimental" without the reason reads as a
+                      // disclaimer instead of a fact about this band.
+                      if (s.experimental) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.flaskConical, C.orange, 'Support',
+                            value: 'Experimental',
+                            sub: 'This band is decoded but nobody here has worn '
+                                'one. Its numbers have not been checked against '
+                                'the hardware, only against the protocol.',
                             chevron: false),
                       ],
                       if (onFind != null) ...[

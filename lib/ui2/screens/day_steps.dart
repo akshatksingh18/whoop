@@ -35,6 +35,7 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../activity/catalogue.dart' show activityByName;
+import '../profile/devices.dart' show bandLabelFor;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, prettyDay, repoOf, thousands;
 import 'metric_detail.dart'
@@ -100,8 +101,8 @@ class DayStepsData {
   /// here.
   final String? note;
 
-  /// 'WHOOP 4' / 'WHOOP 5' / [_defaultBand] — the paired band, in the same
-  /// words the Devices screen uses.
+  /// The paired band's name, in the same words the Devices screen uses —
+  /// or [_defaultBand] when nothing has told us which band it is.
   final String bandLabel;
 
   bool get mixed => strap > 0 && phone > 0;
@@ -454,11 +455,10 @@ String bandLabel(BuildContext c) {
   try {
     final app = c.read<AppState>();
     if (!app.isPaired) return DayStepsData._defaultBand;
-    return switch (app.device.generation) {
-      'gen4' => 'WHOOP 4',
-      'gen5' => 'WHOOP 5',
-      _ => DayStepsData._defaultBand,
-    };
+    // The registry's own label for the band that is paired. A family with no
+    // entry — an import, a pre-stamp row, an adapter this build does not carry
+    // — is NOT a WHOOP 4, which is what the ternary here used to publish.
+    return bandLabelFor(app.device.generation) ?? DayStepsData._defaultBand;
   } catch (_) {
     return DayStepsData._defaultBand;
   }

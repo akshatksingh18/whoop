@@ -253,7 +253,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 48;
+  static const int schemaVersion = 49;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -337,6 +337,7 @@ class LocalDb {
         await _createComputeState(db);
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
+        await _createDevice(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createSleepNap(db);
@@ -818,6 +819,24 @@ class LocalDb {
           // this table, nothing reads it, and no derived number can move.
           await _createObservation(db);
         }
+        if (oldV < 49) {
+          // The device store, and the `live_coverage` column that lets the step
+          // ladder tell two sensors apart. CREATE TABLE IF NOT EXISTS + ONE
+          // guarded ADD COLUMN: no backfill, no rewrite, nothing read, and both
+          // are no-ops on a table this ladder has not created yet — which is
+          // what keeps it off the wrong side of invariant 11 (a throw in here
+          // rolls the WHOLE ladder back and quarantines the user's database).
+          //
+          // ADD COLUMN with a constant DEFAULT does not rewrite the table, so
+          // this rung is O(1) in `live_coverage` rows rather than O(n) — unlike
+          // the v47 re-key every upgrading install is already paying for.
+          //
+          // Ships without a kAlgoVersion bump: every existing row takes
+          // `device_id = ''`, one id is one sensor, and [resolveDaySteps]
+          // returns exactly the totals it returned yesterday.
+          await _createDevice(db);
+          await _ensureLiveCoverageDeviceId(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -868,6 +887,8 @@ class LocalDb {
     }
     await _createLiveCoverage(db);
     await _ensureLiveCoverageSource(db);
+    await _ensureLiveCoverageDeviceId(db);
+    await _createDevice(db);
     await _createExternalHr(db);
     await _createImportedMeasurement(db);
     // CREATE TABLE IF NOT EXISTS on the every-open repair path, and NO schema
@@ -1480,6 +1501,100 @@ class LocalDb {
     );
   }
 
+  // ── DEVICES (the things that measure) ─────────────────────────────────────
+  /// The devices this phone knows about, one row each.
+  ///
+  /// Until now a "device" was TWO SharedPreferences scalars (`paired_remote_id`
+  /// / `paired_serial`), which can hold exactly one band, carries no state
+  /// beside the id, and cannot be joined to anything. `decoded_onehz`,
+  /// `decoded_rr` and `samples` have been keyed by `device_id` since v47 with
+  /// nothing on the other end of that key — this is the other end.
+  ///
+  /// `id` IS the `device_id` those tables carry, so [kPrimaryDeviceId] (`''`)
+  /// is this table's primary row, permanently (ASSUMPTIONS A1). That is what
+  /// keeps an unstable BLE `remoteId` — a per-app CBPeripheral UUID on iOS, a
+  /// rotating RPA on Android — out of the key: it lives in `remote_id`, a plain
+  /// column that may change under the same row as often as the OS likes.
+  ///
+  ///  * `adapter_id` — the `BandEntry.id` from the registry (`gen4`/`gen5`), or
+  ///    NULL when the link has not said yet. NULL is a refusal, not a default:
+  ///    every metric that looks its constants up per family abstains on it
+  ///    rather than borrowing gen4's numbers, and the device screen says so.
+  ///  * `label` — the band's own advertising name / serial, already passed
+  ///    through `cleanDeviceLabel`. Never junk, never a placeholder.
+  ///  * `tier` — the `SourceTier` enum NAME (measurement quality, which is the
+  ///    only thing that decides precedence between two sources).
+  ///  * `first_seen` / `last_seen` — epoch seconds.
+  ///
+  /// ponytail: no `UPSERT`. `INSERT … ON CONFLICT DO UPDATE` needs SQLite 3.24
+  /// and minSdk 26 ships 3.18 (the same floor the `observation` index reasons
+  /// about), so [upsertDevice] is INSERT OR IGNORE + UPDATE.
+  static Future<void> _createDevice(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS device (
+        id          TEXT PRIMARY KEY,
+        adapter_id  TEXT,
+        remote_id   TEXT,
+        label       TEXT,
+        tier        TEXT,
+        first_seen  INTEGER NOT NULL,
+        last_seen   INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Record that [id] exists and was seen now. Every field except [id] is
+  /// COALESCED, so a caller that only knows the remote id cannot blank out a
+  /// label or an adapter another caller already established.
+  static Future<void> upsertDevice({
+    String id = kPrimaryDeviceId,
+    String? adapterId,
+    String? remoteId,
+    String? label,
+    String? tier,
+  }) async {
+    final db = await instance;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await db.insert('device', {
+      'id': id,
+      'adapter_id': adapterId,
+      'remote_id': remoteId,
+      'label': label,
+      'tier': tier,
+      'first_seen': now,
+      'last_seen': now,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.rawUpdate(
+      'UPDATE device SET adapter_id = COALESCE(?, adapter_id), '
+      'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
+      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
+      [adapterId, remoteId, label, tier, now, id],
+    );
+  }
+
+  /// One device row, or null when this phone has never seen it.
+  static Future<Map<String, Object?>?> deviceRow([
+    String id = kPrimaryDeviceId,
+  ]) async {
+    final db = await instance;
+    final r = await db.query('device', where: 'id = ?', whereArgs: [id]);
+    return r.isEmpty ? null : r.first;
+  }
+
+  /// Every device this phone knows about, most recently seen first.
+  static Future<List<Map<String, Object?>>> deviceRows() async {
+    final db = await instance;
+    return db.query('device', orderBy: 'last_seen DESC');
+  }
+
+  /// Forget one device. The MEASUREMENTS it wrote are untouched — "this
+  /// removes the source, not the data", which is what the forget dialog
+  /// promises and what `decoded_*` keeping its `device_id` makes possible.
+  static Future<void> deleteDevice([String id = kPrimaryDeviceId]) async {
+    final db = await instance;
+    await db.delete('device', where: 'id = ?', whereArgs: [id]);
+  }
+
   // ── OBSERVATIONS (vendor-computed / typed-in / imported scalars) ───────────
   /// Everything that is NOT a raw sensor sample and NOT computed by us:
   /// a `reports` band's own conclusions, the user's typed-in numbers, and
@@ -1772,7 +1887,8 @@ class LocalDb {
         end_ts INTEGER NOT NULL,
         steps INTEGER NOT NULL,
         day TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT '$kStepSourceBand'
+        source TEXT NOT NULL DEFAULT '$kStepSourceBand',
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId'
       )
     ''');
     await db.execute(
@@ -1790,6 +1906,24 @@ class LocalDb {
       'live_coverage',
       'source',
       "TEXT NOT NULL DEFAULT '$kStepSourceBand'",
+    );
+  }
+
+  /// Ensure `live_coverage.device_id` exists (v49).
+  ///
+  /// WHICH SENSOR counted, not which KIND of sensor — `source` already says
+  /// band-or-phone. Without it two straps on the same 3,000-step walk both
+  /// rank 2 in [resolveDaySteps], skip each other's overlap subtraction, and
+  /// the day publishes 6,000: the resolver has handled that since the ladder
+  /// gained `CoverageSpan.deviceId`, and could never fire because this column
+  /// did not exist. Existing rows take the DEFAULT — the primary band — which
+  /// is exactly what they have always meant, so no day's total moves.
+  static Future<void> _ensureLiveCoverageDeviceId(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'live_coverage',
+      'device_id',
+      "TEXT NOT NULL DEFAULT '$kPrimaryDeviceId'",
     );
   }
 
@@ -1815,6 +1949,10 @@ class LocalDb {
     int steps,
     String day, {
     String source = kStepSourceBand,
+    // WHICH physical sensor counted (see [_ensureLiveCoverageDeviceId]). The
+    // phone is the primary device's own pedometer, so it keeps `''` too —
+    // `source` is what tells wrist from pocket.
+    String deviceId = kPrimaryDeviceId,
   }) async {
     final w = sanitizeCoverageWindow(startTs, endTs, steps);
     if (w == null) return;
@@ -1825,6 +1963,7 @@ class LocalDb {
       'steps': steps,
       'day': day,
       'source': source,
+      'device_id': deviceId,
     });
   }
 
@@ -1924,7 +2063,7 @@ class LocalDb {
     final db = await instance;
     final rows = await db.query(
       'live_coverage',
-      columns: ['start_ts', 'end_ts', 'steps', 'source'],
+      columns: ['start_ts', 'end_ts', 'steps', 'source', 'device_id'],
       where: 'day = ?',
       whereArgs: [day],
     );
@@ -1937,14 +2076,12 @@ class LocalDb {
           // Anything not explicitly 'phone' is band — pre-v27 rows default to
           // it, and relabelling them would suppress a real band count.
           fromBand: r['source'] != kStepSourcePhone,
-          // ponytail: every row is the primary band's until `live_coverage`
-          // carries a `device_id` of its own (the decoded tables got one at
-          // schema 47; this table did not). `CoverageSpan.deviceId` defaults to
-          // `''` and `resolveDaySteps` treats one id as one sensor, so this is
-          // exactly today's behaviour — the day a second strap can write here,
-          // select the column and pass it, and the equal-rank double-count is
-          // already handled.
-
+          // WHICH sensor, so two equal-ranked spans from two different straps
+          // compete instead of both being credited in full (see
+          // [_ensureLiveCoverageDeviceId]). Pre-v49 rows take the column
+          // default — the primary band — so a single-device install resolves
+          // exactly as it did before the column existed.
+          deviceId: (r['device_id'] as String?) ?? kPrimaryDeviceId,
         ),
     ]);
   }
@@ -6798,6 +6935,11 @@ class LocalDb {
       'sessions',
       'notifications',
       'baselines',
+      // The devices this phone knows about — so a SECONDARY device's identity
+      // survives a backup/restore round trip rather than leaving its rows in
+      // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
+      // row is deliberately skipped on the way in; see the guard below.
+      'device',
       'sync_cursor',
     ];
     // Columns this app's schema actually has, per table — so a row from a NEWER
@@ -6937,6 +7079,17 @@ class LocalDb {
                   final st = row['skin_temp_c'];
                   if (st is num && st <= -49.995) row['skin_temp_c'] = null;
                 }
+                // THE PRIMARY DEVICE IS NOT PORTABLE. Its `remote_id` is a
+                // per-install handle — a CBPeripheral UUID that is unique to
+                // the phone AND the app install on iOS, a rotating RPA on
+                // Android — so a foreign export's copy names a peripheral this
+                // phone cannot connect to. Importing it would REPLACE the local
+                // pairing (id `''` is the primary, permanently) and leave the
+                // app claiming a band that is not there. A restore onto the
+                // same install needs nothing from here: the row is already
+                // present, and the SharedPreferences mirror re-establishes it
+                // if the database was rebuilt.
+                if (t == 'device' && row['id'] == kPrimaryDeviceId) continue;
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
                     '${row['day_id']}|${row['algo_version']}',
@@ -7247,6 +7400,7 @@ class LocalDb {
       'imported_measurement',
       'imported_workout',
       'observation',
+      'device',
     ];
 
     final missingTables = <String>[];

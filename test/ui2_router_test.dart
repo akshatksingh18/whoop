@@ -489,7 +489,7 @@ void main() {
         child: MaterialApp(
             theme: buildTheme(Brightness.light), home: const MyDevices()),
       ));
-      expect(find.text('WHOOP band'), findsOneWidget);
+      expect(find.text('Your band'), findsOneWidget);
       expect(find.text('Pair a band'), findsNothing);
 
       // Forget. `unpair()` itself is platform-bound (ASK, the engine, the
@@ -498,7 +498,7 @@ void main() {
       app.notifyListeners();
       await tester.pump();
 
-      expect(find.text('WHOOP band'), findsNothing);
+      expect(find.text('Your band'), findsNothing);
       expect(find.text('This phone'), findsOneWidget,
           reason: 'the phone row is what used to swallow the empty state');
       expect(find.text('Pair a band'), findsOneWidget);

@@ -1418,7 +1418,7 @@ const int kAlgoVersion = 77;
 // failure this block exists to stop. The guard test cannot catch it: it
 // compares this constant to pubspec.yaml, and both are consistent right now.
 // ponytail: unpinned sibling, upgrade = repin at the analytics commit.
-const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
+const String kAnalyticsPin = 'd6ba41cd1d3a5a463a051b4b872bbaf5a3c00543';
 const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

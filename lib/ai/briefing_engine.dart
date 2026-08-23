@@ -140,13 +140,23 @@ Future<Map<String, dynamic>> collectBriefingInputs(
       take('awake_min', ds['awake_min'], round: 0);
       final onset = _num(ds['onset_ts'])?.toInt();
       final wake = _num(ds['wake_ts'])?.toInt();
+      // Named when absent, like every other field — [take] cannot do these two
+      // because they are clock strings rather than numbers, and that is the
+      // whole of the difference. A scored night with no onset used to hand over
+      // six sleep numbers and no refusal rule for the seventh, which is exactly
+      // the hole `withheld` exists to close. Bare, with no reason: these are
+      // raw columns, not metric envelopes, so there is no note to read one from.
       if (onset != null && onset > 0) {
         out['bedtime'] = _hhmm(
             DateTime.fromMillisecondsSinceEpoch(onset * 1000));
+      } else {
+        withheld.add('bedtime');
       }
       if (wake != null && wake > 0) {
         out['wake_time'] =
             _hhmm(DateTime.fromMillisecondsSinceEpoch(wake * 1000));
+      } else {
+        withheld.add('wake_time');
       }
     }
     if (withheld.isNotEmpty) out[kWithheldKey] = withheld;

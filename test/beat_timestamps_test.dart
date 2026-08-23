@@ -32,6 +32,15 @@ void main() {
       expect(beatTimesMs(1000, 32767, [800]), [1000999]);
     });
 
+    test('a tick count that is not a sub-second places nothing', () {
+      // A u16 off the wire can hold 40000; a 1/32768 s tick count cannot. It
+      // would anchor 1.22 s past the record it came from and walk every beat
+      // in that record into the wrong second.
+      expect(beatTimesMs(1000, 32768, [800]), [null]);
+      expect(beatTimesMs(1000, 40000, [800, 810]), [null, null]);
+      expect(beatTimesMs(1000, -1, [800]), [null]);
+    });
+
     test('beats are spaced by their own intervals, walking backwards', () {
       // The last beat sits at the anchor; each earlier one is the interval
       // after it away. Backwards is the only direction that cannot place a beat

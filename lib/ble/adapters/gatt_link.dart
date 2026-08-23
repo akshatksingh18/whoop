@@ -23,6 +23,23 @@ import '../ble_state.dart' show WriteChain;
 import '_registry.dart';
 import 'adapter.dart';
 
+/// Whether the peripheral's [actual] uuid is the one [requested] names.
+///
+/// MATCHED ON `str128`, NOT `str`. `Guid.str` is the SHORTEST form: for any
+/// SIG-assigned uuid (`0000xxxx-0000-1000-8000-00805f9b34fb`) it returns the
+/// four-character short form, so `2a37` never starts with the `00002a37` prefix
+/// a registry entry carries and the heart-rate measurement characteristic could
+/// never be found — `HrsLink.arm` reported it MISSING on every strap and
+/// aborted, which reads exactly like "the adapter doesn't work". WHOOP's uuids
+/// are 128-bit either way, which is why gen4/gen5 never saw it and the first
+/// SIG band did. `str128` is always the canonical lowercase full form.
+///
+/// Still a 32-bit prefix rather than equality: it is what the engine's own
+/// match does, and it is what lets a registry entry name a family of uuids.
+@visibleForTesting
+bool gattUuidMatches(String requested, Guid actual) =>
+    actual.str128.startsWith(requested.substring(0, 8).toLowerCase());
+
 /// A [BandLink] over an already-connected, already-discovered peripheral.
 class GattBandLink implements BandLink {
   /// Which band this is, so [write] knows where the opcode byte sits. A band
@@ -31,9 +48,9 @@ class GattBandLink implements BandLink {
   final BandEntry entry;
 
   /// The peripheral's discovered services. Characteristics are matched on a
-  /// 32-bit prefix, the same way `ble_engine` matches them, because the OS
-  /// hands back the 16-bit shorthand on some platforms and the full 128-bit
-  /// form on others.
+  /// 32-bit prefix of the 128-bit form, the same way `ble_engine` matches them
+  /// — see [gattUuidMatches] for why the form, not the prefix, is the part
+  /// that has to be said out loud.
   final List<BluetoothService> services;
 
   final void Function(String message) onLog;
@@ -88,10 +105,9 @@ class GattBandLink implements BandLink {
       [for (final u in uuids) if (_find(u) == null) u];
 
   BluetoothCharacteristic? _find(String uuid) {
-    final prefix = uuid.substring(0, 8).toLowerCase();
     for (final s in services) {
       for (final c in s.characteristics) {
-        if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
+        if (gattUuidMatches(uuid, c.uuid)) return c;
       }
     }
     return null;

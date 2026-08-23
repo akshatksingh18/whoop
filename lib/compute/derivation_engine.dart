@@ -1290,7 +1290,7 @@ import 'substrate.dart';
 // so no bump can heal them.
 // v77 — BAND-AGNOSTIC GROUPS A AND C. The 1 Hz assumption comes out of the
 // metrics that were counting array positions and calling them seconds, and four
-// gen4 defects found on the way out. Seven things move a published number:
+// gen4 defects found on the way out. Eight entries move a published number:
 //   1. A1 — BEAT TIMES REACH THE READ PATH. `decoded_rr.beat_ts_ms` (the
 //      record's own sub-second anchor) was written and never SELECTed, so every
 //      beat sat on a whole-second staircase and no dropout under 1 s was
@@ -1356,6 +1356,21 @@ import 'substrate.dart';
 //   7. C13 — an unstamped substrate carrying a step counter reports
 //      `band_measured: null`. Without a device stamp there is no modulus to
 //      unwrap it with, and a guessed one publishes a step count at tier HIGH.
+//   8. THE SAME TREATMENT FOR R-R AND FOR GRAVITY, which the list above missed
+//      on the way past and which move published numbers exactly as items 1-7
+//      do. `kMinPlausibleHr`/`kMaxPlausibleHr` had a sibling added either side
+//      of it in `substrate.dart` and both are new here:
+//        * `kMinPlausibleRrMs..kMaxPlausibleRrMs` (250..2400). Only `rr <= 0`
+//          was dropped before, so a corrupt-but-CRC-valid interval reached
+//          RMSSD, pNNx and every frequency-domain read. It drops the BEAT, not
+//          the record — the surviving beats keep the placement `beatTimesMs`
+//          already gave them.
+//        * `kMaxSustainedAccelG` (4.0). `accelPresentAt` rejected only an exact
+//          `(0,0,0)` fill; a second-long mean above 4 g is not a wrist either,
+//          and it is now absent rather than present. That reaches every accel
+//          consumer — van Hees, ENMO, movement minutes, the sleep segmenter —
+//          because absent accel is NOT stillness.
+//      Both refuse rather than clamp, for the reason `plausibleHrOrNull` does.
 // Days already finalized keep the score they were derived with — raw prunes at
 // `rawRetentionDays`, so no bump can heal them.
 const int kAlgoVersion = 77;
@@ -1406,18 +1421,24 @@ const int kAlgoVersion = 77;
 // test. Commands go TO the strap; no decoder line moves, so no stored number
 // can.
 //
-// v77 BUMPS WITH THE ANALYTICS PIN UNMOVED, AND THAT IS A DEBT, NOT A CLAIM.
-// Four of the seven items above (A2, A4, C1's window, C9) live in analytics and
-// are UNCOMMITTED — `pubspec_overrides.yaml` points the local build at
-// `../analytics`, so a dev build already runs them while `d9362a6` (the pin,
-// and the sibling's current HEAD) does not contain a line of them. No SHA is
-// invented here: there is nothing to pin to yet. THE PIN MUST MOVE IN THE SAME
-// CHANGE THAT COMMITS ANALYTICS, before anything is released at v77 — a build
-// that ships this constant against the old pin serves days derived from
-// different maths under one version number, which is exactly the v67/v68
-// failure this block exists to stop. The guard test cannot catch it: it
-// compares this constant to pubspec.yaml, and both are consistent right now.
-// ponytail: unpinned sibling, upgrade = repin at the analytics commit.
+// THE ANALYTICS DEBT THIS BLOCK RECORDED IS PAID. Four of the items above (A2,
+// A4, C1's window, C9) live in analytics, and for most of this branch's life
+// they were UNCOMMITTED: `pubspec_overrides.yaml` pointed the local build at
+// `../analytics`, so a dev build already ran them while the pin (`d9362a6`) did
+// not contain a line of them — a build shipping this constant against that pin
+// would have served days derived from different maths under one version number,
+// the exact v67/v68 failure. The pin is `d6ba41c` now and carries all four,
+// checkable one at a time:
+//   git show d6ba41c:lib/src/onehz/sleep/segment.dart | grep 'valid: trimmedAccel'
+//   git show d6ba41c:lib/src/onehz/wellness/readiness_composite.dart \
+//     | grep 'readinessCompositeMinBaseline = 14'
+//   git show d6ba41c:lib/src/onehz/clinical/nocturnal.dart | grep 'tsSec'
+//   git show d6ba41c:lib/src/onehz/util.dart | grep 'sampleCadenceSeconds'
+// The guard test compares this constant to pubspec.yaml and would not have
+// caught the gap — both were consistent the whole time. Whether the pinned SHA
+// contains the change a bump CITES is still a thing a human checks; v43 shipped
+// a changelog for an analytics fix its pin never had, and the bug it claimed to
+// fix stayed live for three releases.
 const String kAnalyticsPin = 'd6ba41cd1d3a5a463a051b4b872bbaf5a3c00543';
 const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
 

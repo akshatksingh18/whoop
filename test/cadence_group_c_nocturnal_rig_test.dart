@@ -80,7 +80,7 @@ void main() {
         String f(double? v) => v == null ? 'ABSENT' : v.toStringAsFixed(2);
         String err(double? v) => (v == null || truth == null)
             ? '—'
-            : '${((v - truth!) / truth! * 100).toStringAsFixed(1)}%';
+            : '${((v - truth) / truth * 100).toStringAsFixed(1)}%';
         // ignore: avoid_print
         print('[C1] ${n.toString().padLeft(3)}s  '
             'no-ts ${f(blind.value?.low30Mean).padLeft(6)} ${err(blind.value?.low30Mean).padLeft(7)}   '
@@ -99,7 +99,7 @@ void main() {
           // Every cadence a real band ships lands on the 1 Hz trough, or says
           // nothing. A number within 2% is the bar; 15 s was +11.2% before.
           expect(timed.present, isTrue, reason: '${n}s: ${timed.note}');
-          expect((timed.value!.low30Mean - truth!) / truth!, closeTo(0, 0.02),
+          expect((timed.value!.low30Mean - truth!) / truth, closeTo(0, 0.02),
               reason: '${n}s');
         } else {
           // Past what `sampleCadenceSeconds` will vouch for: absent, always.

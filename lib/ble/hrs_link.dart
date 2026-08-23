@@ -119,8 +119,27 @@ class HrsLink {
   ///
   /// Never scans: it connects straight to the stored remote id, so arming a
   /// workout cannot contend with the band's scan.
-  Future<bool> arm() async {
-    if (_armed) return true;
+  ///
+  /// SERIALISED, because every caller fires it `unawaited` and the body awaits
+  /// a database read, a 12 s connect and service discovery before it publishes
+  /// anything. A second call used to sail past the `_armed` check while the
+  /// first was still connecting and overwrite `_device`, `_link`, `_runSub` and
+  /// `_flushTimer` — the first one's timer and subscription then ran forever
+  /// with nothing holding them.
+  Future<bool> arm() {
+    if (_armed) return Future.value(true);
+    return _arming ??= _arm().whenComplete(() => _arming = null);
+  }
+
+  /// The in-flight [arm], or null. See [arm].
+  Future<bool>? _arming;
+
+  /// How many times [disarm] has run. An [arm] whose count moved under it has
+  /// been cancelled and must not publish — see the check in [_arm].
+  int _disarms = 0;
+
+  Future<bool> _arm() async {
+    final disarmsAtStart = _disarms;
     final row = await pairedSensorRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -140,9 +159,24 @@ class HrsLink {
       await device.connect(timeout: const Duration(seconds: 12));
       // Connect, bond, MTU and discovery are HOST work and stay on this side
       // of the seam. The adapter is handed the result and nothing else.
+      final services = await device.discoverServices();
+      // A `disarm()` that landed WHILE this was connecting has already torn the
+      // session down — it nulls `_device` and `_deviceId`. Publishing on top of
+      // it would set `_armed = true` over no device and no `_deviceId`, so
+      // `_flush` would discard every second and every later `arm()` would
+      // short-circuit on `_armed`: the sensor stays dead for the rest of the
+      // process. Reachable by the most ordinary thing a user does — start a
+      // workout and stop it inside twelve seconds.
+      if (_disarms != disarmsAtStart) {
+        debugPrint('[hrs] arm abandoned: it was disarmed while connecting.');
+        try {
+          await device.disconnect();
+        } catch (_) {/* already gone */}
+        return false;
+      }
       final link = GattBandLink(
         entry: kBleHrsAdapter.entry,
-        services: await device.discoverServices(),
+        services: services,
         onLog: (m) => debugPrint('[hrs] $m'),
       );
       _link = link;
@@ -173,6 +207,7 @@ class HrsLink {
   /// armed. AWAIT it before a finish screen reads the session back — an
   /// unawaited stop is how the last buffered batch goes missing.
   Future<void> disarm() async {
+    _disarms++;
     _flushTimer?.cancel();
     _flushTimer = null;
     // Before the run subscription is cancelled: an adapter's `finally` can
@@ -335,6 +370,19 @@ class HrsLink {
               'source': kBleHrsAdapter.id,
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          // CLEAR THE SECOND BEFORE REINSERTING, exactly as `_queueRrBeats`
+          // does on the band path and for the same reason: REPLACE only
+          // overwrites `beat_index` 0..n-1, so a second that once carried more
+          // beats keeps the stale tail and reports beats the sensor never sent.
+          // Within one armed session a second is written once (`_pending`
+          // removes it), but re-arming inside the same second is not — and the
+          // 15 s flush cadence means the second on either side of a stop is
+          // exactly the one at risk. Scoped to THIS device, so it can never
+          // reach the band's beats for the same second.
+          b.rawDelete(
+            'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
+            [deviceId, sec * 1000],
           );
           for (var i = 0; i < slot.rr.length; i++) {
             b.insert(

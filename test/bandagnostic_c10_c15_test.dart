@@ -190,6 +190,17 @@ void main() {
       final b = span(600, 2400, 2500, id: 'B');
       expect(resolveDaySteps([a, b]).total, resolveDaySteps([b, a]).total);
     });
+
+    test('two devices tied on rank AND start still answer the same way', () {
+      // The pair the rank/start keys cannot separate, so the sort was free to
+      // order it either way — and here the answer really does depend on that
+      // order: B is the denser span, so crediting A first leaves B a remainder
+      // and crediting B first does not. 2,100 or 1,800, by whatever order
+      // SQLite happened to return the rows in.
+      final a = span(0, 1800, 1800, id: 'A'); // 60 spm
+      final b = span(0, 900, 1200, id: 'B'); //  80 spm, same start
+      expect(resolveDaySteps([a, b]).total, resolveDaySteps([b, a]).total);
+    });
   });
 
   group('C10 — the family list is open', () {

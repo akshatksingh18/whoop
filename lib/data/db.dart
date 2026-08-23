@@ -4169,6 +4169,11 @@ class LocalDb {
       "SELECT '', COALESCE($timeCol, 0) * 1000, $cols "
       'FROM $table ORDER BY $timeCol ASC',
     );
+    // The COPIED column is normalised too, or the row escapes anyway:
+    // `pruneDecodedBeforeRecTs` and `deleteDays` both filter the ORIGINAL
+    // time column (`rec_ts < ?`), never the key, and `NULL < ?` is NULL.
+    // Without this the row is immortal AND invisible — every read gates > 0.
+    await db.execute('UPDATE $tmp SET $timeCol = 0 WHERE $timeCol IS NULL');
     await db.execute('DROP TABLE IF EXISTS $table');
     await db.execute('ALTER TABLE $tmp RENAME TO $table');
   }
@@ -7231,7 +7236,15 @@ class LocalDb {
                 // as [_rekeyTableByDevice] does: the primary band, and the
                 // row's own time in ms. AFTER the rec_ts recovery above, which
                 // is what decoded_rr's key is built from.
-                if (cols.contains('ts_ms') && row['ts_ms'] == null) {
+                // NAMED, not sniffed off `ts_ms`: `workout_route` declares that
+                // column too and is in the merge list, but it was never re-keyed —
+                // it has no `device_id` and no `rec_ts`, so a null `ts_ms` there
+                // falls to the `t0 is! num` drop below and the route point vanishes
+                // without a word. NOT NULL keeps that unreachable from a database
+                // this app wrote; the table NAME is what keeps it unreachable after
+                // the next schema change.
+                const deviceKeyed = {'samples', 'decoded_onehz', 'decoded_rr'};
+                if (deviceKeyed.contains(t) && row['ts_ms'] == null) {
                   row['device_id'] ??= kPrimaryDeviceId;
                   final t0 = row[t == 'samples' ? 'ts' : 'rec_ts'];
                   // Non-numeric (storage classes are per VALUE in a foreign

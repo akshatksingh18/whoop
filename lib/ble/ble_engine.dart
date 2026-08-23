@@ -705,9 +705,6 @@ class BleEngine {
   /// proceed (the preempted engine's own session guards make its late teardown
   /// harmless once we own the band).
   Future<bool> _claimBand(String remoteId) async {
-    // Moving to a different peripheral: let the old one go first, or this
-    // engine holds two keys and the stale one starves a later drain.
-    if (_claimedBandId != null && _claimedBandId != remoteId) _releaseBand();
     final other = _bandOwners[remoteId];
     final incumbentPresent = other != null && !identical(other, this);
     final decision = BandClaimPolicy.decide(
@@ -744,6 +741,14 @@ class BleEngine {
         }
         break;
     }
+    // Moving to a different peripheral: let the old one go, or this engine
+    // holds two keys and the stale one starves a later drain. ONLY NOW that the
+    // new claim is granted — `connect()` calls this BEFORE `_teardownSession`,
+    // so a `yieldToOwner` returns false with the previous session still live.
+    // Releasing above the switch dropped that peripheral's key while this
+    // engine still held its link, and the next engine to claim it opened a
+    // second drain against a band we were still ACKing.
+    if (_claimedBandId != null && _claimedBandId != remoteId) _releaseBand();
     _bandOwners[remoteId] = this;
     _claimedBandId = remoteId;
     return true;
@@ -2069,7 +2074,11 @@ class BleEngine {
       BluetoothService? svc;
       BandEntry? entry;
       for (final s in services) {
-        final u = s.uuid.str.toLowerCase();
+        // `str128`, not `str`: `str` is the SHORTEST form, so a SIG-assigned
+        // service comes back as `180d` and never starts with a `0000180d`
+        // prefix. WHOOP's uuids are 128-bit either way — see
+        // `GattBandLink._find`, which had the live version of this bug.
+        final u = s.uuid.str128;
         // [kFramedBands], for the same reason the scan filters on it: this
         // engine speaks a framed envelope and nothing else.
         for (final e in kFramedBands) {
@@ -2095,7 +2104,8 @@ class BleEngine {
       BluetoothCharacteristic? find(String uuid) {
         final prefix = uuid.substring(0, 8);
         for (final c in svc!.characteristics) {
-          if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
+          // `str128` — see the service match above.
+          if (c.uuid.str128.startsWith(prefix)) return c;
         }
         return null;
       }

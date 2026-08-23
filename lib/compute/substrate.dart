@@ -149,6 +149,15 @@ bool accelPlausible(double ax, double ay, double az) {
 List<int?> beatTimesMs(int recTs, int? tsSubsec, List<int> rrMs) {
   final out = List<int?>.filled(rrMs.length, null);
   if (tsSubsec == null || rrMs.isEmpty) return out;
+  // THE TICK COUNT IS BOUNDED, for the same reason [kMaxPlausibleHr] is: this
+  // is a u16 read straight off the wire, and a corrupt-but-CRC-valid one is
+  // still a number. Ticks are 1/32768 s, so only 0..32767 is a SUB-second;
+  // 40000 would put the anchor 1.22 s past the record it came from and walk
+  // every beat in it into the wrong second. `beat_ts_ms` is read now, and the
+  // axis is what decides which successive pairs count as contiguous for RMSSD
+  // and pNNx — so an out-of-range tick is refused, not clamped: null is this
+  // function's own word for "cannot be placed".
+  if (tsSubsec < 0 || tsSubsec >= 32768) return out;
   final anchor = recTs * 1000 + (tsSubsec * 1000) ~/ 32768;
   var back = 0;
   for (var i = rrMs.length - 1; i >= 0; i--) {

@@ -284,10 +284,17 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
   // whichever is resolved first, so the tie needs a rule of its own or the
   // day's total depends on the order SQLite happened to return the rows in.
   // Earliest span wins; it is arbitrary but it is the same arbitrary answer
-  // every run, which is what a re-derive needs.
-  spans.sort((a, b) => b.rank != a.rank
-      ? b.rank.compareTo(a.rank)
-      : a.startTs.compareTo(b.startTs));
+  // every run, which is what a re-derive needs — and that only holds if the
+  // keys reach a TOTAL order. Two devices can share rank AND start, so end and
+  // then `deviceId` finish it; without them the claim above was still an
+  // unstable sort's answer. Same-device ties need no rule: equal rank within
+  // one device is summed, not competed (see the loop below).
+  spans.sort((a, b) {
+    if (b.rank != a.rank) return b.rank.compareTo(a.rank);
+    if (a.startTs != b.startTs) return a.startTs.compareTo(b.startTs);
+    if (a.endTs != b.endTs) return a.endTs.compareTo(b.endTs);
+    return a.deviceId.compareTo(b.deviceId);
+  });
 
   var strap = 0.0;
   var phone = 0.0;

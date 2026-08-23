@@ -10,6 +10,7 @@
 
 import 'dart:async';
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show Guid;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/gatt_link.dart';
@@ -124,5 +125,26 @@ void main() {
         kWhoopGen4.wire!);
     expect(link.write(kWhoopGen4.gatt!.cmdTo, frame), completion(isFalse));
     expect(reached, isFalse);
+  });
+
+  group('gattUuidMatches', () {
+    test('a SIG 16-bit characteristic matches its registry entry', () {
+      // `Guid.str` for `00002a37-0000-1000-8000-00805f9b34fb` is `2a37` — the
+      // SHORTEST form, not the platform's whim — so a `00002a37` prefix match
+      // against it fails on EVERY platform. `HrsLink.arm` then reported the
+      // heart-rate measurement characteristic missing and aborted, which reads
+      // as "the adapter doesn't work" and is four characters of comparison.
+      expect(Guid(kHeartRateMeasurementUuid).str, '2a37');
+      expect(gattUuidMatches(kHeartRateMeasurementUuid,
+          Guid(kHeartRateMeasurementUuid)), isTrue);
+      expect(gattUuidMatches(kHeartRateServiceUuid, Guid('180d')), isTrue);
+    });
+
+    test('WHOOP 128-bit uuids are unaffected, and a mismatch still misses', () {
+      final cmdTo = kWhoopGen4.gatt!.cmdTo;
+      expect(gattUuidMatches(cmdTo, Guid(cmdTo)), isTrue);
+      expect(gattUuidMatches(cmdTo, Guid(kWhoopGen4.gatt!.cmdFrom)), isFalse);
+      expect(gattUuidMatches(kHeartRateMeasurementUuid, Guid('2a38')), isFalse);
+    });
   });
 }

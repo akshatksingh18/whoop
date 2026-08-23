@@ -3779,6 +3779,15 @@ class AppState extends ChangeNotifier {
     // inherits the forgotten one's name, serial, generation and bond verdicts.
     device.reset();
     Prefs.setString(_kStrapName, '');
+    // AND THE CHANGE GATES THAT GUARD WHAT THOSE TWO LINES JUST CLEARED. Both
+    // are per-tick caches in [_onEngineState], and both compare against the
+    // OLD band: pair a second band that reports the same generation and the
+    // `device.adapter_id` write is skipped, leaving the new pairing's adapter
+    // structurally blank (schema 49) and every per-family metric abstaining for
+    // a reason that is our bookkeeping. Same for a same-named band and the
+    // strap-name pref this method just emptied.
+    _lastSeenGeneration = null;
+    _lastSeenStrapNameRaw = null;
     paired = null;
     notifyListeners();
   }

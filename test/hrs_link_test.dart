@@ -206,5 +206,21 @@ void main() {
       expect(await HrsLink.instance.arm(), isFalse);
       expect(await HrsLink.pairedSensorRow(), isNull);
     });
+
+    test('two arms in flight are ONE arm', () async {
+      // Every caller fires this `unawaited`, and the body awaits a database
+      // read, a 12 s connect and discovery before it publishes anything. A
+      // second call used to walk straight past the `_armed` check and overwrite
+      // the first one's `_device`, `_link`, `_runSub` and `_flushTimer` — the
+      // originals then ran on with nothing holding them. Same future, one
+      // attempt.
+      final a = HrsLink.instance.arm();
+      final b = HrsLink.instance.arm();
+      expect(identical(a, b), isTrue);
+      expect(await a, isFalse);
+      expect(await b, isFalse);
+      // And the memo clears, so a later arm is a real attempt again.
+      expect(identical(HrsLink.instance.arm(), a), isFalse);
+    });
   });
 }

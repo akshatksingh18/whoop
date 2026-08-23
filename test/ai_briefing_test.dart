@@ -120,6 +120,10 @@ void main() {
       // Evening-only metrics never leak into a morning snapshot.
       expect(inp.containsKey('strain_0_21'), isFalse);
       expect(inp.containsKey('steps'), isFalse);
+      // This night carries no onset/wake. They are NAMED rather than silently
+      // dropped — the prompt's refusal rule is keyed off this list, so a field
+      // that is absent from both is one the model may invent.
+      expect(inp[kWithheldKey], containsAll(<String>['bedtime', 'wake_time']));
     });
 
     test('evening carries findings — never the day read back', () async {

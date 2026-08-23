@@ -119,6 +119,20 @@ class NeutralSample {
   /// Empty means "not reported", never "no beats".
   final List<int> rrMs;
 
+  /// Skin temperature in ABSOLUTE degrees Celsius, or null.
+  ///
+  /// It lands in `decoded_onehz.skin_temp_c` and NEVER in `skin_temp_raw`,
+  /// which is a relative ADC count on the bands that have one. They are
+  /// different quantities: a raw count is only meaningful against a per-family
+  /// calibration, a Celsius reading is meaningful on its own, and putting one
+  /// in the other's column would give every consumer of that column a number in
+  /// the wrong units with no way to tell.
+  ///
+  /// There is deliberately no [InputSignal] for it — I8 names the raw-ADC input
+  /// specifically — so a band supplying this declares no signal for it and no
+  /// metric is claimed on its behalf.
+  final double? skinTempC;
+
   /// Anything the band emitted that we do not have a column for, under the
   /// band's OWN name for it (owner rulings R1-R3: capture everything, decide
   /// what to do with it later). Never an input to a derivation, never in a
@@ -130,6 +144,7 @@ class NeutralSample {
     required this.tsEpoch,
     this.hr,
     this.rrMs = const <int>[],
+    this.skinTempC,
     this.vendor = const <String, Object?>{},
   });
 }

@@ -51,6 +51,16 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// The Oura ring's GATT service, identical across the generations seen so far.
+const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
+
+/// Host to ring. Every Oura command is written here, with response.
+const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
+
+/// Ring to host. Command replies, asynchronous notifications and every history
+/// event share this one characteristic — there is no separate data pipe.
+const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -383,11 +393,38 @@ const BandEntry kBleHrs = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The Oura ring, a fetch-by-cursor band with a challenge-response handshake.
+///
+/// NOT framed, and the three fields a framed entry carries would each be wrong
+/// here: the length is a u8 that counts payload only, there is no CRC anywhere
+/// in the protocol, and there is no inner opcode byte to find. `isFramed ==
+/// false` keeps it out of [kFramedBands], which is what keeps it out of the
+/// offload engine's scan filter and out of the iOS AccessorySetupKit plist —
+/// both of which are about the primary band that holds a link and gets trimmed.
+///
+/// [TimeAnchor.arrival] is the conservative half of a two-clock situation, not
+/// a claim that the ring has no clock. See `oura.dart`.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns a ring, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). It is also not
+/// yet reachable — there is no pairing screen and nothing constructs the
+/// adapter.
+const BandEntry kOura = BandEntry.notify(
+  id: 'oura',
+  label: 'Oura Ring',
+  service: kOuraService,
+  // Both, and the command characteristic is genuinely required: unlike a
+  // heart-rate strap this band answers nothing until it has been written to.
+  characteristics: <String>[kOuraCommandChar, kOuraNotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
+  kOura,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions

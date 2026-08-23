@@ -97,7 +97,13 @@ String? bandLabelFor(String? adapterId) {
 /// ponytail: a const set here until the CODEOWNERS-gated `_verified.dart`
 /// exists (ASSUMPTIONS E5). Move it there and delete this — it must never
 /// become a CI rule, which would hand the key to the PR author.
-const Set<String> kOwnerConfirmedBandIds = {'gen4'};
+const Set<String> kOwnerConfirmedBandIds = {'gen4', 'gen5'};
+// gen5 promoted 2026-08-23: WHOOP 5 worn by the owner, paired, connected,
+// live HR streaming, and a full historical drain completed (the trim token
+// reached `sync_cursor`, so the band was told it may release that flash).
+// 249,596 decoded seconds and 151,595 beats stamped `device_family='gen5'`
+// on his own export. That is the promotion path in ASSUMPTIONS E5 — hardware
+// in his hands — not a fixture passing.
 
 /// A device family this app does NOT speak today, and why.
 ///

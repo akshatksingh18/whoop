@@ -1294,9 +1294,37 @@ import 'substrate.dart';
 //   1. A1 — BEAT TIMES REACH THE READ PATH. `decoded_rr.beat_ts_ms` (the
 //      record's own sub-second anchor) was written and never SELECTed, so every
 //      beat sat on a whole-second staircase and no dropout under 1 s was
-//      visible. RMSSD +0.031% and pNN50 +0.63% over a real 27,114-beat block;
-//      LF/HF and `span_sec` move with the re-anchored axis. SDNN does not — it
-//      never pairs successive beats.
+//      visible. LF/HF and `span_sec` move with the re-anchored axis.
+//
+//      MAGNITUDE, CORRECTED 2026-08-23 against the owner's own gen5 export.
+//      The +0.031% first recorded here was a LOWER BOUND — it came from a
+//      measurement that forced `tsSubsec = 0`, isolating the staircase→chain
+//      term and none of the real sub-second effect. On 2026-08-22: RMSSD
+//      78.571 → 73.198 (−6.84%), pNN50 −0.56%, SDNN −1.36%, and n_beats
+//      31177 → 30948 (−0.73%). 2026-08-23 moved the other way (+0.02%), so it
+//      is per-night, not a constant shift.
+//
+//      SDNN and the beat COUNT both move, which the original note said they
+//      would not. Not a defect: `beat_ts_ms` anchors a record's LAST beat and
+//      walks backwards through the durations, so a 4-beat record's first beat
+//      lands ~1444 ms BEFORE its own `rec_ts` (measured, and it scales one RR
+//      per beat exactly as that model predicts). `_beatTimes`' dropout test is
+//      `(rrTsMs[i] - rrTsMs[i-1]) - rrMs[i] > 1000`; on the staircase two beats
+//      inside one record differed by 0 ms so it could NEVER fire. Sub-second
+//      dropouts were structurally invisible. They fire now, the re-anchor set
+//      changes, and `hrv_time`'s contiguous-pair mask changes with it — the
+//      interval VALUES are untouched.
+//
+//      0.41% of beats (624/151,595, worst −1490 ms) step backwards where two
+//      records overlap. Handled, not a hazard: `cur = (dropout && anchored >
+//      cur) ? anchored : cur + rrMs[i]` never takes a backwards jump. `rr_ts_ms`
+//      measured 0.00% non-monotonic only because a whole-second staircase is
+//      trivially so — it hid the overlap rather than preventing it.
+//
+//      UNVALIDATED IN MAGNITUDE. Nothing available says whether 73.198 or
+//      78.571 is closer to truth: the band's `hr` comes from the same beat
+//      detector as `rr_ms`, so it is not independent evidence. That is the
+//      simultaneous-H10 experiment, and this is its second reason to happen.
 //   2. A2 — ACCEL VALIDITY SURVIVES SEGMENTATION. `AccelSample.valid` was
 //      dropped converting to the segmenter's own type, so a night the strap
 //      never vouched for was staged as if it had. Measured: 8 h of

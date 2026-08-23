@@ -51,6 +51,11 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- GENERATED from lib/ble/adapters/_registry.dart — do not hand-edit.
+	     `dart run tool/gen_ios_ask_plist.dart` rewrites this array and the
+	     OSBandLabels dict below; test/ios_ask_plist_test.dart fails CI if
+	     they drift. On iOS 18+ the ASK picker is the pairing path, so a band
+	     missing here cannot be paired on iPhone at all. -->
 	<key>NSAccessorySetupBluetoothServices</key>
 	<array>
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
@@ -62,6 +67,15 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<!-- GENERATED (see above): service UUID -> ASK picker row label. Cosmetic
+	     only; AccessorySetup.swift falls back to a generic name. -->
+	<key>OSBandLabels</key>
+	<dict>
+		<key>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</key>
+		<string>WHOOP 4</string>
+		<key>FD4B0001-CCE1-4033-93CE-002D5875F58A</key>
+		<string>WHOOP 5</string>
+	</dict>
 	<!-- The automatic-backup folder lives in the app's Documents directory.
 	     Without BOTH of these it exists but is invisible in Files, so nothing
 	     the user might sync it with (iCloud Drive, Nextcloud, a cable) can

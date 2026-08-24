@@ -102,7 +102,9 @@ const FlutterSecureStorage _secure = FlutterSecureStorage();
 const String _kResetFirst =
     'The ring would not take a new key. It only accepts one while it is '
     'factory reset, so reset it first and then pair here — that is the order, '
-    'and resetting is what frees the ring from whatever set it up before.';
+    'and resetting is what frees the ring from whatever set it up before. '
+    'The ring has no reset button: open the Oura app and remove/unpair the '
+    'ring there, then fully close that app before pairing here.';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();

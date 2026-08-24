@@ -439,13 +439,21 @@ Future<void> addSensor(BuildContext c) async {
           ]),
         ),
         const SizedBox(height: S.x3),
+        // Same horizontal inset as the header text above and every other
+        // SetRow list in this file (each lives inside a `Surface(pad:
+        // EdgeInsets.symmetric(horizontal: S.x4))`) — without it these rows
+        // ran edge-to-edge against the sheet, the one place in the screen
+        // that broke the convention.
         for (var i = 0; i < kPairableSensors.length; i++)
-          SetRow(
-            sensorIcon(kPairableSensors[i].entry.id),
-            C.green,
-            kPairableSensors[i].entry.label,
-            sub: kPairableSensors[i].blurb,
-            onTap: () => Navigator.of(d).pop(i),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: SetRow(
+              sensorIcon(kPairableSensors[i].entry.id),
+              C.green,
+              kPairableSensors[i].entry.label,
+              sub: kPairableSensors[i].blurb,
+              onTap: () => Navigator.of(d).pop(i),
+            ),
           ),
         const SizedBox(height: S.x4),
       ]),
@@ -574,22 +582,9 @@ class MyDevicesView extends StatelessWidget {
                         sub: 'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),
-                // NOT YET — with a reason and a permanence on every row. The
-                // reason is the honest part; the permanence is the part that
-                // stops "not yet" quietly meaning "no" for two years.
-                const SizedBox(height: S.x5),
-                Text('NOT YET', style: F.over.copyWith(color: p.ink3)),
-                const SizedBox(height: S.x3),
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(children: [
-                    for (final n in kNotYet) ...[
-                      if (n != kNotYet.first) Divider(color: p.line, height: 1),
-                      SetRow(n.icon, C.orange, n.name,
-                          value: n.permanence, sub: n.reason, chevron: false),
-                    ],
-                  ]),
-                ),
+                // NOT YET — removed from this screen per product decision
+                // (owner's call, live review). `kNotYet`/`NotYet` still hold
+                // the reasons and permanences below; only the render is gone.
                 const SizedBox(height: S.x5),
                 Text('THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),

@@ -161,9 +161,19 @@ List<int?> beatTimesMs(int recTs, int? tsSubsec, List<int> rrMs) {
   final anchor = recTs * 1000 + (tsSubsec * 1000) ~/ 32768;
   var back = 0;
   for (var i = rrMs.length - 1; i >= 0; i--) {
+    // Beat i's OWN placement never depends on rrMs[i] — that interval is the
+    // gap BEFORE beat i, which only matters for placing beat i-1. Set first,
+    // using whatever `back` the beats after i already earned.
     out[i] = anchor - back;
-    if (rrMs[i] <= 0) break;
-    back += rrMs[i];
+    // Only a PLAUSIBLE interval may extend the chain past this beat. The
+    // caller drops an implausible-but-positive interval (`plausibleRrOrNull`
+    // in `decodeSubstrate`) exactly as it drops a non-positive one, so an
+    // interval outside kMinPlausibleRrMs..kMaxPlausibleRrMs must not still
+    // walk every EARLIER beat back by it — that would let a rejected reading
+    // silently displace a beat that is kept.
+    final rr = plausibleRrOrNull(rrMs[i]);
+    if (rr == null) break;
+    back += rr.toInt();
   }
   return out;
 }

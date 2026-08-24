@@ -21,8 +21,18 @@ import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 void main() {
   // A near-constant but strictly-increasing baseline: tiny NON-zero MAD, exactly
   // the shape duplicate-day pollution produces (not the exact-zero-MAD blank).
+  //
+  // Used for HRV ONLY (quantum 0, unguarded) below — since the readinessComposite
+  // sub-quantum-dispersion guard (analytics#26 follow-up) now checks stddev for
+  // EVERY quantized input regardless of whether robustZ succeeded, this exact
+  // shape on a whole-bpm RHR baseline (quantum 1) would be refused outright by
+  // name (`baseline_dispersion_below_quantum`) before ever reaching the
+  // logistic — a strictly earlier, more explicit catch of the same "no real
+  // dispersion" problem, but a different one than the z-cap this file tests.
   final degenerate = [for (var i = 0; i < 28; i++) 60.0 + i * 0.001];
-  // A healthy, well-spread baseline: a real robust-z, well within the cap.
+  // A healthy, well-spread baseline: a real robust-z, well within the cap. Used
+  // for RHR in every case below so RHR always clears the quantum-dispersion
+  // guard — HRV's near-degenerate baseline is what drives the saturation.
   final clean = [for (var i = 0; i < 28; i++) 50.0 + i.toDouble()];
 
   // TWO drivers, not one. `readinessComposite` refuses to renormalise a single
@@ -31,8 +41,14 @@ void main() {
   // pass for the wrong reason. HRV (0.40) + RHR (0.30) clears that floor and
   // still drives the composite the same way, so the saturation path below is
   // the thing under test rather than the input-count rule.
-  Metric<Readiness> composite(double hrv, double rhr, List<double> base) =>
-      readinessComposite([hrvInput(hrv, base), rhrInput(rhr, base)]);
+  Metric<Readiness> composite(
+    double hrv,
+    double rhr,
+    List<double> hrvBase, {
+    List<double>? rhrBase,
+  }) =>
+      readinessComposite(
+          [hrvInput(hrv, hrvBase), rhrInput(rhr, rhrBase ?? clean)]);
 
   group('headlineReadinessScalar', () {
     test('a near-degenerate baseline saturates the logistic → abstained', () {
@@ -72,8 +88,12 @@ void main() {
     });
 
     test('exact-zero MAD stays the honest blank path (unchanged)', () {
-      // Fully-quantised baseline → robustZ null → composite absent → '—', not 100.
-      final flat = composite(61.0, 59.0, List.filled(28, 60.0));
+      // Fully-quantised baseline → robustZ null → composite absent → '—', not
+      // 100. RHR given the SAME flat baseline explicitly (not the default
+      // `clean`) so it is refused too, exactly as the shared-baseline version
+      // of this test refused both inputs before HRV/RHR baselines were split.
+      final flat = composite(61.0, 59.0, List.filled(28, 60.0),
+          rhrBase: List.filled(28, 60.0));
       expect(flat.present, isFalse);
       expect(headlineReadinessScalar(flat), isNull);
     });

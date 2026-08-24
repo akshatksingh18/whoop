@@ -1371,9 +1371,44 @@ import 'substrate.dart';
 //          consumer — van Hees, ENMO, movement minutes, the sleep segmenter —
 //          because absent accel is NOT stillness.
 //      Both refuse rather than clamp, for the reason `plausibleHrOrNull` does.
+// v78 — REVIEW PASS ON v77. One edge fix and four analytics fixes, all in the
+// same "a rejected reading must not still move a kept one" family v77 was
+// itself about.
+//   1. `beatTimesMs` (`substrate.dart`) let an interval `plausibleRrOrNull`
+//      would go on to REJECT (positive but outside 250..2400 ms) still walk
+//      every EARLIER beat in the record back by it, before the caller ever
+//      saw the rejection. The interval that placed beat i-1 now has to pass
+//      the same plausibility test placing beat i's own reading already does
+//      — an implausible one breaks the chain (null, same as non-positive)
+//      instead of silently displacing a beat that is kept.
+//   2. `nocturnalRhr` (analytics) could reach a window with zero on-skin
+//      samples and land `sum / count` as NaN, which then LATCHES as the
+//      night's best trough (`m < best` is false for a NaN on either side) —
+//      a present metric with a NaN value. Only reachable with
+//      `minCoverage: 0`, which no call site in this repo passes; the fix is
+//      defensive, no WHOOP output moves.
+//   3. `_rescaleCounts` (analytics sleep stager) multiplied an
+//      already-cadence-invariant gravity-delta sum by the cadence a second
+//      time — the sum is already `epochSec * rate` independent of sample
+//      count, so the extra factor inflated a slower-than-1Hz band's
+//      Cole-Kripke score up to 5x. `cadenceSec == 1` at 1 Hz makes the factor
+//      a no-op, so no WHOOP output moves.
+//   4. `cardio_stager`'s epoch grid could silently drift from its own
+//      reported `epochSec` whenever the measured cadence did not divide it
+//      evenly — it abstains on that mismatch now rather than publish a grid
+//      whose real spacing does not match its own label. WHOOP's 1 Hz cadence
+//      always divides the 30 s epoch evenly, so no WHOOP output moves.
+//   5. Readiness's sub-quantum-dispersion guard (analytics, following A4
+//      above) only ran when `robustZ` came back null, missing a baseline
+//      with nonzero MAD but still-quantized SD (whole-bpm RHR alternating
+//      58/59: MAD 0.5, SD ~0.52, both below the 1-bpm quantum). Runs for
+//      every quantized input now. THIS ONE CAN MOVE A WHOOP READINESS SCORE
+//      — a baseline that happens to sit in that MAD-nonzero/SD-sub-quantum
+//      gap now refuses by name instead of contributing a z-score built on
+//      quantization noise.
 // Days already finalized keep the score they were derived with — raw prunes at
 // `rawRetentionDays`, so no bump can heal them.
-const int kAlgoVersion = 77;
+const int kAlgoVersion = 78;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1439,8 +1474,8 @@ const int kAlgoVersion = 77;
 // contains the change a bump CITES is still a thing a human checks; v43 shipped
 // a changelog for an analytics fix its pin never had, and the bug it claimed to
 // fix stayed live for three releases.
-const String kAnalyticsPin = 'd6ba41cd1d3a5a463a051b4b872bbaf5a3c00543';
-const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
+const String kAnalyticsPin = '353c6bc30f56b936c450e25a3759e5572b164bd8';
+const String kProtocolPin = 'efc2e85929ee9d3bca735b50e2bdbe0e00f9412c';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

@@ -50,10 +50,11 @@
 // does NOT cover this ring (ASSUMPTIONS I1). The ring has a factory reset, a
 // DFU state machine, a flight mode, a manufacturing-mode setter and a
 // bulk-sampler erase. This file writes NOTHING it did not get from a builder in
-// `oura_wire.dart`, that file has no builder for any of them, and
-// `oura_link_test.dart` asserts that every byte this host puts on the wire came
-// from a builder that exists. The one command here that writes ring state is
-// the key install, and it writes a credential rather than erasing anything.
+// the protocol package's Oura wire format, that module has no builder for any
+// of them, and `oura_link_test.dart` asserts that every byte this host puts on
+// the wire came from a builder that exists. The one command here that writes
+// ring state is the key install, and it writes a credential rather than
+// erasing anything.
 
 import 'dart:async';
 import 'dart:math' show Random;
@@ -61,6 +62,7 @@ import 'dart:math' show Random;
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
@@ -68,7 +70,6 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/oura.dart';
-import 'adapters/oura_wire.dart';
 
 /// Keychain item name for one ring's pairing key. Suffixed with the MINTED
 /// device id, never the BLE remote id — that rotates.
@@ -389,7 +390,7 @@ class OuraLink {
   void _archive(List<List<int>> raw) {
     final capturedAt = _now() * 1000;
     for (final bytes in raw) {
-      final f = parseFrame(bytes);
+      final f = parseOuraFrame(bytes);
       if (f == null) continue;
       _pendingArchive.add({
         'hex': _hex(bytes),
@@ -674,7 +675,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
     // three replies, once, during pairing.
     final inbox = <OuraFrame>[];
     final sub = link.notify(kOuraNotifyChar).listen((rec) {
-      final f = parseFrame(rec.$2);
+      final f = parseOuraFrame(rec.$2);
       if (f != null) inbox.add(f);
     });
     var read = 0;

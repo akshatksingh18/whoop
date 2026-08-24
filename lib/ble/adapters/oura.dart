@@ -40,11 +40,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:pointycastle/export.dart' show AESEngine, ECBBlockCipher, KeyParameter;
 
 import '_registry.dart';
 import 'adapter.dart';
-import 'oura_wire.dart';
 import 'signals.dart';
 
 /// Encrypt one authentication challenge.
@@ -191,8 +191,16 @@ class OuraAdapter extends BandAdapter {
     final inbox = _Inbox();
     final sub = link.notify(kOuraNotifyChar).listen(
           (rec) {
-            final f = parseFrame(rec.$2);
-            if (f != null) inbox.add(rec.$1, f);
+            final f = parseOuraFrame(rec.$2);
+            // The notification bytes AS DELIVERED, not `f` re-encoded: the ring
+            // is known to append trailing bytes past `parseFrame`'s declared
+            // length (see its doc), and those bytes are exactly what a future
+            // decoder for the still-undecoded event types needs. Kept even
+            // though `f` was accepted, because it is `raw_archive`'s copy, not
+            // the parser's.
+            if (f != null) {
+              inbox.add(rec.$1, f, Uint8List.fromList(rec.$2));
+            }
           },
           onDone: inbox.close,
           onError: (Object _) => inbox.close(),
@@ -203,9 +211,19 @@ class OuraAdapter extends BandAdapter {
       // Both writes are documented preconditions of a history drain rather than
       // housekeeping. The clock set is also what makes a later `time_sync`
       // event exist at all, and that event is the only anchor between the
-      // ring's decisecond counter and a date.
-      await link.write(kOuraCommandChar, ouraCmdSetNotifyFlags(0x3f));
-      await link.write(kOuraCommandChar, ouraCmdSyncTime(nowSeconds()));
+      // ring's decisecond counter and a date. A silent write failure here does
+      // not fail loud on its own: a refused notify-flag write leaves every
+      // later batch waiting out a full `replyTimeout` for frames that will
+      // never arrive, and a refused time-sync write leaves the whole session
+      // stamped on the [TimeAnchor.arrival] fallback with nothing to say why.
+      if (!await link.write(kOuraCommandChar, ouraCmdSetNotifyFlags(0x3f))) {
+        link.log('oura: notify-flag write refused; ending the drain.');
+        return;
+      }
+      if (!await link.write(kOuraCommandChar, ouraCmdSyncTime(nowSeconds()))) {
+        link.log('oura: time-sync write refused; continuing on arrival-time '
+            'stamps only.');
+      }
 
       var cursor = startCursorDs;
       // A misbehaving ring that answers every request with the same batch would
@@ -334,16 +352,22 @@ class OuraAdapter extends BandAdapter {
     while (true) {
       final rec = await inbox.next(replyTimeout);
       if (rec == null) return null;
-      final (_, f) = rec;
+      final (_, f, rawBytes) = rec;
       final summary = parseBatchSummary(f);
       if (summary != null) return _Batch(events, raw, maxDs, summary);
       if (ouraIsAuthRequired(f)) return null;
-      final e = parseEvent(f);
+      final e = parseOuraEvent(f);
       if (e == null) continue;
       events.add(e);
-      // The WHOLE frame, header included, so a re-decode later sees exactly
-      // what the radio delivered rather than this file's idea of it.
-      raw.add(Uint8List.fromList(<int>[f.tag, f.payload.length, ...f.payload]));
+      // The bytes AS THE RADIO DELIVERED THEM, not `[f.tag, f.payload.length,
+      // ...f.payload]` reconstructed from the parsed frame: `parseOuraFrame`
+      // truncates to the declared length and the ring is known to append
+      // bytes past it (see its doc). Re-encoding here would bank this file's
+      // idea of the frame instead of what a future decoder for the
+      // still-undecoded event types actually needs, and the trailing bytes are
+      // unrecoverable once dropped — `raw_archive` is never pruned but it
+      // cannot un-truncate what was never written.
+      raw.add(rawBytes);
       if (e.tsDs > maxDs) maxDs = e.tsDs;
     }
   }
@@ -408,18 +432,21 @@ class _Batch {
 /// mean promoting a transitive dependency to a direct one for one class, and
 /// the whole of what this session needs is "the next frame, or nothing".
 class _Inbox {
-  final List<(int, OuraFrame)> _buf = [];
-  Completer<(int, OuraFrame)?>? _waiter;
+  // Third element is the notification bytes AS DELIVERED — `raw_archive`'s
+  // copy, kept alongside the parsed frame rather than re-derived from it. See
+  // `_collectBatch` for why re-deriving loses bytes.
+  final List<(int, OuraFrame, Uint8List)> _buf = [];
+  Completer<(int, OuraFrame, Uint8List)?>? _waiter;
   bool _closed = false;
 
-  void add(int atSec, OuraFrame f) {
+  void add(int atSec, OuraFrame f, Uint8List raw) {
     final w = _waiter;
     if (w != null && !w.isCompleted) {
       _waiter = null;
-      w.complete((atSec, f));
+      w.complete((atSec, f, raw));
       return;
     }
-    _buf.add((atSec, f));
+    _buf.add((atSec, f, raw));
   }
 
   void close() {
@@ -430,10 +457,10 @@ class _Inbox {
   }
 
   /// The next frame, or null on timeout or a closed link.
-  Future<(int, OuraFrame)?> next(Duration timeout) {
+  Future<(int, OuraFrame, Uint8List)?> next(Duration timeout) {
     if (_buf.isNotEmpty) return Future.value(_buf.removeAt(0));
     if (_closed) return Future.value(null);
-    final w = Completer<(int, OuraFrame)?>();
+    final w = Completer<(int, OuraFrame, Uint8List)?>();
     _waiter = w;
     return w.future.timeout(timeout, onTimeout: () {
       if (identical(_waiter, w)) _waiter = null;

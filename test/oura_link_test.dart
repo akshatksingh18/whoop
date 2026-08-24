@@ -2,8 +2,8 @@
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a ring (owner
 // ruling R6) and `flutter_blue_plus` has no simulator path, so the ring below
-// is a script and the frames are hand-built to the layouts `oura_wire.dart`
-// documents. It pins the HOST — the anchor, the commit ordering, the
+// is a script and the frames are hand-built to the layouts the protocol package's
+// Oura wire format documents. It pins the HOST — the anchor, the commit ordering, the
 // attribution and what is refused — and it proves nothing about a real ring.
 //
 // `oura_adapter_test.dart` already proves the session state machine. This file
@@ -12,7 +12,7 @@
 // command on the wire that no builder produced.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/ble/adapters/oura_wire.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:openstrap_edge/ble/oura_link.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
@@ -273,8 +273,8 @@ void main() {
       ],
     ]);
     expect(r.writes, isNotEmpty);
-    // The four builders in `oura_wire.dart`, and nothing else. A new tag here
-    // means someone added a builder — go and read which one.
+    // The four builders in the protocol package's Oura wire format, and nothing
+    // else — a new tag here means someone added a builder, go and read which one.
     const built = {0x2f, 0x1c, 0x12, 0x10};
     for (final w in r.writes) {
       expect(built, contains(w.first),
@@ -357,9 +357,9 @@ void main() {
     // ring would latch whatever it was sent and only a factory reset undoes it.
     expect(() => ouraCmdSetAuthKey(const <int>[1, 2, 3]), throwsArgumentError);
     // Success is status 0; anything else, and silence, is a refusal.
-    expect(ouraSetAuthKeyResult(parseFrame(<int>[0x25, 0x01, 0x00])!), 0);
-    expect(ouraSetAuthKeyResult(parseFrame(<int>[0x25, 0x01, 0x02])!), 2);
-    expect(ouraSetAuthKeyResult(parseFrame(<int>[0x11, 0x01, 0x00])!), isNull);
+    expect(ouraSetAuthKeyResult(parseOuraFrame(<int>[0x25, 0x01, 0x00])!), 0);
+    expect(ouraSetAuthKeyResult(parseOuraFrame(<int>[0x25, 0x01, 0x02])!), 2);
+    expect(ouraSetAuthKeyResult(parseOuraFrame(<int>[0x11, 0x01, 0x00])!), isNull);
   });
 
   test('nothing paired means nothing to sync', () async {

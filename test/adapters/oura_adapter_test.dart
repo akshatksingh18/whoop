@@ -1,7 +1,8 @@
 // The Oura session, replayed through [ReplayBandLink].
 //
-// WHAT THIS EXISTS TO PROVE, and it is not the decode — `oura_wire_test.dart`
-// does that. It is the SHAPE of the offload, which is the question that decided
+// WHAT THIS EXISTS TO PROVE, and it is not the decode — that is proven with
+// the wire format itself, in the protocol package. It is the SHAPE of the
+// offload, which is the question that decided
 // whether this band belongs behind the adapter seam at all:
 //
 //   * the ring never trims, so `confirm()` moves a cursor rather than
@@ -23,7 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
-import 'package:openstrap_edge/ble/adapters/oura_wire.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 /// Short enough that a deliberately-unanswered wait does not stall CI. The
 /// shipped values are 5 s and 30 s; only their length is being shortened here,

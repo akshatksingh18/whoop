@@ -1,18 +1,18 @@
 // The standard Bluetooth heart-rate sensor path: 0x2A37 in, `decoded_onehz` /
 // `decoded_rr` out.
 //
-// NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a strap and
-// `flutter_blue_plus` has no simulator path, so the fixtures below are built
-// from the Bluetooth SIG's Heart Rate Service 1.0 characteristic layout, not
-// captured off a device. They pin the decode and the write; they do not prove
-// any real strap behaves this way. This path ships EXPERIMENTAL (ASSUMPTIONS
-// R6) until he owns one.
+// THE DECODE ITSELF (`parseHeartRateMeasurement`) IS NOT PINNED HERE — it is
+// pure protocol and its own tests live with it in the protocol package. This
+// file is the WRITE half: given already-decoded bytes, do they land in the
+// substrate correctly attributed. Still EXPERIMENTAL (ASSUMPTIONS R6) —
+// nobody on this project owns a strap and `flutter_blue_plus` has no
+// simulator path, so this proves the write is correct, not that any real
+// strap sends these exact bytes.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
-import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/data/db.dart';
 
@@ -31,78 +31,6 @@ const List<int> kHrWithTwoRr = <int>[
 ];
 
 void main() {
-  // ── the parser ────────────────────────────────────────────────────────────
-  test('uint8 HR, no RR', () {
-    final s = parseHeartRateMeasurement([0x00, 72])!;
-    expect(s.hr, 72);
-    expect(s.rrMs, isEmpty);
-    expect(s.contact, isNull); // contact not supported → absent, not "false"
-  });
-
-  test('the RR bit CLEAR is a strap with no beats, not a strap with zero', () {
-    final s = parseHeartRateMeasurement(kBpmOnly)!;
-    expect(s.hr, 61);
-    expect(s.rrMs, isEmpty);
-    expect(parseHeartRateMeasurement(kBpmOnlyWithContact)!.contact, isTrue);
-  });
-
-  test('uint16 HR reads little-endian', () {
-    final s = parseHeartRateMeasurement([0x01, 0x2C, 0x01])!; // 300
-    expect(s.hr, 300);
-  });
-
-  test('RR intervals convert from 1/1024 s to ms', () {
-    // 1024 ticks = 1000 ms; 512 = 500 ms.
-    final s = parseHeartRateMeasurement([0x10, 60, 0x00, 0x04, 0x00, 0x02])!;
-    expect(s.rrMs, [1000, 500]);
-  });
-
-  test('energy-expended field is skipped, not read as an RR interval', () {
-    // flags 0x18 = RR present + energy expended present. The 2-byte energy
-    // field sits BETWEEN hr and the RR list; reading it as RR is the classic
-    // bug and would yield a bogus first interval.
-    final s = parseHeartRateMeasurement([
-      0x18, 60, //
-      0xE8, 0x03, // energy expended = 1000 kJ
-      0x00, 0x04, // RR = 1024 ticks = 1000 ms
-    ])!;
-    expect(s.rrMs, [1000]);
-  });
-
-  test('contact bits: reported false is distinguishable from unsupported', () {
-    expect(parseHeartRateMeasurement([0x04, 60])!.contact, isFalse); // 0b10
-    expect(parseHeartRateMeasurement([0x06, 60])!.contact, isTrue); // 0b11
-    expect(parseHeartRateMeasurement([0x02, 60])!.contact, isNull); // 0b01
-  });
-
-  test('implausible beat intervals are dropped, not clamped', () {
-    // 8 ticks ≈ 8 ms and 4096 ticks = 4 s: neither is a beat. A clamped value
-    // would be a fabricated one.
-    final s = parseHeartRateMeasurement([
-      0x10, 60, //
-      0x08, 0x00, // 8 ms
-      0x00, 0x10, // 4000 ms
-      0x00, 0x04, // 1000 ms — the only real one
-    ])!;
-    expect(s.rrMs, [1000]);
-  });
-
-  test('a searching sensor reporting 0 bpm is not a measurement', () {
-    expect(parseHeartRateMeasurement([0x00, 0]), isNull);
-  });
-
-  test('truncated values are dropped rather than patched up', () {
-    expect(parseHeartRateMeasurement([0x00]), isNull);
-    expect(parseHeartRateMeasurement([]), isNull);
-    expect(parseHeartRateMeasurement([0x01, 0x48]), isNull); // uint16, 1 byte
-  });
-
-  test('a trailing odd byte does not read past the buffer', () {
-    final s = parseHeartRateMeasurement([0x10, 60, 0x00, 0x04, 0x7F])!;
-    expect(s.rrMs, [1000]);
-  });
-
-  // ── the write ─────────────────────────────────────────────────────────────
   group('substrate write', () {
     const deviceId = 'hrs-0a1b2c3d';
 

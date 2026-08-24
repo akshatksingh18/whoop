@@ -71,6 +71,20 @@ void main() {
       );
     });
 
+    test(
+        'an implausible-but-positive interval nulls the beats BEFORE it '
+        'without moving the ones after', () {
+      // 9000 ms is a positive interval `decodeSubstrate` still drops
+      // (kMaxPlausibleRrMs = 2400), so it must be treated exactly like the
+      // non-positive case above: the gap it claims is not trusted, so the
+      // chain stops there. Beat 2 (690 after it) still places correctly —
+      // its own placement never depended on the rejected interval.
+      expect(
+        beatTimesMs(1000, 0, [700, 9000, 690]),
+        [null, 1000000 - 690, 1000000],
+      );
+    });
+
     test('an empty record produces nothing', () {
       expect(beatTimesMs(1000, 500, const []), isEmpty);
     });

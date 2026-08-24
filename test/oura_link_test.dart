@@ -13,6 +13,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/oura_link.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
@@ -365,6 +366,32 @@ void main() {
   test('nothing paired means nothing to sync', () async {
     expect(await OuraLink.pairedRingRow(), isNull);
     expect(await OuraLink.instance.sync(), isFalse);
+  });
+
+  group('forgetRing', () {
+    test('drops the device row', () async {
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kOura.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Ring',
+      );
+      expect(await OuraLink.pairedRingRow(), isNotNull);
+      final ok = await OuraLink.forgetRing(_deviceId);
+      expect(ok, isTrue);
+      expect(await OuraLink.pairedRingRow(), isNull);
+    });
+
+    test('refuses the primary device id outright', () async {
+      final ok = await OuraLink.forgetRing(LocalDb.kPrimaryDeviceId);
+      expect(ok, isFalse);
+    });
+
+    test('a device id nothing paired is a harmless no-op', () async {
+      final ok = await OuraLink.forgetRing('oura-never-paired');
+      expect(ok, isTrue);
+      expect(await OuraLink.pairedRingRow(), isNull);
+    });
   });
 }
 

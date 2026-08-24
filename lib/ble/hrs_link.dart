@@ -44,6 +44,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/foundation.dart'
     show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -58,6 +59,7 @@ import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
 import 'ble_state.dart'
     show BleBlocker, BleUnavailableException, classifyBleBlocker, withScanLock;
+import 'oura_link.dart' show OuraLink;
 
 /// One arrival second's worth of notifications.
 class _Second {
@@ -425,7 +427,8 @@ class HrsLink {
     }
   }
 
-  /// Forget a paired sensor.
+  /// Forget a paired sensor. Generic over WHICH adapter paired it — this is
+  /// the one entry point the UI calls for any non-band row.
   ///
   /// THE PROMISE IS "this removes the source, not the data". The `device` row
   /// goes; every second and beat it wrote keeps its `device_id` in
@@ -434,9 +437,21 @@ class HrsLink {
   ///
   /// Refuses [LocalDb.kPrimaryDeviceId] outright: that row is the band, and
   /// unpairing the band is a different flow with a different promise.
+  ///
+  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
+  /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
+  /// stored key and the row together, and calling `disarm()` on it here would
+  /// leave that key behind while looking like a complete forget.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
+      return;
+    }
+    final row = (await LocalDb.deviceRows())
+        .where((r) => r['id'] == id)
+        .firstOrNull;
+    if (row?['adapter_id'] == kOura.id) {
+      await OuraLink.forgetRing(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

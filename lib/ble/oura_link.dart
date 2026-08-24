@@ -66,6 +66,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
+import '../sync/paired_device.dart' show cleanDeviceLabel;
 import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/gatt_link.dart';
@@ -134,6 +135,49 @@ class OuraLink {
       if (r['adapter_id'] == kOura.id) return r;
     }
     return null;
+  }
+
+  /// Delete the stored 16-byte pairing key for [deviceId], best-effort.
+  ///
+  /// Two callers, one problem: an Oura pairing secret must not outlive the
+  /// thing it was for. [pairOuraRing] writes the key BEFORE the ring proves it
+  /// (see that function's own header) so a crash mid-pair leaves an orphaned
+  /// key with no `device` row pointing at it; forgetting a paired ring later
+  /// leaves the same kind of orphan if only the row goes. Swallows a locked
+  /// keychain/keystore exactly as [_readKey] does — there is nothing for the
+  /// user to redo, and a delete that cannot run now costs nothing left behind
+  /// that this app itself can read.
+  static Future<void> _dropKey(String deviceId) async {
+    try {
+      await _secure.delete(
+        key: _keyItem(deviceId),
+        iOptions: _kApple,
+        mOptions: _kMacos,
+      );
+    } catch (e) {
+      debugPrint('[oura] could not drop the stored key: $e');
+    }
+  }
+
+  /// Forget a paired ring: drop its key, drop its `device` row.
+  ///
+  /// THE ORDER IS THE OPPOSITE OF PAIRING'S, on purpose. [pairOuraRing] writes
+  /// the key before the row because an unpointed-to key is harmless; forgetting
+  /// deletes the key before the row for the same reason in reverse — a crash
+  /// between the two here would rather leave a `device` row whose key is
+  /// already gone (which just fails the next sync visibly) than a key outliving
+  /// the row that was its only reason to exist.
+  static Future<bool> forgetRing(String id) async {
+    if (id == LocalDb.kPrimaryDeviceId) {
+      debugPrint('[oura] refusing to forget the primary band from here.');
+      return false;
+    }
+    if (instance._deviceId == id) {
+      await instance.stop();
+    }
+    await _dropKey(id);
+    await LocalDb.deleteDevice(id);
+    return true;
   }
 
   /// The most recent battery reading the ring reported, or null.
@@ -651,6 +695,13 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
   final deviceId =
       'oura-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
   GattBandLink? link;
+  // Set true only on the one path that writes the `device` row. Every OTHER
+  // exit — a refused command, a silent ring, a caught exception, even the
+  // early `missingCharacteristics` return before the key is written at all —
+  // leaves this false, and the `finally` below drops whatever key the phone
+  // has stored for [deviceId] so a failed pairing never outlives itself as an
+  // orphaned secret with no row pointing at it.
+  var paired = false;
   try {
     await device.connect(timeout: const Duration(seconds: 20));
     final services = await device.discoverServices();
@@ -758,17 +809,23 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
       id: deviceId,
       adapterId: kOura.id,
       remoteId: device.remoteId.str,
-      label: device.platformName.isEmpty ? kOura.label : device.platformName,
+      // Same filter the notify-class pairing path runs the advertised name
+      // through — the device list renders this column assuming it was
+      // cleaned here, and an unfiltered ring name would be the one row that
+      // was not.
+      label: cleanDeviceLabel(device.platformName) ?? kOura.label,
       // `tier` is left unset on purpose. It means MEASUREMENT QUALITY and it is
       // what decides precedence between two sources — and this ring supplies no
       // signal at all today (`OuraAdapter.signals` is `const {}`), so there is
       // no quality to rank. NULL is a refusal, not a default.
     );
+    paired = true;
     return null;
   } catch (e) {
     debugPrint('[oura pair] failed: $e');
     return 'Could not connect to that ring.';
   } finally {
+    if (!paired) await OuraLink._dropKey(deviceId);
     link?.close();
     try {
       await device.disconnect();

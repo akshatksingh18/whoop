@@ -80,16 +80,24 @@ dependencies:
       # record field map this branch's decoders need. main's pre-gen5 pin is
       # deliberate THERE; this is the branch that wants gen5.
       #
-      # REPIN (this branch): protocol #34 head @ efc2e85, on top of 4ce8f02
+      # REPIN (this branch): protocol #34 head @ 19d7291, on top of 4ce8f02
       # (everything above). Carries the oura ring and generic bluetooth HR
       # wire format in from edge — pure decode/encode functions with no BLE
       # or db dependency, so they belong with the rest of the bytes-in-
       # records-out code rather than beside the session that drives them.
       # `parseFrame`/`parseEvent` on the whoop side are unchanged; the moved
       # functions are `parseOuraFrame`/`parseOuraEvent` to avoid a barrel
-      # collision. No stored WHOOP number moves. #34 is unmerged, so this is
-      # a PR-branch-head pin; repin to the main merge commit when it lands.
-      ref: efc2e85929ee9d3bca735b50e2bdbe0e00f9412c
+      # collision. No stored WHOOP number moves.
+      #
+      # Repinned again after that branch's own review pass: a truncated HRS
+      # notification (energy-expended flag set but the field cut off, or an
+      # odd-length RR remainder) now refuses instead of silently parsing what
+      # fit; `ouraCmdAuthenticate` rejects a wrong-size cipher instead of
+      # emitting a malformed frame; `ouraCmdSyncTime` no longer calls
+      # `ByteData.setUint64`, which throws on dart2js. None of the three touch
+      # a WHOOP code path. #34 is unmerged, so this is a PR-branch-head pin;
+      # repin to the main merge commit when it lands.
+      ref: 19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

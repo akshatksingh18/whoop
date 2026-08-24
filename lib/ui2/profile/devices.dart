@@ -316,7 +316,10 @@ List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
           // never the nearest rung we happen to know.
           tier: tierNamed(r['tier']),
           icon: sensorIcon(r['adapter_id'] as String?),
-          connected: sensorLive,
+          // `sensorLive` reflects HrsLink.reading ONLY — a live HRS session
+          // must not mark an unrelated paired Oura row as connected just
+          // because some sensor happens to be live right now.
+          connected: sensorLive && r['adapter_id'] == kBleHrs.id,
           isBand: false,
           deviceId: r['id'] as String?,
           family: r['adapter_id'] as String?,

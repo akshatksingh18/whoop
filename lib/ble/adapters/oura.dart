@@ -214,15 +214,19 @@ class OuraAdapter extends BandAdapter {
       // ring's decisecond counter and a date. A silent write failure here does
       // not fail loud on its own: a refused notify-flag write leaves every
       // later batch waiting out a full `replyTimeout` for frames that will
-      // never arrive, and a refused time-sync write leaves the whole session
-      // stamped on the [TimeAnchor.arrival] fallback with nothing to say why.
+      // never arrive, and a refused time-sync write leaves the session with no
+      // measured origin — there is no arrival-time fallback here (that is
+      // `TimeAnchor.arrival` on the *held* reading once SOME anchor exists,
+      // never a substitute for having none), so every reading this session
+      // sees is held in `_held` and stamped only if a stored anchor from an
+      // earlier session covers it.
       if (!await link.write(kOuraCommandChar, ouraCmdSetNotifyFlags(0x3f))) {
         link.log('oura: notify-flag write refused; ending the drain.');
         return;
       }
       if (!await link.write(kOuraCommandChar, ouraCmdSyncTime(nowSeconds()))) {
-        link.log('oura: time-sync write refused; continuing on arrival-time '
-            'stamps only.');
+        link.log('oura: time-sync write refused; no new origin this session. '
+            'Readings are stamped only if a stored anchor covers them.');
       }
 
       var cursor = startCursorDs;

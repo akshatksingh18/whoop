@@ -34,13 +34,16 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show BluetoothDevice, FlutterBluePlus;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart';
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'profile.dart';
 
@@ -92,6 +95,20 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     unawaited(_load());
   }
 
+  @override
+  void dispose() {
+    // `HrsLink._scanFor` awaits the scan's OWN timeout with nothing this
+    // screen can cancel through the API it exposes — the scan keeps the
+    // process-wide radio lock for the rest of that window even after this
+    // screen is gone. `stopScan()` flips `isScanningNow` false, which is
+    // exactly the condition `_scanFor` is already awaiting, so this ends it
+    // early instead of leaving a dismissed screen's scan blocking whoever
+    // asks for the radio next (a re-opened pairing screen, the band's own
+    // scan). Harmless if nothing is scanning.
+    if (_scanning) unawaited(FlutterBluePlus.stopScan());
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final row = await HrsLink.pairedSensorRow();
     final held = await HrsLink.scanHeldBackReason();
@@ -138,13 +155,25 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
       _busy = c.device.remoteId.str;
       _problem = null;
     });
-    final failure = widget.onPicked != null
-        ? await widget.onPicked!(c.device)
-        : await HrsLink.pairNotifySensor(
-            widget.entry,
-            c.device,
-            label: c.label,
-          );
+    // The injected callback (a ring's key exchange) is not this file's code
+    // and can throw — a `BluetoothDevice.connect` timeout, a keychain error,
+    // anything the callback itself does not already turn into a returned
+    // sentence. An uncaught throw here skips the `setState` below entirely,
+    // which leaves `_busy` set and every row permanently un-tappable until
+    // the screen is torn down and rebuilt — the same "stuck busy" failure
+    // mode a returned failure string already has a real answer for.
+    String? failure;
+    try {
+      failure = widget.onPicked != null
+          ? await widget.onPicked!(c.device)
+          : await HrsLink.pairNotifySensor(
+              widget.entry,
+              c.device,
+              label: c.label,
+            );
+    } catch (e) {
+      failure = 'Could not pair that device: $e';
+    }
     if (!mounted) return;
     setState(() {
       _busy = null;
@@ -158,6 +187,14 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   Future<void> _forget(String id) async {
     await HrsLink.forgetDevice(id);
+    if (!mounted) return;
+    // `_load()` refreshes only THIS screen's own `_paired` field.
+    // `AppState.sensors` is a separate, shared copy of the same device rows
+    // — `devices.dart` reads it directly — and nothing else refreshes it on
+    // this path, so a forget from here would leave that other screen showing
+    // a sensor that no longer exists until something unrelated happened to
+    // reload it.
+    await context.read<AppState>().refreshSensors();
     if (mounted) await _load();
   }
 

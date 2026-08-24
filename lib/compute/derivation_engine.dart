@@ -1475,7 +1475,7 @@ const int kAlgoVersion = 78;
 // a changelog for an analytics fix its pin never had, and the bug it claimed to
 // fix stayed live for three releases.
 const String kAnalyticsPin = '353c6bc30f56b936c450e25a3759e5572b164bd8';
-const String kProtocolPin = 'efc2e85929ee9d3bca735b50e2bdbe0e00f9412c';
+const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

@@ -132,7 +132,7 @@ PairedDevice? healedPairing(PairedDevice? current, String? reportedSerial) {
   final clean = cleanDeviceLabel(reportedSerial);
   if (clean == null || clean == current.serial) return null;
   if (current.remoteId.isEmpty) return null;
-  return PairedDevice(current.remoteId, clean);
+  return PairedDevice(current.remoteId, clean, generation: current.generation);
 }
 
 class AppState extends ChangeNotifier {
@@ -2170,7 +2170,8 @@ class AppState extends ChangeNotifier {
         _log('===== BACKGROUND SESSION START =====');
         try {
           await _ensureForegroundLease();
-          if (await engine.connectToRemoteId(paired!.remoteId)) {
+          if (await engine.connectToRemoteId(paired!.remoteId,
+              generationHint: paired!.generation)) {
             // A process kill followed by an iOS BLE-restore relaunch lands
             // HERE, not in openSession() — this is the primary case the live
             // step checkpoint exists for, so recovery has to run on this path
@@ -3367,7 +3368,21 @@ class AppState extends ChangeNotifier {
     final healed = healedPairing(paired, s.serial);
     if (healed != null) {
       paired = healed;
-      unawaited(PairedDevice.save(healed.remoteId, healed.serial));
+      unawaited(PairedDevice.save(healed.remoteId, healed.serial,
+          generation: s.generation));
+    }
+    // Pin the discovered generation onto the pairing record (HEAL ONLY — same
+    // rule as the serial above: never CREATE a pairing here). A known-device
+    // reconnect skips scanning, and the official gen5 connect order differs
+    // before discovery, so the next connect needs this persisted hint.
+    final p = paired;
+    if (p != null &&
+        (s.generation == 'gen4' || s.generation == 'gen5') &&
+        s.generation != p.generation) {
+      paired =
+          PairedDevice(p.remoteId, p.serial, generation: s.generation);
+      unawaited(
+          PairedDevice.save(p.remoteId, p.serial, generation: s.generation));
     }
     // Keep the lock-screen Band Battery widget current — only when it changed.
     final battPct = roundedPct ?? -1;
@@ -4196,7 +4211,8 @@ class AppState extends ChangeNotifier {
       // link is not up (blocker, bond refusal, repair, quarantine…) and says so
       // through `engine.bandStatus`, which every surface renders. A second,
       // staler sentence stored beside it could only disagree with it.
-      if (!await engine.connectToRemoteId(band.remoteId)) {
+      if (!await engine.connectToRemoteId(band.remoteId,
+          generationHint: band.generation)) {
         _log('Session start: could not reach the band.');
         return;
       }
@@ -4319,7 +4335,8 @@ class AppState extends ChangeNotifier {
             // Mark band ownership before the actual GATT setup so a headless
             // wake can't fight this reconnect for the peripheral.
             await _ensureForegroundLease();
-            connected = await engine.connectToRemoteId(paired!.remoteId);
+            connected = await engine.connectToRemoteId(paired!.remoteId,
+              generationHint: paired!.generation);
           } else {
             connected = false;
           }
@@ -4327,7 +4344,8 @@ class AppState extends ChangeNotifier {
           await Future.delayed(engine.reconnectDelay(attempt));
           if (!_keepAlive) break;
           await _ensureForegroundLease();
-          connected = await engine.connectToRemoteId(paired!.remoteId);
+          connected = await engine.connectToRemoteId(paired!.remoteId,
+              generationHint: paired!.generation);
         }
         if (connected) {
           // Reclaim the band from the iOS restore central so it stops competing.

@@ -37,10 +37,26 @@ const String kBandSourceTier = 'wristOptical';
 class PairedDevice {
   static const String _kRemoteId = 'paired_remote_id';
   static const String _kSerial = 'paired_serial';
+  static const String _kGeneration = 'paired_generation';
 
   final String remoteId; // BLE remote id (iOS: per-install UUID; Android: MAC)
   final String? serial;
-  PairedDevice(this.remoteId, this.serial);
+
+  /// 'gen4' / 'gen5', pinned by service discovery on a previous connection, or
+  /// null before any link has identified itself. A known-device reconnect
+  /// skips scanning, so this is the only way the connect path can know the
+  /// generation BEFORE discovery — which the gen5 bootstrap needs, because its
+  /// PHY preference and bond position differ from gen4's proven flow.
+  final String? generation;
+
+  PairedDevice(this.remoteId, this.serial, {this.generation});
+
+  /// The only two values [generation] may hold. `adapter_id` is the whole
+  /// registry's id space — a notify-only `ble_hrs` / `oura` row names no
+  /// framed generation — and this value ROUTES the connect order, so anything
+  /// else reads as unknown rather than steering the bootstrap.
+  static String? _cleanGeneration(String? g) =>
+      (g == 'gen4' || g == 'gen5') ? g : null;
 
   static Future<PairedDevice?> load() async {
     final row = await LocalDb.deviceRow();
@@ -48,7 +64,11 @@ class PairedDevice {
     if (id != null && id.isNotEmpty) {
       // Sanitize on read: drop any garbled value (e.g. "?*" junk persisted by
       // an older build's HELLO content-scan) so it can never reach the UI.
-      return PairedDevice(id, cleanDeviceLabel(row?['label'] as String?));
+      return PairedDevice(
+        id,
+        cleanDeviceLabel(row?['label'] as String?),
+        generation: _cleanGeneration(row?['adapter_id'] as String?),
+      );
     }
     // No row: either this install predates the table, or the database was
     // rebuilt/wiped under a band that is still paired. Same repair either way —
@@ -58,27 +78,31 @@ class PairedDevice {
     final mirrored = prefs.getString(_kRemoteId);
     if (mirrored == null || mirrored.isEmpty) return null;
     final serial = cleanDeviceLabel(prefs.getString(_kSerial));
+    final generation = _cleanGeneration(prefs.getString(_kGeneration));
     await LocalDb.upsertDevice(
+      adapterId: generation,
       remoteId: mirrored,
       label: serial,
       tier: kBandSourceTier,
     );
-    return PairedDevice(mirrored, serial);
+    return PairedDevice(mirrored, serial, generation: generation);
   }
 
-  /// Persist the primary band. [adapterId] is the registry's `BandEntry.id`
-  /// (`gen4` / `gen5`) when the link has said which band this is — omitted, it
-  /// leaves whatever the row already knows rather than blanking it, and a row
-  /// that has never been told keeps NULL, which every per-family metric reads
-  /// as a refusal instead of assuming gen4.
+  /// Persist the primary band. [generation] is the registry's `BandEntry.id`
+  /// for a framed band (`gen4` / `gen5`) — the same value the `device` table
+  /// stores as `adapter_id`, which is why it is passed straight through.
+  /// Omitted, it leaves whatever the row already knows rather than blanking it
+  /// (`upsertDevice` COALESCEs), and a row that has never been told keeps
+  /// NULL, which every per-family metric reads as a refusal instead of
+  /// assuming gen4.
   static Future<void> save(
     String remoteId,
     String? serial, {
-    String? adapterId,
+    String? generation,
   }) async {
     final clean = cleanDeviceLabel(serial);
     await LocalDb.upsertDevice(
-      adapterId: adapterId,
+      adapterId: generation,
       remoteId: remoteId,
       label: clean,
       tier: kBandSourceTier,
@@ -90,6 +114,13 @@ class PairedDevice {
     } else {
       await prefs.remove(_kSerial); // never persist junk
     }
+    // Keep the stored generation when a caller doesn't know it — most save
+    // sites only carry the serial, and a null here must not forget a pinned
+    // generation (that would demote the next reconnect to the legacy order).
+    final gen = _cleanGeneration(generation);
+    if (gen != null) {
+      await prefs.setString(_kGeneration, gen);
+    }
   }
 
   /// Forget the primary band. BOTH copies, or the mirror puts it straight back
@@ -100,6 +131,7 @@ class PairedDevice {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kRemoteId);
     await prefs.remove(_kSerial);
+    await prefs.remove(_kGeneration);
   }
 }
 

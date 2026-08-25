@@ -1606,18 +1606,17 @@ class CommandAwaiter {
   void _forget(PendingCommand p) => _pending.remove(p);
 }
 
-/// The identity half of the bootstrap readiness check, kept as an
-/// OBSERVATION rather than a gate.
+/// The identity half of the gen5 bootstrap readiness check — ENFORCED.
 ///
-/// A strict readiness gate requires the serial and CPU strings to match
-/// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
-/// verdict and logs it rather than dropping the link: a hard disconnect on an
-/// identity read we have far less hardware evidence for would turn a cosmetic
-/// mismatch into an unreachable band, and the CPU string is lowercase hex by
-/// construction so it can only fail if it is empty.
+/// After a terminal successful HELLO, readiness requires the serial and CPU
+/// strings to each FULLY match `[a-zA-Z0-9]+`. An empty or partially-matching
+/// value fails, and the bootstrap treats a failed verdict as a connection
+/// failure: no READY, disconnect. The CPU string is lowercase hex by
+/// construction, so in practice it can only fail when it is empty — which is
+/// precisely a body the parser never filled.
 ///
 /// An all-zero serial is an EEPROM-failure signal, NOT a rejection — it passes
-/// the alphanumeric gate, and the doc says so explicitly.
+/// the alphanumeric gate and is surfaced as a separate diagnostic.
 class HelloIdentity {
   static final RegExp alphanumeric = RegExp(r'^[a-zA-Z0-9]+$');
 
@@ -1680,6 +1679,42 @@ class BootstrapClockGate {
   /// one outcome worse than a redundant write.
   static bool needsCorrection(int? driftSec) =>
       driftSec == null || driftSec.abs() >= toleranceSeconds;
+
+  /// The same gate at millisecond resolution, for the gen5 path where hello
+  /// carries subseconds (32768 units/s) and the comparison is against a newly
+  /// sampled phone time. "Below two WHOLE seconds of absolute drift, no
+  /// write" — a delta of 1.999 s has whole-second component 1 and passes;
+  /// exactly 2.000 s writes. Null keeps the write-on-no-reading rule above.
+  static bool needsCorrectionMs(int? absDeltaMs) =>
+      absDeltaMs == null || absDeltaMs.abs() >= toleranceSeconds * 1000;
+}
+
+/// Which band a scan result is, by its ADVERTISED service UUIDs — the only
+/// thing the scanner may accept on.
+///
+/// The scanner accepts a result because its advertisement
+/// contains a supported WHOOP service UUID; it does not depend on the display
+/// name. This app used to also accept any device whose cached name contained
+/// "whoop", which could admit a device advertising no WHOOP service at all —
+/// that fallback is gone, and this policy being the single accept decision is
+/// what keeps it gone.
+class ScanAcceptPolicy {
+  /// The advertised-service prefixes that identify a WHOOP band: gen4
+  /// "Harvard" `61080001-…`, gen5 `fd4b0001-…`.
+  static const String gen4AdvertisedPrefix = '61080001';
+  static const String gen5AdvertisedPrefix = 'fd4b0001';
+
+  /// The generation the advertisement claims — 'gen4' / 'gen5' — or null when
+  /// no supported WHOOP service is advertised (not accepted). [serviceUuids]
+  /// are the advertisement's service UUID strings, any case.
+  static String? accepts(Iterable<String> serviceUuids) {
+    for (final raw in serviceUuids) {
+      final s = raw.toLowerCase();
+      if (s.startsWith(gen5AdvertisedPrefix)) return 'gen5';
+      if (s.startsWith(gen4AdvertisedPrefix)) return 'gen4';
+    }
+    return null;
+  }
 }
 
 /// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack.

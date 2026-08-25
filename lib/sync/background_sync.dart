@@ -90,7 +90,8 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
-    final connected = await engine.connectToRemoteId(paired.remoteId);
+    final connected = await engine.connectToRemoteId(paired.remoteId,
+        generationHint: paired.generation);
     if (!connected) {
       debugPrint(
         '[bgsync] strap not reachable this cycle — will catch up next time.',

@@ -1717,6 +1717,26 @@ class ScanAcceptPolicy {
   }
 }
 
+/// Which connect order a link gets, decided BEFORE discovery has run.
+enum ConnectRoute {
+  /// The official gen5 sequence (PHY preference → discovery → MTU → bond …).
+  gen5Official,
+
+  /// The proven legacy gen4 flow (bond → MTU → discovery …), unchanged.
+  gen4Legacy,
+}
+
+/// The routing rule: only an EXPLICIT gen4 hint takes the legacy order.
+/// Unknown/null — a pairing upgraded from an older build, a garbled stored
+/// value — probes gen5-first: the official sequence's pre-discovery steps are
+/// safe on any device (the PHY request is non-fatal by contract), its
+/// discovery identifies the band, and a discovered gen4 falls back to the
+/// unchanged legacy flow. Routing unknown links through the legacy order
+/// instead would run a gen5 band's bond in the wrong position on every
+/// connect until something persisted the generation.
+ConnectRoute connectRouteFor(String? generationHint) =>
+    generationHint == 'gen4' ? ConnectRoute.gen4Legacy : ConnectRoute.gen5Official;
+
 /// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack.
 ///
 /// "A response is usable only if its pack address/name field is non-empty and

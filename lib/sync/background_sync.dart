@@ -99,6 +99,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await checkSyncStaleness();
       return true;
     }
+    // Pin the discovered generation onto the pairing record, exactly like the
+    // foreground engine-state heal does — a headless-only phone would
+    // otherwise re-probe the connect route on every wake forever.
+    final gen = engine.state.generation;
+    if ((gen == 'gen4' || gen == 'gen5') && gen != paired.generation) {
+      await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
+    }
     try {
       final plan = await HighFreqWakeWindow.planNow();
       await engine.applyHighFreqWakeWindow(

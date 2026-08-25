@@ -729,6 +729,12 @@ class _FakeOps implements GattBootstrapOps {
 
   @override
   Future<void> subscribe(String role) async => link.trace.add('sub:$role');
+
+  @override
+  Future<bool> subscribeOptionalMemfault() async {
+    link.trace.add('sub:memfault(opt)');
+    return true;
+  }
 }
 
 /// Success replies for the two awaited non-hello bootstrap commands.
@@ -993,26 +999,34 @@ void _bootstrap() {
       });
     });
 
-    test('the phone-clock deferral now FAILS the connection instead of '
-        'skipping the clock contract', () {
+    test('a strap TWO DAYS ahead still gets the official contract: one '
+        'awaited SET_CLOCK, and a successful correction clears the '
+        'phone-suspect verdict', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
-        // A plausible strap RTC two days AHEAD of us: the phone is the
-        // suspect party. Writing its clock onto the strap would corrupt a
-        // plausible RTC — but READY without a completed clock contract is not
-        // allowed either, so the connection fails and the reconnect owner
-        // retries until the phone corrects itself.
-        link.replyTo = (seq, op) => op == Cmd.getHello
-            ? _helloReply(seq, tsSeconds: _wallNow() + 2 * 86400)
-            : null;
-        expect(_runBootstrap(link, async), isFalse);
+        // A plausible strap RTC two days AHEAD of the phone trips Edge's
+        // phone-suspect history policy — but the official clock contract is
+        // UNCONDITIONAL at ≥2 s, so the bootstrap still writes exactly one
+        // SET_CLOCK and reaches the advertising name. The accepted write
+        // makes strap and phone agree by construction, so the pre-correction
+        // suspect verdict must not survive to suppress the initial drain.
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello =>
+                _helloReply(seq, tsSeconds: _wallNow() + 2 * 86400),
+              Cmd.setClock => _clockAck(seq),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
+        expect(_runBootstrap(link, async), isTrue);
 
-        expect(link.count(Cmd.setClock), 0,
-            reason: 'the suspect phone clock is never written to the strap');
-        expect(link.count(Cmd.getCustomAdvertisingName), 0,
-            reason: 'the sequence stops at the failed clock step');
-        expect(link.engine.historyPausedForClock, isTrue);
-        expect(link.logged('no READY without the clock contract'), isTrue);
+        expect(link.count(Cmd.setClock), 1,
+            reason: 'the contract is unconditional — one awaited write');
+        expect(link.count(Cmd.getClock), 0);
+        expect(link.engine.historyPausedForClock, isFalse,
+            reason: 'the accepted correction clears the stale suspect '
+                'verdict; history must not stay deferred');
+        expect(link.logged('clearing the phone-clock-suspect verdict'),
+            isTrue);
       });
     });
 

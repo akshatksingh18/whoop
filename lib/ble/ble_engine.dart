@@ -692,6 +692,11 @@ abstract class GattBootstrapOps {
   /// Register one required notification ('cmd_from' | 'events' | 'data');
   /// throws when registration fails.
   Future<void> subscribe(String role);
+
+  /// Register the OPTIONAL Memfault characteristic (0007) when present.
+  /// Returns whether it was registered; absence or failure NEVER throws —
+  /// Memfault is not a required characteristic and must not block READY.
+  Future<bool> subscribeOptionalMemfault();
 }
 
 /// The flutter_blue_plus implementation of [GattBootstrapOps].
@@ -699,7 +704,7 @@ class _FbpGattOps implements GattBootstrapOps {
   final BleEngine _engine;
   final BluetoothDevice _device;
   final _Session _session;
-  BluetoothCharacteristic? _cmdFrom, _events, _data;
+  BluetoothCharacteristic? _cmdFrom, _events, _data, _memfault;
 
   _FbpGattOps(this._engine, this._device, this._session);
 
@@ -751,6 +756,8 @@ class _FbpGattOps implements GattBootstrapOps {
     _cmdFrom = find(gatt.cmdFrom.substring(0, 8));
     _events = find(gatt.events.substring(0, 8));
     _data = find(gatt.data.substring(0, 8));
+    // Optional — its absence must not fail validation.
+    _memfault = find(gatt.memfault.substring(0, 8));
     if (_session.cmdTo == null ||
         _cmdFrom == null ||
         _events == null ||
@@ -778,6 +785,20 @@ class _FbpGattOps implements GattBootstrapOps {
       _ => _data,
     };
     return _engine._subscribe(_session, c!, role);
+  }
+
+  @override
+  Future<bool> subscribeOptionalMemfault() async {
+    final c = _memfault;
+    if (c == null) return false;
+    try {
+      await _engine._subscribeMemfault(_session, c);
+      return true;
+    } catch (e) {
+      // Optional means optional: a CCC write failing on 0007 is logged by
+      // the caller and never faults setup.
+      return false;
+    }
   }
 }
 
@@ -1337,6 +1358,12 @@ class BleEngine {
     return _bootstrapAfterRegistration(session);
   }
 
+  /// Observability seam onto [_applyLinkPriority]: called on EVERY entry,
+  /// before the platform guard, so a test tracing the official gen5 sequence
+  /// can prove no connection-priority request happens pre-READY.
+  @visibleForTesting
+  void Function()? debugOnPriorityRequest;
+
   /// Injectable Android native-name getter — the post-HELLO gate reads the
   /// platform `BluetoothDevice.getName()`, which only exists behind a radio;
   /// tests inject a fake so the gate itself is exercisable anywhere.
@@ -1450,6 +1477,11 @@ class BleEngine {
   /// keeps this from spamming the radio — would skip the next legitimate
   /// step-down, leaving the link fast exactly when it should go quiet.
   Future<void> _applyLinkPriority() async {
+    // Fires BEFORE the platform guard so a test can prove where priority
+    // requests do and do not happen — the official gen5 sequence carries none
+    // before READY (no requestConnectionPriority was
+    // found in the official data path).
+    debugOnPriorityRequest?.call();
     if (!Platform.isAndroid) return; // iOS picks its own interval
     if (_priorityInFlight) {
       // Someone is mid-request; make them re-evaluate when they land rather
@@ -2034,6 +2066,9 @@ class BleEngine {
     'battery_pack_type_raw': _batteryPack?.batteryPackTypeRaw,
     'battery_pack_status': _batteryPack?.statusRaw,
     'battery_pack_ts': _batteryPackTs,
+    // Optional Memfault (0007) traffic — collected, never parsed or required.
+    'memfault_chunks': _memfaultChunks,
+    'memfault_bytes': _memfaultBytesTotal,
     'pending_commands': _awaiter.pendingKeys,
   };
 
@@ -2224,8 +2259,9 @@ class BleEngine {
   /// [generationHint] is the persisted 'gen4'/'gen5' from the pairing record:
   /// a known-device reconnect skips scanning, and the official gen5 connect
   /// order differs before discovery, so the generation has to arrive from
-  /// outside the link. Null runs the legacy order once; discovery then pins
-  /// the generation and the caller persists it for the next attempt.
+  /// outside the link. Anything but an explicit 'gen4' probes the official
+  /// gen5 sequence first ([connectRouteFor]); a discovered gen4 falls back to
+  /// the unchanged legacy flow.
   Future<bool> connectToRemoteId(String remoteId, {String? generationHint}) =>
       connect(BluetoothDevice.fromId(remoteId), generationHint: generationHint);
 
@@ -2334,22 +2370,23 @@ class BleEngine {
 
     // The official gen5 order differs BEFORE discovery (LE 2M PHY
     // preference) and puts the bond after discovery + the MTU intent, so the
-    // generation must be known ahead of discovery: a scan supplies it from the
-    // advertisement, a known-device reconnect from the persisted pairing.
-    // With no hint (the first reconnect after an app update) the legacy order
-    // below runs once; discovery pins the generation, AppState persists it,
-    // and every later connect takes the official path. Gen4 always keeps the
-    // proven legacy flow.
+    // route must be chosen ahead of discovery: a scan supplies the generation
+    // from the advertisement, a known-device reconnect from the persisted
+    // pairing. [connectRouteFor] sends everything that is not EXPLICITLY gen4
+    // — including an unknown/null hint, e.g. a pairing upgraded from an older
+    // build or a headless engine that never persisted one — through the
+    // official gen5 sequence first; its discovery identifies the band, and a
+    // discovered gen4 falls back to the unchanged legacy flow below.
     final hint = generationHint ?? _advertisedGeneration[device.remoteId.str];
-    if (hint == 'gen5') {
+    if (connectRouteFor(hint) == ConnectRoute.gen5Official) {
       switch (await _connectGen5Official(device, session)) {
         case _Gen5ConnectOutcome.ready:
           return true;
         case _Gen5ConnectOutcome.failed:
           return false;
         case _Gen5ConnectOutcome.notGen5:
-          // The hint lied (it names a service the device does not expose) —
-          // rare enough to pay one extra discovery and take the legacy path.
+          // Discovery found a gen4 service — take the proven legacy path
+          // (one extra discovery, paid only until the generation persists).
           break;
       }
     }
@@ -2793,9 +2830,11 @@ class BleEngine {
       } catch (e) {
         _log('requestMtu failed: $e — MTU stays at the connection default.');
       }
-      // Same fast-interval request the legacy path makes for the INIT drain.
-      _connectSetup = true;
-      await _applyLinkPriority();
+      // Deliberately NO requestConnectionPriority here: no such call was
+      // found in the official data path, so the official sequence must not
+      // carry one before READY. The offload transition
+      // ([_setOffloadActive], post-READY, separately owned) still raises the
+      // interval for the drain, and gen4 keeps its legacy setup request.
       // Bond — in its official position, after discovery and the MTU intent.
       // Already bonded → no second bond. A refused/failed bond is FATAL here:
       // the strap gates every command behind encryption, so continuing would
@@ -2849,19 +2888,40 @@ class BleEngine {
         return _Gen5ConnectOutcome.failed;
       }
       _setPhase(BleConnState.subscribing);
-      // Serial registration of the REQUIRED notifications; a failed one faults
-      // setup. Optional Memfault (0007) is deliberately not required, and this
-      // order is this app's, not a protocol requirement — only one official
-      // client fixture's registration order was ever captured.
-      for (final role in const ['cmd_from', 'events', 'data']) {
+      // Serial registration in the retained official fixture order: command
+      // response → optional Memfault → data → events (that order is one
+      // client fixture, not a protocol requirement — but matching it costs
+      // nothing). A failed REQUIRED registration faults setup; Memfault
+      // (0007) stays optional in both directions: absent or failing, setup
+      // continues, and when present its bytes are collected as diagnostics
+      // without ever becoming a requirement.
+      Future<bool> requiredRegistration(String role) async {
         try {
           await gatt.subscribe(role);
+          return true;
         } catch (e) {
           _log('[BOOT gen5] required notification registration failed '
               '($role): $e — connection failed.');
           await _failConnect();
-          return _Gen5ConnectOutcome.failed;
+          return false;
         }
+      }
+
+      if (!await requiredRegistration('cmd_from')) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      if (await gatt.subscribeOptionalMemfault()) {
+        _log('[BOOT gen5] optional Memfault (0007) registered — collected as '
+            'diagnostics only.');
+      } else {
+        _log('[BOOT gen5] optional Memfault (0007) absent or not registered — '
+            'not required; setup continues.');
+      }
+      if (!await requiredRegistration('data')) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      if (!await requiredRegistration('events')) {
+        return _Gen5ConnectOutcome.failed;
       }
       if (!await _bootstrapAfterRegistration(session)) {
         return _Gen5ConnectOutcome.failed;
@@ -3098,19 +3158,13 @@ class BleEngine {
             'needed; no SET_CLOCK written.');
         return true;
       }
-      if (_deferForClock) {
-        // The PHONE is the suspect party: writing its wall clock onto a
-        // plausible strap RTC corrupts the RTC and destroys the evidence.
-        // But READY without a completed clock contract is not allowed
-        // either — so the connection fails. The reconnect owner retries;
-        // the moment the phone corrects itself (NTP), the next bootstrap
-        // completes normally.
-        _log('[CLOCK] correction needed (delta ${deltaMs}ms) but the PHONE '
-            'clock is the suspect one — refusing to write it onto the strap; '
-            'connection failed (no READY without the clock contract).');
-        await _failConnect();
-        return false;
-      }
+      // The contract is UNCONDITIONAL at ≥2 s: one awaited SET_CLOCK with a
+      // newly sampled phone time — even for a strap reading days ahead of the
+      // phone. Edge's phone-suspect policy is a HISTORY-safety rule, not a
+      // bootstrap rule; it must not turn the official clock step into a
+      // refusal, and a successful correction clears it below (see
+      // [_bootstrapSetClockGen5]) so the initial drain is not suppressed by a
+      // verdict the write just made stale.
       final ok = await _bootstrapSetClockGen5();
       if (_session != session || !session.connected) {
         _log('link dropped during SET_CLOCK — abandoning setup.');
@@ -3162,6 +3216,18 @@ class BleEngine {
         device: sec,
         wall: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       );
+      // And the phone-suspect verdict — computed off the PRE-correction hello
+      // timestamp — is now stale by construction: strap and phone agree
+      // because this write made them agree. Left set, it would defer the
+      // initial history drain (and let record-gate age checks judge against a
+      // reading that no longer exists). The suspect detector still re-trips
+      // on the next reading if the phone genuinely is wrong.
+      if (_phoneClockSuspect) {
+        _phoneClockSuspect = false;
+        _phoneClockSuspectSince = null;
+        _log('[CLOCK] SET_CLOCK accepted — clearing the phone-clock-suspect '
+            'verdict from the pre-correction reading; history may drain.');
+      }
     }
     return resp != null;
   }
@@ -3730,6 +3796,33 @@ class BleEngine {
       }),
     );
   }
+
+  /// Collect the OPTIONAL Memfault characteristic's bytes as diagnostics.
+  /// The official client persists/uploads whatever the strap volunteers here
+  /// and sends nothing to solicit it; this app only counts
+  /// what arrived (surfaced in [offloadSnapshot]) — the channel is never
+  /// parsed, never required, and never a readiness input.
+  Future<void> _subscribeMemfault(
+    _Session session,
+    BluetoothCharacteristic c,
+  ) async {
+    await c.setNotifyValue(true).timeout(_notifySetupTimeout);
+    session.subs.add(
+      c.onValueReceived.listen((chunk) {
+        if (_session != session || !session.connected) return;
+        _memfaultChunks++;
+        _memfaultBytesTotal += chunk.length;
+        if (_memfaultChunks == 1) {
+          _log('[MEMFAULT] strap volunteered its first crash/diagnostic '
+              'chunk (${chunk.length} B) — collected only.');
+        }
+      }),
+    );
+  }
+
+  /// Memfault (0007) traffic counters — diagnostics only.
+  int _memfaultChunks = 0;
+  int _memfaultBytesTotal = 0;
 
   // ── link-down handling (drives reconnect via the caller's contract) ─────────────
   void _onLinkDown(_Session session) {

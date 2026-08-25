@@ -132,6 +132,11 @@ class _Rig {
     engine.debugBondRemover = () async {
       bondRemovals++;
     };
+    // Every entry into the engine's connection-priority path lands in the
+    // trace, so the exact pre-READY order below PROVES the official sequence
+    // carries no requestConnectionPriority (doc 06 found none in the official
+    // data path); the post-READY offload transition still may.
+    engine.debugOnPriorityRequest = () => trace.add('link_priority');
     engine.debugInstallFakeLink(
       band: BandProfile.gen5,
       onWrite: (frame) async {
@@ -188,6 +193,7 @@ class _Ops implements GattBootstrapOps {
   final bool phyFails;
   final bool bondFails;
   final bool discoveryFails;
+  final bool memfaultPresent;
   final Set<String> failSubscribe;
 
   _Ops(
@@ -196,6 +202,7 @@ class _Ops implements GattBootstrapOps {
     this.phyFails = false,
     this.bondFails = false,
     this.discoveryFails = false,
+    this.memfaultPresent = true,
     this.failSubscribe = const {},
   });
 
@@ -237,6 +244,12 @@ class _Ops implements GattBootstrapOps {
     rig.trace.add('sub:$role');
     if (failSubscribe.contains(role)) throw Exception('CCC write failed');
   }
+
+  @override
+  Future<bool> subscribeOptionalMemfault() async {
+    rig.trace.add('sub:memfault(opt)');
+    return memfaultPresent;
+  }
 }
 
 /// Run the real official connect under [async]. Null until it settles.
@@ -265,7 +278,12 @@ void main() {
           final rig = _Rig()..answerAll();
           expect(_run(rig, async), isTrue);
 
-          // The exact pre-READY portion of the trace, in order.
+          // The exact pre-READY portion of the trace, in order. The equality
+          // also PROVES two absences: no requestConnectionPriority (every
+          // entry into that path would land as 'link_priority' — the official
+          // data path was found to carry none) and no clock traffic.
+          // Registrations follow the retained official fixture order:
+          // command response → optional Memfault → data → events.
           final readyAt = rig.trace.indexOf('ready');
           expect(readyAt, isNot(-1));
           expect(rig.trace.sublist(0, readyAt), [
@@ -275,8 +293,9 @@ void main() {
             'bond:check',
             'bond:create',
             'sub:cmd_from',
-            'sub:events',
+            'sub:memfault(opt)',
             'sub:data',
+            'sub:events',
             'cmd:${Cmd.getHello}',
             'native_name',
             'cmd:${Cmd.getCustomAdvertisingName}',
@@ -360,6 +379,32 @@ void main() {
         });
       },
     );
+
+    test('a strap TWO DAYS ahead: the contract is unconditional, and the '
+        'corrected clock does not suppress the initial history drain', () {
+      fakeAsync((async) {
+        // The pre-correction hello reading trips Edge's phone-suspect history
+        // policy. The official contract still writes exactly one SET_CLOCK
+        // (doc 01: ≥2 s → one awaited write, non-null response → readiness),
+        // and the accepted correction must clear the now-stale verdict so
+        // the INIT drain is not deferred against a reading the write erased.
+        final rig = _Rig()..answerAll(tsSeconds: _wallNow() + 2 * 86400);
+        expect(_run(rig, async), isTrue);
+
+        expect(rig.count(Cmd.setClock), 1);
+        expect(rig.count(Cmd.getClock), 0);
+        expect(rig.ready, isTrue);
+        expect(rig.engine.historyPausedForClock, isFalse);
+        expect(
+          rig.count(Cmd.sendHistoricalData),
+          1,
+          reason:
+              'the initial drain went out — a stale suspect verdict '
+              'would have deferred it',
+        );
+        expect(rig.logs.any((l) => l.contains('DEFERRED')), isFalse);
+      });
+    });
 
     test('HELLO PENDING → SUCCESS completes the bootstrap', () {
       fakeAsync((async) {
@@ -799,6 +844,46 @@ void main() {
         expect(rig.commands, isEmpty, reason: 'no HELLO after a failed CCC');
         expect(rig.logged('required notification registration failed'), isTrue);
       });
+    });
+
+    test('an absent optional Memfault characteristic never blocks READY', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        expect(
+          _run(rig, async, ops: _Ops(rig, memfaultPresent: false)),
+          isTrue,
+          reason:
+              'Memfault (0007) is optional in the retained fixture — '
+              'its absence must not fault setup',
+        );
+        expect(rig.ready, isTrue);
+        expect(rig.logged('not required; setup continues'), isTrue);
+      });
+    });
+  });
+
+  group('the connect route is chosen before discovery', () {
+    // The production routing decision _doConnect makes — an unknown/null
+    // generation must NOT bypass the official sequence. A pairing upgraded
+    // from an older Edge build (no persisted generation) and a headless
+    // engine both arrive here with null.
+    test('only an explicit gen4 hint takes the legacy order', () {
+      expect(connectRouteFor('gen4'), ConnectRoute.gen4Legacy);
+      expect(connectRouteFor('gen5'), ConnectRoute.gen5Official);
+      expect(
+        connectRouteFor(null),
+        ConnectRoute.gen5Official,
+        reason:
+            'unknown probes gen5-first; discovery identifies the band '
+            'and a discovered gen4 falls back to the unchanged legacy flow',
+      );
+      expect(
+        connectRouteFor('garbled'),
+        ConnectRoute.gen5Official,
+        reason:
+            'a corrupted stored value must not demote a gen5 band to '
+            'the wrong bond position',
+      );
     });
   });
 

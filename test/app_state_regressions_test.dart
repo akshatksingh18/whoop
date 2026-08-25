@@ -339,5 +339,36 @@ void main() {
           reason: 'no zone-second for a second with no measurement');
       expect(w.maxHrSeen, peak, reason: 'the peak is untouched by an absence');
     });
+
+    test('the tick consults the idle watch — a quiet session asks', () {
+      // The wiring, not the policy (workout_idle_test.dart owns the policy):
+      // a session 30 minutes old with no live HR must have produced an ask by
+      // the end of one tick, and a session with real HR must not have.
+      final app = connected(null);
+      addTearDown(app.dispose);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'w1',
+        type: 'run',
+      );
+      app.activeWorkout = w;
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNotNull,
+          reason: '30 quiet minutes into an open session, the watch asks');
+
+      final active = connected(150);
+      addTearDown(active.dispose);
+      final w2 = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'w2',
+        type: 'run',
+      );
+      active.activeWorkout = w2;
+      active.debugTickWorkout();
+      expect(w2.idleWatch.lastAskAt, isNull,
+          reason: 'a real reading (no gate → any reading) is activity');
+    });
   });
 }

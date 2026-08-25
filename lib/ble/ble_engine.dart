@@ -3810,6 +3810,9 @@ class BleEngine {
     session.subs.add(
       c.onValueReceived.listen((chunk) {
         if (_session != session || !session.connected) return;
+        // Real inbound traffic on this link — it proves liveness the same as
+        // any other notification, so the staleness/watchdog clock advances.
+        _lastRx = DateTime.now();
         _memfaultChunks++;
         _memfaultBytesTotal += chunk.length;
         if (_memfaultChunks == 1) {

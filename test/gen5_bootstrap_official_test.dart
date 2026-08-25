@@ -406,6 +406,53 @@ void main() {
       });
     });
 
+    test('an unsuccessful but NON-NULL SET_CLOCK response still satisfies '
+        'readiness — without clearing the unconfirmed suspect verdict', () {
+      fakeAsync((async) {
+        // The contract judges the clock step on a non-null
+        // RESPONSE OBJECT, not on its result byte: only a null result fails
+        // readiness. But a FAILURE result means the strap did NOT take the
+        // write, so the phone-suspect history deferral computed off the
+        // pre-correction reading is still live evidence and must survive —
+        // clearing it is reserved for an ACCEPTED correction.
+        final rig = _Rig();
+        rig.replyTo = (seq, op) => switch (op) {
+          Cmd.getHello => _helloReply(seq, tsSeconds: _wallNow() + 2 * 86400),
+          Cmd.setClock => Decoded('cmd_response', {
+            'opcode': Cmd.setClock,
+            'req_seq': seq,
+            'cmd_status': CommandAwaiter.statusFailure,
+          }),
+          Cmd.getCustomAdvertisingName => _nameReply(seq),
+          _ => null,
+        };
+        expect(
+          _run(rig, async),
+          isTrue,
+          reason:
+              'a non-null set-clock response object is treated as '
+              'success — only a null result fails readiness',
+        );
+        expect(rig.ready, isTrue);
+        expect(
+          rig.count(Cmd.setClock),
+          1,
+          reason: 'one write, no resend on a FAILURE result',
+        );
+        expect(
+          rig.engine.historyPausedForClock,
+          isTrue,
+          reason:
+              'the correction went UNCONFIRMED — the history-safety '
+              'deferral keeps the drain parked until a reading agrees',
+        );
+        expect(
+          rig.logs.any((l) => l.contains('clearing the phone-clock')),
+          isFalse,
+        );
+      });
+    });
+
     test('HELLO PENDING → SUCCESS completes the bootstrap', () {
       fakeAsync((async) {
         final rig = _Rig();

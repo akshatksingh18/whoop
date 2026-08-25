@@ -622,10 +622,15 @@ void _events() {
 
 /// A gen4/gen5 link with no radio behind it that records every command written
 /// and can answer selected opcodes from inside the write itself.
+///
+/// [trace] interleaves the commands with the READY transition ('ready') so a
+/// test can assert what came strictly before/after READY — the charging
+/// follow-up's whole contract is that ordering.
 class _BootstrapLink {
   final logs = <String>[];
   final commands = <({int seq, int opcode, List<int> body})>[];
   final afterSupersede = <int>[];
+  final trace = <String>[];
   final BandProfile band;
 
   /// Answers to inject as the reply to a written command. Injected from INSIDE
@@ -634,18 +639,35 @@ class _BootstrapLink {
   Decoded? Function(int seq, int opcode)? replyTo;
 
   late final BleEngine engine;
+  bool _sawReady = false;
+  bool get ready => _sawReady;
 
-  _BootstrapLink({this.band = BandProfile.gen5}) {
+  _BootstrapLink({this.band = BandProfile.gen5, String? nativeName = 'WHOOP'}) {
     engine = BleEngine(
       onRecord: (_, _) async {},
-      onState: (_) {},
+      onState: (s) {
+        if (!_sawReady && s.connection == 'connected') {
+          _sawReady = true;
+          trace.add('ready');
+        }
+      },
       log: logs.add,
     );
+    // The post-HELLO Android native-name gate, exercisable off-device: the
+    // injected reader stands in for BluetoothDevice.getName(). Default is a
+    // present name so unrelated tests pass the gate.
+    if (band.isGen5) {
+      engine.debugNativeNameReader = (remoteId) async {
+        trace.add('native_name');
+        return nativeName;
+      };
+    }
     engine.debugInstallFakeLink(
       band: band,
       onWrite: (frame) async {
         final inner = parseFrame(frame, profile: band)!.inner;
         commands.add((seq: inner[1], opcode: inner[2], body: inner.sublist(3)));
+        trace.add('cmd:${inner[2]}');
         final reply = replyTo?.call(inner[1], inner[2]);
         if (reply != null) engine.debugAbsorbDecoded(reply);
         return true;
@@ -669,6 +691,73 @@ class _BootstrapLink {
       },
     );
   }
+}
+
+/// A well-behaved scripted [GattBootstrapOps] recording into the link's
+/// [trace] — enough for the READY-ordering tests here. The failure-mode
+/// variants live in gen5_bootstrap_official_test.dart.
+class _FakeOps implements GattBootstrapOps {
+  final _BootstrapLink link;
+  _FakeOps(this.link);
+
+  @override
+  bool get bondingApplies => true;
+
+  @override
+  Future<void> preferLe2mPhy() async => link.trace.add('phy');
+
+  @override
+  Future<BandProfile?> discoverAndValidate() async {
+    link.trace.add('discover');
+    return link.band;
+  }
+
+  @override
+  Future<int> requestMtu(int mtu) async {
+    link.trace.add('mtu:$mtu');
+    return mtu;
+  }
+
+  @override
+  Future<bool> isBonded() async {
+    link.trace.add('bond:check');
+    return false;
+  }
+
+  @override
+  Future<void> createBond() async => link.trace.add('bond:create');
+
+  @override
+  Future<void> subscribe(String role) async => link.trace.add('sub:$role');
+}
+
+/// Success replies for the two awaited non-hello bootstrap commands.
+Decoded _nameReply(int seq) => Decoded('cmd_response', {
+      'opcode': Cmd.getCustomAdvertisingName,
+      'req_seq': seq,
+      'cmd_status': CommandAwaiter.statusSuccess,
+    });
+
+Decoded _clockAck(int seq) => Decoded('cmd_response', {
+      'opcode': Cmd.setClock,
+      'req_seq': seq,
+      'cmd_status': CommandAwaiter.statusSuccess,
+    });
+
+/// Run the REAL official gen5 connect order over [ops] to completion under
+/// [async]. Returns whether the connection reached READY.
+bool _runOfficial(
+  _BootstrapLink link,
+  FakeAsync async, {
+  GattBootstrapOps? ops,
+  Duration elapse = const Duration(seconds: 8),
+}) {
+  bool? ok;
+  link.engine
+      .debugConnectGen5Official(ops ?? _FakeOps(link))
+      .then((v) => ok = v);
+  async.elapse(elapse);
+  return ok ?? false;
 }
 
 /// A revision-1 gen5 hello body, parsed by
@@ -720,13 +809,17 @@ Decoded _packReply(int seq, {required String address, String name = ''}) =>
 
 /// Run the real post-registration bootstrap to completion under [async].
 /// Returns whether it reported success.
-bool _runBootstrap(_BootstrapLink link, FakeAsync async) {
+bool _runBootstrap(
+  _BootstrapLink link,
+  FakeAsync async, {
+  // Long enough for the 500 ms delay plus the awaited steps when they are
+  // answered (the 3 s clock read on gen4); an unanswered awaited command
+  // (5 s timeout) needs a caller-supplied longer window.
+  Duration elapse = const Duration(seconds: 4),
+}) {
   bool? ok;
   link.engine.debugBootstrapAfterRegistration().then((v) => ok = v);
-  // Long enough for the 500 ms delay plus every awaited step's own timeout
-  // (the 3 s clock read on gen4, the 5 s command timeout on gen5), but short
-  // of the charging follow-up's first 5 s retry gap.
-  async.elapse(const Duration(seconds: 4));
+  async.elapse(elapse);
   return ok ?? false;
 }
 
@@ -801,14 +894,22 @@ void _bootstrap() {
       expect(BootstrapClockGate.needsCorrection(null), isTrue,
           reason: 'no correlation at all — an unset band RTC must never be '
               'left uncorrected');
+      // The ms form the gen5 bootstrap compares with (hello carries
+      // subseconds): "below two WHOLE seconds" — 1.999 s passes, 2.000 s
+      // writes.
+      expect(BootstrapClockGate.needsCorrectionMs(1999), isFalse);
+      expect(BootstrapClockGate.needsCorrectionMs(2000), isTrue);
+      expect(BootstrapClockGate.needsCorrectionMs(null), isTrue);
     });
 
     test('a band whose clock agrees is not written to at all', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
-        link.replyTo = (seq, op) => op == Cmd.getHello
-            ? _helloReply(seq, tsSeconds: _wallNow())
-            : null;
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello => _helloReply(seq, tsSeconds: _wallNow()),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 0,
@@ -819,57 +920,99 @@ void _bootstrap() {
       });
     });
 
-    test('a band 3 s out gets exactly one SET_CLOCK', () {
+    test('a band 3 s out gets exactly one AWAITED SET_CLOCK', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
-        link.replyTo = (seq, op) => op == Cmd.getHello
-            ? _helloReply(seq, tsSeconds: _wallNow() - 3)
-            : null;
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello => _helloReply(seq, tsSeconds: _wallNow() - 3),
+              Cmd.setClock => _clockAck(seq),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 1,
             reason: 'at 2 or more, send ONE SET_CLOCK');
+        expect(link.count(Cmd.getClock), 0,
+            reason: 'no read-back — the official bootstrap sends none');
         expect(link.opcodes.indexOf(Cmd.setClock),
             greaterThan(link.opcodes.indexOf(Cmd.getHello)),
             reason: 'the clock decision comes after hello supplies the time');
+        expect(link.opcodes.indexOf(Cmd.setClock),
+            lessThan(link.opcodes.indexOf(Cmd.getCustomAdvertisingName)),
+            reason: 'and SET_CLOCK completes before the advertising-name '
+                'read');
       });
     });
 
-    test('an UNSET RTC gets exactly one SET_CLOCK, not two', () {
+    test('an unanswered SET_CLOCK fails readiness', () {
+      fakeAsync((async) {
+        final link = _BootstrapLink();
+        // Drift forces the write; nothing ever answers opcode 10.
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello => _helloReply(seq, tsSeconds: _wallNow() - 30),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
+        expect(_runBootstrap(link, async, elapse: const Duration(seconds: 8)),
+            isFalse,
+            reason: 'a null SET_CLOCK response fails readiness and '
+                'disconnects');
+        expect(link.count(Cmd.setClock), 1, reason: 'no automatic resend');
+        expect(link.count(Cmd.getCustomAdvertisingName), 0,
+            reason: 'nothing later in the sequence may run');
+        expect(link.logged('clock synchronization is a readiness requirement'),
+            isTrue);
+      });
+    });
+
+    test('an UNSET RTC gets exactly one SET_CLOCK, not two — and never '
+        'GET_CLOCK', () {
       fakeAsync((async) {
         // Factory-epoch hello timestamp: below the plausible floor, so it is
-        // never correlated (drift == null) and needsCorrection(null) is true.
-        // Before the bootstrap-window fix, BOTH writers fired — the absorb
-        // handler's own re-correction on the hello reply AND the bootstrap
-        // clock step — sending a fresh band two SET_CLOCKs back to back,
-        // against the one-SET_CLOCK-per-bootstrap rule.
+        // never correlated — but it is a PRESENT timestamp, so the parsed
+        // hello path must not fall back to GET_CLOCK; the huge delta forces
+        // the one correction. Before the bootstrap-window fix, BOTH writers
+        // fired — the absorb handler's own re-correction on the hello reply
+        // AND the bootstrap clock step.
         final link = _BootstrapLink();
-        link.replyTo = (seq, op) => op == Cmd.getHello
-            ? _helloReply(seq, tsSeconds: 1000)
-            : null;
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello => _helloReply(seq, tsSeconds: 1000),
+              Cmd.setClock => _clockAck(seq),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.count(Cmd.setClock), 1,
             reason: 'ONE SET_CLOCK per bootstrap — the absorb '
                 'handler must stand down inside the bootstrap window');
+        expect(link.count(Cmd.getClock), 0,
+            reason: 'zero/implausible is a present timestamp — GET_CLOCK is '
+                'only the generic NULL-timestamp fallback');
       });
     });
 
-    test('the phone-clock deferral still beats the drift gate', () {
+    test('the phone-clock deferral now FAILS the connection instead of '
+        'skipping the clock contract', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
-        // A plausible strap RTC two days AHEAD of us: the phone is the suspect
-        // party, and the read is too far out to be correlated — so the drift is
-        // null and the gate alone would write. The deferral must win.
+        // A plausible strap RTC two days AHEAD of us: the phone is the
+        // suspect party. Writing its clock onto the strap would corrupt a
+        // plausible RTC — but READY without a completed clock contract is not
+        // allowed either, so the connection fails and the reconnect owner
+        // retries until the phone corrects itself.
         link.replyTo = (seq, op) => op == Cmd.getHello
             ? _helloReply(seq, tsSeconds: _wallNow() + 2 * 86400)
             : null;
-        expect(_runBootstrap(link, async), isTrue);
+        expect(_runBootstrap(link, async), isFalse);
 
-        expect(BootstrapClockGate.needsCorrection(null), isTrue,
-            reason: 'the gate would have written…');
-        expect(link.count(Cmd.setClock), 0, reason: '…and must not have');
+        expect(link.count(Cmd.setClock), 0,
+            reason: 'the suspect phone clock is never written to the strap');
+        expect(link.count(Cmd.getCustomAdvertisingName), 0,
+            reason: 'the sequence stops at the failed clock step');
         expect(link.engine.historyPausedForClock, isTrue);
+        expect(link.logged('no READY without the clock contract'), isTrue);
       });
     });
 
@@ -888,9 +1031,12 @@ void _bootstrap() {
     test('gen5 sends it last, after the clock step', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
-        link.replyTo = (seq, op) => op == Cmd.getHello
-            ? _helloReply(seq, tsSeconds: _wallNow() - 3)
-            : null;
+        link.replyTo = (seq, op) => switch (op) {
+              Cmd.getHello => _helloReply(seq, tsSeconds: _wallNow() - 3),
+              Cmd.setClock => _clockAck(seq),
+              Cmd.getCustomAdvertisingName => _nameReply(seq),
+              _ => null,
+            };
         expect(_runBootstrap(link, async), isTrue);
 
         expect(link.opcodes.last, Cmd.getCustomAdvertisingName);
@@ -899,20 +1045,25 @@ void _bootstrap() {
       });
     });
 
-    test('an unanswered name read does not fail setup', () {
+    test('an unanswered name read is AWAITED but does not fail setup', () {
       fakeAsync((async) {
         final link = _BootstrapLink();
         link.replyTo = (seq, op) => op == Cmd.getHello
             ? _helloReply(seq, tsSeconds: _wallNow())
             : null;
         // Nothing ever answers opcode 141 here.
-        expect(_runBootstrap(link, async), isTrue,
+        bool? ok;
+        link.engine.debugBootstrapAfterRegistration().then((v) => ok = v);
+        async.elapse(const Duration(seconds: 4));
+        expect(ok, isNull,
+            reason: 'the sequence COMPLETES the 5 s await before READY — an '
+                'unanswered read holds the bootstrap open until its timeout');
+        async.elapse(const Duration(seconds: 3));
+        expect(ok, isTrue,
             reason: 'the response content and result are NOT a '
                 'readiness gate');
-        async.elapse(const Duration(seconds: 6));
         expect(link.logged('GET_ADVERTISING_NAME went unanswered'), isTrue);
-        expect(link.engine.pendingCommandCount, 0,
-            reason: 'the unawaited response is still consumed');
+        expect(link.engine.pendingCommandCount, 0);
       });
     });
 
@@ -927,8 +1078,10 @@ void _bootstrap() {
   });
 
   group('T11 — the charging follow-up, opcode 151', () {
-    /// Bootstrap a gen5 link whose hello reports [charging], answering
-    /// GET_BATTERY_PACK_INFO with [packAddress] when one is given.
+    /// Run the FULL official connect (through READY) for a gen5 link whose
+    /// hello reports [charging], answering GET_BATTERY_PACK_INFO with
+    /// [packAddress] when one is given. The follow-up launches at READY, so
+    /// only the full path can exercise it.
     _BootstrapLink chargingRig(
       FakeAsync async, {
       required bool charging,
@@ -940,12 +1093,15 @@ void _bootstrap() {
         if (op == Cmd.getHello) {
           return _helloReply(seq, tsSeconds: _wallNow(), charging: charging);
         }
+        if (op == Cmd.getCustomAdvertisingName) return _nameReply(seq);
         if (op == Cmd.getBatteryPackInfo && packAddress != null) {
           return _packReply(seq, address: packAddress, name: packName);
         }
         return null;
       };
-      expect(_runBootstrap(link, async), isTrue,
+      expect(
+          _runOfficial(link, async, elapse: const Duration(seconds: 2)),
+          isTrue,
           reason: 'the follow-up never blocks READY');
       return link;
     }
@@ -981,12 +1137,22 @@ void _bootstrap() {
       });
     });
 
-    test('a charging band is asked five times, five seconds apart', () {
+    test('a charging band is asked five times, five seconds apart — strictly '
+        'after READY', () {
       fakeAsync((async) {
         final link =
             chargingRig(async, charging: true, packAddress: '00:00:00:00:00:00');
         expect(link.count(Cmd.getBatteryPackInfo), 1);
-        expect(link.commands.last.body.first, revision1,
+        expect(link.trace.indexOf('ready'),
+            lessThan(link.trace.indexOf('cmd:${Cmd.getBatteryPackInfo}')),
+            reason: 'the first possible opcode-151 operation is strictly '
+                'after the READY transition');
+        expect(
+            link.commands
+                .lastWhere((c) => c.opcode == Cmd.getBatteryPackInfo)
+                .body
+                .first,
+            revision1,
             reason: 'body 01');
 
         for (var expected = 2; expected <= 5; expected++) {

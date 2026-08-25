@@ -3810,18 +3810,30 @@ class BleEngine {
     session.subs.add(
       c.onValueReceived.listen((chunk) {
         if (_session != session || !session.connected) return;
-        // Real inbound traffic on this link — it proves liveness the same as
-        // any other notification, so the staleness/watchdog clock advances.
-        _lastRx = DateTime.now();
-        _memfaultChunks++;
-        _memfaultBytesTotal += chunk.length;
-        if (_memfaultChunks == 1) {
-          _log('[MEMFAULT] strap volunteered its first crash/diagnostic '
-              'chunk (${chunk.length} B) — collected only.');
-        }
+        _onMemfaultChunk(chunk);
       }),
     );
   }
+
+  /// The ONE Memfault accounting path — the notification listener above and
+  /// the test seam both land here, so the liveness stamp and the counters
+  /// cannot drift apart. A chunk is real inbound traffic on this link: it
+  /// proves liveness the same as any other notification, so the
+  /// staleness/watchdog clock advances.
+  void _onMemfaultChunk(List<int> chunk) {
+    _lastRx = DateTime.now();
+    _memfaultChunks++;
+    _memfaultBytesTotal += chunk.length;
+    if (_memfaultChunks == 1) {
+      _log('[MEMFAULT] strap volunteered its first crash/diagnostic '
+          'chunk (${chunk.length} B) — collected only.');
+    }
+  }
+
+  /// Feed one Memfault chunk through the real accounting path — the liveness
+  /// stamp and counters live behind a radio otherwise.
+  @visibleForTesting
+  void debugIngestMemfaultChunk(List<int> chunk) => _onMemfaultChunk(chunk);
 
   /// Memfault (0007) traffic counters — diagnostics only.
   int _memfaultChunks = 0;

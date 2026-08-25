@@ -440,6 +440,23 @@ void main() {
           reason: 'one write, no resend on a FAILURE result',
         );
         expect(
+          rig.count(Cmd.getClock),
+          0,
+          reason:
+              'no read-back and no fallback — the FAILURE result changes '
+              'nothing about the no-GET_CLOCK rule',
+        );
+        // The sequence holds around the failed-but-answered write:
+        // SET_CLOCK → advertising name → READY.
+        expect(
+          rig.trace.indexOf('cmd:${Cmd.setClock}'),
+          lessThan(rig.trace.indexOf('cmd:${Cmd.getCustomAdvertisingName}')),
+        );
+        expect(
+          rig.trace.indexOf('cmd:${Cmd.getCustomAdvertisingName}'),
+          lessThan(rig.trace.indexOf('ready')),
+        );
+        expect(
           rig.engine.historyPausedForClock,
           isTrue,
           reason:
@@ -906,6 +923,32 @@ void main() {
         expect(rig.ready, isTrue);
         expect(rig.logged('not required; setup continues'), isTrue);
       });
+    });
+
+    test('a Memfault chunk counts as LIVENESS and lands in the counters', () {
+      // Through the same _onMemfaultChunk the real notification listener
+      // uses — a strap volunteering crash data must not look silent to the
+      // staleness fuse, or a quiet-but-alive link gets bounced.
+      final rig = _Rig();
+      expect(
+        rig.engine.sinceLastRx.inDays,
+        greaterThan(365),
+        reason: 'a fresh engine has never received anything',
+      );
+
+      rig.engine.debugIngestMemfaultChunk(const [1, 2, 3]);
+      expect(
+        rig.engine.sinceLastRx.inSeconds,
+        lessThan(5),
+        reason: 'the chunk advanced the liveness clock',
+      );
+      expect(rig.engine.offloadSnapshot['memfault_chunks'], 1);
+      expect(rig.engine.offloadSnapshot['memfault_bytes'], 3);
+      expect(rig.logged('collected only'), isTrue);
+
+      rig.engine.debugIngestMemfaultChunk(const [4, 5]);
+      expect(rig.engine.offloadSnapshot['memfault_chunks'], 2);
+      expect(rig.engine.offloadSnapshot['memfault_bytes'], 5);
     });
   });
 

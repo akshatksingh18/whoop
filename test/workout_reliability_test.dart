@@ -129,6 +129,75 @@ void main() {
             reason: 'and it must drain once the session ends, not be dropped');
       },
     );
+
+    test(
+      'the hold is time-capped — a forgotten workout cannot park work forever',
+      () async {
+        // The reported bug: start a workout, forget it, and Home spends the
+        // rest of the day on "Nothing recorded for today — Sync the band"
+        // while the strap is connected and syncing fine. The sync was never
+        // the problem: every derive job it queued was parked behind a hold
+        // whose design assumed "a workout is minutes long".
+        var cappedRuns = 0;
+        final capped = DeriveScheduler(
+          run: ({required DeriveJobKind kind}) async => cappedRuns++,
+          log: logs.add,
+          onChanged: () {},
+          lightSettle: const Duration(milliseconds: 10),
+          heavySettle: const Duration(milliseconds: 10),
+          workoutHoldCap: const Duration(milliseconds: 150),
+        );
+        addTearDown(capped.dispose);
+
+        capped.setWorkoutActive(true);
+        capped.markStoredData();
+        await _until(() => capped.snapshot()['pending_light'] == true);
+        expect(cappedRuns, 0,
+            reason: 'inside the cap the hold works exactly as before');
+
+        // The workout is never ended. The cap alone must release the work.
+        await _until(() => cappedRuns == 1);
+        expect(cappedRuns, 1,
+            reason: 'past the cap the queued job must run — the workout is '
+                'forgotten, not in progress');
+
+        // And work arriving AFTER expiry runs too: the pipeline is unwedged
+        // for the rest of the session, not for one job.
+        capped.markStoredData();
+        await _until(() => cappedRuns == 2);
+        expect(cappedRuns, 2);
+      },
+    );
+
+    test('ending a workout re-arms the cap for the next session', () async {
+      var cappedRuns = 0;
+      final capped = DeriveScheduler(
+        run: ({required DeriveJobKind kind}) async => cappedRuns++,
+        log: logs.add,
+        onChanged: () {},
+        lightSettle: const Duration(milliseconds: 10),
+        heavySettle: const Duration(milliseconds: 10),
+        workoutHoldCap: const Duration(milliseconds: 150),
+      );
+      addTearDown(capped.dispose);
+
+      // Let one session expire its cap…
+      capped.setWorkoutActive(true);
+      capped.markStoredData();
+      await _until(() => cappedRuns == 1);
+      capped.setWorkoutActive(false);
+
+      // …then a NEW session must hold again from scratch. An expiry that
+      // survived the release would make the gate one-shot per launch.
+      capped.setWorkoutActive(true);
+      capped.markStoredData();
+      await _until(() => capped.snapshot()['pending_light'] == true);
+      expect(cappedRuns, 1,
+          reason: 'a fresh session holds again — the expiry must not stick');
+      capped.setWorkoutActive(false);
+      await _until(() => cappedRuns == 2);
+      expect(cappedRuns, 2);
+    });
   });
 
   group('requeueComputeJob (the post-claim gate race)', () {

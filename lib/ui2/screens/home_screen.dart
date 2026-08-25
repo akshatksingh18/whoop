@@ -114,6 +114,18 @@ DbRebuild? dbRebuildOf(BuildContext c) {
   }
 }
 
+/// Whether a live workout is open, or false in a golden. `select`, not
+/// `watch`: AppState ticks at ~1 Hz while a session is live, and this screen
+/// only cares about the bool flipping. The bare-day card branches on it — see
+/// [workoutHoldCard].
+bool workoutLiveOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.activeWorkout != null);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Read a metric envelope. `_scalarMetric` writes the literal string `'—'` for
 /// an absent value, so this must never be replaced by `map['value'] as num`.
 Metric metricOf(Object? raw) => Metric.parse(raw);
@@ -360,6 +372,21 @@ StatusCard? dbRebuiltCard(DbRebuild? r) {
     icon: LucideIcons.databaseBackup,
   );
 }
+
+/// The bare day during a live workout — missing COMPUTE, not data. A live
+/// session holds derivation (`DeriveScheduler.setWorkoutActive`), so nothing
+/// lands in `day_result` until it ends: the band keeps recording, the sync
+/// keeps landing records, and "Sync the band" is a false answer — the sync
+/// completes and changes nothing on this screen. The true remedy is finishing
+/// the session, and its bar is pinned right below this card, so the card
+/// points there rather than duplicating the door.
+StatusCard workoutHoldCard() => const StatusCard(
+      'A workout is still running',
+      'Today is on hold while a workout is live: the band keeps recording, '
+      'but the numbers are computed once the session ends. Finish the workout '
+      'from the bar below and today fills in — syncing will not.',
+      icon: LucideIcons.timer,
+    );
 
 StatusCard? staleInsightsCard(
     Map<String, dynamic>? reason, VoidCallback? onSync) {
@@ -1071,7 +1098,11 @@ class HomeScreen extends StatefulWidget {
   /// noise that trains you to regenerate without looking.
   final int? hour;
 
-  const HomeScreen({super.key, this.data, this.hour});
+  /// Whether a workout is live, injected only by tests/goldens — production
+  /// reads it off AppState via [workoutLiveOf].
+  final bool? workoutLive;
+
+  const HomeScreen({super.key, this.data, this.hour, this.workoutLive});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1270,18 +1301,22 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       ),
 
       if (bare)
-        StatusCard(
-          d.heldOverNight == null
-              ? 'Nothing derived yet'
-              : 'Nothing recorded for today',
-          d.heldOverNight == null
-              ? 'No band recordings processed yet.'
-              : 'The last night this app scored was '
-                  '${prettyDay(d.heldOverNight)}. Nothing has reached it since.',
-          fix: syncOf(c) == null ? '' : 'Sync the band',
-          icon: LucideIcons.watch,
-          onFix: syncOf(c),
-        )
+        // A live workout holds derivation, so a bare day with a session open
+        // is the hold at work, not a sync problem — see [workoutHoldCard].
+        (widget.workoutLive ?? workoutLiveOf(c))
+            ? workoutHoldCard()
+            : StatusCard(
+                d.heldOverNight == null
+                    ? 'Nothing derived yet'
+                    : 'Nothing recorded for today',
+                d.heldOverNight == null
+                    ? 'No band recordings processed yet.'
+                    : 'The last night this app scored was '
+                        '${prettyDay(d.heldOverNight)}. Nothing has reached it since.',
+                fix: syncOf(c) == null ? '' : 'Sync the band',
+                icon: LucideIcons.watch,
+                onFix: syncOf(c),
+              )
       else ...[
         // ── the three rings ──
         //

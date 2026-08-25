@@ -1,6 +1,7 @@
 package wtf.openstrap.openstrap_edge
 
 import android.app.ActivityManager
+import android.bluetooth.BluetoothManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -33,6 +34,7 @@ object NativeChannels {
     private const val EDGE_TRACKING_CHANNEL = "openstrap/edge_tracking"
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
+    private const val BLE_NATIVE_CHANNEL = "openstrap/ble_native"
     const val TASKER_CHANNEL = "openstrap/tasker"
     const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
@@ -122,6 +124,36 @@ object NativeChannels {
                             prefs.edit().putBoolean("pending_headless_boot", false).apply()
                         }
                         result.success(eligible)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Native Bluetooth reads flutter_blue_plus cannot answer. The one
+        // method here backs the gen5 readiness gate: it must read the
+        // platform `BluetoothDevice.getName()` (bond/stack-backed), not the
+        // plugin's in-memory platformName cache, which is empty for a device
+        // rebuilt from its id on a cold start. See lib/ble/android_native_name.dart.
+        MethodChannel(engine.dartExecutor.binaryMessenger, BLE_NATIVE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "remoteDeviceName" -> {
+                        val mac = call.arguments as? String
+                        if (mac.isNullOrEmpty()) {
+                            result.error("bad_args", "expected the remote MAC", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val mgr = app.getSystemService(Context.BLUETOOTH_SERVICE)
+                                as? BluetoothManager
+                            // getName() needs BLUETOOTH_CONNECT on API 31+ (held —
+                            // every GATT op needs it too); a SecurityException or an
+                            // invalid MAC lands in the catch and reaches Dart as an
+                            // error, which the gate reads as "no name".
+                            result.success(mgr?.adapter?.getRemoteDevice(mac)?.name)
+                        } catch (e: Exception) {
+                            result.error("name_unavailable", e.toString(), null)
+                        }
                     }
                     else -> result.notImplemented()
                 }

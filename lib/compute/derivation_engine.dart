@@ -50,6 +50,7 @@ import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
+import 'step_cadence.dart';
 import 'profile.dart';
 import 'substrate.dart';
 
@@ -1287,7 +1288,28 @@ import 'substrate.dart';
 // imported this is a strict no-op: the set is empty and every read is unchanged.
 // Days already finalized keep the score they were derived with — raw is pruned,
 // so no bump can heal them.
-const int kAlgoVersion = 76;
+// v77 — WALKING FINALLY PRICES INTO ACTIVE ENERGY (issue: "Walking calories
+// are not counted"). MOT-02's HR-flex gate deliberately bills nothing below
+// the ACSM moderate floor — right for HR (Keytel has no fitted data there),
+// but it left a one-hour walk at 95 bpm adding ZERO active kcal while its
+// steps counted fine. MT-05 established the 1 Hz accel cannot fill that gap;
+// measured CADENCE can. `Calories.dailyEnergy` (analytics, CADENCE-Adults:
+// 100/110/120/130 spm ↔ 3/4/5/6 METs) now prices sub-gate minutes whose
+// measured cadence clears the study's own moderate floor, at (MET−1)
+// basal-minutes of surplus. Edge feeds it the day's resolved `live_coverage`
+// spans through ONE mapping (`cadenceSpmForMinutes`) from BOTH energy passes
+// — the coordinator's canonical `wakeDayEnergy` and the pipeline's early-read
+// mirror — so the two bill a walk identically. A minute the HR gate accepts
+// still bills by HR alone (never both), an unmeasured minute stays basal, and
+// a day with no pedometer coverage is byte-identical to v76. The TDEE block
+// discloses the term (`live_coverage_pedometer` in inputs_used + the walking
+// kcal in the note) only on days it actually priced something.
+//
+// PIN GATE (invariant #5): this bump cites the analytics walking term
+// (OpenStrap/analytics#52). Do not release with a pubspec pin that predates
+// that merge — the bump would recompute every day against a sibling that
+// cannot price walking, burning the version on nothing.
+const int kAlgoVersion = 77;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -3190,10 +3212,20 @@ class DerivationEngine {
     // (NREM split into Light/Deep via the LOW-CONFIDENCE HR-depth overlay); we
     // pass it through verbatim so the UI can render Light vs Deep. Fall back to
     // the 3-class enum (light = plain NREM) only if stages4 is unexpectedly empty.
+    // Resolved PER WINDOW, not per day: each span of the day goes to the best
+    // source that actually covered it. Read HERE — before the pipeline input
+    // is built — because BOTH energy passes price walking off these spans:
+    // the pipeline's early-read mirror below and the second-half
+    // `applyDayActivity`. One read, one span list, or the two figures drift.
+    final liveSteps = await LocalDb.resolvedStepsForDay(day.date);
+    final stepSpans = [
+      for (final s in liveSteps.spans) [s.startTs, s.endTs, s.steps],
+    ];
     final input = DayBundleInput(
       date: day.date,
       dayTsSec: daySub.tsSec,
       dayHr: daySub.hr,
+      stepSpans: stepSpans,
       dayRrTsMs: daySub.rrTsMs,
       dayRrMs: daySub.rrMs,
       sleepTsSec: sleepSub.tsSec,
@@ -3357,10 +3389,9 @@ class DerivationEngine {
     try {
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-      // Resolved PER WINDOW, not per day: each span of the day goes to the best
-      // source that actually covered it. `.strap` is carried alongside the
-      // total so the bundle can name the sensor that counted.
-      final liveSteps = await LocalDb.resolvedStepsForDay(day.date);
+      // `liveSteps`/`stepSpans` were read above, before the pipeline input —
+      // one resolution serves both energy passes. `.strap` is carried
+      // alongside the total so the bundle can name the sensor that counted.
       final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
       // Off-wrist / charging spans over the NAP window (which runs past this
@@ -3441,6 +3472,10 @@ class DerivationEngine {
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
         liveStepsReal: liveSteps.total,
         liveStepsFromStrap: liveSteps.strap,
+        // The same resolution's credited spans, so the walking-cadence term
+        // prices exactly the steps the day's total already counted — never a
+        // raw row the ladder took back.
+        stepSpans: stepSpans,
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
         savedSessions: savedSessions,
@@ -4613,7 +4648,10 @@ class DerivationEngine {
     }
   }
 
-  static List<double> _perMinuteMeanWake(
+  /// The wake-minute series WITH its bucket keys (epoch-seconds ~/ 60), so a
+  /// per-minute companion series (the measured cadence) can be aligned to the
+  /// same minutes instead of guessed from array position.
+  static ({List<int> keys, List<double> hr}) _perMinuteMeanWake(
     Substrate s,
     int sleepOnsetSec,
     int sleepOffsetSec,
@@ -4630,7 +4668,7 @@ class DerivationEngine {
       (buckets[t ~/ 60] ??= []).add(s.hr[i].toDouble());
     }
     final keys = buckets.keys.toList()..sort();
-    return [for (final k in keys) _meanWake(buckets[k]!)!];
+    return (keys: keys, hr: [for (final k in keys) _meanWake(buckets[k]!)!]);
   }
 
   static Map<String, int> _wakeZoneMinutes(
@@ -4706,12 +4744,14 @@ class DerivationEngine {
   /// The 1 Hz pipeline's early-read `calories` gates on height for the same
   /// reason, so Today does not show a figure the derived day then withdraws.
   @visibleForTesting
-  static ({double active, double basal, double total})? wakeDayEnergy(
+  static ({double active, double basal, double total, double walking})?
+      wakeDayEnergy(
     List<double> wakeHrPerMin, {
     required Profile profile,
     required double? restingHr,
     int? dayMinutes,
     String? deviceFamily,
+    List<double?>? cadenceSpmPerMin,
   }) {
     if (!profile.hasCalorieAnchors) return null;
     // The active gate is a %HRR flex point, so it needs BOTH ends of the
@@ -4726,11 +4766,23 @@ class DerivationEngine {
     final heightCm = profile.heightCm;
     if (heightCm == null) return null;
     // Off-skin samples are the package's 0 sentinel; billing them would credit
-    // lost contact at the resting rate.
-    final hr = <double>[
-      for (final h in wakeHrPerMin)
-        if (h > 0) h,
-    ];
+    // lost contact at the resting rate. The cadence series is filtered in the
+    // SAME pass: `dailyEnergy` aligns the two by index, so dropping an HR
+    // entry without dropping its cadence would price every later cadence
+    // against the wrong minute.
+    if (cadenceSpmPerMin != null &&
+        cadenceSpmPerMin.length != wakeHrPerMin.length) {
+      // A caller bug, but a derive pass is not the place to throw: no cadence
+      // beats a misaligned one, and the HR half of the figure is still real.
+      cadenceSpmPerMin = null;
+    }
+    final hr = <double>[];
+    final cadence = cadenceSpmPerMin == null ? null : <double?>[];
+    for (var i = 0; i < wakeHrPerMin.length; i++) {
+      if (wakeHrPerMin[i] <= 0) continue;
+      hr.add(wakeHrPerMin[i]);
+      cadence?.add(cadenceSpmPerMin?[i]);
+    }
     if (hr.isEmpty) return null;
     final e = ana.Calories.dailyEnergy(
       hr,
@@ -4743,12 +4795,18 @@ class DerivationEngine {
       hrmax: hrmax,
       restingHr: restingHr,
       dayMinutes: dayMinutes ?? 1440,
+      cadenceSpmPerMin: cadence,
     );
     // Anchors that cannot define an active gate are an ABSENT day's energy,
     // not a day billed entirely as active. `dailyEnergy` abstains; so does the
     // day, which is what every other caller of this method already expects.
     if (e == null) return null;
-    return (active: e.active, basal: e.basal, total: e.total);
+    return (
+      active: e.active,
+      basal: e.basal,
+      total: e.total,
+      walking: e.walking,
+    );
   }
 
   static double? _meanWake(List<double> xs) {
@@ -4792,6 +4850,7 @@ class DerivationEngine {
     int liveStepsReal = 0,
     int liveStepsFromStrap = 0,
     int dynHistoryDays = 0,
+    List<List<int>> stepSpans = const [],
   }) {
     final wake = _buildWakeDayFeatures(
       daySub,
@@ -4803,6 +4862,7 @@ class DerivationEngine {
       dataNowSec: dataNowSec,
       restingHr: restingHr,
       dynFloorG: dynFloorG,
+      stepSpans: stepSpans,
     );
     _applyWakeDayFeatures(bundle, scalars, wake);
     _stepsAndEnergy(
@@ -4868,15 +4928,25 @@ class DerivationEngine {
     // for nothing.
     final caloriesBasal = (wake['calories_basal'] as num?)?.toDouble();
     if (caloriesTotal != null && calories != null && caloriesBasal != null) {
+      // Disclosed only when it actually priced something: an input listed on a
+      // day it contributed nothing to would claim pedometer coverage the day
+      // may not have.
+      final walking = (wake['calories_walking'] as num?)?.toDouble() ?? 0.0;
       bundle['calories_total'] = <String, dynamic>{
         'value': caloriesTotal.round(),
         'active': calories.round(),
         'basal': caloriesBasal.round(),
         'confidence': 0.5,
         'tier': 'ESTIMATE',
-        'inputs_used': const ['hr_1hz', 'profile'],
+        'inputs_used': [
+          'hr_1hz',
+          'profile',
+          if (walking > 0) 'live_coverage_pedometer',
+        ],
         'note': 'total daily energy: Mifflin BMR floor over the covered day + '
-            'active Keytel surplus over the wake span (HR-flex)',
+            'active Keytel surplus over the wake span (HR-flex)'
+            '${walking > 0 ? ' + measured-cadence walking term '
+                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}',
       };
     }
     // WHY each of the above is absent, per figure. This recompute is the answer
@@ -5272,6 +5342,7 @@ class DerivationEngine {
     required int dataNowSec,
     double? restingHr,
     double? dynFloorG,
+    List<List<int>> stepSpans = const [],
   }) {
     final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
     final wear = _wearBlock(
@@ -5280,7 +5351,16 @@ class DerivationEngine {
       dayCalendarEndSec: dayCalendarEndSec,
       dataNowSec: dataNowSec,
     );
-    final perMin = _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
+    final wakeSeries =
+        _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
+    final perMin = wakeSeries.hr;
+    // The day's MEASURED walking cadence, minute-aligned to the same wake
+    // buckets — from the resolved `live_coverage` spans, so band/phone overlap
+    // is already settled and a step is never priced twice. Null minutes are
+    // exactly the minutes nobody's pedometer covered.
+    final wakeCadence = stepSpans.isEmpty
+        ? null
+        : cadenceSpmForMinutes(wakeSeries.keys, stepSpans);
     final motion = _motionMinutes(daySub);
     final dayHrValid = <double>[
       for (final h in daySub.hr)
@@ -5358,6 +5438,7 @@ class DerivationEngine {
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
     double? caloriesTotal;
+    double? caloriesWalking;
     double? caloriesBasal;
     Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
@@ -5449,11 +5530,13 @@ class DerivationEngine {
         restingHr: rhrForTrimp,
         dayMinutes: motion.length,
         deviceFamily: daySub.deviceFamily,
+        cadenceSpmPerMin: wakeCadence,
       );
       if (energy != null) {
         calories = energy.active;
         caloriesTotal = energy.total;
         caloriesBasal = energy.basal;
+        caloriesWalking = energy.walking;
       }
     }
     // Same peak, same smoothing as the pipeline's copy and as every workout
@@ -5500,6 +5583,11 @@ class DerivationEngine {
       // export derives basal as `calories_total - calories`, and this is here to
       // make sure that subtraction and this figure are the same number.
       'calories_basal': caloriesBasal,
+      // How much of `calories` came from the measured-cadence walking term
+      // rather than HR (0 when no pedometer coverage priced anything). Carried
+      // for the TDEE block's disclosure — a figure whose provenance changed
+      // must say so in `inputs_used`.
+      'calories_walking': caloriesWalking,
       'wear_min': (wear['worn_min'] as num?)?.toDouble(),
       'activity': {
         'value': activeMin,
@@ -6737,6 +6825,7 @@ class DerivationEngine {
       liveStepsReal: inp.liveStepsReal,
       liveStepsFromStrap: inp.liveStepsFromStrap,
       dynHistoryDays: inp.dynHistoryDays,
+      stepSpans: inp.stepSpans,
     );
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
@@ -7435,6 +7524,12 @@ class _DayBlocksInput {
   /// isolate, which has no handle.
   final int liveStepsFromStrap;
 
+  /// The SAME resolution's credited spans, as `[startSec, endSec, steps]` —
+  /// the walking-cadence energy term prices wake minutes off these (see
+  /// `cadenceSpmForMinutes`). Credited, never raw rows, so a step the ladder
+  /// took back off a span cannot be priced here either.
+  final List<List<int>> stepSpans;
+
   /// PERSONAL ambulatory floor (g, dynAmp units) from trailing days, or null
   /// when there isn't enough history yet — in which case the 1 Hz estimator
   /// abstains rather than falling back to a constant. Computed on the main
@@ -7486,6 +7581,7 @@ class _DayBlocksInput {
     required this.maxHrUsed,
     required this.liveStepsReal,
     this.liveStepsFromStrap = 0,
+    this.stepSpans = const [],
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,

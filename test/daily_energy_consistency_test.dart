@@ -96,6 +96,62 @@ void main() {
       expect(e.total, closeTo(_bmrDay, 0.5));
     });
 
+    group('walking cadence term (the "Walking calories are not counted" bug)',
+        () {
+      // One hour of walking at 95 bpm — below the flex gate, so HR-flex bills
+      // nothing for it. With the hour's measured cadence passed alongside, the
+      // walk finally prices: 110 spm is 4 METs (CADENCE-Adults), a surplus of
+      // (4−1) basal-minutes per minute.
+      final walkHr = <double>[
+        for (var i = 0; i < 60; i++) 95.0,
+        for (var i = 0; i < 1380; i++) 55.0,
+      ];
+      final walkCad = <double?>[
+        for (var i = 0; i < 60; i++) 110.0,
+        for (var i = 0; i < 1380; i++) null,
+      ];
+
+      test('a below-gate walk with measured cadence bills into active', () {
+        final without = DerivationEngine.wakeDayEnergy(walkHr,
+            profile: _profile, restingHr: 55, deviceFamily: 'gen4')!;
+        expect(without.active, 0.0,
+            reason: 'the reported bug: the walk adds nothing');
+
+        final e = DerivationEngine.wakeDayEnergy(walkHr,
+            profile: _profile,
+            restingHr: 55,
+            deviceFamily: 'gen4',
+            cadenceSpmPerMin: walkCad)!;
+        expect(e.active, closeTo(60 * 3 * _basalPerMin, 0.5));
+        expect(e.walking, closeTo(e.active, 1e-9));
+      });
+
+      test('the Health-export invariant survives the walking term', () {
+        final e = DerivationEngine.wakeDayEnergy(walkHr,
+            profile: _profile,
+            restingHr: 55,
+            deviceFamily: 'gen4',
+            cadenceSpmPerMin: walkCad)!;
+        expect(e.total - e.active, closeTo(e.basal, 0.001));
+      });
+
+      test('cadence stays aligned across the off-skin filter', () {
+        // wakeDayEnergy drops non-positive HR entries before handing the
+        // series to analytics. If the cadence list were not filtered in the
+        // same pass, every entry after a dropped one would price the WRONG
+        // minute. Here the walk sits after an off-skin entry: misalignment
+        // would move its cadence onto resting minutes and change the figure.
+        final hr = <double>[0.0, ...walkHr];
+        final cad = <double?>[null, ...walkCad];
+        final e = DerivationEngine.wakeDayEnergy(hr,
+            profile: _profile,
+            restingHr: 55,
+            deviceFamily: 'gen4',
+            cadenceSpmPerMin: cad)!;
+        expect(e.walking, closeTo(60 * 3 * _basalPerMin, 0.5));
+      });
+    });
+
     test('abstains when the profile lacks a Keytel anchor', () {
       // Matches Profile.hasCalorieAnchors: age, body mass and sex. Absent beats
       // fabricated — the engine must not fall back to a stand-in body.

@@ -108,18 +108,23 @@ class PairedDevice {
       tier: kBandSourceTier,
     );
     final prefs = await SharedPreferences.getInstance();
+    // A stored generation belongs to a DEVICE. Keep it only when this save is
+    // for the same remoteId and merely doesn't know the generation (most save
+    // sites only carry the serial); pairing a DIFFERENT band must never
+    // inherit the old band's generation — that would route its first connect
+    // by the wrong device's identity.
+    final sameDevice = prefs.getString(_kRemoteId) == remoteId;
     await prefs.setString(_kRemoteId, remoteId);
     if (clean != null) {
       await prefs.setString(_kSerial, clean);
     } else {
       await prefs.remove(_kSerial); // never persist junk
     }
-    // Keep the stored generation when a caller doesn't know it — most save
-    // sites only carry the serial, and a null here must not forget a pinned
-    // generation (that would demote the next reconnect to the legacy order).
     final gen = _cleanGeneration(generation);
     if (gen != null) {
       await prefs.setString(_kGeneration, gen);
+    } else if (!sameDevice) {
+      await prefs.remove(_kGeneration);
     }
   }
 

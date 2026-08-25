@@ -1,5 +1,7 @@
 package wtf.openstrap.openstrap_edge
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.bluetooth.BluetoothManager
 import android.content.ComponentName
@@ -141,18 +143,8 @@ object NativeChannels {
                         val mac = call.arguments as? String
                         if (mac.isNullOrEmpty()) {
                             result.error("bad_args", "expected the remote MAC", null)
-                            return@setMethodCallHandler
-                        }
-                        try {
-                            val mgr = app.getSystemService(Context.BLUETOOTH_SERVICE)
-                                as? BluetoothManager
-                            // getName() needs BLUETOOTH_CONNECT on API 31+ (held —
-                            // every GATT op needs it too); a SecurityException or an
-                            // invalid MAC lands in the catch and reaches Dart as an
-                            // error, which the gate reads as "no name".
-                            result.success(mgr?.adapter?.getRemoteDevice(mac)?.name)
-                        } catch (e: Exception) {
-                            result.error("name_unavailable", e.toString(), null)
+                        } else {
+                            remoteDeviceName(app, mac, result)
                         }
                     }
                     else -> result.notImplemented()
@@ -298,6 +290,33 @@ object NativeChannels {
         val token = java.util.UUID.randomUUID().toString().replace("-", "")
         prefs.edit().putString(TASKER_TOKEN_KEY, token).apply()
         return token
+    }
+
+    /**
+     * The platform `BluetoothDevice.getName()` read behind the gen5 readiness
+     * gate. `getName()` needs BLUETOOTH_CONNECT on API 31+ — the same runtime
+     * permission every GATT operation already holds by the time a link is
+     * connected, checked explicitly here so a revoked grant answers as a clean
+     * error instead of a SecurityException. Lint cannot see that check through
+     * the early return, hence the targeted suppression; the belt-and-braces
+     * catch still turns any surprise (invalid MAC, no adapter) into the same
+     * error, which Dart reads as "no name" — the gate's failing value.
+     */
+    @SuppressLint("MissingPermission")
+    private fun remoteDeviceName(app: Context, mac: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            result.error("name_unavailable", "BLUETOOTH_CONNECT not granted", null)
+            return
+        }
+        try {
+            val mgr = app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            result.success(mgr?.adapter?.getRemoteDevice(mac)?.name)
+        } catch (e: Exception) {
+            result.error("name_unavailable", e.toString(), null)
+        }
     }
 
     private fun perform(ctx: Context, action: String): Boolean {

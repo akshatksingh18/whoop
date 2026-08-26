@@ -874,7 +874,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: NavBar(
               a.name,
               sub: _shortDate(r.start).toUpperCase(),
-              trailingWidth: S.tap * 2,
+              // Two icons, each a Pressable with S.tap's own 44 pt minimum
+              // hit box (grammar.dart's accessibility floor, not optional) —
+              // S.tap * 2 alone is 12 pt short of that plus the gap between
+              // them, which is exactly the RenderFlex overflow this fixed.
+              trailingWidth: S.tap * 2 + S.x3,
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 // Only a saved session has an id to correct — a draft on
                 // screen because the write threw has nowhere to put it.

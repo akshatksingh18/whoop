@@ -384,6 +384,25 @@ void main() {
       await t.pumpWidget(frame(const HomeData(dayId: '2026-05-20')));
       expect(find.text('Nothing derived yet'), findsOneWidget);
     });
+
+    // A bare day during a live workout is missing COMPUTE, not data: the
+    // session holds derivation (DeriveScheduler.setWorkoutActive), so "sync
+    // the band" is a false answer — the sync completes and changes nothing.
+    // The card must name the workout instead.
+    testWidgets('a bare day during a live workout blames the workout, not sync',
+        (t) async {
+      await t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: const Scaffold(
+              body: HomeScreen(
+                  data: HomeData(
+                      dayId: '2026-05-20', heldOverNight: '2026-05-16'),
+                  hour: 20,
+                  workoutLive: true))));
+      expect(find.text('A workout is still running'), findsOneWidget);
+      expect(find.text('Nothing recorded for today'), findsNothing);
+      expect(find.text('Sync the band'), findsNothing);
+    });
   });
 
   // ── the one observation Home is allowed to make ──

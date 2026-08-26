@@ -41,6 +41,19 @@ import AccessorySetupKit
 enum AccessorySetup {
   private static let channelName = "openstrap/accessory_setup"
 
+  // Extra gen5-only fallback match criteria, layered on top of the
+  // registry-driven items below. We do not yet know (no nRF Connect capture)
+  // whether fd4b0001-… is in the primary advertisement or only the scan
+  // response, so these two give gen5 a second and third chance to match: the
+  // 16-bit SIG member UUID 0xFD4B (what still fits a 31-byte AD) and a name
+  // substring (`WHOOP MGB…` / `WHOOP 5A…`, survives even if iOS hashes the
+  // 128-bit UUID into the overflow area). `fileprivate` so Impl can read them.
+  // Every criterion used in an ASDiscoveryDescriptor must also be listed in
+  // Info.plist or iOS silently ignores it — these two are NOT services, so
+  // they deliberately do not go through the kBandRegistry-generated list.
+  fileprivate static let whoopMemberUUID16 = "FD4B"
+  fileprivate static let nameSubstring = "WHOOP"
+
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
@@ -98,6 +111,12 @@ private final class Impl {
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
   private var pickerResult: ((Result<String, PickerError>) -> Void)?
+  // True from the moment the Gen 4 retry's showPicker is issued until its
+  // completion handler runs. `.pickerDidDismiss` fires for the FIRST (rejected)
+  // sheet during this window — without this guard it resolves `pickerResult`
+  // as cancelled before the retry gets a chance to report its own outcome,
+  // so a successfully provisioned accessory gets reported to Dart as cancelled.
+  private var retryInFlight = false
 
   struct PickerError: Error { let message: String }
 
@@ -115,6 +134,9 @@ private final class Impl {
     // pending showPicker as "cancelled".
     switch event.eventType {
     case .pickerDidDismiss:
+      // Ignore the first sheet's dismissal while the Gen 4 retry is in flight —
+      // see `retryInFlight`'s doc comment.
+      guard !retryInFlight else { return }
       // If a picker was in flight and nothing got added, treat as cancelled. (If an
       // accessory WAS added, showPicker's completion handler already resolved it.)
       if let cb = pickerResult {
@@ -168,14 +190,11 @@ private final class Impl {
       return
     }
 
-    // Match on the WHOOP custom service UUID alone. The foreground scan finds the
-    // band via startScan(withServices:[…]) and succeeds, which proves the band
-    // advertises this service — so it's a reliable, sufficient filter. Every
-    // descriptor criterion must be declared in Info.plist; the UUIDs are listed
-    // under NSAccessorySetupBluetoothServices. (No bluetoothNameSubstring: a
-    // single descriptor AND-combines its criteria, and a name filter would also
-    // require an NSAccessorySetupBluetoothNames entry and risk excluding the band
-    // on a name mismatch.)
+    // ONE ITEM PER MATCH STRATEGY. A single ASDiscoveryDescriptor AND-combines
+    // its criteria, so folding gen5's 128-bit UUID, 16-bit 0xFD4B, and a name
+    // substring onto one descriptor would match nothing. showPicker(for:) takes
+    // an array so each strategy is its own accessory; the sheet de-duplicates
+    // by peripheral.
     //
     // ASK matches ANY item in the picker list, so we offer one item per band in the
     // registry. A band advertising any listed service can be provisioned; the
@@ -186,33 +205,75 @@ private final class Impl {
     // the complete set — a second copy here could only ever be the stale one. It is
     // generated from kBandRegistry (tool/gen_ios_ask_plist.dart, pinned by
     // test/ios_ask_plist_test.dart), so adding a band stays a one-file edit in Dart.
+    // Two extra gen5-only fallback items (16-bit member UUID, name substring) are
+    // appended below — see the constants' doc comment for why.
     let productImage = UIImage(named: "StrapProduct")
       ?? UIImage(systemName: "sensor.tag.radiowave.forward")
       ?? UIImage()
-    func item(_ serviceUUID: String, _ name: String) -> ASPickerDisplayItem {
+    func makeItem(_ label: String,
+                  _ configure: (ASDiscoveryDescriptor) -> Void) -> ASPickerDisplayItem {
       let descriptor = ASDiscoveryDescriptor()
-      descriptor.bluetoothServiceUUID = CBUUID(string: serviceUUID)
-      return ASPickerDisplayItem(
-        name: name, productImage: productImage, descriptor: descriptor)
+      configure(descriptor)
+      return ASPickerDisplayItem(name: label, productImage: productImage,
+                                 descriptor: descriptor)
     }
     let info = Bundle.main.infoDictionary ?? [:]
     let services = info["NSAccessorySetupBluetoothServices"] as? [String] ?? []
     let labels = info["OSBandLabels"] as? [String: String] ?? [:]
-    let items = services.map { item($0, labels[$0.uppercased()] ?? "Band") }
+    var items = services.map { svc in
+      makeItem(labels[svc.uppercased()] ?? "Band") {
+        $0.bluetoothServiceUUID = CBUUID(string: svc)
+      }
+    }
     guard !items.isEmpty else {
       completion(.failure(PickerError(
         message: "No accessory services are declared in Info.plist.")))
       return
     }
+    // Extra gen5-only fallback items — see the constants' doc comment above.
+    items.append(makeItem("WHOOP 5.0 / MG") {
+      $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopMemberUUID16)
+    })
+    items.append(makeItem("WHOOP band") {
+      $0.bluetoothNameSubstring = AccessorySetup.nameSubstring
+    })
 
     pickerResult = completion
+    present(items, allowGen4Retry: true)
+  }
+
+  /// Presents the picker and resolves `pickerResult`.
+  ///
+  /// If iOS rejects the widened descriptor list (a name-only item is the
+  /// experimental one), retry once with the WHOOP 4.0 item that already ships,
+  /// so the experiment can never take down 4.0 pairing.
+  private func present(_ items: [ASPickerDisplayItem], allowGen4Retry: Bool) {
     session.showPicker(for: items) { [weak self] error in
       guard let self = self else { return }
+      // The retry (if any) that led to THIS completion running is no longer
+      // in flight — whatever we resolve below is the actual outcome.
+      self.retryInFlight = false
       if let error = error {
-        if let cb = self.pickerResult {
-          self.pickerResult = nil
-          cb(.failure(PickerError(message: error.localizedDescription)))
+        guard let cb = self.pickerResult else { return }
+        let message = error.localizedDescription
+        // Prefer the typed error code over sniffing the localized message —
+        // a message that doesn't happen to contain "cancel" would otherwise
+        // incorrectly trigger a second picker on a real user cancellation.
+        let cancelled: Bool
+        if let askError = error as? ASError {
+          cancelled = askError.code == .userCancelled
+        } else {
+          cancelled = message.lowercased().contains("cancel")
         }
+        if allowGen4Retry, !cancelled, items.count > 1 {
+          NSLog("[ASK] picker rejected the %d-item descriptor list (%@) — "
+                + "retrying with the WHOOP 4.0 item only.", items.count, message)
+          self.retryInFlight = true
+          self.present([items[0]], allowGen4Retry: false)
+          return
+        }
+        self.pickerResult = nil
+        cb(.failure(PickerError(message: message)))
         return
       }
       // Picker succeeded — return the accessory THIS run added, not `accessories.first`:

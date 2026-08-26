@@ -1371,26 +1371,48 @@ void _burstOrdering() {
       expect(b.acceptedCounts.last, 1);
     });
 
-    test('HISTORY_COMPLETE still completes the drain after Stuck', () async {
+    test(
+        'the Stuck terminal itself releases the drain waiter; a straggler '
+        'COMPLETE is inert', () async {
       final b = _Burst();
       await stuckAfterFifteen(b);
       expect(b.engine.historyStuckThisSession, isTrue);
 
+      // COMPLETE used to be let through the latch so a parked awaitComplete()
+      // waiter could still resolve — but it also recorded a SUCCESS terminal
+      // for a task that ended in an abort. The waiter now resolves at the
+      // abort boundary (DrainController.onTaskTerminal), promptly and as
+      // INCOMPLETE. (runSync's own ledger write throws in the test host —
+      // the report is published to the snapshot before it.)
+      await b.engine
+          .runSync(timeout: const Duration(seconds: 30))
+          .catchError((_) => SyncReport(0, 0, false));
+      expect(
+        b.logs.any((l) => l.contains('await stop=taskTerminal')),
+        isTrue,
+        reason: 'the waiter must resolve on the terminal, not sit out the '
+            '60 s idle window or its full timeout',
+      );
+      expect(b.engine.offloadSnapshot['last_report_complete'], isFalse);
+
+      // And the straggler COMPLETE from the ended task is dropped like every
+      // other post-terminal marker — it must not overwrite the Stuck
+      // terminal with success or run the post-offload policy.
       b.rx(_historyComplete());
       await pumpEventQueue();
       expect(
         b.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
-        isTrue,
-        reason: 'COMPLETE ACKs nothing and must not be swallowed by the '
-            'latch, or every awaitComplete waiter runs out its timeout',
+        isFalse,
       );
+      expect(b.engine.offloadSnapshot['last_hps_terminal'], 'stuck');
     });
   });
 
   group('#260 review — burst boundaries the gate must respect', () {
     final ts = _wallNow() - 3600;
 
-    test('a new HISTORY_START starts a fresh validation cycle', () async {
+    test('a replacement HISTORY_START keeps the task\'s failure counter',
+        () async {
       final b = _Burst();
       // Burst A fails three times (slack stays 0 through attempt 3).
       b.rx(_historyStart());
@@ -1401,17 +1423,21 @@ void _burstOrdering() {
       }
       expect(b.shortLines, hasLength(3));
 
-      // Burst B delivers 1 frame against expected 3. With burst A's three
-      // failures inherited, attempt 4's slack of 2 would ACCEPT 1/3 and let
-      // the band trim two frames never tallied. A fresh burst's first
-      // attempt demands every frame.
+      // The band re-offers its checkpoint behind a replacement HISTORY_START,
+      // still inside the SAME task. Doc 05: the replacement discards the
+      // partial accumulator but KEEPS the failure counter — so this delivery,
+      // 1 frame against expected 3, is judged at attempt 4 with the task's
+      // two-packet slack and passes. (This test used to pin the inverse —
+      // a reset on every START — which meant a genuinely repeated bad
+      // checkpoint could never reach the terminal 15th attempt. The FRESH
+      // boundary is the TASK: see history_task_safety_test.dart.)
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts + 1, counter: 4101));
       b.rx(_historyEnd(expected: 3, token: 0x8621));
       await pumpEventQueue();
-      expect(b.shortLines, hasLength(4),
-          reason: 'burst B is judged at attempt one, slack zero');
-      expect(b.acceptedCounts, isEmpty);
+      expect(b.shortLines, hasLength(3),
+          reason: 'attempt 4 of the task carries slack 2 — 1/3 passes');
+      expect(b.acceptedCounts, [1]);
     });
 
     test('chatter after HISTORY_END cannot push a short burst over the line',

@@ -58,6 +58,14 @@ const String kRouteSteps = '/today/steps';
 String workoutSuggestionRoute(String id) =>
     Uri(path: kRouteWorkoutSuggestion, queryParameters: {'id': id}).toString();
 
+/// The forgotten-workout nudge ("Still working out?" — see
+/// `WorkoutIdleWatch`). Lands on the Workouts tab: the live session bar and
+/// its finish control are what the notification is about. A dedicated path
+/// rather than the bare `/workouts` tab route, because `classOf`'s sanction
+/// for it is route-keyed and the tab route must not open the
+/// reminders-at-normal pair for everything that names it.
+const String kRouteWorkoutIdle = '/workouts/idle';
+
 /// A deep link's path, without the `?id=` a route may carry.
 ///
 /// EVERY route comparison goes through this. The tables below, `classOf`,
@@ -112,6 +120,12 @@ const Map<String, int> _tabRoutes = {
   '/heart': 2,
   '/body': 3,
   '/workouts': 4,
+  // The forgotten-workout nudge. The Workouts tab IS its destination — the
+  // live session bar with the finish control is pinned to the shell there and
+  // `screenForRoute` has nothing to push — so it belongs in the tab table,
+  // not `_screenRoutes`. (It keeps its own path because `classOf`'s sanction
+  // is route-keyed — see kRouteWorkoutIdle above.)
+  kRouteWorkoutIdle: 4,
 };
 
 // Sub-screen routes → the shell tab they sit on top of. Most briefing/journal

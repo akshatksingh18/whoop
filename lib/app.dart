@@ -328,6 +328,10 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       kRouteRecovery => ShellDomain.home,
       kRouteSteps => ShellDomain.home,
       kRouteWorkoutSuggestion => ShellDomain.workout,
+      // The forgotten-workout nudge. The Workouts tab is the destination
+      // itself — the live session bar with its finish control is pinned to
+      // the shell there — so screenForRoute stays null for it.
+      kRouteWorkoutIdle => ShellDomain.workout,
       // Emitted by the battery forecast (`app_state.dart`) and the weekly
       // recap (`notification_center.dart`), and declared in `tap_router`
       // alongside every other deep link — see the note below.

@@ -131,6 +131,12 @@ class _Rig {
   /// When set, abort (opcode 20) writes park on this future.
   Completer<bool>? holdAbort;
 
+  /// When set, the link is replaced (a drop + reconnect, as far as
+  /// session-scoped state is concerned) immediately after the
+  /// SEND_HISTORICAL_DATA write SUCCEEDS — the write lands, the session dies
+  /// before the caller's continuation resumes.
+  bool dropLinkAfterDrainRequest = false;
+
   /// When set, the NEXT commit parks on this future (then completes normally,
   /// or throws if [failHeldCommit] is set — the shape of a transaction that
   /// fails after parking for seconds).
@@ -187,6 +193,10 @@ class _Rig {
           }
           if (opcode == Cmd.abortHistoricalTransmits && holdAbort != null) {
             return holdAbort!.future;
+          }
+          if (opcode == Cmd.sendHistoricalData && dropLinkAfterDrainRequest) {
+            dropLinkAfterDrainRequest = false;
+            connect(); // the write succeeds; the session it served is gone
           }
           if (opcode == Cmd.historicalDataResult) {
             if (body0 == 0x00 && failFailureResults) return false;
@@ -275,10 +285,9 @@ void main() {
                 '60 s idle window, not the full timeout');
         expect(report!.complete, isFalse);
 
-        // A fresh CLAIM (rearm + startFreshTask) clears the terminal: the
-        // NEXT waiter parks normally instead of resolving instantly on the
-        // LAST task's abort.
-        d.rearm();
+        // A fresh CLAIM (startFreshTask re-arms internally) clears the
+        // terminal: the NEXT waiter parks normally instead of resolving
+        // instantly on the LAST task's abort.
         d.startFreshTask();
         SyncReport? next;
         d.awaitComplete(isLinkUp: () => true).then((r) => next = r);
@@ -302,7 +311,6 @@ void main() {
         // claim clears the terminal flag before the once-a-second check ever
         // sees it. The waiter generation is what still catches it.
         d.onTaskTerminal();
-        d.rearm();
         d.startFreshTask();
         SyncReport? fresh;
         d.awaitComplete(isLinkUp: () => true).then((r) => fresh = r);
@@ -317,6 +325,29 @@ void main() {
         d.onComplete();
         async.elapse(const Duration(seconds: 2));
         expect(fresh?.complete, isTrue);
+      });
+    });
+
+    test(
+        'HISTORY_COMPLETE followed by an immediate auto-continue claim still '
+        'reports the superseded task as COMPLETE', () {
+      fakeAsync((async) {
+        final d = drain();
+        SyncReport? old;
+        d.awaitComplete(isLinkUp: () => true).then((r) => old = r);
+
+        // The offload completes and auto-continue claims the next task
+        // before the waiter's next once-a-second tick — the claim wipes the
+        // completion flag, so the recorded per-task outcome is all that is
+        // left of the truth.
+        d.onComplete();
+        d.startFreshTask();
+
+        async.elapse(const Duration(seconds: 2));
+        expect(old, isNotNull);
+        expect(old!.complete, isTrue,
+            reason: 'the superseded task DID complete — reporting failure '
+                'here turned every fast auto-continue into a phantom error');
       });
     });
   });
@@ -836,6 +867,21 @@ void main() {
             reason: 'no GET_DATA_RANGE/opcode 22 for a dead session — and '
                 'nothing on the replacement link');
       });
+    });
+
+    test(
+        'an INIT whose last write succeeds onto a link that dies before the '
+        'continuation resumes still does not report a successful setup',
+        () async {
+      final r = _Rig()..dropLinkAfterDrainRequest = true;
+      // The whole INIT sequence is written successfully — but the session is
+      // replaced the instant the final (drain-trigger) write lands, i.e.
+      // before _startInitDrain's continuation can run. The setup verdict
+      // must be false: a READY report for a dead session arms the caller's
+      // post-connect flows against a link that no longer exists.
+      expect(await r.engine.debugStartInitDrain(), isFalse);
+      expect(r.drainRequests, hasLength(1),
+          reason: 'the write itself did go out — only the verdict changes');
     });
 
     test('sendInit is session-bound — a link swap mid-sequence stops the '

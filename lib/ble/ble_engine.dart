@@ -2310,11 +2310,18 @@ class BleEngine {
     // there is no flood: hand the state back, or `_offloadActive` stays set
     // on a strap that was never asked for history and every later refresh
     // stops at the already-transmitting guard.
-    if (!await sendInit(drain: drainOnInit)) {
-      // A session that died UNDER the INIT writes: the rollback state now
-      // belongs to whatever replaced it, and the connect must not claim
-      // success for a dead link.
-      if (_sessionIsStale(session)) return false;
+    final initOk = await sendInit(drain: drainOnInit);
+    // UNCONDITIONAL staleness re-check — not only on a failed INIT. The last
+    // write can succeed and the link die before this continuation resumes;
+    // reporting success then hands the caller a READY verdict for a dead
+    // session. And whichever way INIT went, a stale continuation must not
+    // touch the rollback state its replacement now owns.
+    if (_sessionIsStale(session)) {
+      _log('[SYNC] INIT drain abandoned — the link died under the INIT '
+          'writes; not reporting connect success for a dead session.');
+      return false;
+    }
+    if (!initOk) {
       _historyAwaitingFirstStart = false;
       _setOffloadActive(false);
       _lastBackfillAt = floorBeforeInit;
@@ -2852,30 +2859,37 @@ class BleEngine {
       );
       return false;
     }
-    // A commit that FAILED after its task ended re-buffered that task's rows
-    // into this shared controller (the quiescence wait above guarantees the
-    // restore has happened by now, not mid-claim). They were never ACKed, so
-    // the band re-delivers them under this task's own bursts — discard them
-    // rather than let them ride into this task's first commit as data it
-    // never received. The discard poisons the (empty) open burst; this
-    // task's first HISTORY_START clears that latch.
-    if (d.bufferedRecords > 0 || d.bufferedArchives > 0) {
+    // A commit that FAILED after its task was ENDED BY ABORT re-buffered that
+    // task's rows into this shared controller (the quiescence wait above
+    // guarantees the restore has happened by now, not mid-claim). They were
+    // never ACKed, so the band re-delivers them under this task's own
+    // bursts — discard them rather than let them ride into this task's first
+    // commit as data it never received. The discard poisons the (empty) open
+    // burst; this task's first HISTORY_START clears that latch.
+    //
+    // Deliberately scoped to an abort-ended task: a NORMALLY completed task
+    // whose tail commit failed keeps its buffer on purpose (see the
+    // HistoryComplete tail-commit handling) — those rows re-attempt on the
+    // next commit, exactly as documented there.
+    if (session.historyTaskEnded &&
+        (d.bufferedRecords > 0 || d.bufferedArchives > 0)) {
       _log(
-        '[SYNC] refresh($reason) — discarding the previous task\'s '
+        '[SYNC] refresh($reason) — discarding the aborted previous task\'s '
         '${d.bufferedRecords} record(s) + ${d.bufferedArchives} archive(s) '
         'of leftover un-ACKed buffer before starting a new task; the band '
         're-delivers them.',
       );
       d.discardOpenChunk();
     }
-    d.rearm();
     // TASK BOUNDARY: this claim is the start of a genuinely new history task
     // (the guards above have refused every same-task re-entry), so the burst
     // validation-failure counter starts fresh HERE — before opcode 22 — and
-    // nowhere else. Doc 05: a later task must never inherit the previous
-    // task's failure slack. The previous task's terminal latch lifts for the
-    // same reason: ITS stragglers had to stay inert, but this task's markers
-    // are live traffic.
+    // nowhere else, the previous task's waiters are superseded with their
+    // recorded outcome, and the controller re-arms — one call, so the
+    // outcome snapshot can never be ordered after the reset. Doc 05: a later
+    // task must never inherit the previous task's failure slack. The
+    // previous task's terminal latch lifts for the same reason: ITS
+    // stragglers had to stay inert, but this task's markers are live traffic.
     d.startFreshTask();
     session.historyTaskEnded = false;
     // Doc 05: the new task has no active burst until the strap's first
@@ -6872,11 +6886,19 @@ class DrainController {
   bool _taskTerminal = false;
 
   /// The task a waiter belongs to. Bumped by [startFreshTask] so a waiter
-  /// armed for task N resolves (incomplete) the moment task N+1 is claimed —
-  /// even when the claim lands BETWEEN [onTaskTerminal] and the waiter's next
-  /// once-a-second tick, which would otherwise clear the terminal flag under
+  /// armed for task N resolves the moment task N+1 is claimed — even when the
+  /// claim lands BETWEEN the task's end and the waiter's next once-a-second
+  /// tick, which would otherwise reset the completion/terminal state under
   /// the old waiter and leave it parked against the replacement task.
   int _taskGeneration = 0;
+
+  /// Outcome of each superseded task, by its generation: true when it had
+  /// reached HISTORY_COMPLETE when the next claim took over (the immediate
+  /// auto-continue case), false when it ended in a terminal or simply never
+  /// completed. Without this a successful offload superseded before the
+  /// waiter's next tick was reported as `complete=false`. Pruned to the last
+  /// few generations — a waiter outlives its task by at most one tick.
+  final Map<int, bool> _supersededTaskComplete = <int, bool>{};
 
   /// Re-arm for a fresh offload over the same connection (clears the COMPLETE flag
   /// so a new awaitComplete() blocks until the next HISTORY_COMPLETE).
@@ -6933,14 +6955,19 @@ class DrainController {
   /// The one in-task reset stays where the contract puts it: a SUCCESSFUL
   /// validation ([validateBurst]).
   ///
-  /// Also the waiter boundary: the previous task's [awaitComplete] waiters are
-  /// superseded (they resolve incomplete on their next tick via
-  /// [_taskGeneration]) and a pending terminal flag is cleared so THIS task's
-  /// waiters arm cleanly.
+  /// Also the waiter boundary: the outgoing task's outcome is recorded FIRST
+  /// (so an [awaitComplete] waiter superseded before its next tick still
+  /// reports whether ITS task completed or aborted), then the generation
+  /// advances, the terminal flag clears, and the controller [rearm]s — one
+  /// call is the whole claim, so no caller can order the outcome snapshot
+  /// after the state it snapshots has been wiped.
   void startFreshTask() {
+    _supersededTaskComplete[_taskGeneration] = _complete && !_taskTerminal;
+    _supersededTaskComplete.removeWhere((g, _) => g + 8 < _taskGeneration);
     consecutiveValidationFailures = 0;
     _taskTerminal = false;
     _taskGeneration++;
+    rearm();
   }
 
   /// A HISTORY_END closes the burst's wire window: the band computed its
@@ -7063,16 +7090,22 @@ class DrainController {
         return;
       }
       // Terminal flag, OR this waiter's task was superseded by a new claim
-      // (which clears the flag) before this once-a-second tick got to see it.
-      // Either way the awaited offload is over and incomplete.
+      // (which resets the flags) before this once-a-second tick got to see
+      // it. Either way the awaited offload is over; a superseded task
+      // reports the outcome it actually reached — a COMPLETE immediately
+      // followed by an auto-continue claim is a SUCCESS, not a failure.
       if (_taskTerminal || _taskGeneration != waiterGen) {
+        final complete = _taskGeneration != waiterGen &&
+            (_supersededTaskComplete[waiterGen] ?? false);
         t.cancel();
         // Same tokenless flush as the idle path: buffered rows are banked
         // durably (no trim token, nothing deleted from the band).
         await flush();
-        log('[SYNC] await stop=taskTerminal — the abort boundary ended this '
-            'offload; reporting incomplete.');
-        done.complete(SyncReport(records, batches, false));
+        log('[SYNC] await stop=${complete ? 'supersededComplete' : 'taskTerminal'}'
+            ' — this offload ended ${complete ? 'complete (a new task claimed '
+            'immediately after HISTORY_COMPLETE)' : 'without completing (abort '
+            'boundary)'}.');
+        done.complete(SyncReport(records, batches, complete));
         return;
       }
       if (!isLinkUp()) _linkDown = true;

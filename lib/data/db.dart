@@ -1636,12 +1636,21 @@ class LocalDb {
   /// Record that [id] exists and was seen now. Every field except [id] is
   /// COALESCED, so a caller that only knows the remote id cannot blank out a
   /// label or an adapter another caller already established.
+  ///
+  /// [clearAdapterId] is the one deliberate exception, and it exists because
+  /// COALESCE is wrong in exactly one case: this row is the PRIMARY band
+  /// permanently (`id` is `''`), so pairing a DIFFERENT band reuses it, and a
+  /// null [adapterId] would then leave the FORGOTTEN band's family on the new
+  /// one. `PairedDevice.save` passes it when the remote id changed and the
+  /// caller does not know the new band's family. It is ignored when
+  /// [adapterId] is non-null — a caller that knows wins over one that clears.
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
     String? remoteId,
     String? label,
     String? tier,
+    bool clearAdapterId = false,
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -1655,10 +1664,18 @@ class LocalDb {
       'last_seen': now,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
     await db.rawUpdate(
-      'UPDATE device SET adapter_id = COALESCE(?, adapter_id), '
+      'UPDATE device SET '
+      '${adapterId == null && clearAdapterId ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
       'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
-      [adapterId, remoteId, label, tier, now, id],
+      [
+        if (!(adapterId == null && clearAdapterId)) adapterId,
+        remoteId,
+        label,
+        tier,
+        now,
+        id,
+      ],
     );
   }
 

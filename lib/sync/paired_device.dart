@@ -101,26 +101,37 @@ class PairedDevice {
     String? generation,
   }) async {
     final clean = cleanDeviceLabel(serial);
-    await LocalDb.upsertDevice(
-      adapterId: generation,
-      remoteId: remoteId,
-      label: clean,
-      tier: kBandSourceTier,
-    );
+    final gen = _cleanGeneration(generation);
     final prefs = await SharedPreferences.getInstance();
     // A stored generation belongs to a DEVICE. Keep it only when this save is
     // for the same remoteId and merely doesn't know the generation (most save
     // sites only carry the serial); pairing a DIFFERENT band must never
     // inherit the old band's generation — that would route its first connect
     // by the wrong device's identity.
-    final sameDevice = prefs.getString(_kRemoteId) == remoteId;
+    //
+    // Asked of the TABLE first, because that is the copy `load()` answers
+    // from. Both copies are then written the same way, so the mirror cannot
+    // heal a stale generation back over a corrected one.
+    final row = await LocalDb.deviceRow();
+    final knownRemoteId =
+        (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
+    final sameDevice = knownRemoteId == remoteId;
+    await LocalDb.upsertDevice(
+      adapterId: gen,
+      remoteId: remoteId,
+      label: clean,
+      tier: kBandSourceTier,
+      // `adapter_id` COALESCEs like every other column, and the primary row is
+      // reused for whatever band is primary — so a new band needs it said out
+      // loud that the old family no longer applies.
+      clearAdapterId: !sameDevice,
+    );
     await prefs.setString(_kRemoteId, remoteId);
     if (clean != null) {
       await prefs.setString(_kSerial, clean);
     } else {
       await prefs.remove(_kSerial); // never persist junk
     }
-    final gen = _cleanGeneration(generation);
     if (gen != null) {
       await prefs.setString(_kGeneration, gen);
     } else if (!sameDevice) {

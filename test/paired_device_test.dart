@@ -10,12 +10,38 @@
 // must sanitize to null rather than steer the route.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  // `PairedDevice` is table-first now (the `device` row, schema 49) with the
+  // prefs pair as the mirror that heals a rebuilt database, so both halves
+  // have to be real here — mocking prefs alone would exercise neither the
+  // authoritative read nor the COALESCE that preserves a known generation.
+  setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    LocalDb.dbName = 'openstrap_paired_device_test.db';
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+  });
+
+  tearDownAll(() async {
+    await LocalDb.close();
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+  });
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    // Both copies, or one test's pairing steers the next one's.
+    await LocalDb.deleteDevice();
+  });
 
   test('save/load round-trips remoteId, serial and generation', () async {
     await PairedDevice.save(

@@ -3764,7 +3764,7 @@ class AppState extends ChangeNotifier {
     // `device.adapter_id` blank on every install that pairs once and never
     // re-pairs.
     await PairedDevice.save(remoteId, serial ?? device.serial,
-        adapterId: device.generation);
+        generation: device.generation);
     paired = await PairedDevice.load();
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.

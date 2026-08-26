@@ -1,0 +1,635 @@
+// Adversarial history-task boundaries — the Gen5 task lifecycle under
+// validation retries, failed HISTORICAL_DATA_RESULT writes, terminal aborts,
+// concurrent refresh triggers and stale continuations.
+//
+// Contract under test (doc 05, follow-up ledger items 4–7):
+//  - the consecutive validation-failure counter lives on the TASK: a new task
+//    starts fresh, a replacement HISTORY_START keeps it, success resets it;
+//  - a HISTORICAL_DATA_RESULT the phone cannot write is TERMINAL for the task:
+//    one best-effort abort, no reconnect loop, and the already-committed rows
+//    stay committed (without the trim token);
+//  - a new task must not start while an abort is still in flight, and an old
+//    task's parked continuations/queued frames can neither ACK, abort nor
+//    mutate the task that replaced them;
+//  - Gen4 is untouched: its count gate stays advisory and its ACK bytes are
+//    identical.
+//
+// Everything drives the REAL receive path (FrameRoutePolicy → serialized
+// offload queue → _handleSyncMarker) over a stubbed GATT write with the real
+// atomic-commit sink shape — not re-implemented policy logic.
+
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart';
+
+int _wallNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+Uint8List _historyStart() =>
+    Uint8List.fromList(<int>[PacketType.metadata, 0x01, SyncMeta.historyStart]);
+
+Uint8List _historyComplete() => Uint8List.fromList(
+    <int>[PacketType.metadata, 0x03, SyncMeta.historyComplete]);
+
+/// A type-49 METADATA HISTORY_END inner: `expected_count` u32 @9 and the
+/// 8-byte trim token @13:21 the result echoes verbatim.
+Uint8List _historyEnd({required int expected, required int token}) {
+  final inner = Uint8List(24);
+  inner[0] = PacketType.metadata;
+  inner[1] = 0x02;
+  inner[2] = SyncMeta.historyEnd;
+  final v = ByteData.sublistView(inner);
+  v.setUint32(3, 1786000000, Endian.little); // strap clock
+  v.setUint32(9, expected, Endian.little);
+  v.setUint32(13, token, Endian.little); // marker A
+  v.setUint32(17, 0x18, Endian.little); // marker B / batch id
+  return inner;
+}
+
+/// The verbatim 8 bytes a success result for [token] must echo.
+List<int> _tokenBytes(int token) {
+  final b = Uint8List(8);
+  ByteData.sublistView(b)
+    ..setUint32(0, token, Endian.little)
+    ..setUint32(4, 0x18, Endian.little);
+  return b;
+}
+
+Uint8List _gen5V18Inner({required int ts, required int counter}) {
+  final inner = Uint8List(kGen5V18InnerLen);
+  final v = ByteData.sublistView(inner);
+  inner[0] = PacketType.historicalData;
+  inner[1] = 18;
+  inner[2] = 0x80;
+  v.setUint32(3, counter, Endian.little);
+  v.setUint32(7, ts, Endian.little);
+  inner[14] = 64; // heart rate
+  v.setFloat32(33, 0.5, Endian.little); // dynamic acceleration
+  v.setFloat32(45, 1.0, Endian.little); // gravity z → |g| = 1.0
+  return inner;
+}
+
+/// A gen4 v24 historical inner (the trusted decode path — no gate applies).
+Uint8List _gen4V24Inner({required int ts, required int counter}) {
+  final inner = Uint8List(89);
+  inner[0] = PacketType.historicalData;
+  inner[1] = 24;
+  final view = ByteData.sublistView(inner);
+  view.setUint32(3, counter, Endian.little);
+  view.setUint32(7, ts, Endian.little);
+  return inner;
+}
+
+/// A type-48 EVENT inner (envelope per protocol's `_envelopeBody`).
+Uint8List _eventInner(int id, List<int> body, {int ts = 1786000000}) {
+  final inner = Uint8List(12 + body.length);
+  inner[0] = PacketType.event;
+  inner[1] = 0x07;
+  final view = ByteData.sublistView(inner);
+  view.setUint16(2, id, Endian.little);
+  view.setUint32(4, ts, Endian.little);
+  view.setUint16(8, 0, Endian.little);
+  view.setUint16(10, body.length, Endian.little);
+  inner.setRange(12, inner.length, body);
+  return inner;
+}
+
+/// One outgoing command, decoded far enough to identify: opcode + first body
+/// byte (a HISTORICAL_DATA_RESULT is `01` for success, `00` for failure).
+class _Cmd {
+  final int opcode;
+  final int body0;
+  final List<int> body;
+  _Cmd(this.opcode, this.body0, this.body);
+}
+
+/// A fake gen5/gen4 link with the real safe-trim commit sink and a
+/// configurable transport: individual result polarities can be failed, the
+/// abort write can be held open, and GET_CLOCK is answered with a healthy
+/// correlated reply so `_startHistoricalRefresh` runs end to end.
+class _Rig {
+  final BandProfile band;
+  final logs = <String>[];
+
+  /// Every write ATTEMPT that reached the transport, in order (the hook runs
+  /// after the engine's session/owner guards — a stale-session write never
+  /// appears here).
+  final writes = <_Cmd>[];
+
+  /// Ordering probe: `commit:<token|null>` and `write:<opcode>:<body0>`.
+  final events = <String>[];
+  final committedTokens = <String?>[];
+  final committedRows = <int>[];
+
+  bool failFailureResults = false;
+  bool failSuccessResults = false;
+  bool answerClock = true;
+
+  /// When set, abort (opcode 20) writes park on this future.
+  Completer<bool>? holdAbort;
+
+  /// When set, the NEXT commit parks on this future (then completes normally).
+  Completer<void>? holdCommit;
+
+  late final BleEngine engine;
+
+  _Rig({this.band = BandProfile.gen5}) {
+    engine = BleEngine(
+      onRecord: (_, _) async {},
+      onState: (_) {},
+      log: logs.add,
+    );
+    connect();
+  }
+
+  /// Stand up a fresh session on the same engine (a reconnect, as far as
+  /// everything session-scoped is concerned).
+  void connect() => engine.debugInstallFakeLink(
+        band: band,
+        onCommit: (raws, samples, token, {archives, deviceFamily}) async {
+          final hold = holdCommit;
+          if (hold != null) {
+            holdCommit = null;
+            await hold.future;
+          }
+          events.add('commit:$token');
+          committedTokens.add(token);
+          committedRows.add(raws.length + (archives ?? const []).length);
+        },
+        onWrite: (f) async {
+          final p = parseFrame(f, profile: band);
+          if (p == null || !p.valid) return true;
+          final opcode = p.inner[2];
+          final body = p.inner.sublist(3);
+          final body0 = body.isEmpty ? -1 : body[0];
+          writes.add(_Cmd(opcode, body0, body));
+          events.add('write:$opcode:$body0');
+          if (opcode == Cmd.getClock && answerClock) {
+            final seq = p.inner[1];
+            scheduleMicrotask(() => engine.debugAbsorbDecoded(
+                  Decoded('cmd_response', {
+                    'opcode': Cmd.getClock,
+                    'req_seq': seq,
+                    'cmd_status': 1,
+                    'clock_epoch': _wallNow(),
+                  }),
+                ));
+          }
+          if (opcode == Cmd.abortHistoricalTransmits && holdAbort != null) {
+            return holdAbort!.future;
+          }
+          if (opcode == Cmd.historicalDataResult) {
+            if (body0 == 0x00 && failFailureResults) return false;
+            if (body0 == 0x01 && failSuccessResults) return false;
+          }
+          return true;
+        },
+      );
+
+  void rx(Uint8List inner, {String role = 'data'}) =>
+      engine.debugReceiveFrame(Frame(inner, true, true), role: role);
+
+  List<_Cmd> get failureResults => writes
+      .where((c) => c.opcode == Cmd.historicalDataResult && c.body0 == 0x00)
+      .toList();
+  List<_Cmd> get successResults => writes
+      .where((c) => c.opcode == Cmd.historicalDataResult && c.body0 == 0x01)
+      .toList();
+  List<_Cmd> get aborts =>
+      writes.where((c) => c.opcode == Cmd.abortHistoricalTransmits).toList();
+  List<_Cmd> get drainRequests =>
+      writes.where((c) => c.opcode == Cmd.sendHistoricalData).toList();
+  List<_Cmd> get rangePolls =>
+      writes.where((c) => c.opcode == Cmd.getDataRange).toList();
+
+  List<String> get shortLines =>
+      logs.where((l) => l.contains('Burst packet-count SHORT')).toList();
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final ts = _wallNow() - 3600;
+
+  group('DrainController — the three lifecycle boundaries', () {
+    DrainController drain() => DrainController(
+          onRecord: (sample, raw) async {},
+          onRecordsBatch: null,
+          onCommit: (raws, samples, token, {archives, deviceFamily}) async {},
+          onArchive: null,
+          log: (_) {},
+        );
+
+    test('startFreshTask resets the failure counter', () {
+      final d = drain();
+      d.consecutiveValidationFailures = 7;
+      d.startFreshTask();
+      expect(d.consecutiveValidationFailures, 0);
+    });
+
+    test('beginBurst (replacement HISTORY_START) KEEPS the failure counter '
+        'while rearm keeps it too', () {
+      final d = drain();
+      d.consecutiveValidationFailures = 4;
+      d.rearm();
+      d.beginBurst();
+      expect(d.consecutiveValidationFailures, 4,
+          reason: 'doc 05: a replacement START discards the partial '
+              'accumulator but keeps the failure counter');
+    });
+
+    test('successful validation resets the counter (the one in-task reset)',
+        () {
+      final d = drain();
+      // Two failures against an empty tally…
+      expect(d.validateBurst(expectedPacketCount: 5), isFalse);
+      expect(d.validateBurst(expectedPacketCount: 5), isFalse);
+      expect(d.consecutiveValidationFailures, 2);
+      // …then a burst that matches.
+      expect(d.validateBurst(expectedPacketCount: 0), isTrue);
+      expect(d.consecutiveValidationFailures, 0);
+    });
+  });
+
+  group('T1 — a later task never inherits the previous task\'s slack', () {
+    test(
+        'three failures in task A do not grant task B\'s first burst the '
+        'two-packet slack', () async {
+      final r = _Rig();
+      // Task A: one short burst, judged three times via marker-only
+      // re-offers — the counter climbs to 3 (slack would be 2 from here).
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 100));
+      for (var i = 0; i < 3; i++) {
+        r.rx(_historyEnd(expected: 5, token: 0x9100));
+        await pumpEventQueue();
+      }
+      expect(r.shortLines, hasLength(3));
+
+      // Task A hands over (COMPLETE) — nothing about completion touches the
+      // counter.
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+
+      // Task B is explicitly claimed and delivers 1 frame against expected 3.
+      // With task A's three failures inherited, the slack of 2 would ACCEPT
+      // 1/3 and let the band trim two frames never tallied.
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      r.rx(_gen5V18Inner(ts: ts + 10, counter: 101));
+      r.rx(_historyEnd(expected: 3, token: 0x9101));
+      await pumpEventQueue();
+
+      expect(r.shortLines, hasLength(4),
+          reason: 'task B\'s first burst is judged at attempt 1, slack 0');
+      expect(r.shortLines.last, contains('attempt 1,'));
+      expect(r.successResults, isEmpty,
+          reason: 'nothing may be ACKed on inherited slack');
+    });
+
+    test('a replacement HISTORY_START keeps the counter and resets the tally',
+        () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 200));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 201));
+      r.rx(_historyEnd(expected: 9, token: 0x9200));
+      await pumpEventQueue();
+      expect(r.shortLines, hasLength(1));
+      expect(r.shortLines.last, contains('attempt 1,'));
+      expect(r.shortLines.last, contains('traffic=2'));
+
+      // Replacement START inside the same task: the partial accumulator/tally
+      // is discarded, the failure count is not.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 202));
+      r.rx(_gen5V18Inner(ts: ts + 3, counter: 203));
+      r.rx(_gen5V18Inner(ts: ts + 4, counter: 204));
+      r.rx(_historyEnd(expected: 9, token: 0x9200));
+      await pumpEventQueue();
+
+      expect(r.shortLines, hasLength(2));
+      expect(r.shortLines.last, contains('attempt 2,'),
+          reason: 'the failure count survived the replacement START');
+      expect(r.shortLines.last, contains('traffic=3'),
+          reason: 'the tally did not — only the new delivery is counted');
+    });
+
+    test('a successful validation resets the counter mid-task', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 300));
+      r.rx(_historyEnd(expected: 3, token: 0x9300));
+      await pumpEventQueue();
+      r.rx(_historyEnd(expected: 3, token: 0x9300));
+      await pumpEventQueue();
+      expect(r.shortLines, hasLength(2)); // attempts 1 and 2
+
+      // The band re-offers complete this time — success.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 301));
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 302));
+      r.rx(_historyEnd(expected: 2, token: 0x9301));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+
+      // The next short burst is judged at attempt 1 again.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 3, counter: 303));
+      r.rx(_historyEnd(expected: 3, token: 0x9302));
+      await pumpEventQueue();
+      expect(r.shortLines, hasLength(3));
+      expect(r.shortLines.last, contains('attempt 1,'));
+    });
+  });
+
+  group('T4 — the fifteenth failure', () {
+    test('attempts 1–14 send the negative result; attempt 15 sends exactly '
+        'one abort and no fifteenth result', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 400));
+      for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
+        r.rx(_historyEnd(expected: 5, token: 0x9400));
+        await pumpEventQueue();
+      }
+      expect(r.failureResults, hasLength(kBurstValidationAttemptLimit - 1));
+      expect(r.aborts, hasLength(1));
+      expect(r.engine.offloadSnapshot['last_hps_terminal'], 'stuck');
+      expect(r.engine.offloadSnapshot['history_task_ended'], isTrue);
+      expect(r.engine.offloadActive, isFalse,
+          reason: 'the task is released after the abort boundary');
+
+      // The terminal is emitted once: further re-offers are inert.
+      final before = r.writes.length;
+      r.rx(_historyEnd(expected: 5, token: 0x9400));
+      await pumpEventQueue();
+      expect(r.writes.length, before);
+    });
+  });
+
+  group('T5 — a failed negative-result write is terminal', () {
+    test(
+        'rows stay committed without the token, one abort goes out, no '
+        'success ACK ever, and a later task starts cleanly', () async {
+      final r = _Rig()..failFailureResults = true;
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 500));
+      r.rx(_historyEnd(expected: 3, token: 0x9500));
+      await pumpEventQueue();
+
+      // The received row was preserved — committed WITHOUT the trim token.
+      expect(r.committedTokens, [null]);
+      expect(r.committedRows, [1]);
+      expect(r.successResults, isEmpty,
+          reason: 'a failed burst must never be ACKed');
+      expect(r.failureResults, hasLength(1),
+          reason: 'one attempt reached the transport and failed');
+      expect(r.aborts, hasLength(1), reason: 'exactly one best-effort abort');
+      expect(r.engine.offloadSnapshot['last_hps_reason'],
+          'failure_result_write_failed');
+      expect(r.engine.offloadActive, isFalse);
+
+      // Duplicate HISTORY_END markers after terminal are inert: no watchdog
+      // re-arm, no further validation, no traffic.
+      final before = r.writes.length;
+      for (var i = 0; i < 3; i++) {
+        r.rx(_historyEnd(expected: 3, token: 0x9500));
+        await pumpEventQueue();
+      }
+      expect(r.writes.length, before);
+      expect(r.engine.offloadSnapshot['ended_markers_dropped'], 3);
+      expect(r.engine.offloadActive, isFalse,
+          reason: 'stragglers must not re-open the task');
+
+      // A later explicit task starts cleanly once the write path recovers.
+      r.failFailureResults = false;
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      expect(r.drainRequests, hasLength(1));
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 10, counter: 501));
+      r.rx(_historyEnd(expected: 1, token: 0x9501));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1),
+          reason: 'the new task validates and ACKs normally');
+    });
+  });
+
+  group('T6 — exhausted positive-result writes', () {
+    test(
+        'durable commit first, bounded retries, then one abort — and no '
+        'reconnect, no acked bookkeeping', () async {
+      final r = _Rig()..failSuccessResults = true;
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 600));
+      r.rx(_historyEnd(expected: 1, token: 0x9600));
+      // Real (bounded) retry backoff: 200 + 400 ms.
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await pumpEventQueue();
+
+      // Commit-before-ACK: the durable commit precedes the first ACK attempt.
+      final commitAt = r.events.indexWhere((e) => e.startsWith('commit:') && !e.endsWith(':null'));
+      final firstAckAt = r.events.indexWhere(
+          (e) => e == 'write:${Cmd.historicalDataResult}:1');
+      expect(commitAt, isNonNegative);
+      expect(firstAckAt, greaterThan(commitAt));
+
+      expect(r.successResults, hasLength(3),
+          reason: 'the existing bounded ACK retries are preserved');
+      expect(r.aborts, hasLength(1),
+          reason: 'exactly one abort once the retries are exhausted');
+      expect(r.engine.offloadSnapshot['batches_acked'], 0,
+          reason: 'no acknowledged-batch bookkeeping may advance');
+      expect(r.engine.offloadSnapshot['last_hps_reason'], 'ack_write_exhausted');
+      expect(r.logs.where((l) => l.contains('bouncing the link')), isEmpty,
+          reason: 'no immediate reconnect loop');
+      expect(r.engine.isConnected, isFalse,
+          reason: 'fake link never enters listening — but nothing tore the '
+              'session down either');
+      expect(r.logs.where((l) => l.contains('BATCH-ACK FAILED')), hasLength(1));
+      expect(r.engine.offloadActive, isFalse);
+    });
+  });
+
+  group('T7 — no task starts while an abort is in flight', () {
+    test(
+        'manual, strap and repeated triggers all wait for the abort; at most '
+        'one serialized next task follows', () async {
+      final r = _Rig()..failFailureResults = true;
+      r.holdAbort = Completer<bool>();
+
+      // Terminal with the abort write parked open.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 700));
+      r.rx(_historyEnd(expected: 3, token: 0x9700));
+      await pumpEventQueue();
+      expect(r.aborts, hasLength(1), reason: 'abort issued and parked');
+
+      // Refresh triggers land while the abort is pending: a manual refresh,
+      // the strap's high-frequency prompt, and a second manual attempt.
+      final manual1 = r.engine.debugStartHistoricalRefresh();
+      r.rx(_eventInner(EventId.highFreqSyncPrompt, const <int>[]),
+          role: 'events');
+      final manual2 = r.engine.debugStartHistoricalRefresh();
+      await pumpEventQueue();
+
+      expect(r.rangePolls, isEmpty,
+          reason: 'no GET_DATA_RANGE may go out before the abort completes');
+      expect(r.drainRequests, isEmpty,
+          reason: 'no opcode 22 may go out before the abort completes');
+
+      // The abort completes — exactly one waiter claims the next task.
+      r.holdAbort!.complete(true);
+      r.holdAbort = null;
+      final results = await Future.wait([manual1, manual2]);
+      await pumpEventQueue();
+      // Give the strap-prompt path (fired unawaited) time to finish too.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(r.drainRequests, hasLength(1),
+          reason: 'at most one properly serialized next task');
+      expect(results.where((sent) => sent), hasLength(1));
+    });
+  });
+
+  group('T8 — an old task generation cannot touch its replacement', () {
+    test(
+        'a continuation parked in commit cannot ACK after the watchdog ends '
+        'the task, and the old task\'s queued frames are not processed as '
+        'part of the new one', () {
+      fakeAsync((async) {
+        // Microtasks AND the serialized drainer's zero-duration batch yields.
+        void pump() => async.elapse(Duration.zero);
+
+        final r = _Rig();
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+
+        // A complete burst whose durable commit parks mid-await.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 800));
+        r.rx(_historyEnd(expected: 1, token: 0x9800));
+        pump();
+        expect(r.successResults, isEmpty, reason: 'commit still parked');
+
+        // Three more frames arrive and queue up BEHIND the parked marker —
+        // they belong to the old task.
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 801));
+        r.rx(_gen5V18Inner(ts: ts + 2, counter: 802));
+        r.rx(_gen5V18Inner(ts: ts + 3, counter: 803));
+
+        // The idle watchdog ends the task while the commit is parked.
+        async.elapse(const Duration(seconds: 61));
+        expect(r.aborts, hasLength(1));
+
+        // The parked commit resolves — the old continuation resumes into a
+        // task that is over. It must NOT ACK.
+        held.complete();
+        pump();
+        expect(r.successResults, isEmpty,
+            reason: 'a stale continuation may not echo the trim token');
+
+        // A replacement task starts; the old task's queued frames must not
+        // be counted into its burst window.
+        var claimed = false;
+        r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
+        pump();
+        expect(claimed, isTrue);
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 10, counter: 810));
+        r.rx(_gen5V18Inner(ts: ts + 11, counter: 811));
+        r.rx(_historyEnd(expected: 5, token: 0x9810));
+        pump();
+
+        expect(r.shortLines, hasLength(1),
+            reason: 'the new burst is short — 2 of 5');
+        expect(r.shortLines.last, contains('traffic=2'),
+            reason: 'the old task\'s three leftover frames counted for '
+                'nothing in the new window');
+      });
+    });
+  });
+
+  group('T9 — session replacement', () {
+    test('an ACK retry loop finishing for session A neither writes onto nor '
+        'aborts session B', () {
+      fakeAsync((async) {
+        final r = _Rig()..failSuccessResults = true;
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 900));
+        r.rx(_historyEnd(expected: 1, token: 0x9900));
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(1),
+            reason: 'first ACK attempt failed; retry backoff pending');
+
+        // The link is replaced while the retry loop sleeps.
+        r.connect();
+        final writesAtReplacement = r.writes.length;
+
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+
+        expect(r.writes.length, writesAtReplacement,
+            reason: 'no retry, result or abort may reach the new session — '
+                'the owner-bound write and the stale-session guards both '
+                'stand between them');
+        expect(r.logs.where((l) => l.contains('BATCH-ACK FAILED')), isEmpty,
+            reason: 'the stale continuation stops silently — it does not '
+                'run the failure bookkeeping for a session it no longer owns');
+      });
+    });
+  });
+
+  group('T10 — gen4 stays advisory and byte-identical', () {
+    test('a short gen4 burst is still ACKed with the verbatim token and '
+        'never accumulates failures', () async {
+      final r = _Rig(band: BandProfile.gen4);
+      for (var i = 0; i < 4; i++) {
+        r.rx(_historyStart());
+        r.rx(_gen4V24Inner(ts: ts + i, counter: 1000 + i));
+        r.rx(_historyEnd(expected: 5, token: 0xA000 + i));
+        await pumpEventQueue();
+      }
+
+      expect(r.failureResults, isEmpty,
+          reason: 'gen4 never sends the failure result — the gate is '
+              'advisory there');
+      expect(r.aborts, isEmpty);
+      expect(r.shortLines, isEmpty);
+      expect(
+        r.logs.where((l) => l.contains('ADVISORY, gen4')).length,
+        4,
+        reason: 'the mismatch is recorded for observability only',
+      );
+      expect(r.successResults, hasLength(4));
+      // Byte-identical ACK: `01` + the verbatim 8-byte token.
+      final last = r.successResults.last;
+      expect(last.body.take(9).toList(), [0x01, ..._tokenBytes(0xA003)]);
+    });
+  });
+
+  group('T11 — commit-before-ACK ordering', () {
+    test('the durable commit with the trim token precedes the ACK write', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1100));
+      r.rx(_historyEnd(expected: 1, token: 0xB100));
+      await pumpEventQueue();
+
+      expect(r.successResults, hasLength(1));
+      final commitAt =
+          r.events.indexWhere((e) => e.startsWith('commit:') && !e.endsWith(':null'));
+      final ackAt = r.events
+          .indexWhere((e) => e == 'write:${Cmd.historicalDataResult}:1');
+      expect(commitAt, isNonNegative,
+          reason: 'the trim token must be committed durably');
+      expect(ackAt, greaterThan(commitAt),
+          reason: 'the ACK is written only after the commit reported durable');
+      // And the ACK echoes the token verbatim.
+      expect(r.successResults.single.body.take(9).toList(),
+          [0x01, ..._tokenBytes(0xB100)]);
+    });
+  });
+}

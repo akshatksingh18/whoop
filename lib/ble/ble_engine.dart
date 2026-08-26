@@ -1039,11 +1039,17 @@ class BleEngine {
   ///
   /// [onWrite] receives every outgoing frame and returns whether the write
   /// "succeeded", so a test can also assert the failed-write paths.
+  ///
+  /// [onCommit] wires the atomic safe-trim sink, which is what production
+  /// always has — without it the HISTORY_END path refuses every ACK as
+  /// non-trimmable, so the commit-before-ACK ordering and the result-write
+  /// failure paths are unreachable.
   @visibleForTesting
   void debugInstallFakeLink({
     required Future<bool> Function(Uint8List frame) onWrite,
     BandProfile band = BandProfile.gen4,
     ArchiveSink? onArchive,
+    CommitSyncBatchSink? onCommit,
   }) {
     final session = _Session(
       BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
@@ -1056,7 +1062,7 @@ class BleEngine {
     _drain = DrainController(
       onRecord: _storeRecord,
       onRecordsBatch: null,
-      onCommit: null,
+      onCommit: onCommit,
       onArchive: onArchive,
       log: _log,
     );
@@ -1683,6 +1689,10 @@ class BleEngine {
     'history_stuck': _session?.historyStuck ?? false,
     'stuck_markers_dropped': _session?.stuckMarkersDropped ?? 0,
     'stuck_refreshes_refused': _session?.stuckRefreshesRefused ?? 0,
+    // Terminal-task latch (abort boundary) and the straggler traffic it has
+    // absorbed since — the ended-task counterpart of the stuck counters.
+    'history_task_ended': _session?.historyTaskEnded ?? false,
+    'ended_markers_dropped': _session?.endedMarkersDropped ?? 0,
     // Band-reboot signal — see CounterRegressionDetector. Observability only;
     // recovery already happens automatically at the DB layer.
     'counter_regressions_total': _counterRegression.regressions,

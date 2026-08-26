@@ -1365,19 +1365,40 @@ void _burstOrdering() {
       expect(b.acceptedCounts.last, 1);
     });
 
-    test('HISTORY_COMPLETE still completes the drain after Stuck', () async {
+    test(
+        'the Stuck terminal itself releases the drain waiter; a straggler '
+        'COMPLETE is inert', () async {
       final b = _Burst();
       await stuckAfterFifteen(b);
       expect(b.engine.historyStuckThisSession, isTrue);
 
+      // COMPLETE used to be let through the latch so a parked awaitComplete()
+      // waiter could still resolve — but it also recorded a SUCCESS terminal
+      // for a task that ended in an abort. The waiter now resolves at the
+      // abort boundary (DrainController.onTaskTerminal), promptly and as
+      // INCOMPLETE. (runSync's own ledger write throws in the test host —
+      // the report is published to the snapshot before it.)
+      await b.engine
+          .runSync(timeout: const Duration(seconds: 30))
+          .catchError((_) => SyncReport(0, 0, false));
+      expect(
+        b.logs.any((l) => l.contains('await stop=taskTerminal')),
+        isTrue,
+        reason: 'the waiter must resolve on the terminal, not sit out the '
+            '60 s idle window or its full timeout',
+      );
+      expect(b.engine.offloadSnapshot['last_report_complete'], isFalse);
+
+      // And the straggler COMPLETE from the ended task is dropped like every
+      // other post-terminal marker — it must not overwrite the Stuck
+      // terminal with success or run the post-offload policy.
       b.rx(_historyComplete());
       await pumpEventQueue();
       expect(
         b.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
-        isTrue,
-        reason: 'COMPLETE ACKs nothing and must not be swallowed by the '
-            'latch, or every awaitComplete waiter runs out its timeout',
+        isFalse,
       );
+      expect(b.engine.offloadSnapshot['last_hps_terminal'], 'stuck');
     });
   });
 

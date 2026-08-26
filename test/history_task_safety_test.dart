@@ -251,6 +251,35 @@ void main() {
       expect(d.validateBurst(expectedPacketCount: 0), isTrue);
       expect(d.consecutiveValidationFailures, 0);
     });
+
+    test('onTaskTerminal resolves awaitComplete promptly and incomplete; '
+        'rearm re-arms the waiter for the next task', () {
+      fakeAsync((async) {
+        final d = drain();
+        SyncReport? report;
+        d.awaitComplete(isLinkUp: () => true).then((r) => report = r);
+        async.elapse(const Duration(seconds: 3));
+        expect(report, isNull, reason: 'healthy offload keeps waiting');
+
+        d.onTaskTerminal();
+        async.elapse(const Duration(seconds: 2));
+        expect(report, isNotNull,
+            reason: 'the abort boundary must release the waiter — not the '
+                '60 s idle window, not the full timeout');
+        expect(report!.complete, isFalse);
+
+        // A fresh claim (rearm) clears the terminal: the NEXT waiter parks
+        // normally instead of resolving instantly on the LAST task's abort.
+        d.rearm();
+        SyncReport? next;
+        d.awaitComplete(isLinkUp: () => true).then((r) => next = r);
+        async.elapse(const Duration(seconds: 3));
+        expect(next, isNull);
+        d.onComplete();
+        async.elapse(const Duration(seconds: 2));
+        expect(next?.complete, isTrue);
+      });
+    });
   });
 
   group('T1 — a later task never inherits the previous task\'s slack', () {
@@ -273,10 +302,15 @@ void main() {
       r.rx(_historyComplete());
       await pumpEventQueue();
 
-      // Task B is explicitly claimed and delivers 1 frame against expected 3.
-      // With task A's three failures inherited, the slack of 2 would ACCEPT
-      // 1/3 and let the band trim two frames never tallied.
+      // Task B is explicitly claimed and its first burst delivers 1 frame
+      // against expected 3 (behind its own HISTORY_START — before that first
+      // START a HISTORY_END is a doc-05 duplicate and is dropped). With task
+      // A's three failures inherited, the slack of 2 would ACCEPT 1/3 and
+      // let the band trim two frames never tallied — and a HISTORY_START no
+      // longer resets the counter, so only the task claim stands between
+      // burst B and that inherited slack.
       expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts + 10, counter: 101));
       r.rx(_historyEnd(expected: 3, token: 0x9101));
       await pumpEventQueue();
@@ -403,6 +437,17 @@ void main() {
       expect(r.engine.offloadActive, isFalse,
           reason: 'stragglers must not re-open the task');
 
+      // A straggler HISTORY_COMPLETE is inert too: it must not record a
+      // SUCCESS terminal over the abort or run the post-offload policy.
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(
+        r.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
+        isFalse,
+      );
+      expect(r.engine.offloadSnapshot['last_hps_reason'],
+          'failure_result_write_failed');
+
       // A later explicit task starts cleanly once the write path recovers.
       r.failFailureResults = false;
       expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
@@ -514,22 +559,29 @@ void main() {
         pump();
         expect(r.successResults, isEmpty, reason: 'commit still parked');
 
-        // Three more frames arrive and queue up BEHIND the parked marker —
-        // they belong to the old task.
+        // Three more frames AND a COMPLETE arrive and queue up BEHIND the
+        // parked marker — they belong to the old task.
         r.rx(_gen5V18Inner(ts: ts + 1, counter: 801));
         r.rx(_gen5V18Inner(ts: ts + 2, counter: 802));
         r.rx(_gen5V18Inner(ts: ts + 3, counter: 803));
+        r.rx(_historyComplete());
 
         // The idle watchdog ends the task while the commit is parked.
         async.elapse(const Duration(seconds: 61));
         expect(r.aborts, hasLength(1));
 
         // The parked commit resolves — the old continuation resumes into a
-        // task that is over. It must NOT ACK.
+        // task that is over. It must NOT ACK, and the old task's queued
+        // COMPLETE must not record a success terminal for it.
         held.complete();
         pump();
         expect(r.successResults, isEmpty,
             reason: 'a stale continuation may not echo the trim token');
+        expect(
+          r.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
+          isFalse,
+          reason: 'a stale-generation COMPLETE is dropped, not completed',
+        );
 
         // A replacement task starts; the old task's queued frames must not
         // be counted into its burst window.
@@ -549,6 +601,90 @@ void main() {
             reason: 'the old task\'s three leftover frames counted for '
                 'nothing in the new window');
       });
+    });
+
+    test('a task claim waits for a marker handler still parked in a commit, '
+        'not only for the abort', () {
+      fakeAsync((async) {
+        void pump() => async.elapse(Duration.zero);
+        final r = _Rig();
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 850));
+        r.rx(_historyEnd(expected: 1, token: 0x9850));
+        pump();
+
+        // The watchdog ends the task; its abort completes immediately, but
+        // the marker handler is STILL parked inside the held commit.
+        async.elapse(const Duration(seconds: 61));
+        expect(r.aborts, hasLength(1));
+
+        // A claim during that window must wait for full quiescence — if it
+        // ran now, a later commit FAILURE would re-buffer the old task's rows
+        // into the controller the new task is already using.
+        var claimed = false;
+        r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
+        pump();
+        expect(claimed, isFalse,
+            reason: 'the old task\'s handler has not unwound yet');
+        expect(r.drainRequests, isEmpty,
+            reason: 'no opcode 22 before the old task is quiescent');
+
+        held.complete();
+        pump();
+        expect(claimed, isTrue);
+        expect(r.drainRequests, hasLength(1));
+      });
+    });
+  });
+
+  group('T3b — a new task has no active burst until its first START', () {
+    test('a HISTORY_END before the task\'s first HISTORY_START is a doc-05 '
+        'duplicate — dropped, never validated, no ACK', () async {
+      final r = _Rig();
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+
+      // A late END straggling in from a previous task, inside the window
+      // between opcode 22 and the strap's first START.
+      r.rx(_historyEnd(expected: 3, token: 0x9350));
+      await pumpEventQueue();
+      expect(r.shortLines, isEmpty, reason: 'never judged by the count gate');
+      expect(r.failureResults, isEmpty);
+      expect(r.successResults, isEmpty);
+      expect(
+        r.logs.any((l) => l.contains('before this task\'s first '
+            'HISTORY_START')),
+        isTrue,
+      );
+
+      // The real task then proceeds normally.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 350));
+      r.rx(_historyEnd(expected: 1, token: 0x9351));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+    });
+
+    test('historical data before the first START is dropped, not ingested '
+        'into the coming burst', () async {
+      final r = _Rig();
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+
+      // Two stragglers from the previous task…
+      r.rx(_gen5V18Inner(ts: ts, counter: 360));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 361));
+      // …then the real burst: START + one frame, expected 1.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 362));
+      r.rx(_historyEnd(expected: 1, token: 0x9360));
+      await pumpEventQueue();
+
+      expect(r.successResults, hasLength(1),
+          reason: '1/1 — the stragglers neither inflated the tally…');
+      expect(r.committedRows, [1],
+          reason: '…nor were they buffered into the burst\'s commit');
     });
   });
 
@@ -579,6 +715,35 @@ void main() {
             reason: 'the stale continuation stops silently — it does not '
                 'run the failure bookkeeping for a session it no longer owns');
       });
+    });
+
+    test('an old task\'s abort unwinding after session replacement does not '
+        'release offload state it no longer owns', () async {
+      final r = _Rig()..failFailureResults = true;
+      r.holdAbort = Completer<bool>();
+
+      // Terminal on session A with the abort write parked open.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 950));
+      r.rx(_historyEnd(expected: 3, token: 0x9950));
+      await pumpEventQueue();
+      expect(r.aborts, hasLength(1), reason: 'abort issued and parked');
+
+      // The link is replaced while that write is in flight, and the
+      // replacement session's own drain traffic raises the offload state
+      // (in production, INIT pre-arms it the same way).
+      r.connect();
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 951));
+      await pumpEventQueue();
+      expect(r.engine.offloadActive, isTrue);
+
+      // The old abort finally resolves — its boundary must not clear the
+      // NEW session's claim on the way out.
+      r.holdAbort!.complete(true);
+      r.holdAbort = null;
+      await pumpEventQueue();
+      expect(r.engine.offloadActive, isTrue,
+          reason: 'the ending task may only release state it still owns');
     });
   });
 

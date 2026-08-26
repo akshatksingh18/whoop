@@ -58,6 +58,20 @@ class PairedDevice {
   static String? _cleanGeneration(String? g) =>
       (g == 'gen4' || g == 'gen5') ? g : null;
 
+  /// Bumped by [clear]. FORGET WINS OVER AN IN-FLIGHT SAVE.
+  ///
+  /// The heal call sites are `unawaited(PairedDevice.save(...))` — engine-state
+  /// pins the serial and the discovered generation fire-and-forget — so one can
+  /// still be between its awaits when the user's forget lands. Without this,
+  /// that save recreates both copies after `clear()` deleted them and the band
+  /// the user just forgot is paired again on the next launch.
+  ///
+  /// A counter, not a lock: [save] samples it on entry and refuses to write if
+  /// it moved, which is decidable because a Dart isolate interleaves only at
+  /// awaits. It does NOT span isolates — the headless sync isolate has its own
+  /// copy — and it does not need to: nothing there can unpair.
+  static int _forgetEpoch = 0;
+
   static Future<PairedDevice?> load() async {
     final row = await LocalDb.deviceRow();
     final id = row?['remote_id'] as String?;
@@ -100,6 +114,7 @@ class PairedDevice {
     String? serial, {
     String? generation,
   }) async {
+    final epoch = _forgetEpoch;
     final clean = cleanDeviceLabel(serial);
     final gen = _cleanGeneration(generation);
     final prefs = await SharedPreferences.getInstance();
@@ -116,6 +131,9 @@ class PairedDevice {
     final knownRemoteId =
         (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
     final sameDevice = knownRemoteId == remoteId;
+    // A forget that landed while the reads above were in flight wins: this
+    // save is describing a band the user has just told us to drop.
+    if (epoch != _forgetEpoch) return;
     await LocalDb.upsertDevice(
       adapterId: gen,
       remoteId: remoteId,
@@ -126,6 +144,11 @@ class PairedDevice {
       // loud that the old family no longer applies.
       clearAdapterId: !sameDevice,
     );
+    // Re-checked between the two copies as well: `clear()` empties the table
+    // and the mirror in that order, so a forget landing inside this window
+    // would otherwise leave the mirror pointing at a band the table no longer
+    // has — and `load()` heals FROM the mirror.
+    if (epoch != _forgetEpoch) return;
     await prefs.setString(_kRemoteId, remoteId);
     if (clean != null) {
       await prefs.setString(_kSerial, clean);
@@ -143,6 +166,7 @@ class PairedDevice {
   /// on the next launch — and the measurements it wrote are untouched, which is
   /// what the forget dialog promises.
   static Future<void> clear() async {
+    _forgetEpoch++;
     await LocalDb.deleteDevice();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kRemoteId);

@@ -1663,13 +1663,18 @@ class LocalDb {
       'first_seen': now,
       'last_seen': now,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // ONE flag decides both the placeholder and its argument. It is a local
+    // and not the expression twice because the two must never disagree: a
+    // statement whose `?` count differs from the argument list binds every
+    // value one column to the left, which SQLite accepts silently.
+    final blankAdapter = adapterId == null && clearAdapterId;
     await db.rawUpdate(
       'UPDATE device SET '
-      '${adapterId == null && clearAdapterId ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
+      '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
       'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
       [
-        if (!(adapterId == null && clearAdapterId)) adapterId,
+        if (!blankAdapter) adapterId,
         remoteId,
         label,
         tier,

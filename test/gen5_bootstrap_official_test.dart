@@ -193,6 +193,8 @@ class _Ops implements GattBootstrapOps {
   final bool alreadyBonded;
   final bool phyFails;
   final bool bondFails;
+  /// The bond-state read never answers — the hang the seam's timeout bounds.
+  final bool bondCheckHangs;
   final bool discoveryFails;
   final bool memfaultPresent;
   final Set<String> failSubscribe;
@@ -202,6 +204,7 @@ class _Ops implements GattBootstrapOps {
     this.alreadyBonded = false,
     this.phyFails = false,
     this.bondFails = false,
+    this.bondCheckHangs = false,
     this.discoveryFails = false,
     this.memfaultPresent = true,
     this.failSubscribe = const {},
@@ -231,6 +234,8 @@ class _Ops implements GattBootstrapOps {
   @override
   Future<bool> isBonded() async {
     rig.trace.add('bond:check');
+    // A platform `getBondState` that never comes back.
+    if (bondCheckHangs) return Completer<bool>().future;
     return alreadyBonded;
   }
 
@@ -859,6 +864,34 @@ void main() {
       });
     });
 
+    test('a bond-state read that never answers cannot park the bootstrap', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        expect(_run(rig, async, ops: _Ops(rig, bondCheckHangs: true)), isFalse);
+
+        expect(rig.trace, contains('bond:check'));
+        expect(
+          rig.trace,
+          isNot(contains('bond:create')),
+          reason: 'the read never resolved, so nothing decided to bond',
+        );
+        expect(
+          rig.trace.where((t) => t.startsWith('sub:')),
+          isEmpty,
+          reason: 'no registration behind an unfinished bond step',
+        );
+        expect(rig.commands, isEmpty);
+        expect(rig.ready, isFalse);
+        expect(
+          rig.engine.isConnected,
+          isFalse,
+          reason: 'the bound expired into the bond catch, which tore the '
+              'session down — without it the claim stays live forever and '
+              'every later headless drain yields to it',
+        );
+      });
+    });
+
     test('an already-bonded device does not create another bond', () {
       fakeAsync((async) {
         final rig = _Rig()..answerAll();
@@ -1065,8 +1098,9 @@ void main() {
     });
   });
 
-  group('scan acceptance is by advertised WHOOP service only', () {
-    test('a supported advertised service accepts; a name never does', () {
+  group('the advertised generation hint is by service UUID only', () {
+    test('a supported advertised service names a generation; nothing else '
+        'does', () {
       expect(
         ScanAcceptPolicy.accepts(['FD4B0001-CCE1-4033-93CE-002D5875F58A']),
         'gen5',
@@ -1079,8 +1113,9 @@ void main() {
         ScanAcceptPolicy.accepts([]),
         isNull,
         reason:
-            'no advertised WHOOP service, no acceptance — there is no '
-            'name parameter to fall back to, by construction',
+            'no advertised WHOOP service, no HINT — by construction there is '
+            'no name parameter to fall back to. Acceptance is a separate, '
+            'deliberately broader decision (#255) and is not this policy.',
       );
       expect(
         ScanAcceptPolicy.accepts(['0000180f-0000-1000-8000-00805f9b34fb']),

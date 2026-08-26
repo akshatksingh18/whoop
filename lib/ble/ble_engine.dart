@@ -779,17 +779,11 @@ class _FbpGattOps implements GattBootstrapOps {
 
   @override
   Future<bool> isBonded() async =>
-      // BOUNDED. `bondState` emits an initial value, but that first emission
-      // awaits the platform's `getBondState` when nothing is cached — and an
-      // unbounded await here parks `_connectGen5Official` inside bond setup
-      // with `_session` non-null and the phase still `discovering`, so
-      // `holdsBandLink` keeps the claim live and every later headless drain
-      // yields to a connect that will never finish. Throwing instead lands in
-      // the caller's catch, which fails the connect and tears the session
-      // down. `createBond()` needs no such bound: the plugin gives it a
-      // 90-second response timeout of its own.
-      await _device.bondState.first.timeout(BleEngine._bondStateTimeout) ==
-      BluetoothBondState.bonded;
+      // `bondState` emits an initial value, but that first emission awaits the
+      // platform's `getBondState` when nothing is cached, so this await can
+      // hang. The BOUND lives at the call site in `_connectGen5Official` —
+      // the seam, where a test can drive a read that never answers.
+      await _device.bondState.first == BluetoothBondState.bonded;
 
   @override
   Future<void> createBond() => _device.createBond();
@@ -2812,7 +2806,18 @@ class BleEngine {
       // run subscriptions and HELLO against writes the band silently drops.
       if (gatt.bondingApplies) {
         try {
-          if (await gatt.isBonded()) {
+          // BOUNDED. The initial bond-state read is the one platform await in
+          // this bootstrap that could hang: `bondState`'s first emission falls
+          // through to the platform's `getBondState` when nothing is cached.
+          // Unbounded, a request that never answers parks the bootstrap right
+          // here with `_session` non-null and the phase still `discovering`,
+          // so `holdsBandLink` keeps the claim live and every later headless
+          // drain yields to a connect that will never finish — no recovery
+          // short of a process restart. The TimeoutException lands in the
+          // catch below, which fails the connect and tears the session down.
+          // `createBond()` needs no bound of ours: the plugin gives it a
+          // 90-second response timeout.
+          if (await gatt.isBonded().timeout(_bondStateTimeout)) {
             _log('[BOOT gen5] already bonded — not creating another bond.');
           } else {
             await gatt.createBond();
@@ -3215,9 +3220,14 @@ class BleEngine {
   ///
   /// Returns null — having logged which half failed — when the peripheral
   /// exposes no known framed service, or is missing a required characteristic.
-  /// Both callers treat that as a failed connect. It does NOT touch the
-  /// session: pinning the band stays at the caller, because the gen5 route has
-  /// to decide `notGen5` before anything is pinned.
+  /// Both callers treat that as a failed connect.
+  ///
+  /// It does NOT touch the session itself — pinning stays at the caller. Note
+  /// that `_FbpGattOps.discoverAndValidate` pins IMMEDIATELY, before
+  /// `_connectGen5Official` reads the outcome, so a `notGen5` device is briefly
+  /// pinned to what discovery actually found. That is harmless and deliberate:
+  /// what it pins is the TRUE band, and the legacy route it falls back to
+  /// re-discovers and re-pins the same entry before using it.
   Future<_DiscoveredBand?> _discoverBand(BluetoothDevice device) async {
     final services =
         await device.discoverServices().timeout(_serviceDiscoveryTimeout);
@@ -3282,35 +3292,29 @@ class BleEngine {
     );
   }
 
-  /// The LEGACY bootstrap SET_CLOCK decision. The official gen5 path has its
-  /// own contract ([_gen5ClockContract]) and never comes here; this runs for
-  /// gen4, and for a gen5 band that reached `_doConnect` because a stored
-  /// `gen4` hint was wrong — hence the drift gate stays registry-driven
-  /// ([BandEntry.setClockDriftGated]) rather than being hardcoded to gen4.
+  /// The gen4 bootstrap SET_CLOCK decision.
   ///
-  /// Rules, in order:
-  ///  1. the phone-clock deferral wins — while THIS phone is the suspect
-  ///     party, writing its wall clock onto a possibly-correct strap RTC
-  ///     corrupts the RTC and destroys the evidence;
-  ///  2. on a drift-gated band, below [BootstrapClockGate.toleranceSeconds]
-  ///     of absolute drift there is NO BLE write at all;
-  ///  3. everything else writes once — including a band with no usable clock
-  ///     correlation (unset/implausible RTC), where the drift is null and
-  ///     leaving the RTC uncorrected is the one genuinely bad outcome.
+  /// NO GEN5 BAND REACHES THIS, by either connect route — and that is a
+  /// property of `_bootstrapAfterRegistration`, not of how the connect was
+  /// routed: it branches on `session.band.isGen5` and the gen5 arm returns
+  /// after [_gen5ClockContract]. So a gen5 band that fell into `_doConnect`
+  /// on a stale `gen4` hint still gets the gen5 contract, because discovery
+  /// has pinned the true band before the branch is read.
   ///
-  /// gen4 keeps the unconditional write it has today: its flow is proven, and
-  /// the WHOOP 5 bootstrap is where the evidence lives.
+  /// That is also where [BandEntry.setClockDriftGated] is honoured now:
+  /// [_gen5ClockContract] gates on the hello timestamp at MILLISECOND
+  /// resolution against a freshly sampled phone time, which is strictly
+  /// better evidence than the whole-second `_clockRef` drift a flag test here
+  /// could read. Re-testing the flag on this path would be dead code — it is
+  /// false for every band that gets here.
+  ///
+  /// gen4 keeps the unconditional write it has always had: its flow is proven,
+  /// and the WHOOP 5 bootstrap is where the evidence for gating lives. The
+  /// phone-clock deferral still wins — while THIS phone is the suspect party,
+  /// writing its wall clock onto a possibly-correct strap RTC corrupts the RTC
+  /// and destroys the evidence.
   Future<void> _bootstrapSetClock(_Session session) async {
     if (_deferForClock) return;
-    if (session.entry.setClockDriftGated) {
-      final drift = _clockRef?.driftSec;
-      if (!BootstrapClockGate.needsCorrection(drift)) {
-        _log('[CLOCK] in sync (drift ${drift}s, tolerance '
-            '${BootstrapClockGate.toleranceSeconds}s) — no correction '
-            'needed; no SET_CLOCK written.');
-        return;
-      }
-    }
     await setClock();
   }
 
@@ -4034,10 +4038,11 @@ class BleEngine {
   static const Duration _serviceDiscoveryTimeout = Duration(seconds: 15);
   static const Duration _notifySetupTimeout = Duration(seconds: 15);
 
-  /// The initial `bondState` read ([_FbpGattOps.isBonded]) — the same reason
-  /// as the two above, at the one platform stream await the gen5 bootstrap
-  /// adds. Short because it is a CACHED OS lookup, not a radio round trip: the
-  /// bond itself is `createBond()`, which the plugin bounds at 90 s.
+  /// The initial bond-state read, applied at the [GattBootstrapOps] seam in
+  /// `_connectGen5Official` — the same reason as the two above, at the one
+  /// platform stream await the gen5 bootstrap adds. Short because it is a
+  /// CACHED OS lookup, not a radio round trip: the bond itself is
+  /// `createBond()`, which the plugin bounds at 90 s.
   static const Duration _bondStateTimeout = Duration(seconds: 5);
 
   /// [owner] pins the write to ONE session. Without it a write queued by a

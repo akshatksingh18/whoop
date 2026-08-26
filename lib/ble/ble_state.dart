@@ -1689,15 +1689,19 @@ class BootstrapClockGate {
       absDeltaMs == null || absDeltaMs.abs() >= toleranceSeconds * 1000;
 }
 
-/// Which band a scan result is, by its ADVERTISED service UUIDs — the only
-/// thing the scanner may accept on.
+/// Which GENERATION a scan result advertises, by its advertised service UUIDs.
 ///
-/// The scanner accepts a result because its advertisement
-/// contains a supported WHOOP service UUID; it does not depend on the display
-/// name. This app used to also accept any device whose cached name contained
-/// "whoop", which could admit a device advertising no WHOOP service at all —
-/// that fallback is gone, and this policy being the single accept decision is
-/// what keeps it gone.
+/// A HINT, NOT THE ACCEPT DECISION — do not turn it back into one. Acceptance
+/// is deliberately broader (`advertisementLooksLikeWhoop` and the scanner's own
+/// match): a band whose 128-bit service UUID spills into the scan-response
+/// overflow area advertises only the 16-bit member UUID or its name, and
+/// refusing those would leave WHOOP MG unpairable (#255).
+///
+/// This is the narrower question the connect ROUTE asks: which generation did
+/// the advertisement actually name? A name-only or 16-bit-only match names
+/// none and returns null, and the connect path then probes the official gen5
+/// order first and lets GATT discovery pin the truth. Returning null here
+/// therefore means "no hint", never "not a WHOOP".
 class ScanAcceptPolicy {
   /// The advertised-service prefixes that identify a WHOOP band: gen4
   /// "Harvard" `61080001-…`, gen5 `fd4b0001-…`.
@@ -1705,8 +1709,9 @@ class ScanAcceptPolicy {
   static const String gen5AdvertisedPrefix = 'fd4b0001';
 
   /// The generation the advertisement claims — 'gen4' / 'gen5' — or null when
-  /// no supported WHOOP service is advertised (not accepted). [serviceUuids]
-  /// are the advertisement's service UUID strings, any case.
+  /// no supported WHOOP service UUID is advertised (no hint; the scanner may
+  /// still have accepted the result). [serviceUuids] are the advertisement's
+  /// service UUID strings, any case.
   static String? accepts(Iterable<String> serviceUuids) {
     for (final raw in serviceUuids) {
       final s = raw.toLowerCase();

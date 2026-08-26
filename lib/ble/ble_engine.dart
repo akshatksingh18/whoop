@@ -779,7 +779,17 @@ class _FbpGattOps implements GattBootstrapOps {
 
   @override
   Future<bool> isBonded() async =>
-      await _device.bondState.first == BluetoothBondState.bonded;
+      // BOUNDED. `bondState` emits an initial value, but that first emission
+      // awaits the platform's `getBondState` when nothing is cached — and an
+      // unbounded await here parks `_connectGen5Official` inside bond setup
+      // with `_session` non-null and the phase still `discovering`, so
+      // `holdsBandLink` keeps the claim live and every later headless drain
+      // yields to a connect that will never finish. Throwing instead lands in
+      // the caller's catch, which fails the connect and tears the session
+      // down. `createBond()` needs no such bound: the plugin gives it a
+      // 90-second response timeout of its own.
+      await _device.bondState.first.timeout(BleEngine._bondStateTimeout) ==
+      BluetoothBondState.bonded;
 
   @override
   Future<void> createBond() => _device.createBond();
@@ -4023,6 +4033,12 @@ class BleEngine {
   // out lets the existing `catch (e)` in `_doConnect` do its job.
   static const Duration _serviceDiscoveryTimeout = Duration(seconds: 15);
   static const Duration _notifySetupTimeout = Duration(seconds: 15);
+
+  /// The initial `bondState` read ([_FbpGattOps.isBonded]) — the same reason
+  /// as the two above, at the one platform stream await the gen5 bootstrap
+  /// adds. Short because it is a CACHED OS lookup, not a radio round trip: the
+  /// bond itself is `createBond()`, which the plugin bounds at 90 s.
+  static const Duration _bondStateTimeout = Duration(seconds: 5);
 
   /// [owner] pins the write to ONE session. Without it a write queued by a
   /// long-parked drain (a big commit, then up to ~25 s of ACK retries) lands on

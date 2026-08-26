@@ -363,6 +363,10 @@ enum _HpsTerminalKind {
   timeout,
   disconnected,
 
+  /// The 15th consecutive failed validation — doc 05's terminal `Stuck`.
+  /// One abort, no fifteenth failure result, no same-session retry.
+  stuck,
+
   /// A HISTORICAL_DATA_RESULT (positive or negative) could not be delivered.
   /// The burst window is already closed on the band side, so with no result on
   /// the wire the task cannot make progress — it ends through the one abort
@@ -1240,8 +1244,28 @@ class BleEngine {
   }
 
   bool _offloadActive = false;
-  final List<Frame> _offloadFrames = [];
+  // Each queued frame carries the history-task generation it arrived under, so
+  // the serialized drainer can refuse to process an OLD task's leftovers as
+  // part of its replacement (see [_drainOffloadFrames]).
+  final List<({Frame frame, int taskGen})> _offloadFrames = [];
   bool _drainingOffloadFrames = false;
+
+  /// The history-task generation: bumped when a task is claimed
+  /// ([_startHistoricalRefresh], the INIT drain) and when one ends through the
+  /// abort boundary ([_endHistoryTaskWithAbort]). Every asynchronous
+  /// continuation that can mutate task state or write to the band captures it
+  /// before its first await and re-checks after — a continuation whose
+  /// generation is no longer current belongs to a task that is over, and it
+  /// must neither ACK, abort, clear state nor consume the new task's frames.
+  int _historyTaskGen = 0;
+
+  /// The awaited opcode-20 write of the most recent task-ending abort, while
+  /// it is still in flight. Every task start waits this out (see
+  /// [_startHistoricalRefresh]) so a replacement task cannot put
+  /// GET_DATA_RANGE/opcode 22 on the wire under a band that is still being
+  /// told to abandon the previous one. Deliberately NOT a broad lock: only the
+  /// lifecycle transition serializes on it, never packet ingestion.
+  Future<void>? _historyAbortInFlight;
   int _historyRequests = 0;
   int _historyCompletions = 0;
   SyncReport? _lastSyncReport;
@@ -2205,6 +2229,11 @@ class BleEngine {
           '(deferred_total=$_clockPausedOffloads).',
         );
       }
+      // The INIT drain is a new task like any other claim: leftovers of a
+      // previous session's task (queued frames, parked continuations) are
+      // stale from here — session binding already refuses most of them, the
+      // generation closes the rest.
+      _historyTaskGen++;
       _setOffloadActive(drainOnInit);
       // Only a real drain spends the backfill floor; a deferred one leaves it
       // open so a foreground trigger can retry as soon as the phone corrects.
@@ -2695,6 +2724,19 @@ class BleEngine {
     required String reason,
     bool refreshRange = true,
   }) async {
+    // SERIALIZED LIFECYCLE: a task-ending abort still in flight must complete
+    // before any trigger may start the next task — otherwise range/opcode 22
+    // goes out while the band is still being told to abandon the previous
+    // task. Every waiter resumes on the same turn and the claim below is
+    // synchronous, so the first one through takes the task and the rest fall
+    // out at the already-transmitting guard: at most ONE next task.
+    while (true) {
+      final pendingAbort = _historyAbortInFlight;
+      if (pendingAbort == null) break;
+      _log('[SYNC] refresh($reason) — waiting for the in-flight history abort '
+          'to complete before starting a new task.');
+      await pendingAbort;
+    }
     final d = _drain;
     final session = _session;
     if (session?.connected != true || d == null) return false;
@@ -2731,13 +2773,23 @@ class BleEngine {
     // are live traffic.
     d.startFreshTask();
     session.historyTaskEnded = false;
+    // Claiming IS the generation bump: from here, leftovers of any previous
+    // task (queued frames, parked continuations) are provably stale.
+    _historyTaskGen++;
+    final taskGen = _historyTaskGen;
+    // True once this claim is no longer the engine's live task — either the
+    // link was replaced or a terminal (idle watchdog above all) ended the task
+    // while this method was parked on an await. A stale claim must simply
+    // stop: the state it would "clean up" belongs to someone else now.
+    bool claimStale() => _sessionIsStale(session) || _historyTaskGen != taskGen;
     _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
-      await _sendGetDataRange();
+      await _sendGetDataRange(owner: session);
       // INIT spaces commands by ~120 ms; keep the same cadence here so the band
       // has time to emit the range response before we request another drain.
       await Future.delayed(const Duration(milliseconds: 120));
+      if (claimStale()) return false;
     }
     // Data-safety gate: never drain-and-trim history under an untrustworthy phone
     // clock. Poll the strap RTC and compare; if the phone clock looks slow (strap
@@ -2748,7 +2800,7 @@ class BleEngine {
     // deliberately NOT issued here — pushing the strap back to the slow phone
     // would corrupt a correct RTC (see ClockPolicy.phoneClockSuspect).
     await _readClock();
-    if (_session?.connected != true) return false;
+    if (claimStale()) return false;
     if (_deferForClock) {
       _clockPausedOffloads++;
       _log(
@@ -2769,15 +2821,17 @@ class BleEngine {
         'for the 0x16 floor.',
       );
       await Future.delayed(Duration(milliseconds: (wait * 1000).ceil()));
-      if (_session?.connected != true) return false;
+      if (claimStale()) return false;
     }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
     // `_send` swallows write failures and reports them as false. Claiming
     // success anyway leaves the strap with no request, `_offloadActive` stuck
     // true — so later refreshes bounce off the "already transmitting" guard —
     // and both rate-limit floors spent on a command that never left the phone.
-    if (!await _sendHistoricalData()) {
-      _setOffloadActive(false);
+    if (!await _sendHistoricalData(owner: session)) {
+      // A claim that went stale UNDER the write must not clear the state the
+      // replacement task now owns.
+      if (!claimStale()) _setOffloadActive(false);
       return false;
     }
     _lastHistoricalSendAt = _wallSecs();
@@ -3082,17 +3136,26 @@ class BleEngine {
   /// false only after every attempt failed — the caller must then bounce the
   /// link (the chunk is already durably committed; the band re-delivers it next
   /// session and the decoded store dedups by REPLACE).
-  Future<bool> _writeAckVerified(Uint8List ack, _Session session) async {
+  /// [taskGen] is the history-task generation the ACK belongs to — a retry
+  /// must stop the moment that task ends (abort boundary), or a parked loop
+  /// would go on writing an ended task's token between the abort and the next
+  /// task's frames.
+  Future<bool> _writeAckVerified(
+    Uint8List ack,
+    _Session session, {
+    required int taskGen,
+  }) async {
     var failures = 0;
+    bool stale() => _sessionIsStale(session) || _historyTaskGen != taskGen;
     while (true) {
-      if (_sessionIsStale(session)) return false;
+      if (stale()) return false;
       if (await _write(ack, owner: session)) return true;
       failures++;
       if (!ackRetryPolicy.shouldRetry(failures)) return false;
       _log('[SYNC] batch-ACK write failed (attempt $failures/'
           '${ackRetryPolicy.maxAttempts}) — retrying.');
       await Future.delayed(ackRetryPolicy.delayFor(failures));
-      if (_sessionIsStale(session)) return false;
+      if (stale()) return false;
     }
   }
 
@@ -3116,11 +3179,14 @@ class BleEngine {
     return false;
   }
 
-  Future<bool> _send(int opcode, List<int> payload) async {
+  /// [owner] pins the write to one session (see [_write]) — offload commands
+  /// issued from a long-parked task start pass theirs so a claim that went
+  /// stale mid-await cannot put its command onto a replacement link.
+  Future<bool> _send(int opcode, List<int> payload, {_Session? owner}) async {
     if (_refuseDangerousOpcode(opcode)) return false;
     final frame = buildCommand(
         _seq.nextLive(), opcode, payload, _session?.band ?? BandProfile.gen4);
-    final ok = await _write(frame);
+    final ok = await _write(frame, owner: owner);
     if (!ok) {
       _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
           'command not delivered.');
@@ -3187,10 +3253,10 @@ class BleEngine {
             profile: _session?.band ?? BandProfile.gen4),
       );
 
-  Future<bool> _sendGetDataRange() =>
-      _send(Cmd.getDataRange, _offloadPayload);
-  Future<bool> _sendHistoricalData() =>
-      _send(Cmd.sendHistoricalData, _offloadPayload);
+  Future<bool> _sendGetDataRange({_Session? owner}) =>
+      _send(Cmd.getDataRange, _offloadPayload, owner: owner);
+  Future<bool> _sendHistoricalData({_Session? owner}) =>
+      _send(Cmd.sendHistoricalData, _offloadPayload, owner: owner);
 
   /// Ask the strap to prompt more frequent history syncs around a wake time.
   ///
@@ -3418,7 +3484,7 @@ class BleEngine {
 
   void _enqueueOffloadFrame(Frame frame, _Session session) {
     if (_session != session || !session.connected) return; // stale session
-    _offloadFrames.add(frame);
+    _offloadFrames.add((frame: frame, taskGen: _historyTaskGen));
     // A straggler historical frame from a task that ended through the abort
     // boundary must not re-raise the offload — that is exactly the "duplicate
     // terminals hold the offload open" wedge.
@@ -3460,11 +3526,25 @@ class BleEngine {
         // Only REAL drain progress counts: event/console count members ride
         // this queue too, and gen5's console chatter alone could otherwise
         // keep a genuinely stalled offload alive past the timeout forever.
-        if (batch.any((f) => f.packetType == PacketType.historicalData)) {
+        // Stale-generation leftovers count for nothing here either.
+        if (batch.any((e) =>
+            e.taskGen == _historyTaskGen &&
+            e.frame.packetType == PacketType.historicalData)) {
           _armIdleWatchdog();
         }
-        for (final frame in batch) {
+        for (final entry in batch) {
           if (_sessionIsStale(session)) return;
+          final frame = entry.frame;
+          // An OLD task's queued frames must never be processed as part of a
+          // new one: they were counted/collected for a burst window that is
+          // over, and the band re-delivers anything un-ACKed anyway. The one
+          // exception is HISTORY_COMPLETE — like the stuck latch, it ACKs
+          // nothing and an awaitComplete() waiter must still be released.
+          if (entry.taskGen != _historyTaskGen &&
+              !(frame.packetType == PacketType.metadata &&
+                  parseMetadata(frame.inner)?.sub == SyncMeta.historyComplete)) {
+            continue;
+          }
           if (frame.packetType == PacketType.metadata) {
             await _handleSyncMarker(frame, session);
           } else if (frame.packetType == PacketType.historicalData) {
@@ -4110,26 +4190,41 @@ class BleEngine {
     session.historyTaskEnded = true;
     // Nothing further is coming that may keep this task alive.
     session.idleWatchdog?.cancel();
+    // The ended task's parked continuations (a commit mid-await, queued
+    // frames, ACK retries) are stale from this moment.
+    _historyTaskGen++;
     _setHpsTerminal(kind, reason: reason);
     _log('[SYNC] history task terminal ($reason) — sending one best-effort '
         'abort; the band keeps its checkpoint and a later task resumes from '
         'it.');
+    final boundary = _writeHistoryAbort(session, reason: reason);
+    _historyAbortInFlight = boundary;
     try {
-      // Not `_send`: the frame must be pinned to the session whose task is
-      // ending (`owner:`), exactly like the batch ACK.
-      final frame = buildCommand(
-        _seq.nextLive(),
-        Cmd.abortHistoricalTransmits,
-        const [0x00],
-        session.band,
-      );
-      if (!await _write(frame, owner: session)) {
-        _log('[SYNC] best-effort history abort ($reason) was not delivered — '
-            'continuing the terminal anyway.');
-      }
+      await boundary;
     } finally {
+      if (identical(_historyAbortInFlight, boundary)) {
+        _historyAbortInFlight = null;
+      }
       // Release the task only now — the abort boundary is complete.
       _setOffloadActive(false);
+    }
+  }
+
+  Future<void> _writeHistoryAbort(
+    _Session session, {
+    required String reason,
+  }) async {
+    // Not `_send`: the frame must be pinned to the session whose task is
+    // ending (`owner:`), exactly like the batch ACK.
+    final frame = buildCommand(
+      _seq.nextLive(),
+      Cmd.abortHistoricalTransmits,
+      const [0x00],
+      session.band,
+    );
+    if (!await _write(frame, owner: session)) {
+      _log('[SYNC] best-effort history abort ($reason) was not delivered — '
+          'continuing the terminal anyway.');
     }
   }
 
@@ -4142,23 +4237,33 @@ class BleEngine {
     if (session == null || !session.connected) return;
     session.idleWatchdog?.cancel();
     session.historicalRetry?.cancel();
-    // The drain ended on the clock, not on a HISTORY_COMPLETE. Record that as
-    // the terminal here — the only place it is knowable. It used to be attempted
-    // in `_onOffloadFinished` behind a `!complete` flag that no call site ever
-    // passed, so a timed-out drain reported whatever terminal the previous burst
-    // had left behind (usually `success`).
-    _setHpsTerminal(_HpsTerminalKind.timeout, reason: reason);
-    _setOffloadActive(false);
-    if (session.historicalRetries >= _maxHistoricalRetriesPerSession) {
+    // The drain ended on the clock, not on a HISTORY_COMPLETE — the boundary
+    // records the `timeout` terminal, which used to be attempted in
+    // `_onOffloadFinished` behind a `!complete` flag no call site ever passed,
+    // so a timed-out drain reported whatever terminal the previous burst had
+    // left behind (usually `success`).
+    //
+    // The boundary also fixes the ordering this path used to get wrong: it
+    // clears `_offloadActive` only AFTER the awaited abort write resolves, so
+    // a refresh trigger racing this abort cannot start a new task under a
+    // band that is still being told to abandon the old one.
+    final retriesExhausted =
+        session.historicalRetries >= _maxHistoricalRetriesPerSession;
+    if (!retriesExhausted) {
+      session.historicalRetries++;
+      _log('[SYNC] abort($reason) — sending ABORT_HISTORICAL.');
+    }
+    await _endHistoryTaskWithAbort(
+      session: session,
+      kind: _HpsTerminalKind.timeout,
+      reason: reason,
+    );
+    if (retriesExhausted) {
       _log('[SYNC] abort($reason) — already retried '
           '${session.historicalRetries} times this session; NOT re-arming. '
           'The strap is not draining; the reconnect path takes it from here.');
-      await _send(Cmd.abortHistoricalTransmits, const [0x00]);
       return;
     }
-    session.historicalRetries++;
-    _log('[SYNC] abort($reason) — sending ABORT_HISTORICAL.');
-    await _send(Cmd.abortHistoricalTransmits, const [0x00]);
     session.historicalRetry = Timer(
       const Duration(seconds: kHistoricalAbortRetryDelaySeconds),
       () {
@@ -4270,6 +4375,7 @@ class BleEngine {
   Future<void> _refuseHistoryEndOnShortCount({
     required DrainController d,
     required _Session session,
+    required int taskGen,
     required String tokenHex,
     required int? batchId,
     required int? expected,
@@ -4290,6 +4396,9 @@ class BleEngine {
       return;
     }
     if (_sessionIsStale(session)) return;
+    // The task ended while the commit was parked — this continuation may not
+    // send a result or an abort on behalf of a task that is over.
+    if (_historyTaskGen != taskGen) return;
 
     if (d.consecutiveValidationFailures >= kBurstValidationAttemptLimit) {
       // Terminal. One abort, no 15th failure result, and NO same-session
@@ -4323,8 +4432,11 @@ class BleEngine {
               'attempts': d.consecutiveValidationFailures,
             },
           ));
-      await _send(Cmd.abortHistoricalTransmits, const [0x00]);
-      _setOffloadActive(false);
+      await _endHistoryTaskWithAbort(
+        session: session,
+        kind: _HpsTerminalKind.stuck,
+        reason: 'burst_validation_attempts_exhausted',
+      );
       return;
     }
 
@@ -4551,6 +4663,11 @@ class BleEngine {
 
   Future<void> _handleSyncMarker(Frame frame, _Session session) async {
     if (_sessionIsStale(session)) return;
+    // The task this marker belongs to. Re-checked after every await below: a
+    // terminal (idle watchdog, failed result write) that fires while this
+    // handler is parked ends the task, and the resumed continuation must not
+    // ACK, send or mutate on behalf of a task that is over.
+    final taskGen = _historyTaskGen;
     final m = parseMetadata(frame.inner);
     if (m == null) return;
     // Terminal `Stuck`: this session's history ended
@@ -4742,6 +4859,7 @@ class BleEngine {
         await _refuseHistoryEndOnShortCount(
           d: d,
           session: session,
+          taskGen: taskGen,
           tokenHex: tokenHex,
           batchId: m.batchId,
           expected: expected,
@@ -4860,6 +4978,11 @@ class BleEngine {
       // re-delivers the chunk. Echo the 8-byte slice the band acks verbatim —
       // a mangled echo is the "Groundhog Day" re-flood bug.
       final durable = await d.commit(m.token); // raw+samples+cursor, atomic
+      // The task ended while the commit was parked (idle-watchdog abort above
+      // all): the rows are durable — that is never undone — but this
+      // continuation may not ACK for a task that is over. The band was told to
+      // abort and re-delivers the chunk on a later task; dedup-safe.
+      if (_historyTaskGen != taskGen) return;
       // RE-GATE after the await. commit() can take seconds on a large batch —
       // long enough for the link to die under us — and it now reports whether
       // the transaction actually became durable instead of swallowing the
@@ -4899,7 +5022,12 @@ class BleEngine {
       // band never trimming and re-flooding the same chunk forever. On
       // persistent failure bounce the link — the committed data is safe, and
       // the next session's re-delivery is dedup-safe (rows REPLACE by rec_ts).
-      if (!await _writeAckVerified(ack, session)) {
+      if (!await _writeAckVerified(ack, session, taskGen: taskGen)) {
+        // False for one of three reasons: the writes genuinely exhausted, the
+        // session died, or the TASK ended under the retries. Only the first is
+        // this continuation's to handle — a stale one must not touch the
+        // failure ledger, quarantine state or the abort boundary.
+        if (_sessionIsStale(session) || _historyTaskGen != taskGen) return;
         // Real per-chunk ledger row, keyed by the token itself — previously
         // every ledger write here collapsed onto one shared 'capture' row,
         // so a token that kept failing ACROSS reconnects (the "Groundhog

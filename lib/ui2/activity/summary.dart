@@ -29,8 +29,10 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
 import '../screens/home_screen.dart' show unitsOf;
+import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
+import 'picker.dart';
 // The share card and this screen describe the same session, so they draw its
 // stats with the same widget and split its values with the same function.
 // poster.dart imports this file back for [ActivityResult]; that is the seam,
@@ -811,6 +813,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ]),
       );
 
+  /// Correct a session's activity type — the band's own guess, or a hand-typed
+  /// one that was wrong. `LocalDb.setSessionType` is the narrow UPDATE this
+  /// reuses; it used to have no caller at all (lost in the ui2 rewrite along
+  /// with the screen that called it).
+  ///
+  /// Archetype-specific fields on [r] (sets, route, splits…) belong to the OLD
+  /// type and cannot be salvaged for the new one, so this does not try to
+  /// patch [r] in place — it hands back to whatever list pushed this screen,
+  /// which re-reads on the revision bump below.
+  Future<void> _changeType(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null) return;
+    await Navigator.of(c).push(MaterialPageRoute(
+      builder: (_) => ActivityPicker(onPick: (pc, newActivity) async {
+        await LocalDb.setSessionType(id, newActivity.name);
+        if (mounted) bumpInsights(c);
+        Navigator.of(pc).pop();
+      }),
+    ));
+    if (mounted) Navigator.of(c).pop();
+  }
+
   Future<void> _retrySave() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -841,12 +865,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: NavBar(
               a.name,
               sub: _shortDate(r.start).toUpperCase(),
-              trailing: Pressable(
-                semanticLabel: 'Share this ${a.name.toLowerCase()}',
-                onTap: () => Navigator.of(c).push(MaterialPageRoute(
-                    builder: (_) => ShareSheet(r))),
-                child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
-              ),
+              trailingWidth: S.tap * 2,
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                // Only a saved session has an id to correct — a draft on
+                // screen because the write threw has nowhere to put it.
+                if (r.sessionId != null)
+                  Pressable(
+                    semanticLabel: 'Change activity type',
+                    onTap: () => _changeType(c),
+                    child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
+                  ),
+                const SizedBox(width: S.x3),
+                Pressable(
+                  semanticLabel: 'Share this ${a.name.toLowerCase()}',
+                  onTap: () => Navigator.of(c).push(MaterialPageRoute(
+                      builder: (_) => ShareSheet(r))),
+                  child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
+                ),
+              ]),
             ),
           ),
           Padding(

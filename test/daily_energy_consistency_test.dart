@@ -388,6 +388,123 @@ void main() {
       // silently take movement down with it.
       expect(bundle['movement'], isNotNull);
     });
+
+    group('workout-gap credit (Active Energy missed a session)', () {
+      // The bug this covers: a workout scores its own calories through the
+      // SEPARATE session pipeline, but the day trace above never reads
+      // `sessions` at all — so a session whose window the band's PPG never
+      // once covered contributed nothing to `calories`/`calories_total`,
+      // silently, even though it "was recorded" and had a real number of its
+      // own. `dayEnd` sits one second past this fixture's last covered
+      // second, so a session starting there is a clean, total gap.
+      Map<String, dynamic> session({
+        double? calories,
+        String status = 'done',
+        int? private,
+        int startOffsetSec = 0,
+        int durationSec = 1800,
+      }) =>
+          {
+            'start_ts': dayEnd + startOffsetSec,
+            'end_ts': dayEnd + startOffsetSec + durationSec,
+            'calories': calories,
+            'status': status,
+            'private': private,
+          };
+
+      test('a session with NO HR coverage at all credits its calories in',
+          () {
+        final bundle = <String, dynamic>{};
+        final scalars = <String, dynamic>{};
+        DerivationEngine.applyDayActivity(
+          bundle: bundle,
+          scalars: scalars,
+          daySub: build(),
+          profile: older,
+          sleepOnsetSec: sleepOnset,
+          sleepOffsetSec: sleepOffset,
+          dayStartSec: dayStart,
+          dayCalendarEndSec: dayEnd + 3600,
+          dataNowSec: dayEnd + 3600,
+          sessions: [session(calories: 250.0)],
+        );
+        final activeNoCredit = 661.58; // from the sibling test above
+        expect(scalars['calories'], closeTo(activeNoCredit + 250.0, 2.0));
+        expect(
+          scalars['calories_total'],
+          closeTo(
+            (scalars['calories'] as double) +
+                ((bundle['calories_total'] as Map)['basal'] as int),
+            1.0,
+          ),
+          reason: 'crediting a gap must not break calories_total - calories '
+              '== basal',
+        );
+      });
+
+      test('a session the trace already covers is never double-billed', () {
+        final bundle = <String, dynamic>{};
+        final scalars = <String, dynamic>{};
+        DerivationEngine.applyDayActivity(
+          bundle: bundle,
+          scalars: scalars,
+          daySub: build(),
+          profile: older,
+          sleepOnsetSec: sleepOnset,
+          sleepOffsetSec: sleepOffset,
+          dayStartSec: dayStart,
+          dayCalendarEndSec: dayEnd + 1,
+          dataNowSec: dayEnd + 1,
+          // Inside the fixture's own covered span (the hard hour), which
+          // already has real HR — so this must NOT add on top of it.
+          sessions: [
+            {
+              'start_ts': dayStart,
+              'end_ts': hardUntil,
+              'calories': 999.0,
+              'status': 'done',
+            }
+          ],
+        );
+        expect(scalars['calories'], closeTo(661.58, 2.0));
+      });
+
+      test('a private session is never credited', () {
+        final bundle = <String, dynamic>{};
+        final scalars = <String, dynamic>{};
+        DerivationEngine.applyDayActivity(
+          bundle: bundle,
+          scalars: scalars,
+          daySub: build(),
+          profile: older,
+          sleepOnsetSec: sleepOnset,
+          sleepOffsetSec: sleepOffset,
+          dayStartSec: dayStart,
+          dayCalendarEndSec: dayEnd + 3600,
+          dataNowSec: dayEnd + 3600,
+          sessions: [session(calories: 250.0, private: 1)],
+        );
+        expect(scalars['calories'], closeTo(661.58, 2.0));
+      });
+
+      test('a live (not-yet-done) session is never credited', () {
+        final bundle = <String, dynamic>{};
+        final scalars = <String, dynamic>{};
+        DerivationEngine.applyDayActivity(
+          bundle: bundle,
+          scalars: scalars,
+          daySub: build(),
+          profile: older,
+          sleepOnsetSec: sleepOnset,
+          sleepOffsetSec: sleepOffset,
+          dayStartSec: dayStart,
+          dayCalendarEndSec: dayEnd + 3600,
+          dataNowSec: dayEnd + 3600,
+          sessions: [session(calories: 250.0, status: 'live')],
+        );
+        expect(scalars['calories'], closeTo(661.58, 2.0));
+      });
+    });
   });
 
   // The 1 Hz pipeline computes the SAME active quantity for the early-read path

@@ -3806,7 +3806,15 @@ class LocalRepositoryImpl extends LocalRepository {
                   // The ceiling's OWN reason outranks "no hard session yet" —
                   // on all three real databases it refused for an unstamped
                   // strap, which a hard session cannot fix.
-                  ? ceilingNote ?? needInputNote('observed_ceiling')
+                  ? ceilingNote ??
+                        // A ceiling that EXISTS and was rejected as an anchor
+                        // ([kCeilingCredibleGapBpm]) is not a missing one, and
+                        // this card shows it two rows up with its date. Asking
+                        // for the number already on screen is the false reason
+                        // the note grammar exists to prevent.
+                        needInputNote(
+                          ceiling != null ? 'maximal_effort' : 'observed_ceiling',
+                        )
                   : !measured
                   ? needInputNote(
                       'resting_hr_days',

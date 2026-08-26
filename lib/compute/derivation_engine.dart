@@ -1456,8 +1456,59 @@ import 'substrate.dart';
 // (OpenStrap/analytics#52). Do not release with a pubspec pin that predates
 // that merge — recomputing v77+ against a sibling that cannot price walking
 // would burn the version on nothing.
-const int kAlgoVersion = 80;
-
+//
+// v81 — THE ZONE CEILING IS `max(observed, age estimate)`.
+// `trainingZones` (compute/hr_max.dart) preferred `observedCeilingBpm` whenever
+// one existed, in either direction. But that number is one-sided evidence:
+// holding 195 proves the ceiling is at least 195, while holding 166 cannot tell
+// "never went maximal" from "maxes at 166" — and on a wrist the first is far
+// commoner. So a 25-year-old whose hardest HELD effort was 166 was banded at
+// Z5 = 0.9·166 ≈ 149 bpm and banked 13 of the 16 minutes of a steady run in
+// "Max effort". On the session-detail path the ceiling is even set by the
+// session being graded — `_zoneAnchors` takes the all-time max including today
+// (the day pipeline and the live tick do NOT: `observedHrCeilingBpm` is
+// strictly-before, and `LiveWorkoutState.zoneSet` is pinned at start).
+//
+// The observed ceiling now anchors zones only when it REACHES the age line,
+// which is the only direction in which it bounds anything. Below it, zones stay
+// on `208 − 0.7·age`, LABELLED as the estimate. There is deliberately no
+// tolerance band: a switch at `estimate − k` would move every edge k bpm on a
+// 0.1 bpm change in a ceiling that creeps up over months, while `max` is
+// continuous. `observed`/`karvonen` therefore now mean "this user beat the
+// population line", which is a narrower and truer claim than before.
+//
+// WHAT ACTUALLY MOVES, for affected users only — narrower than it first looks,
+// and the two exceptions are both worth knowing:
+//
+//   * `zone_timeline` and `zone_source` move: both come off the pure pipeline's
+//     `trainingZones` set (onehz_pipeline.dart:630).
+//   * The day's `zones` DO NOT, because they never sat on the observed ceiling
+//     in the first place. The second derivation half recomputes them from
+//     `estimatedMaxHr` alone (`_wakeZoneMinutes` at :4662, `zonesFromMaxHr` at
+//     :4680) and `bundle['zones'] = wake['zones']` at :4920 overwrites the
+//     pipeline's. So the day BARS have always been Tanaka-binned while the
+//     footnote beside them read `zone_source`. That is a separate, pre-existing
+//     one-source-per-concern break (§3.8) and it is NOT fixed here; fixing it
+//     means threading the anchors through `_DayBlocksInput` across the isolate
+//     boundary, which moves `zones` for every user and is its own change.
+//   * Sessions rebin only where they still can. `getWorkout` recomputes
+//     `zone_bands` on every open, from the substrate or the frozen trace, so
+//     the DETAIL card is always current. The persisted `zone_min` behind the
+//     bars is rewritten by `rescoreRecentSessions(sinceDays: 3)` and by the
+//     rescore on open — but a session whose raw aged out past
+//     `rawRetentionDays` keeps the split it was scored with. Old cards are not
+//     healed by this bump, and no bump can heal them.
+//
+// TS-05's 28-day distribution disappears for anyone it was drawn for off a
+// below-line ceiling, which is that gate working: `zonesAreMeasured` was never
+// true of bands whose 100 % nobody reached. Strain, TRIMP and calories DO NOT
+// MOVE — they anchor on `estimatedMaxHr`, never on the observed ceiling.
+//
+// `hr_ceiling_bpm` itself is untouched: the ceiling and its date are still
+// measured, still stored and still served, so the zones screen keeps saying
+// "highest we have seen: 166 on 3 Aug". It just no longer becomes everyone's
+// 100 %. No sibling pin moves — this is entirely an edge-side anchor choice.
+const int kAlgoVersion = 81;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

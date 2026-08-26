@@ -2299,6 +2299,12 @@ class BleEngine {
     // most of them, the generation closes the rest. Doc 05: no burst is
     // active until this task's first HISTORY_START.
     _historyTaskGen++;
+    // Same claim as _startHistoricalRefresh's task boundary: the failure
+    // tally and the waiter generation belong to the TASK, not to the
+    // controller's lifetime. On a fresh connect the controller is already
+    // new and this is a no-op; it matters once a caller reuses an existing
+    // controller (debugStartInitDrain(), or a future one).
+    _drain?.startFreshTask();
     _historyAwaitingFirstStart = drainOnInit;
     _setOffloadActive(drainOnInit);
     // Only a real drain spends the backfill floor; a deferred one leaves it
@@ -2891,6 +2897,11 @@ class BleEngine {
     // previous task's terminal latch lifts for the same reason: ITS
     // stragglers had to stay inert, but this task's markers are live traffic.
     d.startFreshTask();
+    // The previous task's terminal latch, in case this claim never becomes a
+    // task (deferred for clock, or the SEND_HISTORICAL_DATA write fails) —
+    // then it must go back so that task's stragglers stay inert instead of
+    // re-arming the idle watchdog under the current generation.
+    final endedBeforeClaim = session.historyTaskEnded;
     session.historyTaskEnded = false;
     // Doc 05: the new task has no active burst until the strap's first
     // HISTORY_START — until then a HISTORY_END is a duplicate and data
@@ -2932,7 +2943,9 @@ class BleEngine {
         '(deferred_total=$_clockPausedOffloads).',
       );
       // The claim never became a task (no opcode 22): restore the idle
-      // marker/data handling — nothing is awaiting a HISTORY_START.
+      // marker/data handling — nothing is awaiting a HISTORY_START — and
+      // hand the previous task's terminal latch back.
+      session.historyTaskEnded = endedBeforeClaim;
       _historyAwaitingFirstStart = false;
       _setOffloadActive(false);
       return false;
@@ -2958,6 +2971,7 @@ class BleEngine {
       // A claim that went stale UNDER the write must not clear the state the
       // replacement task now owns.
       if (!claimStale()) {
+        session.historyTaskEnded = endedBeforeClaim;
         _historyAwaitingFirstStart = false;
         _setOffloadActive(false);
       }
@@ -5683,6 +5697,10 @@ class BleEngine {
       _log('runSync: no live link — nothing to await.');
       return SyncReport(0, 0, false);
     }
+    // Captured BEFORE awaitComplete: if a replacement task claims this
+    // controller while we're parked in the await, drain.taskGeneration moves
+    // on and this waiter's own generation is what tells the difference below.
+    final waiterGen = drain.taskGeneration;
     final report = await drain.awaitComplete(
       isLinkUp: () => session.connected,
       timeout: timeout,
@@ -5710,7 +5728,12 @@ class BleEngine {
         'strap_history_newest_ts': _strapHistoryNewestTs,
       },
     );
-    if (!report.complete) _setOffloadActive(false);
+    // Only the task this waiter belonged to may release the offload claim —
+    // a replacement task has already pre-armed `_offloadActive` for its own
+    // drain by the time a superseded waiter's tick resolves.
+    if (!report.complete && drain.taskGeneration == waiterGen) {
+      _setOffloadActive(false);
+    }
     // OUTBOUND automation event (Android only — see TaskerBridge.emitEvent for
     // why iOS gets no equivalent). Only on a COMPLETE offload: "sync finished"
     // must mean the strap actually drained, not that a link dropped mid-drain.
@@ -6900,6 +6923,11 @@ class DrainController {
   /// tick, which would otherwise reset the completion/terminal state under
   /// the old waiter and leave it parked against the replacement task.
   int _taskGeneration = 0;
+
+  /// The current task's generation — so a caller holding a waiter's own
+  /// generation (captured before [awaitComplete]) can tell whether the task
+  /// it waited on is still the live one before acting on the outcome.
+  int get taskGeneration => _taskGeneration;
 
   /// Outcome of each superseded task, by its generation: true when it had
   /// reached HISTORY_COMPLETE when the next claim took over (the immediate

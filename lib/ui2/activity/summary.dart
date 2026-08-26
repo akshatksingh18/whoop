@@ -834,7 +834,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         // a.typeKey)` is the live path's own write. `a.name` here would still
         // resolve through `activityByName`'s normalized lookup, but it would
         // store a different string than every other producer of this column.
-        await LocalDb.setSessionType(id, newActivity.typeKey);
+        try {
+          await LocalDb.setSessionType(id, newActivity.typeKey);
+        } catch (_) {
+          // Same rule as `_saveRpe`: the row is unchanged, so leave the
+          // picker open rather than close it over a write that never
+          // happened — `onPick` is a `void Function`, so there is no caller
+          // to hand this failure back to.
+          return;
+        }
         picked = true;
         if (!pc.mounted) return;
         bumpInsights(pc);
@@ -865,6 +873,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     _u = unitsOf(c);
+    // Only a saved session has an id to correct — a draft on screen because
+    // the write threw has nowhere to put it. Reserving the two-icon width
+    // for a row that only ever draws one icon would shove the title left on
+    // every unsaved-session summary for no reason.
+    final canChangeType = r.sessionId != null;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -878,17 +891,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               // hit box (grammar.dart's accessibility floor, not optional) —
               // S.tap * 2 alone is 12 pt short of that plus the gap between
               // them, which is exactly the RenderFlex overflow this fixed.
-              trailingWidth: S.tap * 2 + S.x3,
+              trailingWidth: canChangeType ? S.tap * 2 + S.x3 : S.tap,
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                // Only a saved session has an id to correct — a draft on
-                // screen because the write threw has nowhere to put it.
-                if (r.sessionId != null)
+                if (canChangeType) ...[
                   Pressable(
                     semanticLabel: 'Change activity type',
                     onTap: () => _changeType(c),
                     child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
                   ),
-                const SizedBox(width: S.x3),
+                  const SizedBox(width: S.x3),
+                ],
                 Pressable(
                   semanticLabel: 'Share this ${a.name.toLowerCase()}',
                   onTap: () => Navigator.of(c).push(MaterialPageRoute(

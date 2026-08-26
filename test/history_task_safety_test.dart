@@ -131,8 +131,11 @@ class _Rig {
   /// When set, abort (opcode 20) writes park on this future.
   Completer<bool>? holdAbort;
 
-  /// When set, the NEXT commit parks on this future (then completes normally).
+  /// When set, the NEXT commit parks on this future (then completes normally,
+  /// or throws if [failHeldCommit] is set — the shape of a transaction that
+  /// fails after parking for seconds).
   Completer<void>? holdCommit;
+  bool failHeldCommit = false;
 
   late final BleEngine engine;
 
@@ -154,6 +157,10 @@ class _Rig {
           if (hold != null) {
             holdCommit = null;
             await hold.future;
+            if (failHeldCommit) {
+              failHeldCommit = false;
+              throw StateError('held commit rolled back');
+            }
           }
           events.add('commit:$token');
           committedTokens.add(token);
@@ -268,9 +275,11 @@ void main() {
                 '60 s idle window, not the full timeout');
         expect(report!.complete, isFalse);
 
-        // A fresh claim (rearm) clears the terminal: the NEXT waiter parks
-        // normally instead of resolving instantly on the LAST task's abort.
+        // A fresh CLAIM (rearm + startFreshTask) clears the terminal: the
+        // NEXT waiter parks normally instead of resolving instantly on the
+        // LAST task's abort.
         d.rearm();
+        d.startFreshTask();
         SyncReport? next;
         d.awaitComplete(isLinkUp: () => true).then((r) => next = r);
         async.elapse(const Duration(seconds: 3));
@@ -278,6 +287,36 @@ void main() {
         d.onComplete();
         async.elapse(const Duration(seconds: 2));
         expect(next?.complete, isTrue);
+      });
+    });
+
+    test(
+        'a replacement claim landing between the terminal and the waiter\'s '
+        'next tick still resolves the OLD waiter incomplete', () {
+      fakeAsync((async) {
+        final d = drain();
+        SyncReport? old;
+        d.awaitComplete(isLinkUp: () => true).then((r) => old = r);
+
+        // Terminal AND the replacement claim inside one tick window — the
+        // claim clears the terminal flag before the once-a-second check ever
+        // sees it. The waiter generation is what still catches it.
+        d.onTaskTerminal();
+        d.rearm();
+        d.startFreshTask();
+        SyncReport? fresh;
+        d.awaitComplete(isLinkUp: () => true).then((r) => fresh = r);
+
+        async.elapse(const Duration(seconds: 2));
+        expect(old, isNotNull,
+            reason: 'the superseded waiter must resolve — not park against '
+                'the replacement task');
+        expect(old!.complete, isFalse);
+        expect(fresh, isNull, reason: 'the new task\'s waiter stays armed');
+
+        d.onComplete();
+        async.elapse(const Duration(seconds: 2));
+        expect(fresh?.complete, isTrue);
       });
     });
   });
@@ -541,15 +580,16 @@ void main() {
 
   group('T8 — an old task generation cannot touch its replacement', () {
     test(
-        'a continuation parked in commit cannot ACK after the watchdog ends '
-        'the task, and the old task\'s queued frames are not processed as '
-        'part of the new one', () {
+        'a continuation whose parked commit FAILS after the watchdog ends '
+        'the task cannot ACK, and its restored rows do not leak into the '
+        'replacement task', () {
       fakeAsync((async) {
         // Microtasks AND the serialized drainer's zero-duration batch yields.
         void pump() => async.elapse(Duration.zero);
 
         final r = _Rig();
         r.holdCommit = Completer<void>();
+        r.failHeldCommit = true;
         final held = r.holdCommit!;
 
         // A complete burst whose durable commit parks mid-await.
@@ -570,9 +610,10 @@ void main() {
         async.elapse(const Duration(seconds: 61));
         expect(r.aborts, hasLength(1));
 
-        // The parked commit resolves — the old continuation resumes into a
-        // task that is over. It must NOT ACK, and the old task's queued
-        // COMPLETE must not record a success terminal for it.
+        // The parked commit resolves by FAILING: DrainController restores
+        // its snapshot into the shared buffer. The stale continuation must
+        // not ACK, and the old task's queued COMPLETE must not record a
+        // success terminal for it.
         held.complete();
         pump();
         expect(r.successResults, isEmpty,
@@ -583,12 +624,19 @@ void main() {
           reason: 'a stale-generation COMPLETE is dropped, not completed',
         );
 
-        // A replacement task starts; the old task's queued frames must not
-        // be counted into its burst window.
+        // A replacement task starts. It must first DISCARD the failed
+        // commit's restored rows (never ACKed — the band re-delivers them),
+        // and the old task's queued frames must not be counted into its
+        // burst window.
         var claimed = false;
         r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
         pump();
         expect(claimed, isTrue);
+        expect(
+          r.logs.any((l) => l.contains('leftover un-ACKed buffer')),
+          isTrue,
+          reason: 'the restored row is discarded before the new task starts',
+        );
         r.rx(_historyStart());
         r.rx(_gen5V18Inner(ts: ts + 10, counter: 810));
         r.rx(_gen5V18Inner(ts: ts + 11, counter: 811));
@@ -600,6 +648,11 @@ void main() {
         expect(r.shortLines.last, contains('traffic=2'),
             reason: 'the old task\'s three leftover frames counted for '
                 'nothing in the new window');
+        // The refusal commits the short burst without a token — and it must
+        // carry ONLY the new task's two rows, not the old task's restored one.
+        expect(r.committedRows, [2],
+            reason: 'the failed commit\'s restored row did not ride into the '
+                'replacement task\'s commit');
       });
     });
 
@@ -744,6 +797,62 @@ void main() {
       await pumpEventQueue();
       expect(r.engine.offloadActive, isTrue,
           reason: 'the ending task may only release state it still owns');
+    });
+  });
+
+  group('T-INIT — the INIT drain honours the lifecycle barrier and its '
+      'session', () {
+    test(
+        'a link that dies while INIT waits out an old parked commit sends no '
+        'INIT traffic and does not report a successful setup', () {
+      fakeAsync((async) {
+        void pump() => async.elapse(Duration.zero);
+        final r = _Rig();
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+
+        // Session A's marker handler parks inside its commit…
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 970));
+        r.rx(_historyEnd(expected: 1, token: 0x9970));
+        pump();
+
+        // …while session A's connect continuation reaches the INIT claim and
+        // waits on the lifecycle barrier.
+        bool? ready;
+        r.engine.debugStartInitDrain().then((v) => ready = v);
+        pump();
+        expect(ready, isNull, reason: 'the barrier is held by the commit');
+
+        // The link is replaced while the barrier is held.
+        r.connect();
+        final at = r.writes.length;
+
+        held.complete();
+        pump();
+        expect(ready, isFalse,
+            reason: 'a stale connect continuation must not report READY');
+        expect(r.writes.length, at,
+            reason: 'no GET_DATA_RANGE/opcode 22 for a dead session — and '
+                'nothing on the replacement link');
+      });
+    });
+
+    test('sendInit is session-bound — a link swap mid-sequence stops the '
+        'tail and reports not-written', () async {
+      final r = _Rig();
+      final init = r.engine.sendInit();
+      // Let the range poll go out, then swap the link inside the 120 ms gap
+      // before SEND_HISTORICAL_DATA.
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(r.rangePolls, hasLength(1));
+      final at = r.writes.length;
+      r.connect();
+
+      expect(await init, isFalse);
+      expect(r.writes.length, at,
+          reason: 'the drain trigger must not land on the replacement link');
+      expect(r.drainRequests, isEmpty);
     });
   });
 

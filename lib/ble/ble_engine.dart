@@ -2249,58 +2249,91 @@ class BleEngine {
       );
       _setPhase(BleConnState.listening);
       _log('Connected + subscribed — listening (history + live).');
-      // INIT seq4 IS SEND_HISTORICAL_DATA, so it needs the SAME data-safety gate
-      // as _startHistoricalRefresh — without it every fresh connection drains
-      // and trims under exactly the untrustworthy phone clock we refuse to drain
-      // under there, which is the common case (a dead-battery reboot lands a bad
-      // clock and a reconnect together).
-      final drainOnInit = !_deferForClock;
-      if (!drainOnInit) {
-        _clockPausedOffloads++;
-        _log(
-          '[SYNC] INIT drain DEFERRED — phone clock appears wrong relative to '
-          'the strap RTC; not draining history until they agree '
-          '(deferred_total=$_clockPausedOffloads).',
-        );
-      }
-      // The INIT drain is a new task like any other claim, so it goes behind
-      // the same lifecycle barrier: a previous session's task-ending abort or
-      // a marker handler still parked in a commit must finish unwinding
-      // before this task arms. (Both resolve fast once their session is
-      // stale — the owner-bound write refuses immediately, and the handler
-      // re-checks staleness at every await.)
-      await _awaitHistoryLifecycleQuiescence();
-      // Leftovers of a previous session's task (queued frames, parked
-      // continuations) are stale from here — session binding already refuses
-      // most of them, the generation closes the rest. Doc 05: no burst is
-      // active until this task's first HISTORY_START.
-      _historyTaskGen++;
-      _historyAwaitingFirstStart = drainOnInit;
-      _setOffloadActive(drainOnInit);
-      // Only a real drain spends the backfill floor; a deferred one leaves it
-      // open so a foreground trigger can retry as soon as the phone corrects.
-      final floorBeforeInit = _lastBackfillAt;
-      if (drainOnInit) _lastBackfillAt = _wallSecs();
-      // Both are pre-armed above because seq4 IS the drain trigger and the
-      // flood can start before the write even returns. If INIT did not go out
-      // there is no flood: hand the state back, or `_offloadActive` stays set
-      // on a strap that was never asked for history and every later refresh
-      // stops at the already-transmitting guard.
-      if (!await sendInit(drain: drainOnInit)) {
-        _historyAwaitingFirstStart = false;
-        _setOffloadActive(false);
-        _lastBackfillAt = floorBeforeInit;
-        _log(
-          '[SYNC] INIT did not fully write — no history was requested; '
-          'clearing offload state so a later refresh can retry.',
-        );
-      }
-      return true;
+      return await _startInitDrain(session);
     } catch (e) {
       _log('connect setup failed: $e');
       await _failConnect();
       return false;
     }
+  }
+
+  /// The INIT drain claim — the tail of [_doConnect], lifted out so its
+  /// lifecycle rules are testable: wait for the previous task's quiescence,
+  /// re-check the session, arm the task state, fire INIT, and roll back if
+  /// INIT never went out. Returns whether connect setup may report success —
+  /// false only when [session] died along the way (no INIT traffic goes out
+  /// then; the disconnect path owns the cleanup).
+  Future<bool> _startInitDrain(_Session session) async {
+    // INIT seq4 IS SEND_HISTORICAL_DATA, so it needs the SAME data-safety gate
+    // as _startHistoricalRefresh — without it every fresh connection drains
+    // and trims under exactly the untrustworthy phone clock we refuse to drain
+    // under there, which is the common case (a dead-battery reboot lands a bad
+    // clock and a reconnect together).
+    final drainOnInit = !_deferForClock;
+    if (!drainOnInit) {
+      _clockPausedOffloads++;
+      _log(
+        '[SYNC] INIT drain DEFERRED — phone clock appears wrong relative to '
+        'the strap RTC; not draining history until they agree '
+        '(deferred_total=$_clockPausedOffloads).',
+      );
+    }
+    // The INIT drain is a new task like any other claim, so it goes behind
+    // the same lifecycle barrier: a previous session's task-ending abort or
+    // a marker handler still parked in a commit must finish unwinding
+    // before this task arms. (Both resolve fast once their session is
+    // stale — the owner-bound write refuses immediately, and the handler
+    // re-checks staleness at every await.)
+    await _awaitHistoryLifecycleQuiescence();
+    // The wait can park for as long as an old commit takes — re-check that
+    // THIS link survived it. A stale connect continuation must not mutate
+    // the task state a replacement session now owns, run INIT against a dead
+    // link, or report the connect as successful.
+    if (_sessionIsStale(session)) {
+      _log('[SYNC] INIT drain abandoned — the link died while waiting for '
+          'the previous history task to unwind.');
+      return false;
+    }
+    // Leftovers of a previous session's task (queued frames, parked
+    // continuations) are stale from here — session binding already refuses
+    // most of them, the generation closes the rest. Doc 05: no burst is
+    // active until this task's first HISTORY_START.
+    _historyTaskGen++;
+    _historyAwaitingFirstStart = drainOnInit;
+    _setOffloadActive(drainOnInit);
+    // Only a real drain spends the backfill floor; a deferred one leaves it
+    // open so a foreground trigger can retry as soon as the phone corrects.
+    final floorBeforeInit = _lastBackfillAt;
+    if (drainOnInit) _lastBackfillAt = _wallSecs();
+    // Both are pre-armed above because seq4 IS the drain trigger and the
+    // flood can start before the write even returns. If INIT did not go out
+    // there is no flood: hand the state back, or `_offloadActive` stays set
+    // on a strap that was never asked for history and every later refresh
+    // stops at the already-transmitting guard.
+    if (!await sendInit(drain: drainOnInit)) {
+      // A session that died UNDER the INIT writes: the rollback state now
+      // belongs to whatever replaced it, and the connect must not claim
+      // success for a dead link.
+      if (_sessionIsStale(session)) return false;
+      _historyAwaitingFirstStart = false;
+      _setOffloadActive(false);
+      _lastBackfillAt = floorBeforeInit;
+      _log(
+        '[SYNC] INIT did not fully write — no history was requested; '
+        'clearing offload state so a later refresh can retry.',
+      );
+    }
+    return true;
+  }
+
+  /// Drive the real INIT-drain claim ([_startInitDrain]) for the CURRENT
+  /// session — the lifecycle barrier, the post-wait staleness re-check and
+  /// the arm/rollback rules sit behind a real connect otherwise.
+  @visibleForTesting
+  Future<bool> debugStartInitDrain() {
+    final session = _session;
+    if (session == null) return Future.value(false);
+    return _startInitDrain(session);
   }
 
   // ── bootstrap ────────────────────────────────────
@@ -2818,6 +2851,22 @@ class BleEngine {
         '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
       );
       return false;
+    }
+    // A commit that FAILED after its task ended re-buffered that task's rows
+    // into this shared controller (the quiescence wait above guarantees the
+    // restore has happened by now, not mid-claim). They were never ACKed, so
+    // the band re-delivers them under this task's own bursts — discard them
+    // rather than let them ride into this task's first commit as data it
+    // never received. The discard poisons the (empty) open burst; this
+    // task's first HISTORY_START clears that latch.
+    if (d.bufferedRecords > 0 || d.bufferedArchives > 0) {
+      _log(
+        '[SYNC] refresh($reason) — discarding the previous task\'s '
+        '${d.bufferedRecords} record(s) + ${d.bufferedArchives} archive(s) '
+        'of leftover un-ACKed buffer before starting a new task; the band '
+        're-delivers them.',
+      );
+      d.discardOpenChunk();
     }
     d.rearm();
     // TASK BOUNDARY: this claim is the start of a genuinely new history task
@@ -5479,7 +5528,12 @@ class BleEngine {
   /// `_offloadActive` set behind it wedges every later refresh on the
   /// already-transmitting guard.
   Future<bool> sendInit({bool drain = true}) async {
-    final band = _session?.band ?? BandProfile.gen4;
+    // Every INIT write is pinned to the session current when INIT began — a
+    // link swap mid-sequence must stop the tail from landing on the
+    // replacement (`_write(owner:)`) and report the INIT as not written.
+    final session = _session;
+    if (session == null) return false;
+    final band = session.band;
     if (band.isGen5) {
       // gen5 handshake: a single CLIENT_HELLO (GET_HELLO 0x91) written
       // with-response opens the just-works bond, then the offload is driven by
@@ -5521,13 +5575,13 @@ class BleEngine {
         // steps back down mid-drain, maintenance traffic resumes, and the
         // offload branches all take the not-offloading path.
         if (ok) {
-          ok = await _sendGetDataRange();
+          ok = await _sendGetDataRange(owner: session);
           await Future.delayed(const Duration(milliseconds: 120));
         }
         if (!drain) {
           _log('gen5 INIT: skipping the drain (phone clock suspect).');
         } else if (ok) {
-          ok = await _sendHistoricalData();
+          ok = await _sendHistoricalData(owner: session);
         }
         if (!ok) {
           _log('gen5 INIT write failed — abandoning the remaining packets.');
@@ -5546,7 +5600,7 @@ class BleEngine {
     var allWritten = true;
     try {
       for (final pkt in pkts) {
-        if (!await _write(pkt)) {
+        if (!await _write(pkt, owner: session)) {
           // Stop at the first failure: the packets are a sequence, and the
           // strap will not act on the tail of one whose head never arrived.
           allWritten = false;
@@ -6817,17 +6871,23 @@ class DrainController {
 
   bool _taskTerminal = false;
 
+  /// The task a waiter belongs to. Bumped by [startFreshTask] so a waiter
+  /// armed for task N resolves (incomplete) the moment task N+1 is claimed —
+  /// even when the claim lands BETWEEN [onTaskTerminal] and the waiter's next
+  /// once-a-second tick, which would otherwise clear the terminal flag under
+  /// the old waiter and leave it parked against the replacement task.
+  int _taskGeneration = 0;
+
   /// Re-arm for a fresh offload over the same connection (clears the COMPLETE flag
-  /// so a new awaitComplete() blocks until the next HISTORY_COMPLETE, and the
-  /// task-terminal flag so it does not resolve instantly on the LAST task's
-  /// abort).
+  /// so a new awaitComplete() blocks until the next HISTORY_COMPLETE).
   ///
-  /// Does NOT clear the poison latch — see [beginBurst]. Re-arming is US asking
-  /// for another offload; the burst boundary is the BAND's to declare.
+  /// Does NOT clear the poison latch (see [beginBurst]) and does NOT clear
+  /// the task-terminal flag ([startFreshTask] owns that): rearm also runs on
+  /// every HISTORY_START, and a burst boundary must never be able to swallow
+  /// a pending terminal out from under a parked waiter.
   void rearm() {
     _complete = false;
     _linkDown = false;
-    _taskTerminal = false;
     _lastProgressAt = DateTime.now();
     burstStats.reset();
     _burstTallyClosed = false;
@@ -6872,8 +6932,15 @@ class DrainController {
   ///    poison latch + tally. Never the failure counter.
   /// The one in-task reset stays where the contract puts it: a SUCCESSFUL
   /// validation ([validateBurst]).
+  ///
+  /// Also the waiter boundary: the previous task's [awaitComplete] waiters are
+  /// superseded (they resolve incomplete on their next tick via
+  /// [_taskGeneration]) and a pending terminal flag is cleared so THIS task's
+  /// waiters arm cleanly.
   void startFreshTask() {
     consecutiveValidationFailures = 0;
+    _taskTerminal = false;
+    _taskGeneration++;
   }
 
   /// A HISTORY_END closes the burst's wire window: the band computed its
@@ -6988,13 +7055,17 @@ class DrainController {
   }) async {
     final evaluator = DrainStopEvaluator(timeout: timeout);
     final start = DateTime.now();
+    final waiterGen = _taskGeneration;
     final done = Completer<SyncReport>();
     Timer.periodic(const Duration(seconds: 1), (t) async {
       if (done.isCompleted) {
         t.cancel();
         return;
       }
-      if (_taskTerminal) {
+      // Terminal flag, OR this waiter's task was superseded by a new claim
+      // (which clears the flag) before this once-a-second tick got to see it.
+      // Either way the awaited offload is over and incomplete.
+      if (_taskTerminal || _taskGeneration != waiterGen) {
         t.cancel();
         // Same tokenless flush as the idle path: buffered rows are banked
         // durably (no trim token, nothing deleted from the band).

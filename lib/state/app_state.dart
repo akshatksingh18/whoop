@@ -101,6 +101,7 @@ import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
+import 'workout_idle.dart';
 import 'package:uuid/uuid.dart';
 
 /// The onboarding/app gate states, in order. See [AppState.route].
@@ -5264,6 +5265,15 @@ class AppState extends ChangeNotifier {
             type: (row['type'] as String?) ?? 'other',
             age: (user?['age'] as num?)?.round(),
             profile: Profile.fromMap(user),
+            // The same ceiling startWorkout pins. Without it the resumed
+            // session's idle gate is null, and WorkoutIdleWatch then counts
+            // ANY positive reading as active — a forgotten session idling at
+            // resting heart rate would never be asked about after a restart,
+            // the exact case the watch exists for.
+            hrMax: estimatedMaxHr(
+              (user?['age'] as num?),
+              engine.linkDeviceFamily,
+            ),
             restingHr: _liveRestingHr,
           );
           // Without this, `workoutStepsMeasured` (gated on _workoutRawBase
@@ -5578,6 +5588,42 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Ask about a session that has gone quiet — the [WorkoutIdleWatch] ask.
+  ///
+  /// Once per session EVER, belt and braces: the watch stops on
+  /// [WorkoutIdleWatch.confirmFired], and the dedupeKey is claimed
+  /// persistently by FiredKeyStore, so even a session resumed after a crash
+  /// (same id) cannot re-fire. `confirmFired` only on a real present — a drop
+  /// (quiet hours, muted reminders) releases the key and leaves the watch's
+  /// retry loop running, which is what turns an overnight ask into the
+  /// morning nudge instead of a loss.
+  Future<void> _nudgeIdleWorkout(LiveWorkoutState w) async {
+    try {
+      final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
+      final fired = await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$id:workout_idle',
+          category: NotifCategory.reminders,
+          // NORMAL: the prompt sanction in classOf requires it, same as the
+          // movement and detected-workout prompts.
+          priority: NotifPriority.normal,
+          title: 'Still working out?',
+          body: 'Nothing above resting effort has been recorded for '
+              '${w.idleWatch.nudgeAfter.inMinutes} minutes. If the session '
+              'is over, finish it from the Workout tab.',
+          date: todayLabel(),
+          route: kRouteWorkoutIdle,
+        ),
+      );
+      if (fired) {
+        w.idleWatch.confirmFired();
+        _log('[workout] idle nudge fired for $id');
+      }
+    } catch (e) {
+      _log('[workout] idle nudge skipped: $e');
+    }
+  }
+
   void _tickWorkout() {
     final w = activeWorkout;
     if (w == null) return;
@@ -5597,6 +5643,20 @@ class AppState extends ChangeNotifier {
       // Per-zone time: one tick ≈ one second in the current zone (persisted as
       // zone_min at stop — this is what feeds the Time-in-Zones bar).
       if (hr > 0) w.zoneSeconds[_zoneFor(hr)] += 1;
+    }
+
+    // Forgotten-session watch: judged against the SAME gate calories bill
+    // with, so "quiet" here means exactly "billed as rest there" (null when
+    // the anchors cannot define one — then only absence counts, see
+    // WorkoutIdleWatch). The ask is a notification, once per session; the
+    // session itself is never touched — there is deliberately no auto-stop.
+    final wRhr = w.restingHr;
+    final wMax = w.hrMax;
+    final idleGate = (wRhr != null && wMax != null)
+        ? ana.Calories.activeGateHr(wMax, wRhr)
+        : null;
+    if (w.idleWatch.onTick(DateTime.now(), hr: hr, gate: idleGate)) {
+      unawaited(_nudgeIdleWorkout(w));
     }
 
     // Neither strain NOR calories is accrued here. `accrueHr` (called above)
@@ -5903,7 +5963,14 @@ class LiveWorkoutState {
     this.hrMax,
     this.zoneSet,
     this.restingHr,
-  }) : _hrPeak = RollingMaxHr(age: age);
+  })  : _hrPeak = RollingMaxHr(age: age),
+        idleWatch = WorkoutIdleWatch(startedAt: startTime);
+
+  /// The forgotten-session watch — see [WorkoutIdleWatch]. Anchored on
+  /// [startTime], which for a session the reconcile path rehydrated is the
+  /// ORIGINAL start hours ago: the most forgotten a workout can be is exactly
+  /// when the first tick should already be allowed to ask.
+  final WorkoutIdleWatch idleWatch;
 
   /// Feed a live HR sample; updates the spike-suppressed [maxHrSeen], the
   /// per-minute accumulator behind strain, the per-bpm second counts behind

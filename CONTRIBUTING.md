@@ -99,6 +99,16 @@ are green locally first.
   more useful than a unit test alone.
 - No `Co-Authored-By` trailers.
 
+## Translations
+
+The app's strings live in `lib/l10n/app_en.arb` (the source of truth — only a
+handful of strings are wired up so far, more get pulled in over time). To add
+a language: copy `app_en.arb` to `app_<code>.arb` (e.g. `app_es.arb`) in the
+same folder, translate the values, and keep every key identical to the
+English file. Run `flutter gen-l10n` to regenerate, then add your language's
+display name to `_kLanguageNames` in `lib/ui2/profile/profile.dart` so it
+shows up in the picker. Open a PR.
+
 ## Reporting protocol findings
 
 If you've worked out a field, an opcode, or an event we don't decode yet, that's

@@ -2703,6 +2703,12 @@ class BleEngine {
       return false;
     }
     d.rearm();
+    // TASK BOUNDARY: this claim is the start of a genuinely new history task
+    // (the guards above have refused every same-task re-entry), so the burst
+    // validation-failure counter starts fresh HERE — before opcode 22 — and
+    // nowhere else. Doc 05: a later task must never inherit the previous
+    // task's failure slack.
+    d.startFreshTask();
     _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
@@ -4468,6 +4474,9 @@ class BleEngine {
       d?.rearm();
       // The one place a new burst is really declared — the only safe point to
       // clear the discarded-burst poison (see DrainController.beginBurst).
+      // The validation-failure counter deliberately SURVIVES this: a failed
+      // burst is re-offered behind a replacement HISTORY_START, and resetting
+      // on it meant a stuck checkpoint never reached the terminal attempt.
       d?.beginBurst();
       _setOffloadActive(true);
       return;
@@ -6415,17 +6424,37 @@ class DrainController {
   /// arrive in order, so a HISTORY_START proves the previous burst's terminal
   /// has already been handled (or is never coming) and the latch may clear.
   ///
-  /// A NEW burst also starts a FRESH validation cycle, and reopens the tally.
-  /// Without the failure reset, burst B's first attempt inherited burst A's
-  /// failure streak — and with it the two-frame slack — so a burst short by
-  /// two could be ACKed, trimming frames never tallied; and 15 different
-  /// bursts each failing once latched `historyStuck` under a log claiming one
-  /// burst failed 15 times. Marker-only re-offers of the SAME burst arrive
-  /// without a HISTORY_START, so their attempts still accumulate.
+  /// Deliberately does NOT touch [consecutiveValidationFailures]. A failed
+  /// validation makes the band re-offer the SAME checkpoint, and that re-offer
+  /// arrives WITH a replacement HISTORY_START — doc 05: a replacement START
+  /// inside a running task discards the partial accumulator but KEEPS the
+  /// failure counter. Resetting here meant a genuinely repeated bad checkpoint
+  /// could never reach the terminal 15th attempt, and the counter's real
+  /// boundary — the TASK — is [startFreshTask]. Marker-only re-offers (no
+  /// START) accumulate the same way.
   void beginBurst() {
     _trimGuard.beginBurst();
-    consecutiveValidationFailures = 0;
     _burstTallyClosed = false;
+  }
+
+  /// A genuinely NEW history task has been claimed — called by the engine
+  /// after the task claim succeeds and before opcode 22 asks the band to
+  /// transmit. Doc 05: slack is based on failures within the CURRENT task and
+  /// must never be inherited by a later one.
+  ///
+  /// The three lifecycle boundaries, which must not be conflated again:
+  ///  * [startFreshTask] — US claiming a new task: the consecutive
+  ///    validation-failure counter starts fresh (a fresh connection gets the
+  ///    same effect from its brand-new controller).
+  ///  * [rearm] — US re-arming for another offload on the same controller:
+  ///    completion latch + burst tally only. Never the failure counter, never
+  ///    the poison latch.
+  ///  * [beginBurst] — the BAND declaring a burst boundary (HISTORY_START):
+  ///    poison latch + tally. Never the failure counter.
+  /// The one in-task reset stays where the contract puts it: a SUCCESSFUL
+  /// validation ([validateBurst]).
+  void startFreshTask() {
+    consecutiveValidationFailures = 0;
   }
 
   /// A HISTORY_END closes the burst's wire window: the band computed its

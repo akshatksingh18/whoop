@@ -210,7 +210,13 @@ dependencies:
       # abstains rather than billing every waking minute as active when the
       # anchors are unusable — which is source-breaking here, not
       # number-changing (see `onehz_pipeline` and `_dailyEnergy`).
-      ref: d9362a66fbeac326d5d7d7b1fe27b28e41169a79
+      #
+      # REPIN (this branch): analytics main @ a077a4a, the #52 merge commit —
+      # the cadence→MET walking term in `Calories.dailyEnergy` (CADENCE-Adults)
+      # this branch's v77 exists to consume. The hop is exactly #52 and
+      # nothing else; the number change it brings IS this branch's change and
+      # is covered by the kAlgoVersion 77 bump + v77 migration.
+      ref: a077a4aeb2d2a86c52f86f7005654b3be27b03d9
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

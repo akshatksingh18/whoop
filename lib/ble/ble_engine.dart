@@ -660,6 +660,44 @@ enum _Gen5ConnectOutcome {
   notGen5,
 }
 
+/// One discovered band link: the registry entry the peripheral turned out to
+/// be, plus the characteristics resolved off its service.
+///
+/// [BleEngine._discoverBand] returns null rather than a record whose entry is
+/// missing a characteristic it declares required, so no caller re-checks that.
+class _DiscoveredBand {
+  final BandEntry entry;
+
+  /// The four command/notify characteristics, resolved by 32-bit prefix.
+  ///
+  /// NULLABLE, and deliberately: WHICH of them a link must expose is registry
+  /// data ([BandEntry.requiredCharacteristics]), and
+  /// [BleEngine._discoverBand] has already refused any entry missing one it
+  /// declares. A null here therefore means "this entry does not require it",
+  /// which is the case the legacy route skips a subscription for — not an
+  /// unchecked absence.
+  final BluetoothCharacteristic? cmdTo;
+  final BluetoothCharacteristic? cmdFrom;
+  final BluetoothCharacteristic? events;
+  final BluetoothCharacteristic? data;
+
+  /// Memfault (0007). OPTIONAL in both directions: absent is normal, and it is
+  /// a diagnostic/liveness input, never a readiness one. It is resolved HERE
+  /// rather than only on the gen5 route because this is the one validation
+  /// path — the two copies this replaced had already drifted over exactly
+  /// this field.
+  final BluetoothCharacteristic? memfault;
+
+  const _DiscoveredBand({
+    required this.entry,
+    required this.cmdTo,
+    required this.cmdFrom,
+    required this.events,
+    required this.data,
+    required this.memfault,
+  });
+}
+
 /// The platform seam for the official gen5 connect order: PHY preference,
 /// discovery/validation, MTU intent, bond, notification registration.
 ///
@@ -674,10 +712,10 @@ abstract class GattBootstrapOps {
   /// Ask for LE 2M PHY. Throws when the request fails — logged, non-fatal.
   Future<void> preferLe2mPhy();
 
-  /// Discover services, pin the session's band and stash the WHOOP
-  /// characteristics. Returns the discovered band, or null when no WHOOP
-  /// service — or a required characteristic — is present.
-  Future<BandProfile?> discoverAndValidate();
+  /// Discover services, pin the session's band and stash the band's
+  /// characteristics. Returns the discovered registry entry, or null when no
+  /// known framed service — or a required characteristic — is present.
+  Future<BandEntry?> discoverAndValidate();
 
   /// Request the ATT MTU; returns the negotiated value, throws on failure.
   Future<int> requestMtu(int mtu);
@@ -724,47 +762,16 @@ class _FbpGattOps implements GattBootstrapOps {
   }
 
   @override
-  Future<BandProfile?> discoverAndValidate() async {
-    final services =
-        await _device.discoverServices().timeout(BleEngine._serviceDiscoveryTimeout);
-    BluetoothService? svc;
-    BandProfile band = BandProfile.gen4;
-    for (final s in services) {
-      final u = s.uuid.str.toLowerCase();
-      if (u.startsWith(GattProfile.gen4.servicePrefix)) {
-        svc = s;
-        band = BandProfile.gen4;
-        break;
-      }
-      if (u.startsWith(GattProfile.gen5.servicePrefix)) {
-        svc = s;
-        band = BandProfile.gen5;
-        break;
-      }
-    }
-    if (svc == null) return null;
-    _session.applyBand(band);
-    final gatt = band.gatt;
-    BluetoothCharacteristic? find(String prefix) {
-      for (final c in svc!.characteristics) {
-        if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
-      }
-      return null;
-    }
-
-    _session.cmdTo = find(gatt.cmdTo.substring(0, 8));
-    _cmdFrom = find(gatt.cmdFrom.substring(0, 8));
-    _events = find(gatt.events.substring(0, 8));
-    _data = find(gatt.data.substring(0, 8));
-    // Optional — its absence must not fail validation.
-    _memfault = find(gatt.memfault.substring(0, 8));
-    if (_session.cmdTo == null ||
-        _cmdFrom == null ||
-        _events == null ||
-        _data == null) {
-      return null;
-    }
-    return band;
+  Future<BandEntry?> discoverAndValidate() async {
+    final found = await _engine._discoverBand(_device);
+    if (found == null) return null;
+    _session.applyBand(found.entry);
+    _session.cmdTo = found.cmdTo;
+    _cmdFrom = found.cmdFrom;
+    _events = found.events;
+    _data = found.data;
+    _memfault = found.memfault;
+    return found.entry;
   }
 
   @override
@@ -2454,69 +2461,21 @@ class BleEngine {
       }
 
       _setPhase(BleConnState.discovering);
-      final services = await device
-          .discoverServices()
-          .timeout(_serviceDiscoveryTimeout);
-      // Pin the band from whichever registered service the peripheral exposes.
-      // This drives the frame header/CRC, command envelope, ACK, and record
-      // decode for the session.
-      BluetoothService? svc;
-      BandEntry? entry;
-      for (final s in services) {
-        // `str128`, not `str`: `str` is the SHORTEST form, so a SIG-assigned
-        // service comes back as `180d` and never starts with a `0000180d`
-        // prefix. WHOOP's uuids are 128-bit either way — see
-        // `GattBandLink._find`, which had the live version of this bug.
-        final u = s.uuid.str128;
-        // [kFramedBands], for the same reason the scan filters on it: this
-        // engine speaks a framed envelope and nothing else.
-        for (final e in kFramedBands) {
-          if (u.startsWith(e.servicePrefix)) {
-            svc = s;
-            entry = e;
-            break;
-          }
-        }
-        if (svc != null) break;
-      }
-      if (svc == null || entry == null) {
-        _log('No known band service found on device (looked for: '
-            '${kFramedBands.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
+      // The SAME discovery+validation the official gen5 route runs — see
+      // [_discoverBand]; it logs which half failed.
+      final found = await _discoverBand(device);
+      if (found == null) {
         await _failConnect();
         return false;
       }
+      final entry = found.entry;
       session.applyBand(entry);
       state.generation = entry.id;
       _log('Detected ${entry.label} (${entry.id}) link.');
-      // Non-null: `entry` came out of [kFramedBands].
-      final gatt = entry.gatt!;
-      BluetoothCharacteristic? find(String uuid) {
-        final prefix = uuid.substring(0, 8);
-        for (final c in svc!.characteristics) {
-          // `str128` — see the service match above.
-          if (c.uuid.str128.startsWith(prefix)) return c;
-        }
-        return null;
-      }
-
-      // WHICH characteristics a link must expose is registry data. Demanding
-      // all four unconditionally is why `hr_sensor.dart` exists as a second
-      // parallel BLE stack — a generic HRS device has ONE notify
-      // characteristic and would abort here.
-      final missing = [
-        for (final u in entry.requiredCharacteristics)
-          if (find(u) == null) u.substring(0, 8),
-      ];
-      if (missing.isNotEmpty) {
-        _log('${entry.label}: missing required characteristic(s) '
-            '${missing.join(", ")}.');
-        await _failConnect();
-        return false;
-      }
-      session.cmdTo = find(gatt.cmdTo);
-      final cmdFrom = find(gatt.cmdFrom);
-      final events = find(gatt.events);
-      final data = find(gatt.data);
+      session.cmdTo = found.cmdTo;
+      final cmdFrom = found.cmdFrom;
+      final events = found.events;
+      final data = found.data;
 
       // The bond is complete by here, so this is the pause that precedes
       // notification registration — [BandEntry.preRegistrationDelay], zero on
@@ -2814,16 +2773,18 @@ class BleEngine {
         return _Gen5ConnectOutcome.failed;
       }
       _setPhase(BleConnState.discovering);
-      final band = await gatt.discoverAndValidate();
-      if (band == null) {
-        _log('[BOOT gen5] required WHOOP service or characteristic missing — '
+      final entry = await gatt.discoverAndValidate();
+      if (entry == null) {
+        _log('[BOOT gen5] required band service or characteristic missing — '
             'connection failed.');
         await _failConnect();
         return _Gen5ConnectOutcome.failed;
       }
-      if (!band.isGen5) return _Gen5ConnectOutcome.notGen5;
-      state.generation = 'gen5';
-      _log('Detected WHOOP 5 (gen5) link.');
+      // Discovery is the truth; the generation hint that routed us here was
+      // only a hint. Anything else goes back to the legacy order unchanged.
+      if (entry.id != kWhoopGen5.id) return _Gen5ConnectOutcome.notGen5;
+      state.generation = entry.id;
+      _log('Detected ${entry.label} (${entry.id}) link.');
       try {
         final negotiated = await gatt.requestMtu(247);
         _log('MTU negotiated: $negotiated (requested 247).');
@@ -3230,6 +3191,85 @@ class BleEngine {
       }
     }
     return resp != null;
+  }
+
+  /// The ONE service-discovery and characteristic-validation path.
+  ///
+  /// BOTH connect routes come here — `_FbpGattOps.discoverAndValidate` on the
+  /// official gen5 order, and `_doConnect`'s legacy order, which a discovered
+  /// gen4 falls back to. They used to be two transcriptions of this, and they
+  /// had already drifted: only the gen5 copy resolved Memfault, and only the
+  /// legacy copy matched on `str128` and on [BandEntry.requiredCharacteristics].
+  /// Which service pins the band and which characteristics are required is one
+  /// decision, so it is one function.
+  ///
+  /// Returns null — having logged which half failed — when the peripheral
+  /// exposes no known framed service, or is missing a required characteristic.
+  /// Both callers treat that as a failed connect. It does NOT touch the
+  /// session: pinning the band stays at the caller, because the gen5 route has
+  /// to decide `notGen5` before anything is pinned.
+  Future<_DiscoveredBand?> _discoverBand(BluetoothDevice device) async {
+    final services =
+        await device.discoverServices().timeout(_serviceDiscoveryTimeout);
+    // Pin the band from whichever registered service the peripheral exposes.
+    // This drives the frame header/CRC, command envelope, ACK, and record
+    // decode for the session.
+    BluetoothService? svc;
+    BandEntry? entry;
+    for (final s in services) {
+      // `str128`, not `str`: `str` is the SHORTEST form, so a SIG-assigned
+      // service comes back as `180d` and never starts with a `0000180d`
+      // prefix. WHOOP's uuids are 128-bit either way — see
+      // `GattBandLink._find`, which had the live version of this bug.
+      final u = s.uuid.str128;
+      // [kFramedBands], for the same reason the scan filters on it: this
+      // engine speaks a framed envelope and nothing else.
+      for (final e in kFramedBands) {
+        if (u.startsWith(e.servicePrefix)) {
+          svc = s;
+          entry = e;
+          break;
+        }
+      }
+      if (svc != null) break;
+    }
+    if (svc == null || entry == null) {
+      _log('No known band service found on device (looked for: '
+          '${kFramedBands.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
+      return null;
+    }
+    BluetoothCharacteristic? find(String uuid) {
+      final prefix = uuid.substring(0, 8);
+      for (final c in svc!.characteristics) {
+        // `str128` — see the service match above.
+        if (c.uuid.str128.startsWith(prefix)) return c;
+      }
+      return null;
+    }
+
+    // WHICH characteristics a link must expose is registry data. Demanding
+    // all four unconditionally is why `hr_sensor.dart` exists as a second
+    // parallel BLE stack — a generic HRS device has ONE notify
+    // characteristic and would abort here.
+    final missing = [
+      for (final u in entry.requiredCharacteristics)
+        if (find(u) == null) u.substring(0, 8),
+    ];
+    if (missing.isNotEmpty) {
+      _log('${entry.label}: missing required characteristic(s) '
+          '${missing.join(", ")}.');
+      return null;
+    }
+    // Non-null: `entry` came out of [kFramedBands].
+    final gatt = entry.gatt!;
+    return _DiscoveredBand(
+      entry: entry,
+      cmdTo: find(gatt.cmdTo),
+      cmdFrom: find(gatt.cmdFrom),
+      events: find(gatt.events),
+      data: find(gatt.data),
+      memfault: find(gatt.memfault),
+    );
   }
 
   /// The LEGACY bootstrap SET_CLOCK decision. The official gen5 path has its

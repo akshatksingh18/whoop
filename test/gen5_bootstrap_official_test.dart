@@ -27,6 +27,7 @@ import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
@@ -216,9 +217,9 @@ class _Ops implements GattBootstrapOps {
   }
 
   @override
-  Future<BandProfile?> discoverAndValidate() async {
+  Future<BandEntry?> discoverAndValidate() async {
     rig.trace.add('discover');
-    return discoveryFails ? null : BandProfile.gen5;
+    return discoveryFails ? null : kWhoopGen5;
   }
 
   @override
@@ -891,7 +892,7 @@ void main() {
         expect(rig.ready, isFalse);
         expect(rig.commands, isEmpty);
         expect(
-          rig.logged('required WHOOP service or characteristic missing'),
+          rig.logged('required band service or characteristic missing'),
           isTrue,
         );
       });

@@ -707,9 +707,9 @@ class _FakeOps implements GattBootstrapOps {
   Future<void> preferLe2mPhy() async => link.trace.add('phy');
 
   @override
-  Future<BandProfile?> discoverAndValidate() async {
+  Future<BandEntry?> discoverAndValidate() async {
     link.trace.add('discover');
-    return link.band;
+    return bandEntryFor(link.band);
   }
 
   @override

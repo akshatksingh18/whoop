@@ -7098,9 +7098,14 @@ class DrainController {
         final complete = _taskGeneration != waiterGen &&
             (_supersededTaskComplete[waiterGen] ?? false);
         t.cancel();
-        // Same tokenless flush as the idle path: buffered rows are banked
-        // durably (no trim token, nothing deleted from the band).
-        await flush();
+        // Deliberately NO flush here. A superseded waiter's task is over and
+        // the REPLACEMENT task owns this controller's buffer: a tokenless
+        // commit fired from the stale waiter would snapshot the
+        // replacement's open-burst rows and could overlap its HISTORY_END
+        // token commit — letting the ACK go out before those rows are
+        // durable, which is THE commit-before-ACK violation. The terminal
+        // case needs no flush either: every abort path commits or discards
+        // its buffer before crossing the terminal boundary.
         log('[SYNC] await stop=${complete ? 'supersededComplete' : 'taskTerminal'}'
             ' — this offload ended ${complete ? 'complete (a new task claimed '
             'immediately after HISTORY_COMPLETE)' : 'without completing (abort '

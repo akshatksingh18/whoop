@@ -24,6 +24,7 @@ import 'dart:typed_data';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 int _wallNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -348,6 +349,57 @@ void main() {
         expect(old!.complete, isTrue,
             reason: 'the superseded task DID complete — reporting failure '
                 'here turned every fast auto-continue into a phantom error');
+      });
+    });
+
+    test(
+        'a superseded waiter performs NO commit — the replacement\'s buffered '
+        'rows are persisted only by its own token commit', () {
+      fakeAsync((async) {
+        RawRecord raw(int counter) => RawRecord(
+              counter: counter,
+              packetType: 0x2f,
+              hex: '2f18${counter.toRadixString(16).padLeft(8, '0')}',
+              capturedAt: 1786000000000 + counter,
+              recTs: 1786000000 + counter,
+            );
+        final commits = <(String?, int)>[];
+        final d = DrainController(
+          onRecord: (sample, r) async {},
+          onRecordsBatch: null,
+          onCommit: (raws, samples, token, {archives, deviceFamily}) async {
+            commits.add((token, raws.length));
+          },
+          onArchive: null,
+          log: (_) {},
+        );
+        SyncReport? old;
+        d.awaitComplete(isLinkUp: () => true).then((r) => old = r);
+
+        // The task completes and auto-continue claims the replacement, whose
+        // open burst buffers rows BEFORE the old waiter's next tick.
+        d.onComplete();
+        d.startFreshTask();
+        d.beginBurst();
+        d.onHistoricalRecord(raw(1), null, 24);
+        d.onHistoricalRecord(raw(2), null, 24);
+
+        async.elapse(const Duration(seconds: 2));
+        expect(old?.complete, isTrue);
+        expect(commits, isEmpty,
+            reason: 'a stale waiter flushing here would snapshot the '
+                'replacement\'s open burst and could overlap its token '
+                'commit — the ACK must never precede those rows\' '
+                'durability');
+        expect(d.bufferedRecords, 2,
+            reason: 'the rows stay in the replacement\'s buffer');
+
+        // Only the replacement's OWN token commit persists them.
+        bool? durable;
+        d.commit(const [1, 2, 3, 4, 5, 6, 7, 8]).then((v) => durable = v);
+        async.flushMicrotasks();
+        expect(durable, isTrue);
+        expect(commits, [('0102030405060708', 2)]);
       });
     });
   });

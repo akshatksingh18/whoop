@@ -6,9 +6,11 @@ import 'package:provider/provider.dart';
 
 import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
+import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
 import 'state/app_state.dart';
+import 'state/locale_controller.dart';
 import 'state/prefs.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
@@ -117,6 +119,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>();
+    final locale = context.watch<LocaleController>();
     return MaterialApp(
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
@@ -124,6 +127,9 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
       themeMode: theme.materialThemeMode,
+      locale: locale.locale, // null = follow the OS locale
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) =>
           ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
       navigatorObservers: [TelemetryNavigatorObserver()],

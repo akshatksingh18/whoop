@@ -1356,7 +1356,13 @@ const int kAlgoVersion = 77;
 // COMMAND builders (alarmRev1Payload and friends) plus their exports and
 // test. Commands go TO the strap; no decoder line moves, so no stored number
 // can.
-const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
+//
+// The analytics repin to a077a4a (the #52 merge) is the OPPOSITE case: it
+// exists to move a number. #52 adds the cadence→MET walking term to
+// `Calories.dailyEnergy` (CADENCE-Adults), which is exactly what v77 above
+// prices in — the bump and the v77 migration cover the hop, and the hop is
+// exactly #52 (diff the two pins: calories.dart + its tests, nothing else).
+const String kAnalyticsPin = 'a077a4aeb2d2a86c52f86f7005654b3be27b03d9';
 const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

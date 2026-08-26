@@ -362,6 +362,12 @@ enum _HpsTerminalKind {
   success,
   timeout,
   disconnected,
+
+  /// A HISTORICAL_DATA_RESULT (positive or negative) could not be delivered.
+  /// The burst window is already closed on the band side, so with no result on
+  /// the wire the task cannot make progress — it ends through the one abort
+  /// boundary ([BleEngine._endHistoryTaskWithAbort]).
+  resultWriteFailed,
 }
 
 class _HpsTerminal {
@@ -534,6 +540,19 @@ class _Session {
   /// is to stop that from generating traffic and log noise.
   int stuckMarkersDropped = 0;
   int stuckRefreshesRefused = 0;
+
+  /// The CURRENT history task ended through the abort boundary
+  /// ([BleEngine._endHistoryTaskWithAbort]). While set, straggler markers and
+  /// frames from that task are inert: they must not re-arm the idle watchdog,
+  /// re-raise `_offloadActive` or trigger another abort — a duplicate
+  /// HISTORY_END used to keep a wedged task alive indefinitely. Cleared when
+  /// the next task is explicitly claimed ([BleEngine._startHistoricalRefresh]);
+  /// unlike [historyStuck] it does NOT refuse that claim, so a later
+  /// explicit/scheduled task starts cleanly.
+  bool historyTaskEnded = false;
+
+  /// Markers dropped by [historyTaskEnded] (diagnostics; first one logs).
+  int endedMarkersDropped = 0;
 
   _Session(this.device);
 
@@ -2707,8 +2726,11 @@ class BleEngine {
     // (the guards above have refused every same-task re-entry), so the burst
     // validation-failure counter starts fresh HERE — before opcode 22 — and
     // nowhere else. Doc 05: a later task must never inherit the previous
-    // task's failure slack.
+    // task's failure slack. The previous task's terminal latch lifts for the
+    // same reason: ITS stragglers had to stay inert, but this task's markers
+    // are live traffic.
     d.startFreshTask();
+    session.historyTaskEnded = false;
     _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
@@ -3397,7 +3419,11 @@ class BleEngine {
   void _enqueueOffloadFrame(Frame frame, _Session session) {
     if (_session != session || !session.connected) return; // stale session
     _offloadFrames.add(frame);
-    if (_offloadActive || frame.packetType == PacketType.historicalData) {
+    // A straggler historical frame from a task that ended through the abort
+    // boundary must not re-raise the offload — that is exactly the "duplicate
+    // terminals hold the offload open" wedge.
+    if ((_offloadActive || frame.packetType == PacketType.historicalData) &&
+        !session.historyTaskEnded) {
       _setOffloadActive(true);
     }
     if (_drainingOffloadFrames) return;
@@ -3984,6 +4010,10 @@ class BleEngine {
   void _armIdleWatchdog() {
     final session = _session;
     if (session == null || !session.connected) return;
+    // A terminal task has nothing left to wait for: stragglers from it (the
+    // re-offered HISTORY_END above all) must not re-arm the watchdog and keep
+    // the ended task's retry machinery alive.
+    if (session.historyTaskEnded) return;
     session.idleWatchdog?.cancel();
     session.idleWatchdog = Timer(
       const Duration(seconds: kBackfillIdleTimeoutSeconds),
@@ -4045,6 +4075,61 @@ class BleEngine {
         _highFreqReason = null;
         _highFreqUntil = null;
         return;
+    }
+  }
+
+  /// THE task-ending abort boundary. Every terminal that must tell the band to
+  /// exit history mode funnels through here, so the invariants live in one
+  /// place:
+  ///
+  ///  * AT MOST ONE abort per terminal — [_Session.historyTaskEnded] latches
+  ///    first, so a duplicate HISTORY_END (the band re-offers every ~2.5 s
+  ///    until it hears something) cannot fire a second one.
+  ///  * The abort is BEST-EFFORT and session-bound: `_write(owner:)` refuses
+  ///    it once [session] is no longer live, so an old task's abort can never
+  ///    land on a replacement link. A failed write is logged and swallowed —
+  ///    the task is terminating either way.
+  ///  * The task is RELEASED ONLY AFTER the abort boundary completes:
+  ///    `_offloadActive` stays up (refusing every refresh trigger) until the
+  ///    awaited write resolves, so a new task cannot send GET_DATA_RANGE or
+  ///    opcode 22 into the band while the abort is still in flight.
+  ///  * NO reconnect is started here. Doc 05: an ordinary terminal does not
+  ///    reconnect or resubmit; continuation comes from a later connection,
+  ///    scheduler tick or explicit trigger — which
+  ///    [_startHistoricalRefresh] permits again by clearing the latch when it
+  ///    claims the next task.
+  Future<void> _endHistoryTaskWithAbort({
+    required _Session session,
+    required _HpsTerminalKind kind,
+    required String reason,
+  }) async {
+    // A stale session's task died with its link — nothing to abort, and
+    // writing would target the replacement session.
+    if (_sessionIsStale(session)) return;
+    if (session.historyTaskEnded) return; // one abort per terminal
+    session.historyTaskEnded = true;
+    // Nothing further is coming that may keep this task alive.
+    session.idleWatchdog?.cancel();
+    _setHpsTerminal(kind, reason: reason);
+    _log('[SYNC] history task terminal ($reason) — sending one best-effort '
+        'abort; the band keeps its checkpoint and a later task resumes from '
+        'it.');
+    try {
+      // Not `_send`: the frame must be pinned to the session whose task is
+      // ending (`owner:`), exactly like the batch ACK.
+      final frame = buildCommand(
+        _seq.nextLive(),
+        Cmd.abortHistoricalTransmits,
+        const [0x00],
+        session.band,
+      );
+      if (!await _write(frame, owner: session)) {
+        _log('[SYNC] best-effort history abort ($reason) was not delivered — '
+            'continuing the terminal anyway.');
+      }
+    } finally {
+      // Release the task only now — the abort boundary is complete.
+      _setOffloadActive(false);
     }
   }
 
@@ -4243,14 +4328,51 @@ class BleEngine {
       return;
     }
 
+    // `owner:` for the same reason the batch ACK carries it — this is an
+    // offload write, and a session that died mid-await must not have its
+    // failure result land on the replacement link.
     final ok = await _write(
-      buildHistoryResultFail(_seq.nextSync(),
-          profile: _session?.band ?? BandProfile.gen4),
+      buildHistoryResultFail(_seq.nextSync(), profile: session.band),
+      owner: session,
     );
+    if (!ok) {
+      // The burst window is closed and the band never heard a result: it will
+      // re-offer this HISTORY_END every ~2.5 s, and each re-offer used to do
+      // nothing but log `write_ok=false` and re-arm the watchdog — a task
+      // wedged open indefinitely. A result we cannot deliver is TERMINAL for
+      // the task: the rows above are already committed (without the token, so
+      // nothing was trimmed), and the band keeps the checkpoint for the next
+      // task. One best-effort abort, no reconnect, and the task is released
+      // only after that abort boundary completes.
+      _log(
+        '[SYNC] FAILURE result for token=$tokenHex could not be written '
+        '(attempt ${d.consecutiveValidationFailures}/'
+        '$kBurstValidationAttemptLimit) — ending the history task.',
+      );
+      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+            chunkId: 'batch:$tokenHex',
+            kind: 'historical_batch',
+            status: 'aborted',
+            lastError: 'failure_result_write_failed',
+            metaPatch: {
+              'batch_id': batchId,
+              'expected_burst_packets': expected,
+              'actual_burst_packets': d.currentBurstTrafficCount,
+              'dropped_this_burst': droppedThisBurst,
+              'attempts': d.consecutiveValidationFailures,
+            },
+          ));
+      await _endHistoryTaskWithAbort(
+        session: session,
+        kind: _HpsTerminalKind.resultWriteFailed,
+        reason: 'failure_result_write_failed',
+      );
+      return;
+    }
     _log(
       '[SYNC] sent FAILURE result for token=$tokenHex '
       '(attempt ${d.consecutiveValidationFailures}/'
-      '$kBurstValidationAttemptLimit, write_ok=$ok) — the band re-offers this '
+      '$kBurstValidationAttemptLimit) — the band re-offers this '
       'burst; nothing was trimmed.',
     );
     await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
@@ -4449,6 +4571,23 @@ class BleEngine {
           'the re-offered marker without validating or aborting again. '
           'Further re-offers are silent; the band keeps its checkpoint and a '
           'later connection resumes from it.',
+        );
+      }
+      return;
+    }
+    // Same shape for a task that ended through the abort boundary: its
+    // stragglers (duplicate HISTORY_END, a late START) must not re-open the
+    // task, re-arm the watchdog or send anything. HISTORY_COMPLETE passes for
+    // the same reason it passes the stuck latch — it ACKs nothing and any
+    // awaitComplete() waiter must still be released. The latch clears when the
+    // next task is claimed, so this never blocks a later explicit refresh.
+    if (session.historyTaskEnded && m.sub != SyncMeta.historyComplete) {
+      session.endedMarkersDropped++;
+      if (session.endedMarkersDropped == 1) {
+        _log(
+          '[SYNC] history task already ended (abort sent) — dropping the '
+          'straggler marker; further ones are silent until a new task is '
+          'claimed.',
         );
       }
       return;
@@ -4811,20 +4950,24 @@ class BleEngine {
         }
         _log('[SYNC] BATCH-ACK FAILED after '
             '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex, '
-            'failures_for_this_token=$failCount) — '
-            '${quarantined ? "token QUARANTINED; NOT bouncing again" : "bouncing the link"}; '
-            'data is committed and the band will re-send.');
-        // ONLY bounce a session that is still OURS. _writeAckVerified also
-        // returns false when the session died under it, and tearing down then
-        // would kill the healthy session that replaced it. And never bounce for
-        // a quarantined token: the reconnect is what makes it a loop.
-        if (!quarantined && !_sessionIsStale(session)) {
-          unawaited(
-            _teardownSession(intentional: false).then((_) {
-              _setPhase(BleConnState.idle); // caller's reconnect loop takes over
-            }),
-          );
-        }
+            'failures_for_this_token=$failCount'
+            '${quarantined ? ", token QUARANTINED" : ""}) — ending the '
+            'history task; data is committed and the band re-delivers from '
+            'its un-advanced checkpoint on a later task.');
+        // The band-side task must be told it is over: without a result on the
+        // wire it re-offers this HISTORY_END forever. One best-effort abort
+        // through the common boundary — which no-ops on a stale session, so
+        // _writeAckVerified returning false because the session died under it
+        // can never abort (or previously: tear down) the replacement link.
+        // Deliberately NO link bounce here any more: the reconnect loop is
+        // what turned a persistently failing ACK write into a battery-draining
+        // storm, and the committed rows are safe either way. Nothing is marked
+        // acknowledged and no ACK/batch bookkeeping advances.
+        await _endHistoryTaskWithAbort(
+          session: session,
+          kind: _HpsTerminalKind.resultWriteFailed,
+          reason: 'ack_write_exhausted',
+        );
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);

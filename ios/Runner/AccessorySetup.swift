@@ -92,6 +92,12 @@ private final class Impl {
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
   private var pickerResult: ((Result<String, PickerError>) -> Void)?
+  // True from the moment the Gen 4 retry's showPicker is issued until its
+  // completion handler runs. `.pickerDidDismiss` fires for the FIRST (rejected)
+  // sheet during this window — without this guard it resolves `pickerResult`
+  // as cancelled before the retry gets a chance to report its own outcome,
+  // so a successfully provisioned accessory gets reported to Dart as cancelled.
+  private var retryInFlight = false
 
   struct PickerError: Error { let message: String }
 
@@ -109,6 +115,9 @@ private final class Impl {
     // pending showPicker as "cancelled".
     switch event.eventType {
     case .pickerDidDismiss:
+      // Ignore the first sheet's dismissal while the Gen 4 retry is in flight —
+      // see `retryInFlight`'s doc comment.
+      guard !retryInFlight else { return }
       // If a picker was in flight and nothing got added, treat as cancelled. (If an
       // accessory WAS added, showPicker's completion handler already resolved it.)
       if let cb = pickerResult {
@@ -194,13 +203,25 @@ private final class Impl {
   private func present(_ items: [ASPickerDisplayItem], allowGen4Retry: Bool) {
     session.showPicker(for: items) { [weak self] error in
       guard let self = self else { return }
+      // The retry (if any) that led to THIS completion running is no longer
+      // in flight — whatever we resolve below is the actual outcome.
+      self.retryInFlight = false
       if let error = error {
         guard let cb = self.pickerResult else { return }
         let message = error.localizedDescription
-        let looksCancelled = message.lowercased().contains("cancel")
-        if allowGen4Retry, !looksCancelled, items.count > 1 {
+        // Prefer the typed error code over sniffing the localized message —
+        // a message that doesn't happen to contain "cancel" would otherwise
+        // incorrectly trigger a second picker on a real user cancellation.
+        let cancelled: Bool
+        if let askError = error as? ASError {
+          cancelled = askError.code == .userCancelled
+        } else {
+          cancelled = message.lowercased().contains("cancel")
+        }
+        if allowGen4Retry, !cancelled, items.count > 1 {
           NSLog("[ASK] picker rejected the %d-item descriptor list (%@) — "
                 + "retrying with the WHOOP 4.0 item only.", items.count, message)
+          self.retryInFlight = true
           self.present([items[0]], allowGen4Retry: false)
           return
         }

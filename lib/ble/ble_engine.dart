@@ -1349,7 +1349,11 @@ class BleEngine {
                   r.advertisementData.serviceUuids.map((g) => g.str),
             )) {
           found = r.device;
-          FlutterBluePlus.stopScan();
+          unawaited(
+            FlutterBluePlus.stopScan().catchError(
+              (Object e) => _log('stopScan after match failed: $e'),
+            ),
+          );
         }
       }
     });

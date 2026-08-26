@@ -17,8 +17,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
-String _posix(String path) => path.replaceAll(Platform.pathSeparator, '/');
-
 String _readRepoFile(String posixPath) {
   final file = File(posixPath.split('/').join(Platform.pathSeparator));
   expect(file.existsSync(), isTrue,
@@ -158,7 +156,37 @@ void main() {
     test('engine scan uses the shared filter helper, not a second UUID list', () {
       expect(engine, contains('whoopScanServiceUuids()'));
       expect(engine, contains('advertisementLooksLikeWhoop('));
-      expect(_posix('lib/ble/ble_engine.dart'), 'lib/ble/ble_engine.dart');
+    });
+
+    test(
+        'the widened descriptor list retries once with the Gen 4 item alone '
+        'so a rejected experiment can never take down 4.0 pairing', () {
+      // The initial picker call must offer the retry, and the retry target
+      // must be items[0] — the WHOOP 4.0 (gen4) descriptor built first in
+      // `items`, so a rejection of the widened list falls back to exactly
+      // what already ships.
+      expect(swift, contains('present(items, allowGen4Retry: true)'));
+      expect(swift, contains('self.present([items[0]], allowGen4Retry: false)'));
+      // items[0] must be the gen4 makeItem, not gen5/name-substring.
+      final itemsStart = swift.indexOf('let items: [ASPickerDisplayItem] = [');
+      expect(itemsStart, greaterThanOrEqualTo(0));
+      final firstMakeItem = swift.indexOf('makeItem(', itemsStart);
+      expect(swift.substring(firstMakeItem, firstMakeItem + 40),
+          contains('"WHOOP band"'));
+      expect(
+        swift.substring(firstMakeItem, swift.indexOf(')', firstMakeItem) + 200),
+        contains('whoopServiceUUIDGen4'),
+      );
+    });
+
+    test(
+        'a dismissal of the rejected sheet during the Gen 4 retry is '
+        'suppressed, so a provisioned accessory cannot be reported cancelled',
+        () {
+      expect(swift, contains('retryInFlight'));
+      expect(swift, contains('guard !retryInFlight else { return }'));
+      expect(swift, contains('self.retryInFlight = true'));
+      expect(swift, contains('self.retryInFlight = false'));
     });
   });
 }

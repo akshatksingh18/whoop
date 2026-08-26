@@ -1419,10 +1419,13 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // with the month list can be a split binned before that correction — and
       // pairing those bars with the provenance of the bands just recomputed
       // beside them is the exact mismatch this card is being fixed for.
-      zoneMinutes: [
-        for (final z in (b['zone_min'] as List? ?? const []))
-          if (z is num) z.toDouble(),
-      ],
+      zoneMinutes: (() {
+        final decoded = [
+          for (final z in (b['zone_min'] as List? ?? const []))
+            if (z is num) z.toDouble(),
+        ];
+        return decoded.length == 5 ? decoded : out.zoneMinutes;
+      })(),
     );
   } catch (_) {
     // Enrichment is best-effort; the scalars on the row still render.

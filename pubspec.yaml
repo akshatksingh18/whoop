@@ -95,9 +95,28 @@ dependencies:
       # fit; `ouraCmdAuthenticate` rejects a wrong-size cipher instead of
       # emitting a malformed frame; `ouraCmdSyncTime` no longer calls
       # `ByteData.setUint64`, which throws on dart2js. None of the three touch
-      # a WHOOP code path. #34 is unmerged, so this is a PR-branch-head pin;
-      # repin to the main merge commit when it lands.
-      ref: 19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265
+      # a WHOOP code path.
+      #
+      # REPIN (this branch): protocol main @ 6664854, the #35 merge commit —
+      # a MAIN merge commit, reachable regardless of branch deletion, and the
+      # first pin here that is not a PR-branch head (#34 has since merged at
+      # 2c8448b, which 6664854 descends from, so the oura/HRS wire formats
+      # above are carried unchanged).
+      #
+      # The hop from 19d7291 is ahead 3 / behind 0 and its ONLY lib/ diff is
+      # #35's `lib/src/control.dart` (+4/-5): `Gen5HelloInfo.parse` no longer
+      # returns null for a hello body whose revision byte is not 1 — the byte
+      # is recorded in `helloRevision` and the fixed revision-1 offsets are
+      # read regardless. That matters here because this branch makes HELLO
+      # MANDATORY: under the old gate a firmware that bumped the revision
+      # could not connect at all.
+      #
+      # NO kAlgoVersion bump: hello feeds connection identity and state, not
+      # the derivation pipeline — no decoder for a persisted record changes,
+      # so no stored number can move. Reasoning also sits beside kProtocolPin
+      # in lib/compute/derivation_engine.dart, which moves together with this
+      # ref and pubspec.lock (the pin-equality test fails a partial repin).
+      ref: 6664854062d6e0e6099eac39b3ee73d96703a49e
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

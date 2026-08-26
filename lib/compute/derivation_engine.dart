@@ -1520,8 +1520,26 @@ const int kAlgoVersion = 79;
 // no caller passing it `active`/`basal`/`total` are byte-identical to before
 // — the walking-cadence NUMBER change already happened at v77 above, via
 // #283's own a077a4a pin, before this branch's pin moved past it.
+//
+// REPIN (this branch) @ 6664854 — protocol main at the OpenStrap/protocol#35
+// merge commit ("record HELLO revision instead of gating parsing"). The old
+// pin's parser returned null for any hello body whose revision byte was not
+// 1; this branch makes HELLO MANDATORY, so under that gate a firmware that
+// bumped the revision could not connect at all. #35 records the byte in
+// `helloRevision` and reads the fixed revision-1 offsets regardless.
+//
+// The hop from 19d7291 is ahead 3 / behind 0, and its ONLY lib/ diff is
+// #35's `lib/src/control.dart` (+4/-5) — the dropped `if (body[0] != 1)`.
+// The other two commits are the #34 merge (2c8448b), whose head 19d7291 this
+// pin already WAS, so the oura/generic-HRS wire formats edge#280 imports come
+// across unchanged. NO kAlgoVersion bump: hello feeds connection identity and
+// state, not the derivation pipeline — no decoder for a persisted record
+// moves, so no stored number can. This constant moves together with
+// pubspec.yaml's `ref:` and pubspec.lock
+// (test/db_serve_version_and_reads_test.dart pins them equal, so a partial
+// repin fails the suite).
 const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
-const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
+const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

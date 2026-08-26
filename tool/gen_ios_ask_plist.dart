@@ -54,17 +54,22 @@ String _esc(String s) => s
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 
-String _servicesBody(List<BandEntry> registry) => registry
-        .map((e) => '\t\t<string>${e.service.toUpperCase()}</string>\n')
-        .join() +
-    '\t\t<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor '
-        'service\n'
-        '\t\t     above, and NOT the Bluetooth-base expansion\n'
-        '\t\t     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises '
-        'that).\n'
-        '\t\t     A 128-bit UUID often does not fit the 31-byte '
-        'advertisement. -->\n'
-        '\t\t<string>$kFd4bMemberUuid16</string>\n';
+String _servicesBody(List<BandEntry> registry) {
+  final buf = StringBuffer();
+  for (final e in registry) {
+    buf.writeln('\t\t<string>${e.service.toUpperCase()}</string>');
+  }
+  buf
+    ..writeln('\t\t<!-- 16-bit SIG member UUID. Distinct from the 128-bit '
+        'vendor service')
+    ..writeln('\t\t     above, and NOT the Bluetooth-base expansion')
+    ..writeln('\t\t     0000FD4B-0000-1000-8000-00805F9B34FB (no band '
+        'advertises that).')
+    ..writeln('\t\t     A 128-bit UUID often does not fit the 31-byte '
+        'advertisement. -->')
+    ..writeln('\t\t<string>$kFd4bMemberUuid16</string>');
+  return buf.toString();
+}
 
 String _labelsBody(List<BandEntry> registry) => registry
     .map((e) => '\t\t<key>${e.service.toUpperCase()}</key>\n'

@@ -836,11 +836,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         // store a different string than every other producer of this column.
         await LocalDb.setSessionType(id, newActivity.typeKey);
         picked = true;
-        if (mounted) bumpInsights(c);
+        if (!pc.mounted) return;
+        bumpInsights(pc);
         Navigator.of(pc).pop();
       }),
     ));
-    if (mounted && picked) Navigator.of(c).pop();
+    if (c.mounted && picked) Navigator.of(c).pop();
   }
 
   Future<void> _retrySave() async {

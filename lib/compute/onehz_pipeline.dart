@@ -457,6 +457,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       rrTsMs: d.dayRrTsMs.isEmpty ? null : d.dayRrTsMs);
   final irregular24h = irregularBeatScreen(
     dayCorrected.nn,
+    // Require sustained irregularity in independent short windows, not just
+    // in one ratio blended across sleep+rest+exercise+posture changes — see
+    // irregularBeatScreen's doc. Without this, real data showed the screen
+    // firing on effectively every day regardless of actual cardiac health.
+    nnTimesMs: dayCorrected.nnTimesMs,
     artifactFraction: (1.0 - dayCorrected.cleanFraction).clamp(0.0, 1.0),
   );
 
@@ -871,6 +876,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // confidence was a hard-coded 0.5 however noisy the night was.
   final irregularSleep = irregularBeatScreen(
     nn,
+    nnTimesMs: nnTimes,
     artifactFraction: artifactFraction,
   );
   final irrSleep = irregularSleep.present ? irregularSleep.value : null;

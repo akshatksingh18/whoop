@@ -123,7 +123,14 @@ void openProfile(BuildContext c) => goto(c, const ProfileHome());
 /// Add a row here when a contributor's `app_<code>.arb` lands — nothing else
 /// to touch; the picker below only ever offers what [AppLocalizations]
 /// actually has translations for.
-const Map<String, String> _kLanguageNames = {'en': 'English'};
+const Map<String, String> _kLanguageNames = {
+  'en': 'English',
+  'es': 'Español',
+  'fr': 'Français',
+  'de': 'Deutsch',
+  'zh': '中文',
+  'hi': 'हिन्दी',
+};
 
 String _languageLabel(BuildContext c, String? code) => code == null
     ? (AppLocalizations.of(c)?.languageSystemDefault ?? 'System default')

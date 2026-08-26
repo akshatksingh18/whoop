@@ -249,11 +249,13 @@ void derivationPrepareWorker(SendPort mainSendPort) {
           .whereType<Map>()
           .map((e) => e.cast<String, dynamic>())
           .toList();
-      if (frames.isNotEmpty) {
-        final rr = ((message['rr'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => e.cast<String, dynamic>())
-            .toList();
+      final rr = ((message['rr'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
+      // A page with beats but NO frames is a real page, not an empty one — see
+      // addDecodedPage. Only a page with neither is a raw-hex page.
+      if (frames.isNotEmpty || rr.isNotEmpty) {
         state.addDecodedPage(frames, rr);
         return;
       }
@@ -311,6 +313,15 @@ void derivationPrepareWorker(SendPort mainSendPort) {
     }
   });
 }
+
+/// One decoded page + its beats through the accumulator, the way the worker
+/// feeds it. Exists so the page seam — the `beat_ts_ms` coalesce and the
+/// frame/beat union — is testable without spinning an isolate.
+@visibleForTesting
+Substrate substrateFromDecodedPage(
+  List<Map<String, dynamic>> frames,
+  List<Map<String, dynamic>> rrRows,
+) => (_PrepareAccumulator()..addDecodedPage(frames, rrRows)).buildSubstrate();
 
 @visibleForTesting
 PreparedDerivationPayload prepareDerivationPayload(
@@ -419,6 +430,24 @@ class _PrepareAccumulator {
   /// path) or more than one (the athlete changed straps inside this window) ⇒
   /// null, i.e. UNKNOWN, and per-family metrics refuse. Cheaper than a
   /// per-second array and it answers the only question anyone asks.
+  ///
+  /// WHAT THIS DOES NOT CATCH, and cannot today: a change of UNIT within one
+  /// family. A warranty-replacement WHOOP 4 stamps `gen4` exactly like the one
+  /// it replaced, so the singleton test passes and one thermistor calibration
+  /// is applied across two physical units' ADC counts — `skin_temp_raw` then
+  /// gets z-scored straight across the seam. Nothing on a `decoded_onehz` row
+  /// distinguishes two units: `counter` is flash-local and resets on reboot,
+  /// and the one real per-unit identifier the app holds (the HELLO serial, via
+  /// `PairedDevice.serial`) lives in SharedPreferences, not on the row and not
+  /// in this isolate.
+  ///
+  /// ponytail: family-level guard only; the unit-level guard needs the
+  /// per-row `device_id` from the phase-2 storage re-key (BANDAGNOSTIC B1/B2),
+  /// after which this set keys on `device_id` and a second unit refuses the
+  /// same way a second family does. Deliberately NOT approximated here — the
+  /// alternatives (refusing every family, or guessing a unit change from a
+  /// data gap) cost every user their skin-temp driver on every day, to catch
+  /// an event that happens at most a handful of times in a band's life.
   final Set<String> _families = {};
 
   void _noteFamily(Object? v) {
@@ -464,7 +493,7 @@ class _PrepareAccumulator {
     List<Map<String, dynamic>> frames,
     List<Map<String, dynamic>> rrRows,
   ) {
-    if (frames.isEmpty) return;
+    if (frames.isEmpty && rrRows.isEmpty) return;
     // Associate beats to frames by rec_ts (their shared key). The strap's counter
     // resets on reboot, so grouping by counter mis-joined two seconds that reused
     // one counter within a page.
@@ -474,12 +503,40 @@ class _PrepareAccumulator {
       if (recTs == null) continue;
       rrByRecTs.putIfAbsent(recTs, () => <Map<String, dynamic>>[]).add(row);
     }
+    // THE UNION OF FRAME SECONDS AND BEAT SECONDS, not just the frames.
+    //
+    // A beat can exist for a second that has NO `decoded_onehz` row, and the
+    // band produces those on purpose: gen4 historical R10-lite is hr-only, so
+    // `_queueDecodedOneHz` (db.dart) keeps it out of the 1 Hz store and banks
+    // its R-R block on its own. Walking only `frames` dropped every one of
+    // those beats on the floor — silently, and permanently once the record was
+    // acked and trimmed. The beat-only second still gets a 1 Hz slot so the
+    // positional arrays stay 1:1 with `tsSec`; its sensor channels land on the
+    // ABSENT sentinels (accel exactly (0,0,0), ADC 0, hr 0), never on a
+    // fabricated reading.
+    final frameByRecTs = <int, Map<String, dynamic>>{};
+    final seconds = <int>[];
     for (final row in frames) {
       final recTs = _num(row['rec_ts'])?.toInt();
       if (recTs == null || recTs <= 0) continue;
-      _noteFamily(row['device_family']);
+      if (frameByRecTs.containsKey(recTs)) continue;
+      frameByRecTs[recTs] = row;
+      seconds.add(recTs);
+    }
+    for (final recTs in rrByRecTs.keys) {
+      if (recTs > 0 && !frameByRecTs.containsKey(recTs)) seconds.add(recTs);
+    }
+    // Cheap when nothing was added (the page arrived sorted); required when it
+    // was, since every downstream slice assumes `tsSec` is ascending.
+    seconds.sort();
+    for (final recTs in seconds) {
+      final row = frameByRecTs[recTs];
+      _noteFamily(row?['device_family']);
       tsSec.add(recTs);
-      hr.add(plausibleHrOrZero(_num(row['hr'])?.toInt() ?? 0));
+      // NULL (absent), a beat-only second (no row at all) and an impossible
+      // byte all land on the same 0 — the array's one "no usable HR this
+      // second" value. It is NOT a wear verdict; see [Substrate.hr].
+      hr.add(plausibleHrOrNull(_num(row?['hr'])?.toInt() ?? 0) ?? 0);
       // The 1 Hz arrays are POSITIONAL — one entry per second, 1:1 with tsSec —
       // so a NULL sensor column (schema v39: absent, never coerced to a real
       // reading) must still occupy its slot. It lands as the array's ABSENT
@@ -488,11 +545,11 @@ class _PrepareAccumulator {
       //            (no real sensor reads 0 g on all three axes — see that doc)
       //   ADC    → 0, read back through the `v > 0` gate every ADC consumer uses
       // Same discipline as `stepCount`'s -1 below.
-      ax.add(_num(row['ax'])?.toDouble() ?? 0);
-      ay.add(_num(row['ay'])?.toDouble() ?? 0);
-      az.add(_num(row['az'])?.toDouble() ?? 0);
-      spo2Red.add(_num(row['spo2_red_raw'])?.toInt() ?? 0);
-      spo2Ir.add(_num(row['spo2_ir_raw'])?.toInt() ?? 0);
+      ax.add(_num(row?['ax'])?.toDouble() ?? 0);
+      ay.add(_num(row?['ay'])?.toDouble() ?? 0);
+      az.add(_num(row?['az'])?.toDouble() ?? 0);
+      spo2Red.add(_num(row?['spo2_red_raw'])?.toInt() ?? 0);
+      spo2Ir.add(_num(row?['spo2_ir_raw'])?.toInt() ?? 0);
       // gen4 stores skin temp as a raw ADC count (`skin_temp_raw`); gen5 v18
       // decodes it to °C and stores THAT (`skin_temp_c`), leaving skin_temp_raw
       // NULL on every row. Reading only the gen4 column meant a WHOLE gen5
@@ -502,8 +559,8 @@ class _PrepareAccumulator {
       // carry whichever the row has, in centi-°C to stay integral and positive
       // through the `v > 0` gate every ADC consumer uses. A user who swaps
       // gen4 → gen5 mid-history steps the baseline once; the z re-settles.
-      final tempRaw = _num(row['skin_temp_raw'])?.toInt();
-      final tempC = _num(row['skin_temp_c'])?.toDouble();
+      final tempRaw = _num(row?['skin_temp_raw'])?.toInt();
+      final tempC = _num(row?['skin_temp_c'])?.toDouble();
       skinTemp.add(tempRaw ?? (tempC == null ? 0 : (tempC * 100).round()));
       // NO skin contact on the decoded path, and no column to read: the byte the
       // name refers to is the sign+exponent half of a float32, never a contact
@@ -512,22 +569,39 @@ class _PrepareAccumulator {
       // `decoded_onehz.step_count` is NULL on every gen4 row and on any gen5
       // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
       // reading from a band that has not moved since its counter last wrapped.
-      stepCount.add(_num(row['step_count'])?.toInt() ?? -1);
+      stepCount.add(_num(row?['step_count'])?.toInt() ?? -1);
       // CV-04a — the band's own "this second's beat is valid" flag, the first
       // of the five write-only gen5 columns to reach Substrate.
       //
       // NULL IS ABSENT (-1), NOT FALSE. gen4's R24 has no such field, so every
       // gen4 row is NULL here, and a `?? 0` would tell every downstream reader
       // that a whole generation's beats were rejected BY THE BAND. 0 is a real
-      // reading and only gen5 can produce it. `Substrate.hrValidAt` gates the
-      // read on `device_family == 'gen5'` on top of this.
-      hrValid.add(_num(row['hr_valid'])?.toInt() ?? -1);
+      // reading and only a decoder that read the flag off the wire can produce
+      // it. `Substrate.hrValidAt` gates the read on THIS sentinel alone — the
+      // `device_family == 'gen5'` check that used to sit on top of it was a
+      // band id in the neutral layer (BANDAGNOSTIC C12).
+      hrValid.add(_num(row?['hr_valid'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
-        final rr = _num(beat['rr_ms'])?.toDouble();
-        if (rr == null || rr <= 0) continue;
-        rrTsMs.add(_num(beat['rr_ts_ms'])?.toDouble() ?? recTs * 1000.0);
+        // The SAME physiological bound the raw-replay path applies
+        // (`decodeSubstrate`), not just `> 0`: an interval outside
+        // kMinPlausibleRrMs..kMaxPlausibleRrMs is a missed or doubled beat
+        // detection, and it has to be refused on both ingest paths or the two
+        // disagree about the same band's beats.
+        final raw = _num(beat['rr_ms']);
+        final rr = raw == null ? null : plausibleRrOrNull(raw);
+        if (rr == null) continue;
+        // `beat_ts_ms` FIRST — it is where the beat actually was. `rr_ts_ms` is
+        // `rec_ts * 1000`, so every beat in a record shares one millisecond and
+        // the axis is a whole-second staircase: an inter-record gap shorter than
+        // a second is invisible to `_beatTimes`' re-anchor test and gets spliced
+        // out of the time base. COALESCE, never fabricate — the column is NULL
+        // for every row banked before it existed and for any source with no
+        // sub-second, and there the staircase is still the honest best answer.
+        rrTsMs.add(_num(beat['beat_ts_ms'])?.toDouble() ??
+            _num(beat['rr_ts_ms'])?.toDouble() ??
+            recTs * 1000.0);
         rrMs.add(rr);
       }
     }

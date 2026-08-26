@@ -15,6 +15,7 @@ import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/data/models.dart';
@@ -750,10 +751,15 @@ void _bootstrap() {
     });
 
     test('the delays are the observed 600/500 ms and gen5-only', () {
-      expect(BleEngine.kGen5PreRegistrationDelay,
+      // Read off the band table now, which is what the bootstrap reads. The
+      // gen4 row is asserted here too: "gen5-only" is no longer a branch in
+      // the engine, it is WHOOP 4 declaring zero.
+      expect(kWhoopGen5.preRegistrationDelay,
           const Duration(milliseconds: 600));
-      expect(BleEngine.kGen5PostRegistrationDelay,
+      expect(kWhoopGen5.postRegistrationDelay,
           const Duration(milliseconds: 500));
+      expect(kWhoopGen4.preRegistrationDelay, Duration.zero);
+      expect(kWhoopGen4.postRegistrationDelay, Duration.zero);
       fakeAsync((async) {
         final link = _BootstrapLink(band: BandProfile.gen4);
         link.engine.debugBootstrapAfterRegistration();

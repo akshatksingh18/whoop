@@ -1,6 +1,7 @@
 // Storage hygiene:
-//  1. decoded_rr is keyed (rec_ts, beat_index) and carries no redundant
-//     secondary index; rec_ts-range reads are served by the PK auto-index.
+//  1. decoded_rr is keyed (device_id, ts_ms, beat_index) since v47, so the
+//     rec_ts-range derive read is served by ONE secondary index on
+//     (rec_ts, beat_index) — seek, not scan, and no sort.
 //  2. Superseded generations of the recomputable per-day intermediates are
 //     pruned. They are keyed (day_id, algo_version), so every kAlgoVersion
 //     bump wrote a whole new generation beside the old one and nothing
@@ -27,21 +28,25 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  test('decoded_rr carries no redundant secondary index', () async {
+  test('decoded_rr carries exactly ONE secondary index', () async {
     final db = await LocalDb.instance;
     final idx = await _rrIndexes(db);
-    // The (rec_ts, beat_index) PRIMARY KEY auto-indexes; nothing else should be
-    // maintained on this hot insert path.
+    // Since v47 the key is (device_id, ts_ms, beat_index), so the PK auto-index
+    // no longer starts with rec_ts and CANNOT serve the derive read path. One
+    // index on (rec_ts, beat_index) buys it back — and it is the ONLY one this
+    // hot insert path may carry.
     expect(
       idx.where((n) => !n.startsWith('sqlite_autoindex')),
-      isEmpty,
+      ['idx_decoded_rr_rects'],
       reason: 'unexpected secondary index on decoded_rr: $idx',
     );
   });
 
-  test('rec_ts-range reads on decoded_rr are served by the PK auto-index', () async {
-    // decoded_rr shares the rec_ts key with decoded_onehz, so the derive read
-    // path (decodedRrByRecTsRange) is a PK range scan — never a full-table read.
+  test('rec_ts-range reads on decoded_rr seek, and sort from the index',
+      () async {
+    // decoded_rr still shares its RANGE key with decoded_onehz, so the derive
+    // read path (decodedRrByRecTsRange) is an index range scan — never a
+    // full-table read, and never a sort.
     final db = await LocalDb.instance;
     final detail = (await db.rawQuery(
       'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE rec_ts BETWEEN 1 AND 9 '
@@ -60,7 +65,7 @@ void main() {
     expect(
       plan,
       isNot(contains('USE TEMP B-TREE')),
-      reason: 'ordering should come from the PK: $detail',
+      reason: 'ordering should come from the index: $detail',
     );
   });
 

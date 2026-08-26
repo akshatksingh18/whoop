@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.28+60
+version: 0.9.29+62
 
 environment:
   sdk: ^3.11.4
@@ -80,13 +80,24 @@ dependencies:
       # record field map this branch's decoders need. main's pre-gen5 pin is
       # deliberate THERE; this is the branch that wants gen5.
       #
-      # REPIN (this branch): protocol #33 head @ 4ce8f02, which is b7990e1
-      # (everything above) rebased under #33's one commit — alarmRev1Payload,
-      # the single home of the rev-1 9-byte SET_ALARM_TIME layout this branch
-      # arms gen4 with. b7990e1 itself does NOT export the symbol, so the old
-      # pin failed analysis on a fresh checkout. #33 is unmerged, so this is a
-      # PR-branch-head pin; repin to the main merge commit when it lands.
-      ref: 4ce8f021568a4cd9a1d86c91004f91c6b21980da
+      # REPIN (this branch): protocol #34 head @ 19d7291, on top of 4ce8f02
+      # (everything above). Carries the oura ring and generic bluetooth HR
+      # wire format in from edge — pure decode/encode functions with no BLE
+      # or db dependency, so they belong with the rest of the bytes-in-
+      # records-out code rather than beside the session that drives them.
+      # `parseFrame`/`parseEvent` on the whoop side are unchanged; the moved
+      # functions are `parseOuraFrame`/`parseOuraEvent` to avoid a barrel
+      # collision. No stored WHOOP number moves.
+      #
+      # Repinned again after that branch's own review pass: a truncated HRS
+      # notification (energy-expended flag set but the field cut off, or an
+      # odd-length RR remainder) now refuses instead of silently parsing what
+      # fit; `ouraCmdAuthenticate` rejects a wrong-size cipher instead of
+      # emitting a malformed frame; `ouraCmdSyncTime` no longer calls
+      # `ByteData.setUint64`, which throws on dart2js. None of the three touch
+      # a WHOOP code path. #34 is unmerged, so this is a PR-branch-head pin;
+      # repin to the main merge commit when it lands.
+      ref: 19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -211,12 +222,30 @@ dependencies:
       # anchors are unusable — which is source-breaking here, not
       # number-changing (see `onehz_pipeline` and `_dailyEnergy`).
       #
-      # REPIN (this branch): analytics main @ a077a4a, the #52 merge commit —
-      # the cadence→MET walking term in `Calories.dailyEnergy` (CADENCE-Adults)
-      # this branch's v77 exists to consume. The hop is exactly #52 and
-      # nothing else; the number change it brings IS this branch's change and
-      # is covered by the kAlgoVersion 77 bump + v77 migration.
-      ref: a077a4aeb2d2a86c52f86f7005654b3be27b03d9
+      # REPIN: analytics @ 353c6bc, on top of d6ba41c. FOUR output changes,
+      # kAlgoVersion bumped for this hop — see its own changelog entry:
+      # nocturnalRhr(minCoverage: 0) could reach a NaN trough; the cadence
+      # rescale in the sleep stager was double-applying an already
+      # cadence-invariant factor; cardio_stager's epoch grid could silently
+      # drift from its own reported length; readiness's sub-quantum
+      # dispersion guard only ran when robustZ came back null, missing a
+      # nonzero-MAD-but-still-quantized baseline. WHOOP-cadence output is
+      # unaffected by the first three (1 Hz is the case each already handled
+      # correctly); the quantum-guard fix can change a WHOOP readiness score
+      # when a baseline happens to sit in that gap.
+      #
+      # analytics main @ #51 merge (7105256). Review-fix repin for edge's own
+      # band-agnostic PR (#280) — no lib/ diff over 353c6bc for this hop (#51
+      # was the merge of this same feat/band-agnostic work on the analytics
+      # side; the only lib/ change since 353c6bc is #52's
+      # lib/src/onehz/workout/calories.dart, picked up incidentally since #52
+      # merged before #51 on analytics main).
+      #
+      # main also repinned to a077a4a (the #52 merge, edge#283's own hop) in
+      # the meantime — 7105256 already contains it: analytics main order is
+      # a077a4a (#52) then 7105256 (#51), so this pin supersedes that one and
+      # no further move is needed.
+      ref: 7105256b37ad61b49453a6b96543a2b80ea74487
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

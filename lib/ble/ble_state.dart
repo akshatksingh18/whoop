@@ -15,7 +15,7 @@ import 'dart:math';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
     show alarmRev1Payload;
 
-import '../sync/sync_policy.dart' show isPlausibleUnix;
+import '../sync/sync_policy.dart' show isPlausibleUnix, kMinPlausibleUnix;
 
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the
@@ -487,7 +487,26 @@ class RecordGate {
   /// Records rejected by the plausibility gate this connection.
   int dropped = 0;
 
+  /// Of [dropped], the ones that failed the ABSOLUTE floor
+  /// (`ts < kMinPlausibleUnix`) rather than the future or session-window tests.
+  /// The two have opposite prognoses: an unset or wandering RTC drifts back
+  /// into range (or SET_CLOCK pulls it back), while a source whose time base is
+  /// not a wall-clock epoch at all never will. Counted, never acted on — the
+  /// gate's verdict is identical either way, and must stay so.
+  int droppedBelowFloor = 0;
+
   RecordGate({this.frontierTs = 0});
+
+  /// True when this connection rejected records and EVERY rejection was below
+  /// the absolute floor — the signature of a source that does not stamp
+  /// wall-clock time (uptime-since-boot, a sequence number, milliseconds).
+  ///
+  /// Worth reporting apart from a transient clock problem because the stall is
+  /// PERMANENT: no retry, reconnect or SET_CLOCK resolves it, and the visible
+  /// symptom (records seen, nothing banked, the chunk re-delivered forever) is
+  /// identical to the transient case. See the `kMinPlausibleUnix` assumption
+  /// block in `sync_policy.dart` for the upgrade path.
+  bool get timeBaseNotWallClock => dropped > 0 && dropped == droppedBelowFloor;
 
   /// Should this record be stored? Records with no decodable time ([tsEpoch]
   /// null or <= 0) are always admitted (we can't gate them) and never advance
@@ -507,6 +526,7 @@ class RecordGate {
       sessionNewestUnix: sessionNewestUnix,
     )) {
       dropped++;
+      if (tsEpoch < kMinPlausibleUnix) droppedBelowFloor++;
       return false;
     }
     if (tsEpoch > frontierTs) frontierTs = tsEpoch;
@@ -1688,3 +1708,71 @@ class BatteryPackInfoGate {
   }
 }
 
+/// Process-wide BLE scan mutex.
+///
+/// The radio has ONE scanner. Today `BleEngine.scan` is its only caller —
+/// `hr_sensor.dart`'s sensor scan had zero callers and went with the file, and
+/// a pairing screen for a second device is the next thing to take this lock.
+/// Every caller stops whatever is already scanning and then waits for
+/// `FlutterBluePlus.isScanning` to go false — an await that any scan stopping
+/// satisfies, including the OTHER caller's. The loser's scan therefore
+/// "completed" the instant the winner called `stopScan`, having seen nothing,
+/// and the caller reported "no device found" with no error anywhere to say
+/// why. Serialising the two bodies is the whole fix.
+///
+/// Same idiom as `BleEngine._locked` — chain onto the previous op, hand the
+/// caller a completer, swallow nothing — hoisted out of the engine because the
+/// contention is BETWEEN objects, not between two ops on one engine. It has to
+/// stay static once a primary band and a secondary device can both scan.
+///
+/// ponytail: one global lock, so a queued scan waits out the running one's
+/// whole timeout (~12 s) rather than joining it. Give waiters the running
+/// scan's results only if a screen ever needs both scans at once.
+Future<T> withScanLock<T>(Future<T> Function() body) {
+  final completer = Completer<T>();
+  // A body that throws must not break the chain — the error goes to its own
+  // caller and the next scan still runs.
+  _scanLock = _scanLock.then((_) async {
+    try {
+      completer.complete(await body());
+    } catch (e, st) {
+      completer.completeError(e, st);
+    }
+  });
+  return completer.future;
+}
+
+Future<void> _scanLock = Future.value();
+
+/// One GATT write in flight at a time, per LINK.
+///
+/// Same idiom as [withScanLock] — chain onto the previous op, hand the caller a
+/// completer, swallow nothing — but INSTANCE-scoped, because the thing being
+/// serialised is one peripheral's command characteristic and two peripherals
+/// must not queue behind each other (the per-remoteId ownership model exists so
+/// a background drainer and a foreground link can run at once).
+///
+/// Why it has to exist at all: a with-response write issued before the previous
+/// one has been acknowledged is dropped or reordered by the stack, and the
+/// failure is SILENT — the frame simply never reaches the band. `BleEngine`
+/// has had this since the batch-ACK path was written; `GattBandLink` shipped
+/// without it (ASSUMPTIONS G5) and could not bite only because no adapter
+/// wrote anything yet.
+class WriteChain {
+  Future<void> _tail = Future.value();
+
+  /// Run [op] after everything already queued on this chain. The returned
+  /// future carries [op]'s result or its error; the chain itself never carries
+  /// the error, so one failed write cannot wedge every write after it.
+  Future<T> add<T>(Future<T> Function() op) {
+    final completer = Completer<T>();
+    _tail = _tail.then((_) async {
+      try {
+        completer.complete(await op());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+}

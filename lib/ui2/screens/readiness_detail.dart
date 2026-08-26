@@ -24,7 +24,7 @@ class ReadinessData {
   final int inputsUsed;
 
   /// `readiness_absent_diag` off the stored bundle — per input `{value,
-  /// baseline_n, baseline_sd}` plus the composite's own `note`. Produced on
+  /// baseline_n}` plus the composite's own `note`. Produced on
   /// EVERY day readiness comes back absent, and until now its only destination
   /// was a Firebase breadcrumb: the app told its developer why the number was
   /// missing and never told the person looking at the gap.

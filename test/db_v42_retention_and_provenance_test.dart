@@ -187,6 +187,66 @@ void main() {
     expect(rows.last['source'], isNull);
   });
 
+  test('a strap swap is masked PER-METRIC, and only where the units differ',
+      () async {
+    await _useFreshDb('family_seam_test.db');
+    // Three gen4 nights, then the athlete swaps to a gen5. `skin_temp_adc` is
+    // ADC COUNTS on one side of that seam and CENTI-DEGREES on the other,
+    // under one key, feeding one baseline — this is live today with no second
+    // device involved.
+    for (final d in const [
+      ('2026-03-01', 'gen4'),
+      ('2026-03-02', 'gen4'),
+      ('2026-03-03', 'gen5'),
+    ]) {
+      await LocalDb.putDayResult(
+        dayId: d.$1,
+        algoVersion: 76,
+        payloadJson: '{}',
+        windowJson: '{}',
+        source: 'band',
+        deviceFamily: d.$2,
+        series: {'rhr': 55, 'skin_temp_adc': 30000},
+      );
+    }
+    // Foreign = not the newest stamped family. The gen5 night is the CURRENT
+    // one, so the two gen4 nights are what a skin-temp baseline must drop.
+    expect(await LocalDb.foreignFamilyDates(), {'2026-03-01', '2026-03-02'});
+    // ...and only skin temp. RHR off a different WHOOP is the same quantity
+    // measured slightly differently — masking it would delete real history to
+    // fix a bias smaller than the window it is measured over.
+    expect(LocalDb.familySeamKeys, {'skin_temp_adc'});
+
+    // A day with NO stamp is UNKNOWN, never foreign — every day written before
+    // the column existed reads NULL, and dropping those would empty a real
+    // user's baseline.
+    await LocalDb.putDayResult(
+      dayId: '2026-03-04',
+      algoVersion: 76,
+      payloadJson: '{}',
+      windowJson: '{}',
+      series: {'rhr': 56},
+    );
+    expect(await LocalDb.foreignFamilyDates(), isNot(contains('2026-03-04')));
+  });
+
+  test('one family is never foreign to itself — the mask moves no number today',
+      () async {
+    await _useFreshDb('family_seam_single_test.db');
+    for (final d in const ['2026-04-01', '2026-04-02']) {
+      await LocalDb.putDayResult(
+        dayId: d,
+        algoVersion: 76,
+        payloadJson: '{}',
+        windowJson: '{}',
+        source: 'band',
+        deviceFamily: 'gen4',
+        series: {'skin_temp_adc': 30000},
+      );
+    }
+    expect(await LocalDb.foreignFamilyDates(), isEmpty);
+  });
+
   test('the 3-day prune keeps wear/charge transitions and drops the rest',
       () async {
     await _useFreshDb('v42_band_events_test.db');
@@ -315,6 +375,94 @@ void main() {
       .where((s) => s.trim().isNotEmpty)
       .toList();
   for (final src in real) {
+    test(
+      're-keys ${p.basename(src)} onto (device_id, ts_ms) — and how long the '
+      'launch-path ladder takes to do it',
+      () async {
+        // `onUpgrade` runs inside openDatabase, on iOS's launch-path CPU
+        // watchdog. The v47 rebuild is bounded by `rawRetentionDays` (~3 days
+        // of 1 Hz), which is what makes it safe to run there — this test is
+        // where that claim gets a number instead of an assurance.
+        final name = 'v47_${p.basenameWithoutExtension(src)}.db';
+        await _useFreshDb(name);
+        final dir = await databaseFactory.getDatabasesPath();
+        await File(src).copy(p.join(dir, name));
+
+        // EVERY day_result BEFORE the ladder runs. Phase 2 must not move a
+        // single computed number — no kAlgoVersion bump ships with it — so the
+        // payloads have to come back byte-identical. Opened with NO version so
+        // sqflite does not migrate it out from under the snapshot.
+        final plain = await databaseFactory.openDatabase(
+          p.join(dir, name),
+          options: OpenDatabaseOptions(readOnly: true),
+        );
+        final beforeDays = {
+          for (final r in await plain.query('day_result'))
+            '${r['day_id']}|${r['algo_version']}': r['payload_json'],
+        };
+        await plain.close();
+        expect(beforeDays, isNotEmpty);
+
+        final sw = Stopwatch()..start();
+        final db = await LocalDb.instance;
+        sw.stop();
+        final afterDays = {
+          for (final r in await db.query('day_result'))
+            '${r['day_id']}|${r['algo_version']}': r['payload_json'],
+        };
+        expect(afterDays, beforeDays,
+            reason: 'the re-key must not touch a derived number');
+        final before = <String, int>{};
+        for (final t in const ['decoded_onehz', 'decoded_rr', 'samples']) {
+          before[t] = await _count('SELECT COUNT(*) FROM $t');
+        }
+        // ignore: avoid_print
+        print('[v47] ${p.basename(src)} whole ladder open: '
+            '${sw.elapsedMilliseconds} ms  rows=$before');
+
+        for (final t in const ['decoded_onehz', 'decoded_rr', 'samples']) {
+          final info = await db.rawQuery('PRAGMA table_info($t)');
+          expect(info.firstWhere((c) => c['name'] == 'device_id')['pk'], 1,
+              reason: t);
+          expect(info.firstWhere((c) => c['name'] == 'ts_ms')['pk'], 2,
+              reason: t);
+          // Every migrated row belongs to the primary band and carries the
+          // time it always had. Nothing is rewritten, nothing is dropped.
+          expect(
+            await _count("SELECT COUNT(*) FROM $t WHERE device_id <> ''"),
+            0,
+            reason: t,
+          );
+        }
+        expect(
+          await _count(
+            'SELECT COUNT(*) FROM decoded_onehz WHERE ts_ms <> rec_ts * 1000',
+          ),
+          0,
+        );
+        expect(
+          await _count(
+            'SELECT COUNT(*) FROM decoded_rr WHERE ts_ms <> rec_ts * 1000',
+          ),
+          0,
+        );
+        expect(await _count('SELECT COUNT(*) FROM samples WHERE ts_ms <> ts * 1000'), 0);
+
+        // Re-opening is a no-op: the rung self-skips on a table that already
+        // carries device_id, so a second launch pays nothing.
+        await LocalDb.close();
+        final sw2 = Stopwatch()..start();
+        await LocalDb.instance;
+        sw2.stop();
+        // ignore: avoid_print
+        print('[v47] ${p.basename(src)} second open (no ladder): '
+            '${sw2.elapsedMilliseconds} ms');
+
+        final health = await LocalDb.schemaHealth();
+        expect(health['ok'], isTrue, reason: '$src $health');
+      },
+      timeout: const Timeout(Duration(minutes: 15)),
+    );
     test(
       'migrates ${p.basename(src)} to v42',
       () async {

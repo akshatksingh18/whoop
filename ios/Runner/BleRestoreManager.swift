@@ -47,7 +47,12 @@ class BleRestoreManager: NSObject {
 
   private var central: CBCentralManager?
   private var bandUUID: UUID?
-  private var pending: CBPeripheral?        // retained so ARC doesn't drop it mid-connect
+  // Peripherals we hold a pending connect for, retained so ARC doesn't drop them
+  // mid-connect. An array because willRestoreState hands back an array: dropping all but
+  // the first loses the retain on the rest, and a peripheral we no longer hold is one
+  // cancelPending can no longer cancel — so the two centrals would fight over it when the
+  // app reclaims the band. With one provisioned band there is exactly one entry.
+  private var pending: [CBPeripheral] = []
   private var channel: FlutterMethodChannel?
   private var flutterReady = false
   private var wakeQueuedBeforeReady = false
@@ -239,14 +244,14 @@ class BleRestoreManager: NSObject {
       NSLog("[ble-restore] band not retrievable yet")
       return
     }
-    pending = p
+    pending = [p]
     central.connect(p, options: nil)  // no timeout → persists, relaunches us when reachable
     NSLog("[ble-restore] armed pending connect")
   }
 
   private func cancelPending() {
-    if let p = pending { central?.cancelPeripheralConnection(p) }
-    pending = nil
+    for p in pending { central?.cancelPeripheralConnection(p) }
+    pending = []
   }
 
   private func disarm() {
@@ -327,12 +332,13 @@ extension BleRestoreManager: CBCentralManagerDelegate {
   }
 
   func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
-    if let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
-       let p = restored.first {
-      pending = p
-      NSLog("[ble-restore] willRestoreState restored \(restored.count) peripheral(s)")
-      // The pending/active connect was preserved; didConnect fires if it lands.
-    }
+    let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+    guard !restored.isEmpty else { return }
+    // Take ALL of them, not just the first — the count was already being logged, so the
+    // code always knew there could be more. Each carries a pending/active connect
+    // bluetoothd preserved for us; didConnect fires per peripheral if one lands.
+    pending = restored
+    NSLog("[ble-restore] willRestoreState restored \(restored.count) peripheral(s)")
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {

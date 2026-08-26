@@ -3,6 +3,7 @@
 // engine — the backoff schedule, the seq allocator, the drain stop conditions,
 // and the phase→legacy-string projection — none of which need a real band.
 
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -215,6 +216,32 @@ void main() {
         isFalse,
       );
       expect(g.dropped, 1);
+    });
+
+    test('a below-floor time base is tellable from a wandering clock', () {
+      // Uptime-since-boot: every stamp is under kMinPlausibleUnix, forever.
+      final uptime = RecordGate();
+      expect(uptime.admit(3600, wallNow: wall), isFalse);
+      expect(uptime.admit(7200, wallNow: wall), isFalse);
+      expect(uptime.droppedBelowFloor, 2);
+      expect(uptime.timeBaseNotWallClock, isTrue);
+
+      // A wandering/future RTC drops too, but NOT below the floor — the case
+      // a reconnect or SET_CLOCK can still resolve.
+      final wandering = RecordGate();
+      expect(wandering.admit(wall + 10 * 86400, wallNow: wall), isFalse);
+      expect(wandering.dropped, 1);
+      expect(wandering.droppedBelowFloor, 0);
+      expect(wandering.timeBaseNotWallClock, isFalse);
+
+      // One below-floor drop among others is not a verdict about the source.
+      final mixed = RecordGate();
+      expect(mixed.admit(1000000000, wallNow: wall), isFalse);
+      expect(mixed.admit(wall + 10 * 86400, wallNow: wall), isFalse);
+      expect(mixed.timeBaseNotWallClock, isFalse);
+
+      // Never a verdict on a gate that has rejected nothing.
+      expect(RecordGate().timeBaseNotWallClock, isFalse);
     });
 
     test('frontier seed from the durable cursor is honoured', () {
@@ -684,6 +711,42 @@ void main() {
       // assumption: it made two ordinary drops inside 8 s of setup latch the
       // re-pair guide on a band that was working.
       expect(isTimeoutDisconnect(null), isFalse);
+    });
+  });
+
+  group('withScanLock (process-wide scan mutex)', () {
+    test('a queued scan does not start until the running one finishes', () async {
+      // The bug this exists for: two overlapping scan bodies share ONE radio
+      // scanner, so the second one's `stopScan` ends the first scan early and
+      // the first reports "found nothing" with no error anywhere.
+      final order = <String>[];
+      final holdA = Completer<void>();
+      final a = withScanLock(() async {
+        order.add('a-start');
+        await holdA.future;
+        order.add('a-end');
+        return 'a';
+      });
+      final b = withScanLock(() async {
+        order.add('b-start');
+        return 'b';
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(order, ['a-start']); // b is queued, NOT running alongside a
+      holdA.complete();
+      expect(await a, 'a');
+      expect(await b, 'b');
+      expect(order, ['a-start', 'a-end', 'b-start']);
+    });
+
+    test('a scan that throws releases the lock', () async {
+      // A blocker (revoked permission, adapter off) throws out of the band
+      // scan; the next scan must still run rather than wait on a dead chain.
+      await expectLater(
+        withScanLock<void>(() async => throw StateError('adapter off')),
+        throwsStateError,
+      );
+      expect(await withScanLock(() async => 7), 7);
     });
   });
 }

@@ -70,25 +70,25 @@ void main() {
     });
   });
 
-  group('plausibleHrOrZero — the gen4 trusted path had no upper bound', () {
+  group('plausibleHrOrNull — the gen4 trusted path had no upper bound', () {
     test('a physiological HR passes through untouched', () {
-      expect(plausibleHrOrZero(60), 60);
-      expect(plausibleHrOrZero(kMinPlausibleHr), kMinPlausibleHr);
-      expect(plausibleHrOrZero(kMaxPlausibleHr), kMaxPlausibleHr);
+      expect(plausibleHrOrNull(60), 60);
+      expect(plausibleHrOrNull(kMinPlausibleHr), kMinPlausibleHr);
+      expect(plausibleHrOrNull(kMaxPlausibleHr), kMaxPlausibleHr);
     });
 
     test('an impossible HR reads ABSENT, and is never clamped into range', () {
       // 250 used to pass the `hr > 0` filter and become the displayed max HR.
-      expect(plausibleHrOrZero(250), 0);
-      expect(plausibleHrOrZero(255), 0);
-      expect(plausibleHrOrZero(7), 0);
+      expect(plausibleHrOrNull(250), isNull);
+      expect(plausibleHrOrNull(255), isNull);
+      expect(plausibleHrOrNull(7), isNull);
       // Clamping would have produced a plausible-looking 230/25 — a number the
       // wrist never reported.
-      expect(plausibleHrOrZero(250), isNot(kMaxPlausibleHr));
+      expect(plausibleHrOrNull(250), isNot(kMaxPlausibleHr));
     });
 
-    test('the off-skin sentinel is preserved', () {
-      expect(plausibleHrOrZero(0), 0);
+    test('a zero reading is not a heart rate either', () {
+      expect(plausibleHrOrNull(0), isNull);
     });
   });
 

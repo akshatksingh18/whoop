@@ -11,11 +11,17 @@
 // absent from the store is absent from the prompt — the system prompt forbids
 // the model from mentioning anything it wasn't given, and the breakdown screen
 // shows exactly the inputs snapshot so the user can see what the model saw.
+//
+// Omission alone is NOT that contract, though, which is what [kWithheldKey]
+// exists for. See its doc: silence about a refused metric leaves the model free
+// to narrate the thing it measures out of whatever else it was handed, and this
+// file already documents that happening (see [readinessBand]).
 
 import '../coach/coach_config.dart';
 import '../coach/coach_engine.dart';
 import '../data/day_label.dart';
 import '../data/local_repository.dart';
+import '../models/metric.dart' show whyFromNote;
 import '../ui2/screens/home_screen.dart' as ring show readinessBand;
 import 'briefing.dart';
 import 'nightly_sweep.dart';
@@ -51,6 +57,30 @@ void _put(Map<String, dynamic> out, String key, num? v, {int? round}) {
       : num.parse(v.toStringAsFixed(round)); // keep ints as ints
 }
 
+/// Reserved key in the inputs snapshot: the metrics this briefing ASKED FOR and
+/// did not get, each with the reason the store gave, where it gave one.
+///
+/// WHY THIS IS NOT JUST OMISSION. Every refused metric is already dropped from
+/// the payload — `Metric.value` arrives as null (or the store's `'—'`
+/// placeholder), `_metricNum` returns null and `_put` skips the key. That much
+/// was always right and is unchanged. What omission cannot do is stop the model
+/// narrating the refused thing anyway out of what it WAS given: [readinessBand]
+/// below exists because a model handed HRV and RHR free-associates a recovery
+/// verdict from them, and when readiness is refused there is no score left to
+/// contradict it. A silence is the one input shape the model will fill in.
+///
+/// So the refusal is stated, not hidden. The notes are machine-readable
+/// precisely so this is possible — [whyFromNote] is the same parser the metric
+/// cards use, and it returns null rather than inventing a cause for a token
+/// nobody has written a sentence for, which is why an entry here may be a bare
+/// key name.
+///
+/// MORNING ONLY. The evening pass is the nightly sweep, which ships findings and
+/// nothing else; a list of what was refused is the day read back, which is the
+/// exact failure `sweepInputs` exists to prevent, and a non-empty map there
+/// would call a model on nights that should call none.
+const String kWithheldKey = 'withheld';
+
 /// Read-only snapshot of what the store knows for [period]. Only fields that
 /// exist end up in the map — the prompt builder and the "based on" UI both walk
 /// this map, so what the model saw and what the user sees are the same thing.
@@ -62,42 +92,74 @@ Future<Map<String, dynamic>> collectBriefingInputs(
   final t = await repo.getToday();
   final daily = _map(t['daily']) ?? const {};
   final out = <String, dynamic>{};
+  final withheld = <String>[];
+
+  /// Take the metric's value, or record the refusal. [env] is either a metric
+  /// envelope (`{value, note, …}`) or a bare number; only an envelope can say
+  /// why, and a bare absence is named without one rather than given a guess.
+  void take(String key, dynamic env, {int? round}) {
+    final v = _metricNum(env);
+    if (v != null && v.isFinite) {
+      _put(out, key, v, round: round);
+      return;
+    }
+    final why = whyFromNote(_map(env)?['note'] as String?);
+    withheld.add(why == null ? key : '$key ($why)');
+  }
 
   if (period == BriefingPeriod.morning) {
-    _put(out, 'readiness', _metricNum(daily['readiness']), round: 0);
-    _put(out, 'resting_hr', _metricNum(daily['resting_hr']), round: 0);
+    take('readiness', daily['readiness'], round: 0);
+    take('resting_hr', daily['resting_hr'], round: 0);
     final hrv = _map(t['hrv']);
-    _put(out, 'hrv_rmssd', _num(hrv?['rmssd']), round: 1);
+    take('hrv_rmssd', hrv?['rmssd'], round: 1);
 
     // The overnight bundle Today is showing (may be yesterday's sleep if this
     // day hasn't derived yet) — same source of truth as the Sleep screen.
     final status = _map(t['status']);
     final sleepDay =
         (status?['overnight_day'] as String?) ?? todayLabel(now);
+    Map<String, dynamic>? ds;
     try {
-      final ds = await repo.getDaySleep(sleepDay);
-      if (ds['has_sleep'] == true || _num(ds['duration_min']) != null) {
-        _put(out, 'sleep_min', _num(ds['duration_min']), round: 0);
-        final eff = _num(ds['efficiency']);
-        _put(out, 'sleep_efficiency_pct',
-            eff == null ? null : (eff <= 1 ? eff * 100 : eff),
-            round: 0);
-        _put(out, 'sleep_debt_min', _num(ds['debt_min']), round: 0);
-        _put(out, 'deep_min', _num(ds['deep_min']), round: 0);
-        _put(out, 'rem_min', _num(ds['rem_min']), round: 0);
-        _put(out, 'awake_min', _num(ds['awake_min']), round: 0);
-        final onset = _num(ds['onset_ts'])?.toInt();
-        final wake = _num(ds['wake_ts'])?.toInt();
-        if (onset != null && onset > 0) {
-          out['bedtime'] = _hhmm(
-              DateTime.fromMillisecondsSinceEpoch(onset * 1000));
-        }
-        if (wake != null && wake > 0) {
-          out['wake_time'] =
-              _hhmm(DateTime.fromMillisecondsSinceEpoch(wake * 1000));
-        }
+      final read = await repo.getDaySleep(sleepDay);
+      if (read['has_sleep'] == true || _num(read['duration_min']) != null) {
+        ds = read;
       }
     } catch (_) {/* sleep detail absent → morning runs on the daily scalars */}
+    if (ds == null) {
+      // One refusal for the whole night, not five for its parts: there is no
+      // night, so no per-field gate ever ran and none of them has a reason.
+      withheld.add('sleep (no scored night)');
+    } else {
+      take('sleep_min', ds['duration_min'], round: 0);
+      final eff = _num(ds['efficiency']);
+      take('sleep_efficiency_pct',
+          eff == null ? null : (eff <= 1 ? eff * 100 : eff), round: 0);
+      take('sleep_debt_min', ds['debt_min'], round: 0);
+      take('deep_min', ds['deep_min'], round: 0);
+      take('rem_min', ds['rem_min'], round: 0);
+      take('awake_min', ds['awake_min'], round: 0);
+      final onset = _num(ds['onset_ts'])?.toInt();
+      final wake = _num(ds['wake_ts'])?.toInt();
+      // Named when absent, like every other field — [take] cannot do these two
+      // because they are clock strings rather than numbers, and that is the
+      // whole of the difference. A scored night with no onset used to hand over
+      // six sleep numbers and no refusal rule for the seventh, which is exactly
+      // the hole `withheld` exists to close. Bare, with no reason: these are
+      // raw columns, not metric envelopes, so there is no note to read one from.
+      if (onset != null && onset > 0) {
+        out['bedtime'] = _hhmm(
+            DateTime.fromMillisecondsSinceEpoch(onset * 1000));
+      } else {
+        withheld.add('bedtime');
+      }
+      if (wake != null && wake > 0) {
+        out['wake_time'] =
+            _hhmm(DateTime.fromMillisecondsSinceEpoch(wake * 1000));
+      } else {
+        withheld.add('wake_time');
+      }
+    }
+    if (withheld.isNotEmpty) out[kWithheldKey] = withheld;
   } else {
     // The evening pass is the nightly SWEEP, not a recap. It used to hand over
     // strain, steps, calories, stress and the day's workouts, which produced
@@ -288,6 +350,12 @@ String briefingSystemPrompt(BriefingPeriod period) {
       'written. Start straight with the substance.\n'
       '- Use ONLY the numbers provided. Never invent, estimate or mention a '
       'metric that is not in the data. No medical advice or diagnosis.\n'
+      '- Anything under "withheld" was REFUSED by the measurement layer, not '
+      'merely forgotten. You may say it is unavailable and give the reason '
+      'shown, and nothing else: never a value, never a range, never a '
+      'direction, never a quality word for what it measures — and never '
+      'reasoned out of the numbers you WERE given. Calling recovery strong '
+      'while readiness is withheld IS stating the withheld number.\n'
       '- If a "readiness" value is given, its parenthesized band label '
       '(low / moderate / good) is AUTHORITATIVE for tone: a low or moderate '
       'band must never be described as strong, solid or good recovery, even '
@@ -314,10 +382,22 @@ String buildBriefingUserPrompt(
             'Overnight data:'
         : 'Nightly sweep for $day (reader\'s local time: $timeOfDay). What '
             'came back as unusual for this person, and nothing else:');
-  if (inputs.isEmpty) {
+  // A payload of nothing but refusals is still a payload of no measurements,
+  // so the "nothing yet" line is keyed off the MEASURED entries, not the map.
+  //
+  // The null/`'—'` filter is the structural half of the withheld rule, and it
+  // is HERE rather than in the collector because every prompt routes through
+  // this function while collectors can be added. `'$v'` renders an absent
+  // metric as the word "null" or as the store's em-dash placeholder
+  // (`local_repository_impl._scalarMetric` writes `value: v ?? '—'`), and
+  // either one is a refused metric arriving in the prompt looking like data.
+  final measured = inputs.keys.where((k) =>
+      k != kWithheldKey && inputs[k] != null && inputs[k] != '—');
+  if (measured.isEmpty) {
     b.writeln('(no metrics available yet)');
   } else {
-    inputs.forEach((k, v) {
+    for (final k in measured) {
+      final v = inputs[k];
       if (k == 'readiness' && v is num) {
         // Inject the band label the model must treat as authoritative (see
         // the system prompt) — a bare "readiness: 16" otherwise reads as
@@ -326,7 +406,16 @@ String buildBriefingUserPrompt(
       } else {
         b.writeln(v is List ? '$k: ${v.join(', ')}' : '$k: $v');
       }
-    });
+    }
+  }
+  // Last, under its own header, so the rule in the system prompt has something
+  // to name and a refusal can never be read as just another line of data.
+  final w = inputs[kWithheldKey];
+  if (w is List && w.isNotEmpty) {
+    b.writeln('withheld (refused — see the withheld rule):');
+    for (final e in w) {
+      b.writeln('- $e');
+    }
   }
   return b.toString().trimRight();
 }

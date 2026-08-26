@@ -1015,11 +1015,12 @@ import 'substrate.dart';
 //      already gated `hr > 0`), but a new query must not assume NOT NULL.
 //
 //   6. FROM ANALYTICS (98d42b6, the device-seam commit — and only that):
-//      * `device.dart`: `DeviceFamily`, `deviceFamilyOf()` returning null for
-//        anything it does not recognise, and `calibrationFor()` returning null
-//        rather than handing back gen4's constants. This is what (1) dispatches
-//        on. No registry, no shared constants file — a metric declares its own
-//        map next to itself and refuses when the family is not in it.
+//      * `device.dart`: `calibrationFor()` returning null for an unstamped
+//        strap, or for one this metric has no numbers for, rather than handing
+//        back gen4's constants. This is what (1) dispatches on. No registry, no
+//        shared constants file and no closed list of families — a metric
+//        declares its own String-keyed map next to itself and refuses when the
+//        stamp is not a key in it.
 //      * journal correlations ran 9 numeric fields against 4 outcomes behind a
 //        per-test gate. That is 36 simultaneous tests, so ~2 spurious
 //        "meaningful" findings per user were guaranteed by construction.
@@ -1303,13 +1304,139 @@ import 'substrate.dart';
 // still bills by HR alone (never both), an unmeasured minute stays basal, and
 // a day with no pedometer coverage is byte-identical to v76. The TDEE block
 // discloses the term (`live_coverage_pedometer` in inputs_used + the walking
-// kcal in the note) only on days it actually priced something.
+// kcal in the note) only on days it actually priced something. Landed on
+// main via edge#283/analytics#52 before this branch's own v78/v79 below;
+// nothing here changes it.
 //
-// PIN GATE (invariant #5): this bump cites the analytics walking term
+// v78 — BAND-AGNOSTIC GROUPS A AND C (renumbered from this branch's own v77
+// during the merge with #283 above — main had already claimed 77 for the
+// walking term by the time this landed, and two different output changes
+// cannot share one kAlgoVersion). The 1 Hz assumption comes out of the
+// metrics that were counting array positions and calling them seconds, and four
+// gen4 defects found on the way out. Eight entries move a published number:
+//   1. A1 — BEAT TIMES REACH THE READ PATH. `decoded_rr.beat_ts_ms` (the
+//      record's own sub-second anchor) was written and never SELECTed, so every
+//      beat sat on a whole-second staircase and no dropout under 1 s was
+//      visible. LF/HF and `span_sec` move with the re-anchored axis.
+//
+//      MAGNITUDE, CORRECTED 2026-08-23 against the owner's own gen5 export.
+//      The +0.031% first recorded here was a LOWER BOUND — it came from a
+//      measurement that forced `tsSubsec = 0`, isolating the staircase→chain
+//      term and none of the real sub-second effect. On 2026-08-22: RMSSD
+//      78.571 → 73.198 (−6.84%), pNN50 −0.56%, SDNN −1.36%, and n_beats
+//      31177 → 30948 (−0.73%). 2026-08-23 moved the other way (+0.02%), so it
+//      is per-night, not a constant shift.
+//
+//      SDNN and the beat COUNT both move, which the original note said they
+//      would not. Not a defect: `beat_ts_ms` anchors a record's LAST beat and
+//      walks backwards through the durations, so a 4-beat record's first beat
+//      lands ~1444 ms BEFORE its own `rec_ts` (measured, and it scales one RR
+//      per beat exactly as that model predicts). `_beatTimes`' dropout test is
+//      `(rrTsMs[i] - rrTsMs[i-1]) - rrMs[i] > 1000`; on the staircase two beats
+//      inside one record differed by 0 ms so it could NEVER fire. Sub-second
+//      dropouts were structurally invisible. They fire now, the re-anchor set
+//      changes, and `hrv_time`'s contiguous-pair mask changes with it — the
+//      interval VALUES are untouched.
+//
+//      0.41% of beats (624/151,595, worst −1490 ms) step backwards where two
+//      records overlap. Handled, not a hazard: `cur = (dropout && anchored >
+//      cur) ? anchored : cur + rrMs[i]` never takes a backwards jump. `rr_ts_ms`
+//      measured 0.00% non-monotonic only because a whole-second staircase is
+//      trivially so — it hid the overlap rather than preventing it.
+//
+//      UNVALIDATED IN MAGNITUDE. Nothing available says whether 73.198 or
+//      78.571 is closer to truth: the band's `hr` comes from the same beat
+//      detector as `rr_ms`, so it is not independent evidence. That is the
+//      simultaneous-H10 experiment, and this is its second reason to happen.
+//   2. A2 — ACCEL VALIDITY SURVIVES SEGMENTATION. `AccelSample.valid` was
+//      dropped converting to the segmenter's own type, so a night the strap
+//      never vouched for was staged as if it had. Measured: 8 h of
+//      `valid:false` published `TST 28619s, efficiency 100.0%`; it is absent
+//      now.
+//   3. A3 — BEATS WITH NO FRAME ARE KEPT. RR was looked up only inside the
+//      frames loop, so a beat whose second has no `decoded_onehz` row was
+//      discarded — and gen4's hr-only historical R10-lite produces exactly
+//      those. The 1 Hz substrate is the UNION of frame and beat seconds now.
+//   4. A4 — READINESS NEEDS 14 NIGHTS, not 3. A 3-night baseline is three
+//      numbers: its MAD is routinely one quantum wide or zero, which is how a
+//      degenerate z reached the logistic and the ring flashed a rail. Sub-
+//      quantum spreads are refused outright rather than z-scored.
+//   5. C1 — THE 30-MINUTE TROUGH IS 30 MINUTES. `nocturnalRhr` walks a wall
+//      clock (`onehz_pipeline.dart`, `tsSec: sleepTs`) instead of counting 1800
+//      positions. At a perfectly dense 1 Hz the two coincide; on real nights
+//      they do not, because real nights have holes. Measured over this owner's
+//      export: 2026-08-13 and 2026-08-14 are bit-identical (1 and 243 missing
+//      seconds), 2026-08-12 moves 62.952 → 62.857 bpm (506 missing seconds of
+//      25,262 — the positional window was averaging over ~30.5 min of clock and
+//      missing the real trough). The wall-clock answer is the correct one, and
+//      the same edit is what lets the metric exist at all at 60 s and 300 s,
+//      where it previously abstained. It feeds readiness's 0.30-weight driver.
+//   6. C9 — no metric credits a sample whose cadence cannot be measured. One
+//      `sampleCadenceSeconds` with an ABSTENTION replaces three median-interval
+//      helpers with numeric fallbacks; a band slower than 300 s used to have
+//      every reading credited as one second (~300x zone undercount) and now has
+//      no zone figure at all.
+//   7. C13 — an unstamped substrate carrying a step counter reports
+//      `band_measured: null`. Without a device stamp there is no modulus to
+//      unwrap it with, and a guessed one publishes a step count at tier HIGH.
+//   8. THE SAME TREATMENT FOR R-R AND FOR GRAVITY, which the list above missed
+//      on the way past and which move published numbers exactly as items 1-7
+//      do. `kMinPlausibleHr`/`kMaxPlausibleHr` had a sibling added either side
+//      of it in `substrate.dart` and both are new here:
+//        * `kMinPlausibleRrMs..kMaxPlausibleRrMs` (250..2400). Only `rr <= 0`
+//          was dropped before, so a corrupt-but-CRC-valid interval reached
+//          RMSSD, pNNx and every frequency-domain read. It drops the BEAT, not
+//          the record — the surviving beats keep the placement `beatTimesMs`
+//          already gave them.
+//        * `kMaxSustainedAccelG` (4.0). `accelPresentAt` rejected only an exact
+//          `(0,0,0)` fill; a second-long mean above 4 g is not a wrist either,
+//          and it is now absent rather than present. That reaches every accel
+//          consumer — van Hees, ENMO, movement minutes, the sleep segmenter —
+//          because absent accel is NOT stillness.
+//      Both refuse rather than clamp, for the reason `plausibleHrOrNull` does.
+// v79 — REVIEW PASS ON v78 (renumbered along with it, see v78's note above).
+// One edge fix and four analytics fixes, all in the same "a rejected reading
+// must not still move a kept one" family v78 was itself about.
+//   1. `beatTimesMs` (`substrate.dart`) let an interval `plausibleRrOrNull`
+//      would go on to REJECT (positive but outside 250..2400 ms) still walk
+//      every EARLIER beat in the record back by it, before the caller ever
+//      saw the rejection. The interval that placed beat i-1 now has to pass
+//      the same plausibility test placing beat i's own reading already does
+//      — an implausible one breaks the chain (null, same as non-positive)
+//      instead of silently displacing a beat that is kept.
+//   2. `nocturnalRhr` (analytics) could reach a window with zero on-skin
+//      samples and land `sum / count` as NaN, which then LATCHES as the
+//      night's best trough (`m < best` is false for a NaN on either side) —
+//      a present metric with a NaN value. Only reachable with
+//      `minCoverage: 0`, which no call site in this repo passes; the fix is
+//      defensive, no WHOOP output moves.
+//   3. `_rescaleCounts` (analytics sleep stager) multiplied an
+//      already-cadence-invariant gravity-delta sum by the cadence a second
+//      time — the sum is already `epochSec * rate` independent of sample
+//      count, so the extra factor inflated a slower-than-1Hz band's
+//      Cole-Kripke score up to 5x. `cadenceSec == 1` at 1 Hz makes the factor
+//      a no-op, so no WHOOP output moves.
+//   4. `cardio_stager`'s epoch grid could silently drift from its own
+//      reported `epochSec` whenever the measured cadence did not divide it
+//      evenly — it abstains on that mismatch now rather than publish a grid
+//      whose real spacing does not match its own label. WHOOP's 1 Hz cadence
+//      always divides the 30 s epoch evenly, so no WHOOP output moves.
+//   5. Readiness's sub-quantum-dispersion guard (analytics, following A4
+//      above) only ran when `robustZ` came back null, missing a baseline
+//      with nonzero MAD but still-quantized SD (whole-bpm RHR alternating
+//      58/59: MAD 0.5, SD ~0.52, both below the 1-bpm quantum). Runs for
+//      every quantized input now. THIS ONE CAN MOVE A WHOOP READINESS SCORE
+//      — a baseline that happens to sit in that MAD-nonzero/SD-sub-quantum
+//      gap now refuses by name instead of contributing a z-score built on
+//      quantization noise.
+// Days already finalized keep the score they were derived with — raw prunes at
+// `rawRetentionDays`, so no bump can heal them.
+//
+// PIN GATE (invariant #5): v77 above cites the analytics walking term
 // (OpenStrap/analytics#52). Do not release with a pubspec pin that predates
-// that merge — the bump would recompute every day against a sibling that
-// cannot price walking, burning the version on nothing.
-const int kAlgoVersion = 77;
+// that merge — recomputing v77+ against a sibling that cannot price walking
+// would burn the version on nothing.
+const int kAlgoVersion = 79;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1357,13 +1484,44 @@ const int kAlgoVersion = 77;
 // test. Commands go TO the strap; no decoder line moves, so no stored number
 // can.
 //
-// The analytics repin to a077a4a (the #52 merge) is the OPPOSITE case: it
-// exists to move a number. #52 adds the cadence→MET walking term to
-// `Calories.dailyEnergy` (CADENCE-Adults), which is exactly what v77 above
-// prices in — the bump and the v77 migration cover the hop, and the hop is
-// exactly #52 (diff the two pins: calories.dart + its tests, nothing else).
-const String kAnalyticsPin = 'a077a4aeb2d2a86c52f86f7005654b3be27b03d9';
-const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
+// The analytics repin to a077a4a (the #52 merge, landed via edge#283) is the
+// OPPOSITE case from every hop above: it exists to move a number. #52 adds
+// the cadence→MET walking term to `Calories.dailyEnergy` (CADENCE-Adults),
+// which is exactly what v77 above prices in — the bump and the v77 migration
+// cover the hop, and the hop is exactly #52 (diff the two pins: calories.dart
+// and its tests, nothing else).
+//
+// THE ANALYTICS DEBT THIS BLOCK RECORDED IS PAID (v78/v79 above, this
+// branch's own work, merged after #283 landed a077a4a on main). Four of the
+// items above (A2, A4, C1's window, C9) live in analytics, and for most of
+// this branch's life they were UNCOMMITTED: `pubspec_overrides.yaml` pointed
+// the local build at `../analytics`, so a dev build already ran them while
+// the pin (`d9362a6`) did not contain a line of them — a build shipping this
+// constant against that pin would have served days derived from different
+// maths under one version number, the exact v67/v68 failure. The pin is
+// `d6ba41c` now and carries all four, checkable one at a time:
+//   git show d6ba41c:lib/src/onehz/sleep/segment.dart | grep 'valid: trimmedAccel'
+//   git show d6ba41c:lib/src/onehz/wellness/readiness_composite.dart \
+//     | grep 'readinessCompositeMinBaseline = 14'
+//   git show d6ba41c:lib/src/onehz/clinical/nocturnal.dart | grep 'tsSec'
+//   git show d6ba41c:lib/src/onehz/util.dart | grep 'sampleCadenceSeconds'
+// The guard test compares this constant to pubspec.yaml and would not have
+// caught the gap — both were consistent the whole time. Whether the pinned SHA
+// contains the change a bump CITES is still a thing a human checks; v43 shipped
+// a changelog for an analytics fix its pin never had, and the bug it claimed to
+// fix stayed live for three releases.
+// Repin to analytics main @ #51 merge (7105256), review-fix pin for this
+// branch's own PR (#280). #51 is a strict descendant of a077a4a (#51 merged
+// AFTER #52 on analytics main), so this pin carries the walking term too —
+// no separate hop needed. No further kAlgoVersion move for THIS repin: the
+// only lib/ diff over 353c6bc is #52's `Calories.dailyEnergy` gaining an
+// optional `cadenceSpmPerMin` param and a `walking` result field (both edge
+// call sites use named field access and never pass the new param), so with
+// no caller passing it `active`/`basal`/`total` are byte-identical to before
+// — the walking-cadence NUMBER change already happened at v77 above, via
+// #283's own a077a4a pin, before this branch's pin moved past it.
+const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
+const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1555,16 +1713,28 @@ class _BaselineHistoryCache {
   ///
   /// The mask is taken ONCE per load and applied to every key, because the
   /// query behind it scans day bundles (see [LocalDb.importedDates]).
+  ///
+  /// A SECOND, NARROWER MASK rides along: days measured by a different BAND
+  /// FAMILY, applied only to [LocalDb.familySeamKeys]. That one is not about a
+  /// foreign algorithm — it is this app's own maths over a sensor whose units
+  /// differ (`skin_temp_adc` is a gen4 ADC count on one side of a strap swap
+  /// and a gen5 centi-degree on the other), so it is masked PER-METRIC rather
+  /// than blanket: a family seam that only makes a number noisier (RHR, RMSSD)
+  /// stays in the window. Empty for a user who has never changed generation,
+  /// which is why it moves no number today.
   static Future<_BaselineHistoryCache> load() async {
     final imported = await LocalDb.importedDates();
+    final foreignFamily = await LocalDb.foreignFamilyDates();
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key);
+      final seam =
+          LocalDb.familySeamKeys.contains(key) ? foreignFamily : const <String>{};
       final out = <_DatedValue>[];
       for (final row in rows) {
         final date = row['date'];
         final value = row['value'];
         if (date is! String || date.isEmpty || value is! num) continue;
-        if (imported.contains(date)) continue;
+        if (imported.contains(date) || seam.contains(date)) continue;
         out.add((date: date, value: value.toDouble()));
       }
       return out;
@@ -2664,6 +2834,16 @@ class DerivationEngine {
       int? afterCursor;
       var rangePages = 0;
       var rangeRows = 0;
+      // Low water mark for the BEAT read, which is NOT the same window as the
+      // frame read. Paging is driven by `decoded_onehz`, but a beat can exist
+      // for a second with no 1 Hz row at all (gen4 R10-lite is hr-only and
+      // stays out of that table — see db.dart `_queueDecodedOneHz`). Clamping
+      // each page's beat read to that page's own first/last frame second
+      // dropped every such beat that fell before the day's first frame, after
+      // its last, or in the seam between two pages. Each page instead reads
+      // beats from wherever the previous page stopped, and the tail is swept
+      // after the loop — so the day's beat window is covered exactly once.
+      var rrFrom = fromRecTs;
       while (true) {
         final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
           limit: _rawDecodeBatchSize,
@@ -2687,17 +2867,17 @@ class DerivationEngine {
             rangePages: rangePages,
             rangeRows: rangeRows,
           );
-          // The page is ordered rec_ts ASC, so first = min second, last = max.
-          // decoded_rr shares the rec_ts key, so this pulls exactly the page's
-          // beats — no counter span (which broke across the strap's reboot reset).
-          final firstRecTs = (decodedRows.first['rec_ts'] as num?)?.toInt();
+          // The page is ordered rec_ts ASC, so last = max second. decoded_rr
+          // shares the rec_ts key, so [rrFrom, lastRecTs] is a PK range read —
+          // no counter span (which broke across the strap's reboot reset).
           final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
-          final rrRows = firstRecTs == null || lastRecTs == null
+          final rrRows = lastRecTs == null
               ? const <Map<String, dynamic>>[]
               : await LocalDb.decodedRrByRecTsRange(
-                  fromRecTs: firstRecTs,
+                  fromRecTs: rrFrom,
                   toRecTs: lastRecTs,
                 );
+          if (lastRecTs != null) rrFrom = lastRecTs + 1;
           worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
           final last = decodedRows.last;
           afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
@@ -2706,6 +2886,23 @@ class DerivationEngine {
           continue;
         }
         break;
+      }
+      // The tail: beats after the last frame second (or, on a range with no
+      // frames at all, the whole range). Usually zero rows and one indexed
+      // lookup; when it is not, these are seconds the band recorded and only
+      // reported beats for.
+      if (rrFrom <= toRecTs) {
+        final tailRr = await LocalDb.decodedRrByRecTsRange(
+          fromRecTs: rrFrom,
+          toRecTs: toRecTs,
+        );
+        if (tailRr.isNotEmpty) {
+          worker.send({
+            'type': 'page',
+            'frames': const <Map<String, dynamic>>[],
+            'rr': tailRr,
+          });
+        }
       }
       worker.send(const {'type': 'finish'});
       // BOUNDED. `result.future` had no timeout at all, so any path that left
@@ -3288,7 +3485,6 @@ class DerivationEngine {
         if (v == null) continue;
         flat['${key}_value'] = v['value'];
         flat['${key}_baseline_n'] = v['baseline_n'];
-        flat['${key}_baseline_sd'] = v['baseline_sd'];
       }
       flat['note'] = diag['note'];
       TelemetryService.instance.record(
@@ -3321,8 +3517,7 @@ class DerivationEngine {
           final v = (diag[key] as Map?)?.cast<String, dynamic>();
           if (v == null) continue;
           summary.write(
-              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}'
-              '(sd=${v['baseline_sd']})');
+              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}');
         }
         summary.write(' | $note');
         TelemetryService.instance.recordNonFatal(
@@ -3675,6 +3870,10 @@ class DerivationEngine {
       // score and must carry its own tag; a day whose provenance is genuinely
       // unknown stays NULL and is never retro-filled with this.
       source: 'band',
+      // WHICH BAND'S UNITS these scalars are in (B5). Already null when the
+      // day's substrate spans two straps or carries no stamp — the same
+      // "unknown, never guessed" value the column is documented with.
+      deviceFamily: daySub.deviceFamily,
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -4696,7 +4895,13 @@ class DerivationEngine {
       samples.add(ana.HrSample(ts * 1000.0, s.hr[i].toDouble()));
     }
     final zoneSet = ana.HeartRateZones.zonesFromMaxHr(hrMax);
-    return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
+    // Null = the stream has no cadence `sampleCadenceSeconds` will vouch for.
+    // An empty map is already this function's "no zones" answer everywhere it
+    // is read; a zero-filled one would claim the day was measured and spent at
+    // rest. See `HeartRateZones.timeInZone`.
+    return ana.HeartRateZones.timeInZone(samples, zoneSet)
+            ?.toRoundedMinuteMap() ??
+        const {};
   }
 
   /// ONE HR-flex pass, returning the day's active, basal and total figures
@@ -5249,7 +5454,11 @@ class DerivationEngine {
         scMap,
         liveStepsReal,
         liveStepsFromStrap: liveStepsFromStrap,
-        bandSteps: hardwareStepsFromCounter(daySub),
+        bandSteps: hardwareStepsFromCounter(
+          daySub,
+          cumulativeCounterModulus:
+              ana.calibrationFor(_stepCounterModulus, daySub.deviceFamily),
+        ),
       );
 
       if (daySub.length < 60) return;
@@ -6080,9 +6289,19 @@ class DerivationEngine {
   /// pretending to separate postures. Listed per family because the cut is only
   /// meaningful against that family's accel scale; an unknown strap gets no cut
   /// and the whole block refuses.
-  static const Map<ana.DeviceFamily, double> _quietEnmoCutG = {
-    ana.DeviceFamily.gen4: 0.02,
-    ana.DeviceFamily.gen5: 0.02,
+  /// On-chip step counters whose BEHAVIOUR we have established, by the family
+  /// stamped on the row: the modulus it wraps at, and — the part that actually
+  /// matters — that it is cumulative and does NOT reset at midnight. Both are
+  /// verified for gen5 (see `Substrate.stepCount`). A stamp that is not a key
+  /// here, including no stamp at all, gets no band-step number: summing deltas
+  /// off a resetting counter loses the day's whole pre-sync prefix, and it
+  /// cannot be told apart from a wrap afterwards. See
+  /// [hardwareStepsFromCounter].
+  static const Map<String, int> _stepCounterModulus = {'gen5': 65536};
+
+  static const Map<String, double> _quietEnmoCutG = {
+    'gen4': 0.02,
+    'gen5': 0.02,
   };
 
   @visibleForTesting

@@ -207,6 +207,13 @@ const _notComponents = {
   // permission on tap — a gallery case would either mock all of that or
   // trigger a real health-store prompt from a screenshot sweep.
   'PhoneImport', 'AutomationSettings',
+  // The second-sensor pairing route. A Scaffold that owns a BLE scan, reads
+  // the `device` table and asks CoreBluetooth whether AccessorySetupKit has
+  // provisioned anything — a gallery case would be a photograph of a fixture,
+  // and a screenshot sweep would start a real radio scan. `PairSensorView` is
+  // the pure half and is what `pair_sensor_test.dart` pumps, at a real phone
+  // width, in each of its states.
+  'PairSensorScreen', 'PairSensorView',
   // The double-tap picker. A Scaffold route whose whole content is decided by
   // what the OS answered to a method channel, so a gallery case would be a
   // photograph of a fixture rather than of the screen. Rendered instead by

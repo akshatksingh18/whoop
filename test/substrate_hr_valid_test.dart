@@ -44,11 +44,16 @@ void main() {
     expect(s.hrValidAt(1), isNull);
   });
 
-  test('unknown provenance refuses even when the array carries values', () {
-    // A pre-schema-41 row, an import or a raw replay has no device stamp. The
-    // column belongs to gen5, so an unstamped substrate cannot claim it.
-    final s = _sub(family: null, hrValid: const [1, 1]);
-    expect(s.hrValidAt(0), isNull);
+  test('an unstamped substrate that carries real flags is BELIEVED', () {
+    // BANDAGNOSTIC C12. This used to refuse: `hrValidAt` also required
+    // `deviceFamily == 'gen5'`, a band id hardcoded in the neutral layer. Only
+    // a decoder that read the flag off the wire ever writes a non-negative
+    // value into this column, so a value >= 0 is the source's own declaration —
+    // and refusing it discarded a measurement because the metadata beside it
+    // was missing. Absence is still absence; see the gen4 case above.
+    final s = _sub(family: null, hrValid: const [1, 0]);
+    expect(s.hrValidAt(0), isTrue);
+    expect(s.hrValidAt(1), isFalse);
   });
 
   test('an out-of-range index is absent, not a crash and not false', () {

@@ -29,21 +29,154 @@ const double kMinAccelCoverageForVanHees = 0.5;
 
 /// Physiological bound on a 1 Hz heart rate (bpm), inclusive.
 ///
-/// The gen4 TRUSTED decode path (v24 / v12) returns the HR byte verbatim with
-/// no bound — the protocol's `_physiologicallyPlausible` gate runs only on the
-/// best-effort versions, and gen5 v18 bounds it independently — so one
-/// corrupt-but-CRC-valid byte of 250 used to pass the `hr > 0` filter and land
-/// straight in the day's max HR. Applying this in the protocol would cost the
-/// WHOLE record (accel and RR with it); applied here it costs only the second.
+/// HUMAN PHYSIOLOGY, NOT A SENSOR PROPERTY, so it is the same number on every
+/// band: no heart beats 24 times a minute or 231 times a minute for a whole
+/// second. Nothing about the strap moves it, which is why it does not go
+/// through `calibrationFor` and why an unstamped record still gets it.
+///
+/// It exists because the gen4 TRUSTED decode path (v24 / v12) returns the HR
+/// byte verbatim with no bound — the protocol's `_physiologicallyPlausible`
+/// gate runs only on the best-effort versions, and gen5 v18 bounds it
+/// independently — so one corrupt-but-CRC-valid byte of 250 used to pass the
+/// `hr > 0` filter and land straight in the day's max HR. Applying it in the
+/// protocol would cost the WHOLE record (accel and RR with it); applied here it
+/// costs only the second.
 const int kMinPlausibleHr = 25;
 const int kMaxPlausibleHr = 230;
 
-/// The HR to store for second-level [raw]: itself when physiologically
-/// possible, else `0` — the substrate's existing "no usable HR this second"
-/// value, which every reader already filters on. Never clamped to the bound:
-/// a corrupt byte must not become a plausible reading.
-int plausibleHrOrZero(int raw) =>
-    (raw >= kMinPlausibleHr && raw <= kMaxPlausibleHr) ? raw : 0;
+/// [raw] when it is a heart rate a human can have, else NULL — the reading is
+/// refused, never clamped to the bound (a corrupt byte must not become a
+/// plausible reading) and never reported as a measurement of anything else.
+///
+/// Callers that must land it in the dense [Substrate.hr] array write
+/// `plausibleHrOrNull(raw) ?? 0`, 0 being that array's ONE "no usable HR this
+/// second" value — see [Substrate.hr] for why that is not a claim about wear.
+int? plausibleHrOrNull(int raw) =>
+    (raw >= kMinPlausibleHr && raw <= kMaxPlausibleHr) ? raw : null;
+
+/// Physiological bound on one R-R interval (ms), inclusive — the [kMinPlausibleHr]
+/// / [kMaxPlausibleHr] window expressed as the gap between two beats, widened
+/// at the long end because a single interval is not a rate: one dropped beat
+/// doubles the gap without the heart doing anything unusual, and 2,400 ms still
+/// sits inside the range an ordinary Malik/Lipponen ectopic filter is built to
+/// see and correct. Below 250 ms (240 bpm sustained across one beat) it is not
+/// a beat detection.
+const int kMinPlausibleRrMs = 250;
+const int kMaxPlausibleRrMs = 2400;
+
+/// [rrMs] when it is an interval a human heart can produce, else NULL.
+double? plausibleRrOrNull(num rrMs) =>
+    (rrMs >= kMinPlausibleRrMs && rrMs <= kMaxPlausibleRrMs)
+        ? rrMs.toDouble()
+        : null;
+
+/// The largest acceleration MAGNITUDE (g) a wrist can hold for a WHOLE SECOND.
+///
+/// These samples are one-second gravity vectors, not raw 100 Hz: an impact, a
+/// swing and a free-fall are all sub-second transients that average away before
+/// they get here, so this bounds a SUSTAINED magnitude, not a peak. Holding 4 g
+/// for a full second is ~3 g of net force for a second — aerobatics and
+/// centrifuges, not anything a band is worn through.
+///
+/// It is deliberately NOT the part's full-scale range: an FSR is an encoding
+/// choice, and a part configured to +/-2 g with a scale-error decoder sails
+/// through a +/-16 g test. It is also deliberately far above protocol's
+/// `_physiologicallyPlausible` gravity window (magSq 0.25..3.24, i.e. 0.5..1.8 g),
+/// which assumes a low-pass-filtered gravity vector and had to be dropped from
+/// the gen5 decoder in 539a97b because it rejected real workout seconds. There
+/// is no lower bound here for the same reason: sustained low-g seconds are real
+/// and only EXACT zero is evidence of a fill.
+const double kMaxSustainedAccelG = 4.0;
+
+/// Whether a 1 Hz gravity triplet is a MEASUREMENT.
+///
+/// Two rejections, both physical:
+///   * exact `(0, 0, 0)` — no accelerometer reads zero on all three axes at
+///     rest or in motion, so it is an all-zero payload (see
+///     [Substrate.accelPresentAt] for what that costs if it is trusted).
+///   * a magnitude above [kMaxSustainedAccelG] — see there.
+bool accelPlausible(double ax, double ay, double az) {
+  final magSq = ax * ax + ay * ay + az * az;
+  return magSq > 0 && magSq <= kMaxSustainedAccelG * kMaxSustainedAccelG;
+}
+
+/// Where each beat in one record actually sits, in absolute epoch ms — or
+/// null for a beat that cannot be placed. One entry per entry in [rrMs].
+///
+/// TWO PARTS, AND THEY ARE NOT EQUALLY SOLID. Read them separately.
+///
+/// THE ANCHOR IS MEASURED. `rec_ts + tsSubsec/32768` is the record's own
+/// timestamp, whole seconds and sub-second, exactly as the strap sent it.
+/// This app has dropped the second half of that since forever, pinning every
+/// record to a whole second. With no sub-second there is no anchor and every
+/// beat here is null; a whole second is NOT substituted for one, because the
+/// whole point of this column is to say something the old one could not.
+///
+/// THE PLACEMENT IS A MODEL, and it is one assumption wide: an R-R interval
+/// is the gap ENDING at its beat (that part is the definition), and the LAST
+/// beat a record reports sits at the record's timestamp. Everything else
+/// follows — beat i is the anchor minus the intervals after it. The direction
+/// is chosen because backwards is the only one that cannot place a beat in
+/// the future, i.e. after the moment we were told about it; a forward walk
+/// would also run every multi-beat record past its own second (the intervals
+/// sum to 1,426 ms on a 2-beat record and 2,594 ms on a 4-beat one, measured)
+/// and straight through the next record's.
+///
+/// WHAT THE INTERVALS DO NOT DO IS TILE THE SECOND. Over 81 uninterrupted
+/// runs of 300+ consecutive records in a real export, the intervals sum to
+/// 0.967 of the `rec_ts` span (0.960-0.990 across runs) — so the beat train is
+/// a CHAIN that runs a few percent short, which is what a handful of rejected
+/// beats looks like, and not a set of per-second buckets. Several of a
+/// record's intervals reach back out of its own second. Per-record placement
+/// is nevertheless what THIS path can do — records arrive batched, out of
+/// order and with gaps, so no cross-record chain is available at the write —
+/// and a consumer that wants the chain can walk `rr_ms` itself.
+///
+/// WHAT MOVES AND WHAT DOES NOT, now that `Substrate.rrTsMs` is fed from here
+/// rather than from the `rec_ts * 1000` staircase. The INTERVAL SERIES does
+/// not move at all — same values, same order — so `hrvTime(nn)` with no time
+/// axis is bit-identical, and so is SDNN, which never pairs. Everything that
+/// takes the axis does move: a Lomb-Scargle periodogram handed beats where
+/// they happened, a beat put on the same axis as a motion sample, a real
+/// inter-record gap. That includes RMSSD and pNNx as production calls them
+/// (`hrvTime(nn, nnTimesMs: …)`), because the axis decides which successive
+/// pairs count as CONTIGUOUS — measured at +0.03% RMSSD / +0.6% pNN50 over a
+/// real 6 h block of 27,114 beats.
+///
+/// A non-positive interval BREAKS THE CHAIN: the gap before that beat is
+/// unknown, so every EARLIER beat in the record becomes unplaceable and gets
+/// null rather than a position computed as if the missing gap were zero.
+List<int?> beatTimesMs(int recTs, int? tsSubsec, List<int> rrMs) {
+  final out = List<int?>.filled(rrMs.length, null);
+  if (tsSubsec == null || rrMs.isEmpty) return out;
+  // THE TICK COUNT IS BOUNDED, for the same reason [kMaxPlausibleHr] is: this
+  // is a u16 read straight off the wire, and a corrupt-but-CRC-valid one is
+  // still a number. Ticks are 1/32768 s, so only 0..32767 is a SUB-second;
+  // 40000 would put the anchor 1.22 s past the record it came from and walk
+  // every beat in it into the wrong second. `beat_ts_ms` is read now, and the
+  // axis is what decides which successive pairs count as contiguous for RMSSD
+  // and pNNx — so an out-of-range tick is refused, not clamped: null is this
+  // function's own word for "cannot be placed".
+  if (tsSubsec < 0 || tsSubsec >= 32768) return out;
+  final anchor = recTs * 1000 + (tsSubsec * 1000) ~/ 32768;
+  var back = 0;
+  for (var i = rrMs.length - 1; i >= 0; i--) {
+    // Beat i's OWN placement never depends on rrMs[i] — that interval is the
+    // gap BEFORE beat i, which only matters for placing beat i-1. Set first,
+    // using whatever `back` the beats after i already earned.
+    out[i] = anchor - back;
+    // Only a PLAUSIBLE interval may extend the chain past this beat. The
+    // caller drops an implausible-but-positive interval (`plausibleRrOrNull`
+    // in `decodeSubstrate`) exactly as it drops a non-positive one, so an
+    // interval outside kMinPlausibleRrMs..kMaxPlausibleRrMs must not still
+    // walk every EARLIER beat back by it — that would let a rejected reading
+    // silently displace a beat that is kept.
+    final rr = plausibleRrOrNull(rrMs[i]);
+    if (rr == null) break;
+    back += rr.toInt();
+  }
+  return out;
+}
 
 /// The decoded 1 Hz substrate — the only decoded form (ARCHITECTURE_V2).
 ///
@@ -54,7 +187,23 @@ class Substrate {
   /// Epoch seconds, 1 Hz, sorted ascending. One entry per R24 record.
   final List<int> tsSec;
 
-  /// 1 Hz HR (bpm). 0 = off-skin (never bradycardia). Parallel to [tsSec].
+  /// 1 Hz HR (bpm). Parallel to [tsSec]. **`0` means NO USABLE HEART RATE this
+  /// second — it is not a claim that the band was off your wrist.**
+  ///
+  /// The doc here used to say "0 = off-skin", and that was a second assertion
+  /// smuggled in beside the first. Three different facts land on this 0: the
+  /// record carried no HR field, the sensor found no beat, and the byte was
+  /// outside [kMinPlausibleHr]..[kMaxPlausibleHr]. Read as "off-skin" the last
+  /// of those censors a reading AND replaces it with a wear verdict, which
+  /// biases anything that counts on-skin seconds — nocturnal RHR most of all,
+  /// on exactly the calm nights that push HR toward the low bound.
+  ///
+  /// It is one value rather than two because the ledger has already collapsed
+  /// them: `decoded_onehz.hr` stores NULL for every record with no heart rate
+  /// (db.dart `_queueDecodedOneHz`, `decoded.hr > 0 ? decoded.hr : null`), so
+  /// "the band said zero" cannot reach this array as anything else. Every
+  /// reader gates `> 0`. Wear truth lives in the HELLO body, the wrist on/off
+  /// events and the record-presence runs (`_wearBlock`) — never here.
   final List<int> hr;
 
   /// Beat-to-beat RR: interval end time (epoch ms) + interval (ms). Sparse.
@@ -98,18 +247,19 @@ class Substrate {
   /// no such field, so every gen4 second reads -1, and reading that as `false`
   /// would turn "this band cannot say" into "the band said no".
   ///
-  /// GEN5 ONLY, and gated twice on purpose: the sentinel above, and
-  /// [deviceFamily]. A gen4 strap and a gen5 strap will tier DIFFERENTLY on
-  /// identical physiology because of exactly this kind of extra evidence, so a
-  /// reader that weights by it has to say so somewhere the user can see.
+  /// GATED ON THE SENTINEL ALONE — see [hrValidAt] for why the band-id check
+  /// that used to sit beside it is gone. A strap that reports this flag and a
+  /// strap that cannot will tier DIFFERENTLY on identical physiology because of
+  /// exactly this kind of extra evidence, so a reader that weights by it has to
+  /// say so somewhere the user can see.
   /// Same absent-marker discipline as [stepCount] and [accelPresentAt].
   final List<int> hrValid;
 
   /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
   ///
   /// Stamped at ingest into `decoded_onehz.device_family` and carried here so
-  /// the pure pipeline can dispatch on it (analytics: `deviceFamilyOf` →
-  /// `calibrationFor`). It is ONE value for the whole substrate, not a
+  /// the pure pipeline can dispatch on it (analytics: `calibrationFor`, whose
+  /// map of families is open — a stamp is a key or it is not). It is ONE value for the whole substrate, not a
   /// per-second array, because the question a metric asks is "which sensor
   /// package produced this window", and a window that mixes two answers has no
   /// single answer.
@@ -233,6 +383,11 @@ class Substrate {
   /// EXACTLY 0.0 is an all-zero payload, i.e. no measurement. Exact zero is
   /// therefore the ABSENT marker.
   ///
+  /// The upper end is [kMaxSustainedAccelG] — a second-long mean no wrist
+  /// holds — so a decoder whose scale factor is wrong by an order of magnitude
+  /// stops reading as violent movement and starts reading as absent. There is
+  /// no lower bound beyond exact zero; see [accelPlausible].
+  ///
   /// This used to rest on "every decoder gates on `magSq >= 0.25`", which is no
   /// longer true — protocol 539a97b dropped that gate from the gen5 v18 decoder
   /// (it is a bound on a NORMALISED gravity vector and gen5 emits per-axis raw
@@ -247,7 +402,7 @@ class Substrate {
   /// rule reads as PERFECT IMMOBILITY. Eight hours of missing accel scores
   /// 28 501 immobile seconds and yields a fabricated ~7.9 h sleep window,
   /// fully staged. Absent input must produce no claim, never a confident one.
-  bool accelPresentAt(int i) => !(ax[i] == 0 && ay[i] == 0 && az[i] == 0);
+  bool accelPresentAt(int i) => accelPlausible(ax[i], ay[i], az[i]);
 
   /// Fraction of [lo, hi) seconds carrying a real gravity vector (0..1).
   /// Returns 0 for an empty range — no evidence, not "all present".
@@ -280,9 +435,16 @@ class Substrate {
   /// ABSENT, NEVER FALSE. A gen4 strap has no such field and a NULL read as
   /// `false` would silently mark a whole generation's beats untrustworthy.
   bool? hrValidAt(int i) {
-    // Unknown provenance refuses outright: the column is gen5's, and a row with
-    // no device stamp cannot be shown to have come from one.
-    if (deviceFamily != 'gen5') return null;
+    // THE ROW ANSWERS FOR ITSELF. This used to also require
+    // `deviceFamily == 'gen5'` — a band id hardcoded inside the class whose
+    // whole job is to be neutral, which meant a second band that reports the
+    // same flag would have been silently ignored while its data sat right here.
+    // The sentinel is the evidence: only a decoder that read the flag off the
+    // wire writes a non-negative value into this column (db.dart writes NULL
+    // otherwise, and derive_prepare lands NULL on -1), so a value >= 0 IS a
+    // declaration by the source that produced the row. An unstamped substrate
+    // carrying real flags is a source that told us the flag and not the badge —
+    // refusing it discards a measurement to punish missing metadata.
     if (i < 0 || i >= hrValid.length) return null;
     final v = hrValid[i];
     return v < 0 ? null : v != 0;
@@ -514,7 +676,8 @@ Substrate decodeSubstrate(List<String> hexes) {
     final live = proto.realtimeRr(hex);
     if (live != null && live.ts > 0) {
       for (final v in live.rrMs) {
-        if (v > 0) looseRr.add(_Beat(live.ts * 1000.0, v.toDouble()));
+        final rr = plausibleRrOrNull(v);
+        if (rr != null) looseRr.add(_Beat(live.ts * 1000.0, rr));
       }
     }
   }
@@ -535,7 +698,7 @@ Substrate decodeSubstrate(List<String> hexes) {
   for (var i = 0; i < n; i++) {
     final r = recs[i].r;
     tsSec[i] = r.tsEpoch;
-    hr[i] = plausibleHrOrZero(r.hr);
+    hr[i] = plausibleHrOrNull(r.hr) ?? 0;
     if (r.accelG.length == 3) {
       ax[i] = r.accelG[0];
       ay[i] = r.accelG[1];
@@ -551,13 +714,24 @@ Substrate decodeSubstrate(List<String> hexes) {
     skinTemp[i] = r.skinTempRaw;
     // ignore: deprecated_member_use
     skinContact[i] = r.skinContact;
-    // RR beats: anchored at the record second (epoch ms). Beats within a record
-    // share its second; time order is preserved by the record sort above.
+    // RR beats: placed at their MEASURED instant (`beatTimesMs` — the record's
+    // own sub-second anchor, intervals walked backwards from it), falling back
+    // to the record second only when the record carries no sub-second. Beats
+    // used to all share the record's whole second here, which says two beats
+    // 800 ms apart happened at the same millisecond. Emission ORDER is
+    // unchanged (record order, then beat order) so no interval series moves —
+    // only where the beats sit on the clock.
     final t = r.tsEpoch * 1000.0;
-    for (final rr in r.rrIntervalsMs) {
-      if (rr > 0) {
-        rrMs.add(rr.toDouble());
-        rrTsMs.add(t);
+    final beatTs = beatTimesMs(r.tsEpoch, r.tsSubsec, r.rrIntervalsMs);
+    for (var b = 0; b < r.rrIntervalsMs.length; b++) {
+      // A non-positive interval was already dropped here; the bound only widens
+      // that to intervals no heart produces. It drops the BEAT, not the record:
+      // `beatTimesMs` has already placed the survivors, and an interval this
+      // far out is a missed or doubled detection, not a rhythm.
+      final rr = plausibleRrOrNull(r.rrIntervalsMs[b]);
+      if (rr != null) {
+        rrMs.add(rr);
+        rrTsMs.add(beatTs[b]?.toDouble() ?? t);
       }
     }
   }
@@ -607,9 +781,22 @@ Substrate decodeSubstrate(List<String> hexes) {
 /// since R24 has no pedometer field. Null means "this hardware cannot count
 /// steps", never "you took no steps".
 ///
-/// `stepMotionCounter` is a **cumulative u16** that wraps at 65536 and is also
-/// reset by a strap reboot/re-pair, so the day's total is the sum of positive
-/// per-record deltas, not `last - first`. Two hazards, both handled here:
+/// [cumulativeCounterModulus] IS A DECLARATION AND IT IS NOT OPTIONAL —
+/// null abstains. It says two things about the source's counter, and this
+/// function is only correct if both hold: it wraps at that modulus, and it is
+/// CUMULATIVE, i.e. it does not reset inside the window being summed. Both used
+/// to be assumed (`wrap = 65536`, hardcoded), and the second one is the
+/// expensive assumption: this reads DELTAS, so a counter that resets at
+/// midnight silently loses every step taken before the day's first synced
+/// record — 12,500 walked, 8,300 published, at tier HIGH and confidence 0.9,
+/// with nothing in the output saying so. Nothing on a record distinguishes a
+/// reset from a wrap after the fact, so an undeclared counter gets no number
+/// rather than a guessed one. The caller declares it because the caller knows
+/// which band stamped the rows; see `DerivationEngine._stepCounterModulus`.
+///
+/// The counter is also reset by a strap reboot/re-pair, so the total is the sum
+/// of positive per-record deltas, not `last - first`. Two hazards, both handled
+/// here (`wrap` below is [cumulativeCounterModulus]):
 ///
 ///   * **wrap** (65500 → 100): the raw delta is negative. Re-reading it modulo
 ///     65536 gives the true small delta, which passes the plausibility budget.
@@ -633,8 +820,13 @@ Substrate decodeSubstrate(List<String> hexes) {
 ///
 /// A delta is either credited in full or dropped in full, so this function can
 /// never return a negative or an absurd total, whatever the counter does.
-int? hardwareStepsFromCounter(Substrate sub, {int maxStepsPerSecond = 5}) {
-  const wrap = 65536;
+int? hardwareStepsFromCounter(
+  Substrate sub, {
+  required int? cumulativeCounterModulus,
+  int maxStepsPerSecond = 5,
+}) {
+  final wrap = cumulativeCounterModulus;
+  if (wrap == null || wrap <= 0) return null;
   const minGapSecForBudget = 60;
   const maxGapSecForBudget = 3600;
   int? prev;

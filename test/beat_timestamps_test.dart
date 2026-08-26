@@ -10,6 +10,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/compute/substrate.dart' show beatTimesMs;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
 
@@ -18,17 +19,26 @@ void main() {
     test('no sub-second means no beat time — never a whole second instead', () {
       // The state of every row written before this column existed. NULL says
       // "we did not keep it"; rec_ts * 1000 would say "the beat was here".
-      expect(LocalDb.beatTimesMs(1000, null, [800, 810]), [null, null]);
+      expect(beatTimesMs(1000, null, [800, 810]), [null, null]);
     });
 
     test('the anchor is the strap sub-second, not a rounded second', () {
       // 16384 ticks = exactly half a second on the 32 kHz RTC.
-      expect(LocalDb.beatTimesMs(1000, 16384, [800]), [1000500]);
-      expect(LocalDb.beatTimesMs(1000, 0, [800]), [1000000]);
+      expect(beatTimesMs(1000, 16384, [800]), [1000500]);
+      expect(beatTimesMs(1000, 0, [800]), [1000000]);
       // A tick is ~30 us, so the conversion floors rather than pretending to
       // resolve below a millisecond.
-      expect(LocalDb.beatTimesMs(1000, 1, [800]), [1000000]);
-      expect(LocalDb.beatTimesMs(1000, 32767, [800]), [1000999]);
+      expect(beatTimesMs(1000, 1, [800]), [1000000]);
+      expect(beatTimesMs(1000, 32767, [800]), [1000999]);
+    });
+
+    test('a tick count that is not a sub-second places nothing', () {
+      // A u16 off the wire can hold 40000; a 1/32768 s tick count cannot. It
+      // would anchor 1.22 s past the record it came from and walk every beat
+      // in that record into the wrong second.
+      expect(beatTimesMs(1000, 32768, [800]), [null]);
+      expect(beatTimesMs(1000, 40000, [800, 810]), [null, null]);
+      expect(beatTimesMs(1000, -1, [800]), [null]);
     });
 
     test('beats are spaced by their own intervals, walking backwards', () {
@@ -36,17 +46,17 @@ void main() {
       // after it away. Backwards is the only direction that cannot place a beat
       // AFTER the moment the strap told us about it.
       expect(
-        LocalDb.beatTimesMs(1000, 0, [700, 726]),
+        beatTimesMs(1000, 0, [700, 726]),
         [1000000 - 726, 1000000],
       );
       expect(
-        LocalDb.beatTimesMs(1000, 0, [650, 640, 660, 644]),
+        beatTimesMs(1000, 0, [650, 640, 660, 644]),
         [1000000 - 1944, 1000000 - 1304, 1000000 - 644, 1000000],
       );
     });
 
     test('the spacing IS the interval — the whole point of the column', () {
-      final t = LocalDb.beatTimesMs(1000, 12345, [700, 726, 690]);
+      final t = beatTimesMs(1000, 12345, [700, 726, 690]);
       expect(t[1]! - t[0]!, 726);
       expect(t[2]! - t[1]!, 690);
     });
@@ -56,13 +66,27 @@ void main() {
       // everything earlier in the record is unplaceable. Treating the missing
       // gap as zero would stack two beats on one instant and call it measured.
       expect(
-        LocalDb.beatTimesMs(1000, 0, [700, 0, 690]),
+        beatTimesMs(1000, 0, [700, 0, 690]),
+        [null, 1000000 - 690, 1000000],
+      );
+    });
+
+    test(
+        'an implausible-but-positive interval nulls the beats BEFORE it '
+        'without moving the ones after', () {
+      // 9000 ms is a positive interval `decodeSubstrate` still drops
+      // (kMaxPlausibleRrMs = 2400), so it must be treated exactly like the
+      // non-positive case above: the gap it claims is not trusted, so the
+      // chain stops there. Beat 2 (690 after it) still places correctly —
+      // its own placement never depended on the rejected interval.
+      expect(
+        beatTimesMs(1000, 0, [700, 9000, 690]),
         [null, 1000000 - 690, 1000000],
       );
     });
 
     test('an empty record produces nothing', () {
-      expect(LocalDb.beatTimesMs(1000, 500, const []), isEmpty);
+      expect(beatTimesMs(1000, 500, const []), isEmpty);
     });
   });
 

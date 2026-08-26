@@ -186,6 +186,7 @@ class CoverageSpan {
     required this.endTs,
     required this.steps,
     required this.fromBand,
+    this.deviceId = '',
   });
 
   final int startTs;
@@ -194,6 +195,15 @@ class CoverageSpan {
 
   /// `source != 'phone'` — the band's own 100 Hz pedometer, live or imported.
   final bool fromBand;
+
+  /// WHICH PHYSICAL SENSOR counted these steps. `''` is permanently reserved
+  /// for the primary band (and for the phone, which is likewise one of it),
+  /// so a single-device install is entirely `''` and behaves exactly as it did
+  /// before this field existed.
+  ///
+  /// It exists because two sensors that are not the same sensor can produce
+  /// two spans of the same rank over the same walk — see [resolveDaySteps].
+  final String deviceId;
 }
 
 /// A day's steps after the ladder has run, split by the sensor that counted.
@@ -235,10 +245,12 @@ class ResolvedDaySteps {
 }
 
 class _Ranked {
-  _Ranked(this.startTs, this.endTs, this.steps, this.rank, this.fromBand);
+  _Ranked(this.startTs, this.endTs, this.steps, this.rank, this.fromBand,
+      this.deviceId);
   final int startTs, endTs, rank;
   final double steps;
   final bool fromBand;
+  final String deviceId;
   double credited = 0;
 }
 
@@ -263,10 +275,26 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
     // 2 = band that looks like gait, 1 = phone, 0 = band that does not.
     final rank = r.fromBand ? (spm >= kBandSpanMinSpm ? 2 : 0) : 1;
     spans.add(
-      _Ranked(w.startTs, w.endTs, r.steps.toDouble(), rank, r.fromBand),
+      _Ranked(w.startTs, w.endTs, r.steps.toDouble(), rank, r.fromBand,
+          r.deviceId),
     );
   }
-  spans.sort((a, b) => b.rank.compareTo(a.rank));
+  // Rank first, then start time — `List.sort` is NOT stable in Dart, and once
+  // equal-ranked spans from different devices compete (below) the winner is
+  // whichever is resolved first, so the tie needs a rule of its own or the
+  // day's total depends on the order SQLite happened to return the rows in.
+  // Earliest span wins; it is arbitrary but it is the same arbitrary answer
+  // every run, which is what a re-derive needs — and that only holds if the
+  // keys reach a TOTAL order. Two devices can share rank AND start, so end and
+  // then `deviceId` finish it; without them the claim above was still an
+  // unstable sort's answer. Same-device ties need no rule: equal rank within
+  // one device is summed, not competed (see the loop below).
+  spans.sort((a, b) {
+    if (b.rank != a.rank) return b.rank.compareTo(a.rank);
+    if (a.startTs != b.startTs) return a.startTs.compareTo(b.startTs);
+    if (a.endTs != b.endTs) return a.endTs.compareTo(b.endTs);
+    return a.deviceId.compareTo(b.deviceId);
+  });
 
   var strap = 0.0;
   var phone = 0.0;
@@ -275,10 +303,17 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
     var alreadyCounted = 0.0;
     for (var j = 0; j < i; j++) {
       final h = spans[j];
-      // EQUAL RANK IS NOT COMPETITION. Two band rows, or two phone rows, are
-      // the same sensor reporting twice and are summed — which is what the
-      // table has always meant and what re-import idempotency relies on.
-      if (h.rank <= s.rank) continue;
+      // EQUAL RANK IS NOT COMPETITION *WITHIN ONE DEVICE*. Two band rows, or
+      // two phone rows, from the SAME `device_id` are the same sensor reporting
+      // twice and are summed — which is what the table has always meant and
+      // what re-import idempotency relies on.
+      //
+      // Two DIFFERENT devices are not that. Rank is a property of the SPAN
+      // (band-that-looks-like-gait / phone / band-that-does-not), so two straps
+      // on the same 3,000-step walk both rank 2, skipped each other here, and
+      // the day published 6,000. Different id ⇒ they compete like any other
+      // pair, and the tie is broken by start time (see the sort above).
+      if (h.rank <= s.rank && h.deviceId == s.deviceId) continue;
       final ov = math.min(s.endTs, h.endTs) - math.max(s.startTs, h.startTs);
       if (ov <= 0) continue;
       alreadyCounted += h.credited * ov / (h.endTs - h.startTs);
@@ -301,6 +336,7 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
             endTs: s.endTs,
             steps: s.credited.round(),
             fromBand: s.fromBand,
+            deviceId: s.deviceId,
           ),
     ]..sort((a, b) => a.startTs.compareTo(b.startTs)),
   );

@@ -1009,9 +1009,30 @@ class HealthExporter {
       hrRows = await db.rawQuery(
         'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
         'FROM decoded_onehz '
-        // Band rows only (`source IS NULL`): what we write to HealthKit as
-        // OpenStrap's measurement must be OpenStrap's measurement.
-        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 AND source IS NULL '
+        // THE BAND'S OWN SECONDS, AND DELIBERATELY NOT `derivableSourceSql()`.
+        //
+        // This is the one read in the app where a wider predicate would be
+        // wrong even for a VERIFIED sensor, and it is the same argument the
+        // steps block below makes: a sample that lands in Apple Health or
+        // Health Connect carries no qualifier, no source seam and no way for
+        // the user to unpick it later. Every other app on the device then
+        // treats it as one continuous series measured one way.
+        //
+        // A chest strap's HR under the same identity as the wrist's is exactly
+        // the systematic-difference blending this project refuses everywhere
+        // else (ASSUMPTIONS D2) — except that here the blend happens inside a
+        // system store we do not own and cannot correct. Deleting our prior
+        // samples for the window (which this exporter already does on every
+        // re-derive) is the only reversal available, and it is ours to run, not
+        // the user's.
+        //
+        // So: no external sensor's HR is written to the OS health store, ever,
+        // whatever its verification tier. If a sensor's readings should reach
+        // HealthKit, that sensor's own app is the honest writer of them. A
+        // separate per-source export identity is the only thing that would
+        // change this call, and it needs a decision (F5-shaped) rather than a
+        // predicate.
+        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 AND $kPrimaryBandSourceSql '
         'GROUP BY minute_ts',
         [startTs, endTs],
       );

@@ -825,14 +825,22 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Future<void> _changeType(BuildContext c) async {
     final id = r.sessionId;
     if (id == null) return;
+    // Only true once a pick actually landed — pressing back out of the picker
+    // must return to this screen, not fall through and pop it too.
+    var picked = false;
     await Navigator.of(c).push(MaterialPageRoute(
       builder: (_) => ActivityPicker(onPick: (pc, newActivity) async {
-        await LocalDb.setSessionType(id, newActivity.name);
+        // The stored key everywhere else uses — `startWorkout(type:
+        // a.typeKey)` is the live path's own write. `a.name` here would still
+        // resolve through `activityByName`'s normalized lookup, but it would
+        // store a different string than every other producer of this column.
+        await LocalDb.setSessionType(id, newActivity.typeKey);
+        picked = true;
         if (mounted) bumpInsights(c);
         Navigator.of(pc).pop();
       }),
     ));
-    if (mounted) Navigator.of(c).pop();
+    if (mounted && picked) Navigator.of(c).pop();
   }
 
   Future<void> _retrySave() async {

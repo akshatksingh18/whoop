@@ -239,7 +239,7 @@ private final class Impl {
     })
 
     pickerResult = completion
-    present(items, allowGen4Retry: true)
+    present(items, known: known, allowGen4Retry: true)
   }
 
   /// Presents the picker and resolves `pickerResult`.
@@ -247,7 +247,10 @@ private final class Impl {
   /// If iOS rejects the widened descriptor list (a name-only item is the
   /// experimental one), retry once with the WHOOP 4.0 item that already ships,
   /// so the experiment can never take down 4.0 pairing.
-  private func present(_ items: [ASPickerDisplayItem], allowGen4Retry: Bool) {
+  ///
+  /// - Parameter known: accessory ids provisioned before this picker run started,
+  ///   so the success handler can tell which id it just added (see below).
+  private func present(_ items: [ASPickerDisplayItem], known: [String], allowGen4Retry: Bool) {
     session.showPicker(for: items) { [weak self] error in
       guard let self = self else { return }
       // The retry (if any) that led to THIS completion running is no longer
@@ -269,7 +272,7 @@ private final class Impl {
           NSLog("[ASK] picker rejected the %d-item descriptor list (%@) — "
                 + "retrying with the WHOOP 4.0 item only.", items.count, message)
           self.retryInFlight = true
-          self.present([items[0]], allowGen4Retry: false)
+          self.present([items[0]], known: known, allowGen4Retry: false)
           return
         }
         self.pickerResult = nil

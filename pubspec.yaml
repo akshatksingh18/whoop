@@ -240,6 +240,11 @@ dependencies:
       # side; the only lib/ change since 353c6bc is #52's
       # lib/src/onehz/workout/calories.dart, picked up incidentally since #52
       # merged before #51 on analytics main).
+      #
+      # main also repinned to a077a4a (the #52 merge, edge#283's own hop) in
+      # the meantime — 7105256 already contains it: analytics main order is
+      # a077a4a (#52) then 7105256 (#51), so this pin supersedes that one and
+      # no further move is needed.
       ref: 7105256b37ad61b49453a6b96543a2b80ea74487
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.

@@ -33,6 +33,7 @@ import 'package:openstrap_analytics/onehz.dart';
 import 'hr_max.dart'
     show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
 import 'profile.dart' show workoutSex;
+import 'step_cadence.dart' show cadenceSpmForMinutes;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
 // and a second copy here would be the exact drift SLP-09's timezone guard is
@@ -169,6 +170,14 @@ class DayBundleInput {
   final double dayConfidence;
   final List<String> dayFlags;
 
+  /// The day's resolved `live_coverage` spans as `[startSec, endSec, steps]`
+  /// — credited, never raw rows (band/phone overlap already settled). The
+  /// energy mirror prices sub-flex-gate walking minutes off these, through
+  /// the SAME `cadenceSpmForMinutes` mapping the coordinator's canonical
+  /// `wakeDayEnergy` pass uses, so the early read and the derived day bill
+  /// the same walk the same way. Empty when nothing measured steps.
+  final List<List<int>> stepSpans;
+
   /// Which strap measured this day — `'gen4'`, `'gen5'`, or null for UNKNOWN
   /// (unstamped historical rows, imports, the raw-hex replay path). Null is its
   /// own case, never gen4: see [Substrate.deviceFamily] and analytics'
@@ -207,10 +216,12 @@ class DayBundleInput {
     this.dayFlags = const [],
     this.deviceFamily,
     this.sleepSource = 'auto',
+    this.stepSpans = const [],
   });
 
   Map<String, dynamic> toJson() => {
     'date': date,
+    'step_spans': stepSpans,
     'day_ts': dayTsSec,
     'day_hr': dayHr,
     'day_rr_ts_ms': dayRrTsMs,
@@ -283,6 +294,10 @@ class DayBundleInput {
       dayFlags: strs('day_flags'),
       deviceFamily: m['device_family'] as String?,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      stepSpans: [
+        for (final r in (m['step_spans'] as List? ?? const []))
+          [for (final v in (r as List)) (v as num).toInt()],
+      ],
     );
   }
 }
@@ -761,10 +776,20 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         ),
         hrmax: hrMax,
         restingHr: rhrForTrimp,
+        // The SAME minute-aligned cadence the canonical pass uses — one
+        // mapping (`cadenceSpmForMinutes`) fed by the same credited spans, so
+        // this early read and the derived day bill a walk identically instead
+        // of the number growing when the coordinator's pass lands.
+        cadenceSpmPerMin: d.stepSpans.isEmpty
+            ? null
+            : cadenceSpmForMinutes(
+                [for (final p in wakeHr) p.tsSec ~/ 60],
+                d.stepSpans,
+              ),
         // `?.` — `dailyEnergy` abstains outright when the anchors cannot
         // define a gate, rather than billing every waking minute as active.
         // Absent stays absent here, same as every other input on this seam.
-      )?.active; // active-energy component (Keytel surplus over basal)
+      )?.active; // active-energy component (Keytel surplus + walking term)
     }
   }
 

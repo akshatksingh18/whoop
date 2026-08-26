@@ -40,14 +40,31 @@ const String kServicesKey = 'NSAccessorySetupBluetoothServices';
 /// rather than hiding a band.
 const String kLabelsKey = 'OSBandLabels';
 
+/// Extra ASK match criterion NOT tied to any one [BandEntry]: the 16-bit SIG
+/// member UUID `0xFD4B`, a fallback for gen5's 128-bit vendor UUID being
+/// hidden in the scan-response overflow area (see AccessorySetup.swift's
+/// `whoopMemberUUID16`). Apple requires every descriptor criterion used in
+/// Swift to be declared here too, so this stays a fixed, always-appended
+/// tail rather than something a band entry could ever express — it is a
+/// platform-encoding fact, not a band.
+const String kFd4bMemberUuid16 = 'FD4B';
+
 String _esc(String s) => s
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 
 String _servicesBody(List<BandEntry> registry) => registry
-    .map((e) => '\t\t<string>${e.service.toUpperCase()}</string>\n')
-    .join();
+        .map((e) => '\t\t<string>${e.service.toUpperCase()}</string>\n')
+        .join() +
+    '\t\t<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor '
+        'service\n'
+        '\t\t     above, and NOT the Bluetooth-base expansion\n'
+        '\t\t     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises '
+        'that).\n'
+        '\t\t     A 128-bit UUID often does not fit the 31-byte '
+        'advertisement. -->\n'
+        '\t\t<string>$kFd4bMemberUuid16</string>\n';
 
 String _labelsBody(List<BandEntry> registry) => registry
     .map((e) => '\t\t<key>${e.service.toUpperCase()}</key>\n'

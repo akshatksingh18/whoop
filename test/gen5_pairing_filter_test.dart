@@ -136,8 +136,9 @@ void main() {
     });
 
     test('ASK has a separate 16-bit FD4B descriptor, not AND-combined', () {
-      expect(swift, contains('whoopServiceUUIDGen5'));
-      expect(swift.toUpperCase(), contains('FD4B0001-CCE1-4033-93CE-002D5875F58A'));
+      // The 128-bit gen5 vendor UUID is now sourced from Info.plist (generated
+      // from kBandRegistry), checked above; this test pins the EXTRA 16-bit
+      // fallback item that is layered on top in Swift.
       // A 16-bit CBUUID("FD4B") is its own picker item. Criteria inside one
       // ASDiscoveryDescriptor AND-combine, so folding this onto the 128-bit
       // item would match nothing if the band advertised only one form.
@@ -153,9 +154,13 @@ void main() {
       expect(swift, contains('"WHOOP"'));
     });
 
-    test('engine scan uses the shared filter helper, not a second UUID list', () {
-      expect(engine, contains('whoopScanServiceUuids()'));
-      expect(engine, contains('advertisementLooksLikeWhoop('));
+    test(
+        'engine scan filters on the registry service list plus the '
+        '16-bit member UUID fallback, not a second hand-written UUID list',
+        () {
+      expect(engine, contains('for (final e in kFramedBands) Guid(e.service)'));
+      expect(engine, contains('Guid(kWhoopMemberUuid16)'));
+      expect(engine, contains("s == kWhoopMemberUuid16"));
     });
 
     test(
@@ -167,16 +172,18 @@ void main() {
       // what already ships.
       expect(swift, contains('present(items, allowGen4Retry: true)'));
       expect(swift, contains('self.present([items[0]], allowGen4Retry: false)'));
-      // items[0] must be the gen4 makeItem, not gen5/name-substring.
-      final itemsStart = swift.indexOf('let items: [ASPickerDisplayItem] = [');
+      // items[0] must be the FIRST registry-driven item (gen4 — kBandRegistry
+      // lists it before gen5, see _registry.dart), not the appended gen5-only
+      // fallback items (member UUID / name substring).
+      final itemsStart = swift.indexOf('var items = services.map');
       expect(itemsStart, greaterThanOrEqualTo(0));
-      final firstMakeItem = swift.indexOf('makeItem(', itemsStart);
-      expect(swift.substring(firstMakeItem, firstMakeItem + 40),
-          contains('"WHOOP band"'));
-      expect(
-        swift.substring(firstMakeItem, swift.indexOf(')', firstMakeItem) + 200),
-        contains('whoopServiceUUIDGen4'),
+      final fallbackAppendStart = swift.indexOf(
+        'items.append(makeItem("WHOOP 5.0 / MG")',
+        itemsStart,
       );
+      expect(fallbackAppendStart, greaterThan(itemsStart),
+          reason: 'the two gen5-only fallback items must be appended AFTER '
+              'the registry-driven items, so items[0] stays gen4');
     });
 
     test(

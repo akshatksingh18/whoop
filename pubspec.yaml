@@ -233,7 +233,14 @@ dependencies:
       # unaffected by the first three (1 Hz is the case each already handled
       # correctly); the quantum-guard fix can change a WHOOP readiness score
       # when a baseline happens to sit in that gap.
-      ref: 353c6bc30f56b936c450e25a3759e5572b164bd8
+      #
+      # analytics main @ #51 merge (7105256). Review-fix repin for edge's own
+      # band-agnostic PR (#280) — no lib/ diff over 353c6bc for this hop (#51
+      # was the merge of this same feat/band-agnostic work on the analytics
+      # side; the only lib/ change since 353c6bc is #52's
+      # lib/src/onehz/workout/calories.dart, picked up incidentally since #52
+      # merged before #51 on analytics main).
+      ref: 7105256b37ad61b49453a6b96543a2b80ea74487
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

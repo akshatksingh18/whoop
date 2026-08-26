@@ -348,4 +348,25 @@ void main() {
     // metrics must keep refusing until it is.
     expect(kOura.timeAnchor, TimeAnchor.arrival);
   });
+
+  test('a ring that streams frames forever without a batch summary ends the '
+      'session instead of hanging', () async {
+    // A batch summary never arrives — `_collectBatch`'s inner loop otherwise
+    // has no bound (each frame resets `replyTimeout`'s window), so this would
+    // hang the sync forever on a misbehaving or malicious radio.
+    final (events, link) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          for (var n = 0; n < 5001; n++)
+            _event(kOuraEvtDebugData, n, _hex('2456c80f00')),
+        ];
+      }
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(link.writes.any((w) => w.$2.first == 0x10), isTrue,
+        reason: 'the session must have reached the history request at all');
+  });
 }

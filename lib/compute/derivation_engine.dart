@@ -1474,7 +1474,13 @@ const int kAlgoVersion = 78;
 // contains the change a bump CITES is still a thing a human checks; v43 shipped
 // a changelog for an analytics fix its pin never had, and the bug it claimed to
 // fix stayed live for three releases.
-const String kAnalyticsPin = '353c6bc30f56b936c450e25a3759e5572b164bd8';
+// Repin to analytics main @ #51 merge (7105256), review-fix pin for this
+// branch's own PR (#280). kAlgoVersion holds: the only lib/ diff over
+// 353c6bc is #52's `Calories.dailyEnergy` gaining an optional
+// `cadenceSpmPerMin` param and a `walking` result field (both edge call
+// sites use named field access and never pass the new param), so with no
+// caller passing it `active`/`basal`/`total` are byte-identical to before.
+const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
 const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

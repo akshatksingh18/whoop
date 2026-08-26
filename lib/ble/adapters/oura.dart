@@ -353,7 +353,11 @@ class OuraAdapter extends BandAdapter {
     final events = <OuraEvent>[];
     final raw = <Uint8List>[];
     var maxDs = 0;
-    while (true) {
+    // A misbehaving ring that keeps streaming non-summary frames would
+    // otherwise spin here forever — each frame resets `replyTimeout`'s
+    // window, so the timeout alone never bounds this loop. Same shape as the
+    // outer `batch < 5000` guard in `run`.
+    for (var frame = 0; frame < 5000; frame++) {
       final rec = await inbox.next(replyTimeout);
       if (rec == null) return null;
       final (_, f, rawBytes) = rec;
@@ -374,6 +378,7 @@ class OuraAdapter extends BandAdapter {
       raw.add(rawBytes);
       if (e.tsDs > maxDs) maxDs = e.tsDs;
     }
+    return null;
   }
 
   /// Turn one collected batch into events for the host.

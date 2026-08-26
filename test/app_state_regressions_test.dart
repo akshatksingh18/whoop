@@ -161,6 +161,31 @@ void main() {
       await app.debugReconcileOrphanedLiveWorkout();
       expect(app.activeWorkout?.workoutId, 'resumable');
     });
+
+    test('a resumed session keeps its ceiling, so the idle gate exists',
+        () async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await LocalDb.putSession({
+        'id': 'resumable-gated',
+        'start_ts': nowSec - 300,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': (nowSec - 300) * 1000,
+      });
+
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.user = {'age': 30};
+      await app.debugReconcileOrphanedLiveWorkout();
+
+      expect(app.activeWorkout?.hrMax, closeTo(208.0 - 0.7 * 30, 1e-9),
+          reason: 'without the ceiling the idle gate is null and '
+              'WorkoutIdleWatch counts any positive reading as active — a '
+              'forgotten session sitting at resting HR would never be asked '
+              'about after an app restart, the exact case the watch is for');
+    });
   });
 
   // ── 9. a fired alarm must be cleared from state AND prefs ──────────────────

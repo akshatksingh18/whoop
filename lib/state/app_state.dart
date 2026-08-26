@@ -5265,6 +5265,15 @@ class AppState extends ChangeNotifier {
             type: (row['type'] as String?) ?? 'other',
             age: (user?['age'] as num?)?.round(),
             profile: Profile.fromMap(user),
+            // The same ceiling startWorkout pins. Without it the resumed
+            // session's idle gate is null, and WorkoutIdleWatch then counts
+            // ANY positive reading as active — a forgotten session idling at
+            // resting heart rate would never be asked about after a restart,
+            // the exact case the watch exists for.
+            hrMax: estimatedMaxHr(
+              (user?['age'] as num?),
+              engine.linkDeviceFamily,
+            ),
             restingHr: _liveRestingHr,
           );
           // Without this, `workoutStepsMeasured` (gated on _workoutRawBase

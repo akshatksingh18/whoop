@@ -120,6 +120,12 @@ const Map<String, int> _tabRoutes = {
   '/heart': 2,
   '/body': 3,
   '/workouts': 4,
+  // The forgotten-workout nudge. The Workouts tab IS its destination — the
+  // live session bar with the finish control is pinned to the shell there and
+  // `screenForRoute` has nothing to push — so it belongs in the tab table,
+  // not `_screenRoutes`. (It keeps its own path because `classOf`'s sanction
+  // is route-keyed — see kRouteWorkoutIdle above.)
+  kRouteWorkoutIdle: 4,
 };
 
 // Sub-screen routes → the shell tab they sit on top of. Most briefing/journal
@@ -142,7 +148,6 @@ const Map<String, int> _screenRoutes = {
   // request at all, and the shell then falls back to the tab index.
   kRouteMeds: 0,
   kRouteWorkoutSuggestion: 4,
-  kRouteWorkoutIdle: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab
 };

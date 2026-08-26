@@ -146,9 +146,9 @@ Future<void> _pickLanguage(BuildContext c) async {
               trailing: ctrl.code == code
                   ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
                   : null,
-              onTap: () {
-                ctrl.setCode(code);
-                Navigator.of(sheet).pop();
+              onTap: () async {
+                await ctrl.setCode(code);
+                if (sheet.mounted) Navigator.of(sheet).pop();
               },
             ),
         ],

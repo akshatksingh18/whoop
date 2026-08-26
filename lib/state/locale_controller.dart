@@ -5,6 +5,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/app_localizations.dart';
+
 class LocaleController extends ChangeNotifier {
   static const String _kLocale = 'locale_override'; // language code, e.g. 'es'
 
@@ -15,7 +17,15 @@ class LocaleController extends ChangeNotifier {
 
   static Future<LocaleController> bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
-    return LocaleController._(prefs.getString(_kLocale));
+    final stored = prefs.getString(_kLocale);
+    // A locale dropped from AppLocalizations.supportedLocales (or from a
+    // stale build) has no row in the picker — fall back to system default
+    // rather than showing a selection nothing matches.
+    final code = AppLocalizations.supportedLocales
+            .any((l) => l.languageCode == stored)
+        ? stored
+        : null;
+    return LocaleController._(code);
   }
 
   /// null = system default.

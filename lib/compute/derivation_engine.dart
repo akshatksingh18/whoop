@@ -1432,11 +1432,31 @@ import 'substrate.dart';
 // Days already finalized keep the score they were derived with — raw prunes at
 // `rawRetentionDays`, so no bump can heal them.
 //
+// v80 — irregular-rhythm 24/7 SCREEN false-positive fix. `irregularBeatScreen`
+// (analytics) computed one Poincaré SD1/SD2 + pNN70 ratio blended across an
+// entire calendar day (sleep + rest + exercise + posture changes). Real user
+// data showed EVERY sampled day sat at or over both thresholds (sd1/sd2
+// 0.63-0.81 vs 0.70 cutoff; pnn70 27-56% vs 30% cutoff) — the "medical"
+// notification was firing almost daily, because ordinary daily physiological
+// variability alone clears these thresholds when blended into one number; the
+// thresholds were never validated for a 24h aggregate (traced to an
+// uncalibrated commit, PR #12). Fix: the screen now also requires the same
+// two conditions hold independently in a real fraction (default 50%) of
+// short (5-min) mostly-stationary windows across the day — i.e. sustained,
+// not just present once in the blend. Wired at both call sites
+// (`onehz_pipeline.dart`'s day-span AND sleep-only screens) via the new
+// `nnTimesMs` param. THIS CAN MOVE `irregular_rhythm_flag` from 1→0 on days
+// that were false-flagging; it cannot move it 0→1 (strictly stricter).
+// PIN GATE (invariant #5): do not release with a pubspec pin that predates
+// the analytics commit landing `_sustainedAcrossWindows` in
+// irregular_rhythm.dart, or recomputing v80 against a sibling without it
+// would silently keep firing the false positive.
+//
 // PIN GATE (invariant #5): v77 above cites the analytics walking term
 // (OpenStrap/analytics#52). Do not release with a pubspec pin that predates
 // that merge — recomputing v77+ against a sibling that cannot price walking
 // would burn the version on nothing.
-const int kAlgoVersion = 79;
+const int kAlgoVersion = 80;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

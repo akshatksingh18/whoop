@@ -5546,7 +5546,16 @@ class BleEngine {
     // link swap mid-sequence must stop the tail from landing on the
     // replacement (`_write(owner:)`) and report the INIT as not written.
     final session = _session;
-    if (session == null) return false;
+    if (session == null) {
+      // No link, so nothing can be written — but the setup boost must still
+      // end here, exactly as the `finally` blocks below guarantee on every
+      // other exit from this method.
+      if (_connectSetup) {
+        _connectSetup = false;
+        unawaited(_applyLinkPriority());
+      }
+      return false;
+    }
     final band = session.band;
     if (band.isGen5) {
       // gen5 handshake: a single CLIENT_HELLO (GET_HELLO 0x91) written

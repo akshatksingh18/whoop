@@ -1540,7 +1540,14 @@ const int kAlgoVersion = 80;
 // no caller passing it `active`/`basal`/`total` are byte-identical to before
 // — the walking-cadence NUMBER change already happened at v77 above, via
 // #283's own a077a4a pin, before this branch's pin moved past it.
-const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
+// Repin to analytics main @ #53 merge (187e026), one hop on top of 7105256.
+// This is the v80 PIN GATE above being closed: #53 lands `nnTimesMs` on
+// `irregularBeatScreen`, which onehz_pipeline.dart (this same v80 change) was
+// already calling — the pin was never moved when kAlgoVersion went to 80, so
+// a clean checkout failed `flutter analyze` (undefined_named_parameter) and
+// would have recomputed v80 against a sibling without the sustained-window
+// fix it claims. No other symbol changed; no further kAlgoVersion move.
+const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
 const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

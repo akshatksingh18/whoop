@@ -125,8 +125,9 @@ void openProfile(BuildContext c) => goto(c, const ProfileHome());
 /// actually has translations for.
 const Map<String, String> _kLanguageNames = {'en': 'English'};
 
-String _languageLabel(String? code) =>
-    code == null ? 'System default' : (_kLanguageNames[code] ?? code);
+String _languageLabel(BuildContext c, String? code) => code == null
+    ? (AppLocalizations.of(c)?.languageSystemDefault ?? 'System default')
+    : (_kLanguageNames[code] ?? code);
 
 Future<void> _pickLanguage(BuildContext c) async {
   final p = P.of(c);
@@ -142,7 +143,7 @@ Future<void> _pickLanguage(BuildContext c) async {
         children: [
           for (final code in options)
             ListTile(
-              title: Text(_languageLabel(code), style: F.body.copyWith(color: p.ink)),
+              title: Text(_languageLabel(sheet, code), style: F.body.copyWith(color: p.ink)),
               trailing: ctrl.code == code
                   ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
                   : null,
@@ -322,7 +323,7 @@ class ProfileHomeView extends StatelessWidget {
                   Builder(builder: (c) => SetRow(
                       LucideIcons.languages, C.blue,
                       AppLocalizations.of(c)?.profileLanguage ?? 'Language',
-                      sub: _languageLabel(c.watch<LocaleController>().code),
+                      sub: _languageLabel(c, c.watch<LocaleController>().code),
                       onTap: () => _pickLanguage(c))),
                 ]),
                 settingsGroup(c, 'Your data', [

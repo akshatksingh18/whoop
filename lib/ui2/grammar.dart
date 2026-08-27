@@ -2341,12 +2341,18 @@ class NavBar extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onBack;
 
+  /// Width of the trailing slot. Only [ActivitySummary] widens it, to fit a
+  /// share icon beside an edit-type one — every other caller keeps the
+  /// one-icon default.
+  final double trailingWidth;
+
   const NavBar(
     this.title, {
     super.key,
     this.sub = '',
     this.trailing,
     this.onBack,
+    this.trailingWidth = S.tap,
   });
 
   @override
@@ -2382,7 +2388,7 @@ class NavBar extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: S.tap,
+            width: trailingWidth,
             child: Align(alignment: Alignment.centerRight, child: trailing),
           ),
         ],

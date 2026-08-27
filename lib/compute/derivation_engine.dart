@@ -3659,7 +3659,16 @@ class DerivationEngine {
       // `liveSteps`/`stepSpans` were read above, before the pipeline input —
       // one resolution serves both energy passes. `.strap` is carried
       // alongside the total so the bundle can name the sensor that counted.
-      final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
+      //
+      // Sessions are queried over the FULL local calendar day, not
+      // [dayLo, dayHi] — those bounds come from daySub's own first/last
+      // sample, so a completed session the band's PPG lost contact for
+      // entirely (zero HR samples at all, e.g. a wrist-gripping lift) can
+      // fall outside them and never reach the zero-coverage credit below.
+      final savedSessions = await LocalDb.sessionsInRange(
+        _localDayLabelToSec(day.date),
+        localNextMidnightSecForDayLabel(day.date),
+      );
 
       // Off-wrist / charging spans over the NAP window (which runs past this
       // day's end), read here because the isolate has no DB handle. These are
@@ -5200,6 +5209,11 @@ class DerivationEngine {
         if (total != null) {
           wake['calories_total'] = (total as num).toDouble() + credited;
         }
+        // Provenance for the envelope built in `_applyWakeDayFeatures` below —
+        // without this, `calories_total`'s `inputs_used`/note would keep
+        // claiming an hr_1hz-only figure while the emitted value silently
+        // includes session-sourced kcal.
+        wake['calories_session_credit'] = credited;
       }
     }
     _applyWakeDayFeatures(bundle, scalars, wake);
@@ -5270,6 +5284,8 @@ class DerivationEngine {
       // day it contributed nothing to would claim pedometer coverage the day
       // may not have.
       final walking = (wake['calories_walking'] as num?)?.toDouble() ?? 0.0;
+      final sessionCredit =
+          (wake['calories_session_credit'] as num?)?.toDouble() ?? 0.0;
       bundle['calories_total'] = <String, dynamic>{
         'value': caloriesTotal.round(),
         'active': calories.round(),
@@ -5280,11 +5296,14 @@ class DerivationEngine {
           'hr_1hz',
           'profile',
           if (walking > 0) 'live_coverage_pedometer',
+          if (sessionCredit > 0) 'saved_session_calories',
         ],
         'note': 'total daily energy: Mifflin BMR floor over the covered day + '
             'active Keytel surplus over the wake span (HR-flex)'
             '${walking > 0 ? ' + measured-cadence walking term '
-                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}',
+                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}'
+            '${sessionCredit > 0 ? ' + workout-gap session calories '
+                '(PPG lost the window, ${sessionCredit.round()} kcal)' : ''}',
       };
     }
     // WHY each of the above is absent, per figure. This recompute is the answer

@@ -6943,11 +6943,25 @@ class BleEngine {
   /// ([_finishConnect]), so a link that keeps dying between hello and READY
   /// still reaches the five-failure bond reset.
   void _noteHelloSuccess(Gen5HelloInfo h) {
-    _helloIdentity = HelloIdentity.evaluate(
-      serial: h.serial,
-      cpuHex: h.cpuHex,
-      eepromFailureSignal: h.serialLooksEepromFailure,
-    );
+    // The pinned parser reads serial/cpuHex at revision-1 offsets REGARDLESS
+    // of `helloRevision` (it doesn't gate on the byte). For an unknown
+    // revision those bytes may not be identity at all, so evaluating them
+    // would invent a verdict — and a bad one could fail the alphanumeric gate
+    // in _gen5PostHelloGates and reject a connection the clock contract
+    // (which already treats an unknown revision as "must still connect")
+    // would otherwise allow. Only revision 1 gets a real identity verdict;
+    // any other revision is unverified-but-not-a-rejection.
+    _helloIdentity = h.helloRevision == 1
+        ? HelloIdentity.evaluate(
+            serial: h.serial,
+            cpuHex: h.cpuHex,
+            eepromFailureSignal: h.serialLooksEepromFailure,
+          )
+        : const HelloIdentity(
+            serialOk: true,
+            cpuOk: true,
+            eepromFailureSignal: false,
+          );
   }
 
   /// record the failure, and at the fifth

@@ -2813,6 +2813,14 @@
   "@beatsVariabilitySection": {
     "description": "Section title for the night HRV curve panel"
   },
+  "beatsUnitNights": "nights",
+  "@beatsUnitNights": {
+    "description": "Unit label on the night-variability status card"
+  },
+  "beatsUnitScreenedNotScreened": "screened / not screened",
+  "@beatsUnitScreenedNotScreened": {
+    "description": "Unit label on the rhythm-screen chart (legend describes the two per-day states)"
+  },
   "beatsVariabilityWhy": "No half-hour bin of this night held enough clean beats to publish an RMSSD.",
   "@beatsVariabilityWhy": {
     "description": "Empty-state reason: no half-hour bin had enough clean beats"
@@ -3832,6 +3840,14 @@
   "nutritionDailyProtein": "Daily protein",
   "@nutritionDailyProtein": {
     "description": "Nutrition Goals tab: name of the daily protein target"
+  },
+  "nutritionEnergyWord": "energy",
+  "@nutritionEnergyWord": {
+    "description": "Nutrition Goals tab: bare noun for energy, used inside sentences (distinct from the 'Daily energy' label so word order/gender in other languages doesn't leak the label's adjective into the noun slot)"
+  },
+  "nutritionProteinWord": "protein",
+  "@nutritionProteinWord": {
+    "description": "Nutrition Goals tab: bare noun for protein, used inside sentences (see nutritionEnergyWord)"
   },
   "nutritionYourTargetsSection": "Your targets",
   "@nutritionYourTargetsSection": {
@@ -5546,6 +5562,14 @@
   "cycleLogPeriodButton": "Log a period start today",
   "@cycleLogPeriodButton": {
     "description": "Button label to log a period start today (used both as a status-card fix action and the main button)."
+  },
+  "cycleLogKindStart": "START",
+  "@cycleLogKindStart": {
+    "description": "Recent-logs row: this entry is a period start (shown uppercased already, so translate as-is)"
+  },
+  "cycleLogKindEnd": "END",
+  "@cycleLogKindEnd": {
+    "description": "Recent-logs row: this entry is a period end (shown uppercased already, so translate as-is)"
   },
   "cycleAcrossCyclesTitle": "Across your cycles",
   "@cycleAcrossCyclesTitle": {
@@ -7390,6 +7414,22 @@
   "@wellnessAutonomicTension": {
     "description": "Label on the stress signal card"
   },
+  "wellnessStressLevelLow": "low",
+  "@wellnessStressLevelLow": {
+    "description": "Stress card sub-label: the 'low' band (shown uppercased)"
+  },
+  "wellnessStressLevelNormal": "normal",
+  "@wellnessStressLevelNormal": {
+    "description": "Stress card sub-label: the 'normal' band (shown uppercased)"
+  },
+  "wellnessStressLevelElevated": "elevated",
+  "@wellnessStressLevelElevated": {
+    "description": "Stress card sub-label: the 'elevated' band (shown uppercased)"
+  },
+  "wellnessStressLevelHigh": "high",
+  "@wellnessStressLevelHigh": {
+    "description": "Stress card sub-label: the 'high' band (shown uppercased)"
+  },
   "wellnessJournalDefaultSubtitle": "Anything you want to remember about today",
   "@wellnessJournalDefaultSubtitle": {
     "description": "Journal subtitle when no custom fields are configured"
@@ -7707,6 +7747,18 @@
     "description": "Accessibility label for the overflow/more menu button on a medication row",
     "placeholders": {
       "label": {
+        "type": "String"
+      }
+    }
+  },
+  "wellnessMedAtTime": "{label} at {time}",
+  "@wellnessMedAtTime": {
+    "description": "Accessibility label for a medication dose row: the medication name and its scheduled time",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "time": {
         "type": "String"
       }
     }

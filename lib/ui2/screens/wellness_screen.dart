@@ -318,7 +318,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     final stress = _stress['stress'];
     final score = _reading(stress is Map ? stress['score'] : null);
     final level = stress is Map && stress['level'] is String
-        ? stress['level'] as String
+        ? _stressLevelLabel(l, stress['level'] as String)
         : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -375,7 +375,10 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
 
   /// What the journal will actually ask you, read off its own field specs.
   String _journalSubtitle(AppLocalizations? l) {
-    final names = [for (final f in _fields) f.label.toLowerCase()];
+    // Not `.toLowerCase()`: these are user-entered/localized field labels
+    // (acronyms like HRV, or nouns a language capitalizes) — lowercasing
+    // them here would corrupt content the join has no business rewriting.
+    final names = [for (final f in _fields) f.label];
     if (names.isEmpty) {
       return l?.wellnessJournalDefaultSubtitle ??
           'Anything you want to remember about today';
@@ -1150,6 +1153,23 @@ class DriverRow extends StatelessWidget {
   }
 }
 
+/// The pinned analytics package returns 'low'/'normal'/'elevated'/'high' —
+/// English regardless of locale. Map to the localized word before display.
+String? _stressLevelLabel(AppLocalizations? l, String raw) {
+  switch (raw) {
+    case 'low':
+      return l?.wellnessStressLevelLow ?? raw;
+    case 'normal':
+      return l?.wellnessStressLevelNormal ?? raw;
+    case 'elevated':
+      return l?.wellnessStressLevelElevated ?? raw;
+    case 'high':
+      return l?.wellnessStressLevelHigh ?? raw;
+    default:
+      return raw;
+  }
+}
+
 /// The days a dose is due, in the words a person would use. `DateTime.weekday`
 /// values, 1 = Monday; empty means every day.
 String _daysLabel(BuildContext c, List<int> days) {
@@ -1360,7 +1380,8 @@ class MedRow extends StatelessWidget {
     final taken = slot.state == DoseState.taken;
     return Pressable(
       onTap: onTap,
-      semanticLabel: '${slot.def.label} at ${slot.timeLabel}',
+      semanticLabel: l?.wellnessMedAtTime(slot.def.label, slot.timeLabel) ??
+          '${slot.def.label} at ${slot.timeLabel}',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(

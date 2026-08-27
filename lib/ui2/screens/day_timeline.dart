@@ -619,6 +619,11 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   static const Object _localeUnset = Object();
   Object? _seenLocale = _localeUnset;
 
+  /// Bumped on every `_load()` call so an OLDER one that resolves after a
+  /// NEWER one (a locale change firing while a day-nav load is still in
+  /// flight) can tell it lost the race and must not overwrite fresher data.
+  int _loadToken = 0;
+
   @override
   void initState() {
     super.initState();
@@ -634,32 +639,38 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final String? code;
+    // `code` alone misses a SYSTEM locale change while it is null (no
+    // in-app override) — see the same fix in RevisionReload.
+    final Object localeKey;
     try {
-      code = context.watch<LocaleController>().code;
+      final code = context.watch<LocaleController>().code;
+      localeKey = code ?? Localizations.localeOf(context);
     } catch (_) {
       return;
     }
     if (identical(_seenLocale, _localeUnset)) {
-      _seenLocale = code;
-    } else if (_seenLocale != code && widget.data == null) {
-      _seenLocale = code;
+      _seenLocale = localeKey;
+    } else if (_seenLocale != localeKey && widget.data == null) {
+      _seenLocale = localeKey;
       _load();
     }
   }
 
   Future<void> _load() async {
+    final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
       return;
     }
     final l = AppLocalizations.of(context);
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (mounted && token == _loadToken) {
+        setState(() => (_d = d, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
     }
   }
 

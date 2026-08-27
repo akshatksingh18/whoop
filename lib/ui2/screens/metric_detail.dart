@@ -968,7 +968,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final band = pct?['label']?.toString();
     final rank = (pct?['percentile_of_you'] as num?);
     final isToday = (daysBehind(latestTs) ?? 0) <= 0;
-    final ordinal = rank == null ? '' : _ordinal(rank.round());
+    final ordinal = rank == null ? '' : _ordinal(rank.round(), l);
 
     return Surface(
       child: Column(children: [
@@ -1011,9 +1011,29 @@ class _MetricDetailState extends State<MetricDetail> {
     );
   }
 
-  String _ordinal(int n) {
-    if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
-    return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
+  /// [n]th, localized. `{ordinal}` gets substituted whole into an ARB
+  /// sentence, so this is the one place the suffix has to match the reader's
+  /// language — an English "12th" inside a French sentence reads as broken,
+  /// not translated.
+  String _ordinal(int n, AppLocalizations? l) {
+    switch (l?.localeName.split('_').first) {
+      case 'fr':
+        return n == 1 ? '1er' : '${n}e';
+      case 'de':
+        return '$n.';
+      case 'es':
+        return '$nº';
+      case 'hi':
+      case 'zh':
+        // Neither language marks the ordinal with a suffix here — the
+        // surrounding ARB sentence already carries the "the Nth" framing
+        // (Hindi's postposition, Chinese's 第 prefix), so a bare number is
+        // the correct rendering, not a fallback.
+        return '$n';
+      default:
+        if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
+        return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
+    }
   }
 
   Widget _stat(P p, String v, String l) => Column(children: [

@@ -611,7 +611,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final target = _target(g.$1)!;
     final m = _meanFor(g.$1);
     final mean = m?.value;
-    final nutrient = g.$2.split(' ').last.toLowerCase();
+    // A stable per-goal noun, not `g.$2`'s last word: the label is a full
+    // localized phrase ("Énergie quotidienne" in French puts the adjective
+    // AFTER the noun), so slicing it grabs "quotidienne", not "énergie".
+    final nutrient = g.$1 == 'kcal_target'
+        ? (l?.nutritionEnergyWord ?? 'energy')
+        : (l?.nutritionProteinWord ?? 'protein');
     if (mean == null || target <= 0) {
       return StatusCard(
         l?.nutritionNothingToMeasure(g.$2.toLowerCase()) ??

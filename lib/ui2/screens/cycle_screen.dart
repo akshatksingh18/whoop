@@ -663,7 +663,8 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(e.$1, style: F.cap.copyWith(color: p.ink)),
+                    child: Text(_symptomLabel(l, e.$1),
+                        style: F.cap.copyWith(color: p.ink)),
                   ),
                   Text(e.$2.join(' · '), style: F.n17.copyWith(color: p.ink2)),
                 ],
@@ -748,7 +749,9 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                     ),
                   ),
                   Text(
-                    '${recent[i]['kind']}'.toUpperCase(),
+                    recent[i]['kind'] == 'start'
+                        ? (l?.cycleLogKindStart ?? 'START')
+                        : (l?.cycleLogKindEnd ?? 'END'),
                     style: F.over.copyWith(color: p.ink3),
                   ),
                   const SizedBox(width: S.x3),

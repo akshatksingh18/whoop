@@ -123,16 +123,21 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
     // so `didChangeDependencies` re-runs the moment `setCode` notifies, the
     // same mechanism `app.dart` uses to rebuild `MaterialApp` with the new
     // locale, kept off `AppState` itself because that one ticks at ~1 Hz.
-    final String? code;
+    // `code` alone misses a SYSTEM locale change while it is null (no
+    // in-app override): `AppLocalizations.of(context)` follows the OS, but
+    // `code` doesn't move, so the old compare never saw it. The resolved
+    // locale is the thing that actually decides which strings got baked in.
+    final Object localeKey;
     try {
-      code = context.watch<LocaleController>().code;
+      final code = context.watch<LocaleController>().code;
+      localeKey = code ?? Localizations.localeOf(context);
     } catch (_) {
       return;
     }
     if (identical(_seenLocale, _unset)) {
-      _seenLocale = code;
-    } else if (_seenLocale != code) {
-      _seenLocale = code;
+      _seenLocale = localeKey;
+    } else if (_seenLocale != localeKey) {
+      _seenLocale = localeKey;
       reload();
     }
   }

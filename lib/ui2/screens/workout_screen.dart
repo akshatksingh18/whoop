@@ -1435,8 +1435,14 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // claim that stands without one. Understating the bars to match the
       // bands instead would put them at odds with the strain, calories and
       // duration beside them, which are the kept values too.
-      zoneSource: rebinned ? (band?['source'] as String?) : null,
-      zoneMaxHr: rebinned ? (band?['hi'] as num?) : null,
+      // `band?['source'] as String?` / `as num?` would THROW on a
+      // wrong-typed (not just missing) field, and the catch below is
+      // best-effort for the WHOLE enrichment — one bad band field must not
+      // also blank the hr/avgHr/zoneMinutes reads beside it. `is`-checks
+      // degrade to null instead of throwing.
+      zoneSource:
+          rebinned && band?['source'] is String ? band!['source'] as String : null,
+      zoneMaxHr: rebinned && band?['hi'] is num ? band!['hi'] as num : null,
       // …and the MINUTES from the same read, not from the list row. Opening a
       // session rescores it (`_rescoreSessionFromSubstrate`), so the row loaded
       // with the month list can be a split binned before that correction — and

@@ -1432,11 +1432,46 @@ import 'substrate.dart';
 // Days already finalized keep the score they were derived with — raw prunes at
 // `rawRetentionDays`, so no bump can heal them.
 //
+// v80 — irregular-rhythm 24/7 SCREEN false-positive fix. `irregularBeatScreen`
+// (analytics) computed one Poincaré SD1/SD2 + pNN70 ratio blended across an
+// entire calendar day (sleep + rest + exercise + posture changes). Real user
+// data showed EVERY sampled day sat at or over both thresholds (sd1/sd2
+// 0.63-0.81 vs 0.70 cutoff; pnn70 27-56% vs 30% cutoff) — the "medical"
+// notification was firing almost daily, because ordinary daily physiological
+// variability alone clears these thresholds when blended into one number; the
+// thresholds were never validated for a 24h aggregate (traced to an
+// uncalibrated commit, PR #12). Fix: the screen now also requires the same
+// two conditions hold independently in a real fraction (default 50%) of
+// short (5-min) mostly-stationary windows across the day — i.e. sustained,
+// not just present once in the blend. Wired at both call sites
+// (`onehz_pipeline.dart`'s day-span AND sleep-only screens) via the new
+// `nnTimesMs` param. THIS CAN MOVE `irregular_rhythm_flag` from 1→0 on days
+// that were false-flagging; it cannot move it 0→1 (strictly stricter).
+// PIN GATE (invariant #5): do not release with a pubspec pin that predates
+// the analytics commit landing `_sustainedAcrossWindows` in
+// irregular_rhythm.dart, or recomputing v80 against a sibling without it
+// would silently keep firing the false positive.
+//
 // PIN GATE (invariant #5): v77 above cites the analytics walking term
 // (OpenStrap/analytics#52). Do not release with a pubspec pin that predates
 // that merge — recomputing v77+ against a sibling that cannot price walking
 // would burn the version on nothing.
-const int kAlgoVersion = 79;
+//
+// v81 — ACTIVE ENERGY WORKOUT-GAP CREDIT. `applyDayActivity`'s calorie figure
+// is built entirely from `daySub.hr` (the day's own continuous 1 Hz trace)
+// and never read `sessions` at all — so a workout that scored its own
+// calories through the SEPARATE session pipeline (`computeManualSessionStats`
+// / the live-tick accumulator) contributed nothing to Active Energy whenever
+// the band lost PPG contact for its whole window, which is common for a
+// wrist-gripping or arm-swinging session (lifting, a brisk walk) next to a
+// low-motion one (Pilates) that keeps contact. `applyDayActivity` now takes
+// this day's `sessions` rows and credits a DONE, non-private session's own
+// `calories` into the day total ONLY when `daySub` has ZERO real HR samples
+// across that session's whole window — never a partial one, so a window the
+// trace already priced is never double-billed. THIS CAN RAISE `calories` /
+// `calories_total` for a day with a workout the day trace fully missed;
+// every other day is unaffected.
+const int kAlgoVersion = 81;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1520,6 +1555,13 @@ const int kAlgoVersion = 79;
 // no caller passing it `active`/`basal`/`total` are byte-identical to before
 // — the walking-cadence NUMBER change already happened at v77 above, via
 // #283's own a077a4a pin, before this branch's pin moved past it.
+// Repin to analytics main @ #53 merge (187e026), one hop on top of 7105256.
+// This is the v80 PIN GATE above being closed: #53 lands `nnTimesMs` on
+// `irregularBeatScreen`, which onehz_pipeline.dart (this same v80 change) was
+// already calling — the pin was never moved when kAlgoVersion went to 80, so
+// a clean checkout failed `flutter analyze` (undefined_named_parameter) and
+// would have recomputed v80 against a sibling without the sustained-window
+// fix it claims. No other symbol changed; no further kAlgoVersion move.
 //
 // REPIN (this branch) @ 6664854 — protocol main at the OpenStrap/protocol#35
 // merge commit ("record HELLO revision instead of gating parsing"). The old
@@ -1538,7 +1580,13 @@ const int kAlgoVersion = 79;
 // pubspec.yaml's `ref:` and pubspec.lock
 // (test/db_serve_version_and_reads_test.dart pins them equal, so a partial
 // repin fails the suite).
-const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
+//
+// MERGE (main → this branch): each side moved ONE pin and neither moved
+// the other, so this is both repins standing, not a choice between them.
+// main took analytics 7105256 → 187e026 (the v80 gate above); this branch
+// took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
+// moves no derivation maths, which is why its own note says NO bump.
+const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
 const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
@@ -4894,6 +4942,20 @@ class DerivationEngine {
     return (keys: keys, hr: [for (final k in keys) _meanWake(buckets[k]!)!]);
   }
 
+  /// Whether `daySub` has AT LEAST ONE real HR sample (`hr > 0`) inside
+  /// `[fromSec, toSec)` — the gate for the workout-gap credit in
+  /// [applyDayActivity]. Same "real sample" test as [_perMinuteMeanWake]'s own
+  /// bucketing, so "covered" here means exactly what would have priced a
+  /// minute there.
+  static bool _hasHrCoverage(Substrate s, int fromSec, int toSec) {
+    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
+      if (s.hr[i] <= 0) continue;
+      final t = s.tsSec[i];
+      if (t >= fromSec && t < toSec) return true;
+    }
+    return false;
+  }
+
   static Map<String, int> _wakeZoneMinutes(
     Substrate s,
     int sleepOnsetSec,
@@ -5080,6 +5142,10 @@ class DerivationEngine {
     int liveStepsFromStrap = 0,
     int dynHistoryDays = 0,
     List<List<int>> stepSpans = const [],
+    /// This day's `sessions` rows (`LocalDb.sessionsInRange`), for the
+    /// zero-coverage credit below. Defaults to none — every existing caller
+    /// keeps its old behaviour until it is threaded through.
+    List<Map<String, dynamic>> sessions = const [],
   }) {
     final wake = _buildWakeDayFeatures(
       daySub,
@@ -5093,6 +5159,49 @@ class DerivationEngine {
       dynFloorG: dynFloorG,
       stepSpans: stepSpans,
     );
+    // ACTIVE ENERGY WORKOUT-GAP CREDIT. `wake['calories']` above is built
+    // ENTIRELY from `daySub.hr` — the day's own continuous 1 Hz trace — and
+    // never once reads `sessions`. A workout scores its OWN calorie figure
+    // through a completely separate pipeline (`computeManualSessionStats` /
+    // the live-tick accumulator, reconciled in `reconcileSessionScore`), so a
+    // session whose window the band's PPG lost contact for — commonly a
+    // wrist-gripping or arm-swinging one, e.g. lifting or a brisk walk, next
+    // to a low-motion one like Pilates that keeps contact — can be fully
+    // scored on its own summary card while contributing exactly nothing to
+    // Active Energy, because that window is a real, total gap in `daySub.hr`.
+    //
+    // Credited ONLY when a session's window has ZERO real HR samples in
+    // `daySub` — never a partial one — which is what makes this safe: a
+    // window `daySub.hr` already priced any of is left alone, so this can
+    // never double-bill a minute the trace already counted. A day the trace
+    // produced no figure for at all is left absent, same as always — this
+    // fills a gap in an existing number, it does not fabricate one.
+    if (wake['calories'] != null && sessions.isNotEmpty) {
+      var credited = 0.0;
+      for (final s in sessions) {
+        if (s['status'] != 'done') continue;
+        if ((s['private'] as num?)?.toInt() == 1) continue;
+        final sStart = (s['start_ts'] as num?)?.toInt();
+        final sEnd = (s['end_ts'] as num?)?.toInt();
+        final sCal = (s['calories'] as num?)?.toDouble();
+        if (sStart == null ||
+            sEnd == null ||
+            sEnd <= sStart ||
+            sCal == null ||
+            sCal <= 0) {
+          continue;
+        }
+        if (_hasHrCoverage(daySub, sStart, sEnd)) continue;
+        credited += sCal;
+      }
+      if (credited > 0) {
+        wake['calories'] = (wake['calories'] as num).toDouble() + credited;
+        final total = wake['calories_total'];
+        if (total != null) {
+          wake['calories_total'] = (total as num).toDouble() + credited;
+        }
+      }
+    }
     _applyWakeDayFeatures(bundle, scalars, wake);
     _stepsAndEnergy(
       bundle,
@@ -7069,6 +7178,7 @@ class DerivationEngine {
       liveStepsFromStrap: inp.liveStepsFromStrap,
       dynHistoryDays: inp.dynHistoryDays,
       stepSpans: inp.stepSpans,
+      sessions: inp.savedSessions,
     );
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);

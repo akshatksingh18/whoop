@@ -14,6 +14,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Pinned to what flutter_localizations (this SDK) requires — see its own
+  # pubspec.lock entry, don't drift it independently.
+  intl: ^0.20.2
   cupertino_icons: ^1.0.8
 
   # The single icon family behind lib/ui2. One pack, one stroke weight, one
@@ -264,7 +269,13 @@ dependencies:
       # the meantime — 7105256 already contains it: analytics main order is
       # a077a4a (#52) then 7105256 (#51), so this pin supersedes that one and
       # no further move is needed.
-      ref: 7105256b37ad61b49453a6b96543a2b80ea74487
+      #
+      # REPIN: analytics main @ 187e026 (PR #53 merge). One hop on top of
+      # 7105256: adds the optional `nnTimesMs` param to irregularBeatScreen
+      # that onehz_pipeline.dart (edge #289 / 3120774) already calls -- the
+      # pin was never moved when that landed, which broke `flutter analyze`
+      # (undefined_named_parameter, both call sites). No other symbol changed.
+      ref: 187e026fd975d3885ff1a22af5e125d1c8c1825e
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -468,6 +479,7 @@ flutter_launcher_icons:
   adaptive_icon_foreground: "assets/launcher/icon_adaptive.png"
 
 flutter:
+  generate: true
   uses-material-design: true
   assets:
     - assets/images/

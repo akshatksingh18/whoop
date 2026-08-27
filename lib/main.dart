@@ -9,6 +9,7 @@ import 'notify/notification_service.dart';
 import 'coach/coach_config.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
+import 'state/locale_controller.dart';
 import 'state/units_controller.dart';
 import 'sync/headless_boot.dart';
 import 'sync/ios_bg_task.dart';
@@ -159,6 +160,15 @@ Future<void> main() async {
     units = UnitsController.seed(UnitSystem.metric);
   }
 
+  // Local language override (null = system default).
+  LocaleController locale;
+  try {
+    locale = await LocaleController.bootstrap().timeout(_kStartupInitTimeout);
+  } catch (e, st) {
+    debugPrint('[main] LocaleController.bootstrap failed, using system: $e\n$st');
+    locale = LocaleController.seed(null);
+  }
+
   // Local BYOK AI-coach config (key in keychain). Best-effort load — and
   // deliberately NOT awaited: this is a flutter_secure_storage read, i.e. the
   // Android Keystore, which is the documented hang-forever case on some
@@ -179,6 +189,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => AppState(), lazy: false),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<UnitsController>.value(value: units),
+        ChangeNotifierProvider<LocaleController>.value(value: locale),
         ChangeNotifierProvider<CoachConfig>.value(value: coachConfig),
       ],
       child: const OpenStrapApp(),

@@ -14,7 +14,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../health/health_import_state.dart' show storeName;
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../state/locale_controller.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import 'devices.dart';
@@ -116,6 +118,52 @@ Future<void> goto(BuildContext c, Widget w) =>
 /// The one way into the profile stack. Home's avatar calls this — profile is
 /// a pushed route, never a sixth tab.
 void openProfile(BuildContext c) => goto(c, const ProfileHome());
+
+/// Display name for a language code, sourced from a small hardcoded table.
+/// Add a row here when a contributor's `app_<code>.arb` lands — nothing else
+/// to touch; the picker below only ever offers what [AppLocalizations]
+/// actually has translations for.
+const Map<String, String> _kLanguageNames = {
+  'en': 'English',
+  'es': 'Español',
+  'fr': 'Français',
+  'de': 'Deutsch',
+  'zh': '中文',
+  'hi': 'हिन्दी',
+};
+
+String _languageLabel(BuildContext c, String? code) => code == null
+    ? (AppLocalizations.of(c)?.languageSystemDefault ?? 'System default')
+    : (_kLanguageNames[code] ?? code);
+
+Future<void> _pickLanguage(BuildContext c) async {
+  final p = P.of(c);
+  final ctrl = c.read<LocaleController>();
+  final options = <String?>[null, ...AppLocalizations.supportedLocales.map((l) => l.languageCode)];
+  await showModalBottomSheet<void>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final code in options)
+            ListTile(
+              title: Text(_languageLabel(sheet, code), style: F.body.copyWith(color: p.ink)),
+              trailing: ctrl.code == code
+                  ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
+                  : null,
+              onTap: () async {
+                await ctrl.setCode(code);
+                if (sheet.mounted) Navigator.of(sheet).pop();
+              },
+            ),
+        ],
+      ),
+    ),
+  );
+}
 
 /// Human-readable byte size. No dependency for four lines of arithmetic.
 String formatBytes(int b) {
@@ -279,6 +327,11 @@ class ProfileHomeView extends StatelessWidget {
                       LucideIcons.sparkles, C.purple, 'AI coach',
                       sub: coachSubtitle(c) ?? 'Not set up',
                       onTap: onCoach)),
+                  Builder(builder: (c) => SetRow(
+                      LucideIcons.languages, C.blue,
+                      AppLocalizations.of(c)?.profileLanguage ?? 'Language',
+                      sub: _languageLabel(c, c.watch<LocaleController>().code),
+                      onTap: () => _pickLanguage(c))),
                 ]),
                 settingsGroup(c, 'Your data', [
                   SetRow(LucideIcons.database, C.green, 'Storage',

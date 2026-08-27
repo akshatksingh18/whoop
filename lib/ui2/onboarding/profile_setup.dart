@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
@@ -53,11 +54,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 /// (`derivation_engine.dart` says so at its collapse). The screen says which,
 /// because a woman who picks it is otherwise scored as a man with nothing on
 /// screen admitting it.
-const _sexes = <(String, String)>[
-  ('m', 'Male'),
-  ('f', 'Female'),
-  ('other', 'Prefer not to say'),
-];
+List<(String, String)> _sexes(BuildContext c) {
+  final l = AppLocalizations.of(c);
+  return [
+    ('m', l?.profileSetupSexMale ?? 'Male'),
+    ('f', l?.profileSetupSexFemale ?? 'Female'),
+    ('other', l?.profileSetupSexPreferNotToSay ?? 'Prefer not to say'),
+  ];
+}
 
 class ProfileSetupView extends StatefulWidget {
   final Map<String, dynamic> initial;
@@ -122,24 +126,29 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final sexes = _sexes(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x6, S.x4, S.x8),
           children: [
-            Text('About you', style: F.t1.copyWith(color: p.ink)),
+            Text(l?.profileSetupTitle ?? 'About you',
+                style: F.t1.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
             Text(
-              'Four numbers change how your data is scored. Leave any of them '
-              'blank and only the metrics that need it stay unavailable.',
+              l?.profileSetupBody ??
+                  'Four numbers change how your data is scored. Leave any of them '
+                      'blank and only the metrics that need it stay unavailable.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
-            Text('SEX', style: F.over.copyWith(color: p.ink3)),
+            Text(l?.profileSetupSexHeader ?? 'SEX',
+                style: F.over.copyWith(color: p.ink3)),
             const SizedBox(height: S.x2),
             Row(children: [
-              for (final (key, label) in _sexes) ...[
+              for (final (key, label) in sexes) ...[
                 Expanded(
                   child: _Choice(
                     label: label,
@@ -147,7 +156,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                     onTap: () => setState(() => _sex = key),
                   ),
                 ),
-                if (key != _sexes.last.$1) const SizedBox(width: S.x2),
+                if (key != sexes.last.$1) const SizedBox(width: S.x2),
               ],
             ]),
             // Which constants that choice actually gets. Calories average the
@@ -156,25 +165,33 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             if (_sex == 'other') ...[
               const SizedBox(height: S.x2),
               Text(
-                'Calories use the mean of the two published sets. Training '
-                'load and strain have only two published constants and no '
-                'third, so they use the male pair.',
+                l?.profileSetupOtherSexNote ??
+                    'Calories use the mean of the two published sets. Training '
+                        'load and strain have only two published constants and no '
+                        'third, so they use the male pair.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.45),
               ),
             ],
             const SizedBox(height: S.x5),
-            _Field(_age, 'AGE', 'years',
-                'Without it: heart-rate zones, calories, fitness age.'),
-            _Field(_height, 'HEIGHT', _u.isImperial ? 'in' : 'cm',
-                'Without it: stride length, and distance from steps.'),
-            _Field(_weight, 'WEIGHT', _u.isImperial ? 'lb' : 'kg',
-                'Without it: calories and training load.'),
+            _Field(_age, l?.profileSetupAgeLabel ?? 'AGE',
+                l?.profileSetupAgeUnit ?? 'years',
+                l?.profileSetupAgeConsequence ??
+                    'Without it: heart-rate zones, calories, fitness age.'),
+            _Field(_height, l?.profileSetupHeightLabel ?? 'HEIGHT',
+                _u.isImperial ? 'in' : 'cm',
+                l?.profileSetupHeightConsequence ??
+                    'Without it: stride length, and distance from steps.'),
+            _Field(_weight, l?.profileSetupWeightLabel ?? 'WEIGHT',
+                _u.isImperial ? 'lb' : 'kg',
+                l?.profileSetupWeightConsequence ??
+                    'Without it: calories and training load.'),
             const SizedBox(height: S.x5),
-            BigButton('Continue',
+            BigButton(l?.actionContinue ?? 'Continue',
                 color: C.green, onTap: _sex == null ? null : _continue),
             if (_sex == null) ...[
               const SizedBox(height: S.x2),
-              Text('Pick one option above to continue.',
+              Text(l?.profileSetupPickOneToContinue ??
+                      'Pick one option above to continue.',
                   style: F.cap.copyWith(color: p.ink3)),
             ],
           ],
@@ -228,7 +245,8 @@ class _Field extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text(label, style: F.over.copyWith(color: p.ink3))),
-          Text('OPTIONAL', style: F.over.copyWith(color: p.ink3)),
+          Text(AppLocalizations.of(c)?.profileSetupOptional ?? 'OPTIONAL',
+              style: F.over.copyWith(color: p.ink3)),
         ]),
         const SizedBox(height: S.x1),
         TextField(

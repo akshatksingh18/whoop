@@ -37,6 +37,7 @@ import '../../data/db.dart';
 import '../../health/health_import_state.dart';
 import '../../health/health_measurement_import.dart';
 import '../../health/health_rhr_seed.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'devices.dart' show formatDayTime;
 
@@ -48,6 +49,17 @@ const List<(String kind, String label)> kImportedKindLabels = [
   (kKindGlucose, 'Blood glucose'),
   (kKindBodyTemp, 'Body temperature'),
 ];
+
+/// Localized labels for [kImportedKindLabels], keyed by kind.
+Map<String, String> _kindLabels(BuildContext c) {
+  final l = AppLocalizations.of(c);
+  return {
+    kKindSystolic: l?.phoneImportSystolic ?? 'Blood pressure, systolic',
+    kKindDiastolic: l?.phoneImportDiastolic ?? 'Blood pressure, diastolic',
+    kKindGlucose: l?.phoneImportGlucose ?? 'Blood glucose',
+    kKindBodyTemp: l?.phoneImportBodyTemp ?? 'Body temperature',
+  };
+}
 
 class PhoneImport extends StatefulWidget {
   const PhoneImport({super.key});
@@ -107,7 +119,8 @@ class _PhoneImportState extends State<PhoneImport> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _note = 'Failed: $e';
+          _note = AppLocalizations.of(context)?.dataFailed(e.toString()) ??
+              'Failed: $e';
           _noteFailed = true;
         });
       }
@@ -118,47 +131,55 @@ class _PhoneImportState extends State<PhoneImport> {
   }
 
   Future<(String, bool)> _seedRhr() async {
+    final l = AppLocalizations.of(context);
     final importer = RhrSeedImporter();
     if (!await importer.requestPermission()) {
       return (
-        '$storeName did not grant resting heart rate. Nothing was read.',
+        l?.phoneImportRhrDenied(storeName) ??
+            '$storeName did not grant resting heart rate. Nothing was read.',
         true,
       );
     }
     final state = await importer.seed();
     if (state == null) {
       return (
-        'Nothing usable came back. A store with no resting heart rate in it, '
-            'or too few days to describe a range, cannot become a baseline.',
+        l?.phoneImportRhrNothingUsable ??
+            'Nothing usable came back. A store with no resting heart rate in it, '
+                'or too few days to describe a range, cannot become a baseline.',
         true,
       );
     }
     if (mounted) setState(() => _seed = state);
     return (
-      '${state.nValid} day${state.nValid == 1 ? '' : 's'} folded into a shadow '
-          'baseline. No day was added to any chart.',
+      l?.phoneImportRhrSeeded(state.nValid) ??
+          '${state.nValid} day${state.nValid == 1 ? '' : 's'} folded into a shadow '
+              'baseline. No day was added to any chart.',
       false,
     );
   }
 
   Future<(String, bool)> _syncMeasurements() async {
+    final l = AppLocalizations.of(context);
     final importer = ImportedMeasurementImporter();
     if (!await importer.requestPermission()) {
       return (
-        '$storeName did not grant those readings. Nothing was read.',
+        l?.phoneImportMeasurementsDenied(storeName) ??
+            '$storeName did not grant those readings. Nothing was read.',
         true,
       );
     }
     final n = await importer.sync();
     return n == 0
         ? (
-            'Nothing came back. $storeName holds no readings of these kinds, '
-                'or none inside the window it will share.',
+            l?.phoneImportNothingCameBack(storeName) ??
+                'Nothing came back. $storeName holds no readings of these kinds, '
+                    'or none inside the window it will share.',
             false,
           )
         : (
-            '$n reading${n == 1 ? '' : 's'} stored, each with the app that '
-                'recorded it.',
+            l?.phoneImportReadingsStored(n) ??
+                '$n reading${n == 1 ? '' : 's'} stored, each with the app that '
+                    'recorded it.',
             false,
           );
   }
@@ -166,6 +187,8 @@ class _PhoneImportState extends State<PhoneImport> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final labels = _kindLabels(c);
     final seed = _seed;
     final cmp = _compare;
     return Scaffold(
@@ -173,9 +196,9 @@ class _PhoneImportState extends State<PhoneImport> {
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: S.x4),
-              child: NavBar('From your phone'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(l?.phoneImportNavTitle ?? 'From your phone'),
             ),
             Expanded(
               child: ListView(
@@ -183,15 +206,16 @@ class _PhoneImportState extends State<PhoneImport> {
                 children: [
                   // ── seed-baselines ──────────────────────────────────────────
                   Section(
-                    'Resting heart rate',
+                    l?.phoneImportRhrSection ?? 'Resting heart rate',
                     Surface(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Reads your resting heart rate from $storeName, so '
-                            'the app has a rough idea of your normal before the '
-                            'band has measured one.',
+                            l?.phoneImportRhrExplainer(storeName) ??
+                                'Reads your resting heart rate from $storeName, so '
+                                    'the app has a rough idea of your normal before the '
+                                    'band has measured one.',
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           const SizedBox(height: S.x3),
@@ -202,16 +226,17 @@ class _PhoneImportState extends State<PhoneImport> {
                             // the screen does not produce. The second is why it
                             // can never be a chart value — another device's
                             // resting HR is on another device's scale.
-                            'Nothing uses it yet. It waits until the band has '
-                            'measured 14 of its own nights, then gets compared '
-                            'against them below. It never becomes a reading of '
-                            'its own: no night on the sleep chart, no day with '
-                            'a score.',
+                            l?.phoneImportRhrLimit ??
+                                'Nothing uses it yet. It waits until the band has '
+                                    'measured 14 of its own nights, then gets compared '
+                                    'against them below. It never becomes a reading of '
+                                    'its own: no night on the sleep chart, no day with '
+                                    'a score.',
                             style: F.cap.copyWith(color: p.ink3, height: 1.5),
                           ),
                           const SizedBox(height: S.x4),
                           BigButton(
-                            'Read resting heart rate',
+                            l?.phoneImportReadRhr ?? 'Read resting heart rate',
                             icon: LucideIcons.heartPulse,
                             color: C.blue,
                             soft: true,
@@ -226,16 +251,20 @@ class _PhoneImportState extends State<PhoneImport> {
                     MetricRow(
                       LucideIcons.heartPulse,
                       C.blue,
-                      'What your phone says',
+                      l?.phoneImportWhatPhoneSays ?? 'What your phone says',
                       '${seed.baseline.round()}',
                       unit: 'bpm',
                       // The spread is what makes this a range rather than a
                       // number, so it stays — but as a range the reader can
                       // picture, not as the word "spread".
-                      sub:
+                      sub: l?.phoneImportUsuallyRange(
+                              (seed.baseline - seed.spread).round(),
+                              (seed.baseline + seed.spread).round(),
+                              seed.nValid,
+                              storeName) ??
                           'usually ${(seed.baseline - seed.spread).round()}'
-                          '–${(seed.baseline + seed.spread).round()} bpm, '
-                          'over ${seed.nValid} days from $storeName',
+                              '–${(seed.baseline + seed.spread).round()} bpm, '
+                              'over ${seed.nValid} days from $storeName',
                     ),
                   ],
                   // THE GATE. Null until the band has its own 14 nights — and a
@@ -245,19 +274,32 @@ class _PhoneImportState extends State<PhoneImport> {
                     const SizedBox(height: S.x3),
                     StatusCard(
                       cmp.disagrees
-                          ? 'The phone and the band disagree'
-                          : 'The phone and the band agree',
+                          ? (l?.phoneImportDisagreeTitle ??
+                              'The phone and the band disagree')
+                          : (l?.phoneImportAgreeTitle ??
+                              'The phone and the band agree'),
                       cmp.disagrees
-                          ? '$storeName puts your resting heart rate '
-                                '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm '
-                                '${cmp.deltaBpm > 0 ? 'higher' : 'lower'} than '
-                                'this band measures it over '
-                                '${cmp.bandNights} nights. They are not describing '
-                                'the same thing, so it stays unused.'
-                          : 'Over ${cmp.bandNights} nights the band lands within '
-                                '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm of '
-                                'what $storeName said. It still is not used for '
-                                'anything.',
+                          ? (l?.phoneImportDisagreeBody(
+                                  storeName,
+                                  cmp.deltaBpm.abs().toStringAsFixed(1),
+                                  cmp.deltaBpm > 0
+                                      ? (l.phoneImportHigher)
+                                      : (l.phoneImportLower),
+                                  cmp.bandNights) ??
+                              '$storeName puts your resting heart rate '
+                                  '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm '
+                                  '${cmp.deltaBpm > 0 ? 'higher' : 'lower'} than '
+                                  'this band measures it over '
+                                  '${cmp.bandNights} nights. They are not describing '
+                                  'the same thing, so it stays unused.')
+                          : (l?.phoneImportAgreeBody(
+                                  cmp.bandNights,
+                                  cmp.deltaBpm.abs().toStringAsFixed(1),
+                                  storeName) ??
+                              'Over ${cmp.bandNights} nights the band lands within '
+                                  '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm of '
+                                  'what $storeName said. It still is not used for '
+                                  'anything.'),
                       icon: cmp.disagrees
                           ? LucideIcons.triangleAlert
                           : LucideIcons.check,
@@ -266,28 +308,31 @@ class _PhoneImportState extends State<PhoneImport> {
                   const SizedBox(height: S.x6),
                   // ── SD-12 ───────────────────────────────────────────────────
                   Section(
-                    'Measured by something else',
+                    l?.phoneImportMeasuredElsewhere ?? 'Measured by something else',
                     Surface(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'A cuff, a glucose meter, a thermometer. This band '
-                            'cannot measure any of them, which is the entire '
-                            'reason they are worth showing — and why the app '
-                            'that recorded each reading is named beside it.',
+                            l?.phoneImportMeasuredElsewhereBody ??
+                                'A cuff, a glucose meter, a thermometer. This band '
+                                    'cannot measure any of them, which is the entire '
+                                    'reason they are worth showing — and why the app '
+                                    'that recorded each reading is named beside it.',
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           const SizedBox(height: S.x3),
                           Text(
-                            'Shown as they arrived. Never averaged into one of '
-                            'this app’s own numbers, never used to teach it to '
-                            'guess one from the wrist.',
+                            l?.phoneImportNeverAveraged ??
+                                'Shown as they arrived. Never averaged into one of '
+                                    'this app’s own numbers, never used to teach it to '
+                                    'guess one from the wrist.',
                             style: F.cap.copyWith(color: p.ink3, height: 1.5),
                           ),
                           const SizedBox(height: S.x4),
                           BigButton(
-                            'Read from $storeName',
+                            l?.phoneImportReadFrom(storeName) ??
+                                'Read from $storeName',
                             icon: LucideIcons.stethoscope,
                             color: C.teal,
                             soft: true,
@@ -297,13 +342,13 @@ class _PhoneImportState extends State<PhoneImport> {
                       ),
                     ),
                   ),
-                  for (final (kind, label) in kImportedKindLabels)
+                  for (final (kind, _) in kImportedKindLabels)
                     if (_latest[kind] case final row?) ...[
                       const SizedBox(height: S.x3),
                       MetricRow(
                         LucideIcons.clipboardList,
                         C.teal,
-                        label,
+                        labels[kind]!,
                         _formatValue(row['value']),
                         unit: '${row['unit'] ?? ''}',
                         sub: _sourceLine(row),
@@ -312,11 +357,12 @@ class _PhoneImportState extends State<PhoneImport> {
                   const SizedBox(height: S.x5),
                   // The two reads that MOVED, said once, so somebody who
                   // remembers them being here is not left hunting.
-                  const StatusCard(
-                    'Height, weight and workouts moved',
-                    'Height and weight are on Edit profile now, and workouts '
-                        'this phone recorded are on Workout, under History. '
-                        'Each one sits on the screen it fills.',
+                  StatusCard(
+                    l?.phoneImportMovedTitle ?? 'Height, weight and workouts moved',
+                    l?.phoneImportMovedBody ??
+                        'Height and weight are on Edit profile now, and workouts '
+                            'this phone recorded are on Workout, under History. '
+                            'Each one sits on the screen it fills.',
                     icon: LucideIcons.arrowRight,
                   ),
                   const SizedBox(height: S.x2),
@@ -329,7 +375,9 @@ class _PhoneImportState extends State<PhoneImport> {
                   if (_note != null && _note!.isNotEmpty) ...[
                     const SizedBox(height: S.x5),
                     StatusCard(
-                      _noteFailed ? 'That did not work' : 'Done',
+                      _noteFailed
+                          ? (l?.dataThatDidNotWork ?? 'That did not work')
+                          : (l?.actionDone ?? 'Done'),
                       _note!,
                       icon: _noteFailed
                           ? LucideIcons.triangleAlert

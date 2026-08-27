@@ -262,6 +262,7 @@ class ProfileHomeView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final s = stats;
     return Scaffold(
       backgroundColor: p.bg,
@@ -269,10 +270,10 @@ class ProfileHomeView extends StatelessWidget {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Profile',
+            child: NavBar(l?.profileTitle ?? 'Profile',
                 trailing: Pressable(
                   onTap: onSettings,
-                  semanticLabel: 'Settings',
+                  semanticLabel: l?.actionSettings ?? 'Settings',
                   child: Icon(LucideIcons.settings, size: 20, color: p.ink2),
                 )),
           ),
@@ -297,23 +298,30 @@ class ProfileHomeView extends StatelessWidget {
                 const SizedBox(height: S.x4),
                 Center(
                   child: Text(
-                    (s?.name?.trim().isNotEmpty ?? false) ? s!.name! : 'You',
+                    (s?.name?.trim().isNotEmpty ?? false)
+                        ? s!.name!
+                        : (l?.profileDefaultName ?? 'You'),
                     style: F.t2.copyWith(color: p.ink),
                   ),
                 ),
                 const SizedBox(height: S.x3),
-                const Center(
-                    child: Pill('Local · no cloud', C.green,
-                        icon: LucideIcons.shieldCheck)),
+                Center(
+                    child: Pill(l?.pillLocalNoCloud ?? 'Local · no cloud',
+                        C.green, icon: LucideIcons.shieldCheck)),
                 const SizedBox(height: S.x6),
-                settingsGroup(c, 'Quick access', [
-                  SetRow(LucideIcons.watch, C.blue, 'My devices',
+                settingsGroup(c, l?.profileQuickAccessGroup ?? 'Quick access', [
+                  SetRow(LucideIcons.watch, C.blue,
+                      l?.profileMyDevices ?? 'My devices',
                       sub: s == null
                           ? ''
-                          : '${s.sources} source${s.sources == 1 ? '' : 's'}',
+                          : (l?.profileSourcesCount(s.sources) ??
+                              '${s.sources} source${s.sources == 1 ? '' : 's'}'),
                       onTap: onDevices),
-                  SetRow(LucideIcons.userPen, C.purple, 'Edit profile',
-                      sub: 'Sex, age, height, weight', onTap: onEdit),
+                  SetRow(LucideIcons.userPen, C.purple,
+                      l?.profileEditProfile ?? 'Edit profile',
+                      sub: l?.profileEditProfileSub ??
+                          'Sex, age, height, weight',
+                      onTap: onEdit),
                   // THE ONLY DOOR TO THE COACH'S SETUP, and it has to be —
                   // Home's sparkles button is now gated on `coachReady`, so on
                   // a fresh install there is no icon to find it behind. It
@@ -324,8 +332,11 @@ class ProfileHomeView extends StatelessWidget {
                   // `watch` rather than `read` so the sub-line stops saying
                   // "Not set up" the moment it is.
                   Builder(builder: (c) => SetRow(
-                      LucideIcons.sparkles, C.purple, 'AI coach',
-                      sub: coachSubtitle(c) ?? 'Not set up',
+                      LucideIcons.sparkles, C.purple,
+                      AppLocalizations.of(c)?.profileAiCoach ?? 'AI coach',
+                      sub: coachSubtitle(c) ??
+                          (AppLocalizations.of(c)?.profileNotSetUp ??
+                              'Not set up'),
                       onTap: onCoach)),
                   Builder(builder: (c) => SetRow(
                       LucideIcons.languages, C.blue,
@@ -333,13 +344,15 @@ class ProfileHomeView extends StatelessWidget {
                       sub: _languageLabel(c, c.watch<LocaleController>().code),
                       onTap: () => _pickLanguage(c))),
                 ]),
-                settingsGroup(c, 'Your data', [
-                  SetRow(LucideIcons.database, C.green, 'Storage',
+                settingsGroup(c, l?.profileYourDataGroup ?? 'Your data', [
+                  SetRow(LucideIcons.database, C.green,
+                      l?.profileStorage ?? 'Storage',
                       value: s?.storageBytes == null
                           ? ''
                           : formatBytes(s!.storageBytes!),
                       chevron: false),
-                  SetRow(LucideIcons.settings, C.n500, 'More settings',
+                  SetRow(LucideIcons.settings, C.n500,
+                      l?.profileMoreSettings ?? 'More settings',
                       // `From $storeName` used to sit on Quick access too. It
                       // came off: height, weight and workouts already moved to
                       // the screens they fill, and what is left — a resting
@@ -347,8 +360,9 @@ class ProfileHomeView extends StatelessWidget {
                       // instruments this band does not have — is not quick and
                       // is not accessed often. It keeps its one door here, and
                       // this line names it so the door is findable.
-                      sub: 'Import from $storeName, export, backup, units, '
-                          'privacy, reset',
+                      sub: l?.profileMoreSettingsSub(storeName) ??
+                          'Import from $storeName, export, backup, units, '
+                              'privacy, reset',
                       onTap: onSettings),
                 ]),
               ],

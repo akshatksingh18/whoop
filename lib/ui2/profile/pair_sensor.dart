@@ -43,6 +43,7 @@ import '../../ble/adapters/_registry.dart';
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'profile.dart';
@@ -144,7 +145,8 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
       if (!mounted) return;
       setState(() => _problem = blocker != null
           ? bandStatusFor(connection: 'disconnected', blocker: blocker).reason
-          : 'The scan did not run: $e');
+          : (AppLocalizations.of(context)?.pairSensorScanDidNotRun(e.toString()) ??
+              'The scan did not run: $e'));
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
@@ -162,6 +164,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // which leaves `_busy` set and every row permanently un-tappable until
     // the screen is torn down and rebuilt — the same "stuck busy" failure
     // mode a returned failure string already has a real answer for.
+    final l = AppLocalizations.of(context);
     String? failure;
     try {
       failure = widget.onPicked != null
@@ -172,7 +175,8 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
               label: c.label,
             );
     } catch (e) {
-      failure = 'Could not pair that device: $e';
+      failure = l?.pairSensorCouldNotPair(e.toString()) ??
+          'Could not pair that device: $e';
     }
     if (!mounted) return;
     setState(() {
@@ -248,6 +252,7 @@ class PairSensorView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final busy = busyRemoteId != null;
     return Scaffold(
       backgroundColor: p.bg,
@@ -255,7 +260,8 @@ class PairSensorView extends StatelessWidget {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Add a sensor', sub: entryLabel),
+            child: NavBar(l?.pairSensorAddASensor ?? 'Add a sensor',
+                sub: entryLabel),
           ),
           Expanded(
             child: ListView(
@@ -263,14 +269,17 @@ class PairSensorView extends StatelessWidget {
               children: [
                 if (paired != null) ..._pairedSection(c, paired!),
                 Section(
-                  paired == null ? 'What this adds' : 'Pair another',
+                  paired == null
+                      ? (l?.pairSensorWhatThisAdds ?? 'What this adds')
+                      : (l?.pairSensorPairAnother ?? 'Pair another'),
                   Surface(
                     child: Text(
-                      'A sensor is used only while a workout is running, and '
-                      'only for heart rate and beat timing. It does not '
-                      'replace your band, it is never used overnight, and '
-                      'nothing it records feeds a score yet — its readings are '
-                      'stored and shown, and that is all.',
+                      l?.pairSensorExplainer ??
+                          'A sensor is used only while a workout is running, and '
+                              'only for heart rate and beat timing. It does not '
+                              'replace your band, it is never used overnight, and '
+                              'nothing it records feeds a score yet — its readings are '
+                              'stored and shown, and that is all.',
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ),
@@ -278,16 +287,19 @@ class PairSensorView extends StatelessWidget {
                 if (heldBack != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
-                    'Searching would hide the WHOOP pairing sheet',
+                    l?.pairSensorSearchWouldHideSheet ??
+                        'Searching would hide the WHOOP pairing sheet',
                     heldBack!,
-                    fix: 'Search anyway',
+                    fix: l?.pairSensorSearchAnyway ?? 'Search anyway',
                     icon: LucideIcons.triangleAlert,
                     onFix: busy ? null : onScan,
                   ),
                 ] else ...[
                   const SizedBox(height: S.x6),
                   BigButton(
-                    scanning ? 'Searching…' : 'Search for sensors',
+                    scanning
+                        ? (l?.pairSensorSearching ?? 'Searching…')
+                        : (l?.pairSensorSearchForSensors ?? 'Search for sensors'),
                     icon: LucideIcons.bluetooth,
                     color: C.blue,
                     onTap: scanning || busy ? null : onScan,
@@ -296,14 +308,14 @@ class PairSensorView extends StatelessWidget {
                 if (problem != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
-                    'That did not work',
+                    l?.pairSensorThatDidNotWork ?? 'That did not work',
                     problem!,
                     icon: LucideIcons.circleAlert,
                   ),
                 ],
                 if (candidates.isNotEmpty)
                   Section(
-                    'In range',
+                    l?.pairSensorInRange ?? 'In range',
                     Surface(
                       pad: const EdgeInsets.symmetric(horizontal: S.x4),
                       child: Column(children: [
@@ -316,20 +328,23 @@ class PairSensorView extends StatelessWidget {
                     ),
                   )
                 else if (scanning)
-                  const Padding(
-                    padding: EdgeInsets.only(top: S.x6),
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x6),
                     child: Center(
-                      child: NoData(message: 'Listening for sensors…'),
+                      child: NoData(
+                          message: l?.pairSensorListeningForSensors ??
+                              'Listening for sensors…'),
                     ),
                   )
                 else if (heldBack == null && problem == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: S.x6),
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x6),
                     child: StatusCard(
-                      'Nothing found yet',
-                      'A sensor answers a search only while it is awake, worn '
-                          'or damp, and not already connected to another phone '
-                          'or app.',
+                      l?.pairSensorNothingFoundYet ?? 'Nothing found yet',
+                      l?.pairSensorNothingFoundBody ??
+                          'A sensor answers a search only while it is awake, worn '
+                              'or damp, and not already connected to another phone '
+                              'or app.',
                       icon: LucideIcons.searchX,
                     ),
                   ),
@@ -341,37 +356,42 @@ class PairSensorView extends StatelessWidget {
     );
   }
 
-  List<Widget> _pairedSection(BuildContext c, PairedSensor s) => [
-        Section(
-          'Paired',
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Column(children: [
-              SetRow(
-                LucideIcons.heartPulse,
-                C.green,
-                // A sensor that advertised no name is shown as what it is, not
-                // as an invented one.
-                s.label ?? entryLabel,
-                sub: 'Used during workouts',
-                chevron: false,
-                onTap: null,
-              ),
-              SetRow(
-                LucideIcons.trash2,
-                C.red,
-                'Forget this sensor',
-                sub: 'Removes the source. The readings it already took stay.',
-                danger: true,
-                chevron: false,
-                onTap: onForget == null ? null : () => onForget!(s.id),
-              ),
-            ]),
-          ),
+  List<Widget> _pairedSection(BuildContext c, PairedSensor s) {
+    final l = AppLocalizations.of(c);
+    return [
+      Section(
+        l?.pairSensorPaired ?? 'Paired',
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(children: [
+            SetRow(
+              LucideIcons.heartPulse,
+              C.green,
+              // A sensor that advertised no name is shown as what it is, not
+              // as an invented one.
+              s.label ?? entryLabel,
+              sub: l?.pairSensorUsedDuringWorkouts ?? 'Used during workouts',
+              chevron: false,
+              onTap: null,
+            ),
+            SetRow(
+              LucideIcons.trash2,
+              C.red,
+              l?.pairSensorForgetThisSensor ?? 'Forget this sensor',
+              sub: l?.pairSensorForgetThisSensorSub ??
+                  'Removes the source. The readings it already took stay.',
+              danger: true,
+              chevron: false,
+              onTap: onForget == null ? null : () => onForget!(s.id),
+            ),
+          ]),
         ),
-      ];
+      ),
+    ];
+  }
 
   Widget _candidateRow(BuildContext c, BandCandidate cand, bool busy) {
+    final l = AppLocalizations.of(c);
     final id = cand.device.remoteId.str;
     // The signal strength as the radio reported it, in its own unit. Not a bar
     // count: three bars is a judgement about distance nobody measured.
@@ -386,7 +406,7 @@ class PairSensorView extends StatelessWidget {
       C.blue,
       cand.label ?? entryLabel,
       sub: busyRemoteId == id
-          ? 'Pairing…'
+          ? (l?.pairSensorPairing ?? 'Pairing…')
           : cand.label == null
               ? '…$tail · ${cand.rssi} dBm'
               : '${cand.rssi} dBm',

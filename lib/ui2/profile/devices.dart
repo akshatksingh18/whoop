@@ -36,6 +36,7 @@ import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
+import '../../l10n/app_localizations.dart';
 import '../../notify/battery_forecast.dart';
 import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
@@ -436,7 +437,8 @@ Future<void> addSensor(BuildContext c) async {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Row(children: [
-            Text('Add a sensor', style: F.t2.copyWith(color: p.ink)),
+            Text(AppLocalizations.of(c)?.devicesAddASensor ?? 'Add a sensor',
+                style: F.t2.copyWith(color: p.ink)),
           ]),
         ),
         const SizedBox(height: S.x3),
@@ -521,13 +523,14 @@ class MyDevicesView extends StatelessWidget {
     // "a source exists" was the wrong test for this card: it told a user
     // whose phone was measuring nothing that "the phone counts steps".
     final phoneCounting = sources.any((s) => !s.isBand && s.connected);
+    final l = AppLocalizations.of(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('My sources'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.devicesMySources ?? 'My sources'),
           ),
           Expanded(
             child: ListView(
@@ -540,16 +543,19 @@ class MyDevicesView extends StatelessWidget {
                 if (!hasBand) ...[
                   StatusCard(
                     phoneCounting
-                        ? 'No band is paired'
-                        : 'Nothing is measuring yet',
+                        ? (l?.devicesNoBandPaired ?? 'No band is paired')
+                        : (l?.devicesNothingMeasuringYet ??
+                            'Nothing is measuring yet'),
                     phoneCounting
-                        ? 'The phone counts steps and nothing else. Heart '
-                            'rate, sleep, recovery and temperature all abstain '
-                            'until a band is paired.'
-                        : 'No band is paired and no phone steps are arriving, '
-                            'so every metric in the app will abstain rather '
-                            'than estimate.',
-                    fix: 'Pair a band',
+                        ? (l?.devicesPhoneCountingBody ??
+                            'The phone counts steps and nothing else. Heart '
+                                'rate, sleep, recovery and temperature all abstain '
+                                'until a band is paired.')
+                        : (l?.devicesNothingMeasuringBody ??
+                            'No band is paired and no phone steps are arriving, '
+                                'so every metric in the app will abstain rather '
+                                'than estimate.'),
+                    fix: l?.devicesPairABand ?? 'Pair a band',
                     icon: LucideIcons.watch,
                     onFix: onPair,
                   ),
@@ -559,7 +565,7 @@ class MyDevicesView extends StatelessWidget {
                 // something in it: a heading over nothing is the empty rung
                 // problem again, one level up.
                 if (sources.isNotEmpty) ...[
-                  Text('LIVE', style: F.over.copyWith(color: p.ink3)),
+                  Text(l?.devicesLive ?? 'LIVE', style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
                 ],
                 for (final s in sources) ...[
@@ -579,15 +585,17 @@ class MyDevicesView extends StatelessWidget {
                 if (onAddSensor != null)
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: SetRow(LucideIcons.plus, C.green, 'Add a sensor',
-                        sub: 'A heart-rate strap or a ring, alongside the band',
+                    child: SetRow(LucideIcons.plus, C.green,
+                        l?.devicesAddASensor ?? 'Add a sensor',
+                        sub: l?.devicesAddASensorSub ??
+                            'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),
                 // NOT YET — removed from this screen per product decision
                 // (owner's call, live review). `kNotYet`/`NotYet` still hold
                 // the reasons and permanences below; only the render is gone.
                 const SizedBox(height: S.x5),
-                Text('THE QUALITY LADDER',
+                Text(l?.devicesQualityLadder ?? 'THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x3),
                 for (final t in SourceTier.values)
@@ -615,6 +623,9 @@ class MyDevicesView extends StatelessWidget {
 /// "Not connected" is a statement about a radio link, and the phone has none:
 /// it is either handing steps over or it is not, which is exactly the failure
 /// the row used to hide behind a hardcoded "Connected".
+// Kept context-free and directly tested (see ui2_router_test.dart,
+// device_sources_test.dart) — this is the tier/connection LOGIC, not just
+// copy. `_localizedSourceState` below is what the UI actually renders.
 String sourceState(HealthSource s) {
   // A PAIRED SENSOR IS TESTED FOR FIRST, before the tier is consulted at all.
   // It is armed by a workout and only by a workout, so "not connected" is its
@@ -633,6 +644,25 @@ String sourceState(HealthSource s) {
   }
   if (s.syncing) return 'Syncing';
   return s.connected ? 'Connected' : 'Not connected';
+}
+
+String _localizedSourceState(BuildContext c, HealthSource s) {
+  final l = AppLocalizations.of(c);
+  if (s.deviceId != null) {
+    if (s.connected) return l?.devicesStreamingBeats ?? 'Streaming beats';
+    return s.tier == null
+        ? (l?.devicesStoringWhatItSends ?? 'Paired · storing what it sends')
+        : (l?.devicesWaitingForWorkout ?? 'Waiting for a workout');
+  }
+  if (s.tier == SourceTier.phone) {
+    return s.connected
+        ? (l?.devicesReportingSteps ?? 'Reporting steps')
+        : (l?.devicesNoStepsArriving ?? 'No steps arriving');
+  }
+  if (s.syncing) return l?.devicesSyncing ?? 'Syncing';
+  return s.connected
+      ? (l?.devicesConnected ?? 'Connected')
+      : (l?.devicesNotConnected ?? 'Not connected');
 }
 
 /// One connected source.
@@ -680,7 +710,7 @@ class SourceRow extends StatelessWidget {
                 // and "No steps arriving" are 10 px wider than the column at
                 // 390 pt, and an unflexed Text in a Wrap simply overflows.
                 Flexible(
-                  child: Text(sourceState(s),
+                  child: Text(_localizedSourceState(c, s),
                       style: F.over.copyWith(
                           color: s.connected ? p.on(C.green) : p.ink3)),
                 ),
@@ -701,14 +731,16 @@ class SourceRow extends StatelessWidget {
               // wraps at accessibility sizes, and a pill column beside it does
               // not. The band's own page carries the explanation.
               if (s.experimental)
-                Text('Experimental',
+                Text(AppLocalizations.of(c)?.devicesExperimental ?? 'Experimental',
                     style: F.over.copyWith(color: p.on(C.orange))),
             ]),
           ]),
         ),
         const SizedBox(width: S.x2),
         // No pill for an unranked source. A blank one reads as tier zero.
-        if (s.tier case final t?) Pill('Tier ${t.rank}', t.accent),
+        if (s.tier case final t?)
+          Pill(AppLocalizations.of(c)?.devicesTierRank(t.rank) ?? 'Tier ${t.rank}',
+              t.accent),
       ]),
     );
   }
@@ -733,7 +765,9 @@ class TierRow extends StatelessWidget {
         Expanded(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Tier ${tier.rank} · ${tier.label}',
+            Text(
+                AppLocalizations.of(c)?.devicesTierRankLabel(tier.rank, tier.label) ??
+                    'Tier ${tier.rank} · ${tier.label}',
                 style: F.body.copyWith(
                     color: filled ? p.ink : p.ink2,
                     fontWeight: FontWeight.w600)),
@@ -744,7 +778,8 @@ class TierRow extends StatelessWidget {
               // A dashed circle and a paler wash are not a statement. Without
               // a word here an empty rung reads exactly like the tier you do
               // have — including to a screen reader, which sees neither.
-              Text('Nothing here yet', style: F.over.copyWith(color: p.ink3)),
+              Text(AppLocalizations.of(c)?.devicesNothingHereYet ?? 'Nothing here yet',
+                  style: F.over.copyWith(color: p.ink3)),
             ],
           ]),
         ),
@@ -843,15 +878,18 @@ class _DeviceDetailState extends State<DeviceDetail> {
 /// either way: a sync that silently did nothing is indistinguishable from a
 /// ring that had nothing to give, and those need different remedies.
 Future<void> _syncRing(BuildContext c) async {
+  final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the ring…')));
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
   final ok = await OuraLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
-        ? 'Synced.'
-        : 'Could not reach the ring. It has to be nearby, and not connected '
-            'to another app.'),
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach the ring. It has to be nearby, and not connected '
+                'to another app.')),
   ));
 }
 
@@ -862,22 +900,24 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
   final id = s.deviceId;
   if (id == null) return;
   final app = c.read<AppState>();
+  final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
     builder: (d) => AlertDialog(
-      title: Text('Forget ${s.name}?'),
-      content: const Text(
-        'It stops being used during workouts and has to be paired again. '
-        'Everything already banked on this phone is kept — this removes the '
-        'source, not the data.',
+      title: Text(l?.devicesForgetSensor(s.name) ?? 'Forget ${s.name}?'),
+      content: Text(
+        l?.devicesForgetSensorBody ??
+            'It stops being used during workouts and has to be paired again. '
+                'Everything already banked on this phone is kept — this removes the '
+                'source, not the data.',
       ),
       actions: [
         TextButton(
             onPressed: () => Navigator.of(d).pop(false),
-            child: const Text('Keep it paired')),
+            child: Text(l?.devicesKeepItPaired ?? 'Keep it paired')),
         TextButton(
             onPressed: () => Navigator.of(d).pop(true),
-            child: const Text('Forget it')),
+            child: Text(l?.devicesForgetIt ?? 'Forget it')),
       ],
     ),
   );
@@ -901,12 +941,13 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
 Future<void> _renameBand(BuildContext c, AppState app, String current) async {
   // Captured before the dialog: `c` is not safe to touch after the await.
   final messenger = ScaffoldMessenger.maybeOf(c);
+  final l = AppLocalizations.of(c);
   final ctl = TextEditingController(text: current);
   final err = ValueNotifier<String?>(null);
   final name = await showDialog<String>(
     context: c,
     builder: (d) => AlertDialog(
-      title: const Text('Name this band'),
+      title: Text(l?.devicesNameThisBand ?? 'Name this band'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         ValueListenableBuilder<String?>(
           valueListenable: err,
@@ -915,28 +956,31 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
             autofocus: true,
             maxLength: 20,
             decoration: InputDecoration(
-              hintText: 'Your band',
+              hintText: l?.devicesYourBand ?? 'Your band',
               errorText: e,
-              helperText: "Letters, numbers, space, and ' . _ -",
+              helperText: l?.devicesNameCharset ??
+                  "Letters, numbers, space, and ' . _ -",
             ),
           ),
         ),
       ]),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(d).pop(), child: const Text('Cancel')),
+            onPressed: () => Navigator.of(d).pop(),
+            child: Text(l?.actionCancel ?? 'Cancel')),
         TextButton(
           onPressed: () {
             final v = ctl.text.trim();
             if (v.isEmpty) {
-              err.value = 'Give it a name';
+              err.value = l?.devicesGiveItAName ?? 'Give it a name';
             } else if (cleanDeviceLabel(v) == null) {
-              err.value = "Only letters, numbers, space, and ' . _ -";
+              err.value = l?.devicesNameCharsetError ??
+                  "Only letters, numbers, space, and ' . _ -";
             } else {
               Navigator.of(d).pop(v);
             }
           },
-          child: const Text('Save'),
+          child: Text(l?.actionSave ?? 'Save'),
         ),
       ],
     ),
@@ -946,12 +990,14 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
   if (name == null) return;
   try {
     await app.renameStrap(name);
-    messenger?.showSnackBar(SnackBar(content: Text('Renamed to $name')));
+    messenger?.showSnackBar(
+        SnackBar(content: Text(l?.devicesRenamedTo(name) ?? 'Renamed to $name')));
   } catch (e) {
     // The write goes to the strap, so a dropped link loses it. Say that,
     // rather than leaving the old name on screen with no explanation.
-    messenger?.showSnackBar(
-        SnackBar(content: Text('Could not rename the band: $e')));
+    messenger?.showSnackBar(SnackBar(
+        content: Text(l?.devicesCouldNotRename(e.toString()) ??
+            'Could not rename the band: $e')));
   }
 }
 
@@ -963,22 +1009,24 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
 /// this pushed screen, so without it the user is left reading a device page
 /// for a device that is gone.
 Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
+  final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
     builder: (d) => AlertDialog(
-      title: Text('Forget $name?'),
-      content: const Text(
-        'The band stops syncing and has to be paired again to measure '
-        'anything. Everything already banked on this phone is kept — this '
-        'removes the source, not the data.',
+      title: Text(l?.devicesForgetBand(name) ?? 'Forget $name?'),
+      content: Text(
+        l?.devicesForgetBandBody ??
+            'The band stops syncing and has to be paired again to measure '
+                'anything. Everything already banked on this phone is kept — this '
+                'removes the source, not the data.',
       ),
       actions: [
         TextButton(
             onPressed: () => Navigator.of(d).pop(false),
-            child: const Text('Keep it paired')),
+            child: Text(l?.devicesKeepItPaired ?? 'Keep it paired')),
         TextButton(
             onPressed: () => Navigator.of(d).pop(true),
-            child: const Text('Forget it')),
+            child: Text(l?.devicesForgetIt ?? 'Forget it')),
       ],
     ),
   );
@@ -1027,6 +1075,7 @@ class DeviceDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final battery = s.batteryPct;
     final last = s.lastData;
     final fault = status?.isFault == true ? status : null;
@@ -1060,7 +1109,7 @@ class DeviceDetailView extends StatelessWidget {
                 // here would say the same thing twice in two type sizes.
                 if (fault == null)
                   Center(
-                      child: Text(status?.title ?? sourceState(s),
+                      child: Text(status?.title ?? _localizedSourceState(c, s),
                           style: F.cap.copyWith(
                               color: s.connected ? p.on(C.green) : p.ink3))),
                 const SizedBox(height: S.x6),
@@ -1084,25 +1133,33 @@ class DeviceDetailView extends StatelessWidget {
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: Column(children: [
-                      SetRow(LucideIcons.flaskConical, C.orange, 'Support',
-                          value: 'Experimental',
-                          sub: 'Decoded from the protocol, never checked '
-                              'against the hardware — nobody here owns one.',
+                      SetRow(LucideIcons.flaskConical, C.orange,
+                          l?.devicesSupport ?? 'Support',
+                          value: l?.devicesExperimental ?? 'Experimental',
+                          sub: l?.devicesSensorExperimentalSub ??
+                              'Decoded from the protocol, never checked '
+                                  'against the hardware — nobody here owns one.',
                           chevron: false),
                       Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.database, C.teal, 'What it does',
+                      SetRow(LucideIcons.database, C.teal,
+                          l?.devicesWhatItDoes ?? 'What it does',
                           sub: s.tier == null
-                              ? 'Everything it sends is stored and attributed '
-                                  'to it. Nothing in the app is calculated '
-                                  'from it yet.'
-                              : 'Beat timing is stored and attributed to it '
-                                  'during a workout. Nothing in the app is '
-                                  'calculated from it yet.',
+                              ? (l?.devicesWhatItDoesUnranked ??
+                                  'Everything it sends is stored and attributed '
+                                      'to it. Nothing in the app is calculated '
+                                      'from it yet.')
+                              : (l?.devicesWhatItDoesRanked ??
+                                  'Beat timing is stored and attributed to it '
+                                      'during a workout. Nothing in the app is '
+                                      'calculated from it yet.'),
                           chevron: false),
                       Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
+                      SetRow(LucideIcons.refreshCw, C.purple,
+                          l?.devicesLastData ?? 'Last data',
                           value: last == null ? '' : formatDayTime(last),
-                          sub: last == null ? 'Nothing banked yet' : '',
+                          sub: last == null
+                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
+                              : '',
                           chevron: false),
                       // MANUAL, and only for a sensor that holds history.
                       // A strap has no flash and nothing to fetch; a ring
@@ -1111,8 +1168,10 @@ class DeviceDetailView extends StatelessWidget {
                       // for no reason a user asked for.
                       if (onSync != null) ...[
                         Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.downloadCloud, C.blue, 'Sync now',
-                            sub: 'Fetch whatever it has been holding',
+                        SetRow(LucideIcons.downloadCloud, C.blue,
+                            l?.devicesSyncNow ?? 'Sync now',
+                            sub: l?.devicesSyncNowSub ??
+                                'Fetch whatever it has been holding',
                             onTap: onSync),
                       ],
                     ]),
@@ -1132,15 +1191,17 @@ class DeviceDetailView extends StatelessWidget {
                       // to the strap — not a phone-side label. So it is only
                       // editable on a live link, and the row says so rather
                       // than opening an editor whose save cannot land.
-                      SetRow(LucideIcons.tag, C.blue, 'Name',
+                      SetRow(LucideIcons.tag, C.blue, l?.devicesName ?? 'Name',
                           value: s.name,
                           sub: onRename == null
-                              ? 'Connect to the band to change it'
+                              ? (l?.devicesConnectToRename ??
+                                  'Connect to the band to change it')
                               : '',
                           chevron: onRename != null,
                           onTap: onRename),
                       Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.batteryMedium, C.green, 'Battery',
+                      SetRow(LucideIcons.batteryMedium, C.green,
+                          l?.devicesBattery ?? 'Battery',
                           value: battery == null ? '' : '${battery.round()}%',
                           // L11 — the band's own charge history, on the row
                           // that already exists rather than a new one. Within
@@ -1155,9 +1216,10 @@ class DeviceDetailView extends StatelessWidget {
                           // voltage had no writer at all, so this line has shown
                           // nothing on every install there has ever been.
                           sub: battery == null
-                              ? 'Not reported since the last connection'
+                              ? (l?.devicesBatteryNotReported ??
+                                  'Not reported since the last connection')
                               : [
-                                  if (s.charging) 'Charging',
+                                  if (s.charging) (l?.devicesCharging ?? 'Charging'),
                                   ?_timeLeft(forecast),
                                   ?_chargeHistory(health),
                                 ].join(' · '),
@@ -1167,19 +1229,24 @@ class DeviceDetailView extends StatelessWidget {
                       // band is actually streaming, and gone the moment it
                       // stops.
                       if (liveHr != null) ...[
-                        SetRow(LucideIcons.heartPulse, C.red, 'Heart rate',
+                        SetRow(LucideIcons.heartPulse, C.red,
+                            l?.devicesHeartRate ?? 'Heart rate',
                             value: '$liveHr bpm',
-                            sub: 'Right now',
+                            sub: l?.devicesRightNow ?? 'Right now',
                             chevron: false),
                         Divider(color: p.line, height: 1),
                       ],
-                      SetRow(LucideIcons.refreshCw, C.purple, 'Last data',
+                      SetRow(LucideIcons.refreshCw, C.purple,
+                          l?.devicesLastData ?? 'Last data',
                           value: last == null ? '' : formatDayTime(last),
-                          sub: last == null ? 'Nothing banked yet' : '',
+                          sub: last == null
+                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
+                              : '',
                           chevron: false),
                       if (calibration != null) ...[
                         Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.sliders, C.teal, 'Calibration',
+                        SetRow(LucideIcons.sliders, C.teal,
+                            l?.devicesCalibration ?? 'Calibration',
                             value: calibration.$1,
                             sub: calibration.$2,
                             chevron: false),
@@ -1190,17 +1257,21 @@ class DeviceDetailView extends StatelessWidget {
                       // disclaimer instead of a fact about this band.
                       if (s.experimental) ...[
                         Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.flaskConical, C.orange, 'Support',
-                            value: 'Experimental',
-                            sub: 'This band is decoded but nobody here has worn '
-                                'one. Its numbers have not been checked against '
-                                'the hardware, only against the protocol.',
+                        SetRow(LucideIcons.flaskConical, C.orange,
+                            l?.devicesSupport ?? 'Support',
+                            value: l?.devicesExperimental ?? 'Experimental',
+                            sub: l?.devicesBandExperimentalSub ??
+                                'This band is decoded but nobody here has worn '
+                                    'one. Its numbers have not been checked against '
+                                    'the hardware, only against the protocol.',
                             chevron: false),
                       ],
                       if (onFind != null) ...[
                         Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.bellRing, C.orange, 'Buzz the band',
-                            sub: 'Find it by feel', chevron: false,
+                        SetRow(LucideIcons.bellRing, C.orange,
+                            l?.devicesBuzzTheBand ?? 'Buzz the band',
+                            sub: l?.devicesFindItByFeel ?? 'Find it by feel',
+                            chevron: false,
                             onTap: onFind),
                       ],
                     ]),
@@ -1209,7 +1280,8 @@ class DeviceDetailView extends StatelessWidget {
                 if (onForget != null)
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: SetRow(LucideIcons.trash2, C.red, 'Forget this band',
+                    child: SetRow(LucideIcons.trash2, C.red,
+                        l?.devicesForgetThisBand ?? 'Forget this band',
                         danger: true, chevron: false, onTap: onForget),
                   ),
               ],

@@ -25,6 +25,7 @@ import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
 import '../../import/backup_crypto.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../activity/share.dart' show shareOrigin;
 import '../onboarding/welcome.dart'
@@ -86,38 +87,49 @@ class _DataScreenState extends State<DataScreen> {
       // Closing the passphrase prompt is a decision. "Failed:" over it would
       // report the user's own choice back to them as a fault.
     } catch (e) {
-      _say('Failed: $e', failed: true);
+      _say(AppLocalizations.of(context)?.dataFailed(e.toString()) ?? 'Failed: $e',
+          failed: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<_Note> _exportCsv() async {
+    final l = AppLocalizations.of(context);
     // Read before the export runs: an anchor taken after a multi-second await
     // may be measuring a screen the user has already left.
     final origin = shareOrigin(context);
     final res = await exportCsvFiles(kCsvExportSets);
     if (res.paths.isEmpty) {
       return res.hasFailures
-          ? ('Nothing exported (${res.failed.join(', ')} failed).', true)
-          : ('Nothing to export yet.', false);
+          ? (l?.dataNothingExportedFailed(res.failed.join(', ')) ??
+                  'Nothing exported (${res.failed.join(', ')} failed).',
+              true)
+          : (l?.dataNothingToExportYet ?? 'Nothing to export yet.', false);
     }
     await Share.shareXFiles([for (final p in res.paths) XFile(p)],
         subject: 'OpenStrap export', sharePositionOrigin: origin);
     final n = res.paths.length;
     final failed = res.hasFailures
-        ? ' ${res.failed.length} set(s) failed: ${res.failed.join(', ')}.'
+        ? ' ${l?.dataSetsFailed(res.failed.length, res.failed.join(', ')) ?? '${res.failed.length} set(s) failed: ${res.failed.join(', ')}.'}'
         : '';
-    return ('$n file${n == 1 ? '' : 's'} shared.$failed', res.hasFailures);
+    return (
+      (l?.dataFilesShared(n) ?? '$n file${n == 1 ? '' : 's'} shared.') + failed,
+      res.hasFailures
+    );
   }
 
   Future<_Note> _exportDb() async {
+    final l = AppLocalizations.of(context);
     final origin = shareOrigin(context);
     // VACUUM INTO — a transactionally consistent snapshot, not a file copy.
     final path = await LocalDb.exportCopy();
     await Share.shareXFiles([XFile(path)],
         subject: 'OpenStrap database', sharePositionOrigin: origin);
-    return ('Database shared. It is the complete copy.', false);
+    return (
+      l?.dataDatabaseShared ?? 'Database shared. It is the complete copy.',
+      false
+    );
   }
 
   /// The same VACUUM'd snapshot as [_exportDb], sealed with AES-256-GCM under
@@ -130,6 +142,7 @@ class _DataScreenState extends State<DataScreen> {
     final pass = await askBackupPassphrase(context, creating: true);
     if (pass == null) return ('', false); // cancelled
     if (!mounted) return ('', false);
+    final l = AppLocalizations.of(context);
     final origin = shareOrigin(context);
     final plain = await LocalDb.exportCopy();
     final dest = '$plain.osbk';
@@ -147,31 +160,44 @@ class _DataScreenState extends State<DataScreen> {
     await Share.shareXFiles([XFile(dest)],
         subject: 'OpenStrap encrypted backup', sharePositionOrigin: origin);
     return (
-      'Encrypted backup shared. Without that passphrase nobody can open it — '
-          'including this app, and including us.',
+      l?.dataEncryptedBackupShared ??
+          'Encrypted backup shared. Without that passphrase nobody can open it — '
+              'including this app, and including us.',
       false
     );
   }
 
   Future<_Note> _reanalyze(AppState app) async {
+    final l = AppLocalizations.of(context);
     final n = await app.reanalyzeAll();
-    return ('$n day${n == 1 ? '' : 's'} re-analyzed.', false);
+    return (
+      l?.dataDaysReanalyzed(n) ?? '$n day${n == 1 ? '' : 's'} re-analyzed.',
+      false
+    );
   }
 
   Future<_Note> _backupNow(AppState app) async {
+    final l = AppLocalizations.of(context);
     final outcome = await app.runBackupNow();
-    if (outcome.error != null) return ('Backup failed: ${outcome.error}', true);
-    if (!outcome.succeeded) return ('Backup skipped.', false);
-    return ('Backed up to ${outcome.path}', false);
+    if (outcome.error != null) {
+      return (l?.dataBackupFailed(outcome.error!) ?? 'Backup failed: ${outcome.error}', true);
+    }
+    if (!outcome.succeeded) return (l?.dataBackupSkipped ?? 'Backup skipped.', false);
+    return (l?.dataBackedUpTo(outcome.path!) ?? 'Backed up to ${outcome.path}', false);
   }
 
   Future<_Note> _import(AppState app) async {
+    final l = AppLocalizations.of(context);
     FilePickerResult? picked;
     try {
       picked = await FilePicker.platform
           .pickFiles(allowMultiple: true, withReadStream: false);
     } catch (e) {
-      return ('Could not open the file picker: $e', true);
+      return (
+        l?.dataCouldNotOpenPicker(e.toString()) ??
+            'Could not open the file picker: $e',
+        true
+      );
     }
     final paths = (picked?.files ?? const [])
         .map((f) => f.path)
@@ -189,6 +215,7 @@ class _DataScreenState extends State<DataScreen> {
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final last = app.lastBackupAt;
     final o = _outcome;
     final rebuilt = dbRebuiltCard(app.dbRebuild);
@@ -196,9 +223,9 @@ class _DataScreenState extends State<DataScreen> {
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Your data'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.dataNavTitle ?? 'Your data'),
           ),
           Expanded(
             child: ListView(
@@ -217,80 +244,96 @@ class _DataScreenState extends State<DataScreen> {
                   rebuilt,
                   const SizedBox(height: S.x5),
                 ],
-                settingsGroup(c, 'Export', [
+                settingsGroup(c, l?.dataExportGroup ?? 'Export', [
                   SetRow(LucideIcons.fileSpreadsheet, C.green,
-                      'Export as spreadsheets',
+                      l?.dataExportSpreadsheets ?? 'Export as spreadsheets',
                       // export-provenance: the daily file now carries `source`
                       // and `algo_version` per day, so an imported vendor
                       // snapshot and a day derived from 1 Hz rows stop being
                       // byte-identical. An empty source cell is unknown
                       // provenance — never back-filled to 'band'.
-                      sub: '${kCsvExportSets.length} CSV files — daily metrics, '
-                          'workouts, sleep, journal, labs, and everything you '
-                          'typed in. Each day carries where it came from and '
-                          'which algorithm version scored it',
+                      sub: l?.dataExportSpreadsheetsSub(kCsvExportSets.length) ??
+                          '${kCsvExportSets.length} CSV files — daily metrics, '
+                              'workouts, sleep, journal, labs, and everything you '
+                              'typed in. Each day carries where it came from and '
+                              'which algorithm version scored it',
                       onTap: _busy ? null : () => _run(_exportCsv)),
-                  SetRow(LucideIcons.database, C.blue, 'Export the database',
-                      sub: 'One .db file. Lossless, and the only format that '
-                          'restores onto another phone. Readable by anything '
-                          'that opens SQLite — including anyone who gets the '
-                          'file',
+                  SetRow(LucideIcons.database, C.blue,
+                      l?.dataExportDatabase ?? 'Export the database',
+                      sub: l?.dataExportDatabaseSub ??
+                          'One .db file. Lossless, and the only format that '
+                              'restores onto another phone. Readable by anything '
+                              'that opens SQLite — including anyone who gets the '
+                              'file',
                       onTap: _busy ? null : () => _run(_exportDb)),
                   SetRow(LucideIcons.lock, C.purple,
-                      'Export an encrypted backup',
-                      sub: 'The same complete copy, sealed with a passphrase, '
-                          'for somewhere like iCloud. Forget the passphrase '
-                          'and that file is gone — there is no recovery, '
-                          'because there is no account holding a key',
+                      l?.dataExportEncrypted ?? 'Export an encrypted backup',
+                      sub: l?.dataExportEncryptedSub ??
+                          'The same complete copy, sealed with a passphrase, '
+                              'for somewhere like iCloud. Forget the passphrase '
+                              'and that file is gone — there is no recovery, '
+                              'because there is no account holding a key',
                       onTap: _busy ? null : () => _run(_exportEncrypted)),
                 ]),
                 const SizedBox(height: S.x5),
-                settingsGroup(c, 'Automatic backup', [
-                  SetRow(LucideIcons.calendarClock, C.purple, 'How often',
+                settingsGroup(c, l?.dataAutoBackupGroup ?? 'Automatic backup', [
+                  SetRow(LucideIcons.calendarClock, C.purple,
+                      l?.dataHowOften ?? 'How often',
                       // Unencrypted, and it says so. The encrypted format is
                       // new and its restore path has not yet run green against
                       // a file written by an older build — defaulting the
                       // automatic copy to a format that might not open is
                       // worse than the plaintext it replaced.
-                      sub: 'Writes a compressed, unencrypted copy to '
-                          '$kBackupDirName, keeping the last $kBackupsKept',
+                      sub: l?.dataHowOftenSub(kBackupDirName, kBackupsKept) ??
+                          'Writes a compressed, unencrypted copy to '
+                              '$kBackupDirName, keeping the last $kBackupsKept',
                       value: app.backupCadence.label,
                       onTap: _busy
                           ? null
                           : () => app.setBackupCadence(_nextCadence(
                               app.backupCadence))),
-                  SetRow(LucideIcons.clock, C.n500, 'Last backup',
-                      value: last == null ? 'Never' : _stamp(last),
+                  SetRow(LucideIcons.clock, C.n500,
+                      l?.dataLastBackup ?? 'Last backup',
+                      value: last == null
+                          ? (l?.dataNever ?? 'Never')
+                          : _stamp(last),
                       chevron: false),
-                  SetRow(LucideIcons.hardDriveDownload, C.teal, 'Back up now',
+                  SetRow(LucideIcons.hardDriveDownload, C.teal,
+                      l?.dataBackUpNow ?? 'Back up now',
                       onTap: _busy ? null : () => _run(() => _backupNow(app))),
                 ]),
                 const SizedBox(height: S.x5),
-                settingsGroup(c, 'Bring data in', [
-                  SetRow(LucideIcons.upload, C.orange, 'Import a file',
-                      sub: 'An OpenStrap backup (encrypted or not), a journal '
-                          'CSV you edited, a raw sensor export, or a vendor '
-                          'CSV. Days this band already measured are never '
-                          'overwritten',
+                settingsGroup(c, l?.dataBringDataInGroup ?? 'Bring data in', [
+                  SetRow(LucideIcons.upload, C.orange,
+                      l?.dataImportFile ?? 'Import a file',
+                      sub: l?.dataImportFileSub ??
+                          'An OpenStrap backup (encrypted or not), a journal '
+                              'CSV you edited, a raw sensor export, or a vendor '
+                              'CSV. Days this band already measured are never '
+                              'overwritten',
                       onTap: _busy ? null : () => _run(() => _import(app))),
                   // Progressive disclosure: two health-store reads, each with
                   // its own consent and its own ceiling, behind one row rather
                   // than two more rows on this screen.
-                  SetRow(LucideIcons.smartphone, C.blue, 'From your phone',
-                      sub: 'Resting heart rate, blood pressure, glucose and '
-                          'body temperature',
+                  SetRow(LucideIcons.smartphone, C.blue,
+                      l?.dataFromYourPhone ?? 'From your phone',
+                      sub: l?.dataFromYourPhoneSub ??
+                          'Resting heart rate, blood pressure, glucose and '
+                              'body temperature',
                       onTap: _busy ? null : () => goto(c, const PhoneImport())),
                 ]),
                 const SizedBox(height: S.x5),
-                settingsGroup(c, 'Rebuild', [
+                settingsGroup(c, l?.dataRebuildGroup ?? 'Rebuild', [
                   // The engine puts days on hold after a ≥3 h timezone jump
                   // "until Re-analyze data runs" — and nothing in the app ran
                   // it. A flight abroad quietly stopped days updating with no
                   // control anywhere to release them.
-                  SetRow(LucideIcons.refreshCcw, C.blue, 'Re-analyze everything',
-                      sub: 'Scores every day again from what is stored. Needed '
-                          'after a long-haul flight, and after an import that '
-                          'landed days out of order',
+                  SetRow(LucideIcons.refreshCcw, C.blue,
+                      l?.dataReanalyzeEverything ?? 'Re-analyze everything',
+                      sub: l?.dataReanalyzeEverythingSub ??
+                          'Scores every day again from what is stored. Needed '
+                              'after a long-haul flight, and after an import that '
+                              'landed days out of order',
                       value: app.reanalyzeProgress,
                       onTap: _busy || app.reanalyzing
                           ? null
@@ -302,7 +345,11 @@ class _DataScreenState extends State<DataScreen> {
                 ],
                 if (_note != null && _note!.isNotEmpty) ...[
                   const SizedBox(height: S.x5),
-                  StatusCard(_noteFailed ? 'That did not work' : 'Done', _note!,
+                  StatusCard(
+                      _noteFailed
+                          ? (l?.dataThatDidNotWork ?? 'That did not work')
+                          : (l?.actionDone ?? 'Done'),
+                      _note!,
                       icon: _noteFailed
                           ? LucideIcons.triangleAlert
                           : LucideIcons.check),
@@ -310,12 +357,15 @@ class _DataScreenState extends State<DataScreen> {
                 if (app.importRollupError != null) ...[
                   const SizedBox(height: S.x5),
                   StatusCard(
-                    'The days landed, the summaries did not',
-                    'Every imported row is in the database, but rebuilding the '
-                        'cross-day summaries over them threw '
-                        '(${app.importRollupError}), so trends and insights '
-                        'still describe the data you had before.',
-                    fix: 'Re-analyze everything',
+                    l?.welcomeSummariesDidNotTitle ??
+                        'The days landed, the summaries did not',
+                    l?.dataSummariesDidNotBodyShort(
+                            '${app.importRollupError}') ??
+                        'Every imported row is in the database, but rebuilding the '
+                            'cross-day summaries over them threw '
+                            '(${app.importRollupError}), so trends and insights '
+                            'still describe the data you had before.',
+                    fix: l?.dataReanalyzeEverything ?? 'Re-analyze everything',
                     icon: LucideIcons.triangleAlert,
                     onFix: _busy ? null : () => _run(() => _reanalyze(app)),
                   ),

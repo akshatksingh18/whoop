@@ -170,8 +170,8 @@ void main() {
       // must be items[0] — the WHOOP 4.0 (gen4) descriptor built first in
       // `items`, so a rejection of the widened list falls back to exactly
       // what already ships.
-      expect(swift, contains('present(items, allowGen4Retry: true)'));
-      expect(swift, contains('self.present([items[0]], allowGen4Retry: false)'));
+      expect(swift, contains('present(items, known: known, allowGen4Retry: true)'));
+      expect(swift, contains('self.present([items[0]], known: known, allowGen4Retry: false)'));
       // items[0] must be the FIRST registry-driven item (gen4 — kBandRegistry
       // lists it before gen5, see _registry.dart), not the appended gen5-only
       // fallback items (member UUID / name substring).

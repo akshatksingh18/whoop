@@ -130,13 +130,18 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       locale: locale.locale, // null = follow the OS locale
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      // `locale:` above wins whenever the user has an override, so this only
-      // runs on "system default". Flutter's own default resolution falls
-      // back to supportedLocales.first when nothing matches — which is
-      // whichever language sorts first alphabetically among our .arb files
-      // (currently German), not English. Match by language only (none of
-      // our locales carry a country/script code) and fall back to English
-      // explicitly instead of leaving that to alphabetical luck.
+      // Runs even when `locale:` above has a user override — Flutter still
+      // calls this callback, just with [locale.locale] as the sole
+      // "device" candidate instead of the real device list, so an override
+      // resolves through the same language-match path below and comes back
+      // unchanged (LocaleController only ever holds a bare language code
+      // that's already in supportedLocales). Flutter's own default
+      // resolution falls back to supportedLocales.first when nothing
+      // matches — which is whichever language sorts first alphabetically
+      // among our .arb files (currently German), not English. Match by
+      // language only (none of our locales carry a country/script code)
+      // and fall back to English explicitly instead of leaving that to
+      // alphabetical luck.
       localeListResolutionCallback: (deviceLocales, supported) {
         for (final deviceLocale in deviceLocales ?? const <Locale>[]) {
           for (final s in supported) {

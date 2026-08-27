@@ -882,7 +882,7 @@ class _MetricDetailState extends State<MetricDetail> {
   /// What the slider reads out. The value, or the fact that the day is a hole.
   String _slotSays(BuildContext c, MetricSpec spec, List<double?> series, int i) {
     final l = AppLocalizations.of(c);
-    final day = prettyDay(_dayOfSlot(i, series.length));
+    final day = prettyDay(_dayOfSlot(i, series.length), l);
     final v = series[i];
     return v == null
         ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
@@ -910,10 +910,10 @@ class _MetricDetailState extends State<MetricDetail> {
         elevation: 0,
         onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
         semanticLabel: v == null
-            ? (l?.metricDetailSlotNoRecord(prettyDay(day)) ??
-                '${prettyDay(day)}, no record')
-            : (l?.metricDetailOpenDay(prettyDay(day)) ??
-                'Open ${prettyDay(day)}'),
+            ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
+                '${prettyDay(day, l)}, no record')
+            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                'Open ${prettyDay(day, l)}'),
         child: Row(children: [
           Expanded(
             child: Text(dayNavLabel(day),

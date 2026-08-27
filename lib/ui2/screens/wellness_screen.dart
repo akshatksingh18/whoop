@@ -1299,8 +1299,7 @@ Future<MedSchedule?> pickMedSchedule(
               Text(
                 picked.isEmpty
                     ? (l?.wellnessPickAtLeastOneDay ?? 'Pick at least one day.')
-                    : (l?.wellnessDueDays(
-                            _daysLabel(c, picked.toList()).toLowerCase()) ??
+                    : (l?.wellnessDueDays(_daysLabel(c, picked.toList())) ??
                         'Due ${_daysLabel(c, picked.toList()).toLowerCase()}.'),
                 style: F.cap.copyWith(color: p.ink3),
               ),

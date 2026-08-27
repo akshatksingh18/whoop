@@ -158,7 +158,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final l = AppLocalizations.of(c);
     final d = _d ?? const ReadinessData();
     final v = d.readiness.value;
-    final band = readinessBand(v);
+    final band = readinessBand(v, l);
 
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
@@ -183,9 +183,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                   gap: d.heldOverNight == null
                       ? null
                       : (l?.readinessDetailLastNightScored(
-                              prettyDay(d.heldOverNight)) ??
+                              prettyDay(d.heldOverNight, l)) ??
                           'The last night scored was '
-                              '${prettyDay(d.heldOverNight)}.')) ??
+                              '${prettyDay(d.heldOverNight, l)}.')) ??
               const SizedBox.shrink(),
           if (d.absentDiag != null)
             Section(l?.readinessDetailWhatWasMissing ?? 'What was missing',
@@ -323,7 +323,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       if (e is! Map) continue;
       final n = (e['baseline_n'] as num?)?.toInt() ?? 0;
       rows.add((
-        driverLabel(k),
+        driverLabel(k, l),
         '${e['value'] == true ? (l?.readinessDetailMeasured ?? 'Measured') : (l?.readinessDetailNotMeasured ?? 'Not measured')} · '
             '${l?.readinessDetailNightsOfHistory(n) ?? '$n night${n == 1 ? '' : 's'} of your own history'}',
       ));

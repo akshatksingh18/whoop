@@ -346,7 +346,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   Expanded(
                     child: Pressable(
                       onTap: () => setState(() => _meal = m),
-                      semanticLabel: m,
+                      semanticLabel: _mealLabel(c, m),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: S.x3),
                         decoration: BoxDecoration(
@@ -370,7 +370,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
             ),
             const SizedBox(height: S.x5),
             BigButton(
-              l?.logFoodIAte(_mealLabel(c, _meal).toLowerCase()) ??
+              l?.logFoodIAte(_mealLabel(c, _meal)) ??
                   'I ate ${_mealLabel(c, _meal).toLowerCase()}',
               icon: LucideIcons.check,
               color: C.domFood,

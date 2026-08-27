@@ -193,19 +193,31 @@ class _CalmBreathingState extends State<CalmBreathing>
   Duration? get _target => sessionEnd(_pattern, _rounds);
   int get _rounds => (_minutes * 60 / _pattern.cycleSeconds).round();
 
+  bool _paceRead = false;
+
   @override
   void initState() {
     super.initState();
     // The pace two sittings agreed on, read once. `read` rather than `watch`:
     // the pattern is the user's choice from here on, and a profile write mid
     // session must not silently repace her.
-    final app = context.read<AppState>();
-    _app = app;
-    final yours = agreedPace(app.user?[kPaceWinsKey]);
+    _app = context.read<AppState>();
+    unawaited(_loadEffect());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppLocalizations.of(context) may not be called from initState — the
+    // inherited lookup isn't ready until the widget is fully mounted. Read it
+    // here instead, but still only once: this picks the starting pattern, not
+    // a live-relocalized one.
+    if (_paceRead) return;
+    _paceRead = true;
+    final yours = agreedPace(_app?.user?[kPaceWinsKey]);
     if (yours != null) {
       _pattern = paceAt(yours, AppLocalizations.of(context));
     }
-    unawaited(_loadEffect());
   }
 
   @override

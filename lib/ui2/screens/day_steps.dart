@@ -319,7 +319,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     // that could only ever be today; now it can be any day on disk.
     final when = dayNavLabel(d.day) == 'Today'
         ? (l?.dayStepsToday ?? 'today')
-        : (l?.dayStepsOnDay(prettyDay(d.day)) ?? 'on ${prettyDay(d.day)}');
+        : (l?.dayStepsOnDay(prettyDay(d.day, l)) ?? 'on ${prettyDay(d.day, l)}');
     return StatusCard(
       chip
           ? (l?.dayStepsNoTimesTitle(when) ?? 'No times behind the count $when')

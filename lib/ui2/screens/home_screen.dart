@@ -497,7 +497,7 @@ const _weekdays = [
   'Friday', 'Saturday', 'Sunday',
 ];
 
-String _monthName(int month, AppLocalizations? l) {
+String monthName(int month, AppLocalizations? l) {
   if (l == null) return _months[month - 1];
   return [
     l.homeMonthJanuary, l.homeMonthFebruary, l.homeMonthMarch,
@@ -520,7 +520,7 @@ String _weekdayName(int weekday, AppLocalizations? l) {
 String prettyDay(String? dayId, [AppLocalizations? l]) {
   final d = dayId == null ? null : DateTime.tryParse(dayId);
   if (d == null) return '';
-  return '${_weekdayName(d.weekday, l)}, ${d.day} ${_monthName(d.month, l)}';
+  return '${_weekdayName(d.weekday, l)}, ${d.day} ${monthName(d.month, l)}';
 }
 
 /// The readiness band. `readiness_glassbox` carries no label of its own, so the

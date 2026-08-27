@@ -283,8 +283,8 @@ class _BeatsState extends State<Beats> {
       // together without each having to date itself.
       sub: d.day == null
           ? ''
-          : (l?.beatsNightOf(prettyDay(d.day)) ??
-              'Night of ${prettyDay(d.day)}'),
+          : (l?.beatsNightOf(prettyDay(d.day, l)) ??
+              'Night of ${prettyDay(d.day, l)}'),
     );
   }
 

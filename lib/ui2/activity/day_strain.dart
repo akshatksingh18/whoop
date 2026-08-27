@@ -25,7 +25,7 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf;
+import '../screens/home_screen.dart' show repoOf, monthName;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show kZonesWhy;
@@ -154,10 +154,6 @@ class DayStrainData {
   }
 }
 
-const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
 
 class DayStrainDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
@@ -210,7 +206,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         ? ''
         : dayLabelOf(day) == todayLabel()
             ? (l?.dayStrainToday ?? 'TODAY')
-            : '${_months[day.month - 1]} ${day.day}'.toUpperCase();
+            : '${monthName(day.month, l)} ${day.day}'.toUpperCase();
 
     return detailScaffold(
       c,

@@ -357,7 +357,7 @@ class _SleepDetailState extends State<SleepDetail> {
       // stronger half of the reason.
       final rough = d.day == todayLabel() &&
               Prefs.getString(kRoughNightDismissed, '') != d.day
-          ? await loadRoughNight(repo, d.day!)
+          ? await loadRoughNight(repo, d.day!, c: mounted ? context : null)
           : null;
       if (mounted) setState(() => (_d = d, _rough = rough, _loading = false));
     } catch (_) {
@@ -445,8 +445,8 @@ class _SleepDetailState extends State<SleepDetail> {
         Section(
             (daysBehind(_noonOf(d.day)) ?? 0) <= 0
                 ? (l?.sleepDetailUnusualLastNight ?? 'Unusual last night')
-                : (l?.sleepDetailUnusualOnDay(prettyDay(d.day)) ??
-                    'Unusual on ${prettyDay(d.day)}'),
+                : (l?.sleepDetailUnusualOnDay(prettyDay(d.day, l)) ??
+                    'Unusual on ${prettyDay(d.day, l)}'),
             unusual),
 
       // ── 6 · THE SIGNALS UNDERNEATH ──

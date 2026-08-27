@@ -27,30 +27,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf;
+import '../screens/home_screen.dart' show repoOf, monthName;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 
-const _months = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
 /// 'YYYY-MM-DD' → '3 Aug'. Returns the raw label if it does not parse — a date
 /// we cannot format is still better than dropping the attribution.
-String _prettyDay(String iso) {
+String _prettyDay(String iso, [AppLocalizations? l]) {
   final d = DateTime.tryParse(iso);
-  return d == null ? iso : '${d.day} ${_months[d.month - 1]}';
+  return d == null ? iso : '${d.day} ${monthName(d.month, l)}';
 }
 
 /// One zone row as the repository serves it.
@@ -258,8 +243,8 @@ class _ZonesDetailState extends State<ZonesDetail> {
     }
     final where = [
       if (d.ceilingDate != null)
-        l?.activityZonesCeilingOnDate(_prettyDay(d.ceilingDate!)) ??
-            'on ${_prettyDay(d.ceilingDate!)}',
+        l?.activityZonesCeilingOnDate(_prettyDay(d.ceilingDate!, l)) ??
+            'on ${_prettyDay(d.ceilingDate!, l)}',
       if (d.ceilingSession != null)
         l?.activityZonesCeilingDuringSession(
                 d.ceilingSession!.toLowerCase()) ??

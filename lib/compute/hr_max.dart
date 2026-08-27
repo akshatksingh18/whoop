@@ -81,9 +81,37 @@ double? estimatedMaxHr(num? age, String? deviceFamily) {
 /// * `observed` — the ceiling is measured, the resting-HR history is still too
 ///   short for a reserve anchor ([HeartRateZones.reserveMinDays]), so these are
 ///   %HRmax bands off the observed ceiling.
-/// * `tanaka` — no observed ceiling yet: %HRmax off `208 − 0.7·age`, i.e. the
-///   AGE ESTIMATE. Byte-for-byte what this app did before TS-03 landed, so a
-///   user with no observed ceiling sees no number move.
+/// * `tanaka` — no observed ceiling yet, OR one that does not reach the age
+///   line: %HRmax off `208 − 0.7·age`, i.e. the AGE ESTIMATE. Byte-for-byte
+///   what this app did before TS-03 landed.
+///
+/// THE CEILING IS `max(observed, estimate)`, AND THAT ASYMMETRY IS THE WHOLE
+/// RULE. An observed ceiling is ONE-SIDED evidence. Holding 195 proves the
+/// ceiling is AT LEAST 195 — real information the age line does not have, and
+/// it wins. Holding 166 proves nothing about the top: "has never gone maximal"
+/// and "genuinely maxes at 166" produce the identical number, and on a wrist
+/// the first is by far the commoner. Preferring it in BOTH directions is how a
+/// 25-year-old whose hardest HELD effort was 166 got Z5 at 0.9·166 ≈ 149 bpm
+/// and banked 13 of the 16 minutes of a steady run in "Max effort", captioned
+/// as the age estimate.
+///
+/// On the session-detail path the ceiling was even set by the session being
+/// graded — `_zoneAnchors` takes the all-time max, today included. The day
+/// pipeline and the live tick do not: `observedHrCeilingBpm` is
+/// strictly-before-today by design, and the live `zoneSet` is pinned at start.
+///
+/// There is deliberately NO tolerance band below the estimate. A threshold at
+/// `estimate − k` puts a cliff in the middle of the range the ceiling creeps
+/// through: at 30 an observed 177 would anchor at 177 and 176.9 at 187, moving
+/// every edge 10 bpm on a 0.1 bpm change, with nothing on screen to explain it.
+/// `max` is continuous — at 186.9 vs 187.1 only the LABEL moves.
+///
+/// The cost, which is chosen and not overlooked: someone whose HRmax is
+/// genuinely below their age line gets a Z5 they cannot reach. That is an
+/// under-report — an absence — where the old behaviour was an affirmative
+/// "max effort" the data did not support, and this app abstains before it
+/// asserts. The set says `tanaka`, and the zones screen names the held ceiling
+/// and why it is not being used (`maximal_effort`).
 ///
 /// Null only when there is no ceiling at all — no observed ceiling AND no age.
 /// An unstamped strap is no longer one of those cases: Tanaka does not read a
@@ -99,7 +127,10 @@ ana.HeartRateZoneSet? trainingZones({
   double? observedCeilingBpm,
   List<double> restingHrHistory = const [],
 }) {
-  if (observedCeilingBpm != null && observedCeilingBpm > 0) {
+  final est = estimatedMaxHr(age, deviceFamily);
+  if (observedCeilingBpm != null &&
+      observedCeilingBpm > 0 &&
+      (est == null || observedCeilingBpm >= est)) {
     return ana.HeartRateZones.reserveZones(
           restingHrHistory: restingHrHistory,
           maxHr: observedCeilingBpm,
@@ -109,7 +140,6 @@ ana.HeartRateZoneSet? trainingZones({
           source: 'observed',
         );
   }
-  final est = estimatedMaxHr(age, deviceFamily);
   return est == null
       ? null
       : ana.HeartRateZones.zonesFromMaxHr(est, source: 'tanaka');

@@ -23,6 +23,8 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/compute/derivation_engine.dart'
     show kAlgoVersion;
 import 'package:openstrap_edge/compute/hr_max.dart';
+import 'package:openstrap_edge/ui2/activity/catalogue.dart'
+    show kZonesWhy, zonesWhy;
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 import 'package:openstrap_edge/data/day_label.dart';
@@ -48,13 +50,13 @@ void main() {
       final z = trainingZones(
         age: 30,
         deviceFamily: 'gen4',
-        observedCeilingBpm: 184,
+        observedCeilingBpm: 196,
         restingHrHistory: rhr28,
       )!;
       expect(z.source, 'karvonen');
-      expect(z.maxHr, 184);
-      // 50 + 0.50·(184−50) = 117, not 0.50·184 = 92.
-      expect(z.zones.first.lower, closeTo(117, 0.01));
+      expect(z.maxHr, 196);
+      // 50 + 0.50·(196−50) = 123, not 0.50·196 = 98.
+      expect(z.zones.first.lower, closeTo(123, 0.01));
       expect(zonesAreMeasured(z.source), isTrue);
     });
 
@@ -74,16 +76,69 @@ void main() {
       final z = trainingZones(
         age: 30,
         deviceFamily: 'gen4',
-        observedCeilingBpm: 184,
+        observedCeilingBpm: 196,
         restingHrHistory: List<double>.filled(
           ana.HeartRateZones.reserveMinDays - 1,
           50,
         ),
       )!;
       expect(z.source, 'observed');
-      expect(z.zones.first.lower, closeTo(92, 0.01));
+      expect(z.zones.first.lower, closeTo(98, 0.01));
       // NOT measured for TS-05's purposes: only one of the two anchors is.
       expect(zonesAreMeasured(z.source), isFalse);
+    });
+
+    // ── the reported bug: 13 of 16 minutes of a steady run in "Max effort" ──
+    //
+    // 25 y/o, WHOOP 4.0, 16 min run, avg 148 / max 166. The band had never held
+    // anything above ~166, so the ceiling WAS this session's own peak and Z5
+    // started at 0.9·166 ≈ 149 — below the run's average. Every hard session
+    // re-armed the ceiling it was then graded against.
+    test('an observed ceiling far below the age line does not anchor zones',
+        () {
+      final z = trainingZones(
+        age: 25,
+        deviceFamily: 'gen4',
+        observedCeilingBpm: 166,
+        restingHrHistory: rhr28,
+      )!;
+      // The estimate, LABELLED as the estimate — not Karvonen off 166.
+      expect(z.source, 'tanaka');
+      expect(z.maxHr, closeTo(190.5, 0.01)); // 208 − 0.7·25
+      expect(zonesAreMeasured(z.source), isFalse);
+      // Z5 is 171.45, so the 166 bpm peak is the top of Z4 and the 148 bpm
+      // average is Z3. Before the fix both were Z5.
+      expect(z.zones.last.lower, closeTo(171.45, 0.01));
+      expect(z.zoneNumber(166), 4);
+      expect(z.zoneNumber(148), 3);
+    });
+
+    test('the ceiling is max(observed, estimate) — no tolerance band', () {
+      // 208 − 0.7·30 = 187. The switch is AT the estimate, and being at the
+      // estimate is the whole rule: a threshold BELOW it would move every edge
+      // by k bpm on a 0.1 bpm change in a ceiling that creeps up over months.
+      set(double bpm) => trainingZones(
+            age: 30,
+            deviceFamily: 'gen4',
+            observedCeilingBpm: bpm,
+            restingHrHistory: rhr28,
+          )!;
+      expect(set(187).source, 'karvonen'); // reaches the line ⇒ it is a ceiling
+      expect(set(186.9).source, 'tanaka'); // …does not ⇒ only a lower bound
+      // CONTINUOUS ACROSS THE SWITCH: 0.2 bpm of ceiling either side of the
+      // line may move the LABEL, but it must not move the edges.
+      expect(set(186.9).maxHr, closeTo(set(187.1).maxHr, 0.11));
+      // ABOVE the line is the case the observed ceiling exists for: real
+      // information about a top the age line underestimates, and it wins.
+      expect(set(196).source, 'karvonen');
+      expect(set(196).maxHr, 196);
+    });
+
+    test('with no age there is no line to hold the ceiling to', () {
+      // The comparison needs both numbers. No age ⇒ the measured ceiling is
+      // the only anchor there is, and it still stands on its own.
+      expect(trainingZones(observedCeilingBpm: 166)?.source, 'observed');
+      expect(trainingZones(observedCeilingBpm: 166)?.maxHr, 166);
     });
 
     test('no AGE refuses; an unknown strap does not', () {
@@ -95,6 +150,31 @@ void main() {
       // …but a measured ceiling stands on its own: it did not come from a
       // per-family formula, so it does not need a calibrated family.
       expect(trainingZones(observedCeilingBpm: 184)?.source, 'observed');
+    });
+  });
+
+  // ── TS-04 — the footnote a zone chart carries names the RIGHT anchors ─────
+  //
+  // The session summary hard-coded `kZonesWhy` while the day screen switched on
+  // the stamp, so the same bands were described two ways and the card in the
+  // report claimed the age estimate for edges that came off a measured ceiling.
+  group('zonesWhy', () {
+    test('names the measured ceiling when the set was measured', () {
+      expect(zonesWhy('observed', 184), contains('184 bpm'));
+      expect(zonesWhy('observed', 184), contains('measured, not estimated'));
+      expect(zonesWhy('karvonen', 184), contains('184 bpm'));
+      expect(zonesWhy('karvonen', 184), contains('Both measured on you'));
+      // The estimate's sentence is the one thing a measured set must not say.
+      expect(zonesWhy('observed', 184), isNot(kZonesWhy));
+      expect(zonesWhy('karvonen', 184), isNot(kZonesWhy));
+    });
+
+    test('falls back to the estimate sentence, never to a "null bpm"', () {
+      expect(zonesWhy('tanaka', 190.5), kZonesWhy);
+      expect(zonesWhy(null, null), kZonesWhy);
+      // A measured stamp with no ceiling to name has no measured sentence.
+      expect(zonesWhy('observed', null), kZonesWhy);
+      expect(zonesWhy('karvonen', null), isNot(contains('null')));
     });
   });
 
@@ -152,8 +232,8 @@ void main() {
 
   // ── compute — the day's zones are binned on what they were handed ─────────
   group('deriveDayBundle zone anchors', () {
-    // A flat 6 h day at 120 bpm. Under the age estimate (187) that is 64% of
-    // HRmax = Z2; under Karvonen off 184 with a 50 bpm rest it is 52% of
+    // A flat 6 h day at 128 bpm. Under the age estimate (187) that is 68% of
+    // HRmax = Z2; under Karvonen off 196 with a 50 bpm rest it is 53% of
     // reserve = Z1. The SAME heartbeats, and the bundle has to say which
     // convention binned them.
     Map<String, dynamic> bundle({double? ceiling, int rhrDays = 28}) {
@@ -163,7 +243,7 @@ void main() {
         DayBundleInput(
           date: '2026-06-01',
           dayTsSec: [for (var i = 0; i < n; i++) t0 + i],
-          dayHr: List<int>.filled(n, 120),
+          dayHr: List<int>.filled(n, 128),
           sleepTsSec: const [],
           sleepHr: const [],
           sleepRrTsMs: const [],
@@ -196,10 +276,10 @@ void main() {
     });
 
     test('an observed ceiling + resting history rebins the same day on %HRR', () {
-      final b = bundle(ceiling: 184);
+      final b = bundle(ceiling: 196);
       expect(b['zone_source'], 'karvonen');
-      expect(b['zone_max_hr'], 184);
-      // 120 bpm is now Z1 (52% of reserve), not Z2.
+      expect(b['zone_max_hr'], 196);
+      // 128 bpm is now Z1 (53% of reserve), not Z2.
       expect((b['zones'] as Map)['z1'], greaterThan(300));
       expect((b['zones'] as Map)['z2'], 0);
       // `max_hr_used` is DELIBERATELY untouched: TRIMP/calories are not moved
@@ -210,7 +290,7 @@ void main() {
     });
 
     test('the zone timeline is binned by the same set as the zone minutes', () {
-      final tl = (bundle(ceiling: 184)['series'] as Map)['zone_timeline'];
+      final tl = (bundle(ceiling: 196)['series'] as Map)['zone_timeline'];
       expect((tl as List), isNotEmpty);
       expect(tl.every((e) => (e as Map)['z'] == 1), isTrue);
     });
@@ -297,7 +377,7 @@ void main() {
         'set it', () async {
       await seedRhr(28);
       await LocalDb.putMetricSeriesValue('2026-08-01', 'hr_ceiling_bpm', 171);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 184);
+      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
       await LocalDb.putMetricSeriesValue('2026-08-09', 'hr_ceiling_bpm', 176);
       await seedStampedDay();
       // The day that set it carries the envelope with the session behind it.
@@ -307,7 +387,7 @@ void main() {
         payloadJson: jsonEncode({
           'hr_ceiling': {
             'value': {
-              'bpm': 184.0,
+              'bpm': 196.0,
               'ts_ms': 0,
               'held_seconds': 22,
               'motion_g': 0.2,
@@ -325,22 +405,22 @@ void main() {
 
       final z = await repo.getZones();
       final c = z['ceiling'] as Map;
-      expect(c['bpm'], 184); // not 176, the most RECENT one
+      expect(c['bpm'], 196); // not 176, the most RECENT one
       expect(c['date'], '2026-08-03');
       expect(c['session_type'], 'Running');
       expect(c['held_seconds'], 22);
       // Both anchors measured ⇒ Karvonen, and the screen can print both.
       expect(z['source'], 'karvonen');
-      expect(z['max_hr'], 184);
+      expect(z['max_hr'], 196);
       expect(z['resting_hr'], 50);
-      expect((z['zones'] as List).first, containsPair('lo', 117));
+      expect((z['zones'] as List).first, containsPair('lo', 123));
     });
 
     test(
       'measured anchors but too few sessions ⇒ still no distribution',
       () async {
         await seedRhr(28);
-        await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 184);
+        await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         // Three sessions, each with a frozen per-minute trace. Real anchors, real
         // traces, and it still refuses: three workouts are not a pattern.
@@ -367,10 +447,10 @@ void main() {
     test('enough sessions with measured anchors ⇒ the distribution, described '
         'and not prescribed', () async {
       await seedRhr(28);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 184);
+      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      // 10 sessions: 40 easy minutes at 120 bpm (Z1 on %HRR off 50/184) and
-      // 10 hard minutes at 175 bpm (Z5) each — polarised by construction.
+      // 10 sessions: 40 easy minutes at 128 bpm (Z1 on %HRR off 50/196) and
+      // 10 hard minutes at 185 bpm (Z5) each — polarised by construction.
       for (var i = 0; i < 10; i++) {
         await LocalDb.putSession({
           'id': 'w-$i',
@@ -382,8 +462,8 @@ void main() {
           'created_at': (now - (i + 1) * 86400) * 1000,
           'trace_json': jsonEncode({
             'hr': [
-              for (var m = 0; m < 40; m++) {'t': m * 60, 'v': 120},
-              for (var m = 40; m < 50; m++) {'t': m * 60, 'v': 175},
+              for (var m = 0; m < 40; m++) {'t': m * 60, 'v': 128},
+              for (var m = 40; m < 50; m++) {'t': m * 60, 'v': 185},
             ],
           }),
         });
@@ -399,7 +479,7 @@ void main() {
 
     test('a session outside the 28-day window is not counted', () async {
       await seedRhr(28);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 184);
+      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       for (var i = 0; i < 10; i++) {
         await LocalDb.putSession({

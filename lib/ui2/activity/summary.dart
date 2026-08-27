@@ -239,6 +239,17 @@ class ActivityResult {
   final List<double?> hr;
   final List<double> zoneMinutes; // five, Z1..Z5
 
+  /// WHICH anchors [zoneMinutes] was binned against — `karvonen` · `observed` ·
+  /// `tanaka`, the stamp `trainingZones` puts on the set — and the ceiling that
+  /// set is 100 % of.
+  ///
+  /// Carried rather than re-derived so this card cannot describe the split it
+  /// is drawing as coming from anchors it did not use. Null while the split has
+  /// not been enriched (the history row, a preview): the footnote then says the
+  /// estimate, which is the claim that needs no ceiling to back it.
+  final String? zoneSource;
+  final num? zoneMaxHr;
+
   /// Steps the strap's own 100 Hz pedometer counted over this session —
   /// `AppState.workoutStepsMeasured` while it runs, `sessions.steps` once it is
   /// banked. That column has exactly one producer (an import and a hand-logged
@@ -305,6 +316,8 @@ class ActivityResult {
     this.strain,
     this.hr = const [],
     this.zoneMinutes = const [],
+    this.zoneSource,
+    this.zoneMaxHr,
     this.steps,
     this.traceCoveragePct,
     this.route = const [],
@@ -336,6 +349,8 @@ class ActivityResult {
     int? hrr60,
     List<double?>? hr,
     List<double>? zoneMinutes,
+    String? zoneSource,
+    num? zoneMaxHr,
     int? traceCoveragePct,
     List<Offset>? route,
     List<(double lat, double lng)>? geo,
@@ -361,6 +376,8 @@ class ActivityResult {
         strain: strain,
         hr: hr ?? this.hr,
         zoneMinutes: zoneMinutes ?? this.zoneMinutes,
+        zoneSource: zoneSource ?? this.zoneSource,
+        zoneMaxHr: zoneMaxHr ?? this.zoneMaxHr,
         // Carried, never re-derived: every enrichment pass on this object goes
         // through here, and a field left off this list is a measurement the
         // detail screen silently loses the moment it opens.
@@ -1461,7 +1478,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           for (var i = 0; i < 5; i++)
             ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
         ],
-        footnote: kZonesWhy,
+        footnote: zonesWhy(r.zoneSource, r.zoneMaxHr),
         child: CustomPaint(
             size: Size.infinite, painter: ZoneBar(_zoneFractions(), p)),
       );

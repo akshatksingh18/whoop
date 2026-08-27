@@ -216,6 +216,14 @@ const _inputWhy = {
   'observed_ceiling':
       'The band has not yet held a high enough heart rate through a hard '
           'effort to measure a ceiling from.',
+  // DISTINCT from `observed_ceiling`, and the distinction is the whole point:
+  // there IS a held ceiling, it is on the screen with its date, and the card
+  // would otherwise ask for the thing it is simultaneously showing.
+  'maximal_effort':
+      'The highest heart rate held so far sits well below what your age '
+          'predicts, so it reads as an effort that was never maximal rather '
+          'than as your ceiling — the zones stay on the age estimate until the '
+          'band sees a harder one.',
   'resting_hr_days':
       'Not enough nights of resting heart rate behind the reserve yet.',
   'sessions':

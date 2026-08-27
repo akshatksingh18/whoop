@@ -58,6 +58,59 @@ const kPaceSweepBlockMinutes = 2;
 /// The profile key holding the winners of past sweeps, oldest first.
 const kPaceWinsKey = 'breath_pace_wins';
 
+/// Localized copies of [kBreathPatterns], same order and keys. The consts
+/// live in `breath_phases.dart` (which stays free of l10n imports on
+/// purpose — it is the pure engine); the localized text is built here,
+/// where `AppLocalizations` is already in scope, the same way [paceAt] does
+/// it for the custom-paced resonance entry.
+List<BreathPattern> localizedBreathPatterns([AppLocalizations? l]) {
+  final resonance = kBreathPatternsByKey['resonance']!;
+  final box = kBreathPatternsByKey['box']!;
+  final fourSevenEight = kBreathPatternsByKey['four_seven_eight']!;
+  final extendedExhale = kBreathPatternsByKey['extended_exhale']!;
+  return [
+    BreathPattern(
+      key: resonance.key,
+      label: l?.calmBreathingResonanceLabel ?? resonance.label,
+      description:
+          l?.calmBreathingResonanceDescription(resonance.rate.toStringAsFixed(1)) ??
+              resonance.description,
+      phases: resonance.phases,
+      coherenceRated: true,
+    ),
+    BreathPattern(
+      key: box.key,
+      label: l?.breathPatternBoxName ?? box.label,
+      description: l?.breathPatternBoxDesc ?? box.description,
+      phases: box.phases,
+    ),
+    BreathPattern(
+      key: fourSevenEight.key,
+      label: l?.breathPattern478Name ?? fourSevenEight.label,
+      description: l?.breathPattern478Desc ?? fourSevenEight.description,
+      phases: fourSevenEight.phases,
+    ),
+    BreathPattern(
+      key: extendedExhale.key,
+      label: l?.breathPatternExtendedExhaleName ?? extendedExhale.label,
+      description:
+          l?.breathPatternExtendedExhaleDesc ?? extendedExhale.description,
+      phases: extendedExhale.phases,
+    ),
+  ];
+}
+
+/// The instruction shown on the breathing ring for [kind], localized.
+String breathPhaseKindLabel(BreathPhaseKind kind, [AppLocalizations? l]) =>
+    switch (kind) {
+      BreathPhaseKind.inhale => l?.breathPhaseInhale ?? kind.label,
+      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut =>
+        l?.breathPhaseHold ?? kind.label,
+      BreathPhaseKind.exhale => l?.breathPhaseExhale ?? kind.label,
+      BreathPhaseKind.work => l?.breathPhaseWork ?? kind.label,
+      BreathPhaseKind.rest => l?.breathPhaseRest ?? kind.label,
+    };
+
 /// A resonance pattern at [rate] breaths a minute — even in, even out.
 ///
 /// 5.5 returns the SHIPPED resonance pattern rather than a lookalike: two
@@ -120,10 +173,13 @@ double? agreedPace(Object? wins) {
 /// when two sittings have agreed on one, and is the shipped 5.5 otherwise —
 /// one entry either way, never a personal pace sitting next to the default as
 /// if they were two different exercises.
-List<BreathPattern> patternsFor(double? yours, [AppLocalizations? l]) => [
-  yours == null ? kBreathPatterns.first : paceAt(yours, l),
-  ...kBreathPatterns.skip(1),
-];
+List<BreathPattern> patternsFor(double? yours, [AppLocalizations? l]) {
+  final localized = localizedBreathPatterns(l);
+  return [
+    yours == null ? localized.first : paceAt(yours, l),
+    ...localized.skip(1),
+  ];
+}
 
 class CalmBreathing extends StatefulWidget {
   const CalmBreathing({super.key});
@@ -214,10 +270,9 @@ class _CalmBreathingState extends State<CalmBreathing>
     // a live-relocalized one.
     if (_paceRead) return;
     _paceRead = true;
+    final l = AppLocalizations.of(context);
     final yours = agreedPace(_app?.user?[kPaceWinsKey]);
-    if (yours != null) {
-      _pattern = paceAt(yours, AppLocalizations.of(context));
-    }
+    _pattern = yours != null ? paceAt(yours, l) : localizedBreathPatterns(l).first;
   }
 
   @override
@@ -870,7 +925,7 @@ class _Running extends StatelessWidget {
           ),
           const SizedBox(height: S.x5),
         ],
-        BreathCircle(t: t, label: kind.label),
+        BreathCircle(t: t, label: breathPhaseKindLabel(kind, l)),
         const SizedBox(height: S.x8),
         Text(_clock(elapsed), style: F.n34.copyWith(color: p.ink2)),
         if (target != null) ...[

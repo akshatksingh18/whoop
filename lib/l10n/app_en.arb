@@ -5178,6 +5178,50 @@
       }
     }
   },
+  "breathPatternBoxName": "Box",
+  "@breathPatternBoxName": {
+    "description": "Pattern name for box breathing (4-4-4-4 count)"
+  },
+  "breathPatternBoxDesc": "Four counts each way, holds included. Steadying when your head is racing.",
+  "@breathPatternBoxDesc": {
+    "description": "Description of box breathing on the pattern picker"
+  },
+  "breathPattern478Name": "4-7-8",
+  "@breathPattern478Name": {
+    "description": "Pattern name for the 4-7-8 breathing exercise"
+  },
+  "breathPattern478Desc": "A long hold and a longer exhale. Usually used to get to sleep.",
+  "@breathPattern478Desc": {
+    "description": "Description of the 4-7-8 pattern on the pattern picker"
+  },
+  "breathPatternExtendedExhaleName": "Long exhale",
+  "@breathPatternExtendedExhaleName": {
+    "description": "Pattern name for the extended-exhale breathing exercise"
+  },
+  "breathPatternExtendedExhaleDesc": "Out for twice as long as in. No holds, so it is easy to keep up for a while.",
+  "@breathPatternExtendedExhaleDesc": {
+    "description": "Description of the extended-exhale pattern on the pattern picker"
+  },
+  "breathPhaseInhale": "Inhale",
+  "@breathPhaseInhale": {
+    "description": "Instruction shown on the breathing ring during the inhale phase"
+  },
+  "breathPhaseHold": "Hold",
+  "@breathPhaseHold": {
+    "description": "Instruction shown on the breathing ring during a hold phase"
+  },
+  "breathPhaseExhale": "Exhale",
+  "@breathPhaseExhale": {
+    "description": "Instruction shown on the breathing ring during the exhale phase"
+  },
+  "breathPhaseWork": "Work",
+  "@breathPhaseWork": {
+    "description": "Instruction shown on the breathing ring during an interval-timer work phase"
+  },
+  "breathPhaseRest": "Rest",
+  "@breathPhaseRest": {
+    "description": "Instruction shown on the breathing ring during an interval-timer rest phase"
+  },
   "metricDetailToday": "Today",
   "@metricDetailToday": {
     "description": "Range picker chip and headline label for the current day, on the shared metric trend/detail screen."
@@ -9372,6 +9416,10 @@
   "activityZonesNoAgeBody": "Zone edges are percentages of a maximum heart rate, and without your age there is nothing to take a percentage of.",
   "@activityZonesNoAgeBody": {
     "description": "Explanation shown when zone edges are missing because the user's age is not set"
+  },
+  "catalogueZonesWhy": "Zone edges are percentages of a maximum heart rate estimated from your age and your strap — not one measured on you.",
+  "@catalogueZonesWhy": {
+    "description": "Shared footnote under the zone chart on the workout summary and day-strain screens, when the ceiling is a Tanaka age estimate rather than a measured one"
   },
   "activityZonesNoZonesDefaultBody": "Nothing recorded says why there are no zone edges yet.",
   "@activityZonesNoZonesDefaultBody": {

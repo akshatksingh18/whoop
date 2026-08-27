@@ -1562,8 +1562,32 @@ const int kAlgoVersion = 81;
 // a clean checkout failed `flutter analyze` (undefined_named_parameter) and
 // would have recomputed v80 against a sibling without the sustained-window
 // fix it claims. No other symbol changed; no further kAlgoVersion move.
+//
+// REPIN (this branch) @ 6664854 — protocol main at the OpenStrap/protocol#35
+// merge commit ("record HELLO revision instead of gating parsing"). The old
+// pin's parser returned null for any hello body whose revision byte was not
+// 1; this branch makes HELLO MANDATORY, so under that gate a firmware that
+// bumped the revision could not connect at all. #35 records the byte in
+// `helloRevision` and reads the fixed revision-1 offsets regardless.
+//
+// The hop from 19d7291 is ahead 3 / behind 0, and its ONLY lib/ diff is
+// #35's `lib/src/control.dart` (+4/-5) — the dropped `if (body[0] != 1)`.
+// The other two commits are the #34 merge (2c8448b), whose head 19d7291 this
+// pin already WAS, so the oura/generic-HRS wire formats edge#280 imports come
+// across unchanged. NO kAlgoVersion bump: hello feeds connection identity and
+// state, not the derivation pipeline — no decoder for a persisted record
+// moves, so no stored number can. This constant moves together with
+// pubspec.yaml's `ref:` and pubspec.lock
+// (test/db_serve_version_and_reads_test.dart pins them equal, so a partial
+// repin fails the suite).
+//
+// MERGE (main → this branch): each side moved ONE pin and neither moved
+// the other, so this is both repins standing, not a choice between them.
+// main took analytics 7105256 → 187e026 (the v80 gate above); this branch
+// took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
+// moves no derivation maths, which is why its own note says NO bump.
 const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
-const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
+const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3635,7 +3659,16 @@ class DerivationEngine {
       // `liveSteps`/`stepSpans` were read above, before the pipeline input —
       // one resolution serves both energy passes. `.strap` is carried
       // alongside the total so the bundle can name the sensor that counted.
-      final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
+      //
+      // Sessions are queried over the FULL local calendar day, not
+      // [dayLo, dayHi] — those bounds come from daySub's own first/last
+      // sample, so a completed session the band's PPG lost contact for
+      // entirely (zero HR samples at all, e.g. a wrist-gripping lift) can
+      // fall outside them and never reach the zero-coverage credit below.
+      final savedSessions = await LocalDb.sessionsInRange(
+        _localDayLabelToSec(day.date),
+        localNextMidnightSecForDayLabel(day.date),
+      );
 
       // Off-wrist / charging spans over the NAP window (which runs past this
       // day's end), read here because the isolate has no DB handle. These are
@@ -5176,6 +5209,11 @@ class DerivationEngine {
         if (total != null) {
           wake['calories_total'] = (total as num).toDouble() + credited;
         }
+        // Provenance for the envelope built in `_applyWakeDayFeatures` below —
+        // without this, `calories_total`'s `inputs_used`/note would keep
+        // claiming an hr_1hz-only figure while the emitted value silently
+        // includes session-sourced kcal.
+        wake['calories_session_credit'] = credited;
       }
     }
     _applyWakeDayFeatures(bundle, scalars, wake);
@@ -5246,6 +5284,8 @@ class DerivationEngine {
       // day it contributed nothing to would claim pedometer coverage the day
       // may not have.
       final walking = (wake['calories_walking'] as num?)?.toDouble() ?? 0.0;
+      final sessionCredit =
+          (wake['calories_session_credit'] as num?)?.toDouble() ?? 0.0;
       bundle['calories_total'] = <String, dynamic>{
         'value': caloriesTotal.round(),
         'active': calories.round(),
@@ -5256,11 +5296,14 @@ class DerivationEngine {
           'hr_1hz',
           'profile',
           if (walking > 0) 'live_coverage_pedometer',
+          if (sessionCredit > 0) 'saved_session_calories',
         ],
         'note': 'total daily energy: Mifflin BMR floor over the covered day + '
             'active Keytel surplus over the wake span (HR-flex)'
             '${walking > 0 ? ' + measured-cadence walking term '
-                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}',
+                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}'
+            '${sessionCredit > 0 ? ' + workout-gap session calories '
+                '(PPG lost the window, ${sessionCredit.round()} kcal)' : ''}',
       };
     }
     // WHY each of the above is absent, per figure. This recompute is the answer

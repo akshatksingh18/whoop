@@ -48,6 +48,7 @@ import '../platform/tasker_bridge.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'adapters/_registry.dart';
+import 'android_native_name.dart';
 import 'ble_state.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
@@ -646,6 +647,172 @@ class _Session {
   }
 }
 
+/// How [BleEngine._connectGen5Official] ended.
+enum _Gen5ConnectOutcome {
+  /// Bootstrap completed; the session is listening (READY).
+  ready,
+
+  /// Setup failed and the session was torn down.
+  failed,
+
+  /// Discovery contradicted the gen5 hint — the caller falls back to the
+  /// legacy connect order for whatever the device actually is.
+  notGen5,
+}
+
+/// One discovered band link: the registry entry the peripheral turned out to
+/// be, plus the characteristics resolved off its service.
+///
+/// [BleEngine._discoverBand] returns null rather than a record whose entry is
+/// missing a characteristic it declares required, so no caller re-checks that.
+class _DiscoveredBand {
+  final BandEntry entry;
+
+  /// The four command/notify characteristics, resolved by 32-bit prefix.
+  ///
+  /// NULLABLE, and deliberately: WHICH of them a link must expose is registry
+  /// data ([BandEntry.requiredCharacteristics]), and
+  /// [BleEngine._discoverBand] has already refused any entry missing one it
+  /// declares. A null here therefore means "this entry does not require it",
+  /// which is the case the legacy route skips a subscription for — not an
+  /// unchecked absence.
+  final BluetoothCharacteristic? cmdTo;
+  final BluetoothCharacteristic? cmdFrom;
+  final BluetoothCharacteristic? events;
+  final BluetoothCharacteristic? data;
+
+  /// Memfault (0007). OPTIONAL in both directions: absent is normal, and it is
+  /// a diagnostic/liveness input, never a readiness one. It is resolved HERE
+  /// rather than only on the gen5 route because this is the one validation
+  /// path — the two copies this replaced had already drifted over exactly
+  /// this field.
+  final BluetoothCharacteristic? memfault;
+
+  const _DiscoveredBand({
+    required this.entry,
+    required this.cmdTo,
+    required this.cmdFrom,
+    required this.events,
+    required this.data,
+    required this.memfault,
+  });
+}
+
+/// The platform seam for the official gen5 connect order: PHY preference,
+/// discovery/validation, MTU intent, bond, notification registration.
+///
+/// One production implementation ([_FbpGattOps]) wraps flutter_blue_plus; the
+/// sequence itself lives in [BleEngine._connectGen5Official], so injecting a
+/// recorder here tests the REAL order rather than a parallel one.
+abstract class GattBootstrapOps {
+  /// Whether the explicit bond step applies. Android bonds explicitly; iOS
+  /// bonds implicitly on the first encrypted operation, as in the legacy flow.
+  bool get bondingApplies;
+
+  /// Ask for LE 2M PHY. Throws when the request fails — logged, non-fatal.
+  Future<void> preferLe2mPhy();
+
+  /// Discover services, pin the session's band and stash the band's
+  /// characteristics. Returns the discovered registry entry, or null when no
+  /// known framed service — or a required characteristic — is present.
+  Future<BandEntry?> discoverAndValidate();
+
+  /// Request the ATT MTU; returns the negotiated value, throws on failure.
+  Future<int> requestMtu(int mtu);
+
+  /// Whether an OS bond already exists (skip creating another).
+  Future<bool> isBonded();
+
+  /// Create the OS bond and wait for it to complete; throws on refusal or
+  /// failure.
+  Future<void> createBond();
+
+  /// Register one required notification ('cmd_from' | 'events' | 'data');
+  /// throws when registration fails.
+  Future<void> subscribe(String role);
+
+  /// Register the OPTIONAL Memfault characteristic (0007) when present.
+  /// Returns whether it was registered; absence or failure NEVER throws —
+  /// Memfault is not a required characteristic and must not block READY.
+  Future<bool> subscribeOptionalMemfault();
+}
+
+/// The flutter_blue_plus implementation of [GattBootstrapOps].
+class _FbpGattOps implements GattBootstrapOps {
+  final BleEngine _engine;
+  final BluetoothDevice _device;
+  final _Session _session;
+  BluetoothCharacteristic? _cmdFrom, _events, _data, _memfault;
+
+  _FbpGattOps(this._engine, this._device, this._session);
+
+  @override
+  bool get bondingApplies => Platform.isAndroid;
+
+  @override
+  Future<void> preferLe2mPhy() async {
+    // "when Android supports it" — the request is Android-only
+    // (flutter_blue_plus throws androidOnly elsewhere); iOS never asks.
+    if (!Platform.isAndroid) return;
+    await _device.setPreferredPhy(
+      txPhy: Phy.le2m.mask,
+      rxPhy: Phy.le2m.mask,
+      option: PhyCoding.noPreferred,
+    );
+  }
+
+  @override
+  Future<BandEntry?> discoverAndValidate() async {
+    final found = await _engine._discoverBand(_device);
+    if (found == null) return null;
+    _session.applyBand(found.entry);
+    _session.cmdTo = found.cmdTo;
+    _cmdFrom = found.cmdFrom;
+    _events = found.events;
+    _data = found.data;
+    _memfault = found.memfault;
+    return found.entry;
+  }
+
+  @override
+  Future<int> requestMtu(int mtu) => _device.requestMtu(mtu);
+
+  @override
+  Future<bool> isBonded() async =>
+      // `bondState` emits an initial value, but that first emission awaits the
+      // platform's `getBondState` when nothing is cached, so this await can
+      // hang. The BOUND lives at the call site in `_connectGen5Official` —
+      // the seam, where a test can drive a read that never answers.
+      await _device.bondState.first == BluetoothBondState.bonded;
+
+  @override
+  Future<void> createBond() => _device.createBond();
+
+  @override
+  Future<void> subscribe(String role) {
+    final c = switch (role) {
+      'cmd_from' => _cmdFrom,
+      'events' => _events,
+      _ => _data,
+    };
+    return _engine._subscribe(_session, c!, role);
+  }
+
+  @override
+  Future<bool> subscribeOptionalMemfault() async {
+    final c = _memfault;
+    if (c == null) return false;
+    try {
+      await _engine._subscribeMemfault(_session, c);
+      return true;
+    } catch (e) {
+      // Optional means optional: a CCC write failing on 0007 is logged by
+      // the caller and never faults setup.
+      return false;
+    }
+  }
+}
+
 class BleEngine {
   final SampleSink onRecord;
   final StateSink onState;
@@ -1202,6 +1369,39 @@ class BleEngine {
     return _bootstrapAfterRegistration(session);
   }
 
+  /// Observability seam onto [_applyLinkPriority]: called on EVERY entry,
+  /// before the platform guard, so a test tracing the official gen5 sequence
+  /// can prove no connection-priority request happens pre-READY.
+  @visibleForTesting
+  void Function()? debugOnPriorityRequest;
+
+  /// Injectable Android native-name getter — the post-HELLO gate reads the
+  /// platform `BluetoothDevice.getName()`, which only exists behind a radio;
+  /// tests inject a fake so the gate itself is exercisable anywhere.
+  /// Production leaves it null: the gate then applies exactly on Android and
+  /// reads through the [AndroidNativeName] channel.
+  @visibleForTesting
+  Future<String?> Function(String remoteId)? debugNativeNameReader;
+
+  bool get _nameGateApplies =>
+      debugNativeNameReader != null || Platform.isAndroid;
+
+  Future<String?> _nativeName(String remoteId) =>
+      (debugNativeNameReader ?? AndroidNativeName.of)(remoteId);
+
+  /// Drive the REAL official gen5 connect order (PHY → discovery → MTU →
+  /// bond → 600 ms → registrations → post-registration bootstrap → READY +
+  /// INIT) over an injected [GattBootstrapOps] on the fake link installed by
+  /// [debugInstallFakeLink]. This is the production sequence, not a copy —
+  /// the seam only replaces the radio.
+  @visibleForTesting
+  Future<bool> debugConnectGen5Official(GattBootstrapOps ops) async {
+    final session = _session;
+    if (session == null) return false;
+    return await _connectGen5Official(session.device, session, ops: ops) ==
+        _Gen5ConnectOutcome.ready;
+  }
+
   /// Feed one inbound historical frame through the real ingest path (decode →
   /// plausibility gate → store or archive).
   ///
@@ -1288,6 +1488,11 @@ class BleEngine {
   /// keeps this from spamming the radio — would skip the next legitimate
   /// step-down, leaving the link fast exactly when it should go quiet.
   Future<void> _applyLinkPriority() async {
+    // Fires BEFORE the platform guard so a test can prove where priority
+    // requests do and do not happen — the official gen5 sequence carries none
+    // before READY (no requestConnectionPriority was
+    // found in the official data path).
+    debugOnPriorityRequest?.call();
     if (!Platform.isAndroid) return; // iOS picks its own interval
     if (_priorityInFlight) {
       // Someone is mid-request; make them re-evaluate when they land rather
@@ -1543,11 +1748,16 @@ class BleEngine {
   /// clock decision.
   Gen5HelloInfo? _gen5Hello;
 
-  /// failures are counted ACROSS reconnect
+  /// Consecutive HELLO-EXCHANGE failures, counted ACROSS reconnect
   /// attempts (like `_marginalRadio`/`_postBondLoop`, and deliberately NOT
   /// reset in the per-connection block in `_doConnect`); at
   /// [kHelloFailuresBeforeBondReset] the counter resets and the platform bond
-  /// is removed before starting over. A successful hello clears it.
+  /// is removed exactly once before starting over — through the existing
+  /// reconnect owner, never a nested reconnect. Cleared ONLY when a complete
+  /// bootstrap reaches READY ([_finishConnect]); a hello object arriving is
+  /// not success. Identity/clock/name failures are connection failures but
+  /// are deliberately NOT counted here — the evidence scopes this counter to
+  /// the exchange itself.
   int _helloFailures = 0;
   static const int kHelloFailuresBeforeBondReset = 5;
 
@@ -1565,7 +1775,9 @@ class BleEngine {
   static const int kBatteryPackInfoAttempts = 5;
   static const Duration kBatteryPackInfoRetryDelay = Duration(seconds: 5);
 
-  /// The identity verdict from the last successful hello — observable, never a disconnect. Null until a hello lands.
+  /// The identity verdict from the last successful hello — ENFORCED by
+  /// [_gen5PostHelloGates] (a failed verdict fails the connection). Null
+  /// until a hello lands.
   HelloIdentity? _helloIdentity;
 
   /// The last USABLE `GET_BATTERY_PACK_INFO(151)` reply and when it landed. Diagnostics only — surfaced in
@@ -1849,9 +2061,9 @@ class BleEngine {
     // it drives neither a sync nor the alarm flow.
     'last_haptics_termination': _lastHapticsTermination,
     'last_haptics_termination_ts': _lastHapticsTerminationTs,
-    // hello health and the identity gate, both observable rather
-    // than enforced. `hello_failures` counts ACROSS reconnects and resets
-    // itself at the bond-reset threshold.
+    // hello health and the identity verdict (the gate itself is enforced in
+    // the bootstrap). `hello_failures` counts ACROSS reconnects, resets at
+    // the bond-reset threshold and clears when a bootstrap reaches READY.
     'hello_failures': _helloFailures,
     'hello_identity_ok': _helloIdentity?.ok,
     'hello_serial_eeprom_failure': _helloIdentity?.eepromFailureSignal,
@@ -1865,6 +2077,9 @@ class BleEngine {
     'battery_pack_type_raw': _batteryPack?.batteryPackTypeRaw,
     'battery_pack_status': _batteryPack?.statusRaw,
     'battery_pack_ts': _batteryPackTs,
+    // Optional Memfault (0007) traffic — collected, never parsed or required.
+    'memfault_chunks': _memfaultChunks,
+    'memfault_bytes': _memfaultBytesTotal,
     'pending_commands': _awaiter.pendingKeys,
   };
 
@@ -1931,6 +2146,11 @@ class BleEngine {
       for (final e in kFramedBands) Guid(e.service),
       Guid(kWhoopMemberUuid16),
     ];
+    // ACCEPTANCE stays broad (#255) — the match below. The GENERATION HINT is
+    // narrower: only an advertised 128-bit service names a generation
+    // ([ScanAcceptPolicy]); a name-only or 16-bit-only match records no hint,
+    // and the connect path then probes the official gen5 order first and lets
+    // GATT discovery pin the truth.
     BluetoothDevice? found;
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
@@ -1948,6 +2168,12 @@ class BleEngine {
                     s.startsWith('0000fd4b') ||
                     kFramedBands.any((e) => s.startsWith(e.servicePrefix))))) {
           found = r.device;
+          final adv = ScanAcceptPolicy.accepts(
+            r.advertisementData.serviceUuids.map((g) => g.str),
+          );
+          if (adv != null) {
+            _advertisedGeneration[r.device.remoteId.str] = adv;
+          }
           unawaited(
             FlutterBluePlus.stopScan().catchError(
               (Object e) => _log('stopScan after match failed: $e'),
@@ -2040,13 +2266,26 @@ class BleEngine {
   }
 
   /// Reconnect to a previously-paired device by its persisted remote id.
-  Future<bool> connectToRemoteId(String remoteId) =>
-      connect(BluetoothDevice.fromId(remoteId));
+  ///
+  /// [generationHint] is the persisted 'gen4'/'gen5' from the pairing record:
+  /// a known-device reconnect skips scanning, and the official gen5 connect
+  /// order differs before discovery, so the generation has to arrive from
+  /// outside the link. Anything but an explicit 'gen4' probes the official
+  /// gen5 sequence first ([connectRouteFor]); a discovered gen4 falls back to
+  /// the unchanged legacy flow.
+  Future<bool> connectToRemoteId(String remoteId, {String? generationHint}) =>
+      connect(BluetoothDevice.fromId(remoteId), generationHint: generationHint);
+
+  /// What the last accepting scan ADVERTISED per remote id ('gen4'/'gen5'), so
+  /// a first-ever connect right after a scan takes the generation-correct
+  /// bootstrap order without waiting for a persisted hint.
+  final Map<String, String> _advertisedGeneration = {};
 
   // ── connect ────────────────────────────────────────────────────────────────────
   /// Idempotent connect. Serialised through [_opLock] so it can never overlap
   /// another connect/disconnect. Returns true on a fully-ready link.
-  Future<bool> connect(BluetoothDevice device) => _locked(() async {
+  Future<bool> connect(BluetoothDevice device, {String? generationHint}) =>
+      _locked(() async {
     // Already connected to this exact peripheral and ready → no-op success.
     if (_session != null &&
         _session!.connected &&
@@ -2063,7 +2302,7 @@ class BleEngine {
     // Any prior session is dead to us now — tear it down before a new one.
     await _teardownSession(intentional: true);
     try {
-      return await _doConnect(device);
+      return await _doConnect(device, generationHint: generationHint);
     } catch (e) {
       // _doConnect guards its own known failure modes, but anything thrown
       // OUTSIDE those guards (e.g. the connectionState subscription setup, which
@@ -2091,7 +2330,7 @@ class BleEngine {
     _setPhase(BleConnState.idle);
   }
 
-  Future<bool> _doConnect(BluetoothDevice device) async {
+  Future<bool> _doConnect(BluetoothDevice device, {String? generationHint}) async {
     state.address = device.remoteId.str;
     _setPhase(BleConnState.connecting);
     final session = _Session(device);
@@ -2139,6 +2378,29 @@ class BleEngine {
     // the setup below (discover/subscribe/SET_CLOCK → bond) is never skipped.
     session.connected = true;
     session.sawConnected = true;
+
+    // The official gen5 order differs BEFORE discovery (LE 2M PHY
+    // preference) and puts the bond after discovery + the MTU intent, so the
+    // route must be chosen ahead of discovery: a scan supplies the generation
+    // from the advertisement, a known-device reconnect from the persisted
+    // pairing. [connectRouteFor] sends everything that is not EXPLICITLY gen4
+    // — including an unknown/null hint, e.g. a pairing upgraded from an older
+    // build or a headless engine that never persisted one — through the
+    // official gen5 sequence first; its discovery identifies the band, and a
+    // discovered gen4 falls back to the unchanged legacy flow below.
+    final hint = generationHint ?? _advertisedGeneration[device.remoteId.str];
+    if (connectRouteFor(hint) == ConnectRoute.gen5Official) {
+      switch (await _connectGen5Official(device, session)) {
+        case _Gen5ConnectOutcome.ready:
+          return true;
+        case _Gen5ConnectOutcome.failed:
+          return false;
+        case _Gen5ConnectOutcome.notGen5:
+          // Discovery found a gen4 service — take the proven legacy path
+          // (one extra discovery, paid only until the generation persists).
+          break;
+      }
+    }
     try {
       // Bond. On Android we explicitly createBond (the strap gates commands behind
       // encryption — without a bond the ACK/commands are silently dropped). On iOS
@@ -2203,69 +2465,21 @@ class BleEngine {
       }
 
       _setPhase(BleConnState.discovering);
-      final services = await device
-          .discoverServices()
-          .timeout(_serviceDiscoveryTimeout);
-      // Pin the band from whichever registered service the peripheral exposes.
-      // This drives the frame header/CRC, command envelope, ACK, and record
-      // decode for the session.
-      BluetoothService? svc;
-      BandEntry? entry;
-      for (final s in services) {
-        // `str128`, not `str`: `str` is the SHORTEST form, so a SIG-assigned
-        // service comes back as `180d` and never starts with a `0000180d`
-        // prefix. WHOOP's uuids are 128-bit either way — see
-        // `GattBandLink._find`, which had the live version of this bug.
-        final u = s.uuid.str128;
-        // [kFramedBands], for the same reason the scan filters on it: this
-        // engine speaks a framed envelope and nothing else.
-        for (final e in kFramedBands) {
-          if (u.startsWith(e.servicePrefix)) {
-            svc = s;
-            entry = e;
-            break;
-          }
-        }
-        if (svc != null) break;
-      }
-      if (svc == null || entry == null) {
-        _log('No known band service found on device (looked for: '
-            '${kFramedBands.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
+      // The SAME discovery+validation the official gen5 route runs — see
+      // [_discoverBand]; it logs which half failed.
+      final found = await _discoverBand(device);
+      if (found == null) {
         await _failConnect();
         return false;
       }
+      final entry = found.entry;
       session.applyBand(entry);
       state.generation = entry.id;
       _log('Detected ${entry.label} (${entry.id}) link.');
-      // Non-null: `entry` came out of [kFramedBands].
-      final gatt = entry.gatt!;
-      BluetoothCharacteristic? find(String uuid) {
-        final prefix = uuid.substring(0, 8);
-        for (final c in svc!.characteristics) {
-          // `str128` — see the service match above.
-          if (c.uuid.str128.startsWith(prefix)) return c;
-        }
-        return null;
-      }
-
-      // WHICH characteristics a link must expose is registry data. Demanding
-      // all four unconditionally is why `hr_sensor.dart` exists as a second
-      // parallel BLE stack — a generic HRS device has ONE notify
-      // characteristic and would abort here.
-      final missing = [
-        for (final u in entry.requiredCharacteristics)
-          if (find(u) == null) u.substring(0, 8),
-      ];
-      if (missing.isNotEmpty) {
-        _log('${entry.label}: missing required characteristic(s) '
-            '${missing.join(", ")}.');
-        await _failConnect();
-        return false;
-      }
-      session.cmdTo = find(gatt.cmdTo);
-      final cmdFrom = find(gatt.cmdFrom);
-      final events = find(gatt.events);
-      final data = find(gatt.data);
+      session.cmdTo = found.cmdTo;
+      final cmdFrom = found.cmdFrom;
+      final events = found.events;
+      final data = found.data;
 
       // The bond is complete by here, so this is the pause that precedes
       // notification registration — [BandEntry.preRegistrationDelay], zero on
@@ -2287,6 +2501,21 @@ class BleEngine {
       if (data != null) await _subscribe(session, data, 'data');
 
       if (!await _bootstrapAfterRegistration(session)) return false;
+      return await _finishConnect(session);
+    } catch (e) {
+      _log('connect setup failed: $e');
+      await _failConnect();
+      return false;
+    }
+  }
+
+  /// Everything between a completed bootstrap and a live listening link:
+  /// per-connection policy resets, session timers, the drain controller, the
+  /// READY transition (with its follow-ups) and INIT. Shared verbatim by the
+  /// legacy path and the official gen5 path so there is exactly one way a
+  /// session becomes ready.
+  Future<bool> _finishConnect(_Session session) async {
+    try {
       // Fresh clock verification stamp — see kRtcReverifyIntervalSeconds.
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
@@ -2388,8 +2617,26 @@ class BleEngine {
         onArchive: onArchiveRecord,
         log: _log,
       );
-      _setPhase(BleConnState.listening);
+      // READY ordering: record connection success, clear the
+      // successful-bootstrap failure state, transition, and only then launch
+      // the charging follow-up. The hello-failure count clears HERE and
+      // nowhere earlier — a hello object arriving is not a completed
+      // bootstrap, and clearing on it would let a link that repeatedly dies
+      // between hello and READY reset its own counter and never reach the
+      // five-failure bond reset.
       _log('Connected + subscribed — listening (history + live).');
+      if (_helloFailures > 0) {
+        _log('[HELLO gen5] bootstrap completed — clearing '
+            '$_helloFailures accumulated hello failure(s) at READY.');
+        _helloFailures = 0;
+      }
+      _setPhase(BleConnState.listening);
+      // The charging-only battery-pack lookup launches strictly AFTER
+      // READY, asynchronously; it never blocks or gates anything.
+      _maybeStartBatteryPackFollowUp(session);
+      // The INIT drain claim rides the same task-lifecycle rules as every
+      // other history task ([_startInitDrain]) — quiescence barrier, task
+      // generation, staleness re-checks, arm/rollback.
       return await _startInitDrain(session);
     } catch (e) {
       _log('connect setup failed: $e');
@@ -2490,6 +2737,201 @@ class BleEngine {
     return _startInitDrain(session);
   }
 
+  /// The official WHOOP 5 connect order, from an established link through
+  /// READY:
+  ///
+  ///   prefer LE 2M PHY → discover + validate the fd4b service → request
+  ///   MTU 247 → establish/await the Android bond → 600 ms → register the
+  ///   required notifications serially → [_bootstrapAfterRegistration]
+  ///   (500 ms → HELLO → name/identity gates → clock → advertising name) →
+  ///   [_finishConnect] (READY + the charging follow-up).
+  ///
+  /// The PHY request is a preference, not proof the physical link changed PHY
+  /// (the official HCI fixture shows no 2M update on a link whose source asked
+  /// for one) — its failure is logged and non-fatal. MTU 247 is source intent;
+  /// the band may originate the ATT exchange itself, and a failed request
+  /// keeps the connection default. A missing service/characteristic, a failed
+  /// required registration, or a refused bond each prevent READY.
+  ///
+  /// All platform work goes through [ops] — one production implementation
+  /// ([_FbpGattOps]); tests inject a recorder so this exact order is
+  /// assertable without a radio.
+  Future<_Gen5ConnectOutcome> _connectGen5Official(
+    BluetoothDevice device,
+    _Session session, {
+    GattBootstrapOps? ops,
+  }) async {
+    final gatt = ops ?? _FbpGattOps(this, device, session);
+    try {
+      try {
+        await gatt.preferLe2mPhy();
+        _log('[BOOT gen5] LE 2M PHY preference requested (a preference — not '
+            'proof the physical link changed PHY).');
+      } catch (e) {
+        _log('[BOOT gen5] LE 2M PHY preference failed: $e — non-fatal; the '
+            'link stays on its current PHY.');
+      }
+      if (!session.connected || _session != session) {
+        _log('connect: link dropped before discovery.');
+        if (identical(_session, session)) await _failConnect();
+        return _Gen5ConnectOutcome.failed;
+      }
+      _setPhase(BleConnState.discovering);
+      final entry = await gatt.discoverAndValidate();
+      if (entry == null) {
+        _log('[BOOT gen5] required band service or characteristic missing — '
+            'connection failed.');
+        await _failConnect();
+        return _Gen5ConnectOutcome.failed;
+      }
+      // Discovery is the truth; the generation hint that routed us here was
+      // only a hint. Anything else goes back to the legacy order unchanged.
+      if (entry.id != kWhoopGen5.id) return _Gen5ConnectOutcome.notGen5;
+      state.generation = entry.id;
+      _log('Detected ${entry.label} (${entry.id}) link.');
+      try {
+        final negotiated = await gatt.requestMtu(247);
+        _log('MTU negotiated: $negotiated (requested 247).');
+      } catch (e) {
+        _log('requestMtu failed: $e — MTU stays at the connection default.');
+      }
+      // Deliberately NO requestConnectionPriority here: no such call was
+      // found in the official data path, so the official sequence must not
+      // carry one before READY. The offload transition
+      // ([_setOffloadActive], post-READY, separately owned) still raises the
+      // interval for the drain, and gen4 keeps its legacy setup request.
+      // Bond — in its official position, after discovery and the MTU intent.
+      // Already bonded → no second bond. A refused/failed bond is FATAL here:
+      // the strap gates every command behind encryption, so continuing would
+      // run subscriptions and HELLO against writes the band silently drops.
+      if (gatt.bondingApplies) {
+        // BOUNDED, AND OUTSIDE THE REFUSAL ACCOUNTING. The initial bond-state
+        // read is the one platform await in this bootstrap that could hang:
+        // `bondState`'s first emission falls through to the platform's
+        // `getBondState` when nothing is cached. Unbounded, a request that
+        // never answers parks the bootstrap right here with `_session`
+        // non-null and the phase still `discovering`, so `holdsBandLink` keeps
+        // the claim live and every later headless drain yields to a connect
+        // that will never finish — no recovery short of a process restart.
+        //
+        // A stalled read is a PHONE-STACK condition, not a band that refuses
+        // to bond, so it fails the connect WITHOUT touching `bondRefusals` /
+        // `needsRepairGuide`: counted as a refusal it would walk the give-up
+        // threshold and then tell the user to remove a bond that is fine. The
+        // legacy path counted `createBond()` failures only, and so does this.
+        // `createBond()` needs no bound of ours: the plugin gives it a
+        // 90-second response timeout.
+        final bool alreadyBonded;
+        try {
+          alreadyBonded = await gatt.isBonded().timeout(_bondStateTimeout);
+        } catch (e) {
+          _log('[BOOT gen5] bond-state read failed or timed out ($e) — '
+              'bootstrap stops here; NOT counted as a bond refusal.');
+          await _failConnect();
+          return _Gen5ConnectOutcome.failed;
+        }
+        try {
+          if (alreadyBonded) {
+            _log('[BOOT gen5] already bonded — not creating another bond.');
+          } else {
+            await gatt.createBond();
+            _log('Bonded.');
+          }
+          // A clean bond clears the refusal streak + any give-up latch, so a
+          // later run of refusals can trip the pause again, and un-pauses the
+          // auto-reconnect loop.
+          _bondGiveUp.bondSucceeded();
+          state.bondRefusals = 0;
+          state.autoReconnectPaused = false;
+        } catch (e) {
+          _log('BOND FAILED: $e — bootstrap stops here (no subscriptions, no '
+              'HELLO, no READY). Remove the bond in system Bluetooth settings '
+              'and re-pair.');
+          state.needsRepairGuide = true;
+          state.bondRefusals++;
+          // After a run of consecutive refusals, stop the auto-reconnect loop
+          // (it would otherwise pin the radio + drain the battery on a band
+          // that will never accept the bond) and surface the re-pair guide. A
+          // manual user connect still runs the bond, so a successful re-pair
+          // recovers.
+          if (_bondGiveUp.bondRefused()) {
+            state.autoReconnectPaused = true;
+            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
+                '— pausing auto-reconnect; re-pair required.');
+          }
+          onState(state);
+          await _failConnect();
+          return _Gen5ConnectOutcome.failed;
+        }
+      }
+      if (!session.connected || _session != session) {
+        _log('connect: link dropped during the bond.');
+        if (identical(_session, session)) await _failConnect();
+        return _Gen5ConnectOutcome.failed;
+      }
+      // The pause before notification registration —
+      // [BandEntry.preRegistrationDelay] (600 ms on gen5), read off the ENTRY
+      // exactly like `_bootstrapAfterRegistration` reads its post-registration
+      // twin. A band-specific duration is data, and a second copy here is the
+      // one thing the named constant exists to prevent.
+      final preDelay = session.entry.preRegistrationDelay;
+      if (preDelay > Duration.zero &&
+          !await _bootstrapPause(
+            session,
+            preDelay,
+            'the pre-registration delay',
+          )) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      _setPhase(BleConnState.subscribing);
+      // Serial registration in the retained official fixture order: command
+      // response → optional Memfault → data → events (that order is one
+      // client fixture, not a protocol requirement — but matching it costs
+      // nothing). A failed REQUIRED registration faults setup; Memfault
+      // (0007) stays optional in both directions: absent or failing, setup
+      // continues, and when present its bytes are collected as diagnostics
+      // without ever becoming a requirement.
+      Future<bool> requiredRegistration(String role) async {
+        try {
+          await gatt.subscribe(role);
+          return true;
+        } catch (e) {
+          _log('[BOOT gen5] required notification registration failed '
+              '($role): $e — connection failed.');
+          await _failConnect();
+          return false;
+        }
+      }
+
+      if (!await requiredRegistration('cmd_from')) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      if (await gatt.subscribeOptionalMemfault()) {
+        _log('[BOOT gen5] optional Memfault (0007) registered — collected as '
+            'diagnostics only.');
+      } else {
+        _log('[BOOT gen5] optional Memfault (0007) absent or not registered — '
+            'not required; setup continues.');
+      }
+      if (!await requiredRegistration('data')) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      if (!await requiredRegistration('events')) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      if (!await _bootstrapAfterRegistration(session)) {
+        return _Gen5ConnectOutcome.failed;
+      }
+      return await _finishConnect(session)
+          ? _Gen5ConnectOutcome.ready
+          : _Gen5ConnectOutcome.failed;
+    } catch (e) {
+      _log('connect setup failed: $e');
+      await _failConnect();
+      return _Gen5ConnectOutcome.failed;
+    }
+  }
+
   // ── bootstrap ────────────────────────────────────
 
   /// One of the two observed bootstrap delays, with the same stale-session
@@ -2515,15 +2957,17 @@ class BleEngine {
   }
 
   /// Everything the phase sequence puts between the last CCC write and
-  /// READY: the 500 ms post-registration delay, GET_HELLO, the clock decision,
-  /// the final advertising-name read and the charging follow-up.
+  /// READY: the 500 ms post-registration delay, the MANDATORY gen5 GET_HELLO,
+  /// the Android native-name gate, the identity gates, the clock contract and
+  /// the awaited advertising-name read. [_finishConnect] then owns the READY
+  /// transition and the charging follow-up.
   ///
   /// Lifted out of [_doConnect] because this ORDER is the contract the
   /// specifies — and as inline statements inside a 400-line connect the only
   /// way to check it was against a radio.
   ///
-  /// Returns false when the link died under one of the steps; the session has
-  /// already been torn down in that case.
+  /// Returns false when a step failed or the link died under one; the session
+  /// has already been torn down in that case.
   Future<bool> _bootstrapAfterRegistration(_Session session) async {
     // The pause after the last registration, before the higher-level state
     // machine runs — [BandEntry.postRegistrationDelay], zero on a band with no
@@ -2538,34 +2982,49 @@ class BleEngine {
       return false;
     }
     _setPhase(BleConnState.settingUp);
-    // Set the strap RTC to real wall-clock time. The band ships with an unset
-    // clock; SET_CLOCK is non-destructive (it is sent routinely on connect
-    // connect). Records stamped after this carry real unix time.
     _clockCorrectTries = 0; // fresh retry budget for this connection
     // Drop the previous session's clock correlation so an alarm armed before
-    // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
-    // (drift 0) instead of the stale strap-RTC frame. The reads below
+    // THIS session's clock work lands falls back to the raw wall epoch
+    // (drift 0) instead of the stale strap-RTC frame. The steps below
     // repopulate it for this connection.
     _clockRef = null;
     _gen5Hello = null;
-    // HELLO FIRST on gen5 — the pinned bootstrap order. Hello
-    // carries the strap's own timestamp, so it answers the "what time does
-    // the band think it is" question that the GET_CLOCK below exists to ask,
-    // and it carries identity/battery/charge/on-body state that everything
-    // after this wants. The app used to send it late, inside INIT, so none of
-    // that was available here and gen5 had no serial or battery at connect.
-    //
-    // Best effort: a failed or unanswered hello falls through to the ordinary
-    // clock read, which is the pinned fallback when hello supplies
-    // no timestamp. Nothing below is gated on it.
     if (session.band.isGen5) {
-      await _readGen5Hello();
+      // HELLO FIRST on gen5, and MANDATORY. Hello carries the strap's own
+      // timestamp (the clock decision's input), plus the identity, battery,
+      // charge and on-body state everything after this wants. A missing or
+      // failed exchange — write failure, timeout, terminal FAILURE,
+      // UNSUPPORTED, or a success whose body never parsed — fails the
+      // CONNECTION: no GET_CLOCK fallback, no identity work, no READY.
+      // The failure was already counted by _noteHelloFailure (the fifth also
+      // removes the platform bond); recovery belongs to the reconnect owner,
+      // never to a nested reconnect from inside this coroutine.
+      final helloOk = await _readGen5Hello();
       if (_session != session || !session.connected) {
         _log('link dropped during gen5 HELLO — abandoning setup.');
         if (identical(_session, session)) await _failConnect();
         return false;
       }
+      if (!helloOk) {
+        _log('[HELLO gen5] hello exchange failed — hello is mandatory; '
+            'connection failed.');
+        await _failConnect();
+        return false;
+      }
+      if (!await _gen5PostHelloGates(session)) return false;
+      if (!await _gen5ClockContract(session)) return false;
+      // The awaited advertising-name read is the last command before READY.
+      // Its await completes before READY; its result is not a gate.
+      await _readAdvertisingNameGen5(session);
+      if (_session != session || !session.connected) {
+        _log('link dropped during the advertising-name read — abandoning '
+            'setup.');
+        if (identical(_session, session)) await _failConnect();
+        return false;
+      }
+      return true;
     }
+    // ── gen4: the proven legacy clock flow, unchanged ──
     // READ BEFORE WRITE. This used to be an unconditional SET_CLOCK, which is
     // precisely the write [ClockPolicy.phoneClockSuspect] says we must never
     // make: on a phone running >1 day slow it stamps that slow time onto a
@@ -2579,22 +3038,12 @@ class BleEngine {
     // link to drop underneath us, and setClock() absorbs failed writes, so
     // without these checks setup would carry on past a teardown, rebuild the
     // drain state and hand back `true` for a dead connection.
-    // Hello already answered this on gen5, so skip the round trip — the
-    // pinned flow only falls back to GET_CLOCK when hello carried no
-    // timestamp. Feed hello's clock through the same handler the GET_CLOCK
-    // reply uses, so the suspect-phone and unset-RTC verdicts are computed
-    // from one place regardless of which command supplied the epoch.
-    // One SET_CLOCK per bootstrap: the reads below run inside the
-    // window so the absorb handler's own re-correction stands down and
-    // _bootstrapSetClock is the single writer.
+    // One SET_CLOCK per bootstrap: the read runs inside the window so the
+    // absorb handler's own re-correction stands down and _bootstrapSetClock
+    // is the single writer.
     _bootstrapClockWrite = true;
     try {
-      final helloClock = _gen5Hello?.tsSeconds;
-      if (helloClock != null && helloClock > 0) {
-        _absorbClockEpoch(helloClock);
-      } else {
-        await _readClock();
-      }
+      await _readClock();
       if (_session != session || !session.connected) {
         _log('link dropped during the clock read — abandoning setup.');
         // Tear down ONLY if we are still the live session. `_failConnect`
@@ -2610,59 +3059,311 @@ class BleEngine {
     }
     if (_session != session || !session.connected) {
       _log('link dropped during SET_CLOCK — abandoning setup.');
-      // Tear down ONLY if we are still the live session. `_failConnect`
-      // teardown+band-release act on whatever `_session` currently points
-      // at, so a newer `_doConnect` that already took over would have its
-      // link killed and its band claim dropped by this stale invocation.
+      // Tear down ONLY if we are still the live session (see above).
       if (identical(_session, session)) await _failConnect();
       return false;
     }
-    // the advertising-name read is the last command before READY, and
-    // the charging follow-up is launched after it. Neither can fail setup.
-    await _readAdvertisingNameGen5(session);
-    _maybeStartBatteryPackFollowUp(session);
     return true;
   }
 
-  /// The bootstrap SET_CLOCK decision.
-  ///
-  /// Three rules, in this order:
-  ///  1. the phone-clock deferral still wins — while THIS phone is the suspect
-  ///     party, writing its wall clock onto a possibly-correct strap RTC
-  ///     corrupts the RTC and destroys the evidence (unchanged behaviour);
-  ///  2. on gen5, below [BootstrapClockGate.toleranceSeconds] of absolute drift
-  ///     the pinned bootstrap makes NO BLE write at all. This app used to send
-  ///     SET_CLOCK unconditionally on every single connect;
-  ///  3. everything else writes once — including a band with no usable clock
-  ///     correlation (unset/implausible RTC), where the drift is null and
-  ///     leaving the RTC uncorrected is the one genuinely bad outcome.
-  ///
-  /// gen4 keeps the unconditional write it has today: its flow is proven, and
-  /// the WHOOP 5 bootstrap is where the evidence lives.
-  Future<void> _bootstrapSetClock(_Session session) async {
-    if (_deferForClock) return;
-    if (session.entry.setClockDriftGated) {
-      final drift = _clockRef?.driftSec;
-      if (!BootstrapClockGate.needsCorrection(drift)) {
-        _log('[CLOCK] in sync (drift ${drift}s, tolerance '
-            '${BootstrapClockGate.toleranceSeconds}s) — no correction '
-            'needed; no SET_CLOCK written.');
-        return;
+  /// The post-HELLO readiness gates: the Android native-name
+  /// requirement and the serial/CPU identity rules. A failed gate is a
+  /// CONNECTION failure — deliberately not a hello-exchange failure, because
+  /// the failure counter is scoped to the exchange
+  /// itself and the evidence never counts these against it.
+  Future<bool> _gen5PostHelloGates(_Session session) async {
+    final hello = _gen5Hello!;
+    // Android `BluetoothDevice.getName()` must be non-null. Read from the
+    // PLATFORM — flutter_blue_plus's `platformName` is an in-memory cache
+    // that is empty for a device rebuilt with `BluetoothDevice.fromId()` on a
+    // cold process start, so gating on it would fail every known-device
+    // reconnect that skipped scanning. The exact gate is non-null (an
+    // empty-but-present name passes — do not strengthen without evidence).
+    // Android-only; iOS exposes no equivalent and the source gate is
+    // Android's.
+    if (_nameGateApplies) {
+      final name = await _nativeName(session.device.remoteId.str);
+      if (_session != session || !session.connected) {
+        _log('link dropped during the native-name read — abandoning setup.');
+        if (identical(_session, session)) await _failConnect();
+        return false;
+      }
+      if (name == null) {
+        _log('[BOOT gen5] Android reports no name for this device — '
+            'readiness requires a non-null native name; connection failed.');
+        await _failConnect();
+        return false;
+      }
+      _log('[BOOT gen5] Android native name present ("$name").');
+    }
+    // Family refinement: a recognized discriminator refines the stored type;
+    // an unrecognized/null mapping is NOT by itself a rejection.
+    if (hello.isWhoop5) {
+      _log('[BOOT gen5] family discriminator ${hello.opticalDiscriminator} '
+          'confirms WHOOP 5.0.');
+    } else {
+      _log('[BOOT gen5] family discriminator ${hello.opticalDiscriminator} '
+          'maps to no known family — type stays gen5 (not a rejection).');
+    }
+    // Identity — ENFORCED: serial and CPU must each FULLY match
+    // [A-Za-z0-9]+; empty and partial matches fail. Evaluated by
+    // _noteHelloSuccess, judged here. Battery, charging, on-body, firmware,
+    // hardware, signal-processor, HR-broadcast and error fields are state or
+    // diagnostics, never gates.
+    final id = _helloIdentity;
+    if (id == null || !id.ok) {
+      _log('[BOOT gen5] identity gate FAILED ($id) — connection failed.');
+      await _failConnect();
+      return false;
+    }
+    if (id.eepromFailureSignal) {
+      // Passes the alphanumeric gate — a diagnostic, never a rejection.
+      _log('[HELLO gen5] serial is all zeros — the strap is reporting an '
+          'EEPROM failure. Not a reject; the band stays usable.');
+    }
+    return true;
+  }
+
+  /// The gen5 bootstrap clock contract:
+  /// the timestamp hello ALREADY carries (subseconds included) is the strap's
+  /// clock reading — zero is a present timestamp, not a missing one, so the
+  /// parsed-hello path never sends GET_CLOCK (opcode 11 exists only as the
+  /// generic null-timestamp fallback). Compare against a newly sampled phone
+  /// time: below two whole seconds of absolute delta, succeed with no BLE
+  /// write; at two or more, send exactly one awaited SET_CLOCK(10). A null
+  /// SET_CLOCK response fails readiness and disconnects.
+  Future<bool> _gen5ClockContract(_Session session) async {
+    final hello = _gen5Hello!;
+    // The absorb handler's own re-correction stands down inside this window
+    // (_bootstrapClockWrite), leaving this method the single SET_CLOCK writer
+    // for the bootstrap — including against the clock_epoch retry path.
+    _bootstrapClockWrite = true;
+    try {
+      // Feed the suspect-phone verdict and the strap↔wall correlation the
+      // same way a GET_CLOCK reply would, so both clock sources share one
+      // brain. An implausible (unset-RTC) reading is deliberately never
+      // correlated there; the delta below still forces the correction.
+      // THE TIMESTAMP IS READ AT REVISION-1 OFFSETS. The pinned parser records
+      // `helloRevision` and no longer refuses an unknown one (protocol#35 —
+      // hello is MANDATORY on this path, so a firmware that bumps the byte has
+      // to still connect), which leaves the timestamp as the one field this
+      // method acts on that a moved layout could make plausible-but-wrong. An
+      // unknown revision therefore neither fails the connection nor becomes a
+      // correlation: it forfeits the "already in sync" shortcut and takes the
+      // unconditional SET_CLOCK below, which writes a freshly sampled PHONE
+      // time and is right under any layout.
+      if (hello.helloRevision == 1) {
+        _absorbClockEpoch(hello.tsSeconds);
+        final helloMs =
+            hello.tsSeconds * 1000 + (hello.tsSubseconds * 1000) ~/ 32768;
+        final deltaMs =
+            (DateTime.now().millisecondsSinceEpoch - helloMs).abs();
+        if (!BootstrapClockGate.needsCorrectionMs(deltaMs)) {
+          _log('[CLOCK] in sync (delta ${deltaMs}ms, tolerance '
+              '${BootstrapClockGate.toleranceSeconds}s) — no correction '
+              'needed; no SET_CLOCK written.');
+          return true;
+        }
+      } else {
+        _log('[CLOCK] hello revision ${hello.helloRevision} is not the '
+            'revision-1 layout these offsets read — its timestamp is neither '
+            'trusted nor correlated; correcting unconditionally.');
+      }
+      // The contract is UNCONDITIONAL at ≥2 s: one awaited SET_CLOCK with a
+      // newly sampled phone time — even for a strap reading days ahead of the
+      // phone. Edge's phone-suspect policy is a HISTORY-safety rule, not a
+      // bootstrap rule; it must not turn the official clock step into a
+      // refusal, and a successful correction clears it below (see
+      // [_bootstrapSetClockGen5]) so the initial drain is not suppressed by a
+      // verdict the write just made stale.
+      final ok = await _bootstrapSetClockGen5();
+      if (_session != session || !session.connected) {
+        _log('link dropped during SET_CLOCK — abandoning setup.');
+        if (identical(_session, session)) await _failConnect();
+        return false;
+      }
+      if (!ok) {
+        _log('[CLOCK] SET_CLOCK failed to write or went unanswered — clock '
+            'synchronization is a readiness requirement; connection failed.');
+        await _failConnect();
+        return false;
+      }
+      return true;
+    } finally {
+      _bootstrapClockWrite = false;
+    }
+  }
+
+  /// The one bootstrap SET_CLOCK(10): phone timestamp sampled when BUILDING
+  /// the request, the confirmed 8-byte gen5 body (u32 LE seconds + u32 LE
+  /// subseconds in 1/32768 s), one correlated await — and deliberately NO
+  /// GET_CLOCK read-back (the official bootstrap sends none; the periodic
+  /// re-verify still audits the RTC later). Returns whether a non-null
+  /// response arrived; per the contract a non-null response object is
+  /// success regardless of its result byte.
+  Future<bool> _bootstrapSetClockGen5() async {
+    final ms = DateTime.now().millisecondsSinceEpoch;
+    final sec = ms ~/ 1000;
+    final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
+    final out = await _sendAwaited(Cmd.setClock, <int>[
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+      0,
+      0,
+    ]);
+    if (!out.written) return false;
+    _log('SET_CLOCK (gen5 bootstrap) → sec=$sec subsec=$subsec — awaiting '
+        'the correlated response.');
+    final resp = await out.response;
+    if (resp != null && resp.success) {
+      // The strap just took our wall time, so correlate at drift 0 without a
+      // read-back — an alarm armed before the next periodic re-verify must not
+      // be shifted by the drift this write just corrected.
+      //
+      // BOTH HALVES COME FROM THE ONE SAMPLE THE STRAP WAS GIVEN. Reading the
+      // wall clock again here samples it after `out.response` resolved — up to
+      // the awaiter's timeout later — so `driftSec` would be the round-trip
+      // latency, and `setAlarm` arms at `when - driftSec`.
+      _clockRef = ClockRef(device: sec, wall: sec);
+      // And the phone-suspect verdict — computed off the PRE-correction hello
+      // timestamp — is now stale by construction: strap and phone agree
+      // because this write made them agree. Left set, it would defer the
+      // initial history drain (and let record-gate age checks judge against a
+      // reading that no longer exists). The suspect detector still re-trips
+      // on the next reading if the phone genuinely is wrong.
+      if (_phoneClockSuspect) {
+        _phoneClockSuspect = false;
+        _phoneClockSuspectSince = null;
+        _log('[CLOCK] SET_CLOCK accepted — clearing the phone-clock-suspect '
+            'verdict from the pre-correction reading; history may drain.');
       }
     }
+    return resp != null;
+  }
+
+  /// The ONE service-discovery and characteristic-validation path.
+  ///
+  /// BOTH connect routes come here — `_FbpGattOps.discoverAndValidate` on the
+  /// official gen5 order, and `_doConnect`'s legacy order, which a discovered
+  /// gen4 falls back to. They used to be two transcriptions of this, and they
+  /// had already drifted: only the gen5 copy resolved Memfault, and only the
+  /// legacy copy matched on `str128` and on [BandEntry.requiredCharacteristics].
+  /// Which service pins the band and which characteristics are required is one
+  /// decision, so it is one function.
+  ///
+  /// Returns null — having logged which half failed — when the peripheral
+  /// exposes no known framed service, or is missing a required characteristic.
+  /// Both callers treat that as a failed connect.
+  ///
+  /// It does NOT touch the session itself — pinning stays at the caller. Note
+  /// that `_FbpGattOps.discoverAndValidate` pins IMMEDIATELY, before
+  /// `_connectGen5Official` reads the outcome, so a `notGen5` device is briefly
+  /// pinned to what discovery actually found. That is harmless and deliberate:
+  /// what it pins is the TRUE band, and the legacy route it falls back to
+  /// re-discovers and re-pins the same entry before using it.
+  Future<_DiscoveredBand?> _discoverBand(BluetoothDevice device) async {
+    final services =
+        await device.discoverServices().timeout(_serviceDiscoveryTimeout);
+    // Pin the band from whichever registered service the peripheral exposes.
+    // This drives the frame header/CRC, command envelope, ACK, and record
+    // decode for the session.
+    BluetoothService? svc;
+    BandEntry? entry;
+    for (final s in services) {
+      // `str128`, not `str`: `str` is the SHORTEST form, so a SIG-assigned
+      // service comes back as `180d` and never starts with a `0000180d`
+      // prefix. WHOOP's uuids are 128-bit either way — see
+      // `GattBandLink._find`, which had the live version of this bug.
+      final u = s.uuid.str128;
+      // [kFramedBands], for the same reason the scan filters on it: this
+      // engine speaks a framed envelope and nothing else.
+      for (final e in kFramedBands) {
+        if (u.startsWith(e.servicePrefix)) {
+          svc = s;
+          entry = e;
+          break;
+        }
+      }
+      if (svc != null) break;
+    }
+    if (svc == null || entry == null) {
+      _log('No known band service found on device (looked for: '
+          '${kFramedBands.map((e) => "${e.servicePrefix}xxxx").join(", ")}).');
+      return null;
+    }
+    BluetoothCharacteristic? find(String uuid) {
+      final prefix = uuid.substring(0, 8);
+      for (final c in svc!.characteristics) {
+        // `str128` — see the service match above.
+        if (c.uuid.str128.startsWith(prefix)) return c;
+      }
+      return null;
+    }
+
+    // WHICH characteristics a link must expose is registry data. Demanding
+    // all four unconditionally is why `hr_sensor.dart` exists as a second
+    // parallel BLE stack — a generic HRS device has ONE notify
+    // characteristic and would abort here.
+    final missing = [
+      for (final u in entry.requiredCharacteristics)
+        if (find(u) == null) u.substring(0, 8),
+    ];
+    if (missing.isNotEmpty) {
+      _log('${entry.label}: missing required characteristic(s) '
+          '${missing.join(", ")}.');
+      return null;
+    }
+    // Non-null: `entry` came out of [kFramedBands].
+    final gatt = entry.gatt!;
+    return _DiscoveredBand(
+      entry: entry,
+      cmdTo: find(gatt.cmdTo),
+      cmdFrom: find(gatt.cmdFrom),
+      events: find(gatt.events),
+      data: find(gatt.data),
+      memfault: find(gatt.memfault),
+    );
+  }
+
+  /// The gen4 bootstrap SET_CLOCK decision.
+  ///
+  /// NO GEN5 BAND REACHES THIS, by either connect route — and that is a
+  /// property of `_bootstrapAfterRegistration`, not of how the connect was
+  /// routed: it branches on `session.band.isGen5` and the gen5 arm returns
+  /// after [_gen5ClockContract]. So a gen5 band that fell into `_doConnect`
+  /// on a stale `gen4` hint still gets the gen5 contract, because discovery
+  /// has pinned the true band before the branch is read.
+  ///
+  /// That is also where [BandEntry.setClockDriftGated] is honoured now:
+  /// [_gen5ClockContract] gates on the hello timestamp at MILLISECOND
+  /// resolution against a freshly sampled phone time, which is strictly
+  /// better evidence than the whole-second `_clockRef` drift a flag test here
+  /// could read. Re-testing the flag on this path would be dead code — it is
+  /// false for every band that gets here.
+  ///
+  /// gen4 keeps the unconditional write it has always had: its flow is proven,
+  /// and the WHOOP 5 bootstrap is where the evidence for gating lives. The
+  /// phone-clock deferral still wins — while THIS phone is the suspect party,
+  /// writing its wall clock onto a possibly-correct strap RTC corrupts the RTC
+  /// and destroys the evidence.
+  Future<void> _bootstrapSetClock(_Session session) async {
+    if (_deferForClock) return;
     await setClock();
   }
 
   /// `GET_ADVERTISING_NAME(141)` with
-  /// body `01` and a 5 s timeout is part of the exact bootstrap sequence, sent
-  /// after the clock step and before READY.
+  /// body `01` and the correlated 5 s await, sent after the clock step and
+  /// before READY. (Never the gen4 advertising-name opcode on a gen5 link.)
   ///
-  /// "The readiness path does not inspect the returned object or result before
-  /// transitioning to READY, so this command is part of the exact sequence but
-  /// is **not** a readiness gate" — so the WRITE is ordered here, and the reply
-  /// is consumed in the background (same shape as the battery poll): a timeout
-  /// logs and changes nothing. The name itself lands the way it always has,
-  /// through the `strap_name` branch of the state absorber.
+  /// The command must OCCUR — and its await must COMPLETE — before READY, but
+  /// the returned object/status/content is not a readiness gate: a null,
+  /// failed or unsupported reply is logged and bootstrap continues. The name
+  /// itself lands the way it always has, through the `strap_name` branch of
+  /// the state absorber.
   Future<void> _readAdvertisingNameGen5(_Session session) async {
     if (!session.band.isGen5) return;
     final out = await _sendAwaited(
@@ -2674,14 +3375,14 @@ class BleEngine {
           'gate; setup continues.');
       return;
     }
-    // Consumed, never awaited: leaving the pending entry unarmed would hold a
-    // registry slot for the full timeout with nobody listening.
-    unawaited(out.response.then((r) {
-      if (r == null) {
-        _log('[NAME] GET_ADVERTISING_NAME went unanswered — not a readiness '
-            'gate.');
-      }
-    }));
+    final r = await out.response;
+    if (r == null) {
+      _log('[NAME] GET_ADVERTISING_NAME went unanswered — not a readiness '
+          'gate.');
+    } else if (!r.success) {
+      _log('[NAME] GET_ADVERTISING_NAME status=${r.status} — not a readiness '
+          'gate.');
+    }
   }
 
   /// when hello says the band is charging, look
@@ -2692,6 +3393,10 @@ class BleEngine {
   /// must **not** move the band out of READY".
   void _maybeStartBatteryPackFollowUp(_Session session) {
     if (!session.band.isGen5) return;
+    // Same quarantine as the state publication: `charging` is body[5] of the
+    // revision-1 map, so an unknown revision is no evidence the band is on a
+    // charger and must not start the opcode-151 follow-up.
+    if (_gen5Hello?.helloRevision != 1) return;
     if (_gen5Hello?.charging != true) return;
     if (session.batteryPackFollowUpStarted) return;
     session.batteryPackFollowUpStarted = true;
@@ -3187,6 +3892,48 @@ class BleEngine {
     );
   }
 
+  /// Collect the OPTIONAL Memfault characteristic's bytes as diagnostics.
+  /// The official client persists/uploads whatever the strap volunteers here
+  /// and sends nothing to solicit it; this app only counts
+  /// what arrived (surfaced in [offloadSnapshot]) — the channel is never
+  /// parsed, never required, and never a readiness input.
+  Future<void> _subscribeMemfault(
+    _Session session,
+    BluetoothCharacteristic c,
+  ) async {
+    await c.setNotifyValue(true).timeout(_notifySetupTimeout);
+    session.subs.add(
+      c.onValueReceived.listen((chunk) {
+        if (_session != session || !session.connected) return;
+        _onMemfaultChunk(chunk);
+      }),
+    );
+  }
+
+  /// The ONE Memfault accounting path — the notification listener above and
+  /// the test seam both land here, so the liveness stamp and the counters
+  /// cannot drift apart. A chunk is real inbound traffic on this link: it
+  /// proves liveness the same as any other notification, so the
+  /// staleness/watchdog clock advances.
+  void _onMemfaultChunk(List<int> chunk) {
+    _lastRx = DateTime.now();
+    _memfaultChunks++;
+    _memfaultBytesTotal += chunk.length;
+    if (_memfaultChunks == 1) {
+      _log('[MEMFAULT] strap volunteered its first crash/diagnostic '
+          'chunk (${chunk.length} B) — collected only.');
+    }
+  }
+
+  /// Feed one Memfault chunk through the real accounting path — the liveness
+  /// stamp and counters live behind a radio otherwise.
+  @visibleForTesting
+  void debugIngestMemfaultChunk(List<int> chunk) => _onMemfaultChunk(chunk);
+
+  /// Memfault (0007) traffic counters — diagnostics only.
+  int _memfaultChunks = 0;
+  int _memfaultBytesTotal = 0;
+
   // ── link-down handling (drives reconnect via the caller's contract) ─────────────
   void _onLinkDown(_Session session) {
     if (LinkDownPolicy.evaluate(sessionIsCurrent: _session == session) ==
@@ -3331,6 +4078,13 @@ class BleEngine {
   // out lets the existing `catch (e)` in `_doConnect` do its job.
   static const Duration _serviceDiscoveryTimeout = Duration(seconds: 15);
   static const Duration _notifySetupTimeout = Duration(seconds: 15);
+
+  /// The initial bond-state read, applied at the [GattBootstrapOps] seam in
+  /// `_connectGen5Official` — the same reason as the two above, at the one
+  /// platform stream await the gen5 bootstrap adds. Short because it is a
+  /// CACHED OS lookup, not a radio round trip: the bond itself is
+  /// `createBond()`, which the plugin bounds at 90 s.
+  static const Duration _bondStateTimeout = Duration(seconds: 5);
 
   /// [owner] pins the write to ONE session. Without it a write queued by a
   /// long-parked drain (a big commit, then up to ~25 s of ACK retries) lands on
@@ -4344,14 +5098,41 @@ class BleEngine {
     if (d.kind == 'cmd_response' && f['gen5_hello'] is Gen5HelloInfo) {
       final h = f['gen5_hello'] as Gen5HelloInfo;
       _gen5Hello = h;
-      state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
-      if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
-      state.charging = h.charging;
-      state.wristOn = h.wristOn;
-      onState(state);
-      _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
-          'battery=${h.batteryPct}% charging=${h.charging} '
-          'wrist=${h.wristOn} whoop5=${h.isWhoop5}');
+      // PUBLISH ONLY WHAT THE REVISION-1 MAP IS KNOWN TO DESCRIBE. An unknown
+      // revision still connects — the parser records the byte instead of
+      // gating on it (protocol#35) and hello is mandatory here — but every
+      // field below is read at revision-1 offsets, and `onState` is DURABLE,
+      // not a repaint: it writes a `band_battery` sample, can fire the
+      // battery-low/charging OS notification, heals this serial onto the
+      // PAIRING RECORD, and pushes the lock-screen widget. A moved layout
+      // would make all four fabricated and persistent.
+      //
+      // The identity gate below cannot be leaned on to catch that: `cpuHex` is
+      // lowercase hex by construction, so it only fails when EMPTY, and any
+      // printable bytes landing at the serial offset pass the alphanumeric
+      // match. It is a filter, not a fail-closed check — and it runs AFTER
+      // this publication either way.
+      if (h.helloRevision == 1) {
+        state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
+        if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
+        state.charging = h.charging;
+        state.wristOn = h.wristOn;
+        onState(state);
+        _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
+            'battery=${h.batteryPct}% charging=${h.charging} '
+            'wrist=${h.wristOn} whoop5=${h.isWhoop5}');
+      } else {
+        // REVISION-NEUTRAL, deliberately. The line above names six fields read
+        // at revision-1 offsets, and the foreground logger PERSISTS what it is
+        // handed — so under an unknown layout it would bank a serial and a
+        // battery figure as if they were read, which is the same imputation
+        // the quarantine above exists to stop. The revision and the body
+        // length are the two things true at any layout.
+        _log('[HELLO gen5] revision ${h.helloRevision} is not the revision-1 '
+            'layout these offsets read (body ${h.rawHex.length ~/ 2}B) — '
+            'serial, battery, charge and wrist state are NOT published or '
+            'logged; the connection continues.');
+      }
     }
     if (d.kind == 'realtime_hr') {
       final hr = f['hr'] as int;
@@ -6105,13 +6886,18 @@ class BleEngine {
   /// read and written by then, so hello's timestamp could never be used and its
   /// identity fields arrived after everything that wanted them.
   ///
-  /// Returns whether a reply landed. A timeout is NOT fatal: the caller falls
-  /// back to the GET_CLOCK path, which is exactly what the pinned flow does
-  /// when hello supplies no timestamp.
+  /// Returns whether a terminal successful, PARSED hello landed. Anything
+  /// else — write failure, timeout, terminal FAILURE, UNSUPPORTED, a success
+  /// whose body never parsed — is a failed exchange: counted by
+  /// [_noteHelloFailure], and the caller fails the CONNECTION (hello is
+  /// mandatory; there is no GET_CLOCK fallback on the gen5 path). A completed
+  /// write is NOT success — only the terminal response plus a parsed hello
+  /// object count.
   /// Correlated through the [CommandAwaiter]: the reply must echo THIS hello's
   /// sequence and opcode 145. GET_HELLO is also one of the two commands whose
   /// `PENDING` is not terminal, so a deferred reply keeps the await
   /// open for the real result instead of reporting the strap as answered.
+  /// The timeout is applied exactly once, with no automatic resend.
   Future<bool> _readGen5Hello() async {
     final out = await _sendAwaited(
       Cmd.getHello,
@@ -6120,14 +6906,13 @@ class BleEngine {
       frameBuilder: (seq) => gen5ClientHello(seq: seq),
     );
     if (!out.written) {
-      _log('[HELLO gen5] write failed — falling back to the clock read.');
+      _log('[HELLO gen5] write failed.');
       await _noteHelloFailure('write failed');
       return false;
     }
     final resp = await out.response;
     if (resp == null) {
-      _log('[HELLO gen5] no reply in ${_helloTimeout.inSeconds}s — falling '
-          'back to GET_CLOCK for the clock decision.');
+      _log('[HELLO gen5] no reply in ${_helloTimeout.inSeconds}s.');
       await _noteHelloFailure('no reply');
       return false;
     }
@@ -6150,24 +6935,33 @@ class BleEngine {
   /// Matches the standard 5-second command timeout.
   static const Duration _helloTimeout = Duration(seconds: 5);
 
-  /// (identity half) — recorded and logged, never a
-  /// disconnect. See [HelloIdentity] for why this stays observable.
+  /// Record the identity verdict of a terminal successful hello. Enforcement
+  /// happens in [_gen5PostHelloGates] (a failed verdict fails the
+  /// connection). The accumulated hello-FAILURE count is deliberately NOT
+  /// cleared here: a hello object arriving is not a completed bootstrap — the
+  /// counter clears only when the connection reaches READY
+  /// ([_finishConnect]), so a link that keeps dying between hello and READY
+  /// still reaches the five-failure bond reset.
   void _noteHelloSuccess(Gen5HelloInfo h) {
-    _helloFailures = 0;
-    final id = HelloIdentity.evaluate(
-      serial: h.serial,
-      cpuHex: h.cpuHex,
-      eepromFailureSignal: h.serialLooksEepromFailure,
-    );
-    _helloIdentity = id;
-    if (!id.ok) {
-      _log('[HELLO gen5] identity gate FAILED ($id) — a strict readiness gate '
-          'requires serial and CPU to be alphanumeric; logged, not enforced.');
-    }
-    if (id.eepromFailureSignal) {
-      _log('[HELLO gen5] serial is all zeros — the strap is reporting an '
-          'EEPROM failure. Not a reject; the band stays usable.');
-    }
+    // The pinned parser reads serial/cpuHex at revision-1 offsets REGARDLESS
+    // of `helloRevision` (it doesn't gate on the byte). For an unknown
+    // revision those bytes may not be identity at all, so evaluating them
+    // would invent a verdict — and a bad one could fail the alphanumeric gate
+    // in _gen5PostHelloGates and reject a connection the clock contract
+    // (which already treats an unknown revision as "must still connect")
+    // would otherwise allow. Only revision 1 gets a real identity verdict;
+    // any other revision is unverified-but-not-a-rejection.
+    _helloIdentity = h.helloRevision == 1
+        ? HelloIdentity.evaluate(
+            serial: h.serial,
+            cpuHex: h.cpuHex,
+            eepromFailureSignal: h.serialLooksEepromFailure,
+          )
+        : const HelloIdentity(
+            serialOk: true,
+            cpuOk: true,
+            eepromFailureSignal: false,
+          );
   }
 
   /// record the failure, and at the fifth
@@ -6181,25 +6975,34 @@ class BleEngine {
     await _removePlatformBond();
   }
 
-  /// Drop the OS-level bond so the next attempt re-pairs from scratch.
+  /// Injectable bond remover — production removes the OS bond via
+  /// flutter_blue_plus; tests inject a counter so the exactly-once semantics
+  /// of the fifth-failure reset are assertable off-device.
+  @visibleForTesting
+  Future<void> Function()? debugBondRemover;
+
+  /// Drop the OS-level bond so the next attempt re-pairs from scratch. The
+  /// attempt itself belongs to the existing reconnect owner — this NEVER
+  /// starts a nested reconnect.
   ///
   /// Android only: iOS gives no API for removing a pairing, so there the user
   /// has to forget the device in Settings — say so in the log rather than
   /// pretending the reset happened.
   Future<void> _removePlatformBond() async {
     final device = _session?.device;
-    if (!Platform.isAndroid) {
+    final remover = debugBondRemover;
+    if (remover == null && !Platform.isAndroid) {
       _log('[HELLO gen5] $kHelloFailuresBeforeBondReset failed hellos — a bond '
           'reset is due, but this platform cannot remove a bond '
           'programmatically; the user must forget the device manually.');
       return;
     }
-    if (device == null) {
+    if (remover == null && device == null) {
       _log('[HELLO gen5] bond reset due but there is no device to unbond.');
       return;
     }
     try {
-      await device.removeBond();
+      await (remover != null ? remover() : device!.removeBond());
       _log('[HELLO gen5] $kHelloFailuresBeforeBondReset failed hellos — '
           'platform bond removed; the next attempt re-pairs.');
     } catch (e) {

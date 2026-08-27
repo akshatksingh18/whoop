@@ -55,6 +55,28 @@ void main() {
         'it came from the new analytics';
     expect(ref('openstrap_analytics'), kAnalyticsPin, reason: why);
     expect(ref('openstrap_protocol'), kProtocolPin, reason: why);
+
+    // AND THE LOCK, which is the file that actually decides what a build
+    // resolves. `pubspec.yaml` and the constants agreeing while the lock
+    // trails behind is a PARTIAL repin — the exact failure mode the repin
+    // comments promise this test catches, and it did not until it read this
+    // file. `resolved-ref` too: `ref` alone can name a moved branch.
+    final locked =
+        (loadYaml(File('pubspec.lock').readAsStringSync())
+            as Map)['packages'] as Map;
+    String lockRef(String pkg, String field) =>
+        ((locked[pkg] as Map)['description'] as Map)[field] as String;
+
+    const whyLock =
+        'pubspec.lock disagrees with pubspec.yaml and the pin constants — a '
+        'partial repin. Move all three together, or a build resolves a '
+        'sibling nobody reasoned about';
+    for (final field in const ['ref', 'resolved-ref']) {
+      expect(lockRef('openstrap_analytics', field), kAnalyticsPin,
+          reason: whyLock);
+      expect(lockRef('openstrap_protocol', field), kProtocolPin,
+          reason: whyLock);
+    }
   });
 
   const name = 'db_serve_version_test.db';

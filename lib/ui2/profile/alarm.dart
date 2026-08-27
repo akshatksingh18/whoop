@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 
@@ -95,14 +96,16 @@ class AlarmScreenView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final at = armedAt;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Alarm', sub: 'Wakes you on the band, not the phone'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.alarmNavTitle ?? 'Alarm',
+                sub: l?.alarmNavSub ?? 'Wakes you on the band, not the phone'),
           ),
           Expanded(
             child: ListView(
@@ -113,50 +116,56 @@ class AlarmScreenView extends StatelessWidget {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('ARMED FOR',
+                          Text(l?.alarmArmedFor ?? 'ARMED FOR',
                               style: F.over.copyWith(color: p.ink3)),
                           const SizedBox(height: S.x1),
                           Text(_hhmm(at),
                               style: F.n48.copyWith(color: p.ink)),
-                          Text(_whichDay(at, now ?? DateTime.now()),
+                          Text(_whichDay(c, at, now ?? DateTime.now()),
                               style: F.cap.copyWith(color: p.ink2)),
                           const SizedBox(height: S.x3),
-                          Pill(stateLabel(state), _stateColor(state),
+                          Pill(_localizedStateLabel(c, state), _stateColor(state),
                               icon: _stateIcon(state)),
                         ]),
                   ),
-                  if (_stateDetail(state) case final detail?) ...[
+                  if (_stateDetail(c, state) case final detail?) ...[
                     const SizedBox(height: S.x3),
-                    StatusCard(_stateHeadline(state), detail,
+                    StatusCard(_stateHeadline(c, state), detail,
                         icon: _stateIcon(state)),
                   ],
                 ],
                 const SizedBox(height: S.x4),
                 if (!connected)
-                  const StatusCard(
-                    'The band is not connected',
-                    'Setting, testing and cancelling all write to the band, so '
-                        'they need a live connection. An alarm that is already '
-                        'armed is unaffected — it lives on the band.',
+                  StatusCard(
+                    l?.alarmNotConnectedTitle ?? 'The band is not connected',
+                    l?.alarmNotConnectedBody ??
+                        'Setting, testing and cancelling all write to the band, so '
+                            'they need a live connection. An alarm that is already '
+                            'armed is unaffected — it lives on the band.',
                     icon: LucideIcons.bluetoothOff,
                   )
                 else ...[
-                  BigButton(at == null ? 'Set an alarm' : 'Change the time',
+                  BigButton(
+                      at == null
+                          ? (l?.alarmSetAnAlarm ?? 'Set an alarm')
+                          : (l?.alarmChangeTheTime ?? 'Change the time'),
                       icon: LucideIcons.clock,
                       onTap: () => _pick(c, at)),
                   const SizedBox(height: S.x3),
                   if (at != null) ...[
-                    BigButton('Test the buzz',
+                    BigButton(l?.alarmTestTheBuzz ?? 'Test the buzz',
                         icon: LucideIcons.vibrate,
                         color: C.blue,
                         soft: true,
-                        onTap: () => _run(c, onTest, 'Buzzing the band')),
+                        onTap: () => _run(
+                            c, onTest, l?.alarmBuzzingTheBand ?? 'Buzzing the band')),
                     const SizedBox(height: S.x3),
-                    BigButton('Cancel the alarm',
+                    BigButton(l?.alarmCancelTheAlarm ?? 'Cancel the alarm',
                         icon: LucideIcons.bellOff,
                         color: C.red,
                         soft: true,
-                        onTap: () => _run(c, onCancel, 'Alarm cancelled')),
+                        onTap: () => _run(
+                            c, onCancel, l?.alarmCancelled ?? 'Alarm cancelled')),
                   ],
                 ],
               ],
@@ -175,7 +184,7 @@ class AlarmScreenView extends StatelessWidget {
     );
     if (picked == null || !c.mounted) return;
     await _run(c, () => onSet!(nextAt(picked.hour, picked.minute, wall)),
-        'Alarm sent to the band');
+        AppLocalizations.of(c)?.alarmSentToBand ?? 'Alarm sent to the band');
   }
 
   /// The next wall-clock instant at [hour]:[minute], today if it is still
@@ -209,16 +218,22 @@ class AlarmScreenView extends StatelessWidget {
   static String _hhmm(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
-  static String _whichDay(DateTime d, DateTime now) {
+  static String _whichDay(BuildContext c, DateTime d, DateTime now) {
+    final l = AppLocalizations.of(c);
     final days = DateTime(d.year, d.month, d.day)
         .difference(DateTime(now.year, now.month, now.day))
         .inDays;
-    if (days < 0) return 'In the past — it has already fired or been missed';
-    if (days == 0) return 'Later today';
-    if (days == 1) return 'Tomorrow';
-    return 'In $days days';
+    if (days < 0) {
+      return l?.alarmInThePast ??
+          'In the past — it has already fired or been missed';
+    }
+    if (days == 0) return l?.alarmLaterToday ?? 'Later today';
+    if (days == 1) return l?.alarmTomorrow ?? 'Tomorrow';
+    return l?.alarmInDays(days) ?? 'In $days days';
   }
 
+  // Kept context-free and @visibleForTesting: the arm-state contract this
+  // guards ("only `confirmed` may claim it") is tested without a widget tree.
   @visibleForTesting
   static String stateLabel(AlarmArmState s) => switch (s) {
         AlarmArmState.confirmed => 'Confirmed',
@@ -226,6 +241,16 @@ class AlarmScreenView extends StatelessWidget {
         AlarmArmState.unknown => 'Not confirmed',
         AlarmArmState.none => 'Not set',
       };
+
+  static String _localizedStateLabel(BuildContext c, AlarmArmState s) {
+    final l = AppLocalizations.of(c);
+    return switch (s) {
+      AlarmArmState.confirmed => l?.alarmStateConfirmed ?? 'Confirmed',
+      AlarmArmState.pending => l?.alarmStateWaiting ?? 'Waiting',
+      AlarmArmState.unknown => l?.alarmStateNotConfirmed ?? 'Not confirmed',
+      AlarmArmState.none => l?.alarmStateNotSet ?? 'Not set',
+    };
+  }
 
   static Color _stateColor(AlarmArmState s) => switch (s) {
         AlarmArmState.confirmed => C.green,
@@ -241,24 +266,33 @@ class AlarmScreenView extends StatelessWidget {
         AlarmArmState.none => LucideIcons.alarmClock,
       };
 
-  static String _stateHeadline(AlarmArmState s) => switch (s) {
-        AlarmArmState.confirmed => 'The band has this alarm',
-        AlarmArmState.pending => 'Sent — waiting for the band to confirm',
-        AlarmArmState.unknown => 'We cannot tell whether this will fire',
-        AlarmArmState.none => 'No alarm is set',
-      };
+  static String _stateHeadline(BuildContext c, AlarmArmState s) {
+    final l = AppLocalizations.of(c);
+    return switch (s) {
+      AlarmArmState.confirmed =>
+        l?.alarmHeadlineConfirmed ?? 'The band has this alarm',
+      AlarmArmState.pending =>
+        l?.alarmHeadlinePending ?? 'Sent — waiting for the band to confirm',
+      AlarmArmState.unknown =>
+        l?.alarmHeadlineUnknown ?? 'We cannot tell whether this will fire',
+      AlarmArmState.none => l?.alarmHeadlineNone ?? 'No alarm is set',
+    };
+  }
 
-  static String? _stateDetail(AlarmArmState s) => switch (s) {
-        AlarmArmState.confirmed =>
+  static String? _stateDetail(BuildContext c, AlarmArmState s) {
+    final l = AppLocalizations.of(c);
+    return switch (s) {
+      AlarmArmState.confirmed => l?.alarmDetailConfirmed ??
           'The band reported that it latched the alarm.',
-        AlarmArmState.pending =>
+      AlarmArmState.pending => l?.alarmDetailPending ??
           'The write reached the band. Its confirmation usually arrives within '
               'a few seconds.',
-        AlarmArmState.unknown =>
+      AlarmArmState.unknown => l?.alarmDetailUnknown ??
           'The time above is what this app last sent. The band never confirmed '
               'it — or it was set in an earlier run of the app, and there is no '
               'way to ask the band what it is holding. Set it again while '
               'connected if you need to be sure.',
-        AlarmArmState.none => null,
-      };
+      AlarmArmState.none => null,
+    };
+  }
 }

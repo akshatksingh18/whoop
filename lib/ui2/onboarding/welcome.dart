@@ -21,6 +21,7 @@ import 'package:provider/provider.dart';
 import '../../import/backup_crypto.dart';
 import '../../import/import_container.dart';
 import '../../import/journal_csv_import.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 
@@ -131,18 +132,21 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
   }
 
   void _submit() {
+    final l = AppLocalizations.of(context);
     final v = _a.text;
     if (widget.creating) {
       if (v.length < kMinPassphraseChars) {
-        setState(() => _error = 'At least $kMinPassphraseChars characters.');
+        setState(() => _error = l?.welcomePassphraseTooShort(kMinPassphraseChars) ??
+            'At least $kMinPassphraseChars characters.');
         return;
       }
       if (v != _b.text) {
-        setState(() => _error = 'The two do not match.');
+        setState(() => _error = l?.welcomePassphraseMismatch ??
+            'The two do not match.');
         return;
       }
     } else if (v.isEmpty) {
-      setState(() => _error = 'Enter the passphrase.');
+      setState(() => _error = l?.welcomePassphraseEmpty ?? 'Enter the passphrase.');
       return;
     }
     Navigator.of(context).pop(v);
@@ -151,25 +155,31 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
   @override
   Widget build(BuildContext c) {
     final creating = widget.creating;
+    final l = AppLocalizations.of(c);
     return AlertDialog(
-      title: Text(creating ? 'Choose a passphrase' : 'Passphrase'),
+      title: Text(creating
+          ? (l?.welcomeChoosePassphrase ?? 'Choose a passphrase')
+          : (l?.welcomePassphrase ?? 'Passphrase')),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(creating
             // Both halves, in the same breath. The second half is not a
             // warning bolted onto a feature — it IS the feature: nothing can
             // open this file without the passphrase, including us, because
             // there is no account and no server holding a key.
-            ? 'The file is unreadable without it. And a forgotten passphrase '
-                'means that backup is gone — there is no recovery, because '
-                'there is no account and no server holding a key. That is the '
-                'same thing that keeps it private.'
-            : 'The one you chose when this backup was written.'),
+            ? (l?.welcomePassphraseCreateNote ??
+                'The file is unreadable without it. And a forgotten passphrase '
+                    'means that backup is gone — there is no recovery, because '
+                    'there is no account and no server holding a key. That is the '
+                    'same thing that keeps it private.')
+            : (l?.welcomePassphraseOpenNote ??
+                'The one you chose when this backup was written.')),
         const SizedBox(height: S.x4),
         TextField(
           controller: _a,
           obscureText: true,
           autofocus: true,
-          decoration: const InputDecoration(labelText: 'Passphrase'),
+          decoration: InputDecoration(
+              labelText: l?.welcomePassphrase ?? 'Passphrase'),
           onSubmitted: creating ? null : (_) => _submit(),
         ),
         if (creating) ...[
@@ -177,7 +187,8 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
           TextField(
             controller: _b,
             obscureText: true,
-            decoration: const InputDecoration(labelText: 'Repeat it'),
+            decoration: InputDecoration(
+                labelText: l?.welcomeRepeatIt ?? 'Repeat it'),
             onSubmitted: (_) => _submit(),
           ),
         ],
@@ -189,9 +200,12 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
       actions: [
         TextButton(
             onPressed: () => Navigator.of(c).pop(),
-            child: const Text('Cancel')),
+            child: Text(l?.actionCancel ?? 'Cancel')),
         TextButton(
-            onPressed: _submit, child: Text(creating ? 'Encrypt' : 'Unlock')),
+            onPressed: _submit,
+            child: Text(creating
+                ? (l?.welcomeEncrypt ?? 'Encrypt')
+                : (l?.welcomeUnlock ?? 'Unlock'))),
       ],
     );
   }
@@ -503,6 +517,7 @@ class WelcomeView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final o = outcome;
     return Scaffold(
       backgroundColor: p.bg,
@@ -512,22 +527,27 @@ class WelcomeView extends StatelessWidget {
           children: [
             Icon(LucideIcons.activity, size: 40, color: p.on(C.green)),
             const SizedBox(height: S.x5),
-            Text('Your band, decoded here',
+            Text(l?.welcomeHeadline ?? 'Your band, decoded here',
                 style: F.display.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
             Text(
-              'Every number is computed on this phone from the raw signal.',
+              l?.welcomeSubhead ??
+                  'Every number is computed on this phone from the raw signal.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
-            const Pill('Local · no cloud', C.green, icon: LucideIcons.shieldCheck),
+            Pill(l?.pillLocalNoCloud ?? 'Local · no cloud', C.green,
+                icon: LucideIcons.shieldCheck),
             const SizedBox(height: S.x8),
-            BigButton('Set up my band',
+            BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
                 icon: LucideIcons.bluetooth,
                 color: C.green,
                 onTap: busy ? null : onNew),
             const SizedBox(height: S.x3),
-            BigButton(busy ? 'Importing…' : 'Bring my history first',
+            BigButton(
+                busy
+                    ? (l?.welcomeImporting ?? 'Importing…')
+                    : (l?.welcomeBringMyHistoryFirst ?? 'Bring my history first'),
                 icon: LucideIcons.upload,
                 color: C.blue,
                 soft: true,
@@ -540,11 +560,12 @@ class WelcomeView extends StatelessWidget {
               // importers write no marker at all, and imported values do feed
               // the same rolling baselines. What IS true is the half that
               // protects data: no import overwrites a day this band measured.
-              'Raw sensor exports, an OpenStrap backup (encrypted or not), '
-              'or a vendor CSV. '
-              'Imported days sit alongside days this app measured and feed '
-              'the same baselines — but a day the band already measured is '
-              'never overwritten.',
+              l?.welcomeImportFooterNote ??
+                  'Raw sensor exports, an OpenStrap backup (encrypted or not), '
+                      'or a vendor CSV. '
+                      'Imported days sit alongside days this app measured and feed '
+                      'the same baselines — but a day the band already measured is '
+                      'never overwritten.',
               style: F.cap.copyWith(color: p.ink3),
             ),
             if (busy) ...[
@@ -572,43 +593,49 @@ class ImportReport extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     if (o.error != null) {
       return StatusCard(
-        '${o.source} could not be read',
+        l?.welcomeSourceCouldNotBeRead(o.source) ??
+            '${o.source} could not be read',
         o.error!,
-        fix: 'Try another file',
+        fix: l?.actionTryAnotherFile ?? 'Try another file',
         icon: LucideIcons.triangleAlert,
       );
     }
     // A zero is not a success. Same tick, same words, nothing in the database.
     if (o.nothingLanded) {
       return StatusCard(
-        'Nothing was imported',
+        l?.welcomeNothingWasImported ?? 'Nothing was imported',
         // Every row refused is its own answer to "why is it empty?", and it
         // has to survive the empty case or the validation is invisible.
         o.rejectedRows.isNotEmpty
-            ? 'Every row was refused: ${_rejects(o)}'
+            ? (l?.welcomeEveryRowRefused(_rejects(o)) ??
+                'Every row was refused: ${_rejects(o)}')
             : o.readError ??
-                'The file was read but there was nothing in it this app could '
-                    'use, or every day in it was one this band had already '
-                    'measured.',
-        fix: 'Try another file',
+                (l?.welcomeNothingUsableInFile ??
+                    'The file was read but there was nothing in it this app could '
+                        'use, or every day in it was one this band had already '
+                        'measured.'),
+        fix: l?.actionTryAnotherFile ?? 'Try another file',
         icon: LucideIcons.fileWarning,
       );
     }
     final also = [
-      if (o.workouts > 0)
-        '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
-      if (o.skippedDays > 0)
-        '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
-            'here and left alone',
+      if (o.workouts > 0) l?.welcomeWorkoutsCount(o.workouts) ??
+          '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
+      if (o.skippedDays > 0) l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
+          '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
+              'here and left alone',
     ];
     // A journal CSV writes no days, so the old headline read "0 days imported"
     // over a successful import of 300 notes.
     final headline = o.days > 0
-        ? '${o.days} day${o.days == 1 ? '' : 's'} imported'
-        : '${o.journalRows} journal '
-            'day${o.journalRows == 1 ? '' : 's'} written';
+        ? l?.welcomeDaysImported(o.days) ??
+            '${o.days} day${o.days == 1 ? '' : 's'} imported'
+        : l?.welcomeJournalDaysWritten(o.journalRows) ??
+            '${o.journalRows} journal '
+                'day${o.journalRows == 1 ? '' : 's'} written';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
@@ -621,9 +648,9 @@ class ImportReport extends StatelessWidget {
               if (also.isNotEmpty)
                 Text(also.join(' · '), style: F.over.copyWith(color: p.ink3)),
               if (o.days > 0 && o.journalRows > 0)
-                Text(
-                    '${o.journalRows} journal '
-                    'day${o.journalRows == 1 ? '' : 's'} replaced',
+                Text(l?.welcomeJournalDaysReplaced(o.journalRows) ??
+                        '${o.journalRows} journal '
+                        'day${o.journalRows == 1 ? '' : 's'} replaced',
                     style: F.over.copyWith(color: p.ink3)),
             ]),
           ),
@@ -635,46 +662,55 @@ class ImportReport extends StatelessWidget {
       if (o.rejectedRows.isNotEmpty) ...[
         const SizedBox(height: S.x3),
         StatusCard(
-          '${o.rejectedRows.length} '
-              'row${o.rejectedRows.length == 1 ? ' was' : 's were'} refused',
-          '${_rejects(o)} Nothing was trimmed to fit — fix those lines and '
-              'import again.',
+          l?.welcomeRowsRefused(o.rejectedRows.length) ??
+              '${o.rejectedRows.length} '
+                  'row${o.rejectedRows.length == 1 ? ' was' : 's were'} refused',
+          l?.welcomeRejectedDetail(_rejects(o)) ??
+              '${_rejects(o)} Nothing was trimmed to fit — fix those lines and '
+                  'import again.',
           icon: LucideIcons.fileWarning,
         ),
       ],
       if (o.readError != null) ...[
         const SizedBox(height: S.x3),
         StatusCard(
-          'One of those files could not be read',
-          'The rest imported. ${o.readError}',
+          l?.welcomeOneFileCouldNotBeRead ??
+              'One of those files could not be read',
+          l?.welcomeRestImported('${o.readError}') ??
+              'The rest imported. ${o.readError}',
           icon: LucideIcons.fileWarning,
         ),
       ],
       if (o.rollupError != null) ...[
         const SizedBox(height: S.x3),
         StatusCard(
-          'The days landed, the summaries did not',
-          'Every imported row is in the database, but rebuilding the cross-day '
-              'summaries over them threw (${o.rollupError}), so trends and '
-              'insights still describe the data you had before. Re-analyze '
-              'everything from Your data rebuilds them.',
+          l?.welcomeSummariesDidNotTitle ??
+              'The days landed, the summaries did not',
+          l?.welcomeSummariesDidNotBody('${o.rollupError}') ??
+              'Every imported row is in the database, but rebuilding the cross-day '
+                  'summaries over them threw (${o.rollupError}), so trends and '
+                  'insights still describe the data you had before. Re-analyze '
+                  'everything from Your data rebuilds them.',
           icon: LucideIcons.triangleAlert,
         ),
       ],
       if (o.lostSomething) ...[
         const SizedBox(height: S.x3),
         StatusCard(
-          'Part of that file could not be used',
+          l?.welcomePartOfFileNotUsedTitle ??
+              'Part of that file could not be used',
           [
             if (o.strandedDays > 0)
-              '${o.strandedDays} day${o.strandedDays == 1 ? '' : 's'} arrived '
+              l?.welcomeStrandedDays(o.strandedDays) ??
+                  '${o.strandedDays} day${o.strandedDays == 1 ? '' : 's'} arrived '
                   'out of order and were only used as context for the day '
                   'that followed.',
             if (o.lateRows > 0)
-              '${o.lateRows} row${o.lateRows == 1 ? '' : 's'} arrived after '
-                  'their day had already been scored and closed.',
+              l?.welcomeLateRows(o.lateRows) ??
+                  '${o.lateRows} row${o.lateRows == 1 ? '' : 's'} arrived after '
+                      'their day had already been scored and closed.',
           ].join(' '),
-          fix: 'Export again in date order',
+          fix: l?.welcomeExportAgainInDateOrder ?? 'Export again in date order',
           icon: LucideIcons.fileWarning,
         ),
       ],

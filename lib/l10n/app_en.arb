@@ -19,5 +19,1424 @@
   "languageSystemDefault": "System default",
   "@languageSystemDefault": {
     "description": "Option in the language picker that follows the OS locale."
+  },
+  "actionCancel": "Cancel",
+  "@actionCancel": {
+    "description": "Generic Cancel button."
+  },
+  "actionSave": "Save",
+  "@actionSave": {
+    "description": "Generic Save button."
+  },
+  "actionContinue": "Continue",
+  "@actionContinue": {
+    "description": "Generic Continue button."
+  },
+  "actionDone": "Done",
+  "@actionDone": {
+    "description": "Generic Done status label."
+  },
+  "actionSettings": "Settings",
+  "@actionSettings": {
+    "description": "Settings icon semantic label."
+  },
+  "actionTryAnotherFile": "Try another file",
+  "@actionTryAnotherFile": {
+    "description": "Fix action: try another file."
+  },
+  "stateOn": "On",
+  "@stateOn": {
+    "description": "On/off toggle state: on."
+  },
+  "stateOff": "Off",
+  "@stateOff": {
+    "description": "On/off toggle state: off."
+  },
+  "pillLocalNoCloud": "Local · no cloud",
+  "@pillLocalNoCloud": {
+    "description": "Pill badge: everything computed on-device."
+  },
+  "pairingSkipForNow": "Skip for now",
+  "@pairingSkipForNow": {
+    "description": "Onboarding pairing screen: skip button."
+  },
+  "pairingSkipNote": "The app opens without a band. Nothing is measured until one is paired.",
+  "@pairingSkipNote": {
+    "description": "Note under the skip button."
+  },
+  "pairingIdleTitle": "Wake the band and hold it close",
+  "@pairingIdleTitle": {
+    "description": "Pairing state title: idle."
+  },
+  "pairingIdleBody": "Take the band off the charger, put it on your wrist and keep the phone within arm’s reach.",
+  "@pairingIdleBody": {
+    "description": "Pairing state body: idle."
+  },
+  "pairingScanningTitle": "Looking for your band",
+  "@pairingScanningTitle": {
+    "description": "Pairing state title: scanning."
+  },
+  "pairingScanningBody": "A band that has just come off the charger can take up to half a minute to start advertising.",
+  "@pairingScanningBody": {
+    "description": "Pairing state body: scanning."
+  },
+  "pairingNotFoundTitle": "No band in range",
+  "@pairingNotFoundTitle": {
+    "description": "Pairing state title: not found."
+  },
+  "pairingNotFoundBody": "Nothing answered the scan. The band advertises only when it is awake and not already connected to another phone.",
+  "@pairingNotFoundBody": {
+    "description": "Pairing state body: not found."
+  },
+  "pairingBondRefusedTitle": "The band refused the pairing",
+  "@pairingBondRefusedTitle": {
+    "description": "Pairing state title: bond refused."
+  },
+  "pairingBondRefusedBody": "The link came up, but the band would not accept the encryption key. That is almost always a stale pairing record on this phone rather than a fault in the band.",
+  "@pairingBondRefusedBody": {
+    "description": "Pairing state body: bond refused."
+  },
+  "pairingCancelledTitle": "Pairing was cancelled",
+  "@pairingCancelledTitle": {
+    "description": "Pairing state title: cancelled."
+  },
+  "pairingCancelledBody": "The system picker was dismissed before a band was chosen.",
+  "@pairingCancelledBody": {
+    "description": "Pairing state body: cancelled."
+  },
+  "pairingFailedTitle": "Pairing did not complete",
+  "@pairingFailedTitle": {
+    "description": "Pairing state title: failed."
+  },
+  "pairingFailedBody": "The band was reachable but the session did not finish.",
+  "@pairingFailedBody": {
+    "description": "Pairing state body: failed."
+  },
+  "pairingPairedTitle": "Paired",
+  "@pairingPairedTitle": {
+    "description": "Pairing state title: paired."
+  },
+  "pairingPairedBody": "Setting up the first sync.",
+  "@pairingPairedBody": {
+    "description": "Pairing state body: paired."
+  },
+  "pairingFindMyBand": "Find my band",
+  "@pairingFindMyBand": {
+    "description": "Pairing CTA: idle."
+  },
+  "pairingSearching": "Searching…",
+  "@pairingSearching": {
+    "description": "Pairing CTA: scanning."
+  },
+  "pairingOpenPickerAgain": "Open the picker again",
+  "@pairingOpenPickerAgain": {
+    "description": "Pairing CTA: cancelled."
+  },
+  "pairingTryAgain": "Try again",
+  "@pairingTryAgain": {
+    "description": "Pairing CTA: default retry."
+  },
+  "pairingNotFoundAdviceTitle": "Three things stop a band answering",
+  "@pairingNotFoundAdviceTitle": {
+    "description": "Advice card title: not found."
+  },
+  "pairingNotFoundAdviceBody": "It is still on the charger; it is out of range; or it is still connected to another phone or to the vendor app.",
+  "@pairingNotFoundAdviceBody": {
+    "description": "Advice card body: not found."
+  },
+  "pairingNotFoundAdviceFix": "Force-quit the other app, then scan again",
+  "@pairingNotFoundAdviceFix": {
+    "description": "Advice card fix: not found."
+  },
+  "pairingBondRefusedAdviceTitle": "Forget the band in Bluetooth settings first",
+  "@pairingBondRefusedAdviceTitle": {
+    "description": "Advice card title: bond refused."
+  },
+  "pairingBondRefusedAdviceBody": "Open the phone’s Bluetooth settings, forget the band, then scan again here. The refused key is the old pairing record, and only the system can clear it.",
+  "@pairingBondRefusedAdviceBody": {
+    "description": "Advice card body: bond refused."
+  },
+  "pairingBondRefusedAdviceFix": "Open Bluetooth settings",
+  "@pairingBondRefusedAdviceFix": {
+    "description": "Advice card fix: bond refused."
+  },
+  "pairingFailedAdviceTitle": "The band was found but the session did not finish",
+  "@pairingFailedAdviceTitle": {
+    "description": "Advice card title: failed."
+  },
+  "pairingFailedAdviceBody": "Scanning again from a metre away normally works.",
+  "@pairingFailedAdviceBody": {
+    "description": "Advice card body: failed."
+  },
+  "profileSetupTitle": "About you",
+  "@profileSetupTitle": {
+    "description": "Profile setup screen header."
+  },
+  "profileSetupBody": "Four numbers change how your data is scored. Leave any of them blank and only the metrics that need it stay unavailable.",
+  "@profileSetupBody": {
+    "description": "Profile setup intro body."
+  },
+  "profileSetupSexHeader": "SEX",
+  "@profileSetupSexHeader": {
+    "description": "Sex field section header."
+  },
+  "profileSetupSexMale": "Male",
+  "@profileSetupSexMale": {
+    "description": "Sex option: male."
+  },
+  "profileSetupSexFemale": "Female",
+  "@profileSetupSexFemale": {
+    "description": "Sex option: female."
+  },
+  "profileSetupSexPreferNotToSay": "Prefer not to say",
+  "@profileSetupSexPreferNotToSay": {
+    "description": "Sex option: prefer not to say."
+  },
+  "profileSetupOtherSexNote": "Calories use the mean of the two published sets. Training load and strain have only two published constants and no third, so they use the male pair.",
+  "@profileSetupOtherSexNote": {
+    "description": "Note shown when 'prefer not to say' is picked."
+  },
+  "profileSetupAgeLabel": "AGE",
+  "@profileSetupAgeLabel": {
+    "description": "Field label: age."
+  },
+  "profileSetupAgeUnit": "years",
+  "@profileSetupAgeUnit": {
+    "description": "Unit hint: years."
+  },
+  "profileSetupAgeConsequence": "Without it: heart-rate zones, calories, fitness age.",
+  "@profileSetupAgeConsequence": {
+    "description": "What is lost without age."
+  },
+  "profileSetupHeightLabel": "HEIGHT",
+  "@profileSetupHeightLabel": {
+    "description": "Field label: height."
+  },
+  "profileSetupHeightConsequence": "Without it: stride length, and distance from steps.",
+  "@profileSetupHeightConsequence": {
+    "description": "What is lost without height."
+  },
+  "profileSetupWeightLabel": "WEIGHT",
+  "@profileSetupWeightLabel": {
+    "description": "Field label: weight."
+  },
+  "profileSetupWeightConsequence": "Without it: calories and training load.",
+  "@profileSetupWeightConsequence": {
+    "description": "What is lost without weight."
+  },
+  "profileSetupOptional": "OPTIONAL",
+  "@profileSetupOptional": {
+    "description": "Field tag: optional."
+  },
+  "profileSetupPickOneToContinue": "Pick one option above to continue.",
+  "@profileSetupPickOneToContinue": {
+    "description": "Hint below the disabled Continue button."
+  },
+  "alarmNavTitle": "Alarm",
+  "@alarmNavTitle": {
+    "description": "Alarm screen title."
+  },
+  "alarmNavSub": "Wakes you on the band, not the phone",
+  "@alarmNavSub": {
+    "description": "Alarm screen subtitle."
+  },
+  "alarmArmedFor": "ARMED FOR",
+  "@alarmArmedFor": {
+    "description": "Armed-for section label."
+  },
+  "alarmNotConnectedTitle": "The band is not connected",
+  "@alarmNotConnectedTitle": {
+    "description": "Status card: band not connected."
+  },
+  "alarmNotConnectedBody": "Setting, testing and cancelling all write to the band, so they need a live connection. An alarm that is already armed is unaffected — it lives on the band.",
+  "@alarmNotConnectedBody": {
+    "description": "Status card body: band not connected."
+  },
+  "alarmSetAnAlarm": "Set an alarm",
+  "@alarmSetAnAlarm": {
+    "description": "Button: set an alarm."
+  },
+  "alarmChangeTheTime": "Change the time",
+  "@alarmChangeTheTime": {
+    "description": "Button: change the time."
+  },
+  "alarmTestTheBuzz": "Test the buzz",
+  "@alarmTestTheBuzz": {
+    "description": "Button: test the buzz."
+  },
+  "alarmCancelTheAlarm": "Cancel the alarm",
+  "@alarmCancelTheAlarm": {
+    "description": "Button: cancel the alarm."
+  },
+  "alarmBuzzingTheBand": "Buzzing the band",
+  "@alarmBuzzingTheBand": {
+    "description": "Snackbar: testing the buzz."
+  },
+  "alarmCancelled": "Alarm cancelled",
+  "@alarmCancelled": {
+    "description": "Snackbar: alarm cancelled."
+  },
+  "alarmSentToBand": "Alarm sent to the band",
+  "@alarmSentToBand": {
+    "description": "Snackbar: alarm sent."
+  },
+  "alarmInThePast": "In the past — it has already fired or been missed",
+  "@alarmInThePast": {
+    "description": "Which-day label: in the past."
+  },
+  "alarmLaterToday": "Later today",
+  "@alarmLaterToday": {
+    "description": "Which-day label: later today."
+  },
+  "alarmTomorrow": "Tomorrow",
+  "@alarmTomorrow": {
+    "description": "Which-day label: tomorrow."
+  },
+  "alarmInDays": "In {days} days",
+  "@alarmInDays": {
+    "description": "Which-day label: N days from now.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "alarmStateConfirmed": "Confirmed",
+  "@alarmStateConfirmed": {
+    "description": "Arm state label: confirmed."
+  },
+  "alarmStateWaiting": "Waiting",
+  "@alarmStateWaiting": {
+    "description": "Arm state label: waiting."
+  },
+  "alarmStateNotConfirmed": "Not confirmed",
+  "@alarmStateNotConfirmed": {
+    "description": "Arm state label: unknown/not confirmed."
+  },
+  "alarmStateNotSet": "Not set",
+  "@alarmStateNotSet": {
+    "description": "Arm state label: none."
+  },
+  "alarmHeadlineConfirmed": "The band has this alarm",
+  "@alarmHeadlineConfirmed": {
+    "description": "Detail card headline: confirmed."
+  },
+  "alarmHeadlinePending": "Sent — waiting for the band to confirm",
+  "@alarmHeadlinePending": {
+    "description": "Detail card headline: pending."
+  },
+  "alarmHeadlineUnknown": "We cannot tell whether this will fire",
+  "@alarmHeadlineUnknown": {
+    "description": "Detail card headline: unknown."
+  },
+  "alarmHeadlineNone": "No alarm is set",
+  "@alarmHeadlineNone": {
+    "description": "Detail card headline: none."
+  },
+  "alarmDetailConfirmed": "The band reported that it latched the alarm.",
+  "@alarmDetailConfirmed": {
+    "description": "Detail card body: confirmed."
+  },
+  "alarmDetailPending": "The write reached the band. Its confirmation usually arrives within a few seconds.",
+  "@alarmDetailPending": {
+    "description": "Detail card body: pending."
+  },
+  "alarmDetailUnknown": "The time above is what this app last sent. The band never confirmed it — or it was set in an earlier run of the app, and there is no way to ask the band what it is holding. Set it again while connected if you need to be sure.",
+  "@alarmDetailUnknown": {
+    "description": "Detail card body: unknown."
+  },
+  "bandNotifNavTitle": "Band notifications",
+  "@bandNotifNavTitle": {
+    "description": "Screen title."
+  },
+  "bandNotifNavSub": "WHAT MAKES THE STRAP BUZZ",
+  "@bandNotifNavSub": {
+    "description": "Screen subtitle."
+  },
+  "bandNotifUnsupportedTitle": "This phone cannot do it",
+  "@bandNotifUnsupportedTitle": {
+    "description": "Status card: unsupported platform."
+  },
+  "bandNotifUnsupportedBody": "Reading which app posted a notification is an Android capability. iOS gives no app that access, including this one.",
+  "@bandNotifUnsupportedBody": {
+    "description": "Status card body: unsupported platform."
+  },
+  "bandNotifRelayGroup": "Relay",
+  "@bandNotifRelayGroup": {
+    "description": "Settings group header."
+  },
+  "bandNotifBuzzOnAppNotifs": "Buzz on app notifications",
+  "@bandNotifBuzzOnAppNotifs": {
+    "description": "Setting row title."
+  },
+  "bandNotifBuzzSub": "The strap buzzes when one of the apps below notifies you. What a notification says is never read or sent — only which app posted, kept on this phone to build the list",
+  "@bandNotifBuzzSub": {
+    "description": "Setting row sub."
+  },
+  "bandNotifAppsArmed": "Apps armed",
+  "@bandNotifAppsArmed": {
+    "description": "Setting row title: count of armed apps."
+  },
+  "bandNotifPermissionTitle": "Android needs to let us see notifications",
+  "@bandNotifPermissionTitle": {
+    "description": "Status card: needs permission."
+  },
+  "bandNotifPermissionBody": "The permission says which app posted, and that is all this uses it for. The names stay on this phone and nothing leaves it.",
+  "@bandNotifPermissionBody": {
+    "description": "Status card body: needs permission."
+  },
+  "bandNotifGrantAccess": "Grant notification access",
+  "@bandNotifGrantAccess": {
+    "description": "Fix button: grant access."
+  },
+  "bandNotifEmptyTitle": "No app has notified you yet",
+  "@bandNotifEmptyTitle": {
+    "description": "Status card: no apps yet."
+  },
+  "bandNotifEmptyBody": "Apps appear here the first time each one notifies you while the relay is on. Nothing is missed in the meantime — the first ping is what puts an app on this list, and the second can buzz.",
+  "@bandNotifEmptyBody": {
+    "description": "Status card body: no apps yet."
+  },
+  "bandNotifAppsGroup": "Apps that notify you",
+  "@bandNotifAppsGroup": {
+    "description": "Settings group header: apps list."
+  },
+  "bandNotifOneBuzzTitle": "One buzz, not a stream",
+  "@bandNotifOneBuzzTitle": {
+    "description": "Status card: rate limiting explained."
+  },
+  "bandNotifOneBuzzBody": "Repeat posts from the same app are ignored for four seconds, ongoing notifications (media players, downloads) never buzz, and nothing buzzes at all while the band is disconnected.",
+  "@bandNotifOneBuzzBody": {
+    "description": "Status card body: rate limiting explained."
+  },
+  "bandNotifBuzzesDescription": "buzzes",
+  "@bandNotifBuzzesDescription": {
+    "description": "Semantic label suffix: buzzes."
+  },
+  "bandNotifDoesNotBuzzDescription": "does not buzz",
+  "@bandNotifDoesNotBuzzDescription": {
+    "description": "Semantic label suffix: does not buzz."
+  },
+  "bandNotifBuzzes": "Buzzes",
+  "@bandNotifBuzzes": {
+    "description": "Row trailing label: buzzes."
+  },
+  "dataNavTitle": "Your data",
+  "@dataNavTitle": {
+    "description": "Screen title."
+  },
+  "dataExportGroup": "Export",
+  "@dataExportGroup": {
+    "description": "Group header."
+  },
+  "dataExportSpreadsheets": "Export as spreadsheets",
+  "@dataExportSpreadsheets": {
+    "description": "Row title."
+  },
+  "dataExportSpreadsheetsSub": "{count} CSV files — daily metrics, workouts, sleep, journal, labs, and everything you typed in. Each day carries where it came from and which algorithm version scored it",
+  "@dataExportSpreadsheetsSub": {
+    "description": "Row sub with file count.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataExportDatabase": "Export the database",
+  "@dataExportDatabase": {
+    "description": "Row title."
+  },
+  "dataExportDatabaseSub": "One .db file. Lossless, and the only format that restores onto another phone. Readable by anything that opens SQLite — including anyone who gets the file",
+  "@dataExportDatabaseSub": {
+    "description": "Row sub."
+  },
+  "dataExportEncrypted": "Export an encrypted backup",
+  "@dataExportEncrypted": {
+    "description": "Row title."
+  },
+  "dataExportEncryptedSub": "The same complete copy, sealed with a passphrase, for somewhere like iCloud. Forget the passphrase and that file is gone — there is no recovery, because there is no account holding a key",
+  "@dataExportEncryptedSub": {
+    "description": "Row sub."
+  },
+  "dataAutoBackupGroup": "Automatic backup",
+  "@dataAutoBackupGroup": {
+    "description": "Group header."
+  },
+  "dataHowOften": "How often",
+  "@dataHowOften": {
+    "description": "Row title."
+  },
+  "dataHowOftenSub": "Writes a compressed, unencrypted copy to {dir}, keeping the last {kept}",
+  "@dataHowOftenSub": {
+    "description": "Row sub.",
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      },
+      "kept": {
+        "type": "int"
+      }
+    }
+  },
+  "dataLastBackup": "Last backup",
+  "@dataLastBackup": {
+    "description": "Row title."
+  },
+  "dataNever": "Never",
+  "@dataNever": {
+    "description": "Row value: never."
+  },
+  "dataBackUpNow": "Back up now",
+  "@dataBackUpNow": {
+    "description": "Row title."
+  },
+  "dataBringDataInGroup": "Bring data in",
+  "@dataBringDataInGroup": {
+    "description": "Group header."
+  },
+  "dataImportFile": "Import a file",
+  "@dataImportFile": {
+    "description": "Row title."
+  },
+  "dataImportFileSub": "An OpenStrap backup (encrypted or not), a journal CSV you edited, a raw sensor export, or a vendor CSV. Days this band already measured are never overwritten",
+  "@dataImportFileSub": {
+    "description": "Row sub."
+  },
+  "dataFromYourPhone": "From your phone",
+  "@dataFromYourPhone": {
+    "description": "Row title."
+  },
+  "dataFromYourPhoneSub": "Resting heart rate, blood pressure, glucose and body temperature",
+  "@dataFromYourPhoneSub": {
+    "description": "Row sub."
+  },
+  "dataRebuildGroup": "Rebuild",
+  "@dataRebuildGroup": {
+    "description": "Group header."
+  },
+  "dataReanalyzeEverything": "Re-analyze everything",
+  "@dataReanalyzeEverything": {
+    "description": "Row title."
+  },
+  "dataReanalyzeEverythingSub": "Scores every day again from what is stored. Needed after a long-haul flight, and after an import that landed days out of order",
+  "@dataReanalyzeEverythingSub": {
+    "description": "Row sub."
+  },
+  "dataThatDidNotWork": "That did not work",
+  "@dataThatDidNotWork": {
+    "description": "Status card title: failure."
+  },
+  "dataFailed": "Failed: {error}",
+  "@dataFailed": {
+    "description": "Generic failure message with error text.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dataNothingExportedFailed": "Nothing exported ({failed} failed).",
+  "@dataNothingExportedFailed": {
+    "description": "Export result: nothing exported, some sets failed.",
+    "placeholders": {
+      "failed": {
+        "type": "String"
+      }
+    }
+  },
+  "dataNothingToExportYet": "Nothing to export yet.",
+  "@dataNothingToExportYet": {
+    "description": "Export result: nothing to export."
+  },
+  "dataFilesShared": "{n, plural, one{1 file shared.} other{{n} files shared.}}",
+  "@dataFilesShared": {
+    "description": "Export result: N files shared.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "dataSetsFailed": "{count} set(s) failed: {list}.",
+  "@dataSetsFailed": {
+    "description": "N export sets failed, with names.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "dataDatabaseShared": "Database shared. It is the complete copy.",
+  "@dataDatabaseShared": {
+    "description": "Export result: database shared."
+  },
+  "dataEncryptedBackupShared": "Encrypted backup shared. Without that passphrase nobody can open it — including this app, and including us.",
+  "@dataEncryptedBackupShared": {
+    "description": "Export result: encrypted backup shared."
+  },
+  "dataDaysReanalyzed": "{n, plural, one{1 day re-analyzed.} other{{n} days re-analyzed.}}",
+  "@dataDaysReanalyzed": {
+    "description": "Re-analyze result: N days.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupFailed": "Backup failed: {error}",
+  "@dataBackupFailed": {
+    "description": "Backup result: failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dataBackupSkipped": "Backup skipped.",
+  "@dataBackupSkipped": {
+    "description": "Backup result: skipped."
+  },
+  "dataBackedUpTo": "Backed up to {path}",
+  "@dataBackedUpTo": {
+    "description": "Backup result: succeeded, with path.",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "dataCouldNotOpenPicker": "Could not open the file picker: {error}",
+  "@dataCouldNotOpenPicker": {
+    "description": "Import: could not open picker.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dataSummariesDidNotBodyShort": "Every imported row is in the database, but rebuilding the cross-day summaries over them threw ({error}), so trends and insights still describe the data you had before.",
+  "@dataSummariesDidNotBodyShort": {
+    "description": "Rollup error body (shorter, no re-analyze CTA copy).",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesAddASensor": "Add a sensor",
+  "@devicesAddASensor": {
+    "description": "Row/sheet title: add a sensor."
+  },
+  "devicesAddASensorSub": "A heart-rate strap or a ring, alongside the band",
+  "@devicesAddASensorSub": {
+    "description": "Row sub."
+  },
+  "devicesMySources": "My sources",
+  "@devicesMySources": {
+    "description": "Screen title."
+  },
+  "devicesNoBandPaired": "No band is paired",
+  "@devicesNoBandPaired": {
+    "description": "Status card title."
+  },
+  "devicesNothingMeasuringYet": "Nothing is measuring yet",
+  "@devicesNothingMeasuringYet": {
+    "description": "Status card title."
+  },
+  "devicesPhoneCountingBody": "The phone counts steps and nothing else. Heart rate, sleep, recovery and temperature all abstain until a band is paired.",
+  "@devicesPhoneCountingBody": {
+    "description": "Status card body: phone only."
+  },
+  "devicesNothingMeasuringBody": "No band is paired and no phone steps are arriving, so every metric in the app will abstain rather than estimate.",
+  "@devicesNothingMeasuringBody": {
+    "description": "Status card body: nothing measuring."
+  },
+  "devicesPairABand": "Pair a band",
+  "@devicesPairABand": {
+    "description": "Fix button."
+  },
+  "devicesLive": "LIVE",
+  "@devicesLive": {
+    "description": "Section header."
+  },
+  "devicesQualityLadder": "THE QUALITY LADDER",
+  "@devicesQualityLadder": {
+    "description": "Section header."
+  },
+  "devicesNothingHereYet": "Nothing here yet",
+  "@devicesNothingHereYet": {
+    "description": "Empty tier row note."
+  },
+  "devicesExperimental": "Experimental",
+  "@devicesExperimental": {
+    "description": "Tag: experimental support."
+  },
+  "devicesStreamingBeats": "Streaming beats",
+  "@devicesStreamingBeats": {
+    "description": "Source state: streaming."
+  },
+  "devicesStoringWhatItSends": "Paired · storing what it sends",
+  "@devicesStoringWhatItSends": {
+    "description": "Source state: paired, unranked."
+  },
+  "devicesWaitingForWorkout": "Waiting for a workout",
+  "@devicesWaitingForWorkout": {
+    "description": "Source state: paired sensor, idle."
+  },
+  "devicesReportingSteps": "Reporting steps",
+  "@devicesReportingSteps": {
+    "description": "Source state: phone reporting."
+  },
+  "devicesNoStepsArriving": "No steps arriving",
+  "@devicesNoStepsArriving": {
+    "description": "Source state: phone not reporting."
+  },
+  "devicesSyncing": "Syncing",
+  "@devicesSyncing": {
+    "description": "Source state: syncing."
+  },
+  "devicesConnected": "Connected",
+  "@devicesConnected": {
+    "description": "Source state: connected."
+  },
+  "devicesNotConnected": "Not connected",
+  "@devicesNotConnected": {
+    "description": "Source state: not connected."
+  },
+  "devicesTierRank": "Tier {rank}",
+  "@devicesTierRank": {
+    "description": "Tier pill: rank only.",
+    "placeholders": {
+      "rank": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesTierRankLabel": "Tier {rank} · {label}",
+  "@devicesTierRankLabel": {
+    "description": "Tier row title: rank and label.",
+    "placeholders": {
+      "rank": {
+        "type": "int"
+      },
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesSyncingTheRing": "Syncing the ring…",
+  "@devicesSyncingTheRing": {
+    "description": "Snackbar: syncing ring."
+  },
+  "devicesSynced": "Synced.",
+  "@devicesSynced": {
+    "description": "Snackbar: sync succeeded."
+  },
+  "devicesCouldNotReachRing": "Could not reach the ring. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachRing": {
+    "description": "Snackbar: sync failed."
+  },
+  "devicesForgetSensor": "Forget {name}?",
+  "@devicesForgetSensor": {
+    "description": "Dialog title: forget a paired sensor.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesForgetSensorBody": "It stops being used during workouts and has to be paired again. Everything already banked on this phone is kept — this removes the source, not the data.",
+  "@devicesForgetSensorBody": {
+    "description": "Dialog body: forget a sensor."
+  },
+  "devicesKeepItPaired": "Keep it paired",
+  "@devicesKeepItPaired": {
+    "description": "Dialog action: cancel forget."
+  },
+  "devicesForgetIt": "Forget it",
+  "@devicesForgetIt": {
+    "description": "Dialog action: confirm forget."
+  },
+  "devicesNameThisBand": "Name this band",
+  "@devicesNameThisBand": {
+    "description": "Dialog title: rename."
+  },
+  "devicesYourBand": "Your band",
+  "@devicesYourBand": {
+    "description": "Rename field hint."
+  },
+  "devicesNameCharset": "Letters, numbers, space, and ' . _ -",
+  "@devicesNameCharset": {
+    "description": "Rename field helper text."
+  },
+  "devicesGiveItAName": "Give it a name",
+  "@devicesGiveItAName": {
+    "description": "Rename validation error: empty."
+  },
+  "devicesNameCharsetError": "Only letters, numbers, space, and ' . _ -",
+  "@devicesNameCharsetError": {
+    "description": "Rename validation error: bad charset."
+  },
+  "devicesRenamedTo": "Renamed to {name}",
+  "@devicesRenamedTo": {
+    "description": "Snackbar: renamed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesCouldNotRename": "Could not rename the band: {error}",
+  "@devicesCouldNotRename": {
+    "description": "Snackbar: rename failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesForgetBand": "Forget {name}?",
+  "@devicesForgetBand": {
+    "description": "Dialog title: forget band.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesForgetBandBody": "The band stops syncing and has to be paired again to measure anything. Everything already banked on this phone is kept — this removes the source, not the data.",
+  "@devicesForgetBandBody": {
+    "description": "Dialog body: forget band."
+  },
+  "devicesSupport": "Support",
+  "@devicesSupport": {
+    "description": "Row title: support status."
+  },
+  "devicesSensorExperimentalSub": "Decoded from the protocol, never checked against the hardware — nobody here owns one.",
+  "@devicesSensorExperimentalSub": {
+    "description": "Row sub: sensor experimental."
+  },
+  "devicesWhatItDoes": "What it does",
+  "@devicesWhatItDoes": {
+    "description": "Row title."
+  },
+  "devicesWhatItDoesUnranked": "Everything it sends is stored and attributed to it. Nothing in the app is calculated from it yet.",
+  "@devicesWhatItDoesUnranked": {
+    "description": "Row sub: unranked sensor."
+  },
+  "devicesWhatItDoesRanked": "Beat timing is stored and attributed to it during a workout. Nothing in the app is calculated from it yet.",
+  "@devicesWhatItDoesRanked": {
+    "description": "Row sub: ranked sensor."
+  },
+  "devicesLastData": "Last data",
+  "@devicesLastData": {
+    "description": "Row title."
+  },
+  "devicesNothingBankedYet": "Nothing banked yet",
+  "@devicesNothingBankedYet": {
+    "description": "Row sub: no data yet."
+  },
+  "devicesSyncNow": "Sync now",
+  "@devicesSyncNow": {
+    "description": "Row title: manual sync."
+  },
+  "devicesSyncNowSub": "Fetch whatever it has been holding",
+  "@devicesSyncNowSub": {
+    "description": "Row sub: manual sync."
+  },
+  "devicesName": "Name",
+  "@devicesName": {
+    "description": "Row title: device name."
+  },
+  "devicesConnectToRename": "Connect to the band to change it",
+  "@devicesConnectToRename": {
+    "description": "Row sub: rename disabled."
+  },
+  "devicesBattery": "Battery",
+  "@devicesBattery": {
+    "description": "Row title."
+  },
+  "devicesBatteryNotReported": "Not reported since the last connection",
+  "@devicesBatteryNotReported": {
+    "description": "Row sub: battery unknown."
+  },
+  "devicesCharging": "Charging",
+  "@devicesCharging": {
+    "description": "Battery sub tag: charging."
+  },
+  "devicesHeartRate": "Heart rate",
+  "@devicesHeartRate": {
+    "description": "Row title: live heart rate."
+  },
+  "devicesRightNow": "Right now",
+  "@devicesRightNow": {
+    "description": "Row sub: live value."
+  },
+  "devicesCalibration": "Calibration",
+  "@devicesCalibration": {
+    "description": "Row title."
+  },
+  "devicesBandExperimentalSub": "This band is decoded but nobody here has worn one. Its numbers have not been checked against the hardware, only against the protocol.",
+  "@devicesBandExperimentalSub": {
+    "description": "Row sub: band experimental."
+  },
+  "devicesBuzzTheBand": "Buzz the band",
+  "@devicesBuzzTheBand": {
+    "description": "Row title."
+  },
+  "devicesFindItByFeel": "Find it by feel",
+  "@devicesFindItByFeel": {
+    "description": "Row sub."
+  },
+  "devicesForgetThisBand": "Forget this band",
+  "@devicesForgetThisBand": {
+    "description": "Row title: danger action."
+  },
+  "pairSensorAddASensor": "Add a sensor",
+  "@pairSensorAddASensor": {
+    "description": "Screen nav title."
+  },
+  "pairSensorWhatThisAdds": "What this adds",
+  "@pairSensorWhatThisAdds": {
+    "description": "Section header: no paired sensor."
+  },
+  "pairSensorPairAnother": "Pair another",
+  "@pairSensorPairAnother": {
+    "description": "Section header: has a paired sensor."
+  },
+  "pairSensorExplainer": "A sensor is used only while a workout is running, and only for heart rate and beat timing. It does not replace your band, it is never used overnight, and nothing it records feeds a score yet — its readings are stored and shown, and that is all.",
+  "@pairSensorExplainer": {
+    "description": "Explanatory body."
+  },
+  "pairSensorSearchWouldHideSheet": "Searching would hide the WHOOP pairing sheet",
+  "@pairSensorSearchWouldHideSheet": {
+    "description": "iOS-gate status card title."
+  },
+  "pairSensorSearchAnyway": "Search anyway",
+  "@pairSensorSearchAnyway": {
+    "description": "iOS-gate status card fix."
+  },
+  "pairSensorSearching": "Searching…",
+  "@pairSensorSearching": {
+    "description": "Button label: scanning."
+  },
+  "pairSensorSearchForSensors": "Search for sensors",
+  "@pairSensorSearchForSensors": {
+    "description": "Button label: idle."
+  },
+  "pairSensorThatDidNotWork": "That did not work",
+  "@pairSensorThatDidNotWork": {
+    "description": "Status card title: failure."
+  },
+  "pairSensorInRange": "In range",
+  "@pairSensorInRange": {
+    "description": "Section header: candidates list."
+  },
+  "pairSensorListeningForSensors": "Listening for sensors…",
+  "@pairSensorListeningForSensors": {
+    "description": "Empty state while scanning."
+  },
+  "pairSensorNothingFoundYet": "Nothing found yet",
+  "@pairSensorNothingFoundYet": {
+    "description": "Status card title: empty result."
+  },
+  "pairSensorNothingFoundBody": "A sensor answers a search only while it is awake, worn or damp, and not already connected to another phone or app.",
+  "@pairSensorNothingFoundBody": {
+    "description": "Status card body: empty result."
+  },
+  "pairSensorPaired": "Paired",
+  "@pairSensorPaired": {
+    "description": "Section header: already paired."
+  },
+  "pairSensorUsedDuringWorkouts": "Used during workouts",
+  "@pairSensorUsedDuringWorkouts": {
+    "description": "Row sub: paired sensor."
+  },
+  "pairSensorForgetThisSensor": "Forget this sensor",
+  "@pairSensorForgetThisSensor": {
+    "description": "Row title: danger action."
+  },
+  "pairSensorForgetThisSensorSub": "Removes the source. The readings it already took stay.",
+  "@pairSensorForgetThisSensorSub": {
+    "description": "Row sub: forget sensor."
+  },
+  "pairSensorPairing": "Pairing…",
+  "@pairSensorPairing": {
+    "description": "Row sub: pairing in progress."
+  },
+  "pairSensorScanDidNotRun": "The scan did not run: {error}",
+  "@pairSensorScanDidNotRun": {
+    "description": "Error: scan failed to run.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "pairSensorCouldNotPair": "Could not pair that device: {error}",
+  "@pairSensorCouldNotPair": {
+    "description": "Error: pairing failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportSystolic": "Blood pressure, systolic",
+  "@phoneImportSystolic": {
+    "description": "Imported measurement kind label."
+  },
+  "phoneImportDiastolic": "Blood pressure, diastolic",
+  "@phoneImportDiastolic": {
+    "description": "Imported measurement kind label."
+  },
+  "phoneImportGlucose": "Blood glucose",
+  "@phoneImportGlucose": {
+    "description": "Imported measurement kind label."
+  },
+  "phoneImportBodyTemp": "Body temperature",
+  "@phoneImportBodyTemp": {
+    "description": "Imported measurement kind label."
+  },
+  "phoneImportNavTitle": "From your phone",
+  "@phoneImportNavTitle": {
+    "description": "Screen title."
+  },
+  "phoneImportRhrSection": "Resting heart rate",
+  "@phoneImportRhrSection": {
+    "description": "Section header."
+  },
+  "phoneImportRhrExplainer": "Reads your resting heart rate from {store}, so the app has a rough idea of your normal before the band has measured one.",
+  "@phoneImportRhrExplainer": {
+    "description": "Explanatory body.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportRhrLimit": "Nothing uses it yet. It waits until the band has measured 14 of its own nights, then gets compared against them below. It never becomes a reading of its own: no night on the sleep chart, no day with a score.",
+  "@phoneImportRhrLimit": {
+    "description": "Promise-limit body."
+  },
+  "phoneImportReadRhr": "Read resting heart rate",
+  "@phoneImportReadRhr": {
+    "description": "Button label."
+  },
+  "phoneImportWhatPhoneSays": "What your phone says",
+  "@phoneImportWhatPhoneSays": {
+    "description": "Metric row title."
+  },
+  "phoneImportUsuallyRange": "usually {low}–{high} bpm, over {days} days from {store}",
+  "@phoneImportUsuallyRange": {
+    "description": "Metric row sub: baseline range.",
+    "placeholders": {
+      "low": {
+        "type": "int"
+      },
+      "high": {
+        "type": "int"
+      },
+      "days": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportDisagreeTitle": "The phone and the band disagree",
+  "@phoneImportDisagreeTitle": {
+    "description": "Status card title: disagreement."
+  },
+  "phoneImportAgreeTitle": "The phone and the band agree",
+  "@phoneImportAgreeTitle": {
+    "description": "Status card title: agreement."
+  },
+  "phoneImportHigher": "higher",
+  "@phoneImportHigher": {
+    "description": "Comparison word: higher."
+  },
+  "phoneImportLower": "lower",
+  "@phoneImportLower": {
+    "description": "Comparison word: lower."
+  },
+  "phoneImportDisagreeBody": "{store} puts your resting heart rate {delta} bpm {dir} than this band measures it over {nights} nights. They are not describing the same thing, so it stays unused.",
+  "@phoneImportDisagreeBody": {
+    "description": "Status card body: disagreement.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      },
+      "delta": {
+        "type": "String"
+      },
+      "dir": {
+        "type": "String"
+      },
+      "nights": {
+        "type": "int"
+      }
+    }
+  },
+  "phoneImportAgreeBody": "Over {nights} nights the band lands within {delta} bpm of what {store} said. It still is not used for anything.",
+  "@phoneImportAgreeBody": {
+    "description": "Status card body: agreement.",
+    "placeholders": {
+      "nights": {
+        "type": "int"
+      },
+      "delta": {
+        "type": "String"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportMeasuredElsewhere": "Measured by something else",
+  "@phoneImportMeasuredElsewhere": {
+    "description": "Section header."
+  },
+  "phoneImportMeasuredElsewhereBody": "A cuff, a glucose meter, a thermometer. This band cannot measure any of them, which is the entire reason they are worth showing — and why the app that recorded each reading is named beside it.",
+  "@phoneImportMeasuredElsewhereBody": {
+    "description": "Explanatory body."
+  },
+  "phoneImportNeverAveraged": "Shown as they arrived. Never averaged into one of this app’s own numbers, never used to teach it to guess one from the wrist.",
+  "@phoneImportNeverAveraged": {
+    "description": "Note: never blended."
+  },
+  "phoneImportReadFrom": "Read from {store}",
+  "@phoneImportReadFrom": {
+    "description": "Button label.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportMovedTitle": "Height, weight and workouts moved",
+  "@phoneImportMovedTitle": {
+    "description": "Status card title: moved features."
+  },
+  "phoneImportMovedBody": "Height and weight are on Edit profile now, and workouts this phone recorded are on Workout, under History. Each one sits on the screen it fills.",
+  "@phoneImportMovedBody": {
+    "description": "Status card body: moved features."
+  },
+  "phoneImportRhrDenied": "{store} did not grant resting heart rate. Nothing was read.",
+  "@phoneImportRhrDenied": {
+    "description": "Permission denied message.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportRhrNothingUsable": "Nothing usable came back. A store with no resting heart rate in it, or too few days to describe a range, cannot become a baseline.",
+  "@phoneImportRhrNothingUsable": {
+    "description": "Nothing usable came back."
+  },
+  "phoneImportRhrSeeded": "{n, plural, one{1 day folded into a shadow baseline. No day was added to any chart.} other{{n} days folded into a shadow baseline. No day was added to any chart.}}",
+  "@phoneImportRhrSeeded": {
+    "description": "Result: N days seeded.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "phoneImportMeasurementsDenied": "{store} did not grant those readings. Nothing was read.",
+  "@phoneImportMeasurementsDenied": {
+    "description": "Permission denied message.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportNothingCameBack": "Nothing came back. {store} holds no readings of these kinds, or none inside the window it will share.",
+  "@phoneImportNothingCameBack": {
+    "description": "Nothing came back.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneImportReadingsStored": "{n, plural, one{1 reading stored, each with the app that recorded it.} other{{n} readings stored, each with the app that recorded it.}}",
+  "@phoneImportReadingsStored": {
+    "description": "Result: N readings stored.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "profileDefaultName": "You",
+  "@profileDefaultName": {
+    "description": "Default display name."
+  },
+  "profileQuickAccessGroup": "Quick access",
+  "@profileQuickAccessGroup": {
+    "description": "Group header."
+  },
+  "profileSourcesCount": "{n, plural, one{1 source} other{{n} sources}}",
+  "@profileSourcesCount": {
+    "description": "Row sub: N sources.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "profileEditProfile": "Edit profile",
+  "@profileEditProfile": {
+    "description": "Row title."
+  },
+  "profileEditProfileSub": "Sex, age, height, weight",
+  "@profileEditProfileSub": {
+    "description": "Row sub."
+  },
+  "profileAiCoach": "AI coach",
+  "@profileAiCoach": {
+    "description": "Row title."
+  },
+  "profileNotSetUp": "Not set up",
+  "@profileNotSetUp": {
+    "description": "Row sub: not configured."
+  },
+  "profileYourDataGroup": "Your data",
+  "@profileYourDataGroup": {
+    "description": "Group header."
+  },
+  "profileStorage": "Storage",
+  "@profileStorage": {
+    "description": "Row title."
+  },
+  "profileMoreSettings": "More settings",
+  "@profileMoreSettings": {
+    "description": "Row title."
+  },
+  "profileMoreSettingsSub": "Import from {store}, export, backup, units, privacy, reset",
+  "@profileMoreSettingsSub": {
+    "description": "Row sub with health-store name.",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeHeadline": "Your band, decoded here",
+  "@welcomeHeadline": {
+    "description": "Welcome screen headline."
+  },
+  "welcomeSubhead": "Every number is computed on this phone from the raw signal.",
+  "@welcomeSubhead": {
+    "description": "Welcome screen subhead."
+  },
+  "welcomeSetUpMyBand": "Set up my band",
+  "@welcomeSetUpMyBand": {
+    "description": "Button label."
+  },
+  "welcomeImporting": "Importing…",
+  "@welcomeImporting": {
+    "description": "Button label: busy."
+  },
+  "welcomeBringMyHistoryFirst": "Bring my history first",
+  "@welcomeBringMyHistoryFirst": {
+    "description": "Button label: idle."
+  },
+  "welcomeImportFooterNote": "Raw sensor exports, an OpenStrap backup (encrypted or not), or a vendor CSV. Imported days sit alongside days this app measured and feed the same baselines — but a day the band already measured is never overwritten.",
+  "@welcomeImportFooterNote": {
+    "description": "Footer note about imports."
+  },
+  "welcomeChoosePassphrase": "Choose a passphrase",
+  "@welcomeChoosePassphrase": {
+    "description": "Dialog title: create."
+  },
+  "welcomePassphrase": "Passphrase",
+  "@welcomePassphrase": {
+    "description": "Dialog title / field label."
+  },
+  "welcomePassphraseCreateNote": "The file is unreadable without it. And a forgotten passphrase means that backup is gone — there is no recovery, because there is no account and no server holding a key. That is the same thing that keeps it private.",
+  "@welcomePassphraseCreateNote": {
+    "description": "Dialog body: creating."
+  },
+  "welcomePassphraseOpenNote": "The one you chose when this backup was written.",
+  "@welcomePassphraseOpenNote": {
+    "description": "Dialog body: opening."
+  },
+  "welcomeRepeatIt": "Repeat it",
+  "@welcomeRepeatIt": {
+    "description": "Dialog field label: confirm passphrase."
+  },
+  "welcomeEncrypt": "Encrypt",
+  "@welcomeEncrypt": {
+    "description": "Dialog action: encrypt."
+  },
+  "welcomeUnlock": "Unlock",
+  "@welcomeUnlock": {
+    "description": "Dialog action: unlock."
+  },
+  "welcomePassphraseTooShort": "At least {n} characters.",
+  "@welcomePassphraseTooShort": {
+    "description": "Validation: too short.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomePassphraseMismatch": "The two do not match.",
+  "@welcomePassphraseMismatch": {
+    "description": "Validation: mismatch."
+  },
+  "welcomePassphraseEmpty": "Enter the passphrase.",
+  "@welcomePassphraseEmpty": {
+    "description": "Validation: empty."
+  },
+  "welcomeSourceCouldNotBeRead": "{source} could not be read",
+  "@welcomeSourceCouldNotBeRead": {
+    "description": "Error card title: unreadable file.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeNothingWasImported": "Nothing was imported",
+  "@welcomeNothingWasImported": {
+    "description": "Status card title: nothing imported."
+  },
+  "welcomeEveryRowRefused": "Every row was refused: {rejects}",
+  "@welcomeEveryRowRefused": {
+    "description": "Status card body: all rows refused.",
+    "placeholders": {
+      "rejects": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeNothingUsableInFile": "The file was read but there was nothing in it this app could use, or every day in it was one this band had already measured.",
+  "@welcomeNothingUsableInFile": {
+    "description": "Status card body: nothing usable."
+  },
+  "welcomeWorkoutsCount": "{n, plural, one{1 workout} other{{n} workouts}}",
+  "@welcomeWorkoutsCount": {
+    "description": "N workouts, in a comma-list.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeDaysAlreadyMeasured": "{n, plural, one{1 day already measured here and left alone} other{{n} days already measured here and left alone}}",
+  "@welcomeDaysAlreadyMeasured": {
+    "description": "N days already measured, in a comma-list.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeDaysImported": "{n, plural, one{1 day imported} other{{n} days imported}}",
+  "@welcomeDaysImported": {
+    "description": "Import result headline: N days.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeJournalDaysWritten": "{n, plural, one{1 journal day written} other{{n} journal days written}}",
+  "@welcomeJournalDaysWritten": {
+    "description": "Import result headline: N journal days.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeJournalDaysReplaced": "{n, plural, one{1 journal day replaced} other{{n} journal days replaced}}",
+  "@welcomeJournalDaysReplaced": {
+    "description": "Import result sub: N journal days replaced.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeRowsRefused": "{n, plural, one{1 row was refused} other{{n} rows were refused}}",
+  "@welcomeRowsRefused": {
+    "description": "Status card title: N rows refused.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeRejectedDetail": "{rejects} Nothing was trimmed to fit — fix those lines and import again.",
+  "@welcomeRejectedDetail": {
+    "description": "Status card body: rejected rows detail + advice.",
+    "placeholders": {
+      "rejects": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeOneFileCouldNotBeRead": "One of those files could not be read",
+  "@welcomeOneFileCouldNotBeRead": {
+    "description": "Status card title: partial read failure."
+  },
+  "welcomeRestImported": "The rest imported. {error}",
+  "@welcomeRestImported": {
+    "description": "Status card body: partial read failure.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeSummariesDidNotTitle": "The days landed, the summaries did not",
+  "@welcomeSummariesDidNotTitle": {
+    "description": "Status card title: rollup error."
+  },
+  "welcomeSummariesDidNotBody": "Every imported row is in the database, but rebuilding the cross-day summaries over them threw ({error}), so trends and insights still describe the data you had before. Re-analyze everything from Your data rebuilds them.",
+  "@welcomeSummariesDidNotBody": {
+    "description": "Status card body: rollup error.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomePartOfFileNotUsedTitle": "Part of that file could not be used",
+  "@welcomePartOfFileNotUsedTitle": {
+    "description": "Status card title: partial data loss."
+  },
+  "welcomeStrandedDays": "{n, plural, one{1 day arrived out of order and was only used as context for the day that followed.} other{{n} days arrived out of order and were only used as context for the day that followed.}}",
+  "@welcomeStrandedDays": {
+    "description": "N stranded days.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeLateRows": "{n, plural, one{1 row arrived after its day had already been scored and closed.} other{{n} rows arrived after their day had already been scored and closed.}}",
+  "@welcomeLateRows": {
+    "description": "N late rows.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeExportAgainInDateOrder": "Export again in date order",
+  "@welcomeExportAgainInDateOrder": {
+    "description": "Fix button: partial data loss."
   }
 }

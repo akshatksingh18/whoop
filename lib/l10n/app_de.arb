@@ -237,7 +237,7 @@
   "phoneImportDisagreeBody": "{store} setzt euren Ruhepuls {delta} bpm {dir} an als dieses Band über {nights} Nächte misst. Sie beschreiben nicht dasselbe, daher bleibt er ungenutzt.",
   "phoneImportAgreeBody": "Über {nights} Nächte liegt das Band innerhalb von {delta} bpm dessen, was {store} sagte. Er wird trotzdem für nichts verwendet.",
   "phoneImportMeasuredElsewhere": "Von etwas anderem gemessen",
-  "phoneImportMeasuredElsewhereBody": "Eine Manschette, ein Glukosemessgerät, ein Thermometer. Dieses Band kann keines davon messen, und genau deshalb lohnt es sich, sie zu zeigen — und deshalb wird die App, die jeden Wert erfasst hat, danebengenannt.",
+  "phoneImportMeasuredElsewhereBody": "Eine Manschette, ein Glukosemessgerät, ein Thermometer. Dieses Band kann keines davon messen, und genau deshalb lohnt es sich, sie zu zeigen — und deshalb wird die App, die jeden Wert erfasst hat, daneben genannt.",
   "phoneImportNeverAveraged": "Angezeigt, wie sie ankamen. Nie in eine der eigenen Zahlen dieser App gemittelt, nie verwendet, um ihr beizubringen, einen Wert vom Handgelenk zu erraten.",
   "phoneImportReadFrom": "Von {store} lesen",
   "phoneImportMovedTitle": "Größe, Gewicht und Workouts sind umgezogen",

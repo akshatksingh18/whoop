@@ -235,7 +235,7 @@
   "phoneImportHigher": "plus élevée",
   "phoneImportLower": "plus basse",
   "phoneImportDisagreeBody": "{store} place votre fréquence cardiaque au repos {delta} bpm {dir} que ce que mesure ce bracelet sur {nights} nuits. Elles ne décrivent pas la même chose, donc elle reste inutilisée.",
-  "phoneImportAgreeBody": "Sur {nights} nuits, le bracelet se situe à {delta} bpm de ce qu’a dit {store}. Il n’est toujours utilisé pour rien.",
+  "phoneImportAgreeBody": "Sur {nights} nuits, le bracelet se situe à {delta} bpm de ce qu’a dit {store}. Cette valeur n’est toujours utilisée pour rien.",
   "phoneImportMeasuredElsewhere": "Mesuré par autre chose",
   "phoneImportMeasuredElsewhereBody": "Un brassard, un glucomètre, un thermomètre. Ce bracelet ne peut mesurer aucun d’eux, ce qui est précisément pourquoi ils valent la peine d’être affichés — et pourquoi l’application ayant enregistré chaque relevé est nommée à côté.",
   "phoneImportNeverAveraged": "Affichés tels qu’ils sont arrivés. Jamais moyennés dans l’un des propres chiffres de cette application, jamais utilisés pour lui apprendre à en deviner un depuis le poignet.",

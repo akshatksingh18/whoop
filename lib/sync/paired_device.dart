@@ -70,7 +70,33 @@ class PairedDevice {
   /// it moved, which is decidable because a Dart isolate interleaves only at
   /// awaits. It does NOT span isolates — the headless sync isolate has its own
   /// copy — and it does not need to: nothing there can unpair.
+  ///
+  /// It is now the INNER of two guards: [_serialized] means a save and a clear
+  /// never overlap at all, so this only ever fires for a save that was already
+  /// queued when the forget arrived.
   static int _forgetEpoch = 0;
+
+  /// ONE AT A TIME. Both writers touch the same two copies across several
+  /// awaits each, and guarding the WINDOWS between those awaits does not work:
+  /// every guard that refuses a stale write is also a guard that can delete a
+  /// NEWER pairing's keys, because "the epoch moved" says a forget happened,
+  /// not that the mirror is still this save's to clean up. Running them in call
+  /// order removes the interleaving instead of trying to detect it — old save →
+  /// clear → new save, each complete before the next starts.
+  ///
+  /// ponytail: an in-isolate queue, so it orders THIS isolate only — the same
+  /// scope [_forgetEpoch] already had, and the headless sync isolate cannot
+  /// unpair. A cross-isolate lock would need the database, and nothing has ever
+  /// needed one.
+  static Future<void> _queue = Future<void>.value();
+
+  static Future<void> _serialized(Future<void> Function() op) {
+    final next = _queue.then((_) => op());
+    // Keep the chain alive when an op throws: the queue must order the ones
+    // behind it either way, and every caller still sees its own error.
+    _queue = next.catchError((_) {});
+    return next;
+  }
 
   static Future<PairedDevice?> load() async {
     final row = await LocalDb.deviceRow();
@@ -110,6 +136,13 @@ class PairedDevice {
   /// NULL, which every per-family metric reads as a refusal instead of
   /// assuming gen4.
   static Future<void> save(
+    String remoteId,
+    String? serial, {
+    String? generation,
+  }) =>
+      _serialized(() => _save(remoteId, serial, generation: generation));
+
+  static Future<void> _save(
     String remoteId,
     String? serial, {
     String? generation,
@@ -160,32 +193,17 @@ class PairedDevice {
     } else if (!sameDevice) {
       await prefs.remove(_kGeneration);
     }
-    // AND ONCE MORE AFTER THE MIRROR WRITES. The guards above cover only the
-    // windows BEFORE each copy is written, and this one covers the writes
-    // themselves — `clear()` landing inside them empties the mirror between
-    // two of these `setString`s, and the ones still to come put their keys
-    // back on a band the user has just forgotten.
-    //
-    // `_kRemoteId` specifically cannot come back that way — it is issued in
-    // the same synchronous slice as the guard above it, so it is always
-    // ordered ahead of the `remove` in a `clear()` whose epoch bump this guard
-    // did not see — which is why `load()` (it answers off `_kRemoteId`) never
-    // healed a forgotten pairing here. What survives is the serial and the
-    // generation, issued an await later, describing a band the record no
-    // longer names. Drop them: this is the state the epoch counter exists to
-    // refuse. The table needs no such re-check — `clear()` deletes it after
-    // the bump, so its delete is always ordered behind this save's upsert.
-    if (epoch != _forgetEpoch) {
-      await prefs.remove(_kRemoteId);
-      await prefs.remove(_kSerial);
-      await prefs.remove(_kGeneration);
-    }
   }
 
   /// Forget the primary band. BOTH copies, or the mirror puts it straight back
   /// on the next launch — and the measurements it wrote are untouched, which is
   /// what the forget dialog promises.
-  static Future<void> clear() async {
+  static Future<void> clear() => _serialized(_clear);
+
+  static Future<void> _clear() async {
+    // Bumped inside the queued op, so a save queued BEHIND this clear does not
+    // see the bump and writes normally — which is what "the user re-paired"
+    // means. Only a save already running ahead of it is refused.
     _forgetEpoch++;
     await LocalDb.deleteDevice();
     final prefs = await SharedPreferences.getInstance();

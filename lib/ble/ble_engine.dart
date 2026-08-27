@@ -3393,6 +3393,10 @@ class BleEngine {
   /// must **not** move the band out of READY".
   void _maybeStartBatteryPackFollowUp(_Session session) {
     if (!session.band.isGen5) return;
+    // Same quarantine as the state publication: `charging` is body[5] of the
+    // revision-1 map, so an unknown revision is no evidence the band is on a
+    // charger and must not start the opcode-151 follow-up.
+    if (_gen5Hello?.helloRevision != 1) return;
     if (_gen5Hello?.charging != true) return;
     if (session.batteryPackFollowUpStarted) return;
     session.batteryPackFollowUpStarted = true;
@@ -5094,11 +5098,31 @@ class BleEngine {
     if (d.kind == 'cmd_response' && f['gen5_hello'] is Gen5HelloInfo) {
       final h = f['gen5_hello'] as Gen5HelloInfo;
       _gen5Hello = h;
-      state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
-      if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
-      state.charging = h.charging;
-      state.wristOn = h.wristOn;
-      onState(state);
+      // PUBLISH ONLY WHAT THE REVISION-1 MAP IS KNOWN TO DESCRIBE. An unknown
+      // revision still connects — the parser records the byte instead of
+      // gating on it (protocol#35) and hello is mandatory here — but every
+      // field below is read at revision-1 offsets, and `onState` is DURABLE,
+      // not a repaint: it writes a `band_battery` sample, can fire the
+      // battery-low/charging OS notification, heals this serial onto the
+      // PAIRING RECORD, and pushes the lock-screen widget. A moved layout
+      // would make all four fabricated and persistent.
+      //
+      // The identity gate below cannot be leaned on to catch that: `cpuHex` is
+      // lowercase hex by construction, so it only fails when EMPTY, and any
+      // printable bytes landing at the serial offset pass the alphanumeric
+      // match. It is a filter, not a fail-closed check — and it runs AFTER
+      // this publication either way.
+      if (h.helloRevision == 1) {
+        state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
+        if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
+        state.charging = h.charging;
+        state.wristOn = h.wristOn;
+        onState(state);
+      } else {
+        _log('[HELLO gen5] revision ${h.helloRevision} is not the revision-1 '
+            'layout these offsets read — serial, battery, charge and wrist '
+            'state are NOT published; the connection continues.');
+      }
       _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
           'battery=${h.batteryPct}% charging=${h.charging} '
           'wrist=${h.wristOn} whoop5=${h.isWhoop5}');

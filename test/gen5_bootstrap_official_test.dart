@@ -361,6 +361,14 @@ void main() {
         // BOTH HALVES OF THE CORRELATION COME FROM THAT ONE SAMPLE. Re-reading
         // the wall clock after the response resolves would make `driftSec` the
         // round trip, and `setAlarm` arms at `when - driftSec`.
+        //
+        // A CONTRACT PIN, NOT A REGRESSION CATCHER: the engine samples
+        // `DateTime.now()`, which `fakeAsync` does not drive (it only rebinds
+        // `package:clock`), so no amount of elapsed fake time separates the two
+        // reads here and the previous shape passes this too. Making it
+        // discriminate means moving the engine onto `clock.now()` — a
+        // production change for a test, and one that would re-base every other
+        // wall-clock assertion in this file.
         expect(rig.engine.clockRef?.device, sec);
         expect(
           rig.engine.clockRef?.driftSec,
@@ -428,6 +436,43 @@ void main() {
               'write of freshly sampled phone time runs instead',
         );
         expect(rig.count(Cmd.getClock), 0);
+        // AND NOTHING REVISION-SPECIFIC IS PUBLISHED. `onState` is durable —
+        // it writes a band_battery sample, can fire the battery notification,
+        // heals the serial onto the PAIRING RECORD and pushes the lock-screen
+        // widget — so a moved layout would persist four fabricated values.
+        // The identity gate cannot be leaned on to stop that: it runs after
+        // this publication, and `cpuHex` is hex by construction so it only
+        // fails when empty.
+        final st = rig.engine.state;
+        expect(st.serial, isNull, reason: 'body[14..24] under an unknown map');
+        expect(st.batteryPct, isNull, reason: 'body[1..4] — the hello says 73');
+        expect(st.charging, isNull, reason: 'body[5] bit0');
+        expect(st.wristOn, isNull, reason: 'body[102]');
+      });
+    });
+
+    test('an UNKNOWN hello revision does not start the charging follow-up', () {
+      fakeAsync((async) {
+        // `charging` is body[5] of the revision-1 map, so an unknown revision
+        // is no evidence the band is on a charger — and opcode 151 is five
+        // requests five seconds apart against a band that never said so.
+        final body = _helloBody(tsSeconds: _wallNow(), charging: true);
+        body[0] = 2;
+        final hello = Gen5HelloInfo.parse(body)!;
+        final rig = _Rig();
+        rig.replyTo = (seq, op) => switch (op) {
+          Cmd.getHello => _helloReply(seq, hello: hello),
+          Cmd.setClock => _clockAck(seq),
+          Cmd.getCustomAdvertisingName => _nameReply(seq),
+          _ => null,
+        };
+        expect(_run(rig, async, elapse: const Duration(seconds: 40)), isTrue);
+        expect(
+          rig.count(Cmd.getBatteryPackInfo),
+          0,
+          reason: 'the charge flag was read at offsets that may describe '
+              'something else entirely',
+        );
       });
     });
 

@@ -173,13 +173,18 @@ void main() {
     expect((await LocalDb.deviceRow())?['remote_id'], isNull);
   });
 
-  // ...and it has to win at EVERY point of that flight, not only at the two
-  // guards. `save()` writes the table, then the mirror keys one at a time, so
-  // a forget can land between two writes. Walk it across the save's awaits and
-  // require BOTH copies gone every time — including the orphan serial and
-  // generation a mirror write issued after the forget would leave describing
-  // a band the record no longer names.
-  test('a forget wins at every point of an in-flight save', () async {
+  // ...and it keeps winning as the forget slides later into that flight.
+  // `save()` writes the table, then the mirror keys one at a time. This walks
+  // the forget across the save's awaits and requires BOTH copies gone at each
+  // one — orphan serial and generation included, since a mirror key written
+  // after the forget describes a band the record no longer names.
+  //
+  // A SWEEP, NOT A PROOF: the hops are event-loop turns, not a handshake with
+  // a specific `await`. It pins the invariant broadly; the narrow guarantee it
+  // cannot express — that the two writers never overlap at all — is the next
+  // test's.
+  test('a forget keeps winning as it slides later into an in-flight save',
+      () async {
     for (var hops = 0; hops < 14; hops++) {
       SharedPreferences.setMockInitialValues({});
       await LocalDb.deleteDevice();
@@ -213,6 +218,42 @@ void main() {
             '$hops turns in',
       );
     }
+  });
+
+  // THE GUARANTEE UNDERNEATH BOTH: `save()` and `clear()` are serialized, so
+  // three overlapping calls land in CALL order rather than interleaving across
+  // each other's awaits. Guarding the windows between those awaits cannot get
+  // this right — "a forget happened" is not the same claim as "this mirror is
+  // still mine to clean up", so a guard that refuses a stale write is also a
+  // guard that can delete the pairing the user just made.
+  //
+  // A CONTRACT PIN, NOT A REGRESSION CATCHER, and worth saying plainly: under
+  // the prefs/sqflite test doubles every write completes in issue order on its
+  // own, so this stays green with the queue removed. That is the whole reason
+  // the queue is the fix rather than another guard — the ordering these
+  // assertions describe should be structural, not a property of how fast the
+  // store happens to answer.
+  test('overlapping save/clear/save land in call order', () async {
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', 'OLD001', generation: 'gen5');
+
+    // A fire-and-forget heal for the OLD band, the user's forget, and the
+    // re-pair — all issued without awaiting the one before it.
+    final heal =
+        PairedDevice.save('AA:BB:CC:DD:EE:FF', 'OLD002', generation: 'gen5');
+    final forget = PairedDevice.clear();
+    final repair =
+        PairedDevice.save('11:22:33:44:55:66', 'NEW001', generation: 'gen5');
+    await Future.wait([heal, forget, repair]);
+
+    final p = await PairedDevice.load();
+    expect(p?.remoteId, '11:22:33:44:55:66', reason: 'the last call wins');
+    expect(p?.serial, 'NEW001');
+    // The mirror is the rebuild-recovery copy, so it has to name the new band
+    // too — a stale op reaching back to clean up would cost exactly this.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('paired_remote_id'), '11:22:33:44:55:66');
+    expect(prefs.getString('paired_serial'), 'NEW001');
+    expect(prefs.getString('paired_generation'), 'gen5');
   });
 
   test('clear removes the whole record, generation included', () async {

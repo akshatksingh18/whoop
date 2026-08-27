@@ -93,6 +93,11 @@ lib/firebase_options.dart
 
 .codegraph/
 
+# gen-l10n output — regenerated from lib/l10n/*.arb by `flutter gen-l10n`
+# (also runs automatically before build/analyze/test). The .arb files are
+# the source and stay tracked.
+lib/l10n/app_localizations*.dart
+
 # Rendered previews of docs/*.svg — regenerate from the svg rather than
 # committing them. The svg IS the source; these are just what gets pasted
 # into Discord/issues, and they're ~750kb a piece.

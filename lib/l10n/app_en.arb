@@ -1,0 +1,23 @@
+{
+  "@@locale": "en",
+  "appTitle": "OpenStrap",
+  "@appTitle": {
+    "description": "App name shown in the OS task switcher / MaterialApp title."
+  },
+  "profileTitle": "Profile",
+  "@profileTitle": {
+    "description": "Profile screen header."
+  },
+  "profileMyDevices": "My devices",
+  "@profileMyDevices": {
+    "description": "Profile > Quick access row label."
+  },
+  "profileLanguage": "Language",
+  "@profileLanguage": {
+    "description": "Profile > Quick access row label for the language picker."
+  },
+  "languageSystemDefault": "System default",
+  "@languageSystemDefault": {
+    "description": "Option in the language picker that follows the OS locale."
+  }
+}

@@ -29,8 +29,10 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
 import '../screens/home_screen.dart' show unitsOf;
+import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
+import 'picker.dart';
 // The share card and this screen describe the same session, so they draw its
 // stats with the same widget and split its values with the same function.
 // poster.dart imports this file back for [ActivityResult]; that is the seam,
@@ -828,6 +830,45 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ]),
       );
 
+  /// Correct a session's activity type — the band's own guess, or a hand-typed
+  /// one that was wrong. `LocalDb.setSessionType` is the narrow UPDATE this
+  /// reuses; it used to have no caller at all (lost in the ui2 rewrite along
+  /// with the screen that called it).
+  ///
+  /// Archetype-specific fields on [r] (sets, route, splits…) belong to the OLD
+  /// type and cannot be salvaged for the new one, so this does not try to
+  /// patch [r] in place — it hands back to whatever list pushed this screen,
+  /// which re-reads on the revision bump below.
+  Future<void> _changeType(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null) return;
+    // Only true once a pick actually landed — pressing back out of the picker
+    // must return to this screen, not fall through and pop it too.
+    var picked = false;
+    await Navigator.of(c).push(MaterialPageRoute(
+      builder: (_) => ActivityPicker(onPick: (pc, newActivity) async {
+        // The stored key everywhere else uses — `startWorkout(type:
+        // a.typeKey)` is the live path's own write. `a.name` here would still
+        // resolve through `activityByName`'s normalized lookup, but it would
+        // store a different string than every other producer of this column.
+        try {
+          await LocalDb.setSessionType(id, newActivity.typeKey);
+        } catch (_) {
+          // Same rule as `_saveRpe`: the row is unchanged, so leave the
+          // picker open rather than close it over a write that never
+          // happened — `onPick` is a `void Function`, so there is no caller
+          // to hand this failure back to.
+          return;
+        }
+        picked = true;
+        if (!pc.mounted) return;
+        bumpInsights(pc);
+        Navigator.of(pc).pop();
+      }),
+    ));
+    if (c.mounted && picked) Navigator.of(c).pop();
+  }
+
   Future<void> _retrySave() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -849,6 +890,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     _u = unitsOf(c);
+    // Only a saved session has an id to correct — a draft on screen because
+    // the write threw has nowhere to put it. Reserving the two-icon width
+    // for a row that only ever draws one icon would shove the title left on
+    // every unsaved-session summary for no reason.
+    final canChangeType = r.sessionId != null;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -858,12 +904,27 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: NavBar(
               a.name,
               sub: _shortDate(r.start).toUpperCase(),
-              trailing: Pressable(
-                semanticLabel: 'Share this ${a.name.toLowerCase()}',
-                onTap: () => Navigator.of(c).push(MaterialPageRoute(
-                    builder: (_) => ShareSheet(r))),
-                child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
-              ),
+              // Two icons, each a Pressable with S.tap's own 44 pt minimum
+              // hit box (grammar.dart's accessibility floor, not optional) —
+              // S.tap * 2 alone is 12 pt short of that plus the gap between
+              // them, which is exactly the RenderFlex overflow this fixed.
+              trailingWidth: canChangeType ? S.tap * 2 + S.x3 : S.tap,
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (canChangeType) ...[
+                  Pressable(
+                    semanticLabel: 'Change activity type',
+                    onTap: () => _changeType(c),
+                    child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
+                  ),
+                  const SizedBox(width: S.x3),
+                ],
+                Pressable(
+                  semanticLabel: 'Share this ${a.name.toLowerCase()}',
+                  onTap: () => Navigator.of(c).push(MaterialPageRoute(
+                      builder: (_) => ShareSheet(r))),
+                  child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
+                ),
+              ]),
             ),
           ),
           Padding(

@@ -1457,7 +1457,21 @@ import 'substrate.dart';
 // that merge — recomputing v77+ against a sibling that cannot price walking
 // would burn the version on nothing.
 //
-// v81 — THE ZONE CEILING IS `max(observed, age estimate)`.
+// v81 — ACTIVE ENERGY WORKOUT-GAP CREDIT. `applyDayActivity`'s calorie figure
+// is built entirely from `daySub.hr` (the day's own continuous 1 Hz trace)
+// and never read `sessions` at all — so a workout that scored its own
+// calories through the SEPARATE session pipeline (`computeManualSessionStats`
+// / the live-tick accumulator) contributed nothing to Active Energy whenever
+// the band lost PPG contact for its whole window, which is common for a
+// wrist-gripping or arm-swinging session (lifting, a brisk walk) next to a
+// low-motion one (Pilates) that keeps contact. `applyDayActivity` now takes
+// this day's `sessions` rows and credits a DONE, non-private session's own
+// `calories` into the day total ONLY when `daySub` has ZERO real HR samples
+// across that session's whole window — never a partial one, so a window the
+// trace already priced is never double-billed. THIS CAN RAISE `calories` /
+// `calories_total` for a day with a workout the day trace fully missed;
+// every other day is unaffected.
+// v82 — THE ZONE CEILING IS `max(observed, age estimate)`.
 // `trainingZones` (compute/hr_max.dart) preferred `observedCeilingBpm` whenever
 // one existed, in either direction. But that number is one-sided evidence:
 // holding 195 proves the ceiling is at least 195, while holding 166 cannot tell
@@ -1508,7 +1522,13 @@ import 'substrate.dart';
 // measured, still stored and still served, so the zones screen keeps saying
 // "highest we have seen: 166 on 3 Aug". It just no longer becomes everyone's
 // 100 %. No sibling pin moves — this is entirely an edge-side anchor choice.
-const int kAlgoVersion = 81;
+//
+// RENUMBERED ON THE MERGE, 81 → 82. Both sides of this merge bumped to 81:
+// main for the active-energy workout-gap credit above, this branch for the
+// zone anchor. Two different derivations cannot share one number — that is
+// the whole contract of this constant, and main's 81 is the one already on
+// main, so it keeps it. Nothing about the zone change itself moved.
+const int kAlgoVersion = 82;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1591,7 +1611,14 @@ const int kAlgoVersion = 81;
 // no caller passing it `active`/`basal`/`total` are byte-identical to before
 // — the walking-cadence NUMBER change already happened at v77 above, via
 // #283's own a077a4a pin, before this branch's pin moved past it.
-const String kAnalyticsPin = '7105256b37ad61b49453a6b96543a2b80ea74487';
+// Repin to analytics main @ #53 merge (187e026), one hop on top of 7105256.
+// This is the v80 PIN GATE above being closed: #53 lands `nnTimesMs` on
+// `irregularBeatScreen`, which onehz_pipeline.dart (this same v80 change) was
+// already calling — the pin was never moved when kAlgoVersion went to 80, so
+// a clean checkout failed `flutter analyze` (undefined_named_parameter) and
+// would have recomputed v80 against a sibling without the sustained-window
+// fix it claims. No other symbol changed; no further kAlgoVersion move.
+const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
 const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
@@ -4947,6 +4974,20 @@ class DerivationEngine {
     return (keys: keys, hr: [for (final k in keys) _meanWake(buckets[k]!)!]);
   }
 
+  /// Whether `daySub` has AT LEAST ONE real HR sample (`hr > 0`) inside
+  /// `[fromSec, toSec)` — the gate for the workout-gap credit in
+  /// [applyDayActivity]. Same "real sample" test as [_perMinuteMeanWake]'s own
+  /// bucketing, so "covered" here means exactly what would have priced a
+  /// minute there.
+  static bool _hasHrCoverage(Substrate s, int fromSec, int toSec) {
+    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
+      if (s.hr[i] <= 0) continue;
+      final t = s.tsSec[i];
+      if (t >= fromSec && t < toSec) return true;
+    }
+    return false;
+  }
+
   static Map<String, int> _wakeZoneMinutes(
     Substrate s,
     int sleepOnsetSec,
@@ -5133,6 +5174,10 @@ class DerivationEngine {
     int liveStepsFromStrap = 0,
     int dynHistoryDays = 0,
     List<List<int>> stepSpans = const [],
+    /// This day's `sessions` rows (`LocalDb.sessionsInRange`), for the
+    /// zero-coverage credit below. Defaults to none — every existing caller
+    /// keeps its old behaviour until it is threaded through.
+    List<Map<String, dynamic>> sessions = const [],
   }) {
     final wake = _buildWakeDayFeatures(
       daySub,
@@ -5146,6 +5191,49 @@ class DerivationEngine {
       dynFloorG: dynFloorG,
       stepSpans: stepSpans,
     );
+    // ACTIVE ENERGY WORKOUT-GAP CREDIT. `wake['calories']` above is built
+    // ENTIRELY from `daySub.hr` — the day's own continuous 1 Hz trace — and
+    // never once reads `sessions`. A workout scores its OWN calorie figure
+    // through a completely separate pipeline (`computeManualSessionStats` /
+    // the live-tick accumulator, reconciled in `reconcileSessionScore`), so a
+    // session whose window the band's PPG lost contact for — commonly a
+    // wrist-gripping or arm-swinging one, e.g. lifting or a brisk walk, next
+    // to a low-motion one like Pilates that keeps contact — can be fully
+    // scored on its own summary card while contributing exactly nothing to
+    // Active Energy, because that window is a real, total gap in `daySub.hr`.
+    //
+    // Credited ONLY when a session's window has ZERO real HR samples in
+    // `daySub` — never a partial one — which is what makes this safe: a
+    // window `daySub.hr` already priced any of is left alone, so this can
+    // never double-bill a minute the trace already counted. A day the trace
+    // produced no figure for at all is left absent, same as always — this
+    // fills a gap in an existing number, it does not fabricate one.
+    if (wake['calories'] != null && sessions.isNotEmpty) {
+      var credited = 0.0;
+      for (final s in sessions) {
+        if (s['status'] != 'done') continue;
+        if ((s['private'] as num?)?.toInt() == 1) continue;
+        final sStart = (s['start_ts'] as num?)?.toInt();
+        final sEnd = (s['end_ts'] as num?)?.toInt();
+        final sCal = (s['calories'] as num?)?.toDouble();
+        if (sStart == null ||
+            sEnd == null ||
+            sEnd <= sStart ||
+            sCal == null ||
+            sCal <= 0) {
+          continue;
+        }
+        if (_hasHrCoverage(daySub, sStart, sEnd)) continue;
+        credited += sCal;
+      }
+      if (credited > 0) {
+        wake['calories'] = (wake['calories'] as num).toDouble() + credited;
+        final total = wake['calories_total'];
+        if (total != null) {
+          wake['calories_total'] = (total as num).toDouble() + credited;
+        }
+      }
+    }
     _applyWakeDayFeatures(bundle, scalars, wake);
     _stepsAndEnergy(
       bundle,
@@ -7122,6 +7210,7 @@ class DerivationEngine {
       liveStepsFromStrap: inp.liveStepsFromStrap,
       dynHistoryDays: inp.dynHistoryDays,
       stepSpans: inp.stepSpans,
+      sessions: inp.savedSessions,
     );
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);

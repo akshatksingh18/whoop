@@ -42,7 +42,7 @@ import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../profile/profile.dart' show SetRow, settingsGroup;
 import '../ui2.dart';
-import 'home_screen.dart' show repoOf;
+import 'home_screen.dart' show monthShortName, repoOf, weekdayShortName;
 
 /// One detected bout, as this screen needs it. Built straight off a
 /// `workout_suggestions` row.
@@ -410,12 +410,7 @@ String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   final diff = today.difference(d).inDays;
   if (diff == 0) return l?.logWorkoutToday ?? 'Today';
   if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';
-  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const mo = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${wd[d.weekday - 1]} ${d.day} ${mo[d.month - 1]}';
+  return '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
 }
 
 // ══════════════════ THE FORM ══════════════════

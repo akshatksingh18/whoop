@@ -23,6 +23,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
+import '../state/locale_controller.dart';
 
 /// Re-read on [AppState.insightsRevision].
 ///
@@ -91,6 +92,11 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   /// preview): there is nothing behind it to re-read.
   bool get revisionReloads => true;
 
+  /// Sentinel so a system-default locale (`code == null`) is not mistaken for
+  /// "never seen yet" on the first pass.
+  static const Object _unset = Object();
+  Object? _seenLocale = _unset;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -103,10 +109,32 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
     } catch (_) {
       return;
     }
-    if (identical(_rev, app.insightsRevision)) return;
-    _rev?.removeListener(_onRevision);
-    _rev = app.insightsRevision..addListener(_onRevision);
-    _seen = app.insightsRevision.value;
+    if (!identical(_rev, app.insightsRevision)) {
+      _rev?.removeListener(_onRevision);
+      _rev = app.insightsRevision..addListener(_onRevision);
+      _seen = app.insightsRevision.value;
+    }
+
+    // Cached data built with strings baked in from `AppLocalizations` — every
+    // `reload()` here re-derives them, not just the DB rows — so a language
+    // switch mid-session is stale in exactly the same way a stale revision
+    // is: nothing tells the screen to look again. `watch` (not `read`) is
+    // what makes that happen: it subscribes this State to `LocaleController`
+    // so `didChangeDependencies` re-runs the moment `setCode` notifies, the
+    // same mechanism `app.dart` uses to rebuild `MaterialApp` with the new
+    // locale, kept off `AppState` itself because that one ticks at ~1 Hz.
+    final String? code;
+    try {
+      code = context.watch<LocaleController>().code;
+    } catch (_) {
+      return;
+    }
+    if (identical(_seenLocale, _unset)) {
+      _seenLocale = code;
+    } else if (_seenLocale != code) {
+      _seenLocale = code;
+      reload();
+    }
   }
 
   // ponytail: a parked tab re-reads too — the IndexedStack keeps all five

@@ -1193,7 +1193,7 @@ class DeviceDetailView extends StatelessWidget {
                       Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last),
+                          value: last == null ? '' : formatDayTime(last, l),
                           sub: last == null
                               ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
                               : '',
@@ -1275,7 +1275,7 @@ class DeviceDetailView extends StatelessWidget {
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last),
+                          value: last == null ? '' : formatDayTime(last, l),
                           sub: last == null
                               ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
                               : '',
@@ -1365,8 +1365,8 @@ String? _chargeHistory(Map<String, dynamic>? h) {
 ///
 /// It used to render `4/9, 07:12`, which a US reader reads as 9 April. The
 /// month name is the whole point; `formatDay` already writes one.
-String formatDayTime(DateTime d) {
+String formatDayTime(DateTime d, [AppLocalizations? l]) {
   final t = '${d.hour.toString().padLeft(2, '0')}:'
       '${d.minute.toString().padLeft(2, '0')}';
-  return '${formatDay(d)}, $t';
+  return '${formatDay(d, l)}, $t';
 }

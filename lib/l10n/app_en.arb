@@ -6768,6 +6768,54 @@
   "@homeMonthDecember": {
     "description": "Full month name: December, used in the Home date line."
   },
+  "homeMonthJanuaryShort": "Jan",
+  "@homeMonthJanuaryShort": {
+    "description": "Abbreviated month name: January, for compact date chips (e.g. \"Tue 11 Jan\")."
+  },
+  "homeMonthFebruaryShort": "Feb",
+  "@homeMonthFebruaryShort": {
+    "description": "Abbreviated month name: February, for compact date chips."
+  },
+  "homeMonthMarchShort": "Mar",
+  "@homeMonthMarchShort": {
+    "description": "Abbreviated month name: March, for compact date chips."
+  },
+  "homeMonthAprilShort": "Apr",
+  "@homeMonthAprilShort": {
+    "description": "Abbreviated month name: April, for compact date chips."
+  },
+  "homeMonthMayShort": "May",
+  "@homeMonthMayShort": {
+    "description": "Abbreviated month name: May, for compact date chips."
+  },
+  "homeMonthJuneShort": "Jun",
+  "@homeMonthJuneShort": {
+    "description": "Abbreviated month name: June, for compact date chips."
+  },
+  "homeMonthJulyShort": "Jul",
+  "@homeMonthJulyShort": {
+    "description": "Abbreviated month name: July, for compact date chips."
+  },
+  "homeMonthAugustShort": "Aug",
+  "@homeMonthAugustShort": {
+    "description": "Abbreviated month name: August, for compact date chips."
+  },
+  "homeMonthSeptemberShort": "Sep",
+  "@homeMonthSeptemberShort": {
+    "description": "Abbreviated month name: September, for compact date chips."
+  },
+  "homeMonthOctoberShort": "Oct",
+  "@homeMonthOctoberShort": {
+    "description": "Abbreviated month name: October, for compact date chips."
+  },
+  "homeMonthNovemberShort": "Nov",
+  "@homeMonthNovemberShort": {
+    "description": "Abbreviated month name: November, for compact date chips."
+  },
+  "homeMonthDecemberShort": "Dec",
+  "@homeMonthDecemberShort": {
+    "description": "Abbreviated month name: December, for compact date chips."
+  },
   "homeWeekdayMonday": "Monday",
   "@homeWeekdayMonday": {
     "description": "Full weekday name: Monday, used in the Home date line."

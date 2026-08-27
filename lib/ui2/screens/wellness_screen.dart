@@ -32,7 +32,7 @@ import '../ui2.dart';
 import 'calm_breathing.dart';
 import 'driver_breakdown.dart';
 import 'cycle_screen.dart';
-import 'home_screen.dart' show envValue, metricOf;
+import 'home_screen.dart' show envValue, metricOf, weekdayShortName;
 import 'journal_compose.dart';
 import 'start_card.dart';
 import 'metric_detail.dart' show detailScaffold;
@@ -1150,22 +1150,6 @@ class DriverRow extends StatelessWidget {
   }
 }
 
-const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-/// Localized abbreviation for `DateTime.weekday` value [d] (1 = Monday).
-String _weekdayShort(AppLocalizations? l, int d) {
-  final fallback = _weekdayNames[(d - 1) % 7];
-  return switch (d) {
-    1 => l?.wellnessMon ?? fallback,
-    2 => l?.wellnessTue ?? fallback,
-    3 => l?.wellnessWed ?? fallback,
-    4 => l?.wellnessThu ?? fallback,
-    5 => l?.wellnessFri ?? fallback,
-    6 => l?.wellnessSat ?? fallback,
-    _ => l?.wellnessSun ?? fallback,
-  };
-}
-
 /// The days a dose is due, in the words a person would use. `DateTime.weekday`
 /// values, 1 = Monday; empty means every day.
 String _daysLabel(BuildContext c, List<int> days) {
@@ -1179,7 +1163,7 @@ String _daysLabel(BuildContext c, List<int> days) {
     return l?.wellnessWeekends ?? 'Weekends';
   }
   final sorted = set.toList()..sort();
-  return [for (final d in sorted) _weekdayShort(l, d)].join(', ');
+  return [for (final d in sorted) weekdayShortName(d, l)].join(', ');
 }
 
 /// Pick a time and the weekdays it repeats on. Returns null if dismissed.
@@ -1260,7 +1244,7 @@ Future<MedSchedule?> pickMedSchedule(
                 children: [
                   for (var d = 1; d <= 7; d++)
                     Pressable(
-                      semanticLabel: _weekdayShort(l, d),
+                      semanticLabel: weekdayShortName(d, l),
                       onTap: () => setSheet(() {
                         picked.contains(d) ? picked.remove(d) : picked.add(d);
                       }),
@@ -1282,7 +1266,7 @@ Future<MedSchedule?> pickMedSchedule(
                           ),
                         ),
                         child: Text(
-                          _weekdayShort(l, d),
+                          weekdayShortName(d, l),
                           style: F.cap.copyWith(
                             color: picked.contains(d)
                                 ? p.on(C.domMind)

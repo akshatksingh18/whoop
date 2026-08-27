@@ -251,7 +251,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     final ok = await confirmRemove(
       context,
       title:
-          l?.cycleRemoveLogTitle(_short(date)) ?? 'Remove ${_short(date)}?',
+          l?.cycleRemoveLogTitle(_short(date, l)) ?? 'Remove ${_short(date, l)}?',
       body:
           l?.cycleRemoveLogBody ??
           'Cycle day, phase and the predicted next date are all counted from '
@@ -488,10 +488,10 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     final ranged = from != null && to != null;
     final due = _parse(d.predictedNext!);
     final headline = ranged
-        ? '${_short(from)} – ${_short(to)}'
+        ? '${_short(from, l)} – ${_short(to, l)}'
         : due == null
         ? d.predictedNext!
-        : formatDay(due);
+        : formatDay(due, l);
     return Surface(
       child: Row(
         children: [
@@ -743,7 +743,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                     child: Text(
                       _parse(recent[i]['date'] as String? ?? '') == null
                           ? '${recent[i]['date']}'
-                          : formatDay(_parse(recent[i]['date'] as String)!),
+                          : formatDay(_parse(recent[i]['date'] as String)!, l),
                       style: F.body.copyWith(color: p.ink),
                     ),
                   ),
@@ -789,9 +789,9 @@ class _Shape {
 
 DateTime? _parse(String ymd) => DateTime.tryParse(ymd);
 
-String _short(String ymd) {
+String _short(String ymd, [AppLocalizations? l]) {
   final d = _parse(ymd);
-  return d == null ? ymd : formatDay(d);
+  return d == null ? ymd : formatDay(d, l);
 }
 
 /// Localized display label for a `repro_state` key ('' = prefer not to say,
@@ -1150,8 +1150,8 @@ class _CycleHistoryState extends State<_CycleHistory> {
         children: [
           if (night.isNotEmpty) ...[
             Text(
-              l?.cycleNightOfLabel(_short(night.last).toUpperCase()) ??
-                  'NIGHT OF ${_short(night.last).toUpperCase()}',
+              l?.cycleNightOfLabel(_short(night.last, l).toUpperCase()) ??
+                  'NIGHT OF ${_short(night.last, l).toUpperCase()}',
               style: F.over.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x2),
@@ -1291,7 +1291,10 @@ class _CycleHistoryState extends State<_CycleHistory> {
             title: l?.cycleDaysBetweenStarts ?? 'Days between your logged starts',
             unit: l?.cycleUnitDays ?? 'days',
             yAxis: axis,
-            xLabels: [_short(_ymdOf(starts[1])), _short(_ymdOf(starts.last))],
+            xLabels: [
+              _short(_ymdOf(starts[1]), l),
+              _short(_ymdOf(starts.last), l),
+            ],
             legend: [
               (l?.cycleLegendYourCycles ?? 'Your cycles', p.on(C.pink)),
               (l?.cycleLegendPublishedRange ?? 'Published range', p.ink3),

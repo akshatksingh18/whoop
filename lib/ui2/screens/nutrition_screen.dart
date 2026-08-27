@@ -417,7 +417,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         // the range actually drawn rather than a hardcoded guess.
         xLabels: drawn == 0
             ? const []
-            : [_dayShort(w.days.first.date), l?.nutritionTabToday ?? 'Today'],
+            : [
+                _dayShort(w.days.first.date, l),
+                l?.nutritionTabToday ?? 'Today',
+              ],
         footnote: _partialDays(w) == 0
             ? null
             : l?.nutritionPartialFootnote(_partialDays(w)) ??
@@ -667,9 +670,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 }
 
 /// "Thu 4 Sep" from a `YYYY-MM-DD` day label, for an axis end-label.
-String _dayShort(String ymd) {
+String _dayShort(String ymd, [AppLocalizations? l]) {
   final d = DateTime.tryParse(ymd);
-  return d == null ? ymd : formatDay(d);
+  return d == null ? ymd : formatDay(d, l);
 }
 
 // ── components ─────────────────────────────────────────────────────────────

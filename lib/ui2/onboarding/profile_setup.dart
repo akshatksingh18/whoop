@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
+import '../screens/home_screen.dart' show monthShortName, weekdayShortName;
 import '../ui2.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -276,13 +277,7 @@ class _Field extends StatelessWidget {
 // is carried by `StatusCard.forMetric`, which already says how many more
 // nights the metric needs.
 
-const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 /// "Thu 4 Sep" — a date a person can hold, not an ISO string. Local by
 /// construction; the app's day labels are local everywhere.
-String formatDay(DateTime d) =>
-    '${_days[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
+String formatDay(DateTime d, [AppLocalizations? l]) =>
+    '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';

@@ -507,12 +507,41 @@ String monthName(int month, AppLocalizations? l) {
   ][month - 1];
 }
 
+const _monthsShort = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// Abbreviated month for "Thu 4 Sep" date chips.
+String monthShortName(int month, AppLocalizations? l) {
+  if (l == null) return _monthsShort[month - 1];
+  return [
+    l.homeMonthJanuaryShort, l.homeMonthFebruaryShort, l.homeMonthMarchShort,
+    l.homeMonthAprilShort, l.homeMonthMayShort, l.homeMonthJuneShort,
+    l.homeMonthJulyShort, l.homeMonthAugustShort, l.homeMonthSeptemberShort,
+    l.homeMonthOctoberShort, l.homeMonthNovemberShort, l.homeMonthDecemberShort,
+  ][month - 1];
+}
+
 String _weekdayName(int weekday, AppLocalizations? l) {
   if (l == null) return _weekdays[weekday - 1];
   return [
     l.homeWeekdayMonday, l.homeWeekdayTuesday, l.homeWeekdayWednesday,
     l.homeWeekdayThursday, l.homeWeekdayFriday, l.homeWeekdaySaturday,
     l.homeWeekdaySunday,
+  ][weekday - 1];
+}
+
+const _weekdaysShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/// Abbreviated weekday for `DateTime.weekday` (1 = Monday), e.g. "Thu 4 Sep"
+/// date chips. Reuses the `wellness*` short-day keys — they're already
+/// translated everywhere and mean the same three letters here.
+String weekdayShortName(int weekday, AppLocalizations? l) {
+  if (l == null) return _weekdaysShort[weekday - 1];
+  return [
+    l.wellnessMon, l.wellnessTue, l.wellnessWed,
+    l.wellnessThu, l.wellnessFri, l.wellnessSat, l.wellnessSun,
   ][weekday - 1];
 }
 

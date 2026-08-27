@@ -25,6 +25,7 @@ import 'dart:convert' show jsonDecode;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
@@ -33,6 +34,7 @@ import '../../data/local_repository.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
@@ -608,6 +610,15 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   bool _loading = true;
   String? _day;
 
+  // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes` at
+  // load time (see `TimelineData.load`), so a language switch while this
+  // screen is alive would otherwise leave it showing the old locale until
+  // something else (a day change, a revision bump) happens to reload it.
+  // Sentinel so the system-default locale (`code == null`) is not mistaken
+  // for "never seen yet" on the first pass.
+  static const Object _localeUnset = Object();
+  Object? _seenLocale = _localeUnset;
+
   @override
   void initState() {
     super.initState();
@@ -618,6 +629,23 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final String? code;
+    try {
+      code = context.watch<LocaleController>().code;
+    } catch (_) {
+      return;
+    }
+    if (identical(_seenLocale, _localeUnset)) {
+      _seenLocale = code;
+    } else if (_seenLocale != code && widget.data == null) {
+      _seenLocale = code;
+      _load();
+    }
   }
 
   Future<void> _load() async {

@@ -130,6 +130,21 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       locale: locale.locale, // null = follow the OS locale
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      // `locale:` above wins whenever the user has an override, so this only
+      // runs on "system default". Flutter's own default resolution falls
+      // back to supportedLocales.first when nothing matches — which is
+      // whichever language sorts first alphabetically among our .arb files
+      // (currently German), not English. Match by language only (none of
+      // our locales carry a country/script code) and fall back to English
+      // explicitly instead of leaving that to alphabetical luck.
+      localeListResolutionCallback: (deviceLocales, supported) {
+        for (final deviceLocale in deviceLocales ?? const <Locale>[]) {
+          for (final s in supported) {
+            if (s.languageCode == deviceLocale.languageCode) return s;
+          }
+        }
+        return const Locale('en');
+      },
       builder: (context, child) =>
           ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
       navigatorObservers: [TelemetryNavigatorObserver()],

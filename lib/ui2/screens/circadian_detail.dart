@@ -23,6 +23,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
@@ -311,25 +312,26 @@ class _CircadianDetailState extends State<CircadianDetail> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d ?? const CircadianData();
     final drawn = d.actogram.where((e) => e != null).length;
 
-    return detailScaffold(c, 'Body clock', [
+    return detailScaffold(c, l?.circadianDetailTitle ?? 'Body clock', [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else ...[
         if (drawn == 0)
-          const StatusCard(
-            'No nights to plot yet',
-            '0 nights scored.',
-            fix: 'Wear the band overnight',
+          StatusCard(
+            l?.circadianDetailNoNightsTitle ?? 'No nights to plot yet',
+            l?.circadianDetailNoNightsBody ?? '0 nights scored.',
+            fix: l?.circadianDetailNoNightsFix ?? 'Wear the band overnight',
             icon: LucideIcons.calendarClock,
           )
         else
           Surface(
             child: ChartFrame(
-              title: 'Sleep, night by night',
+              title: l?.circadianDetailSleepTitle ?? 'Sleep, night by night',
               // Hour of day is what the vertical axis IS. The old card replaced
               // the axis with a sentence describing it.
               unit: 'hour of day',
@@ -344,9 +346,10 @@ class _CircadianDetailState extends State<CircadianDetail> {
               xLabels: d.labels.isEmpty
                   ? const []
                   : [d.labels.first, d.labels.last],
-              legend: const [('Asleep', C.indigo)],
-              footnote: '$drawn night${drawn == 1 ? '' : 's'}, one column each. '
-                  'Darker is more of that hour asleep.',
+              legend: [(l?.circadianDetailAsleep ?? 'Asleep', C.indigo)],
+              footnote: l?.circadianDetailSleepFootnote(drawn) ??
+                  '$drawn night${drawn == 1 ? '' : 's'}, one column each. '
+                      'Darker is more of that hour asleep.',
               child: CustomPaint(
                 size: Size.infinite,
                 painter: Actogram(d.actogram, p.on(C.indigo)),
@@ -357,11 +360,13 @@ class _CircadianDetailState extends State<CircadianDetail> {
         // SLP-08 rides in this section's action, so the screen gains a tap
         // rather than two permanent rows.
         Section(
-          'Your rhythm',
+          l?.circadianDetailYourRhythm ?? 'Your rhythm',
           _rhythm(c, p, d),
           action: d.sriPairs.isEmpty || d.regularity.value == null
               ? null
-              : (_showNights ? 'Hide' : 'Which nights'),
+              : (_showNights
+                  ? (l?.circadianDetailHide ?? 'Hide')
+                  : (l?.circadianDetailWhichNights ?? 'Which nights')),
           onAction: d.sriPairs.isEmpty || d.regularity.value == null
               ? null
               : () => setState(() => _showNights = !_showNights),
@@ -369,7 +374,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
 
         // MIND-11 sits directly under the measured rhythm because it is built
         // on it — and directly above the battery it borrows the acrophase from.
-        if (_forecast(c, p, d) case final f?) Section('Today, predicted', f),
+        if (_forecast(c, p, d) case final f?)
+          Section(l?.circadianDetailTodayPredicted ?? 'Today, predicted', f),
 
         // COLLAPSED BY DEFAULT, and that is how the screen paid for the card
         // above. Interdaily stability, intradaily variability, relative
@@ -378,9 +384,11 @@ class _CircadianDetailState extends State<CircadianDetail> {
         // Nothing is lost: the section, its title and its own empty state are
         // unchanged one tap away.
         Section(
-          'Rhythm strength',
+          l?.circadianDetailRhythmStrength ?? 'Rhythm strength',
           _showStrength ? _strength(c, p, d) : const SizedBox.shrink(),
-          action: _showStrength ? 'Hide' : 'Show',
+          action: _showStrength
+              ? (l?.circadianDetailHide ?? 'Hide')
+              : (l?.circadianDetailShow ?? 'Show'),
           onAction: () => setState(() => _showStrength = !_showStrength),
         ),
 
@@ -390,7 +398,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
         // magnitude the card used to assert "later" from — is on the Social
         // jetlag row itself now, and the night counts are beside it. One card
         // off, so the hourly row below can go on.
-        Section('When you are still', _stillness(c, p, d)),
+        Section(l?.circadianDetailWhenStill ?? 'When you are still',
+            _stillness(c, p, d)),
       ],
     ]);
   }
@@ -414,16 +423,18 @@ class _CircadianDetailState extends State<CircadianDetail> {
   /// median and never today's, no colour, no band, no verdict, and an hour
   /// with too few quiet stretches behind it is absent rather than drawn faint.
   Widget _stillness(BuildContext c, P p, CircadianData d) {
+    final l = AppLocalizations.of(c);
     final have = [for (final v in d.hourly) ?v];
     if (have.isEmpty) {
       return StatusCard(
-        'No still moments to read yet',
+        l?.circadianDetailNoStillTitle ?? 'No still moments to read yet',
         d.hourlyNote?.isNotEmpty == true
             ? d.hourlyNote!
-            : 'This reads beat timing only from the seconds you were not '
-                'moving, and the last '
-                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} had too '
-                'few of them to build an hour from.',
+            : (l?.circadianDetailNoStillBody(d.hourlyDays) ??
+                'This reads beat timing only from the seconds you were not '
+                    'moving, and the last '
+                    '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} had '
+                    'too few of them to build an hour from.'),
         icon: LucideIcons.activity,
       );
     }
@@ -440,7 +451,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
     final hi = counts.isEmpty ? 0 : counts.last;
     return Surface(
       child: ChartFrame(
-        title: 'Beat-to-beat variability while still',
+        title: l?.circadianDetailStillnessTitle ??
+            'Beat-to-beat variability while still',
         unit: 'ms',
         height: 120,
         yAxis: axis,
@@ -448,12 +460,13 @@ class _CircadianDetailState extends State<CircadianDetail> {
         // are wall-clock times rather than positions in an array.
         xLabels: [clock(0), clock(12 * 60), clock(23 * 60)],
         series: d.hourly,
-        footnote: 'Each hour is the middle value of $lo–$hi five-minute '
-            'stretches you were actually still, over the last '
-            '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
-            'today\'s alone. $drawn of 24 hours had at least three stretches; '
-            'the rest are blank. Not a stress score — sitting up, a warm room '
-            'or a coffee move it just as much.',
+        footnote: l?.circadianDetailStillnessFootnote(lo, hi, d.hourlyDays, drawn) ??
+            'Each hour is the middle value of $lo–$hi five-minute '
+                'stretches you were actually still, over the last '
+                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
+                'today\'s alone. $drawn of 24 hours had at least three '
+                'stretches; the rest are blank. Not a stress score — sitting '
+                'up, a warm room or a coffee move it just as much.',
         child: CustomPaint(
           size: Size.infinite,
           // Uncoloured. A hue here would be a verdict about an hour of your
@@ -479,13 +492,15 @@ class _CircadianDetailState extends State<CircadianDetail> {
   /// or unjudged: the analytics gate refuses rather than assuming eight hours,
   /// and this returns null rather than explaining an absence nobody asked about.
   Widget? _forecast(BuildContext c, P p, CircadianData d) {
+    final l = AppLocalizations.of(c);
     final v = d.alertness.value;
     if (v == null) return null;
     final assumedPhase = d.cosinorV['acrophase_hours'] == null;
     return Surface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ChartFrame(
-          title: 'How today is likely to run',
+          title: l?.circadianDetailForecastTitle ??
+              'How today is likely to run',
           // There is no unit. Saying so is more honest than borrowing one, and
           // the frame renders it in the slot a unit would have occupied.
           unit: 'shape only',
@@ -497,7 +512,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
           ],
           // No `series:`. A shape has no reading; handing the frame one would
           // have it speak numbers off a curve that deliberately has none.
-          footnote: 'No scale — the shape is the whole output.',
+          footnote: l?.circadianDetailForecastFootnote ??
+              'No scale — the shape is the whole output.',
           child: CustomPaint(
             size: Size.infinite,
             // p.ink3, like every other mark on this screen that is not a
@@ -508,22 +524,28 @@ class _CircadianDetailState extends State<CircadianDetail> {
         ),
         const SizedBox(height: S.x3),
         Text(
-          'The flattest stretch lands in ${v.troughLabel}, around '
-          '${_hourClock(v.troughStartHour)}–${_hourClock(v.troughEndHour)}.',
+          l?.circadianDetailTroughText(
+                v.troughLabel,
+                _hourClock(v.troughStartHour),
+                _hourClock(v.troughEndHour),
+              ) ??
+              'The flattest stretch lands in ${v.troughLabel}, around '
+                  '${_hourClock(v.troughStartHour)}–${_hourClock(v.troughEndHour)}.',
           style: F.body.copyWith(color: p.ink, height: 1.5),
         ),
         const SizedBox(height: S.x3),
         Text(
-          'This is a prediction, not a reading. Nothing on the band measures '
-          'how alert you are, and it knows last night and nothing else — a '
-          'nap, coffee, or anything that happens today never reaches it.'
-          '${assumedPhase ? ' Your own clock peak is not worked out yet, so this uses an average one.' : ''}',
+          '${l?.circadianDetailPredictionDisclaimer ?? 'This is a prediction, not a reading. Nothing on the band measures '
+              'how alert you are, and it knows last night and nothing else — a '
+              'nap, coffee, or anything that happens today never reaches it.'}'
+          '${assumedPhase ? ' ${l?.circadianDetailAssumedPhaseNote ?? 'Your own clock peak is not worked out yet, so this uses an average one.'}' : ''}',
           style: F.cap.copyWith(color: p.ink2, height: 1.6),
         ),
         const SizedBox(height: S.x3),
         Text(
-          'It is not a fitness-to-drive check and not a shift-safety tool, and '
-          'it does not say you are impaired.',
+          l?.circadianDetailNotADrivingCheck ??
+              'It is not a fitness-to-drive check and not a shift-safety '
+                  'tool, and it does not say you are impaired.',
           style: F.cap.copyWith(color: p.ink2, height: 1.6),
         ),
       ]),
@@ -531,37 +553,42 @@ class _CircadianDetailState extends State<CircadianDetail> {
   }
 
   Widget _rhythm(BuildContext c, P p, CircadianData d) {
+    final l = AppLocalizations.of(c);
     final worst = d.sriPairs.isEmpty ? null : d.sriPairs.first;
     final showNights = _showNights && worst != null;
     final rows = <(String, String)>[
       if (d.chronotypeLabel.isNotEmpty)
-        ('Chronotype', d.chronotypeLabel),
+        (l?.circadianDetailChronotype ?? 'Chronotype', d.chronotypeLabel),
       if (d.midFreeH != null)
-        ('Mid-sleep, free days', _hourClock(d.midFreeH)),
+        (l?.circadianDetailMidSleepFree ?? 'Mid-sleep, free days',
+            _hourClock(d.midFreeH)),
       if (d.midWorkH != null)
-        ('Mid-sleep, working days', _hourClock(d.midWorkH)),
+        (l?.circadianDetailMidSleepWork ?? 'Mid-sleep, working days',
+            _hourClock(d.midWorkH)),
       // `abs_hours` is UNSIGNED. Whether the free-day clock runs later or
       // earlier is the sign of free minus work; the card that used to say
       // "later" read it off the magnitude.
       if (d.jetlag.value != null)
         (
-          'Social jetlag',
+          l?.circadianDetailSocialJetlag ?? 'Social jetlag',
           '${_hm(d.jetlag.value!)}'
-              '${d.midFreeH == null || d.midWorkH == null ? '' : (d.midFreeH! >= d.midWorkH! ? ' later' : ' earlier')}',
+              '${d.midFreeH == null || d.midWorkH == null ? '' : (d.midFreeH! >= d.midWorkH! ? ' ${l?.circadianDetailLater ?? 'later'}' : ' ${l?.circadianDetailEarlier ?? 'earlier'}')}',
         ),
       if (d.nFree != null && d.nWork != null)
-        ('Free / working nights compared',
+        (l?.circadianDetailNightsCompared ?? 'Free / working nights compared',
             '${d.nFree!.round()} / ${d.nWork!.round()}'),
       if (d.regularity.value != null)
-        ('Regularity index', '${d.regularity.value!.round()} / 100'),
+        (l?.circadianDetailRegularityIndex ?? 'Regularity index',
+            '${d.regularity.value!.round()} / 100'),
       // SLP-08 — the same arithmetic, one level down. The index above is the
       // average agreement across every adjacent pair of nights; these two rows
       // name the pair that agreed least and print it on the same scale.
       if (showNights)
-        ('Nights least alike',
+        (l?.circadianDetailNightsLeastAlike ?? 'Nights least alike',
             '${_shortDay(worst['prev_date'])} → ${_shortDay(worst['date'])}'),
       if (showNights)
-        ('That pair, same scale', '${(worst['sri'] as num).round()} / 100'),
+        (l?.circadianDetailSamePairScale ?? 'That pair, same scale',
+            '${(worst['sri'] as num).round()} / 100'),
     ];
 
     if (rows.isEmpty) {
@@ -569,7 +596,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
       // it is not the one the measured run hit — `no valid epoch pairs` was,
       // on both gen5 databases, and that note was being overwritten here.
       return StatusCard.forMetric(
-              'Your rhythm is not established yet', d.regularity) ??
+              l?.circadianDetailRhythmNotEstablished ??
+                  'Your rhythm is not established yet',
+              d.regularity) ??
           const SizedBox.shrink();
     }
 
@@ -582,9 +611,11 @@ class _CircadianDetailState extends State<CircadianDetail> {
       _table(p, rows),
       const SizedBox(height: S.x3),
       Text(
-        'The pair that matched least, out of ${d.sriPairs.length}. A weekend '
-        'that runs late is a different schedule, not a worse night. Pairs '
-        'where too little of either day was recorded are left out.',
+        l?.circadianDetailPairFootnote(d.sriPairs.length) ??
+            'The pair that matched least, out of ${d.sriPairs.length}. A '
+                'weekend that runs late is a different schedule, not a worse '
+                'night. Pairs where too little of either day was recorded '
+                'are left out.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);
@@ -596,33 +627,45 @@ class _CircadianDetailState extends State<CircadianDetail> {
   /// mean something different because of it — so the footnote is not optional
   /// decoration, it is the unit.
   Widget _strength(BuildContext c, P p, CircadianData d) {
+    final l = AppLocalizations.of(c);
     final np = d.rhythmV, cos = d.cosinorV;
     num? n(Map<String, dynamic> m, String k) => m[k] as num?;
 
     final rows = <(String, String)>[
       if (n(np, 'IS') != null)
-        ('Day-to-day stability', n(np, 'IS')!.toStringAsFixed(2)),
+        (l?.circadianDetailStability ?? 'Day-to-day stability',
+            n(np, 'IS')!.toStringAsFixed(2)),
       if (n(np, 'IV') != null)
-        ('Hour-to-hour fragmentation', n(np, 'IV')!.toStringAsFixed(2)),
+        (l?.circadianDetailFragmentation ?? 'Hour-to-hour fragmentation',
+            n(np, 'IV')!.toStringAsFixed(2)),
       if (n(np, 'RA') != null)
-        ('Relative amplitude', n(np, 'RA')!.toStringAsFixed(2)),
+        (l?.circadianDetailAmplitude ?? 'Relative amplitude',
+            n(np, 'RA')!.toStringAsFixed(2)),
       if (n(np, 'm10_start_epoch') != null)
-        ('Highest-HR 10 hours start', _hourClock(n(np, 'm10_start_epoch'))),
+        (l?.circadianDetailM10Start ?? 'Highest-HR 10 hours start',
+            _hourClock(n(np, 'm10_start_epoch'))),
       if (n(np, 'l5_start_epoch') != null)
-        ('Lowest-HR 5 hours start', _hourClock(n(np, 'l5_start_epoch'))),
+        (l?.circadianDetailL5Start ?? 'Lowest-HR 5 hours start',
+            _hourClock(n(np, 'l5_start_epoch'))),
       if (n(cos, 'acrophase_hours') != null)
-        ('Rhythm peak', _hourClock(n(cos, 'acrophase_hours'))),
+        (l?.circadianDetailRhythmPeak ?? 'Rhythm peak',
+            _hourClock(n(cos, 'acrophase_hours'))),
       if (n(cos, 'amplitude') != null)
-        ('Peak-to-mean swing', '${n(cos, 'amplitude')!.toStringAsFixed(1)} bpm'),
+        (l?.circadianDetailPeakSwing ?? 'Peak-to-mean swing',
+            '${n(cos, 'amplitude')!.toStringAsFixed(1)} bpm'),
       if (n(cos, 'r2_adj') != null)
-        ('Fit to a 24 h curve', n(cos, 'r2_adj')!.toStringAsFixed(2)),
+        (l?.circadianDetailFitCurve ?? 'Fit to a 24 h curve',
+            n(cos, 'r2_adj')!.toStringAsFixed(2)),
     ];
 
     if (rows.isEmpty) {
-      return StatusCard.forMetric('Rhythm strength is not measured yet',
+      return StatusCard.forMetric(
+              l?.circadianDetailStrengthNotMeasured ??
+                  'Rhythm strength is not measured yet',
               d.rhythm,
               unit: 'days',
-              why: 'Needs consecutive days with all 24 hours recorded.') ??
+              why: l?.circadianDetailStrengthWhy ??
+                  'Needs consecutive days with all 24 hours recorded.') ??
           const SizedBox.shrink();
     }
 
@@ -631,9 +674,15 @@ class _CircadianDetailState extends State<CircadianDetail> {
       _table(p, rows),
       const SizedBox(height: S.x3),
       Text(
-        'From ${used == null ? 'a run of' : '$used'} fully-recorded '
-        'day${used == 1 ? '' : 's'} of heart rate. These are your highest and '
-        'lowest heart-rate hours, not your busiest.',
+        used == null
+            ? (l?.circadianDetailStrengthFootnoteUnknown ??
+                'From a run of fully-recorded days of heart rate. These are '
+                    'your highest and lowest heart-rate hours, not your '
+                    'busiest.')
+            : (l?.circadianDetailStrengthFootnoteKnown(used) ??
+                'From $used fully-recorded day${used == 1 ? '' : 's'} of '
+                    'heart rate. These are your highest and lowest '
+                    'heart-rate hours, not your busiest.'),
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

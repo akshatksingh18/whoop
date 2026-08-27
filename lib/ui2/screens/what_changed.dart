@@ -28,6 +28,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../ai/briefing_engine.dart' show collectSweepSeries;
 import '../../ai/nightly_sweep.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'day_timeline.dart' show DayTimelineScreen;
 import 'home_screen.dart' show go, repoOf;
@@ -142,7 +143,10 @@ class _WhatChangedScreenState extends State<WhatChangedScreen> {
   @override
   Widget build(BuildContext c) {
     final d = _d ?? const WhatChangedData();
-    return detailScaffold(c, 'What changed', sub: 'AGAINST YOUR OWN HISTORY', [
+    final l = AppLocalizations.of(c);
+    return detailScaffold(
+        c, l?.whatChangedTitle ?? 'What changed',
+        sub: l?.whatChangedSub ?? 'AGAINST YOUR OWN HISTORY', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
@@ -157,23 +161,26 @@ class _WhatChangedScreenState extends State<WhatChangedScreen> {
 /// without a repository.
 List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
   final p = P.of(c);
+  final l = AppLocalizations.of(c);
   final pairing = sweepPairing(d.findings);
   return [
     if (!d.hadToday)
-      const StatusCard(
-        'Nothing has landed for this day yet',
-        'The sweep compares a day against the ones before it, and this day has '
-            'no value to compare. Nothing about it is unusual because nothing '
-            'about it is known.',
+      StatusCard(
+        l?.whatChangedNoDataTitle ?? 'Nothing has landed for this day yet',
+        l?.whatChangedNoDataBody ??
+            'The sweep compares a day against the ones before it, and this day has '
+                'no value to compare. Nothing about it is unusual because nothing '
+                'about it is known.',
         icon: LucideIcons.circleSlash,
       )
     else if (d.findings.isEmpty && d.longestHistory < kSweepMinHistory) ...[
       StatusCard(
-        'Still learning your usual',
-        'Unusual only means anything against a range, and there '
-            '${d.longestHistory == 1 ? 'is' : 'are'} ${d.longestHistory} '
-            'day${d.longestHistory == 1 ? '' : 's'} of history behind this '
-            'one. The sweep starts at $kSweepMinHistory.',
+        l?.whatChangedLearningTitle ?? 'Still learning your usual',
+        l?.whatChangedLearningBody(d.longestHistory, kSweepMinHistory) ??
+            'Unusual only means anything against a range, and there '
+                '${d.longestHistory == 1 ? 'is' : 'are'} ${d.longestHistory} '
+                'day${d.longestHistory == 1 ? '' : 's'} of history behind this '
+                'one. The sweep starts at $kSweepMinHistory.',
         icon: LucideIcons.hourglass,
       ),
     ] else if (d.findings.isEmpty)
@@ -181,10 +188,11 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
       // present tense rather than that constant's "tonight": this screen can be
       // steered onto a day in March, and a sentence about tonight is wrong on
       // every one of them.
-      const StatusCard(
-        'Nothing stood out',
-        'Every metric with enough history sat inside the range your own days '
-            'have set. That is the normal answer, and it is a complete one.',
+      StatusCard(
+        l?.whatChangedNothingTitle ?? 'Nothing stood out',
+        l?.whatChangedNothingBody ??
+            'Every metric with enough history sat inside the range your own days '
+                'have set. That is the normal answer, and it is a complete one.',
         icon: LucideIcons.check,
       )
     else ...[
@@ -204,9 +212,10 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
       ],
       const SizedBox(height: S.x3),
       Text(
-        'Measured against your own trailing days, in your own units, with the '
-        'window attached — so you can disbelieve it. Nothing here is a cause '
-        'and nothing here is a diagnosis.',
+        l?.whatChangedMethodologyNote ??
+            'Measured against your own trailing days, in your own units, with the '
+            'window attached — so you can disbelieve it. Nothing here is a cause '
+            'and nothing here is a diagnosis.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ],
@@ -215,13 +224,13 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
       detailLinkRow(
         c,
         LucideIcons.listOrdered,
-        'What happened that day',
-        'Sleep, sessions, meals and logs in time order',
+        l?.whatChangedDayLinkTitle ?? 'What happened that day',
+        l?.whatChangedDayLinkSub ?? 'Sleep, sessions, meals and logs in time order',
         () => go(c, DayTimelineScreen(day: d.day)),
       ),
     ],
     if (d.grid.isNotEmpty)
-      Section('The month behind it', MonthGrid(d.grid)),
+      Section(l?.whatChangedMonthSection ?? 'The month behind it', MonthGrid(d.grid)),
   ];
 }
 

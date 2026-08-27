@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
@@ -207,21 +208,23 @@ class _ZonesDetailState extends State<ZonesDetail> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d ?? const ZonesData();
-    return detailScaffold(c, 'Heart-rate zones', [
+    return detailScaffold(c, l?.activityZonesTitle ?? 'Heart-rate zones', [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else ...[
-        _ceiling(p, d),
-        Section('Your zones', _zones(p, d)),
-        ..._distribution(p, d),
+        _ceiling(p, l, d),
+        Section(l?.activityZonesYourZonesSection ?? 'Your zones',
+            _zones(p, l, d)),
+        ..._distribution(p, l, d),
       ],
     ]);
   }
 
   // ── the ceiling, said the only way it can honestly be said ─────────────────
-  Widget _ceiling(P p, ZonesData d) {
+  Widget _ceiling(P p, AppLocalizations? l, ZonesData d) {
     final bpm = d.ceilingBpm;
     if (bpm == null) {
       // THE CEILING METRIC'S OWN REASON, when it gave one. The hold sentence
@@ -233,29 +236,41 @@ class _ZonesDetailState extends State<ZonesDetail> {
           // Only when there ARE age-estimated edges below. Said
           // unconditionally it described a section that, on every database in
           // the measured run, was itself empty.
-          ? ' Until one is measured, the zones below come off your age.'
+          ? (l?.activityZonesNoCeilingTanakaTail ??
+              ' Until one is measured, the zones below come off your age.')
           : '';
       return StatusCard(
-        'No measured ceiling yet',
+        l?.activityZonesNoCeilingTitle ?? 'No measured ceiling yet',
         why != null
             ? '$why$tail'
-            : 'We only count a high reading the band held for 15 seconds while '
-                  'you were moving. A one-second spike is not a heart '
-                  'rate.$tail',
+            : (l?.activityZonesNoCeilingDefaultBody ??
+                    'We only count a high reading the band held for 15 seconds while '
+                        'you were moving. A one-second spike is not a heart '
+                        'rate.') +
+                tail,
         // The hard-session instruction belongs to the hold gate alone.
-        fix: why == null ? 'Wear the band for your normal hard sessions' : '',
+        fix: why == null
+            ? (l?.activityZonesWearBandFix ??
+                'Wear the band for your normal hard sessions')
+            : '',
         icon: LucideIcons.heartPulse,
       );
     }
     final where = [
-      if (d.ceilingDate != null) 'on ${_prettyDay(d.ceilingDate!)}',
-      if (d.ceilingSession != null) 'during ${d.ceilingSession!.toLowerCase()}',
+      if (d.ceilingDate != null)
+        l?.activityZonesCeilingOnDate(_prettyDay(d.ceilingDate!)) ??
+            'on ${_prettyDay(d.ceilingDate!)}',
+      if (d.ceilingSession != null)
+        l?.activityZonesCeilingDuringSession(
+                d.ceilingSession!.toLowerCase()) ??
+            'during ${d.ceilingSession!.toLowerCase()}',
     ].join(', ');
     return Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('HIGHEST WE HAVE SEEN', style: F.over.copyWith(color: p.ink3)),
+          Text(l?.activityZonesHighestSeenLabel ?? 'HIGHEST WE HAVE SEEN',
+              style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x2),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -263,7 +278,8 @@ class _ZonesDetailState extends State<ZonesDetail> {
             children: [
               Text('$bpm', style: F.n34.copyWith(color: p.on(C.red))),
               const SizedBox(width: S.x2),
-              Text('bpm', style: F.body.copyWith(color: p.ink3)),
+              Text(l?.activityZonesBpmUnit ?? 'bpm',
+                  style: F.body.copyWith(color: p.ink3)),
             ],
           ),
           if (where.isNotEmpty) ...[
@@ -275,8 +291,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
           ],
           const SizedBox(height: S.x3),
           Text(
-            'The highest we have measured, not a limit — it creeps up as the '
-            'band sees harder efforts. Do not go and test it.',
+            l?.activityZonesHighestSeenFootnote ??
+                'The highest we have measured, not a limit — it creeps up as the '
+                    'band sees harder efforts. Do not go and test it.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -285,7 +302,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
   }
 
   // ── the edges, and the two numbers they were built from ────────────────────
-  Widget _zones(P p, ZonesData d) {
+  Widget _zones(P p, AppLocalizations? l, ZonesData d) {
     if (d.zones.isEmpty) {
       // THE REPOSITORY'S REASON, or none. This card used to name one — no age
       // — and offer "Add your age in Profile" as the fix, on a screen whose own
@@ -295,13 +312,15 @@ class _ZonesDetailState extends State<ZonesDetail> {
       final why = whyFromNote(d.note, unit: 'days');
       final noAge = (d.age ?? 0) <= 0;
       return StatusCard(
-        'No zones yet',
+        l?.activityZonesNoZonesTitle ?? 'No zones yet',
         why ??
             (noAge
-                ? 'Zone edges are percentages of a maximum heart rate, and '
-                    'without your age there is nothing to take a percentage of.'
-                : 'Nothing recorded says why there are no zone edges yet.'),
-        fix: noAge ? 'Add your age in Profile' : '',
+                ? (l?.activityZonesNoAgeBody ??
+                    'Zone edges are percentages of a maximum heart rate, and '
+                        'without your age there is nothing to take a percentage of.')
+                : (l?.activityZonesNoZonesDefaultBody ??
+                    'Nothing recorded says why there are no zone edges yet.')),
+        fix: noAge ? (l?.activityZonesAddAgeFix ?? 'Add your age in Profile') : '',
         icon: LucideIcons.activity,
       );
     }
@@ -337,13 +356,14 @@ class _ZonesDetailState extends State<ZonesDetail> {
                   style: F.n17.copyWith(color: p.ink2),
                 ),
                 const SizedBox(width: S.x2),
-                Text('bpm', style: F.cap.copyWith(color: p.ink3)),
+                Text(l?.activityZonesBpmUnit ?? 'bpm',
+                    style: F.cap.copyWith(color: p.ink3)),
               ],
             ),
           ],
           const SizedBox(height: S.x4),
           Text(
-            _anchorCopy(d),
+            _anchorCopy(l, d),
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -353,52 +373,60 @@ class _ZonesDetailState extends State<ZonesDetail> {
 
   /// WHERE THESE EDGES CAME FROM — the whole point of the screen. Three
   /// different claims, three different sentences, never a shared hedge.
-  String _anchorCopy(ZonesData d) {
+  String _anchorCopy(AppLocalizations? l, ZonesData d) {
     final max = d.maxHr;
     switch (d.source) {
       case 'karvonen':
-        return 'Built from two numbers the band measured on you: your resting '
-            'rate (${d.restingHr}, the middle of your last ${d.restingDays} '
-            'nights) and the highest we have seen ($max). A low resting rate '
-            'makes zone 1 wide. These are the usual bands, not your own '
-            'measured thresholds.';
+        return l?.activityZonesAnchorKarvonen(
+                d.restingHr ?? 0, d.restingDays, max ?? 0) ??
+            'Built from two numbers the band measured on you: your resting '
+                'rate (${d.restingHr}, the middle of your last ${d.restingDays} '
+                'nights) and the highest we have seen ($max). A low resting rate '
+                'makes zone 1 wide. These are the usual bands, not your own '
+                'measured thresholds.';
       case 'observed':
-        return 'Built from the highest heart rate we have seen ($max). After '
-            '${d.restingMinDays} nights of resting rate (you have '
-            '${d.restingDays}) your resting rate joins it, which fits you '
-            'better. These are the usual bands, not your own measured '
-            'thresholds.';
+        return l?.activityZonesAnchorObserved(
+                max ?? 0, d.restingMinDays, d.restingDays) ??
+            'Built from the highest heart rate we have seen ($max). After '
+                '${d.restingMinDays} nights of resting rate (you have '
+                '${d.restingDays}) your resting rate joins it, which fits you '
+                'better. These are the usual bands, not your own measured '
+                'thresholds.';
       case 'tanaka':
-        return 'Built from $max bpm, estimated from your age rather than '
-            'measured on you — it can be 20 bpm out either way. The edges move '
-            'to a measured ceiling once the band sees a hard enough session.';
+        return l?.activityZonesAnchorTanaka(max ?? 0) ??
+            'Built from $max bpm, estimated from your age rather than '
+                'measured on you — it can be 20 bpm out either way. The edges move '
+                'to a measured ceiling once the band sees a hard enough session.';
       default:
-        return 'Zone edges are percentages of a maximum heart rate.';
+        return l?.activityZonesAnchorDefault ??
+            'Zone edges are percentages of a maximum heart rate.';
     }
   }
 
   // ── TS-05 — drawn only when both anchors were measured ─────────────────────
-  List<Widget> _distribution(P p, ZonesData d) {
+  List<Widget> _distribution(P p, AppLocalizations? l, ZonesData d) {
     final mins = d.distMinutes;
     if (mins == null) {
       // NOT a chart with a caveat. The absence IS the honest state, so it says
       // what would have to be true for the chart to mean anything.
       return [
         Section(
-          'Where your intensity went',
+          l?.activityZonesIntensitySection ?? 'Where your intensity went',
           StatusCard(
-            'Not shown yet',
+            l?.activityZonesNotShownTitle ?? 'Not shown yet',
             // THE REPOSITORY'S REASON. This has three distinct causes — no
             // edges at all, edges off the age estimate, or a reserve anchor
             // still short — and the screen was choosing between two of them
             // off `source` alone.
             whyFromNote(d.distNote, unit: 'days') ??
                 (d.measured
-                    ? 'Needs about a month of recorded sessions, each with a '
-                          'minute-by-minute heart rate.'
-                    : 'The bars would be a picture of the age estimate, not of '
-                          'your training. They appear once the zone edges above '
-                          'are measured.'),
+                    ? (l?.activityZonesNeedsMonthBody ??
+                        'Needs about a month of recorded sessions, each with a '
+                            'minute-by-minute heart rate.')
+                    : (l?.activityZonesAgeEstimateBody ??
+                        'The bars would be a picture of the age estimate, not of '
+                            'your training. They appear once the zone edges above '
+                            'are measured.')),
             icon: LucideIcons.chartColumn,
           ),
         ),
@@ -408,17 +436,18 @@ class _ZonesDetailState extends State<ZonesDetail> {
     if (total <= 0) return const [];
     return [
       Section(
-        'Where your intensity went',
+        l?.activityZonesIntensitySection ?? 'Where your intensity went',
         Surface(
           child: ChartFrame(
-            title: 'SESSION MINUTES, LAST 28 DAYS',
+            title: l?.activityZonesSessionMinutesChartTitle ??
+                'SESSION MINUTES, LAST 28 DAYS',
             unit: 'minutes',
             height: 10,
             legend: [
               for (var i = 0; i < 5; i++)
                 ('Z${i + 1} · ${mins[i]}m', ZoneBar.cols(p)[i]),
             ],
-            footnote: _shapeCopy(d),
+            footnote: _shapeCopy(l, d),
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar([for (final v in mins) v / total], p),
@@ -435,21 +464,24 @@ class _ZonesDetailState extends State<ZonesDetail> {
   /// against lab-defined thresholds, and these are %HRR bands off a ceiling a
   /// wrist sensor happened to catch. Naming the shape is a mirror; calling a
   /// share of it correct would be a prescription we cannot support.
-  String _shapeCopy(ZonesData d) {
+  String _shapeCopy(AppLocalizations? l, ZonesData d) {
     final shape = switch (d.distShape) {
-      'pyramidal' =>
-        'Most of your minutes are easy, fewer in the middle, '
-            'fewest hard — a pyramid.',
-      'polarised' =>
-        'Most of your minutes are easy and the rest are hard, '
-            'with little in between.',
-      'middle-heavy' =>
-        'Most of your minutes sit in the middle rather than '
-            'easy or hard.',
+      'pyramidal' => l?.activityZonesShapePyramidal ??
+          'Most of your minutes are easy, fewer in the middle, '
+              'fewest hard — a pyramid.',
+      'polarised' => l?.activityZonesShapePolarised ??
+          'Most of your minutes are easy and the rest are hard, '
+              'with little in between.',
+      'middle-heavy' => l?.activityZonesShapeMiddleHeavy ??
+          'Most of your minutes sit in the middle rather than '
+              'easy or hard.',
       _ => '',
     };
-    return '$shape ${d.distEasy} min easy, ${d.distModerate} moderate, '
-        '${d.distHard} hard, over ${d.distSessions} recorded sessions. A '
-        'description, not a target.';
+    final summary = l?.activityZonesShapeSummary(
+            d.distEasy, d.distModerate, d.distHard, d.distSessions) ??
+        '${d.distEasy} min easy, ${d.distModerate} moderate, '
+            '${d.distHard} hard, over ${d.distSessions} recorded sessions. A '
+            'description, not a target.';
+    return '$shape $summary';
   }
 }

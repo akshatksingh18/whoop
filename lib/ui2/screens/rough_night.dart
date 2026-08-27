@@ -38,6 +38,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart' show kJournalPresetTags;
+import '../../l10n/app_localizations.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
@@ -135,6 +136,7 @@ class RoughNight {
   Map<String, Map<String, double>> series, {
   int minNights = kRoughNightMinNights,
   int window = kRoughNightWindow,
+  AppLocalizations? l,
 }) {
   /// The [window] most recent values for [key] strictly BEFORE [day]. Strictly:
   /// a night compared against a window containing itself pulls its own baseline
@@ -175,19 +177,22 @@ class RoughNight {
   var signs = 0;
   if (fired(rhr, rhrHist, 1)) {
     signs++;
-    moved.add('your resting heart rate ran higher');
+    moved.add(l?.roughNightSignRhr ?? 'your resting heart rate ran higher');
   }
   if (fired(rmssd, rmssdHist, -1)) {
     signs++;
-    moved.add('your HRV ran lower');
+    moved.add(l?.roughNightSignHrv ?? 'your HRV ran lower');
   }
   if (fired(tonight(_kDip), history(_kDip), -1)) {
     signs++;
-    moved.add('your heart rate dropped less overnight than it usually does');
+    moved.add(
+      l?.roughNightSignDip ??
+          'your heart rate dropped less overnight than it usually does',
+    );
   }
   if (fired(tonight(_kTempZ), history(_kTempZ), 1)) {
     signs++;
-    moved.add('your skin ran warmer');
+    moved.add(l?.roughNightSignTemp ?? 'your skin ran warmer');
   }
   return (signs: signs, moved: moved);
 }
@@ -199,7 +204,12 @@ class RoughNight {
 /// FOUR indexed series reads and three read-seam calls, no compute. `getToday`
 /// is not among them: [day] is passed in because the caller already knows which
 /// night it is looking at.
-Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
+Future<RoughNight?> loadRoughNight(
+  LocalRepository repo,
+  String day, {
+  BuildContext? c,
+}) async {
+  final l = c == null ? null : AppLocalizations.of(c);
   // MEASURED ONLY. This is a detection, not a chart: the night is called
   // rough by comparing it against the spread of the days behind it, and a
   // day another vendor's algorithm derived is not the same measurement.
@@ -220,7 +230,7 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
           r['date'] as String: (r['value'] as num).toDouble(),
     };
   }
-  final counted = roughNightSignCount(day, series);
+  final counted = roughNightSignCount(day, series, l: l);
   if (counted == null || counted.signs < 2) return null;
 
   final knows = <String>[];
@@ -242,7 +252,10 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
       }
       if (latest != null) {
         final at = formatMinuteOfDay(latest.hour * 60 + latest.minute);
-        knows.add('You trained until $at, which often does this on its own.');
+        knows.add(
+          l?.roughNightLateTraining(at) ??
+              'You trained until $at, which often does this on its own.',
+        );
       }
     }
   } catch (_) {/* a knowable that could not be read is simply not stated */}
@@ -254,8 +267,9 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
       for (final r in recent) {
         if (r is Map && r['date'] == day && r['illness'] == true) {
           knows.add(
-            'The illness watch flagged this night too — a sustained rise '
-            'against your own baseline, not a diagnosis.',
+            l?.roughNightIllness ??
+                'The illness watch flagged this night too — a sustained rise '
+                    'against your own baseline, not a diagnosis.',
           );
           break;
         }
@@ -269,8 +283,9 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
     final cycle = await repo.getCycle();
     if (cycle['enabled'] == true && cycle['phase'] == 'luteal') {
       knows.add(
-        'You are in the luteal phase, which lifts resting heart rate and '
-        'skin temperature by itself.',
+        l?.roughNightLuteal ??
+            'You are in the luteal phase, which lifts resting heart rate and '
+                'skin temperature by itself.',
       );
     }
   } catch (_) {/* cycle tracking off, or nothing logged */}
@@ -280,7 +295,8 @@ Future<RoughNight?> loadRoughNight(LocalRepository repo, String day) async {
   // temperature.
   if (counted.moved.any((m) => m.contains('skin'))) {
     knows.add(
-      'Your skin ran warmer than your usual — a warm room does this too.',
+      l?.roughNightWarmRoom ??
+          'Your skin ran warmer than your usual — a warm room does this too.',
     );
   }
 
@@ -390,6 +406,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final n = widget.night;
     // "a rougher night than usual for you — your body worked harder overnight"
     // splits at the dash into a headline and its own explanation.
@@ -411,7 +428,8 @@ class _RoughNightCardState extends State<RoughNightCard> {
                   // Sentence case from the analytics wording, which is written
                   // lower-case for use mid-sentence.
                   head.isEmpty
-                      ? 'A rougher night than usual'
+                      ? (l?.roughNightDefaultHeadline ??
+                            'A rougher night than usual')
                       : head[0].toUpperCase() + head.substring(1),
                   style: F.head.copyWith(
                     color: p.ink,
@@ -422,7 +440,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
               ),
               const SizedBox(width: S.x2),
               Pressable(
-                semanticLabel: 'Dismiss',
+                semanticLabel: l?.roughNightDismiss ?? 'Dismiss',
                 onTap: _dismiss,
                 child: Icon(LucideIcons.x, size: 16, color: p.ink3),
               ),
@@ -430,8 +448,9 @@ class _RoughNightCardState extends State<RoughNightCard> {
           ),
           const SizedBox(height: S.x3),
           Text(
-            '${_sentence(n.moved)}, against your own nights. '
-            'This is a measurement of the night, not a verdict on you.',
+            l?.roughNightSummary(_sentence(l, n.moved)) ??
+                '${_sentence(l, n.moved)}, against your own nights. '
+                    'This is a measurement of the night, not a verdict on you.',
             style: F.cap.copyWith(color: p.ink2, height: 1.5),
           ),
           // WHAT THE APP ALREADY KNOWS. Stated, never asked — a screen that
@@ -462,25 +481,33 @@ class _RoughNightCardState extends State<RoughNightCard> {
 
   /// The half nobody sees until they ask for it. The action names nothing that
   /// is in the vocabulary behind it.
-  List<Widget> _invite(BuildContext c, P p) => [
-    if (_ask != 'never')
-      BigButton(
-        'Tell it what happened',
-        icon: LucideIcons.messageSquarePlus,
-        color: C.indigo,
-        soft: true,
-        onTap: () => _setAsk('on'),
-      )
-    else
-      Text(
-        'Nothing to answer — this card only reports the night.',
-        style: F.over.copyWith(color: p.ink3, height: 1.5),
-      ),
-  ];
+  List<Widget> _invite(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    return [
+      if (_ask != 'never')
+        BigButton(
+          l?.roughNightTellWhatHappened ?? 'Tell it what happened',
+          icon: LucideIcons.messageSquarePlus,
+          color: C.indigo,
+          soft: true,
+          onTap: () => _setAsk('on'),
+        )
+      else
+        Text(
+          l?.roughNightNothingToAnswer ??
+              'Nothing to answer — this card only reports the night.',
+          style: F.over.copyWith(color: p.ink3, height: 1.5),
+        ),
+    ];
+  }
 
-  List<Widget> _question(BuildContext c, P p, RoughNight n) => [
+  List<Widget> _question(BuildContext c, P p, RoughNight n) {
+    final l = AppLocalizations.of(c);
+    return [
     Text(
-      n.knows.isEmpty ? 'What else was going on?' : 'Anything else?',
+      n.knows.isEmpty
+          ? (l?.roughNightWhatElse ?? 'What else was going on?')
+          : (l?.roughNightAnythingElse ?? 'Anything else?'),
       style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
     ),
     const SizedBox(height: S.x3),
@@ -503,7 +530,9 @@ class _RoughNightCardState extends State<RoughNightCard> {
     ),
     const SizedBox(height: S.x4),
     BigButton(
-      _saving ? 'Saving' : 'Log it for that night',
+      _saving
+          ? (l?.roughNightSaving ?? 'Saving')
+          : (l?.roughNightLogIt ?? 'Log it for that night'),
       icon: LucideIcons.check,
       color: C.domMind,
       onTap: _saving || _picked.isEmpty ? null : _save,
@@ -516,7 +545,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
         MaterialPageRoute<void>(builder: (_) => JournalCompose(date: n.day)),
       ),
       child: Text(
-        'Add how much',
+        l?.roughNightAddHowMuch ?? 'Add how much',
         style: F.cap.copyWith(color: p.on(C.domMind)),
       ),
     ),
@@ -524,15 +553,19 @@ class _RoughNightCardState extends State<RoughNightCard> {
     Pressable(
       onTap: () => _setAsk('never'),
       child: Text(
-        'Do not ask again',
+        l?.roughNightDoNotAskAgain ?? 'Do not ask again',
         style: F.over.copyWith(color: p.ink3),
       ),
     ),
   ];
+  }
 
   /// "a, b and c" — the moved measurements as one clause.
-  static String _sentence(List<String> parts) {
-    if (parts.isEmpty) return 'Several overnight measurements moved together';
+  static String _sentence(AppLocalizations? l, List<String> parts) {
+    if (parts.isEmpty) {
+      return l?.roughNightSeveralMoved ??
+          'Several overnight measurements moved together';
+    }
     final s = parts.length == 1
         ? parts.first
         : '${parts.sublist(0, parts.length - 1).join(', ')} and ${parts.last}';

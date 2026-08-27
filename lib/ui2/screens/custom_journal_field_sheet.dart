@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/journal_fields.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
 
@@ -86,26 +87,30 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
   }
 
   void _save() {
+    final l = AppLocalizations.of(context);
     final label = _nameCtrl.text.trim();
     if (label.isEmpty) {
-      setState(() => _error = 'Give it a name');
+      setState(() => _error = l?.journalFieldErrorNoName ?? 'Give it a name');
       return;
     }
     final key = customJournalFieldKey(label);
     // A name that slugs to nothing ("???") would produce a bare `custom_`
     // key that every other such name also produces.
     if (key == customJournalFieldKey('')) {
-      setState(() => _error = 'Use at least one letter or number');
+      setState(() => _error =
+          l?.journalFieldErrorInvalidName ?? 'Use at least one letter or number');
       return;
     }
     // An amount with no unit renders as a bare number everywhere after —
     // correlations, findings, CSV. Demand it up front.
     if (_kind == JournalFieldKind.dose && _unitCtrl.text.trim().isEmpty) {
-      setState(() => _error = 'Say what it is counted in (mg, ml, cups…)');
+      setState(() => _error =
+          l?.journalFieldErrorNoUnit ?? 'Say what it is counted in (mg, ml, cups…)');
       return;
     }
     if (widget.existingKeys.contains(key)) {
-      setState(() => _error = 'You already track something by that name');
+      setState(() => _error =
+          l?.journalFieldErrorDuplicate ?? 'You already track something by that name');
       return;
     }
     Navigator.pop(
@@ -126,6 +131,7 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return SafeArea(
       top: false,
       child: ConstrainedBox(
@@ -139,7 +145,7 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Track something else',
+                l?.journalFieldTitle ?? 'Track something else',
                 style: F.head.copyWith(color: p.ink),
               ),
               const SizedBox(height: S.x4),
@@ -150,21 +156,26 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
                     children: [
                       OsTextField(
                         controller: _nameCtrl,
-                        label: 'What do you want to track?',
-                        hint: 'Magnesium, screen time, headache…',
+                        label: l?.journalFieldNameLabel ??
+                            'What do you want to track?',
+                        hint: l?.journalFieldNameHint ??
+                            'Magnesium, screen time, headache…',
                       ),
                       const SizedBox(height: S.x4),
-                      Text('What kind of number is it?',
+                      Text(l?.journalFieldKindQuestion ?? 'What kind of number is it?',
                           style: F.cap.copyWith(color: p.ink3)),
                       const SizedBox(height: S.x2),
                       Wrap(
                         spacing: S.x2,
                         runSpacing: S.x2,
                         children: [
-                          for (final (kind, chipLabel) in const [
-                            (JournalFieldKind.rating, 'A 1–5 rating'),
-                            (JournalFieldKind.dose, 'An amount'),
-                            (JournalFieldKind.duration, 'Minutes'),
+                          for (final (kind, chipLabel) in [
+                            (JournalFieldKind.rating,
+                                l?.journalFieldKindRating ?? 'A 1–5 rating'),
+                            (JournalFieldKind.dose,
+                                l?.journalFieldKindAmount ?? 'An amount'),
+                            (JournalFieldKind.duration,
+                                l?.journalFieldKindMinutes ?? 'Minutes'),
                           ])
                             Pressable(
                               onTap: () => _selectKind(kind),
@@ -180,11 +191,12 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
                         const SizedBox(height: S.x4),
                         OsTextField(
                           controller: _unitCtrl,
-                          label: 'Unit',
-                          hint: 'mg, ml, cups…',
+                          label: l?.journalFieldUnitLabel ?? 'Unit',
+                          hint: l?.journalFieldUnitHint ?? 'mg, ml, cups…',
                         ),
                         const SizedBox(height: S.x4),
-                        Text('Step size', style: F.cap.copyWith(color: p.ink3)),
+                        Text(l?.journalFieldStepSize ?? 'Step size',
+                            style: F.cap.copyWith(color: p.ink3)),
                         const SizedBox(height: S.x2),
                         Wrap(
                           spacing: S.x2,
@@ -212,7 +224,7 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
                           ],
                         ),
                         const SizedBox(height: S.x4),
-                        Text('Most you would log in a day',
+                        Text(l?.journalFieldMaxPerDay ?? 'Most you would log in a day',
                             style: F.cap.copyWith(color: p.ink3)),
                         const SizedBox(height: S.x2),
                         Wrap(
@@ -239,7 +251,7 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
                           onTap: () =>
                               setState(() => _hasTime = !_hasTime),
                           child: Pill(
-                            'Ask when the last one was',
+                            l?.journalFieldAskLastTime ?? 'Ask when the last one was',
                             _hasTime ? C.domMind : C.n400,
                             icon: _hasTime ? LucideIcons.check : null,
                           ),
@@ -255,7 +267,7 @@ class _CustomFieldSheetState extends State<_CustomFieldSheet> {
               ),
               const SizedBox(height: S.x4),
               BigButton(
-                'Start tracking it',
+                l?.journalFieldStartTracking ?? 'Start tracking it',
                 icon: LucideIcons.check,
                 color: C.domMind,
                 onTap: _save,

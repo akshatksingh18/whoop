@@ -12,6 +12,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
@@ -154,6 +155,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d ?? const ReadinessData();
     final v = d.readiness.value;
     final band = readinessBand(v);
@@ -161,7 +163,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
     // today's number with somebody else's day.
-    return detailScaffold(c, 'Readiness', [
+    return detailScaffold(c, l?.readinessDetailTitle ?? 'Readiness', [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -171,17 +173,23 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           // day it does, and the "What was missing" section directly below is
           // built from that record — a sentence written here was competing
           // with the real answer one line down and winning.
-          StatusCard.forMetric('Readiness is not scored', d.readiness,
+          StatusCard.forMetric(
+                  l?.readinessDetailNotScoredTitle ??
+                      'Readiness is not scored',
+                  d.readiness,
                   // Where the data stops, appended to whatever the pipeline
                   // said. Not a substitute for the reason and not a reading —
                   // "the last one was Saturday" is a fact about coverage.
                   gap: d.heldOverNight == null
                       ? null
-                      : 'The last night scored was '
-                          '${prettyDay(d.heldOverNight)}.') ??
+                      : (l?.readinessDetailLastNightScored(
+                              prettyDay(d.heldOverNight)) ??
+                          'The last night scored was '
+                              '${prettyDay(d.heldOverNight)}.')) ??
               const SizedBox.shrink(),
           if (d.absentDiag != null)
-            Section('What was missing', _absence(c, p, d.absentDiag!)),
+            Section(l?.readinessDetailWhatWasMissing ?? 'What was missing',
+                _absence(c, p, d.absentDiag!)),
         ] else
           Surface(
             child: Column(children: [
@@ -205,7 +213,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           ),
 
         if (d.breakdown.isNotEmpty) ...[
-          Section('What went into it', _breakdown(c, p, d)),
+          Section(l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
+              _breakdown(c, p, d)),
           const SizedBox(height: S.x4),
           Surface(
             elevation: 0,
@@ -213,9 +222,11 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             child: Row(children: [
               Expanded(
                 child: Text(
-                  '${d.inputsUsed}/${d.breakdown.length} inputs. Each one is '
-                  'ranked against your own history — a parallel view of the '
-                  'same inputs, not slices of the number above.',
+                  l?.readinessDetailInputsFooter(
+                          d.inputsUsed, d.breakdown.length) ??
+                      '${d.inputsUsed}/${d.breakdown.length} inputs. Each one is '
+                          'ranked against your own history — a parallel view of the '
+                          'same inputs, not slices of the number above.',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),
@@ -223,11 +234,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           ),
         ] else if (v != null)
           Section(
-            'What went into it',
-            const StatusCard(
-              'No breakdown yet',
-              'Ranking each input against your own history takes about two '
-                  'weeks of nights.',
+            l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
+            StatusCard(
+              l?.readinessDetailNoBreakdownTitle ?? 'No breakdown yet',
+              l?.readinessDetailNoBreakdownBody ??
+                  'Ranking each input against your own history takes about two '
+                      'weeks of nights.',
               icon: LucideIcons.listTree,
             ),
           ),
@@ -235,12 +247,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         // The header used to say "Last 90 days" over a chart of five points.
         // It says what is drawn.
         Section(
-          _historyTitle(d),
+          _historyTitle(c, d),
           !d.series.any((v) => v != null)
-              ? const StatusCard(
-                  'No readiness history',
-                  '0 days scored.',
-                  fix: 'Wear the band overnight',
+              ? StatusCard(
+                  l?.readinessDetailNoHistoryTitle ?? 'No readiness history',
+                  l?.readinessDetailNoHistoryBody ?? '0 days scored.',
+                  fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
                   icon: LucideIcons.chartLine,
                 )
               : Surface(child: _history(c, d)),
@@ -259,9 +271,13 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     return first <= 0 ? d.series : d.series.sublist(first);
   }
 
-  String _historyTitle(ReadinessData d) {
+  String _historyTitle(BuildContext c, ReadinessData d) {
+    final l = AppLocalizations.of(c);
     final n = d.series.any((v) => v != null) ? _window(d).length : 0;
-    return n == 0 ? 'History' : 'Last $n day${n == 1 ? '' : 's'}';
+    return n == 0
+        ? (l?.readinessDetailHistoryTitle ?? 'History')
+        : (l?.readinessDetailLastNDays(n) ??
+            'Last $n day${n == 1 ? '' : 's'}');
   }
 
   Widget _history(BuildContext c, ReadinessData d) {
@@ -270,17 +286,19 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // 71-to-76 week into a chart that looked like a collapse and a recovery.
     const axis = AxisSpec(min: 0, max: 100, ticks: 3, format: axisInt);
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return ChartFrame(
-      title: 'Readiness',
-      unit: '/100',
+      title: l?.readinessDetailTitle ?? 'Readiness',
+      unit: l?.readinessDetailUnit ?? '/100',
       height: 120,
       yAxis: axis,
       // Slot 0 is `length - 1` days behind today, not `length` — the last slot
       // IS today. MetricDetail draws the same `recovery` series and already
       // counts it this way; the two screens dated one chart differently.
       xLabels: [
-        '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
-        'Today',
+        l?.readinessDetailDaysAgo(win.length - 1) ??
+            '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
+        l?.readinessDetailToday ?? 'Today',
       ],
       series: win,
       child: CustomPaint(
@@ -298,6 +316,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
   /// and it never turns a night count into a date, because nothing in the
   /// pipeline knows when you will next wear the band.
   Widget _absence(BuildContext c, P p, Map<String, dynamic> diag) {
+    final l = AppLocalizations.of(c);
     final rows = <(String, String)>[];
     for (final k in const ['hrv', 'rhr', 'resp', 'temp']) {
       final e = diag[k];
@@ -305,8 +324,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       final n = (e['baseline_n'] as num?)?.toInt() ?? 0;
       rows.add((
         driverLabel(k),
-        '${e['value'] == true ? 'Measured' : 'Not measured'} · '
-            '$n night${n == 1 ? '' : 's'} of your own history',
+        '${e['value'] == true ? (l?.readinessDetailMeasured ?? 'Measured') : (l?.readinessDetailNotMeasured ?? 'Not measured')} · '
+            '${l?.readinessDetailNightsOfHistory(n) ?? '$n night${n == 1 ? '' : 's'} of your own history'}',
       ));
     }
     final note = diag['note']?.toString();
@@ -335,12 +354,14 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       const SizedBox(height: S.x3),
       Text(
         need != null
-            ? '$need. Each input is ranked against your own nights, so the '
-                'score cannot start before there are enough of them.'
+            ? (l?.readinessDetailNeedSuffix(need) ??
+                '$need. Each input is ranked against your own nights, so the '
+                    'score cannot start before there are enough of them.')
             : (note != null && note.isNotEmpty
                 ? note
-                : 'Everything above was present, and the comparison against '
-                    'your own history still could not be made.'),
+                : (l?.readinessDetailNoNoteFallback ??
+                    'Everything above was present, and the comparison against '
+                        'your own history still could not be made.')),
         style: F.cap.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);
@@ -360,13 +381,14 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       child: Column(children: [
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) Divider(color: p.line, height: 1),
-          _row(p, rows[i], wsum),
+          _row(c, p, rows[i], wsum),
         ],
       ]),
     );
   }
 
-  Widget _row(P p, Map<String, dynamic> r, double wsum) {
+  Widget _row(BuildContext c, P p, Map<String, dynamic> r, double wsum) {
+    final l = AppLocalizations.of(c);
     final key = r['label']?.toString() ?? '';
     final raw = (r['weight'] as num?)?.toDouble();
     final contribution = (r['weighted_contribution'] as num?);
@@ -377,15 +399,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final share = !used || raw == null || wsum <= 0 ? null : raw / wsum;
 
     final parts = [
-      if (share != null) '${(share * 100).round()}% weight',
-      if (!used) 'not available',
-      if (used && contribution == null) 'contribution not reported',
+      if (share != null)
+        l?.readinessDetailWeightPercent((share * 100).round()) ??
+            '${(share * 100).round()}% weight',
+      if (!used) l?.readinessDetailNotAvailable ?? 'not available',
+      if (used && contribution == null)
+        l?.readinessDetailContributionNotReported ?? 'contribution not reported',
       // The temperature input is a raw sensor deviation, not a calibrated
       // temperature. It gets said, every time.
-      if (key == 'temp') 'relative, uncalibrated',
+      if (key == 'temp')
+        l?.readinessDetailRelativeUncalibrated ?? 'relative, uncalibrated',
       // An unlabelled glyph is not an explanation. This is the
       // smallest-worthwhile-change gate, so it says what it means.
-      if (used && !pastMdc) 'within your usual spread',
+      if (used && !pastMdc)
+        l?.readinessDetailWithinSpread ?? 'within your usual spread',
     ];
 
     return Padding(

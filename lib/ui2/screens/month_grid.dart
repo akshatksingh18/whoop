@@ -25,6 +25,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show ChartPoint, denseDays, pointsOf;
 import 'metric_detail.dart' show MetricSpec, specOf;
@@ -132,6 +133,7 @@ class MonthGrid extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final shaded = [for (final r in rows) if (r.shaded) r];
     final waiting = [for (final r in rows) if (!r.shaded) r];
     return Column(
@@ -158,14 +160,18 @@ class MonthGrid extends StatelessWidget {
                         const SizedBox(width: S.x2),
                         // Coverage, never a run. "23 of 30" costs a missed day
                         // one day; a streak costs it everything.
-                        Text('${r.have} of $kGridDays days',
+                        Text(
+                            l?.monthGridCoverage(r.have, kGridDays) ??
+                                '${r.have} of $kGridDays days',
                             style: F.over.copyWith(color: p.ink3)),
                       ],
                     ),
                   ),
                   Semantics(
-                    label: '${r.spec.title}: ${r.have} of $kGridDays days have '
-                        'a value. Shaded against your own range.',
+                    label: l?.monthGridSemanticsLabel(
+                            r.spec.title, r.have, kGridDays) ??
+                        '${r.spec.title}: ${r.have} of $kGridDays days have '
+                            'a value. Shaded against your own range.',
                     child: SizedBox(
                       height: 22,
                       child: CustomPaint(
@@ -182,18 +188,21 @@ class MonthGrid extends StatelessWidget {
                 ],
                 Row(
                   children: [
-                    Text('30 days ago', style: F.over.copyWith(color: p.ink3)),
+                    Text(l?.monthGridDaysAgo(kGridDays) ?? '$kGridDays days ago',
+                        style: F.over.copyWith(color: p.ink3)),
                     const Spacer(),
-                    Text('Today', style: F.over.copyWith(color: p.ink3)),
+                    Text(l?.monthGridToday ?? 'Today',
+                        style: F.over.copyWith(color: p.ink3)),
                   ],
                 ),
                 const SizedBox(height: S.x3),
                 Text(
-                  'One cell per day. Darker is further up YOUR own range — the '
-                  '10th to 90th percentile of every day you have stored — and '
-                  'an outlined cell is a day with no value, not a low one. '
-                  'More strain is not better strain and longer sleep is not '
-                  'healthier sleep; this says where a day sat, not how it went.',
+                  l?.monthGridFootnote ??
+                      'One cell per day. Darker is further up YOUR own range — the '
+                      '10th to 90th percentile of every day you have stored — and '
+                      'an outlined cell is a day with no value, not a low one. '
+                      'More strain is not better strain and longer sleep is not '
+                      'healthier sleep; this says where a day sat, not how it went.',
                   style: F.over.copyWith(color: p.ink3, height: 1.5),
                 ),
               ],
@@ -203,10 +212,12 @@ class MonthGrid extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: S.x3),
             child: StatusCard(
-              '${r.spec.title} is not shaded yet',
-              'A shade is where a day sits in your own range, and '
-                  '${r.historyDays} day${r.historyDays == 1 ? '' : 's'} is not '
-                  'a range. It appears at $kGridMinHistory.',
+              l?.monthGridNotShadedYetTitle(r.spec.title) ??
+                  '${r.spec.title} is not shaded yet',
+              l?.monthGridNotShadedYetBody(r.historyDays, kGridMinHistory) ??
+                  'A shade is where a day sits in your own range, and '
+                      '${r.historyDays} day${r.historyDays == 1 ? '' : 's'} is not '
+                      'a range. It appears at $kGridMinHistory.',
             ),
           ),
       ],

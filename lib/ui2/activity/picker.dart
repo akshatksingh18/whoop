@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'catalogue.dart';
@@ -63,6 +64,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final searching = q.trim().isNotEmpty;
     final needle = q.trim().toLowerCase();
     final results = searching
@@ -76,9 +78,9 @@ class _ActivityPickerState extends State<ActivityPicker> {
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Choose activity'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.activityPickerTitle ?? 'Choose activity'),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -95,7 +97,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
                   // search, and a hint-only field announces nothing once a
                   // character is in it.
                   child: Semantics(
-                    label: 'Search activities',
+                    label: l?.activityPickerSearchLabel ?? 'Search activities',
                     textField: true,
                     child: TextField(
                       autofocus: true,
@@ -103,7 +105,9 @@ class _ActivityPickerState extends State<ActivityPicker> {
                       style: F.body.copyWith(color: p.ink),
                       cursorColor: p.on(C.purple),
                       decoration: InputDecoration.collapsed(
-                          hintText: 'Search ${allActivities.length} activities',
+                          hintText: l?.activityPickerSearchHint(
+                                  allActivities.length) ??
+                              'Search ${allActivities.length} activities',
                           hintStyle: F.body.copyWith(color: p.ink3)),
                     ),
                   ),
@@ -121,10 +125,13 @@ class _ActivityPickerState extends State<ActivityPicker> {
                     // No `fix`: the 'Custom activity' row it pointed at is
                     // gone (it carried an invented MET), and a fix string
                     // paints a call to action that cannot be tapped.
-                    const StatusCard(
-                      'No activity matches that',
-                      'The catalogue covers about seventy activities with a '
-                          'published energy cost. Pick the closest one.',
+                    StatusCard(
+                      l?.activityPickerNoMatchTitle ??
+                          'No activity matches that',
+                      l?.activityPickerNoMatchBody ??
+                          'The catalogue covers about seventy activities '
+                              'with a published energy cost. Pick the '
+                              'closest one.',
                       icon: LucideIcons.search,
                     )
                   else
@@ -143,7 +150,10 @@ class _ActivityPickerState extends State<ActivityPicker> {
                 else ...[
                   // "RECENT" over a fixed six-item constant was a lie the
                   // first time anyone read it. The heading follows the data.
-                  Text(widget.recent.isEmpty ? 'QUICK START' : 'RECENT',
+                  Text(
+                      widget.recent.isEmpty
+                          ? (l?.activityPickerQuickStart ?? 'QUICK START')
+                          : (l?.activityPickerRecent ?? 'RECENT'),
                       style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
                   Builder(builder: (_) {
@@ -220,8 +230,9 @@ class _ActivityPickerState extends State<ActivityPicker> {
                   ],
                   if (widget.weightKg != null) ...[
                     const SizedBox(height: S.x5),
-                    const StatusCard(
-                      'Calorie figures are estimates',
+                    StatusCard(
+                      l?.activityPickerCalorieEstimatesTitle ??
+                          'Calorie figures are estimates',
                       kCalorieWhy,
                       icon: LucideIcons.flame,
                     ),
@@ -247,6 +258,7 @@ class ActivityRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final kcal = a.kcal(weightKg, 30);
     return Pressable(
       onTap: onTap,
@@ -281,8 +293,10 @@ class ActivityRow extends StatelessWidget {
             const SizedBox(width: S.x2),
             Text(
                 kcal == null
-                    ? '${a.met.toStringAsFixed(1)} MET'
-                    : '$kcal kcal / 30 min',
+                    ? (l?.activityPickerMetValue(a.met.toStringAsFixed(1)) ??
+                        '${a.met.toStringAsFixed(1)} MET')
+                    : (l?.activityPickerKcalPer30(kcal) ??
+                        '$kcal kcal / 30 min'),
                 style: F.over.copyWith(color: p.ink3)),
           ],
           const SizedBox(width: S.x2),

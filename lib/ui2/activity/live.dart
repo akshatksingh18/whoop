@@ -57,6 +57,13 @@ class LiveFeed {
   final int? steps;
   final List<double> zoneMinutes; // five, Z1..Z5
 
+  /// The stamp on the set [zoneMinutes] is binned with, and the ceiling it is
+  /// 100 % of — `LiveWorkoutState.zoneSet`, pinned at session start. Carried so
+  /// the summary this screen hands over on stop describes the same anchors the
+  /// live bar was drawn against.
+  final String? zoneSource;
+  final num? zoneMaxHr;
+
   /// Per-minute mean heart rate for the session so far, DENSE — one slot per
   /// session minute, `null` where the band recorded nothing.
   ///
@@ -98,6 +105,8 @@ class LiveFeed {
     this.distanceKm,
     this.steps,
     this.zoneMinutes = const [],
+    this.zoneSource,
+    this.zoneMaxHr,
     this.hrCurve = const [],
     this.route = const [],
     this.gpsActive = false,
@@ -984,6 +993,8 @@ ActivityResult _baseResult(
       strain: feed.strain,
       hr: feed.hrCurve,
       zoneMinutes: feed.zoneMinutes,
+      zoneSource: feed.zoneSource,
+      zoneMaxHr: feed.zoneMaxHr,
       // The same count the live screen has printed all session, carried onto
       // the summary it hands over to. Null stays null: `stopWorkout` only banks
       // `sessions.steps` when there is one, so an unmeasured session reads the

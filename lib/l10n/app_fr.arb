@@ -1861,7 +1861,7 @@
   "activityZonesCeilingDuringSession": "pendant {session}",
   "activityZonesHighestSeenFootnote": "C’est la valeur la plus élevée que nous ayons mesurée, pas une limite — elle augmente progressivement à mesure que le bracelet observe des efforts plus intenses. N’allez pas la tester exprès.",
   "activityZonesNoZonesTitle": "Pas encore de zones",
-  "catalogueZonesWhy": "Les limites de zone sont des pourcentages d'une fréquence cardiaque maximale estimée à partir de votre âge et de votre bracelet — non mesurée sur vous.",
+  "catalogueZonesWhy": "Les limites de zone sont des pourcentages d'une fréquence cardiaque maximale estimée à partir de votre âge — non mesurée sur vous.",
   "activityZonesNoAgeBody": "Les limites des zones sont des pourcentages d’une fréquence cardiaque maximale, et sans votre âge, il n’y a rien dont calculer un pourcentage.",
   "activityZonesNoZonesDefaultBody": "Aucune donnée n’explique pourquoi il n’y a pas encore de limites de zones.",
   "activityZonesAddAgeFix": "Ajoutez votre âge dans le profil",

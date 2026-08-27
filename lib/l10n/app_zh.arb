@@ -1861,7 +1861,7 @@
   "activityZonesCeilingDuringSession": "在 {session} 期间",
   "activityZonesHighestSeenFootnote": "这是我们测得的最高值,而非上限——随着设备观测到更高强度的运动,它会逐渐上升。请不要刻意去挑战它。",
   "activityZonesNoZonesTitle": "尚无区间",
-  "catalogueZonesWhy": "区间边界是根据你的年龄和设备估算的最大心率的百分比——并非在你身上实测得出。",
+  "catalogueZonesWhy": "区间边界是根据你的年龄估算的最大心率的百分比——并非在你身上实测得出。",
   "activityZonesNoAgeBody": "区间边界是最大心率的百分比,如果没有你的年龄,就无法计算出这个百分比。",
   "activityZonesNoZonesDefaultBody": "没有任何记录说明为什么还没有区间边界。",
   "activityZonesAddAgeFix": "在个人资料中添加你的年龄",

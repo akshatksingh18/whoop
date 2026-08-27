@@ -1861,7 +1861,7 @@
   "activityZonesCeilingDuringSession": "während {session}",
   "activityZonesHighestSeenFootnote": "Das ist der höchste von uns gemessene Wert, keine Grenze — er steigt allmählich, sobald das Band härtere Anstrengungen sieht. Teste ihn nicht absichtlich aus.",
   "activityZonesNoZonesTitle": "Noch keine Zonen",
-  "catalogueZonesWhy": "Die Zonengrenzen sind Prozentsätze einer maximalen Herzfrequenz, geschätzt aus deinem Alter und deinem Gerät — nicht an dir gemessen.",
+  "catalogueZonesWhy": "Die Zonengrenzen sind Prozentsätze einer maximalen Herzfrequenz, geschätzt aus deinem Alter — nicht an dir gemessen.",
   "activityZonesNoAgeBody": "Die Zonengrenzen sind Prozentsätze einer maximalen Herzfrequenz, und ohne dein Alter gibt es nichts, wovon ein Prozentsatz berechnet werden könnte.",
   "activityZonesNoZonesDefaultBody": "Nichts Aufgezeichnetes erklärt, warum es noch keine Zonengrenzen gibt.",
   "activityZonesAddAgeFix": "Füge dein Alter im Profil hinzu",

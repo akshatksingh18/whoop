@@ -28,7 +28,7 @@ import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show repoOf, monthName;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
-import 'catalogue.dart' show zonesWhyFootnote;
+import 'catalogue.dart' show zonesWhy, zonesWhyFootnote;
 import 'zones.dart' show ZonesDetail;
 
 /// Below this the day is not comparable to a full one and the screen says so.
@@ -343,19 +343,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             // "estimated from your age" would then be false. The 28-day
             // distribution is NOT here — it lives one tap away and is gated on
             // the same anchors (TS-05).
-            footnote: switch (d.zoneSource) {
-              'karvonen' => l?.dayStrainZoneFootnoteKarvonen(
-                      d.zoneMaxHr?.round() ?? 0) ??
-                  'Zone edges span the gap between your measured resting heart '
-                      'rate and the highest we have seen (${d.zoneMaxHr?.round()} '
-                      'bpm). Both measured on you.',
-              'observed' => l?.dayStrainZoneFootnoteObserved(
-                      d.zoneMaxHr?.round() ?? 0) ??
-                  'Zone edges are percentages of the highest heart rate we have '
-                      'seen (${d.zoneMaxHr?.round()} bpm) — measured, not '
-                      'estimated.',
-              _ => zonesWhyFootnote(l),
-            },
+            footnote: zonesWhy(d.zoneSource, d.zoneMaxHr, l),
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar([for (final v in z) v / total], p),

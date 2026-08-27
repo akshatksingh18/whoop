@@ -1232,6 +1232,11 @@ LiveFeed _feedOf(AppState app) {
     strain: w?.strain,
     steps: app.workoutStepsMeasured,
     zoneMinutes: w?.zoneMinutes() ?? const [],
+    // The SET those minutes were binned with, not a second resolution of the
+    // anchors: `zoneSet` is pinned at session start precisely so a mid-session
+    // anchor change cannot rebrand a split already on screen.
+    zoneSource: w?.zoneSet?.source,
+    zoneMaxHr: w?.zoneSet?.maxHr,
     // DENSE, not the hole-free variant: this feeds the summary's chart, whose
     // x axis is the session clock. `perMinuteHr()` is for statistics.
     hrCurve: _curveOverSession(w),
@@ -1488,6 +1493,16 @@ List<double?> _denseMinutes(Object? hr, [Duration? session]) {
   return out;
 }
 
+/// Zone 5 of a persisted `zone_bands` list — the row carrying the set's own
+/// `source` stamp and, as its `hi`, the ceiling the whole set is a percentage
+/// of. Null for a session that banked no split, and then the footnote says the
+/// estimate: the one claim that stands with no ceiling to name.
+Map<String, dynamic>? _topBand(Object? bands) {
+  if (bands is! List || bands.length != 5) return null;
+  final top = bands.last;
+  return top is Map ? top.cast<String, dynamic>() : null;
+}
+
 /// One past session, opened from history — built from what the stores hold
 /// rather than from the six columns the list row carries.
 Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
@@ -1496,6 +1511,19 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   if (repo == null) return out;
   try {
     final b = await repo.getWorkout(w.id);
+    final band = _topBand(b['zone_bands']);
+    // The bundle's own split — and whether it is the one that ends up on
+    // screen. A short or absent `zone_min` falls back to the list row's split
+    // rather than blanking the bars, but that is a different read from a
+    // different moment, so it is one more case where the bands beside it
+    // describe a different set.
+    final decoded = [
+      for (final z in (b['zone_min'] as List? ?? const []))
+        if (z is num) z.toDouble(),
+    ];
+    final usedBundleSplit = decoded.length == 5;
+    // …and whether that split was binned by the pass that produced the bands.
+    final rebinned = usedBundleSplit && b['zone_min_rebinned'] != false;
     out = out.copyWith(
       hr: _denseMinutes(b['hr'], w.duration),
       // The session's own mean, computed over its heart-rate stream.
@@ -1506,6 +1534,42 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // one frozen mid-dropout has to read as partial rather than draw a
       // confident line across the gap.
       traceCoveragePct: (b['trace_coverage_pct'] as num?)?.toInt(),
+      // TS-04 — the anchors the bands on this card were binned against, read
+      // off the bands themselves. `_zoneBands` stamps every row with the set's
+      // `source`, and zone 5's `hi` IS the ceiling (both `zonesFromMaxHr` and
+      // `reserveZones` put 100 % of the anchor there), so the footnote needs no
+      // second read and cannot describe a different set from the bars.
+      //
+      // …EXCEPT WHEN IT WOULD. The bands are recomputed from the current
+      // anchors on every open, while the minutes below can be a KEPT LIVE
+      // split: a session the band only partly handed over keeps whichever side
+      // saw more minutes, and that side was binned against whatever ceiling was
+      // current when it was written. `zone_min_rebinned` is false exactly
+      // there, and then this card has no ceiling it can name for these bars —
+      // so it names none, and the footnote falls back to the estimate, the one
+      // claim that stands without one. Understating the bars to match the
+      // bands instead would put them at odds with the strain, calories and
+      // duration beside them, which are the kept values too.
+      // `band?['source'] as String?` / `as num?` would THROW on a
+      // wrong-typed (not just missing) field, and the catch below is
+      // best-effort for the WHOLE enrichment — one bad band field must not
+      // also blank the hr/avgHr/zoneMinutes reads beside it. `is`-checks
+      // degrade to null instead of throwing.
+      zoneSource:
+          rebinned && band?['source'] is String ? band!['source'] as String : null,
+      zoneMaxHr: rebinned && band?['hi'] is num ? band!['hi'] as num : null,
+      // …and the MINUTES from the same read, not from the list row. Opening a
+      // session rescores it (`_rescoreSessionFromSubstrate`), so the row loaded
+      // with the month list can be a split binned before that correction — and
+      // pairing those bars with the provenance of the bands just recomputed
+      // beside them is the exact mismatch this card is being fixed for.
+      //
+      // The list row is still the fallback for a split this read could not
+      // produce: five zones or nothing, because a partial vector would draw
+      // bars for the zones it has and silently drop the rest. When it fires,
+      // `rebinned` is false above and no ceiling is named — which is what the
+      // objection to falling back here was actually about.
+      zoneMinutes: usedBundleSplit ? decoded : out.zoneMinutes,
     );
   } catch (_) {
     // Enrichment is best-effort; the scalars on the row still render.

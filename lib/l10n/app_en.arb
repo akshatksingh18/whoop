@@ -9417,7 +9417,7 @@
   "@activityZonesNoAgeBody": {
     "description": "Explanation shown when zone edges are missing because the user's age is not set"
   },
-  "catalogueZonesWhy": "Zone edges are percentages of a maximum heart rate estimated from your age and your strap — not one measured on you.",
+  "catalogueZonesWhy": "Zone edges are percentages of a maximum heart rate estimated from your age — not one measured on you.",
   "@catalogueZonesWhy": {
     "description": "Shared footnote under the zone chart on the workout summary and day-strain screens, when the ceiling is a Tanaka age estimate rather than a measured one"
   },

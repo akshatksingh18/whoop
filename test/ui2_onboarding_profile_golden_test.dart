@@ -18,9 +18,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/platform/app_icon.dart';
+import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
 import 'package:openstrap_edge/ui2/onboarding/splash.dart';
@@ -143,10 +145,13 @@ final _shot = GlobalKey();
 
 Widget _frame(Widget child, Brightness b, double scale) => MediaQuery(
       data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(b),
-        home: RepaintBoundary(key: _shot, child: child),
+      child: ChangeNotifierProvider<LocaleController>.value(
+        value: LocaleController.seed(null),
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(b),
+          home: RepaintBoundary(key: _shot, child: child),
+        ),
       ),
     );
 

@@ -86,6 +86,7 @@ class RoughNight {
     required this.descriptor,
     required this.moved,
     required this.knows,
+    this.illnessFlagged = false,
   });
 
   final String day;
@@ -106,6 +107,11 @@ class RoughNight {
   /// than asks. Each is one finished sentence.
   final List<String> knows;
 
+  /// Whether the illness watch already flagged this night — set alongside the
+  /// matching sentence in [knows], and read here rather than by matching
+  /// English words inside a sentence that is localized. See [ask].
+  final bool illnessFlagged;
+
   bool get rough => signs >= 2;
 
   /// Tags worth offering, once attribution is opted into: the shared preset
@@ -114,9 +120,7 @@ class RoughNight {
   /// asking them to grade the sensor.
   List<String> get ask => [
     for (final t in kJournalPresetTags)
-      if (t != 'poor sleep' &&
-          !(t == 'sick' && knows.any((k) => k.contains('illness'))))
-        t,
+      if (t != 'poor sleep' && !(t == 'sick' && illnessFlagged)) t,
   ];
 }
 
@@ -131,7 +135,7 @@ class RoughNight {
 /// the published foundations, the same two `alcoholNightFlag` uses. A sign that
 /// cannot clear its own minimal detectable change does not count, and a
 /// degenerate scale yields no MDC and therefore no sign — never a claim.
-({int signs, List<String> moved})? roughNightSignCount(
+({int signs, List<String> moved, bool tempMoved})? roughNightSignCount(
   String day,
   Map<String, Map<String, double>> series, {
   int minNights = kRoughNightMinNights,
@@ -190,11 +194,12 @@ class RoughNight {
           'your heart rate dropped less overnight than it usually does',
     );
   }
-  if (fired(tonight(_kTempZ), history(_kTempZ), 1)) {
+  final tempMoved = fired(tonight(_kTempZ), history(_kTempZ), 1);
+  if (tempMoved) {
     signs++;
     moved.add(l?.roughNightSignTemp ?? 'your skin ran warmer');
   }
-  return (signs: signs, moved: moved);
+  return (signs: signs, moved: moved, tempMoved: tempMoved);
 }
 
 /// Read [day]'s state, plus everything the app can state about it instead of
@@ -261,11 +266,13 @@ Future<RoughNight?> loadRoughNight(
   } catch (_) {/* a knowable that could not be read is simply not stated */}
 
   // ILLNESS — the same night's CUSUM state, from the rollup that already ran.
+  var illnessFlagged = false;
   try {
     final recent = (await repo.getInsights())['recent'];
     if (recent is List) {
       for (final r in recent) {
         if (r is Map && r['date'] == day && r['illness'] == true) {
+          illnessFlagged = true;
           knows.add(
             l?.roughNightIllness ??
                 'The illness watch flagged this night too — a sustained rise '
@@ -293,7 +300,7 @@ Future<RoughNight?> loadRoughNight(
   // WARM ROOM — only when the temp sign is one of the ones that fired. The
   // channel is relative ADC, so this is "warmer than your usual", never a
   // temperature.
-  if (counted.moved.any((m) => m.contains('skin'))) {
+  if (counted.tempMoved) {
     knows.add(
       l?.roughNightWarmRoom ??
           'Your skin ran warmer than your usual — a warm room does this too.',
@@ -325,6 +332,7 @@ Future<RoughNight?> loadRoughNight(
             .descriptor,
     moved: counted.moved,
     knows: knows,
+    illnessFlagged: illnessFlagged,
   );
 }
 

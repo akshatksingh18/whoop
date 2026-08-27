@@ -2805,19 +2805,33 @@ class BleEngine {
       // the strap gates every command behind encryption, so continuing would
       // run subscriptions and HELLO against writes the band silently drops.
       if (gatt.bondingApplies) {
+        // BOUNDED, AND OUTSIDE THE REFUSAL ACCOUNTING. The initial bond-state
+        // read is the one platform await in this bootstrap that could hang:
+        // `bondState`'s first emission falls through to the platform's
+        // `getBondState` when nothing is cached. Unbounded, a request that
+        // never answers parks the bootstrap right here with `_session`
+        // non-null and the phase still `discovering`, so `holdsBandLink` keeps
+        // the claim live and every later headless drain yields to a connect
+        // that will never finish — no recovery short of a process restart.
+        //
+        // A stalled read is a PHONE-STACK condition, not a band that refuses
+        // to bond, so it fails the connect WITHOUT touching `bondRefusals` /
+        // `needsRepairGuide`: counted as a refusal it would walk the give-up
+        // threshold and then tell the user to remove a bond that is fine. The
+        // legacy path counted `createBond()` failures only, and so does this.
+        // `createBond()` needs no bound of ours: the plugin gives it a
+        // 90-second response timeout.
+        final bool alreadyBonded;
         try {
-          // BOUNDED. The initial bond-state read is the one platform await in
-          // this bootstrap that could hang: `bondState`'s first emission falls
-          // through to the platform's `getBondState` when nothing is cached.
-          // Unbounded, a request that never answers parks the bootstrap right
-          // here with `_session` non-null and the phase still `discovering`,
-          // so `holdsBandLink` keeps the claim live and every later headless
-          // drain yields to a connect that will never finish — no recovery
-          // short of a process restart. The TimeoutException lands in the
-          // catch below, which fails the connect and tears the session down.
-          // `createBond()` needs no bound of ours: the plugin gives it a
-          // 90-second response timeout.
-          if (await gatt.isBonded().timeout(_bondStateTimeout)) {
+          alreadyBonded = await gatt.isBonded().timeout(_bondStateTimeout);
+        } catch (e) {
+          _log('[BOOT gen5] bond-state read failed or timed out ($e) — '
+              'bootstrap stops here; NOT counted as a bond refusal.');
+          await _failConnect();
+          return _Gen5ConnectOutcome.failed;
+        }
+        try {
+          if (alreadyBonded) {
             _log('[BOOT gen5] already bonded — not creating another bond.');
           } else {
             await gatt.createBond();
@@ -2855,12 +2869,18 @@ class BleEngine {
         if (identical(_session, session)) await _failConnect();
         return _Gen5ConnectOutcome.failed;
       }
-      // 600 ms before notification registration.
-      if (!await _bootstrapPause(
-        session,
-        kGen5PreRegistrationDelay,
-        'the pre-registration delay',
-      )) {
+      // The pause before notification registration —
+      // [BandEntry.preRegistrationDelay] (600 ms on gen5), read off the ENTRY
+      // exactly like `_bootstrapAfterRegistration` reads its post-registration
+      // twin. A band-specific duration is data, and a second copy here is the
+      // one thing the named constant exists to prevent.
+      final preDelay = session.entry.preRegistrationDelay;
+      if (preDelay > Duration.zero &&
+          !await _bootstrapPause(
+            session,
+            preDelay,
+            'the pre-registration delay',
+          )) {
         return _Gen5ConnectOutcome.failed;
       }
       _setPhase(BleConnState.subscribing);
@@ -3123,16 +3143,31 @@ class BleEngine {
       // same way a GET_CLOCK reply would, so both clock sources share one
       // brain. An implausible (unset-RTC) reading is deliberately never
       // correlated there; the delta below still forces the correction.
-      _absorbClockEpoch(hello.tsSeconds);
-      final helloMs =
-          hello.tsSeconds * 1000 + (hello.tsSubseconds * 1000) ~/ 32768;
-      final deltaMs =
-          (DateTime.now().millisecondsSinceEpoch - helloMs).abs();
-      if (!BootstrapClockGate.needsCorrectionMs(deltaMs)) {
-        _log('[CLOCK] in sync (delta ${deltaMs}ms, tolerance '
-            '${BootstrapClockGate.toleranceSeconds}s) — no correction '
-            'needed; no SET_CLOCK written.');
-        return true;
+      // THE TIMESTAMP IS READ AT REVISION-1 OFFSETS. The pinned parser records
+      // `helloRevision` and no longer refuses an unknown one (protocol#35 —
+      // hello is MANDATORY on this path, so a firmware that bumps the byte has
+      // to still connect), which leaves the timestamp as the one field this
+      // method acts on that a moved layout could make plausible-but-wrong. An
+      // unknown revision therefore neither fails the connection nor becomes a
+      // correlation: it forfeits the "already in sync" shortcut and takes the
+      // unconditional SET_CLOCK below, which writes a freshly sampled PHONE
+      // time and is right under any layout.
+      if (hello.helloRevision == 1) {
+        _absorbClockEpoch(hello.tsSeconds);
+        final helloMs =
+            hello.tsSeconds * 1000 + (hello.tsSubseconds * 1000) ~/ 32768;
+        final deltaMs =
+            (DateTime.now().millisecondsSinceEpoch - helloMs).abs();
+        if (!BootstrapClockGate.needsCorrectionMs(deltaMs)) {
+          _log('[CLOCK] in sync (delta ${deltaMs}ms, tolerance '
+              '${BootstrapClockGate.toleranceSeconds}s) — no correction '
+              'needed; no SET_CLOCK written.');
+          return true;
+        }
+      } else {
+        _log('[CLOCK] hello revision ${hello.helloRevision} is not the '
+            'revision-1 layout these offsets read — its timestamp is neither '
+            'trusted nor correlated; correcting unconditionally.');
       }
       // The contract is UNCONDITIONAL at ≥2 s: one awaited SET_CLOCK with a
       // newly sampled phone time — even for a strap reading days ahead of the
@@ -3185,13 +3220,15 @@ class BleEngine {
         'the correlated response.');
     final resp = await out.response;
     if (resp != null && resp.success) {
-      // The strap just took our wall time, so correlate at drift ≈ 0 without
-      // a read-back — an alarm armed before the next periodic re-verify must
-      // not be shifted by the drift this write just corrected.
-      _clockRef = ClockRef(
-        device: sec,
-        wall: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      );
+      // The strap just took our wall time, so correlate at drift 0 without a
+      // read-back — an alarm armed before the next periodic re-verify must not
+      // be shifted by the drift this write just corrected.
+      //
+      // BOTH HALVES COME FROM THE ONE SAMPLE THE STRAP WAS GIVEN. Reading the
+      // wall clock again here samples it after `out.response` resolved — up to
+      // the awaiter's timeout later — so `driftSec` would be the round-trip
+      // latency, and `setAlarm` arms at `when - driftSec`.
+      _clockRef = ClockRef(device: sec, wall: sec);
       // And the phone-suspect verdict — computed off the PRE-correction hello
       // timestamp — is now stale by construction: strap and phone agree
       // because this write made them agree. Left set, it would defer the

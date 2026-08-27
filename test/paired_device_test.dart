@@ -173,6 +173,48 @@ void main() {
     expect((await LocalDb.deviceRow())?['remote_id'], isNull);
   });
 
+  // ...and it has to win at EVERY point of that flight, not only at the two
+  // guards. `save()` writes the table, then the mirror keys one at a time, so
+  // a forget can land between two writes. Walk it across the save's awaits and
+  // require BOTH copies gone every time — including the orphan serial and
+  // generation a mirror write issued after the forget would leave describing
+  // a band the record no longer names.
+  test('a forget wins at every point of an in-flight save', () async {
+    for (var hops = 0; hops < 14; hops++) {
+      SharedPreferences.setMockInitialValues({});
+      await LocalDb.deleteDevice();
+      await PairedDevice.save(
+        'AA:BB:CC:DD:EE:FF',
+        '5AG0000001',
+        generation: 'gen5',
+      );
+
+      final inFlight = PairedDevice.save(
+        'AA:BB:CC:DD:EE:FF',
+        '5AG0000002',
+        generation: 'gen5',
+      );
+      // Let the save advance `hops` turns of the event loop, then forget.
+      for (var i = 0; i < hops; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await PairedDevice.clear();
+      await inFlight;
+
+      expect(
+        await PairedDevice.load(),
+        isNull,
+        reason: 'the forget lost to a save $hops turns in',
+      );
+      expect(
+        (await SharedPreferences.getInstance()).getKeys(),
+        isEmpty,
+        reason: 'a mirror key left behind describes a forgotten band, '
+            '$hops turns in',
+      );
+    }
+  });
+
   test('clear removes the whole record, generation included', () async {
     await PairedDevice.save(
       'AA:BB:CC:DD:EE:FF',

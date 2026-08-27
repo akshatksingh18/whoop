@@ -358,6 +358,16 @@ void main() {
               'the write carries newly sampled phone time, not the '
               'hello timestamp',
         );
+        // BOTH HALVES OF THE CORRELATION COME FROM THAT ONE SAMPLE. Re-reading
+        // the wall clock after the response resolves would make `driftSec` the
+        // round trip, and `setAlarm` arms at `when - driftSec`.
+        expect(rig.engine.clockRef?.device, sec);
+        expect(
+          rig.engine.clockRef?.driftSec,
+          0,
+          reason: 'the strap just took this sample — the drift the write '
+              'corrected must not come back as latency',
+        );
       });
     });
 
@@ -385,6 +395,41 @@ void main() {
         });
       },
     );
+
+    test('an UNKNOWN hello revision still reaches READY, and forfeits the '
+        '"already in sync" shortcut', () {
+      fakeAsync((async) {
+        // The pinned parser records the revision byte instead of gating on it
+        // (protocol#35) precisely so a firmware that bumps it can still
+        // connect — HELLO is MANDATORY here. But every field is still read at
+        // the revision-1 offsets, so the one value this path ACTS on that a
+        // moved layout could make plausible-but-wrong is the timestamp.
+        final body = _helloBody(tsSeconds: _wallNow());
+        body[0] = 2; // a layout these fixed offsets do not describe
+        final hello = Gen5HelloInfo.parse(body)!;
+        final rig = _Rig();
+        rig.replyTo = (seq, op) => switch (op) {
+          Cmd.getHello => _helloReply(seq, hello: hello),
+          Cmd.setClock => _clockAck(seq),
+          Cmd.getCustomAdvertisingName => _nameReply(seq),
+          _ => null,
+        };
+        expect(
+          _run(rig, async),
+          isTrue,
+          reason: 'an unknown revision is NOT a connection failure — that is '
+              'the whole point of the repin',
+        );
+        expect(
+          rig.count(Cmd.setClock),
+          1,
+          reason: 'a timestamp that reads as in-sync at revision-1 offsets is '
+              'not evidence under an unknown layout, so the unconditional '
+              'write of freshly sampled phone time runs instead',
+        );
+        expect(rig.count(Cmd.getClock), 0);
+      });
+    });
 
     test('a strap TWO DAYS ahead: the contract is unconditional, and the '
         'corrected clock does not suppress the initial history drain', () {
@@ -857,6 +902,12 @@ void main() {
           reason: 'the existing repair guidance surfaces',
         );
         expect(
+          rig.engine.state.bondRefusals,
+          1,
+          reason: 'a refused createBond() IS the thing the refusal counter '
+              'and its give-up threshold are for',
+        );
+        expect(
           rig.engine.isConnected,
           isFalse,
           reason: 'the failed session is torn down cleanly',
@@ -885,10 +936,25 @@ void main() {
         expect(
           rig.engine.isConnected,
           isFalse,
-          reason: 'the bound expired into the bond catch, which tore the '
-              'session down — without it the claim stays live forever and '
-              'every later headless drain yields to it',
+          reason: 'the bound expired, which tore the session down — without '
+              'it the claim stays live forever and every later headless '
+              'drain yields to it',
         );
+        // AND IT IS NOT A BOND REFUSAL. A stalled `getBondState` is a
+        // phone-stack condition; counted here it would walk the give-up
+        // threshold and then tell the user to remove a bond that is fine.
+        expect(
+          rig.engine.state.bondRefusals,
+          0,
+          reason: 'the band never refused anything — it was never asked',
+        );
+        expect(
+          rig.engine.state.needsRepairGuide,
+          isFalse,
+          reason: '"remove the bond in system Bluetooth settings" is not the '
+              'remedy for a bond-state read that never answered',
+        );
+        expect(rig.engine.state.autoReconnectPaused, isFalse);
       });
     });
 

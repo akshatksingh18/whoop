@@ -160,6 +160,26 @@ class PairedDevice {
     } else if (!sameDevice) {
       await prefs.remove(_kGeneration);
     }
+    // AND ONCE MORE AFTER THE MIRROR WRITES. The guards above cover only the
+    // windows BEFORE each copy is written, and this one covers the writes
+    // themselves — `clear()` landing inside them empties the mirror between
+    // two of these `setString`s, and the ones still to come put their keys
+    // back on a band the user has just forgotten.
+    //
+    // `_kRemoteId` specifically cannot come back that way — it is issued in
+    // the same synchronous slice as the guard above it, so it is always
+    // ordered ahead of the `remove` in a `clear()` whose epoch bump this guard
+    // did not see — which is why `load()` (it answers off `_kRemoteId`) never
+    // healed a forgotten pairing here. What survives is the serial and the
+    // generation, issued an await later, describing a band the record no
+    // longer names. Drop them: this is the state the epoch counter exists to
+    // refuse. The table needs no such re-check — `clear()` deletes it after
+    // the bump, so its delete is always ordered behind this save's upsert.
+    if (epoch != _forgetEpoch) {
+      await prefs.remove(_kRemoteId);
+      await prefs.remove(_kSerial);
+      await prefs.remove(_kGeneration);
+    }
   }
 
   /// Forget the primary band. BOTH copies, or the mirror puts it straight back

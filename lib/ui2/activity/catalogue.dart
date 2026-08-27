@@ -16,6 +16,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../theme.dart';
 
 /// How a session is tracked — which decides which live screen it opens, and
@@ -235,8 +236,10 @@ const kCalorieWhy = 'MET value × your weight, refined by heart rate.';
 ///
 /// Never "fat burning zone", never "aerobic threshold": these are convention
 /// edges on a guessed ceiling, not measurements of anything metabolic.
-const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
-    'estimated from your age and your strap — not one measured on you.';
+String zonesWhyFootnote([AppLocalizations? l]) =>
+    l?.catalogueZonesWhy ??
+    'Zone edges are percentages of a maximum heart rate '
+        'estimated from your age and your strap — not one measured on you.';
 
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[

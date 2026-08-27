@@ -1571,7 +1571,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           for (var i = 0; i < 5; i++)
             ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
         ],
-        footnote: kZonesWhy,
+        footnote: zonesWhyFootnote(AppLocalizations.of(context)),
         child: CustomPaint(
             size: Size.infinite, painter: ZoneBar(_zoneFractions(), p)),
       );

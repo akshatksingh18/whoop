@@ -619,8 +619,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         : (l?.nutritionProteinWord ?? 'protein');
     if (mean == null || target <= 0) {
       return StatusCard(
-        l?.nutritionNothingToMeasure(g.$2.toLowerCase()) ??
-            'Nothing to measure ${g.$2.toLowerCase()} against yet',
+        l?.nutritionNothingToMeasure(nutrient) ??
+            'Nothing to measure $nutrient against yet',
         // Two different absences, and the difference matters: the day never
         // qualified, or it qualified on energy while this nutrient was only a
         // floor. Progress against a floor would read low every single day.

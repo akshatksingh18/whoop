@@ -1397,6 +1397,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   try {
     final b = await repo.getWorkout(w.id);
     final band = _topBand(b['zone_bands']);
+    final rebinned = b['zone_min_rebinned'] != false;
     out = out.copyWith(
       hr: _denseMinutes(b['hr'], w.duration),
       // The session's own mean, computed over its heart-rate stream.
@@ -1412,8 +1413,19 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // `source`, and zone 5's `hi` IS the ceiling (both `zonesFromMaxHr` and
       // `reserveZones` put 100 % of the anchor there), so the footnote needs no
       // second read and cannot describe a different set from the bars.
-      zoneSource: band?['source'] as String?,
-      zoneMaxHr: band?['hi'] as num?,
+      //
+      // …EXCEPT WHEN IT WOULD. The bands are recomputed from the current
+      // anchors on every open, while the minutes below can be a KEPT LIVE
+      // split: a session the band only partly handed over keeps whichever side
+      // saw more minutes, and that side was binned against whatever ceiling was
+      // current when it was written. `zone_min_rebinned` is false exactly
+      // there, and then this card has no ceiling it can name for these bars —
+      // so it names none, and the footnote falls back to the estimate, the one
+      // claim that stands without one. Understating the bars to match the
+      // bands instead would put them at odds with the strain, calories and
+      // duration beside them, which are the kept values too.
+      zoneSource: rebinned ? (band?['source'] as String?) : null,
+      zoneMaxHr: rebinned ? (band?['hi'] as num?) : null,
       // …and the MINUTES from the same read, not from the list row. Opening a
       // session rescores it (`_rescoreSessionFromSubstrate`), so the row loaded
       // with the month list can be a split binned before that correction — and

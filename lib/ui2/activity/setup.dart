@@ -164,11 +164,17 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   child: Row(children: [
                     Expanded(
                       child: Text(
-                          est == null
-                              ? 'Calories need your weight.'
-                              : 'About $est kcal per $_estimateMin min, from '
-                                  '${a.met.toStringAsFixed(1)} MET and your '
-                                  'weight.',
+                          a.met == null
+                              ? 'No estimate up front: no published MET '
+                                  'applies to a session that names no '
+                                  'activity. Calories come from your heart '
+                                  'rate instead, when your maximum and '
+                                  'resting rates are set.'
+                              : est == null
+                                  ? 'Calories need your weight.'
+                                  : 'About $est kcal per $_estimateMin min, '
+                                      'from ${a.met!.toStringAsFixed(1)} MET '
+                                      'and your weight.',
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),

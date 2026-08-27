@@ -1,5 +1,6 @@
 // The activity vocabulary — ~70 things a person actually does, in eight
-// groups, each carrying a published MET value.
+// groups, each carrying a published MET value except the one row that names
+// no activity at all.
 //
 // Why MET and not a made-up "intensity": a calorie figure has to come from
 // somewhere, and "somewhere" is Ainsworth et al., Compendium of Physical
@@ -45,7 +46,17 @@ class Activity {
 
   /// Metabolic equivalent of task — the honest basis for a calorie estimate.
   /// Compendium of Physical Activities, Ainsworth et al.
-  final double met;
+  ///
+  /// NULL for a row the compendium cannot price, which is exactly one:
+  /// 'General workout' means the user did not say what they did, and the
+  /// compendium prices named activities. Every number that could go here
+  /// would be a stand-in — which is the 'Custom activity' mistake below,
+  /// whose MET of 4.0 was invented. So [kcal] returns null, the picker and
+  /// the setup screen show no estimate, and the session still gets a REAL
+  /// calorie figure afterwards: the post-session estimator in
+  /// `compute/manual_session.dart` works from heart rate and never reads a
+  /// MET. The guess is what is missing, not the calories.
+  final double? met;
 
   /// Whether a route is worth recording. GPS activities get the map.
   final bool gps;
@@ -71,10 +82,12 @@ class Activity {
 
   /// kcal = MET × 3.5 × kg / 200 × minutes.
   ///
-  /// Null when body weight is unknown. There is no default body weight: the
-  /// number would be indistinguishable from a real one on screen.
-  int? kcal(double? kg, int minutes) =>
-      kg == null || kg <= 0 ? null : (met * 3.5 * kg / 200 * minutes).round();
+  /// Null when body weight is unknown, and null when the activity carries no
+  /// MET. There is no default for either: both numbers would be
+  /// indistinguishable from a real one on screen.
+  int? kcal(double? kg, int minutes) => kg == null || kg <= 0 || met == null
+      ? null
+      : (met! * 3.5 * kg / 200 * minutes).round();
 
   /// The stored `sessions.type` for this activity.
   String get typeKey => name.toLowerCase().replaceAll(' ', '_');
@@ -140,6 +153,11 @@ const activityLibrary = <ActGroup>[
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),
     Activity('Rugby', LucideIcons.volleyball, C.green, Track.duration, 8.3),
     Activity('Golf', LucideIcons.flag, C.green, Track.duration, 4.8, gps: true),
+    // Compendium 15092, "bowling, indoor, bowling alley". This row IS the
+    // alley — that assumption is the choice being made here, not a fact about
+    // what users do — because the alternative is two near-identical rows. The
+    // bare 15090 "bowling" is 3.0, and neither number is the measured one.
+    Activity('Bowling', LucideIcons.circleDot, C.indigo, Track.duration, 3.8),
     Activity('Boxing', LucideIcons.hand, C.red, Track.interval, 12.8),
     Activity('Martial arts', LucideIcons.hand, C.red, Track.duration, 10.3),
     Activity('Wrestling', LucideIcons.users, C.orange, Track.duration, 6.0),
@@ -196,6 +214,14 @@ const activityLibrary = <ActGroup>[
     Activity('Stairs', LucideIcons.trendingUp, C.orange, Track.duration, 8.0),
   ]),
   ActGroup('Other', LucideIcons.ellipsis, [
+    // The catch-all: nothing in the catalogue matched, or hunting for the
+    // match was not worth it. NO MET, and that is the whole design of the row
+    // — see [Activity.met]. 02060 "health club exercise, general" was the
+    // near miss, and it prices a gym session, which is not what this row
+    // means. Tracked by duration because the clock and the heart-rate trace
+    // are everything the app knows about a workout nobody named.
+    Activity('General workout', LucideIcons.activity, C.purple,
+        Track.duration, null),
     Activity('Dancing', LucideIcons.music, C.pink, Track.duration, 7.8),
     // A normal entry with a real MET and a privacy default, exactly as Apple
     // Health carries it. Coyness here would be its own kind of judgement.
@@ -217,7 +243,8 @@ const activityLibrary = <ActGroup>[
 /// What the app has to say about a calorie figure, in one place because it was
 /// said in four and drifted: one site kept quoting a "±15%" error bar that no
 /// estimator computes, long after the others dropped it.
-const kCalorieWhy = 'MET value × your weight, refined by heart rate.';
+const kCalorieWhy = 'MET value × your weight, refined by heart rate — or '
+    'heart rate alone, for an activity that carries no MET.';
 
 /// TS-03 — what every zone chart in the app has to admit about its own edges.
 ///

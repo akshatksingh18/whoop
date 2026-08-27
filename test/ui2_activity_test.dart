@@ -3,9 +3,10 @@
 //
 // Three things this file is actually protecting:
 //
-//   1. Every activity has a published MET and every archetype has a screen —
-//      so the "different visual centre of gravity" claim is checkable, not a
-//      design-doc assertion.
+//   1. Every activity has a published MET — bar the one catch-all row that
+//      names no activity for one to apply to — and every archetype has a
+//      screen, so the "different visual centre of gravity" claim is
+//      checkable, not a design-doc assertion.
 //   2. Volume never counts a bodyweight set as zero kilos. That single null
 //      is why `load_kg` is nullable in the schema.
 //   3. No screen renders a bare em-dash. Absence is a StatusCard, and the
@@ -175,11 +176,19 @@ void main() {
       }
     });
 
-    test('every activity carries a physiologically plausible MET', () {
+    test('every activity carries a physiologically plausible MET, or none',
+        () {
       for (final a in allActivities) {
-        expect(a.met, greaterThanOrEqualTo(1.0), reason: a.name);
-        expect(a.met, lessThanOrEqualTo(25.0), reason: a.name);
+        final met = a.met;
+        if (met == null) continue;
+        expect(met, greaterThanOrEqualTo(1.0), reason: a.name);
+        expect(met, lessThanOrEqualTo(25.0), reason: a.name);
       }
+      // A null MET is not a gap to be filled later — it is the catch-all row
+      // saying it was told nothing. Exactly one row may say that, or the
+      // exception has quietly become a habit.
+      final unpriced = allActivities.where((a) => a.met == null).toList();
+      expect(unpriced.map((a) => a.name), ['General workout']);
     });
 
     test('Intimacy is a normal entry with a privacy default', () {
@@ -188,6 +197,25 @@ void main() {
       expect(it.private, isTrue);
       // Not special-cased anywhere: it resolves through the same lookup.
       expect(activityByName('intimacy')?.name, 'Intimacy');
+    });
+
+    test('Bowling cites a compendium row, General workout cites none', () {
+      // 15092 "bowling, indoor, bowling alley", not 15090's bare 3.0 — and it
+      // stays out of `_sports`, so a bowling night reports as a session
+      // rather than as a match's worth of effort. `Arch.match` opens a
+      // two-sided scorer, and bowling has no opponent to score against.
+      final bowling = activityByName('bowling')!;
+      expect(bowling.met, 3.8);
+      expect(archOf(bowling), Arch.basic);
+      // The catch-all names no activity, so no MET can be honest for it, so
+      // no calorie estimate is offered up front. 02060 "health club exercise,
+      // general" was the near miss and it prices a gym session — which is not
+      // what this row means.
+      final general = activityByName('general_workout')!;
+      expect(general.met, isNull);
+      expect(general.kcal(80, 45), isNull,
+          reason: 'a weight is not enough to price an unnamed session');
+      expect(general.track, Track.duration);
     });
 
     test('quick start entries all exist in the library', () {
@@ -1473,6 +1501,87 @@ void main() {
       // The estimate is a RATE, on the picker's own thirty-minute basis.
       expect(find.textContaining('per 30 min'), findsOneWidget);
       expect(find.textContaining('for 45 min'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the unpriced activity offers no number it cannot source',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final general = activityByName('general_workout')!;
+
+      // THE PICKER ROW. Every other row ends in "N kcal / 30 min", or in its
+      // MET when there is no body weight. This one has neither to end in, and
+      // the point is that it ends in nothing rather than in a placeholder.
+      await tester.pumpWidget(
+          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'general');
+      await tester.pumpAndSettle();
+      expect(find.text(general.name), findsOneWidget);
+      expect(find.textContaining('kcal / 30 min'), findsNothing);
+      expect(find.textContaining('MET'), findsNothing,
+          reason: 'a MET this row does not have must not be printed as one');
+
+      // THE SETUP SCREEN. A weight IS set here, so "Calories need your
+      // weight" would be a lie about which input is missing.
+      await tester.pumpWidget(
+          _frame(ActivitySetup(general, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('per 30 min'), findsNothing);
+      expect(find.textContaining('Calories need your weight'), findsNothing);
+      expect(find.textContaining('No estimate up front'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the unpriced session still explains a measured figure',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final general = activityByName('general_workout')!;
+      final base = _result(Arch.basic);
+
+      // WITH calories: the heart-rate estimator ran, so there IS a figure —
+      // and the basis line must not attribute any of it to a MET.
+      await tester.pumpWidget(_frame(
+          ActivitySummary(
+              ActivityResult(general,
+                  start: base.start,
+                  duration: base.duration,
+                  avgHr: 131,
+                  maxHr: 158,
+                  calories: 402,
+                  hr: base.hr,
+                  zoneMinutes: base.zoneMinutes),
+              weightKg: 72.4),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('MET,'), findsNothing);
+      expect(find.textContaining('MET and your weight'), findsNothing);
+      expect(find.textContaining('No MET is in this figure'), findsOneWidget);
+
+      // WITHOUT calories: the missing-anchors explanation is the one that
+      // applies, and it is about heart rate, not about a MET either.
+      await tester.pumpWidget(_frame(
+          ActivitySummary(
+              ActivityResult(general,
+                  start: base.start,
+                  duration: base.duration,
+                  avgHr: 131,
+                  maxHr: 158,
+                  hr: base.hr,
+                  zoneMinutes: base.zoneMinutes),
+              weightKg: 72.4),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('No calorie figure for this session'),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

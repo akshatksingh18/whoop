@@ -248,6 +248,15 @@ class ActivityRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final kcal = a.kcal(weightKg, 30);
+    final met = a.met;
+    // The catch-all row has neither: no weight means no kcal, and no named
+    // activity means no MET to fall back to. It gets no trailing number
+    // rather than a placeholder standing in for one.
+    final trailing = kcal != null
+        ? '$kcal kcal / 30 min'
+        : met == null
+            ? null
+            : '${met.toStringAsFixed(1)} MET';
     return Pressable(
       onTap: onTap,
       child: Padding(
@@ -277,13 +286,9 @@ class ActivityRow extends StatelessWidget {
           // estimate drops off the row rather than overflowing it — the name
           // and the tap are what the row is for, and the same number is on
           // the setup screen the tap opens.
-          if (!bigText(c)) ...[
+          if (!bigText(c) && trailing != null) ...[
             const SizedBox(width: S.x2),
-            Text(
-                kcal == null
-                    ? '${a.met.toStringAsFixed(1)} MET'
-                    : '$kcal kcal / 30 min',
-                style: F.over.copyWith(color: p.ink3)),
+            Text(trailing, style: F.over.copyWith(color: p.ink3)),
           ],
           const SizedBox(width: S.x2),
           Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),

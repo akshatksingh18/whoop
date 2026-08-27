@@ -1987,7 +1987,9 @@ const _fixtureWeightKg = 72.0;
 /// Every number is derived from the activity's MET, track and name, so a
 /// 1.3-MET meditation and a 23-MET sprint cannot end up sharing a heart-rate
 /// curve — which is what a single shared fixture would have done, and is
-/// exactly the class of bug the gallery exists to catch.
+/// exactly the class of bug the gallery exists to catch. The one activity
+/// with NO MET falls back to a preview-only 5.0 for the shape, and keeps its
+/// real null calories — see below.
 ///
 /// This is a PREVIEW, not a measurement, and nothing outside the gallery may
 /// read it. What it is faithful about is SHAPE: which fields an archetype
@@ -1996,7 +1998,12 @@ const _fixtureWeightKg = 72.0;
 ActivityResult _placeholder(Activity a) {
   final arch = archOf(a);
   final mins = 18 + (_n(a.name, 1) * 57).round();
-  final avg = (58 + a.met * 7).clamp(50, 172).round();
+  // The catch-all activity has no MET (it names no activity), and a fixture
+  // still has to draw a heart rate and a zone spread. 5.0 is invented HERE,
+  // in the preview, where inventing is the whole job — `calories` below stays
+  // `a.kcal(...)` and so previews the absent figure the real screen shows.
+  final met = a.met ?? 5.0;
+  final avg = (58 + met * 7).clamp(50, 172).round();
   final peak = (avg + 9 + _n(a.name, 3) * 24).clamp(avg + 4, 198).round();
 
   // One slot per minute, and a dropout in roughly a quarter of them, because
@@ -2012,7 +2019,7 @@ ActivityResult _placeholder(Activity a) {
 
   // Mass moves up the zones with the MET. Meditation sits in Z1; a sprint
   // session spends its minutes at the top.
-  final hard = (a.met / 23).clamp(0.0, 1.0);
+  final hard = (met / 23).clamp(0.0, 1.0);
   final w = [1.6 - hard, 1.4 - hard * .5, .9 + hard, .4 + hard * 1.4, .1 + hard];
   final sum = w.reduce((x, y) => x + y);
   final zones = [for (final x in w) (mins * x / sum)];
@@ -2025,7 +2032,7 @@ ActivityResult _placeholder(Activity a) {
   // Speed from the MET, which is the only thing the catalogue knows about how
   // fast this activity moves. Good enough for a picture, and wrong enough
   // that nobody could mistake it for a recording.
-  final km = double.parse((a.met * 1.02 * mins / 60).toStringAsFixed(2));
+  final km = double.parse((met * 1.02 * mins / 60).toStringAsFixed(2));
   final paceSec = (mins * 60 / km).round();
   final onRoute = arch == Arch.route || arch == Arch.journey;
   // Laps are TAPPED, never measured — so the lap times are the invention here
@@ -2045,7 +2052,7 @@ ActivityResult _placeholder(Activity a) {
     maxHr: peak,
     calories: a.kcal(_fixtureWeightKg, mins),
     strain:
-        double.parse((a.met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1)),
+        double.parse((met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1)),
     hr: hr,
     zoneMinutes: zones,
     // Only a GPS activity gets a line. An indoor row or a treadmill leaves
@@ -2216,8 +2223,10 @@ class _FlowScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
             child: NavBar(a.name,
-                sub: '${archLabel(r.arch).toUpperCase()} · '
-                    '${a.met.toStringAsFixed(1)} MET'),
+                sub: a.met == null
+                    ? archLabel(r.arch).toUpperCase()
+                    : '${archLabel(r.arch).toUpperCase()} · '
+                        '${a.met!.toStringAsFixed(1)} MET'),
           ),
           Expanded(
             child: ListView(
@@ -2241,9 +2250,10 @@ class _FlowScreen extends StatelessWidget {
                   const StatusCard(
                     'These numbers are invented',
                     'Derived from this activity\'s MET and name so the '
-                        'screens have something to draw. The SHAPE is real: '
-                        'the fields this archetype fills, and the ones it '
-                        'leaves empty.',
+                        'screens have something to draw — or from a '
+                        'preview-only stand-in, where the activity has no '
+                        'MET. The SHAPE is real: the fields this archetype '
+                        'fills, and the ones it leaves empty.',
                     icon: LucideIcons.flaskConical,
                   )
                 else

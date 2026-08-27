@@ -226,7 +226,7 @@
   "phoneImportNavTitle": "Depuis votre téléphone",
   "phoneImportRhrSection": "Fréquence cardiaque au repos",
   "phoneImportRhrExplainer": "Lit votre fréquence cardiaque au repos depuis {store}, afin que l’application ait une idée approximative de votre normale avant que le bracelet n’en mesure une.",
-  "phoneImportRhrLimit": "Rien ne l’utilise encore. Elle attend que le bracelet ait mesuré 14 de ses propres nuits, puis est comparée à elles ci-dessous. Elle ne devient jamais un relevé à part entière : aucune nuit sur le graphique de sommeil, aucun jour avec un score.",
+  "phoneImportRhrLimit": "Rien ne l’utilise encore. Elle attend que le bracelet ait mesuré 14 de ses propres nuits, puis est comparée à ces mesures ci-dessous. Elle ne devient jamais un relevé à part entière : aucune nuit sur le graphique de sommeil, aucun jour avec un score.",
   "phoneImportReadRhr": "Lire la fréquence cardiaque au repos",
   "phoneImportWhatPhoneSays": "Ce que dit votre téléphone",
   "phoneImportUsuallyRange": "généralement {low}–{high} bpm, sur {days} jours depuis {store}",

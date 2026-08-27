@@ -76,13 +76,21 @@ class PairedDevice {
   /// queued when the forget arrived.
   static int _forgetEpoch = 0;
 
-  /// ONE AT A TIME. Both writers touch the same two copies across several
-  /// awaits each, and guarding the WINDOWS between those awaits does not work:
-  /// every guard that refuses a stale write is also a guard that can delete a
-  /// NEWER pairing's keys, because "the epoch moved" says a forget happened,
-  /// not that the mirror is still this save's to clean up. Running them in call
-  /// order removes the interleaving instead of trying to detect it — old save →
-  /// clear → new save, each complete before the next starts.
+  /// ONE AT A TIME. Every one of these three touches the same two copies across
+  /// several awaits, and guarding the WINDOWS between those awaits does not
+  /// work: every guard that refuses a stale write is also a guard that can
+  /// delete a NEWER pairing's keys, because "the epoch moved" says a forget
+  /// happened, not that the mirror is still this save's to clean up. Running
+  /// them in call order removes the interleaving instead of trying to detect
+  /// it — old save → clear → new save, each complete before the next starts.
+  ///
+  /// [load] IS ONE OF THE THREE. It reads like an accessor and is not: with no
+  /// table row it heals one back FROM the mirror, which is a write. Left
+  /// outside, a load that had already read the mirror could let a `clear()`
+  /// take its one database delete and then upsert the forgotten band back
+  /// afterwards — into the copy that WINS on the next launch. The heal is the
+  /// whole point of the mirror, so it cannot be dropped; it just has to happen
+  /// where a forget cannot land inside it.
   ///
   /// ponytail: an in-isolate queue, so it orders THIS isolate only — the same
   /// scope [_forgetEpoch] already had, and the headless sync isolate cannot
@@ -90,15 +98,17 @@ class PairedDevice {
   /// needed one.
   static Future<void> _queue = Future<void>.value();
 
-  static Future<void> _serialized(Future<void> Function() op) {
+  static Future<T> _serialized<T>(Future<T> Function() op) {
     final next = _queue.then((_) => op());
     // Keep the chain alive when an op throws: the queue must order the ones
     // behind it either way, and every caller still sees its own error.
-    _queue = next.catchError((_) {});
+    _queue = next.then((_) {}).catchError((_) {});
     return next;
   }
 
-  static Future<PairedDevice?> load() async {
+  static Future<PairedDevice?> load() => _serialized(_load);
+
+  static Future<PairedDevice?> _load() async {
     final row = await LocalDb.deviceRow();
     final id = row?['remote_id'] as String?;
     if (id != null && id.isNotEmpty) {

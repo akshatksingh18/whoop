@@ -5118,14 +5118,21 @@ class BleEngine {
         state.charging = h.charging;
         state.wristOn = h.wristOn;
         onState(state);
+        _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
+            'battery=${h.batteryPct}% charging=${h.charging} '
+            'wrist=${h.wristOn} whoop5=${h.isWhoop5}');
       } else {
+        // REVISION-NEUTRAL, deliberately. The line above names six fields read
+        // at revision-1 offsets, and the foreground logger PERSISTS what it is
+        // handed — so under an unknown layout it would bank a serial and a
+        // battery figure as if they were read, which is the same imputation
+        // the quarantine above exists to stop. The revision and the body
+        // length are the two things true at any layout.
         _log('[HELLO gen5] revision ${h.helloRevision} is not the revision-1 '
-            'layout these offsets read — serial, battery, charge and wrist '
-            'state are NOT published; the connection continues.');
+            'layout these offsets read (body ${h.rawHex.length ~/ 2}B) — '
+            'serial, battery, charge and wrist state are NOT published or '
+            'logged; the connection continues.');
       }
-      _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
-          'battery=${h.batteryPct}% charging=${h.charging} '
-          'wrist=${h.wristOn} whoop5=${h.isWhoop5}');
     }
     if (d.kind == 'realtime_hr') {
       final hr = f['hr'] as int;

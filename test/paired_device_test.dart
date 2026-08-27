@@ -256,6 +256,33 @@ void main() {
     expect(prefs.getString('paired_generation'), 'gen5');
   });
 
+  // `load()` reads like an accessor and is not: with no table row it heals one
+  // back FROM the mirror. A forget landing inside that read-then-heal would
+  // take the one database delete and leave the heal to upsert the forgotten
+  // band afterwards — into the copy `load()` answers from first.
+  test('a forget landing inside a heal-from-mirror load still sticks',
+      () async {
+    // The state the heal exists for: a rebuilt/wiped database under a band
+    // that is still paired — mirror present, no table row.
+    SharedPreferences.setMockInitialValues({
+      'paired_remote_id': 'AA:BB:CC:DD:EE:FF',
+      'paired_serial': '5AG0000001',
+      'paired_generation': 'gen5',
+    });
+    await LocalDb.deleteDevice();
+
+    final healing = PairedDevice.load();
+    final forget = PairedDevice.clear();
+    await Future.wait<void>([healing, forget]);
+
+    expect(
+      await PairedDevice.load(),
+      isNull,
+      reason: 'the heal must not put the forgotten band back',
+    );
+    expect((await LocalDb.deviceRow())?['remote_id'], isNull);
+  });
+
   test('clear removes the whole record, generation included', () async {
     await PairedDevice.save(
       'AA:BB:CC:DD:EE:FF',

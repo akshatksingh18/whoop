@@ -1397,7 +1397,18 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   try {
     final b = await repo.getWorkout(w.id);
     final band = _topBand(b['zone_bands']);
-    final rebinned = b['zone_min_rebinned'] != false;
+    // The bundle's own split — and whether it is the one that ends up on
+    // screen. A short or absent `zone_min` falls back to the list row's split
+    // rather than blanking the bars, but that is a different read from a
+    // different moment, so it is one more case where the bands beside it
+    // describe a different set.
+    final decoded = [
+      for (final z in (b['zone_min'] as List? ?? const []))
+        if (z is num) z.toDouble(),
+    ];
+    final usedBundleSplit = decoded.length == 5;
+    // …and whether that split was binned by the pass that produced the bands.
+    final rebinned = usedBundleSplit && b['zone_min_rebinned'] != false;
     out = out.copyWith(
       hr: _denseMinutes(b['hr'], w.duration),
       // The session's own mean, computed over its heart-rate stream.
@@ -1431,10 +1442,13 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // with the month list can be a split binned before that correction — and
       // pairing those bars with the provenance of the bands just recomputed
       // beside them is the exact mismatch this card is being fixed for.
-      zoneMinutes: [
-        for (final z in (b['zone_min'] as List? ?? const []))
-          if (z is num) z.toDouble(),
-      ],
+      //
+      // The list row is still the fallback for a split this read could not
+      // produce: five zones or nothing, because a partial vector would draw
+      // bars for the zones it has and silently drop the rest. When it fires,
+      // `rebinned` is false above and no ceiling is named — which is what the
+      // objection to falling back here was actually about.
+      zoneMinutes: usedBundleSplit ? decoded : out.zoneMinutes,
     );
   } catch (_) {
     // Enrichment is best-effort; the scalars on the row still render.

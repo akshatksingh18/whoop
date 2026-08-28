@@ -1504,6 +1504,14 @@ Map<String, dynamic>? _topBand(Object? bands) {
   return top is Map ? top.cast<String, dynamic>() : null;
 }
 
+/// `zone_min` comes back from the repo as raw decoded JSON — guard the type
+/// once here so a non-`List` value (or a non-numeric entry) never throws in
+/// either read path.
+List<double> _decodeZoneMinutes(Object? raw) => [
+      for (final z in (raw is List ? raw : const []))
+        if (z is num) z.toDouble(),
+    ];
+
 /// One past session, opened from history — built from what the stores hold
 /// rather than from the six columns the list row carries.
 Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
@@ -1518,11 +1526,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
     // rather than blanking the bars, but that is a different read from a
     // different moment, so it is one more case where the bands beside it
     // describe a different set.
-    final zoneMinRaw = b['zone_min'];
-    final decoded = [
-      for (final z in (zoneMinRaw is List ? zoneMinRaw : const []))
-        if (z is num) z.toDouble(),
-    ];
+    final decoded = _decodeZoneMinutes(b['zone_min']);
     final usedBundleSplit = decoded.length == 5;
     // …and whether that split was binned by the pass that produced the bands.
     final rebinned = usedBundleSplit && b['zone_min_rebinned'] != false;
@@ -1973,10 +1977,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             maxHr: (r['max_hr'] as num?)?.toInt(),
             hrr60: (r['hrr60'] as num?)?.round(),
             steps: (r['steps'] as num?)?.toInt(),
-            zoneMinutes: [
-              for (final z in (r['zone_min'] as List? ?? const []))
-                if (z is num) z.toDouble(),
-            ],
+            zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,
           ));
         }

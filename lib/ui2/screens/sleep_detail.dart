@@ -370,10 +370,17 @@ class _SleepDetailState extends State<SleepDetail> {
     }
   }
 
+  // A locale change and `_goDay` can each kick off a `_load()` while a prior
+  // one is still in flight; whichever resolves last would otherwise win and
+  // could paint the wrong night. Stamp each call and only apply the result
+  // still holding the latest stamp.
+  int _loadGen = 0;
+
   Future<void> _load() async {
+    final gen = ++_loadGen;
     final repo = repoOf(context);
     if (repo == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) setState(() => _loading = false);
       return;
     }
     try {
@@ -387,9 +394,11 @@ class _SleepDetailState extends State<SleepDetail> {
               Prefs.getString(kRoughNightDismissed, '') != d.day
           ? await loadRoughNight(repo, d.day!, c: mounted ? context : null)
           : null;
-      if (mounted) setState(() => (_d = d, _rough = rough, _loading = false));
+      if (mounted && gen == _loadGen) {
+        setState(() => (_d = d, _rough = rough, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) setState(() => _loading = false);
     }
   }
 

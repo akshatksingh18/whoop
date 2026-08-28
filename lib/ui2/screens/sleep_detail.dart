@@ -23,6 +23,7 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../state/locale_controller.dart';
 import '../../state/prefs.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
@@ -340,6 +341,33 @@ class _SleepDetailState extends State<SleepDetail> {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  // `_rough` bakes `AppLocalizations` strings into `knows`/`moved` at load
+  // time (see `loadRoughNight`), so a language switch while this screen is
+  // alive would otherwise leave the rough-night card showing the old locale
+  // until the user steps to another day. Sentinel so the system-default
+  // locale (`code == null`) is not mistaken for "never seen yet" on the first
+  // pass — same fix as `RevisionReload`/`DayTimelineScreen`.
+  static const Object _localeUnset = Object();
+  Object? _seenLocale = _localeUnset;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final Object localeKey;
+    try {
+      final code = context.watch<LocaleController>().code;
+      localeKey = code ?? Localizations.localeOf(context);
+    } catch (_) {
+      return;
+    }
+    if (identical(_seenLocale, _localeUnset)) {
+      _seenLocale = localeKey;
+    } else if (_seenLocale != localeKey && widget.data == null) {
+      _seenLocale = localeKey;
+      _load();
+    }
   }
 
   Future<void> _load() async {

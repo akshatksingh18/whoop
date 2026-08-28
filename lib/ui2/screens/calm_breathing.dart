@@ -118,7 +118,9 @@ String breathPhaseKindLabel(BreathPhaseKind kind, [AppLocalizations? l]) =>
 /// history in half for no reason anyone could see.
 BreathPattern paceAt(double rate, [AppLocalizations? l]) {
   final shipped = kBreathPatterns.first;
-  if ((rate - shipped.rate).abs() < 0.05) return shipped;
+  if ((rate - shipped.rate).abs() < 0.05) {
+    return localizedBreathPatterns(l).first;
+  }
   final half = 30.0 / rate;
   return BreathPattern(
     key: 'resonance_${rate.toStringAsFixed(1).replaceAll('.', '_')}',

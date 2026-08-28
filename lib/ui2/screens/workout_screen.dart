@@ -39,6 +39,7 @@ import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
+import 'home_screen.dart' show calendarDaysBetween;
 import 'log_workout.dart';
 import 'start_card.dart';
 
@@ -1517,8 +1518,9 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
     // rather than blanking the bars, but that is a different read from a
     // different moment, so it is one more case where the bands beside it
     // describe a different set.
+    final zoneMinRaw = b['zone_min'];
     final decoded = [
-      for (final z in (b['zone_min'] as List? ?? const []))
+      for (final z in (zoneMinRaw is List ? zoneMinRaw : const []))
         if (z is num) z.toDouble(),
     ];
     final usedBundleSplit = decoded.length == 5;
@@ -1764,10 +1766,7 @@ class _PastWorkout {
   }
 
   String when(AppLocalizations? loc) {
-    final now = DateTime.now();
-    final days = DateTime(now.year, now.month, now.day)
-        .difference(DateTime(start.year, start.month, start.day))
-        .inDays;
+    final days = calendarDaysBetween(start, DateTime.now());
     final names = [
       loc?.workoutWeekdayAbbrMon ?? 'Mon',
       loc?.workoutWeekdayAbbrTue ?? 'Tue',

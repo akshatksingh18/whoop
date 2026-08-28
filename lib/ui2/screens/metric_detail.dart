@@ -600,8 +600,12 @@ class _MetricDetailState extends State<MetricDetail> {
           ),
         // The goal is editable even before today has a steps value — the
         // gate below matches the measured branch's. `steps: null` keeps the
-        // ring an empty track rather than fabricating a 0% reading.
-        if (widget.metricKey == 'steps' && win == 1) ...[
+        // ring an empty track rather than fabricating a 0% reading. Gated on
+        // `!_loading` too: before the real profile loads, `d` is the
+        // placeholder `MetricData()` and `d.stepGoal` is just the fallback
+        // default, not this user's goal — showing the editor pre-filled with
+        // that would risk saving it over their real one.
+        if (!_loading && widget.metricKey == 'steps' && win == 1) ...[
           const SizedBox(height: S.x5),
           _StepGoalGauge(
               steps: null, goal: d.stepGoal, color: spec.color, onSaved: _load),

@@ -17,6 +17,7 @@ import '../../health/health_import_state.dart' show storeName;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
+import '../community_links.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import 'devices.dart';
@@ -364,6 +365,24 @@ class ProfileHomeView extends StatelessWidget {
                           'Import from $storeName, export, backup, units, '
                               'privacy, reset',
                       onTap: onSettings),
+                ]),
+                settingsGroup(c, 'Community', [
+                  SetRow(LucideIcons.star, C.n500, 'GitHub',
+                      sub: 'Please star and show your support — it helps '
+                          'the project grow',
+                      onTap: () => open3rdPartyLink(kGithubUrl)),
+                  SetRow(LucideIcons.messagesSquare, C.orange, 'Reddit',
+                      sub: 'Join r/OpenStrap — post your achievements, '
+                          'questions, anything',
+                      onTap: () => open3rdPartyLink(kRedditUrl)),
+                  SetRow(LucideIcons.usersRound, C.indigo, 'Discord',
+                      sub: 'Hang out with other users and the people '
+                          'building this',
+                      onTap: () => open3rdPartyLink(kDiscordUrl)),
+                  SetRow(LucideIcons.heartHandshake, C.pink, 'Sponsor',
+                      sub: 'This is a free, one-person project — '
+                          'sponsoring keeps it going',
+                      onTap: () => open3rdPartyLink(kSponsorUrl)),
                 ]),
               ],
             ),

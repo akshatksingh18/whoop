@@ -39,6 +39,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
+import '../nudges.dart';
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'coach.dart';
@@ -1479,6 +1480,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             l?.homeBreakdownTitle ?? 'Breakdown of your day',
             l?.homeBreakdownSubtitle ?? 'Hour by hour',
             () => go(c, const DayTimelineScreen())),
+
+        // Last, always — after every number this screen actually measured.
+        const CommunityNudge(),
       ],
     ]));
   }

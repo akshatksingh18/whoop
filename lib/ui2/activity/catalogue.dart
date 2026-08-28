@@ -235,8 +235,39 @@ const kCalorieWhy = 'MET value × your weight, refined by heart rate.';
 ///
 /// Never "fat burning zone", never "aerobic threshold": these are convention
 /// edges on a guessed ceiling, not measurements of anything metabolic.
+/// NOT "your age and your strap": [estimatedMaxHr] takes `deviceFamily` and
+/// DELIBERATELY IGNORES IT (hr_max.dart) — Tanaka is a population regression on
+/// age alone, and swapping the strap does not move it by one bpm. The sentence
+/// named an input that provably has no effect on the number it describes.
 const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
-    'estimated from your age and your strap — not one measured on you.';
+    'estimated from your age — not one measured on you.';
+
+/// THE sentence a zone chart carries, for the anchors THAT chart was banded on.
+///
+/// [source] is the set's own stamp (`karvonen` · `observed` · `tanaka`) and
+/// [maxHr] the ceiling it is 100 % of. One function because the day-strain
+/// detail and a session's summary card draw the same bands off the same
+/// `trainingZones` set, and only one of them was reading the stamp: the summary
+/// hard-coded [kZonesWhy] and so told a user whose zones were banded on a
+/// MEASURED ceiling that they came from their age. A card that reports 13
+/// minutes above a boundary its own footnote misattributes is unanswerable —
+/// there is no number on screen to check it against.
+///
+/// [kZonesWhy] is the fallback rather than a fourth branch: an unknown stamp
+/// and a measured stamp with no ceiling to name are both "we cannot say this
+/// was measured on you", which is what the estimate sentence already says.
+String zonesWhy(String? source, num? maxHr) => maxHr == null
+    ? kZonesWhy
+    : switch (source) {
+        'karvonen' =>
+          'Zone edges span the gap between your measured resting heart rate '
+              'and the highest we have seen (${maxHr.round()} bpm). Both '
+              'measured on you.',
+        'observed' =>
+          'Zone edges are percentages of the highest heart rate we have seen '
+              '(${maxHr.round()} bpm) — measured, not estimated.',
+        _ => kZonesWhy,
+      };
 
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[

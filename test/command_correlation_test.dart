@@ -64,9 +64,14 @@ class _Link {
   final written = <({int seq, int opcode})>[];
   late final BleEngine engine;
 
+  /// Mutable so a test can flip the link's behaviour mid-scenario (e.g. four
+  /// failed writes, then a working link).
+  bool writesSucceed;
+  Decoded? Function(int seq, int opcode)? replyTo;
+
   _Link({
-    bool writesSucceed = true,
-    Decoded? Function(int seq, int opcode)? replyTo,
+    this.writesSucceed = true,
+    this.replyTo,
   }) {
     engine = BleEngine(
       onRecord: (_, _) async {},
@@ -490,24 +495,35 @@ void main() {
       expect(link.engine.helloFailureCount, 1);
     });
 
-    test('a successful hello clears the accumulated failures', () async {
-      final failing = _Link(writesSucceed: false);
-      await failing.engine.debugReadGen5Hello();
-      await failing.engine.debugReadGen5Hello();
-      expect(failing.engine.helloFailureCount, 2);
-
-      final link = _Link(
-        replyTo: (seq, opcode) =>
-            opcode == Cmd.getHello ? _helloReply(seq) : null,
-      );
+    test('a successful hello does NOT clear the accumulated failures — only '
+        'READY does', () async {
+      // A hello object arriving is not a completed bootstrap. Clearing here
+      // let a link that kept dying between hello and READY reset its own
+      // counter and never reach the five-failure bond reset; the clear now
+      // lives at the READY transition (pinned in gen5_bootstrap_official_test).
+      final link = _Link(writesSucceed: false);
       await link.engine.debugReadGen5Hello();
-      expect(link.engine.helloFailureCount, 0);
+      await link.engine.debugReadGen5Hello();
+      expect(link.engine.helloFailureCount, 2);
+
+      link.writesSucceed = true;
+      link.replyTo = (seq, opcode) =>
+          opcode == Cmd.getHello ? _helloReply(seq) : null;
+      expect(await link.engine.debugReadGen5Hello(), isTrue);
+      expect(link.engine.helloFailureCount, 2,
+          reason: 'still 2 — the count clears only when the connection '
+              'reaches READY');
     });
   });
 
-  group('engine wiring — identity is logged, never enforced', () {
-    test('a non-alphanumeric serial is flagged but the hello still succeeds',
-        () async {
+  group('engine wiring — the hello records the identity verdict', () {
+    // The EXCHANGE succeeding and the IDENTITY passing are different
+    // questions: _readGen5Hello reports whether a terminal successful, parsed
+    // hello landed, and records the verdict; the bootstrap
+    // (_gen5PostHelloGates) then ENFORCES it — a failed verdict fails the
+    // connection there, which gen5_bootstrap_official_test pins.
+    test('a non-alphanumeric serial completes the exchange with a failed '
+        'verdict for the bootstrap to enforce', () async {
       final link = _Link(
         replyTo: (seq, opcode) => opcode == Cmd.getHello
             ? _helloReply(seq, serial: 'W5-AB12')
@@ -515,13 +531,15 @@ void main() {
       );
 
       expect(await link.engine.debugReadGen5Hello(), isTrue,
-          reason: 'a hard disconnect here would brick reconnects');
+          reason: 'the exchange itself succeeded — enforcement is the '
+              'bootstrap\'s, and this must NOT count as a hello-exchange '
+              'failure');
+      expect(link.engine.helloFailureCount, 0);
       expect(link.engine.helloIdentity!.ok, isFalse);
-      expect(link.logs.any((l) => l.contains('identity gate FAILED')), isTrue);
       expect(link.engine.offloadSnapshot['hello_identity_ok'], isFalse);
     });
 
-    test('an all-zero serial is reported as an EEPROM failure and passes',
+    test('an all-zero serial is an EEPROM diagnostic with a PASSING verdict',
         () async {
       final link = _Link(
         replyTo: (seq, opcode) => opcode == Cmd.getHello
@@ -530,9 +548,9 @@ void main() {
       );
 
       expect(await link.engine.debugReadGen5Hello(), isTrue);
-      expect(link.engine.helloIdentity!.ok, isTrue);
+      expect(link.engine.helloIdentity!.ok, isTrue,
+          reason: 'all-zero passes the alphanumeric gate — the official rule');
       expect(link.engine.helloIdentity!.eepromFailureSignal, isTrue);
-      expect(link.logs.any((l) => l.contains('EEPROM')), isTrue);
       expect(
           link.engine.offloadSnapshot['hello_serial_eeprom_failure'], isTrue);
     });

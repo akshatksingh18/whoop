@@ -1,6 +1,9 @@
 package wtf.openstrap.openstrap_edge
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.bluetooth.BluetoothManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -33,6 +36,7 @@ object NativeChannels {
     private const val EDGE_TRACKING_CHANNEL = "openstrap/edge_tracking"
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
+    private const val BLE_NATIVE_CHANNEL = "openstrap/ble_native"
     const val TASKER_CHANNEL = "openstrap/tasker"
     const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
@@ -122,6 +126,26 @@ object NativeChannels {
                             prefs.edit().putBoolean("pending_headless_boot", false).apply()
                         }
                         result.success(eligible)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Native Bluetooth reads flutter_blue_plus cannot answer. The one
+        // method here backs the gen5 readiness gate: it must read the
+        // platform `BluetoothDevice.getName()` (bond/stack-backed), not the
+        // plugin's in-memory platformName cache, which is empty for a device
+        // rebuilt from its id on a cold start. See lib/ble/android_native_name.dart.
+        MethodChannel(engine.dartExecutor.binaryMessenger, BLE_NATIVE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "remoteDeviceName" -> {
+                        val mac = call.arguments as? String
+                        if (mac.isNullOrEmpty()) {
+                            result.error("bad_args", "expected the remote MAC", null)
+                        } else {
+                            remoteDeviceName(app, mac, result)
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -266,6 +290,33 @@ object NativeChannels {
         val token = java.util.UUID.randomUUID().toString().replace("-", "")
         prefs.edit().putString(TASKER_TOKEN_KEY, token).apply()
         return token
+    }
+
+    /**
+     * The platform `BluetoothDevice.getName()` read behind the gen5 readiness
+     * gate. `getName()` needs BLUETOOTH_CONNECT on API 31+ — the same runtime
+     * permission every GATT operation already holds by the time a link is
+     * connected, checked explicitly here so a revoked grant answers as a clean
+     * error instead of a SecurityException. Lint cannot see that check through
+     * the early return, hence the targeted suppression; the belt-and-braces
+     * catch still turns any surprise (invalid MAC, no adapter) into the same
+     * error, which Dart reads as "no name" — the gate's failing value.
+     */
+    @SuppressLint("MissingPermission")
+    private fun remoteDeviceName(app: Context, mac: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            result.error("name_unavailable", "BLUETOOTH_CONNECT not granted", null)
+            return
+        }
+        try {
+            val mgr = app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            result.success(mgr?.adapter?.getRemoteDevice(mac)?.name)
+        } catch (e: Exception) {
+            result.error("name_unavailable", e.toString(), null)
+        }
     }
 
     private fun perform(ctx: Context, action: String): Boolean {

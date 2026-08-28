@@ -2089,6 +2089,12 @@ class LocalRepositoryImpl extends LocalRepository {
     // list and the share card see the corrected value too.
     final rescored = await _rescoreSessionFromSubstrate(stored);
     final w = _workoutOf(rescored.row);
+    // TS-04 — whether `zone_min` below and the `zone_bands` added further down
+    // describe the SAME zone set. They are recomputed from the current anchors
+    // while the minutes can be a kept live split binned against an older
+    // ceiling, and the detail card names the bands' ceiling under the minutes'
+    // bars. False means it must not.
+    w['zone_min_rebinned'] = rescored.zoneMinutesRebinned;
     final startTs = w['start_ts'] as int?;
     if (startTs == null) return w;
     final endTs =
@@ -2651,7 +2657,22 @@ class LocalRepositoryImpl extends LocalRepository {
   /// improves on each pass and converges. Returns the row with the reconciled
   /// values applied (never null-out a stored value), writing back only on a
   /// real change. Best-effort — never throws into a read path.
-  Future<({Map<String, dynamic> row, List<Map<String, dynamic>>? hrRows})>
+  /// [zoneMinutesRebinned] answers ONE question for the caller: were the zone
+  /// minutes on the returned row binned by THIS pass, i.e. by the same zone set
+  /// [_zoneBands] is about to band the detail card's bars with? False when the
+  /// reconcile kept the LIVE split — a session the band only partly handed over
+  /// keeps whichever side saw more minutes, and that side was binned against
+  /// whatever ceiling was current when it was written. True on every path that
+  /// did not run the reconcile at all (no substrate, unfinished, row moved):
+  /// those serve the FROZEN trace, whose bands were banked beside the same
+  /// minutes, so there is nothing for the caller to correct for.
+  Future<
+    ({
+      Map<String, dynamic> row,
+      List<Map<String, dynamic>>? hrRows,
+      bool zoneMinutesRebinned,
+    })
+  >
   _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
     final id = row['id'];
     final startTs = (row['start_ts'] as num?)?.toInt();
@@ -2662,13 +2683,15 @@ class LocalRepositoryImpl extends LocalRepository {
         endTs == null ||
         endTs <= startTs ||
         (row['status']?.toString() ?? '') != 'done') {
-      return (row: row, hrRows: null);
+      return (row: row, hrRows: null, zoneMinutesRebinned: true);
     }
     try {
       // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window
       // straight after this, and a two-hour session is ~7200 rows to scan twice.
       final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
-      if (hrRows.isEmpty) return (row: row, hrRows: hrRows);
+      if (hrRows.isEmpty) {
+        return (row: row, hrRows: hrRows, zoneMinutesRebinned: true);
+      }
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
@@ -2719,8 +2742,12 @@ class LocalRepositoryImpl extends LocalRepository {
       final storedSamples = (row['trace_samples'] as num?)?.toInt();
       final needsTrace =
           storedSamples == null || stats.hrSampleCount > storedSamples;
+      // `identical`, not `==`: `reconcileSessionScore` returns one of the two
+      // vectors it was handed, so identity IS the answer to which side won —
+      // the same test its own `changed` flag is built on.
+      final rebinned = identical(merged.zoneMinutes, stats.zoneMinutes);
       if (!merged.changed && !needsAvgBackfill && !needsTrace) {
-        return (row: row, hrRows: hrRows);
+        return (row: row, hrRows: hrRows, zoneMinutesRebinned: rebinned);
       }
 
       // `putSession` is INSERT-OR-REPLACE on the whole row, and everything
@@ -2738,7 +2765,7 @@ class LocalRepositoryImpl extends LocalRepository {
         // read — they describe the old window, and `getWorkout` would enrich
         // the new one with them (a negative time-to-peak, zones over the wrong
         // span). The next pass scores the new window.
-        return (row: current ?? row, hrRows: null);
+        return (row: current ?? row, hrRows: null, zoneMinutesRebinned: true);
       }
 
       final zoneJson = jsonEncode(
@@ -2793,9 +2820,10 @@ class LocalRepositoryImpl extends LocalRepository {
         'trace_json': ?traceJson,
         if (traceJson != null) 'trace_samples': stats.hrSampleCount,
       };
-      return (row: updated, hrRows: hrRows);
+      return (row: updated, hrRows: hrRows, zoneMinutesRebinned: rebinned);
     } catch (_) {
-      return (row: row, hrRows: null); // best-effort: the stored row renders
+      // best-effort: the stored row renders
+      return (row: row, hrRows: null, zoneMinutesRebinned: true);
     }
   }
 
@@ -3806,7 +3834,15 @@ class LocalRepositoryImpl extends LocalRepository {
                   // The ceiling's OWN reason outranks "no hard session yet" —
                   // on all three real databases it refused for an unstamped
                   // strap, which a hard session cannot fix.
-                  ? ceilingNote ?? needInputNote('observed_ceiling')
+                  ? ceilingNote ??
+                        // A ceiling that EXISTS and was rejected as an anchor
+                        // ([kCeilingCredibleGapBpm]) is not a missing one, and
+                        // this card shows it two rows up with its date. Asking
+                        // for the number already on screen is the false reason
+                        // the note grammar exists to prevent.
+                        needInputNote(
+                          ceiling != null ? 'maximal_effort' : 'observed_ceiling',
+                        )
                   : !measured
                   ? needInputNote(
                       'resting_hr_days',

@@ -1636,12 +1636,21 @@ class LocalDb {
   /// Record that [id] exists and was seen now. Every field except [id] is
   /// COALESCED, so a caller that only knows the remote id cannot blank out a
   /// label or an adapter another caller already established.
+  ///
+  /// [clearAdapterId] is the one deliberate exception, and it exists because
+  /// COALESCE is wrong in exactly one case: this row is the PRIMARY band
+  /// permanently (`id` is `''`), so pairing a DIFFERENT band reuses it, and a
+  /// null [adapterId] would then leave the FORGOTTEN band's family on the new
+  /// one. `PairedDevice.save` passes it when the remote id changed and the
+  /// caller does not know the new band's family. It is ignored when
+  /// [adapterId] is non-null — a caller that knows wins over one that clears.
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
     String? remoteId,
     String? label,
     String? tier,
+    bool clearAdapterId = false,
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -1654,11 +1663,24 @@ class LocalDb {
       'first_seen': now,
       'last_seen': now,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // ONE flag decides both the placeholder and its argument. It is a local
+    // and not the expression twice because the two must never disagree: a
+    // statement whose `?` count differs from the argument list binds every
+    // value one column to the left, which SQLite accepts silently.
+    final blankAdapter = adapterId == null && clearAdapterId;
     await db.rawUpdate(
-      'UPDATE device SET adapter_id = COALESCE(?, adapter_id), '
+      'UPDATE device SET '
+      '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
       'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
-      [adapterId, remoteId, label, tier, now, id],
+      [
+        if (!blankAdapter) adapterId,
+        remoteId,
+        label,
+        tier,
+        now,
+        id,
+      ],
     );
   }
 

@@ -1471,8 +1471,64 @@ import 'substrate.dart';
 // trace already priced is never double-billed. THIS CAN RAISE `calories` /
 // `calories_total` for a day with a workout the day trace fully missed;
 // every other day is unaffected.
-const int kAlgoVersion = 81;
-
+// v82 — THE ZONE CEILING IS `max(observed, age estimate)`.
+// `trainingZones` (compute/hr_max.dart) preferred `observedCeilingBpm` whenever
+// one existed, in either direction. But that number is one-sided evidence:
+// holding 195 proves the ceiling is at least 195, while holding 166 cannot tell
+// "never went maximal" from "maxes at 166" — and on a wrist the first is far
+// commoner. So a 25-year-old whose hardest HELD effort was 166 was banded at
+// Z5 = 0.9·166 ≈ 149 bpm and banked 13 of the 16 minutes of a steady run in
+// "Max effort". On the session-detail path the ceiling is even set by the
+// session being graded — `_zoneAnchors` takes the all-time max including today
+// (the day pipeline and the live tick do NOT: `observedHrCeilingBpm` is
+// strictly-before, and `LiveWorkoutState.zoneSet` is pinned at start).
+//
+// The observed ceiling now anchors zones only when it REACHES the age line,
+// which is the only direction in which it bounds anything. Below it, zones stay
+// on `208 − 0.7·age`, LABELLED as the estimate. There is deliberately no
+// tolerance band: a switch at `estimate − k` would move every edge k bpm on a
+// 0.1 bpm change in a ceiling that creeps up over months, while `max` is
+// continuous. `observed`/`karvonen` therefore now mean "this user beat the
+// population line", which is a narrower and truer claim than before.
+//
+// WHAT ACTUALLY MOVES, for affected users only — narrower than it first looks,
+// and the two exceptions are both worth knowing:
+//
+//   * `zone_timeline` and `zone_source` move: both come off the pure pipeline's
+//     `trainingZones` set (onehz_pipeline.dart:630).
+//   * The day's `zones` DO NOT, because they never sat on the observed ceiling
+//     in the first place. The second derivation half recomputes them from
+//     `estimatedMaxHr` alone (`_wakeZoneMinutes` at :4662, `zonesFromMaxHr` at
+//     :4680) and `bundle['zones'] = wake['zones']` at :4920 overwrites the
+//     pipeline's. So the day BARS have always been Tanaka-binned while the
+//     footnote beside them read `zone_source`. That is a separate, pre-existing
+//     one-source-per-concern break (§3.8) and it is NOT fixed here; fixing it
+//     means threading the anchors through `_DayBlocksInput` across the isolate
+//     boundary, which moves `zones` for every user and is its own change.
+//   * Sessions rebin only where they still can. `getWorkout` recomputes
+//     `zone_bands` on every open, from the substrate or the frozen trace, so
+//     the DETAIL card is always current. The persisted `zone_min` behind the
+//     bars is rewritten by `rescoreRecentSessions(sinceDays: 3)` and by the
+//     rescore on open — but a session whose raw aged out past
+//     `rawRetentionDays` keeps the split it was scored with. Old cards are not
+//     healed by this bump, and no bump can heal them.
+//
+// TS-05's 28-day distribution disappears for anyone it was drawn for off a
+// below-line ceiling, which is that gate working: `zonesAreMeasured` was never
+// true of bands whose 100 % nobody reached. Strain, TRIMP and calories DO NOT
+// MOVE — they anchor on `estimatedMaxHr`, never on the observed ceiling.
+//
+// `hr_ceiling_bpm` itself is untouched: the ceiling and its date are still
+// measured, still stored and still served, so the zones screen keeps saying
+// "highest we have seen: 166 on 3 Aug". It just no longer becomes everyone's
+// 100 %. No sibling pin moves — this is entirely an edge-side anchor choice.
+//
+// RENUMBERED ON THE MERGE, 81 → 82. Both sides of this merge bumped to 81:
+// main for the active-energy workout-gap credit above, this branch for the
+// zone anchor. Two different derivations cannot share one number — that is
+// the whole contract of this constant, and main's 81 is the one already on
+// main, so it keeps it. Nothing about the zone change itself moved.
+const int kAlgoVersion = 82;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1562,8 +1618,32 @@ const int kAlgoVersion = 81;
 // a clean checkout failed `flutter analyze` (undefined_named_parameter) and
 // would have recomputed v80 against a sibling without the sustained-window
 // fix it claims. No other symbol changed; no further kAlgoVersion move.
+//
+// REPIN (this branch) @ 6664854 — protocol main at the OpenStrap/protocol#35
+// merge commit ("record HELLO revision instead of gating parsing"). The old
+// pin's parser returned null for any hello body whose revision byte was not
+// 1; this branch makes HELLO MANDATORY, so under that gate a firmware that
+// bumped the revision could not connect at all. #35 records the byte in
+// `helloRevision` and reads the fixed revision-1 offsets regardless.
+//
+// The hop from 19d7291 is ahead 3 / behind 0, and its ONLY lib/ diff is
+// #35's `lib/src/control.dart` (+4/-5) — the dropped `if (body[0] != 1)`.
+// The other two commits are the #34 merge (2c8448b), whose head 19d7291 this
+// pin already WAS, so the oura/generic-HRS wire formats edge#280 imports come
+// across unchanged. NO kAlgoVersion bump: hello feeds connection identity and
+// state, not the derivation pipeline — no decoder for a persisted record
+// moves, so no stored number can. This constant moves together with
+// pubspec.yaml's `ref:` and pubspec.lock
+// (test/db_serve_version_and_reads_test.dart pins them equal, so a partial
+// repin fails the suite).
+//
+// MERGE (main → this branch): each side moved ONE pin and neither moved
+// the other, so this is both repins standing, not a choice between them.
+// main took analytics 7105256 → 187e026 (the v80 gate above); this branch
+// took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
+// moves no derivation maths, which is why its own note says NO bump.
 const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
-const String kProtocolPin = '19d72919ecc0cbca518e0fdbbe2f6f9dc7ffe265';
+const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3635,7 +3715,16 @@ class DerivationEngine {
       // `liveSteps`/`stepSpans` were read above, before the pipeline input —
       // one resolution serves both energy passes. `.strap` is carried
       // alongside the total so the bundle can name the sensor that counted.
-      final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
+      //
+      // Sessions are queried over the FULL local calendar day, not
+      // [dayLo, dayHi] — those bounds come from daySub's own first/last
+      // sample, so a completed session the band's PPG lost contact for
+      // entirely (zero HR samples at all, e.g. a wrist-gripping lift) can
+      // fall outside them and never reach the zero-coverage credit below.
+      final savedSessions = await LocalDb.sessionsInRange(
+        _localDayLabelToSec(day.date),
+        localNextMidnightSecForDayLabel(day.date),
+      );
 
       // Off-wrist / charging spans over the NAP window (which runs past this
       // day's end), read here because the isolate has no DB handle. These are
@@ -5176,6 +5265,11 @@ class DerivationEngine {
         if (total != null) {
           wake['calories_total'] = (total as num).toDouble() + credited;
         }
+        // Provenance for the envelope built in `_applyWakeDayFeatures` below —
+        // without this, `calories_total`'s `inputs_used`/note would keep
+        // claiming an hr_1hz-only figure while the emitted value silently
+        // includes session-sourced kcal.
+        wake['calories_session_credit'] = credited;
       }
     }
     _applyWakeDayFeatures(bundle, scalars, wake);
@@ -5246,6 +5340,8 @@ class DerivationEngine {
       // day it contributed nothing to would claim pedometer coverage the day
       // may not have.
       final walking = (wake['calories_walking'] as num?)?.toDouble() ?? 0.0;
+      final sessionCredit =
+          (wake['calories_session_credit'] as num?)?.toDouble() ?? 0.0;
       bundle['calories_total'] = <String, dynamic>{
         'value': caloriesTotal.round(),
         'active': calories.round(),
@@ -5256,11 +5352,14 @@ class DerivationEngine {
           'hr_1hz',
           'profile',
           if (walking > 0) 'live_coverage_pedometer',
+          if (sessionCredit > 0) 'saved_session_calories',
         ],
         'note': 'total daily energy: Mifflin BMR floor over the covered day + '
             'active Keytel surplus over the wake span (HR-flex)'
             '${walking > 0 ? ' + measured-cadence walking term '
-                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}',
+                '(CADENCE-Adults, ${walking.round()} kcal)' : ''}'
+            '${sessionCredit > 0 ? ' + workout-gap session calories '
+                '(PPG lost the window, ${sessionCredit.round()} kcal)' : ''}',
       };
     }
     // WHY each of the above is absent, per figure. This recompute is the answer

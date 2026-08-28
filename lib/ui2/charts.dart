@@ -655,7 +655,11 @@ class DashedRing extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DashedRing o) =>
-      o.v != v || o.color != color || o.track != track || o.segments != segments;
+      o.v != v ||
+      o.color != color ||
+      o.track != track ||
+      o.segments != segments ||
+      o.stroke != stroke;
 }
 
 /// The small flat ring used in macro/nutrient clusters.

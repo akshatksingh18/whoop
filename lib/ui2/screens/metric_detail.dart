@@ -598,13 +598,13 @@ class _MetricDetailState extends State<MetricDetail> {
                 : '',
             icon: spec.icon,
           ),
-        // Nothing recorded today is still zero steps against a goal, and the
-        // goal is editable regardless — the gate below matches the measured
-        // branch's, just with 0 for the steps this screen has not seen yet.
+        // The goal is editable even before today has a steps value — the
+        // gate below matches the measured branch's. `steps: null` keeps the
+        // ring an empty track rather than fabricating a 0% reading.
         if (widget.metricKey == 'steps' && win == 1) ...[
           const SizedBox(height: S.x5),
           _StepGoalGauge(
-              steps: 0, goal: d.stepGoal, color: spec.color, onSaved: _load),
+              steps: null, goal: d.stepGoal, color: spec.color, onSaved: _load),
         ],
         const SizedBox(height: S.x5),
         investigateRow(c, () => go(c, Investigate(widget.metricKey))),
@@ -1142,7 +1142,9 @@ class _MetricDetailState extends State<MetricDetail> {
 /// UI writer of `step_goal`, through `AppState.updateProfile` directly rather
 /// than through that method.
 class _StepGoalGauge extends StatefulWidget {
-  final double steps;
+  /// Null when today has not produced a steps value yet — the ring then
+  /// shows only the empty track, never a fabricated 0%.
+  final double? steps;
   final int goal;
   final Color color;
   final Future<void> Function() onSaved;
@@ -1204,7 +1206,9 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final frac = widget.goal > 0 ? widget.steps / widget.goal : 0.0;
+    final steps = widget.steps;
+    final frac =
+        steps == null || widget.goal <= 0 ? null : steps / widget.goal;
     return Surface(
       child: Row(children: [
         SizedBox(
@@ -1213,10 +1217,14 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
           child: Stack(alignment: Alignment.center, children: [
             CustomPaint(
               size: Size.infinite,
-              painter: Ring(frac, widget.color, p.track, stroke: 7, solid: true),
+              painter:
+                  Ring(frac ?? 0, widget.color, p.track, stroke: 7, solid: true),
             ),
-            Text('${(frac * 100).clamp(0, 999).round()}%',
-                style: F.over.copyWith(color: p.ink)),
+            // No steps recorded yet is absent, not zero — the track alone
+            // says that; a percentage here would fabricate a reading.
+            if (frac != null)
+              Text('${(frac * 100).clamp(0, 999).round()}%',
+                  style: F.over.copyWith(color: p.ink)),
           ]),
         ),
         const SizedBox(width: S.x3),

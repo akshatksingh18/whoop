@@ -1106,8 +1106,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // the heart-rate estimate — saying "from MET" over it would name a basis
     // this session does not have.
     if (met == null) {
-      return 'Estimated from your heart rate and your weight. No MET is in '
-          'this figure: the session named no activity for one to apply to.';
+      return l?.activitySummaryCalorieNoMet ??
+          'Estimated from your heart rate and your weight. No MET is in '
+              'this figure: the session named no activity for one to apply '
+              'to.';
     }
     return r.avgHr == null
         ? l?.activitySummaryCalorieNoHr(met) ??

@@ -168,8 +168,9 @@ class _ActivitySetupState extends State<ActivitySetup> {
                               ? 'No estimate up front: no published MET '
                                   'applies to a session that names no '
                                   'activity. Calories come from your heart '
-                                  'rate instead, when your maximum and '
-                                  'resting rates are set.'
+                                  'rate instead — when your age, weight and '
+                                  'sex are set, and your resting and maximum '
+                                  'rates are measured rather than assumed.'
                               : est == null
                                   ? 'Calories need your weight.'
                                   : 'About $est kcal per $_estimateMin min, '

@@ -598,6 +598,14 @@ class _MetricDetailState extends State<MetricDetail> {
                 : '',
             icon: spec.icon,
           ),
+        // Nothing recorded today is still zero steps against a goal, and the
+        // goal is editable regardless — the gate below matches the measured
+        // branch's, just with 0 for the steps this screen has not seen yet.
+        if (widget.metricKey == 'steps' && win == 1) ...[
+          const SizedBox(height: S.x5),
+          _StepGoalGauge(
+              steps: 0, goal: d.stepGoal, color: spec.color, onSaved: _load),
+        ],
         const SizedBox(height: S.x5),
         investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ] else ...[
@@ -1130,9 +1138,9 @@ class _MetricDetailState extends State<MetricDetail> {
 /// painter Home's recovery/strain/sleep dials use, at a size that reads as a
 /// detail beside the hero number rather than a fourth headline. The goal
 /// itself is editable in place: tap it, type, hit the check — no dialog.
-/// Same 500–100,000 bound and unreadable-input handling as EditProfile
-/// (settings.dart) — this is the other writer of `step_goal`, through the
-/// same `AppState.updateProfile`.
+/// Same 500–100,000 bound as `LocalRepositoryImpl.setStepGoal` — this is the
+/// UI writer of `step_goal`, through `AppState.updateProfile` directly rather
+/// than through that method.
 class _StepGoalGauge extends StatefulWidget {
   final double steps;
   final int goal;
@@ -1153,6 +1161,17 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
   bool _editing = false;
   late final TextEditingController _ctrl =
       TextEditingController(text: '${widget.goal}');
+
+  @override
+  void didUpdateWidget(covariant _StepGoalGauge old) {
+    super.didUpdateWidget(old);
+    // The goal just saved (or changed under us some other way) — keep the
+    // field in sync so reopening the editor shows the current value, not
+    // the one it was first built with.
+    if (!_editing && old.goal != widget.goal) {
+      _ctrl.text = '${widget.goal}';
+    }
+  }
 
   @override
   void dispose() {
@@ -1176,6 +1195,9 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
     }
     setState(() => _editing = false);
     await context.read<AppState>().updateProfile({'step_goal': typed});
+    // The parent's onSaved reloads and calls setState — never on a widget
+    // that navigated away while the write was in flight.
+    if (!mounted) return;
     await widget.onSaved();
   }
 

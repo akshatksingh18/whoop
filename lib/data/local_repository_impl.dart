@@ -247,9 +247,10 @@ class LocalRepositoryImpl extends LocalRepository {
   /// [goal] arrives from a caller that may be an LLM (the coach's
   /// `set_step_goal`), so it is bounded here rather than trusted: a step goal
   /// is a target a person walks to, and a four-digit typo would sit on Home
-  /// forever with no screen to correct it. EditProfile (settings.dart) writes
-  /// the same field directly through `AppState.updateProfile` with the same
-  /// bound, rather than through this method.
+  /// forever with no screen to correct it. The steps detail screen's
+  /// `_StepGoalGauge` (metric_detail.dart) writes the same field directly
+  /// through `AppState.updateProfile` with the same bound, rather than
+  /// through this method.
   @override
   Future<Map<String, dynamic>> setStepGoal(int goal) async {
     if (goal < 500 || goal > 100000) {

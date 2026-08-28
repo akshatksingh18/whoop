@@ -20,9 +20,9 @@ import 'journal_fields.dart';
 /// the commonly-cited optimal benefit/cost ratio for step count). Both the
 /// data layer (local_repository_impl.dart's `getProfile()`/`_stepGoal()`,
 /// which is where `TodayData.stepGoal` actually gets its default BEFORE any
-/// UI-level fallback ever sees a null) and the UI (`EditProfileView`'s step
-/// goal field, in ui2/profile/settings.dart, seeded from this same constant)
-/// must agree — they used to independently default to two different values
+/// UI-level fallback ever sees a null) and the UI (the steps detail screen's
+/// `_StepGoalGauge`, in ui2/screens/metric_detail.dart, seeded from this same
+/// constant) must agree — they used to independently default to two different values
 /// (10000 here vs. 8000 in the UI), so the UI fallback never actually
 /// triggered for real profile data.
 const int kDefaultStepGoal = 8000;

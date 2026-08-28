@@ -27,19 +27,34 @@ import 'settings.dart';
 
 /// One row in a settings list. Shared by all three profile screens.
 class SetRow extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
   final Color color;
   final String title, sub, value;
   final bool danger, chevron;
   final VoidCallback? onTap;
 
-  const SetRow(this.icon, this.color, this.title,
+  /// A brand mark in place of [icon] — Lucide has no GitHub/Discord/Reddit
+  /// logo, and a generic glyph standing in for one of those is worse than
+  /// the extra param. Sized and tinted the same as the [Icon] it replaces.
+  final Widget Function(Color tint)? glyph;
+
+  const SetRow(IconData this.icon, this.color, this.title,
       {super.key,
       this.sub = '',
       this.value = '',
       this.danger = false,
       this.chevron = true,
-      this.onTap});
+      this.onTap})
+      : glyph = null;
+
+  const SetRow.brand(this.glyph, this.color, this.title,
+      {super.key,
+      this.sub = '',
+      this.value = '',
+      this.danger = false,
+      this.chevron = true,
+      this.onTap})
+      : icon = null;
 
   @override
   Widget build(BuildContext c) {
@@ -57,7 +72,9 @@ class SetRow extends StatelessWidget {
             alignment: Alignment.center,
             decoration:
                 BoxDecoration(color: p.wash(accent), borderRadius: R.rSm),
-            child: Icon(icon, size: 16, color: p.on(accent)),
+            child: glyph != null
+                ? glyph!(p.on(accent))
+                : Icon(icon, size: 16, color: p.on(accent)),
           ),
           const SizedBox(width: S.x3),
           Expanded(
@@ -367,15 +384,18 @@ class ProfileHomeView extends StatelessWidget {
                       onTap: onSettings),
                 ]),
                 settingsGroup(c, 'Community', [
-                  SetRow(LucideIcons.star, C.n500, 'GitHub',
+                  SetRow.brand(brandGlyph('assets/icons/github.svg'), C.n500,
+                      'GitHub',
                       sub: 'Please star and show your support — it helps '
                           'the project grow',
                       onTap: () => open3rdPartyLink(kGithubUrl)),
-                  SetRow(LucideIcons.messagesSquare, C.orange, 'Reddit',
+                  SetRow.brand(brandGlyph('assets/icons/reddit.svg'), C.orange,
+                      'Reddit',
                       sub: 'Join r/OpenStrap — post your achievements, '
                           'questions, anything',
                       onTap: () => open3rdPartyLink(kRedditUrl)),
-                  SetRow(LucideIcons.usersRound, C.indigo, 'Discord',
+                  SetRow.brand(brandGlyph('assets/icons/discord.svg'),
+                      C.indigo, 'Discord',
                       sub: 'Hang out with other users and the people '
                           'building this',
                       onTap: () => open3rdPartyLink(kDiscordUrl)),

@@ -1295,7 +1295,13 @@ class EditProfile extends StatelessWidget {
         // a stale value alive and score the day against a body that is no
         // longer described.
         await app.updateProfile({
-          for (final k in const ['name', 'sex', 'age', 'height_cm', 'weight_kg'])
+          for (final k in const [
+            'name',
+            'sex',
+            'age',
+            'height_cm',
+            'weight_kg',
+          ])
             k: fields[k],
         });
         if (c.mounted) Navigator.of(c).maybePop();

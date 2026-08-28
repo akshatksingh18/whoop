@@ -11,15 +11,18 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'beats.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
+import 'journal_compose.dart' show OsTextField;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -361,6 +364,11 @@ class MetricData {
   /// readiness moved across them: 2026-08-08 went 43.8 → 47.9.
   final List<int> algoBreaks;
 
+  /// The daily step-goal target, read from the profile. Only ever loaded for
+  /// `key == 'steps'` — every other metric leaves it at the default and never
+  /// draws it.
+  final int stepGoal;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -368,6 +376,7 @@ class MetricData {
     this.movers = const [],
     this.daysAvailable = 0,
     this.algoBreaks = const [],
+    this.stepGoal = kDefaultStepGoal,
   });
 
   static Future<MetricData> load(LocalRepository repo, String key) async {
@@ -376,6 +385,10 @@ class MetricData {
     final chart = await repo.getChart(spec.chartKey);
     final days = await repo.availableDays();
     final outcome = _outcomeOf[key];
+    final stepGoal = key == 'steps'
+        ? ((await repo.getProfile())['step_goal'] as num?)?.toInt() ??
+            kDefaultStepGoal
+        : kDefaultStepGoal;
 
     Map<String, dynamic>? pct;
     var movers = const <Map<String, dynamic>>[];
@@ -401,6 +414,7 @@ class MetricData {
         for (final b in (chart['algo_breaks'] as List? ?? const []))
           if (b is Map && b['t'] is num) (b['t'] as num).round(),
       ],
+      stepGoal: stepGoal,
     );
   }
 }
@@ -590,6 +604,17 @@ class _MetricDetailState extends State<MetricDetail> {
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
+        // Today's count against the goal set on this screen's own edit
+        // affordance — a trend average has no goal to be measured against, so
+        // this stays win == 1 only, same gate as the Breakdown link below.
+        if (widget.metricKey == 'steps' && win == 1) ...[
+          const SizedBox(height: S.x5),
+          _StepGoalGauge(
+              steps: vals.last,
+              goal: d.stepGoal,
+              color: spec.color,
+              onSaved: _load),
+        ],
         // On Today the window holds one value, and its lowest, typical and
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
@@ -1099,6 +1124,116 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   String _fmt(MetricSpec spec, double v) => metricValue(spec.unit, v);
+}
+
+/// Today's steps against the goal, as one small ring — the same [Ring]
+/// painter Home's recovery/strain/sleep dials use, at a size that reads as a
+/// detail beside the hero number rather than a fourth headline. The goal
+/// itself is editable in place: tap it, type, hit the check — no dialog.
+/// Same 500–100,000 bound and unreadable-input handling as EditProfile
+/// (settings.dart) — this is the other writer of `step_goal`, through the
+/// same `AppState.updateProfile`.
+class _StepGoalGauge extends StatefulWidget {
+  final double steps;
+  final int goal;
+  final Color color;
+  final Future<void> Function() onSaved;
+
+  const _StepGoalGauge(
+      {required this.steps,
+      required this.goal,
+      required this.color,
+      required this.onSaved});
+
+  @override
+  State<_StepGoalGauge> createState() => _StepGoalGaugeState();
+}
+
+class _StepGoalGaugeState extends State<_StepGoalGauge> {
+  bool _editing = false;
+  late final TextEditingController _ctrl =
+      TextEditingController(text: '${widget.goal}');
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final t = Typed.of(_ctrl.text);
+    final typed = (t.bad || t.value == null) ? null : t.value!.round();
+    if (typed == null) {
+      setState(() => _editing = false);
+      return;
+    }
+    if (typed < 500 || typed > 100000) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content:
+            Text('A step goal of 500–100,000 is a real one. Nothing was saved.'),
+      ));
+      return;
+    }
+    setState(() => _editing = false);
+    await context.read<AppState>().updateProfile({'step_goal': typed});
+    await widget.onSaved();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final frac = widget.goal > 0 ? widget.steps / widget.goal : 0.0;
+    return Surface(
+      child: Row(children: [
+        SizedBox(
+          width: 56,
+          height: 56,
+          child: Stack(alignment: Alignment.center, children: [
+            CustomPaint(
+              size: Size.infinite,
+              painter: Ring(frac, widget.color, p.track, stroke: 7, solid: true),
+            ),
+            Text('${(frac * 100).clamp(0, 999).round()}%',
+                style: F.over.copyWith(color: p.ink)),
+          ]),
+        ),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: _editing
+              ? Row(children: [
+                  Expanded(
+                    child: OsTextField(
+                        controller: _ctrl,
+                        label: 'Goal',
+                        keyboard: TextInputType.number),
+                  ),
+                  const SizedBox(width: S.x2),
+                  Pressable(
+                    semanticLabel: 'Save step goal',
+                    onTap: _save,
+                    child: Icon(LucideIcons.check, size: 20, color: p.ink),
+                  ),
+                ])
+              : Pressable(
+                  semanticLabel: 'Edit daily step goal',
+                  onTap: () => setState(() => _editing = true),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Text('Goal', style: F.over.copyWith(color: p.ink3)),
+                        const SizedBox(width: S.x1),
+                        Icon(LucideIcons.pencil, size: 12, color: p.ink3),
+                      ]),
+                      Text('${thousands(widget.goal)} steps',
+                          style: F.body.copyWith(color: p.ink)),
+                    ],
+                  ),
+                ),
+        ),
+      ]),
+    );
+  }
 }
 
 // ═══════════════════ shared detail chrome ═══════════════════

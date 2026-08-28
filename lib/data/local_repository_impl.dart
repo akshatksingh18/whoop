@@ -244,14 +244,12 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// Persist the daily step goal.
   ///
-  /// [goal] arrives from a caller that may be an LLM, so it is bounded here
-  /// rather than trusted: a step goal is a target a person walks to, and a
-  /// four-digit typo would sit on Home forever with no screen to correct it.
-  ///
-  // ponytail: no UI writes this yet — the coach is the only caller, and the
-  // Home tile still prints "Goal 8,000" as if the user had chosen it. The field
-  // belongs beside the other profile numbers in EditProfile; one more key in
-  // that form's unconditional write is the whole fix.
+  /// [goal] arrives from a caller that may be an LLM (the coach's
+  /// `set_step_goal`), so it is bounded here rather than trusted: a step goal
+  /// is a target a person walks to, and a four-digit typo would sit on Home
+  /// forever with no screen to correct it. EditProfile (settings.dart) writes
+  /// the same field directly through `AppState.updateProfile` with the same
+  /// bound, rather than through this method.
   @override
   Future<Map<String, dynamic>> setStepGoal(int goal) async {
     if (goal < 500 || goal > 100000) {

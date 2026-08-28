@@ -615,6 +615,49 @@ class Ring extends CustomPainter {
       o.v != v || o.t != t || o.solid != solid || o.color != color;
 }
 
+/// A ring made of discrete dashes rather than a continuous arc — for a value
+/// that is still filling (a baseline calibrating night by night), so "not
+/// solid yet" is literally true of the shape, not just a softer tint of the
+/// same arc [Ring] draws for a finished measurement.
+class DashedRing extends CustomPainter {
+  final double v;
+  final Color color, track;
+  final double stroke;
+  final int segments;
+
+  DashedRing(this.v, this.color, this.track,
+      {this.stroke = 10, this.segments = 24});
+
+  @override
+  void paint(Canvas cv, Size s) {
+    final c = Offset(s.width / 2, s.height / 2);
+    final r = min(s.width, s.height) / 2 - stroke / 2;
+    if (r <= 0) return;
+    final filled = (segments * v.clamp(0, 1)).round();
+    final gap = 2 * pi / segments;
+    // Wide gaps between dashes so this reads as discrete beads, not a
+    // dashed-but-still-continuous arc.
+    final dashSweep = gap * 0.3;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < segments; i++) {
+      cv.drawArc(
+        Rect.fromCircle(center: c, radius: r),
+        -pi / 2 + gap * i,
+        dashSweep,
+        false,
+        paint..color = i < filled ? color : track,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant DashedRing o) =>
+      o.v != v || o.color != color || o.track != track || o.segments != segments;
+}
+
 /// The small flat ring used in macro/nutrient clusters.
 class MacroRing extends CustomPainter {
   final double v;

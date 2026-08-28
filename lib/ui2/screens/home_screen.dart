@@ -764,6 +764,11 @@ class _RingState {
   /// The arc is calibration progress, not the metric, and is drawn muted.
   final bool calibrating;
 
+  /// Nights banked / nights needed, set only while [calibrating] — the
+  /// dashed ring divides itself into exactly [need] beads and fills [have]
+  /// of them, rather than approximating that count from [frac].
+  final int? have, need;
+
   /// The absence's reason, as the pipeline gave it. Non-null only when the
   /// ring is [absent].
   final String? why;
@@ -777,6 +782,8 @@ class _RingState {
     this.sub = '',
     this.frac,
     this.calibrating = false,
+    this.have,
+    this.need,
     this.why,
   });
 
@@ -849,7 +856,9 @@ _RingState _gap(HomeRingKind k, String label, IconData icon, Color color,
             : (l?.homeCalibratingNights(counts.have, counts.need) ??
                 '${counts.have} of ${counts.need} nights'),
         frac: (counts.have / counts.need).clamp(0.0, 1.0),
-        calibrating: true);
+        calibrating: true,
+        have: counts.have,
+        need: counts.need);
   }
   return _RingState(k, label, icon, color,
       value: word,
@@ -876,12 +885,16 @@ class _Dial extends StatelessWidget {
     return Stack(alignment: Alignment.center, children: [
       CustomPaint(
         size: Size.infinite,
-        painter: Ring(r.frac ?? 0, r.arc(p), p.track,
-            stroke: stroke,
-            t: animate(c, 1),
-            // A measured ring draws solid; calibrating keeps the fade so the
-            // two do not read as the same thing at a glance.
-            solid: r.measured),
+        // Calibrating draws as discrete dashes filling in night by night;
+        // a finished (or absent-but-not-calibrating) ring draws the
+        // continuous arc, solid only once it is an actual measurement.
+        painter: r.calibrating
+            // One dash per night the baseline needs, not a fixed count —
+            // "6 of 14" draws as 14 divisions with 6 filled.
+            ? DashedRing(r.frac ?? 0, r.arc(p), p.track,
+                stroke: stroke, segments: r.need ?? 24)
+            : Ring(r.frac ?? 0, r.arc(p), p.track,
+                stroke: stroke, t: animate(c, 1), solid: r.measured),
       ),
       Icon(r.icon, size: icon, color: r.ink(p)),
     ]);
@@ -906,7 +919,7 @@ class _RingColumn extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 96),
             child: AspectRatio(
               aspectRatio: 1,
-              child: _Dial(r, stroke: 10, icon: 20),
+              child: _Dial(r, stroke: 7, icon: 20),
             ),
           ),
           const SizedBox(height: S.x3),
@@ -932,7 +945,7 @@ class _RingRow extends StatelessWidget {
             SizedBox(
               width: 56,
               height: 56,
-              child: _Dial(r, stroke: 7, icon: 15),
+              child: _Dial(r, stroke: 5, icon: 15),
             ),
             const SizedBox(width: S.x3),
             Expanded(child: _RingText(r, align: TextAlign.start)),
@@ -1598,6 +1611,17 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ?stepSensorLabel(d.steps, l),
             ].join(' · '),
       onTap: () => go(c, const MetricDetail('steps')),
+      trailing: d.steps.value == null || d.stepGoal <= 0
+          ? null
+          : SizedBox(
+              width: 20,
+              height: 20,
+              child: CustomPaint(
+                painter: Ring(d.steps.value! / d.stepGoal, C.green,
+                    P.of(c).track,
+                    stroke: 3, solid: true),
+              ),
+            ),
     ));
     add(
       d.calories,

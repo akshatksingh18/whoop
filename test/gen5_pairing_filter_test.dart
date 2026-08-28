@@ -24,6 +24,35 @@ String _readRepoFile(String posixPath) {
   return file.readAsStringSync();
 }
 
+/// The argument text of every `name(...)` call in [source], with nested
+/// parentheses balanced — so an argument that itself contains a call
+/// (`known: ids.map((i) => i.x)`) does not truncate the result.
+Iterable<String> _callArguments(String source, String name) sync* {
+  final open = '$name(';
+  for (var i = source.indexOf(open);
+      i >= 0;
+      i = source.indexOf(open, i + open.length)) {
+    var depth = 0;
+    for (var j = i + open.length - 1; j < source.length; j++) {
+      final c = source[j];
+      if (c == '(') {
+        depth++;
+      } else if (c == ')' && --depth == 0) {
+        yield source.substring(i + open.length, j);
+        break;
+      }
+    }
+  }
+}
+
+/// The value of named argument [name] in an argument list, or null when it is
+/// absent or is not a bare token. `allowGen4Retry: true && false` deliberately
+/// does NOT match — the whole point is to pin the value, not a prefix of it.
+String? _namedArgument(String arguments, String name) =>
+    RegExp('\\b$name:\\s*(\\w+)\\s*(?:,|\$)')
+        .firstMatch(arguments)
+        ?.group(1);
+
 void main() {
   group('16-bit member UUID is not the Bluetooth-base expansion', () {
     test('kWhoopMemberUuid16 is the short SIG assignment', () {
@@ -170,10 +199,34 @@ void main() {
       // must be items[0] — the WHOOP 4.0 (gen4) descriptor built first in
       // `items`, so a rejection of the widened list falls back to exactly
       // what already ships.
-      expect(swift, contains('present(items, known: known, allowGen4Retry: true)'));
+      // Matched by shape, not by full line. This assertion has already drifted
+      // once — `present` gained a `known:` parameter and the pinned literal
+      // stopped guarding anything until the test failed. What matters is the
+      // argument the retry hinges on, whatever else rides along. So read the
+      // call's balanced argument list and check that one value as a COMPLETE
+      // token: a prefix match would accept `true && false`, and a
+      // parenthesis-blind scan would break the moment an intervening argument
+      // contained a call of its own.
+      final presentArgs = _callArguments(swift, 'present').toList();
+      final widened =
+          presentArgs.where((a) => a.trimLeft().startsWith('items,')).toList();
+      final gen4Retry = presentArgs
+          .where((a) => a.trimLeft().startsWith('[items[0]],'))
+          .toList();
+      expect(widened, hasLength(1),
+          reason: 'exactly one call presents the widened list');
+      expect(gen4Retry, hasLength(1),
+          reason: 'the retry must target items[0] — the gen4 descriptor');
       expect(
-        swift,
-        contains('self.present([items[0]], known: known, allowGen4Retry: false)'),
+        _namedArgument(widened.single, 'allowGen4Retry'),
+        'true',
+        reason: 'the widened list must be presented WITH the Gen 4 retry armed',
+      );
+      expect(
+        _namedArgument(gen4Retry.single, 'allowGen4Retry'),
+        'false',
+        reason: 'the single-item retry must NOT retry again, or a rejected '
+            'list loops',
       );
       // items[0] must be the FIRST registry-driven item (gen4 — kBandRegistry
       // lists it before gen5, see _registry.dart), not the appended gen5-only

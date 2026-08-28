@@ -310,6 +310,10 @@ class SignalCard extends StatelessWidget {
 
   final VoidCallback? onTap;
 
+  /// A small dial in the header row's slack — steps is the only caller today,
+  /// showing progress toward its goal without a second card.
+  final Widget? trailing;
+
   const SignalCard(
     this.icon,
     this.color,
@@ -319,6 +323,7 @@ class SignalCard extends StatelessWidget {
     this.unit = '',
     this.sub = '',
     this.onTap,
+    this.trailing,
   });
 
   @override
@@ -342,6 +347,7 @@ class SignalCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              ?trailing,
             ],
           ),
           const SizedBox(height: S.x3),

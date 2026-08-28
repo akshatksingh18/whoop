@@ -1089,7 +1089,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       return l?.activitySummaryCaloriesNeedWeight ??
           'Calories need your weight.';
     }
-    final met = a.met.toStringAsFixed(1);
+    final met = a.met?.toStringAsFixed(1);
     if (r.calories == null) {
       return r.strain == null
           ? l?.activitySummaryNoCalorieNoStrain ??
@@ -1101,6 +1101,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'heart rate needs your maximum and resting heart rates, and '
                   'one of them is not set. Strain above is the effort that '
                   'was measured, on its own 0–21 scale.';
+    }
+    // No MET is the catch-all activity, whose figure is therefore entirely
+    // the heart-rate estimate — saying "from MET" over it would name a basis
+    // this session does not have.
+    if (met == null) {
+      return l?.activitySummaryCalorieNoMet ??
+          'Estimated from your heart rate and your weight. No MET is in '
+              'this figure: the session named no activity for one to apply '
+              'to.';
     }
     return r.avgHr == null
         ? l?.activitySummaryCalorieNoHr(met) ??

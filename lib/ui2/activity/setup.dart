@@ -174,14 +174,25 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   child: Row(children: [
                     Expanded(
                       child: Text(
-                          est == null
-                              ? (l?.activitySetupCaloriesNeedWeight ??
-                                  'Calories need your weight.')
-                              : (l?.activitySetupCalorieEstimate(est,
-                                      _estimateMin, a.met.toStringAsFixed(1)) ??
-                                  'About $est kcal per $_estimateMin min, '
-                                      'from ${a.met.toStringAsFixed(1)} MET '
-                                      'and your weight.'),
+                          a.met == null
+                              ? (l?.activitySetupNoMetEstimate ??
+                                  'No estimate up front: no published MET '
+                                      'applies to a session that names no '
+                                      'activity. Calories come from your '
+                                      'heart rate instead — when your age, '
+                                      'weight and sex are set, and your '
+                                      'resting and maximum rates are '
+                                      'measured rather than assumed.')
+                              : est == null
+                                  ? (l?.activitySetupCaloriesNeedWeight ??
+                                      'Calories need your weight.')
+                                  : (l?.activitySetupCalorieEstimate(
+                                          est,
+                                          _estimateMin,
+                                          a.met!.toStringAsFixed(1)) ??
+                                      'About $est kcal per $_estimateMin min, '
+                                          'from ${a.met!.toStringAsFixed(1)} '
+                                          'MET and your weight.'),
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),

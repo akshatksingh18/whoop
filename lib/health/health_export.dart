@@ -1199,6 +1199,7 @@ class HealthExporter {
         start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
         totalEnergyBurned: (r['calories'] as num?)?.round(),
+        title: healthWorkoutTitleForType(r['type']?.toString()),
       );
     } catch (e) {
       debugPrint('[health] write workout @$st: $e');
@@ -1289,8 +1290,48 @@ class HealthExporter {
   }
 }
 
-/// The app's workout-type key -> platform health activity type.
+/// The Health Connect record title for a stored `sessions.type`.
 ///
+/// Health Connect titles the record with the ACTIVITY TYPE NAME when the write
+/// carries no title of its own — `HealthPlugin.kt` does
+/// `call.argument("title") ?: type` — so every session landing on `OTHER`
+/// appeared in the user's health app named "OTHER". That is most of the
+/// catalogue, and NOT because the store lacks the types: Health Connect
+/// accepts `TABLE_TENNIS`, `CRICKET`, `VOLLEYBALL` and more that
+/// [healthActivityForType] below simply does not map yet. `OTHER` is this
+/// app's fallback, not a platform limit, and widening the map is its own
+/// audit — the title is what stops the gap from being user-visible meanwhile.
+///
+/// iOS ignores the field: `HKWorkout` has no title, and the activity type IS
+/// the label there. One unconditional argument rather than a platform branch,
+/// because a value the other store discards is not a platform difference.
+///
+/// FUTURE WRITES ONLY. `exportAll` skips dates at or before
+/// `health_export_through`, so sessions already finalized on Android keep the
+/// label they were written with. Relabelling them would need a bounded replay
+/// of the finalized prefix; a wrong name on old rows is not worth that.
+///
+/// ponytail: this de-slugs the type key instead of reading the catalogue's
+/// display name, so the three acronym-cased entries come back title-cased —
+/// "Crossfit", "Hiit", "Diy". The upgrade is one import, and it is not worth
+/// taking: `lib/health` reaching into `lib/ui2` to spell three words is the
+/// wrong dependency, and every one of them already beats "OTHER".
+@visibleForTesting
+String? healthWorkoutTitleForType(String? type) {
+  // Underscores BEFORE the trim, or a type of `_` survives as a one-space
+  // title — non-null, so it suppresses the platform default and writes a
+  // blank name where "OTHER" at least said something.
+  final t = (type ?? '')
+      .replaceAll('_', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (t.isEmpty) return null;
+  return t
+      .split(' ')
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+}
+
 /// Parameterised by [ios] rather than reading `Platform` directly so a unit
 /// test can exercise BOTH platform branches on a host VM (where `Platform.isIOS`
 /// and `Platform.isAndroid` are both false) — see
@@ -1396,6 +1437,16 @@ HealthWorkoutActivityType healthActivityForType(
           : HealthWorkoutActivityType.OTHER;
     case 'golf':
       return HealthWorkoutActivityType.GOLF;
+    case 'bowling':
+      // Android has no bowling: Health Connect's exercise types stop at the
+      // sports it knows, and `BOWLING` is absent from the plugin's Android
+      // set, so the call throws `HealthException` before the channel and the
+      // session never lands. iOS maps it to a real `HKWorkoutActivityType
+      // .bowling`. Same #184 shape as strength and swim, caught before the
+      // bug rather than after it.
+      return ios
+          ? HealthWorkoutActivityType.BOWLING
+          : HealthWorkoutActivityType.OTHER;
     default:
       return HealthWorkoutActivityType.OTHER;
   }

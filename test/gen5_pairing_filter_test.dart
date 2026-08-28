@@ -170,8 +170,22 @@ void main() {
       // must be items[0] — the WHOOP 4.0 (gen4) descriptor built first in
       // `items`, so a rejection of the widened list falls back to exactly
       // what already ships.
-      expect(swift, contains('present(items, allowGen4Retry: true)'));
-      expect(swift, contains('self.present([items[0]], allowGen4Retry: false)'));
+      // Matched by shape, not by full line: `present` has picked up extra
+      // parameters before (`known:`) and a pinned literal silently drifts out
+      // of lockstep with the source it is supposed to guard. What matters is
+      // the argument the retry hinges on, whatever else rides along.
+      expect(
+        swift,
+        matches(RegExp(r'present\(\s*items\s*,[^)]*allowGen4Retry:\s*true')),
+        reason: 'the widened list must be presented WITH the Gen 4 retry armed',
+      );
+      expect(
+        swift,
+        matches(
+            RegExp(r'present\(\s*\[items\[0\]\]\s*,[^)]*allowGen4Retry:\s*false')),
+        reason: 'the single-item retry must be items[0] and must NOT retry '
+            'again, or a rejected list loops',
+      );
       // items[0] must be the FIRST registry-driven item (gen4 — kBandRegistry
       // lists it before gen5, see _registry.dart), not the appended gen5-only
       // fallback items (member UUID / name substring).

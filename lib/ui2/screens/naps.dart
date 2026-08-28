@@ -32,6 +32,7 @@ import '../../compute/nap_edits.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -158,9 +159,11 @@ class _NapsScreenState extends State<NapsScreen> {
     if (!mounted) return;
     final after = _d?.naps.map((n) => n['start']).toList();
     if (failed != null || '$before' == '$after') {
+      final l = AppLocalizations.of(context);
       setState(() => _failed = failed ??
-          'The day was not re-analysed — another analysis was already '
-              'running. Your edit is saved and will apply next time.');
+          l?.napsNotReanalysed ??
+              'The day was not re-analysed — another analysis was already '
+                  'running. Your edit is saved and will apply next time.');
     }
   }
 
@@ -186,16 +189,17 @@ class _NapsScreenState extends State<NapsScreen> {
   Future<void> _log(String day) async {
     final base = DateTime.tryParse(day);
     if (base == null) return;
+    final l = AppLocalizations.of(context);
     final from = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 14, minute: 0),
-      helpText: 'WHEN YOU FELL ASLEEP',
+      helpText: l?.napsFellAsleepHelp ?? 'WHEN YOU FELL ASLEEP',
     );
     if (from == null || !mounted) return;
     final to = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: (from.hour + 1) % 24, minute: from.minute),
-      helpText: 'WHEN YOU WOKE UP',
+      helpText: l?.napsWokeUpHelp ?? 'WHEN YOU WOKE UP',
     );
     if (to == null || !mounted) return;
 
@@ -212,14 +216,16 @@ class _NapsScreenState extends State<NapsScreen> {
 
     // Both refusals are the shared rules, not a second copy written here.
     if (!manualNapWindowIsValid(s, e)) {
-      setState(() => _failed = 'A nap is between 5 minutes and 6 hours. '
-          'Anything longer is a sleep, and it belongs in the night where the '
-          'stages can be read.');
+      setState(() => _failed = l?.napsInvalidWindow ??
+          'A nap is between 5 minutes and 6 hours. '
+              'Anything longer is a sleep, and it belongs in the night where the '
+              'stages can be read.');
       return;
     }
     if (napOverlapsExisting(s, e, _d?.naps ?? const [])) {
-      setState(() => _failed = 'That overlaps a nap already on this day. '
-          'Remove that one first, rather than counting the same hour twice.');
+      setState(() => _failed = l?.napsOverlap ??
+          'That overlaps a nap already on this day. '
+              'Remove that one first, rather than counting the same hour twice.');
       return;
     }
     await _edit(() => LocalDb.putNapEdit(
@@ -229,9 +235,10 @@ class _NapsScreenState extends State<NapsScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d;
     if (d == null) {
-      return detailScaffold(c, 'Naps', const [
+      return detailScaffold(c, l?.napsTitle ?? 'Naps', const [
         Padding(
           padding: EdgeInsets.only(top: S.x8),
           child: Center(child: CircularProgressIndicator()),
@@ -242,7 +249,7 @@ class _NapsScreenState extends State<NapsScreen> {
 
     return detailScaffold(
       c,
-      'Naps',
+      l?.napsTitle ?? 'Naps',
       [
         ...dayNavRow(day, d.days, _goDay),
         if (!d.judged)
@@ -250,17 +257,19 @@ class _NapsScreenState extends State<NapsScreen> {
           // to assess naps', 'nap detection failed for this day'. The sentence
           // below is only for a day that recorded no reason at all.
           StatusCard(
-            'No nap reading for this day',
+            l?.napsNoReadingTitle ?? 'No nap reading for this day',
             whyFromNote(d.note, unit: 'days') ??
-                'Naps are worked out from the same 1 Hz recording the rest of '
-                    'the day is, and this day does not have enough of it.',
+                l?.napsNoReadingBody ??
+                    'Naps are worked out from the same 1 Hz recording the rest of '
+                        'the day is, and this day does not have enough of it.',
             icon: LucideIcons.circleHelp,
           )
         else if (d.naps.isEmpty)
-          const StatusCard(
-            'No naps on this day',
-            'Nothing on this day was still enough, for long enough, with the '
-                'heart-rate dip that goes with sleeping through it.',
+          StatusCard(
+            l?.napsEmptyTitle ?? 'No naps on this day',
+            l?.napsEmptyBody ??
+                'Nothing on this day was still enough, for long enough, with the '
+                    'heart-rate dip that goes with sleeping through it.',
             icon: LucideIcons.sun,
           )
         else ...[
@@ -285,26 +294,30 @@ class _NapsScreenState extends State<NapsScreen> {
               // The number that MOVES, said plainly, because that is why the
               // edit is a recompute: these minutes come off tonight's sleep
               // need and your sleep debt one for one.
-              '${hm(d.napMin)} of nap counts toward tonight’s sleep need.',
+              l?.napsCountsToward(hm(d.napMin)) ??
+                  '${hm(d.napMin)} of nap counts toward tonight’s sleep need.',
               style: F.cap.copyWith(color: p.ink3, height: 1.5),
             ),
           ],
         ],
         if (_failed != null) ...[
           const SizedBox(height: S.x3),
-          StatusCard('That has not been applied', _failed!,
+          StatusCard(l?.napsNotAppliedTitle ?? 'That has not been applied',
+              _failed!,
               icon: LucideIcons.triangleAlert),
         ],
         const SizedBox(height: S.x4),
         BigButton(
-          _busy ? 'Working…' : 'Log a nap',
+          _busy
+              ? (l?.napsWorking ?? 'Working…')
+              : (l?.napsLogANap ?? 'Log a nap'),
           icon: LucideIcons.plus,
           color: C.domHealth,
           onTap: _busy || day == null ? null : () => _log(day),
         ),
         if (d.rejected.isNotEmpty) ...[
           Section(
-            'Removed',
+            l?.napsRemovedSection ?? 'Removed',
             Surface(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,8 +336,9 @@ class _NapsScreenState extends State<NapsScreen> {
                             ? null
                             : () => _restore(
                                 day!, (r['start_ts'] as num).toInt()),
-                        semanticLabel: 'Put this nap back',
-                        child: Text('Put it back',
+                        semanticLabel:
+                            l?.napsPutBackSemantic ?? 'Put this nap back',
+                        child: Text(l?.napsPutBackLabel ?? 'Put it back',
                             style: F.cap.copyWith(
                                 color: p.on(C.blue),
                                 fontWeight: FontWeight.w600)),
@@ -337,8 +351,9 @@ class _NapsScreenState extends State<NapsScreen> {
           ),
           const SizedBox(height: S.x2),
           Text(
-            'A removal is kept as a window rather than an id, so it still '
-                'applies after the detector’s edges move.',
+            l?.napsRemovalKept ??
+                'A removal is kept as a window rather than an id, so it still '
+                    'applies after the detector’s edges move.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -347,6 +362,7 @@ class _NapsScreenState extends State<NapsScreen> {
   }
 
   Widget _nap(BuildContext c, P p, String day, Map<String, dynamic> nap) {
+    final l = AppLocalizations.of(c);
     final mine = nap['source'] == 'manual';
     final mins = nap['duration_min'] as int?;
     return Row(
@@ -372,10 +388,14 @@ class _NapsScreenState extends State<NapsScreen> {
               // `hm(null)` is the empty string, and a row whose only caption
               // is ' · detected' is the silent nothing this app does not do.
               mins == null
-                  ? (mine ? 'You logged this' : 'Detected')
+                  ? (mine
+                      ? (l?.napsYouLoggedThis ?? 'You logged this')
+                      : (l?.napsDetected ?? 'Detected'))
                   : (mine
-                      ? '${hm(mins)} · you logged this'
-                      : '${hm(mins)} asleep · detected'),
+                      ? (l?.napsLoggedWithMins(hm(mins)) ??
+                          '${hm(mins)} · you logged this')
+                      : (l?.napsDetectedWithMins(hm(mins)) ??
+                          '${hm(mins)} asleep · detected')),
               style: F.cap.copyWith(color: p.ink3),
             ),
           ]),
@@ -383,8 +403,13 @@ class _NapsScreenState extends State<NapsScreen> {
         const SizedBox(width: S.x2),
         Pressable(
           onTap: _busy ? null : () => _remove(day, nap),
-          semanticLabel: mine ? 'Delete this nap' : 'This was not a nap',
-          child: Text(mine ? 'Delete' : 'Not a nap',
+          semanticLabel: mine
+              ? (l?.napsDeleteSemantic ?? 'Delete this nap')
+              : (l?.napsNotANapSemantic ?? 'This was not a nap'),
+          child: Text(
+              mine
+                  ? (l?.napsDeleteLabel ?? 'Delete')
+                  : (l?.napsNotANapLabel ?? 'Not a nap'),
               style: F.cap
                   .copyWith(color: p.on(C.blue), fontWeight: FontWeight.w600)),
         ),

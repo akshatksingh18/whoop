@@ -203,7 +203,13 @@ class BandStatus {
   /// The way forward, or null when there is genuinely nothing to do.
   final String? fix;
 
-  const BandStatus(this.condition, this.title, this.reason, {this.fix});
+  /// Set only for [BandCondition.reconnectPaused] — the count already baked
+  /// into [reason]'s English text, carried separately so a UI layer can
+  /// re-render the reason in another language without re-parsing it.
+  final int? bondRefusals;
+
+  const BandStatus(this.condition, this.title, this.reason,
+      {this.fix, this.bondRefusals});
 
   /// True for the states that need to be shown. The four ordinary link states
   /// (connected/connecting/scanning/disconnected) are the app's normal
@@ -271,6 +277,7 @@ BandStatus bandStatusFor({
           'batteries on a link that will not open. Nothing is reconnecting '
           'until you act.',
       fix: repairFix,
+      bondRefusals: bondRefusals,
     );
   }
   if (needsRepairGuide) {
@@ -1606,18 +1613,17 @@ class CommandAwaiter {
   void _forget(PendingCommand p) => _pending.remove(p);
 }
 
-/// The identity half of the bootstrap readiness check, kept as an
-/// OBSERVATION rather than a gate.
+/// The identity half of the gen5 bootstrap readiness check — ENFORCED.
 ///
-/// A strict readiness gate requires the serial and CPU strings to match
-/// `[a-zA-Z0-9]+` before it calls a connection ready. This app records the
-/// verdict and logs it rather than dropping the link: a hard disconnect on an
-/// identity read we have far less hardware evidence for would turn a cosmetic
-/// mismatch into an unreachable band, and the CPU string is lowercase hex by
-/// construction so it can only fail if it is empty.
+/// After a terminal successful HELLO, readiness requires the serial and CPU
+/// strings to each FULLY match `[a-zA-Z0-9]+`. An empty or partially-matching
+/// value fails, and the bootstrap treats a failed verdict as a connection
+/// failure: no READY, disconnect. The CPU string is lowercase hex by
+/// construction, so in practice it can only fail when it is empty — which is
+/// precisely a body the parser never filled.
 ///
 /// An all-zero serial is an EEPROM-failure signal, NOT a rejection — it passes
-/// the alphanumeric gate, and the doc says so explicitly.
+/// the alphanumeric gate and is surfaced as a separate diagnostic.
 class HelloIdentity {
   static final RegExp alphanumeric = RegExp(r'^[a-zA-Z0-9]+$');
 
@@ -1680,7 +1686,68 @@ class BootstrapClockGate {
   /// one outcome worse than a redundant write.
   static bool needsCorrection(int? driftSec) =>
       driftSec == null || driftSec.abs() >= toleranceSeconds;
+
+  /// The same gate at millisecond resolution, for the gen5 path where hello
+  /// carries subseconds (32768 units/s) and the comparison is against a newly
+  /// sampled phone time. "Below two WHOLE seconds of absolute drift, no
+  /// write" — a delta of 1.999 s has whole-second component 1 and passes;
+  /// exactly 2.000 s writes. Null keeps the write-on-no-reading rule above.
+  static bool needsCorrectionMs(int? absDeltaMs) =>
+      absDeltaMs == null || absDeltaMs.abs() >= toleranceSeconds * 1000;
 }
+
+/// Which GENERATION a scan result advertises, by its advertised service UUIDs.
+///
+/// A HINT, NOT THE ACCEPT DECISION — do not turn it back into one. Acceptance
+/// is deliberately broader (`advertisementLooksLikeWhoop` and the scanner's own
+/// match): a band whose 128-bit service UUID spills into the scan-response
+/// overflow area advertises only the 16-bit member UUID or its name, and
+/// refusing those would leave WHOOP MG unpairable (#255).
+///
+/// This is the narrower question the connect ROUTE asks: which generation did
+/// the advertisement actually name? A name-only or 16-bit-only match names
+/// none and returns null, and the connect path then probes the official gen5
+/// order first and lets GATT discovery pin the truth. Returning null here
+/// therefore means "no hint", never "not a WHOOP".
+class ScanAcceptPolicy {
+  /// The advertised-service prefixes that identify a WHOOP band: gen4
+  /// "Harvard" `61080001-…`, gen5 `fd4b0001-…`.
+  static const String gen4AdvertisedPrefix = '61080001';
+  static const String gen5AdvertisedPrefix = 'fd4b0001';
+
+  /// The generation the advertisement claims — 'gen4' / 'gen5' — or null when
+  /// no supported WHOOP service UUID is advertised (no hint; the scanner may
+  /// still have accepted the result). [serviceUuids] are the advertisement's
+  /// service UUID strings, any case.
+  static String? accepts(Iterable<String> serviceUuids) {
+    for (final raw in serviceUuids) {
+      final s = raw.toLowerCase();
+      if (s.startsWith(gen5AdvertisedPrefix)) return 'gen5';
+      if (s.startsWith(gen4AdvertisedPrefix)) return 'gen4';
+    }
+    return null;
+  }
+}
+
+/// Which connect order a link gets, decided BEFORE discovery has run.
+enum ConnectRoute {
+  /// The official gen5 sequence (PHY preference → discovery → MTU → bond …).
+  gen5Official,
+
+  /// The proven legacy gen4 flow (bond → MTU → discovery …), unchanged.
+  gen4Legacy,
+}
+
+/// The routing rule: only an EXPLICIT gen4 hint takes the legacy order.
+/// Unknown/null — a pairing upgraded from an older build, a garbled stored
+/// value — probes gen5-first: the official sequence's pre-discovery steps are
+/// safe on any device (the PHY request is non-fatal by contract), its
+/// discovery identifies the band, and a discovered gen4 falls back to the
+/// unchanged legacy flow. Routing unknown links through the legacy order
+/// instead would run a gen5 band's bond in the wrong position on every
+/// connect until something persisted the generation.
+ConnectRoute connectRouteFor(String? generationHint) =>
+    generationHint == 'gen4' ? ConnectRoute.gen4Legacy : ConnectRoute.gen5Official;
 
 /// Whether a `GET_BATTERY_PACK_INFO(151)` reply actually identifies a pack.
 ///

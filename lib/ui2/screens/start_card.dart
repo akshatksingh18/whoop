@@ -34,6 +34,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 
 class StartCard extends StatelessWidget {
@@ -45,7 +46,7 @@ class StartCard extends StatelessWidget {
     required this.asset,
     required this.accent,
     required this.deep,
-    this.sub = 'Pick one and go',
+    this.sub,
     this.mascotHeight = 126,
     this.onTap,
   });
@@ -71,7 +72,10 @@ class StartCard extends StatelessWidget {
   /// enough that the mascot is the brightest thing on the card.
   final Color accent, deep;
 
-  final String sub;
+  /// The subline under the count, e.g. "Pick one and go". Nullable so the
+  /// default copy can be localized in [build] rather than baked into a
+  /// const-context default parameter value.
+  final String? sub;
 
   /// The height of the ART, which is only true while the assets are cropped to
   /// their own alpha bounds. A mascot exported with transparent padding renders
@@ -85,6 +89,8 @@ class StartCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final subText = sub ?? (l?.startCardDefaultSub ?? 'Pick one and go');
     // No side radius when bleeding — a rounded corner against the screen edge
     // reads as a card that failed to fit.
     final card = Pressable(
@@ -127,7 +133,7 @@ class StartCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         const SizedBox(height: S.x1),
-                        Text(sub,
+                        Text(subText,
                             style: F.cap.copyWith(
                                 color: C.white.withValues(alpha: .8)),
                             maxLines: 1,

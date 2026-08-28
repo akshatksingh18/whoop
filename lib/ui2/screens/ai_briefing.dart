@@ -19,6 +19,7 @@ import '../../ai/briefing.dart';
 import '../../ai/briefing_engine.dart';
 import '../../coach/coach_config.dart';
 import '../../coach/coach_engine.dart' show CoachException;
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'coach.dart' show CoachSetup, kCoachAccent;
 import 'home_screen.dart' show go, pad, repoOf;
@@ -57,8 +58,11 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
       if (mounted) setState(() => _b = b);
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         setState(
-          () => _error = e is CoachException ? e.message : 'It failed: $e',
+          () => _error = e is CoachException
+              ? e.message
+              : (l?.aiBriefingFailedGeneric('$e') ?? 'It failed: $e'),
         );
       }
     } finally {
@@ -69,6 +73,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final cfg = c.watch<CoachConfig>();
     final b = _b;
     return Scaffold(
@@ -80,7 +85,9 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(
                 widget.period.title,
-                sub: b == null ? '' : 'FOR ${b.day}',
+                sub: b == null
+                    ? ''
+                    : (l?.aiBriefingForDay(b.day) ?? 'FOR ${b.day}'),
               ),
             ),
             Expanded(
@@ -90,20 +97,24 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                   const SizedBox(height: S.x2),
                   if (!cfg.configured)
                     StatusCard(
-                      'No model is set up',
-                      'A briefing is written by a model you choose. Until you '
-                          'pick one there is nothing to generate and nothing '
-                          'has been sent anywhere.',
-                      fix: 'Choose a model',
+                      l?.aiBriefingNoModelTitle ?? 'No model is set up',
+                      l?.aiBriefingNoModelBody ??
+                          'A briefing is written by a model you choose. Until you '
+                              'pick one there is nothing to generate and nothing '
+                              'has been sent anywhere.',
+                      fix: l?.aiBriefingChooseModel ?? 'Choose a model',
                       icon: LucideIcons.sparkles,
                       onFix: () => go(c, const CoachSetup()),
                     )
                   else if (b == null)
                     StatusCard(
-                      'Nothing written for today',
-                      'Briefings are generated on a schedule, or on demand '
-                          'here.',
-                      fix: _busy ? 'Writing…' : 'Write one now',
+                      l?.aiBriefingNothingTitle ?? 'Nothing written for today',
+                      l?.aiBriefingNothingBody ??
+                          'Briefings are generated on a schedule, or on demand '
+                              'here.',
+                      fix: _busy
+                          ? (l?.aiBriefingWriting ?? 'Writing…')
+                          : (l?.aiBriefingWriteNow ?? 'Write one now'),
                       icon: LucideIcons.sun,
                       onFix: _busy ? null : _generate,
                     )
@@ -128,7 +139,9 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                     ),
                     const SizedBox(height: S.x3),
                     BigButton(
-                      _busy ? 'Writing…' : 'Write it again',
+                      _busy
+                          ? (l?.aiBriefingWriting ?? 'Writing…')
+                          : (l?.aiBriefingWriteAgain ?? 'Write it again'),
                       icon: LucideIcons.refreshCw,
                       color: kCoachAccent,
                       soft: true,
@@ -138,7 +151,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                   if (_error != null) ...[
                     const SizedBox(height: S.x3),
                     StatusCard(
-                      'That did not go through',
+                      l?.aiBriefingFailedTitle ?? 'That did not go through',
                       _error!,
                       icon: LucideIcons.triangleAlert,
                     ),
@@ -201,6 +214,7 @@ class SentPayload extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final host = Uri.tryParse(config.apiBase)?.host ?? config.apiBase;
     final local = isLocal(config.apiBase);
     final keys = inputs.keys.toList()..sort();
@@ -209,7 +223,9 @@ class SentPayload extends StatelessWidget {
     // on describing a request that never happened.
     final none = !asked;
     return Section(
-      none || !local ? 'What was sent' : 'What was read',
+      none || !local
+          ? (l?.aiBriefingSentSection ?? 'What was sent')
+          : (l?.aiBriefingReadSection ?? 'What was read'),
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -229,14 +245,17 @@ class SentPayload extends StatelessWidget {
                 Expanded(
                   child: Text(
                     none
-                        ? 'Nothing. There was no request — the note above was '
-                              'written on this phone.'
+                        ? (l?.aiBriefingNoneBody ??
+                            'Nothing. There was no request — the note above was '
+                                'written on this phone.')
                         : local
-                            ? 'These numbers went to $host, on this machine. '
-                                  'Nothing left it.'
-                            : 'These numbers, and nothing else, were sent to '
-                                  '$host as ${config.model}. No raw '
-                                  'recordings, no name, no identifier.',
+                            ? (l?.aiBriefingLocalBody(host) ??
+                                'These numbers went to $host, on this machine. '
+                                    'Nothing left it.')
+                            : (l?.aiBriefingCloudBody(host, config.model) ??
+                                'These numbers, and nothing else, were sent to '
+                                    '$host as ${config.model}. No raw '
+                                    'recordings, no name, no identifier.'),
                     style: F.cap.copyWith(color: p.ink, height: 1.5),
                   ),
                 ),
@@ -245,17 +264,19 @@ class SentPayload extends StatelessWidget {
           ),
           const SizedBox(height: S.x3),
           if (none)
-            const StatusCard(
-              'Nothing stood out, so nothing was asked',
-              'The sweep runs on this phone. It only calls a model when it has '
-                  'a finding to hand it, and today it had none.',
+            StatusCard(
+              l?.aiBriefingNoneCardTitle ?? 'Nothing stood out, so nothing was asked',
+              l?.aiBriefingNoneCardBody ??
+                  'The sweep runs on this phone. It only calls a model when it has '
+                      'a finding to hand it, and today it had none.',
               icon: LucideIcons.circleSlash,
             )
           else if (keys.isEmpty)
-            const StatusCard(
-              'Nothing was available to send',
-              'No metric had a value when this was written, so the prompt '
-                  'carried none.',
+            StatusCard(
+              l?.aiBriefingEmptyCardTitle ?? 'Nothing was available to send',
+              l?.aiBriefingEmptyCardBody ??
+                  'No metric had a value when this was written, so the prompt '
+                      'carried none.',
               icon: LucideIcons.circleSlash,
             )
           else

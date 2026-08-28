@@ -14,6 +14,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'beats.dart';
 import 'day_steps.dart';
@@ -418,7 +419,17 @@ class _MetricDetailState extends State<MetricDetail> {
   // is it right now" and "what has it been lately" are different questions,
   // and a range list that starts at 7 days made the first one unanswerable.
   static const _windows = [1, 7, 30, 182, 365];
-  static const _labels = ['Today', '7 days', '30 days', '6 months', 'Year'];
+
+  List<String> _labelsOf(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return [
+      l?.metricDetailToday ?? 'Today',
+      l?.metricDetailRange7Days ?? '7 days',
+      l?.metricDetailRange30Days ?? '30 days',
+      l?.metricDetailRange6Months ?? '6 months',
+      l?.metricDetailRangeYear ?? 'Year',
+    ];
+  }
 
   /// TODAY. A tile on Home shows today's number, so the screen behind that tap
   /// opens on today's number — anything else is a different question than the
@@ -455,19 +466,22 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   /// The reason the next range up is not there yet, in its own words.
-  String? _lockedNote(MetricData d) {
+  String? _lockedNote(BuildContext c, MetricData d) {
     final n = _offered(d);
     if (n >= _windows.length) return null;
-    return '${_labels[n]} needs ${_windows[n]} days of history. '
-        'You have ${d.daysAvailable}.';
+    final l = AppLocalizations.of(c);
+    final label = _labelsOf(c)[n];
+    return l?.metricDetailLockedNote(label, _windows[n], d.daysAvailable) ??
+        '$label needs ${_windows[n]} days of history. '
+            'You have ${d.daysAvailable}.';
   }
 
   Widget _ranges(BuildContext c, MetricData d, Color color) {
     final p = P.of(c);
     final n = _offered(d);
-    final note = _lockedNote(d);
+    final note = _lockedNote(c, d);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      SubTabs(_labels.sublist(0, n), _range.clamp(0, n - 1),
+      SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1),
           (i) => setState(() => (_range = i, _pick = null)),
           color: color),
       if (note != null) ...[
@@ -504,6 +518,7 @@ class _MetricDetailState extends State<MetricDetail> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final spec = specOf(widget.metricKey);
     final d = _d ?? const MetricData();
 
@@ -531,7 +546,7 @@ class _MetricDetailState extends State<MetricDetail> {
       if (spec.suppress != null) ...[
         const SizedBox(height: S.x2),
         StatusCard(
-          'Not shown as a trend',
+          l?.metricDetailNotShownTitle ?? 'Not shown as a trend',
           spec.suppress!,
           fix: spec.suppressFix ?? '',
           icon: spec.icon,
@@ -546,19 +561,27 @@ class _MetricDetailState extends State<MetricDetail> {
         else
           StatusCard(
             win == 1
-                ? 'Nothing recorded today'
-                : 'No history for ${spec.title.toLowerCase()} yet',
+                ? (l?.metricDetailNothingRecordedToday ??
+                    'Nothing recorded today')
+                : (l?.metricDetailNoHistoryYet(spec.title.toLowerCase()) ??
+                    'No history for ${spec.title.toLowerCase()} yet'),
             win == 1
                 ? (all.isEmpty
-                    ? 'Today has not produced a value yet.'
-                    : 'Today has not produced a value yet. The wider ranges '
-                        'above hold the days that did.')
-                : 'No day in this window produced a value.',
+                    ? (l?.metricDetailNoValueYet ??
+                        'Today has not produced a value yet.')
+                    : (l?.metricDetailNoValueYetWiderRanges ??
+                        'Today has not produced a value yet. The wider ranges '
+                            'above hold the days that did.'))
+                : (l?.metricDetailNoValueInWindow ??
+                    'No day in this window produced a value.'),
             // Today opens first now, so this card is what someone with months
             // of history sees on a morning before the derive lands. Telling
             // them to wear the band is a promise that cannot change anything —
             // they already did, and the days are one tab away.
-            fix: all.isEmpty ? 'Wear the band overnight to start the series' : '',
+            fix: all.isEmpty
+                ? (l?.metricDetailWearBandFix ??
+                    'Wear the band overnight to start the series')
+                : '',
             icon: spec.icon,
           ),
         const SizedBox(height: S.x5),
@@ -572,11 +595,12 @@ class _MetricDetailState extends State<MetricDetail> {
         // property of your history, not of the window — so on Today it reads
         // the whole series.
         Section(
-            'Your normal range',
+            l?.metricDetailNormalRangeSection ?? 'Your normal range',
             _range3(c, spec, win == 1 ? valuesOf(all) : vals, d.percentile,
                 all.isEmpty ? null : all.last.t)),
         if (d.movers.isNotEmpty)
-          Section('What moves it', _movers(c, d.movers)),
+          Section(l?.metricDetailWhatMovesItSection ?? 'What moves it',
+              _movers(c, d.movers)),
         const SizedBox(height: S.x5),
         // Steps are the one metric assembled from SPANS of the day, each
         // counted by a different sensor. That breakdown is a day's worth of
@@ -592,8 +616,12 @@ class _MetricDetailState extends State<MetricDetail> {
           // Wording, not a gate: this door opens the newest night and Beats
           // carries its own day stepper, so it is honest under any range — but
           // "behind this number" was not, with a 30-day average as the number.
-          detailLinkRow(c, LucideIcons.heartPulse, 'Beats',
-              'The intervals a night is made of, drawn',
+          detailLinkRow(
+              c,
+              LucideIcons.heartPulse,
+              l?.metricDetailBeatsLinkTitle ?? 'Beats',
+              l?.metricDetailBeatsLinkSub ??
+                  'The intervals a night is made of, drawn',
               () => go(c, const Beats())),
           const SizedBox(height: S.x3),
         ],
@@ -608,8 +636,12 @@ class _MetricDetailState extends State<MetricDetail> {
         // content, and it read as a phrase rather than a place. A doorway
         // wants the plainest noun that is still true.
         if (widget.metricKey == 'steps' && win == 1) ...[
-          detailLinkRow(c, LucideIcons.footprints, 'Breakdown',
-              'Each stretch of today, and what counted it',
+          detailLinkRow(
+              c,
+              LucideIcons.footprints,
+              l?.metricDetailBreakdownLinkTitle ?? 'Breakdown',
+              l?.metricDetailBreakdownLinkSub ??
+                  'Each stretch of today, and what counted it',
               () => go(c, const DayStepsDetail())),
           const SizedBox(height: S.x3),
         ],
@@ -635,6 +667,7 @@ class _MetricDetailState extends State<MetricDetail> {
       List<double?> series, List<double> vals, int win,
       List<ChartPoint> wear, List<int> algoBreaks) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
     final latest = vals.last;
     // WHICH DAY the newest reading is from. `metric_series` gets a row only on
@@ -661,8 +694,9 @@ class _MetricDetailState extends State<MetricDetail> {
           alignment: Alignment.centerLeft,
           child: Text(
             win == 1
-                ? 'Today'
-                : 'Daily average · ${vals.length} of $win days',
+                ? (l?.metricDetailToday ?? 'Today')
+                : (l?.metricDetailDailyAverage(vals.length, win) ??
+                    'Daily average · ${vals.length} of $win days'),
             style: F.cap.copyWith(color: p.ink3),
           ),
         ),
@@ -674,7 +708,9 @@ class _MetricDetailState extends State<MetricDetail> {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-                'Latest ${_fmt(spec, latest)} ${unitBeside(spec.unit)} · $asOf'
+                (l?.metricDetailLatestReading(
+                            _fmt(spec, latest), unitBeside(spec.unit), asOf) ??
+                        'Latest ${_fmt(spec, latest)} ${unitBeside(spec.unit)} · $asOf')
                     .replaceAll('  ', ' '),
                 style: F.cap.copyWith(color: p.ink3)),
           ),
@@ -722,13 +758,14 @@ class _MetricDetailState extends State<MetricDetail> {
             // provenance, not an event that happened to the user.
             footnote: marks.isEmpty
                 ? null
-                : marks.length == 1
-                    ? 'The dotted line is a change in how these days were '
-                        'computed. Readings either side of it came from '
-                        'different versions.'
-                    : 'The dotted lines are changes in how these days were '
-                        'computed. Readings either side of one came from '
-                        'different versions.',
+                : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
+                    (marks.length == 1
+                        ? 'The dotted line is a change in how these days were '
+                            'computed. Readings either side of it came from '
+                            'different versions.'
+                        : 'The dotted lines are changes in how these days were '
+                            'computed. Readings either side of one came from '
+                            'different versions.')),
             // The window IS the span now: `series` has one slot per calendar
             // day whether or not that day derived, so both edges are dates
             // rather than array positions. It used to read the length of a
@@ -737,8 +774,9 @@ class _MetricDetailState extends State<MetricDetail> {
             // Slot 0 is `length - 1` days behind today, not `length` — the
             // last slot IS today. A 30-slot window spans 29 days of distance.
             xLabels: [
-              '${series.length - 1} day${series.length == 2 ? '' : 's'} ago',
-              'Today',
+              l?.metricDetailDaysAgoLabel(series.length - 1) ??
+                  '${series.length - 1} day${series.length == 2 ? '' : 's'} ago',
+              l?.metricDetailToday ?? 'Today',
             ],
             // The dots are already beside the big number two rows up; twice on
             // one card reads as two different claims.
@@ -758,7 +796,8 @@ class _MetricDetailState extends State<MetricDetail> {
               value: _pick == null ? null : _slotAt01(_pick!, series.length),
               step: 1 / (series.length - 1),
               label: spec.title,
-              describe: (v) => _slotSays(spec, series, _slotAt(v, series.length)),
+              describe: (v) =>
+                  _slotSays(c, spec, series, _slotAt(v, series.length)),
               onChanged: (v) =>
                   setState(() => _pick = _slotAt(v, series.length)),
               child: CustomPaint(
@@ -801,14 +840,15 @@ class _MetricDetailState extends State<MetricDetail> {
             return Padding(
               padding: const EdgeInsets.only(top: S.x4),
               child: ChartFrame(
-                title: 'Worn',
-                unit: 'h a day',
+                title: l?.metricDetailWornChartTitle ?? 'Worn',
+                unit: l?.metricDetailHoursADayUnit ?? 'h a day',
                 height: 56,
                 yAxis: axis,
                 series: hrs,
-                footnote: '${have.length} of these $win days have a wear '
-                    'record. The rest are gaps in both charts — the line above '
-                    'is not carried across one.',
+                footnote: l?.metricDetailWearFootnote(have.length, win) ??
+                    '${have.length} of these $win days have a wear '
+                        'record. The rest are gaps in both charts — the line above '
+                        'is not carried across one.',
                 child: CustomPaint(
                   size: Size.infinite,
                   painter: Bars(hrs, p.ink3, axis: axis),
@@ -840,12 +880,16 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   /// What the slider reads out. The value, or the fact that the day is a hole.
-  String _slotSays(MetricSpec spec, List<double?> series, int i) {
-    final day = prettyDay(_dayOfSlot(i, series.length));
+  String _slotSays(BuildContext c, MetricSpec spec, List<double?> series, int i) {
+    final l = AppLocalizations.of(c);
+    final day = prettyDay(_dayOfSlot(i, series.length), l);
     final v = series[i];
     return v == null
-        ? '$day, no record'
-        : '$day, ${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight();
+        ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
+        : (l?.metricDetailSlotWithValue(
+                    day, _fmt(spec, v), unitBeside(spec.unit)) ??
+                '$day, ${_fmt(spec, v)} ${unitBeside(spec.unit)}')
+            .trimRight();
   }
 
   /// The touched day, and the door into it.
@@ -855,6 +899,7 @@ class _MetricDetailState extends State<MetricDetail> {
   /// button is a promise, and there is no screen behind an empty day.
   Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final i = _pick!.clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
@@ -865,8 +910,10 @@ class _MetricDetailState extends State<MetricDetail> {
         elevation: 0,
         onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
         semanticLabel: v == null
-            ? '${prettyDay(day)}, no record'
-            : 'Open ${prettyDay(day)}',
+            ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
+                '${prettyDay(day, l)}, no record')
+            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                'Open ${prettyDay(day, l)}'),
         child: Row(children: [
           Expanded(
             child: Text(dayNavLabel(day),
@@ -878,7 +925,7 @@ class _MetricDetailState extends State<MetricDetail> {
           const SizedBox(width: S.x3),
           Text(
             v == null
-                ? 'No record'
+                ? (l?.metricDetailNoRecordLabel ?? 'No record')
                 : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
             style: v == null
                 ? F.cap.copyWith(color: p.ink3)
@@ -914,35 +961,79 @@ class _MetricDetailState extends State<MetricDetail> {
   Widget _range3(BuildContext c, MetricSpec spec, List<double> win,
       Map<String, dynamic>? pct, int? latestTs) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final sorted = [...win]..sort();
     final lo = sorted.first, hi = sorted.last;
     final mid = sorted[sorted.length ~/ 2];
     final band = pct?['label']?.toString();
     final rank = (pct?['percentile_of_you'] as num?);
+    final isToday = (daysBehind(latestTs) ?? 0) <= 0;
+    final ordinal = rank == null ? '' : _ordinal(rank.round(), l);
 
     return Surface(
       child: Column(children: [
         Row(children: [
-          Expanded(child: _stat(p, _fmt(spec, lo), 'Lowest')),
-          Expanded(child: _stat(p, _fmt(spec, mid), 'Typical')),
-          Expanded(child: _stat(p, _fmt(spec, hi), 'Highest')),
+          Expanded(
+              child: _stat(p, _fmt(spec, lo), l?.metricDetailLowest ?? 'Lowest')),
+          Expanded(
+              child:
+                  _stat(p, _fmt(spec, mid), l?.metricDetailTypical ?? 'Typical')),
+          Expanded(
+              child: _stat(
+                  p, _fmt(spec, hi), l?.metricDetailHighest ?? 'Highest')),
         ]),
         const SizedBox(height: S.x4),
         Text(
           rank == null
-              ? 'From ${win.length} of your own days.'
-              : '${(daysBehind(latestTs) ?? 0) <= 0 ? 'Today' : 'Your reading from ${axisDay(latestTs)}'}'
-                  ' sits at the ${_ordinal(rank.round())} percentile of your '
-                  'own history${band == null ? '' : ' — $band'}.',
+              ? (l?.metricDetailFromDaysCount(win.length) ??
+                  'From ${win.length} of your own days.')
+              : (isToday
+                  ? (band == null
+                      ? (l?.metricDetailPercentileTodayNoBand(ordinal) ??
+                          'Today sits at the $ordinal percentile of your own '
+                              'history.')
+                      : (l?.metricDetailPercentileTodayBand(ordinal, band) ??
+                          'Today sits at the $ordinal percentile of your own '
+                              'history — $band.'))
+                  : (band == null
+                      ? (l?.metricDetailPercentileFromNoBand(
+                              axisDay(latestTs), ordinal) ??
+                          'Your reading from ${axisDay(latestTs)} sits at the '
+                              '$ordinal percentile of your own history.')
+                      : (l?.metricDetailPercentileFromBand(
+                              axisDay(latestTs), ordinal, band) ??
+                          'Your reading from ${axisDay(latestTs)} sits at the '
+                              '$ordinal percentile of your own history — '
+                              '$band.'))),
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ]),
     );
   }
 
-  String _ordinal(int n) {
-    if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
-    return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
+  /// [n]th, localized. `{ordinal}` gets substituted whole into an ARB
+  /// sentence, so this is the one place the suffix has to match the reader's
+  /// language — an English "12th" inside a French sentence reads as broken,
+  /// not translated.
+  String _ordinal(int n, AppLocalizations? l) {
+    switch (l?.localeName.split('_').first) {
+      case 'fr':
+        return n == 1 ? '1er' : '${n}e';
+      case 'de':
+        return '$n.';
+      case 'es':
+        return '$nº';
+      case 'hi':
+      case 'zh':
+        // Neither language marks the ordinal with a suffix here — the
+        // surrounding ARB sentence already carries the "the Nth" framing
+        // (Hindi's postposition, Chinese's 第 prefix), so a bare number is
+        // the correct rendering, not a fallback.
+        return '$n';
+      default:
+        if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
+        return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
+    }
   }
 
   Widget _stat(P p, String v, String l) => Column(children: [
@@ -956,6 +1047,7 @@ class _MetricDetailState extends State<MetricDetail> {
   /// "because".
   Widget _movers(BuildContext c, List<Map<String, dynamic>> movers) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final rows = movers.take(5).toList();
     return Column(children: [
       Surface(
@@ -973,8 +1065,11 @@ class _MetricDetailState extends State<MetricDetail> {
                         Text(rows[i]['tag']?.toString() ?? '',
                             style: F.body.copyWith(color: p.ink)),
                         Text(
-                            '${rows[i]['n_with'] ?? 0} days with · '
-                            '${rows[i]['n_without'] ?? 0} without',
+                            l?.metricDetailDaysWithWithout(
+                                    (rows[i]['n_with'] as num? ?? 0).toInt(),
+                                    (rows[i]['n_without'] as num? ?? 0).toInt()) ??
+                                '${rows[i]['n_with'] ?? 0} days with · '
+                                    '${rows[i]['n_without'] ?? 0} without',
                             style: F.over.copyWith(color: p.ink3)),
                       ]),
                 ),
@@ -991,7 +1086,8 @@ class _MetricDetailState extends State<MetricDetail> {
       ),
       const SizedBox(height: S.x3),
       Text(
-          'Patterns in your own logs, not causes.',
+          l?.metricDetailPatternsNotCauses ??
+              'Patterns in your own logs, not causes.',
           style: F.over.copyWith(color: p.ink3, height: 1.5)),
     ]);
   }
@@ -1083,7 +1179,7 @@ Future<String?> chooseDay(
     firstDate: first,
     lastDate: last,
     selectableDayPredicate: (d) => have.contains(dayLabelOf(d)),
-    helpText: 'Choose a day',
+    helpText: AppLocalizations.of(c)?.metricDetailChooseDayHelp ?? 'Choose a day',
   );
   return picked == null ? null : dayLabelOf(picked);
 }
@@ -1110,6 +1206,7 @@ class DayNav extends StatelessWidget {
   Widget build(BuildContext c) {
     if (days.length < 2) return const SizedBox.shrink();
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final i = days.indexOf(day ?? '');
     // days is newest first: the OLDER day is further down the list.
     final older = i < 0 ? days.first : (i + 1 < days.length ? days[i + 1] : null);
@@ -1127,14 +1224,16 @@ class DayNav extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
       child: Row(children: [
-        arrow(LucideIcons.chevronLeft, 'Previous day', older),
+        arrow(LucideIcons.chevronLeft, l?.metricDetailPreviousDay ?? 'Previous day',
+            older),
         Expanded(
           child: Pressable(
             onTap: () async {
               final picked = await chooseDay(c, days, day);
               if (picked != null && picked != day) onDay(picked);
             },
-            semanticLabel: 'Choose a day. Showing ${dayNavLabel(day)}',
+            semanticLabel: l?.metricDetailChooseDayShowing(dayNavLabel(day)) ??
+                'Choose a day. Showing ${dayNavLabel(day)}',
             child: Text(
               dayNavLabel(day),
               textAlign: TextAlign.center,
@@ -1144,7 +1243,7 @@ class DayNav extends StatelessWidget {
             ),
           ),
         ),
-        arrow(LucideIcons.chevronRight, 'Next day', newer),
+        arrow(LucideIcons.chevronRight, l?.metricDetailNextDay ?? 'Next day', newer),
       ]),
     );
   }
@@ -1199,11 +1298,12 @@ Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
 Widget investigateRow(BuildContext c, VoidCallback onTap) => detailLinkRow(
     c,
     LucideIcons.cpu,
-    'Nerd stats',
+    AppLocalizations.of(c)?.metricDetailNerdStatsTitle ?? 'Nerd stats',
     // One line at 1x. A subtitle that wraps makes this row taller than every
     // other `detailLinkRow` in the app, which is a layout change dressed up as
     // a copy change — keep it at or under the old string's length.
-    'The figures behind the picture',
+    AppLocalizations.of(c)?.metricDetailNerdStatsSub ??
+        'The figures behind the picture',
     onTap);
 
 /// A two-column legend. Used by the hypnogram and the overnight stack.

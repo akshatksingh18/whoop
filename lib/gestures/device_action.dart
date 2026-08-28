@@ -15,6 +15,10 @@
 // product decision): answer/reject call (Android ANSWER_PHONE_CALLS; impossible on
 // iOS), workout lap.
 
+import 'package:flutter/widgets.dart' show BuildContext;
+
+import '../l10n/app_localizations.dart';
+
 enum DeviceAction {
   none,
   mediaPlayPause,
@@ -124,6 +128,71 @@ extension DeviceActionX on DeviceAction {
             'nutrition screen.';
       case DeviceAction.broadcastToTasker:
         return 'Fire a broadcast intent so Tasker can trigger any automation.';
+    }
+  }
+
+  /// Localized [label], falling back to the English string above when there is
+  /// no [AppLocalizations] in scope (e.g. a widget test with no delegate
+  /// wired). `.label`/`.blurb` stay pure and untouched — same split as
+  /// `sourceTierLabel`/`sourceTierDetail` in devices.dart.
+  String localizedLabel(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    switch (this) {
+      case DeviceAction.none:
+        return l?.deviceActionNoneLabel ?? label;
+      case DeviceAction.mediaPlayPause:
+        return l?.deviceActionMediaPlayPauseLabel ?? label;
+      case DeviceAction.mediaNext:
+        return l?.deviceActionMediaNextLabel ?? label;
+      case DeviceAction.mediaPrev:
+        return l?.deviceActionMediaPrevLabel ?? label;
+      case DeviceAction.volumeUp:
+        return l?.deviceActionVolumeUpLabel ?? label;
+      case DeviceAction.volumeDown:
+        return l?.deviceActionVolumeDownLabel ?? label;
+      case DeviceAction.ringPhone:
+        return l?.deviceActionRingPhoneLabel ?? label;
+      case DeviceAction.torch:
+        return l?.deviceActionTorchLabel ?? label;
+      case DeviceAction.markMoment:
+        return l?.deviceActionMarkMomentLabel ?? label;
+      case DeviceAction.workoutToggle:
+        return l?.deviceActionWorkoutToggleLabel ?? label;
+      case DeviceAction.logWater:
+        return l?.deviceActionLogWaterLabel ?? label;
+      case DeviceAction.broadcastToTasker:
+        return l?.deviceActionBroadcastToTaskerLabel ?? label;
+    }
+  }
+
+  /// Localized [blurb] — see [localizedLabel].
+  String localizedBlurb(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    switch (this) {
+      case DeviceAction.none:
+        return l?.deviceActionNoneBlurb ?? blurb;
+      case DeviceAction.mediaPlayPause:
+        return l?.deviceActionMediaPlayPauseBlurb ?? blurb;
+      case DeviceAction.mediaNext:
+        return l?.deviceActionMediaNextBlurb ?? blurb;
+      case DeviceAction.mediaPrev:
+        return l?.deviceActionMediaPrevBlurb ?? blurb;
+      case DeviceAction.volumeUp:
+        return l?.deviceActionVolumeUpBlurb ?? blurb;
+      case DeviceAction.volumeDown:
+        return l?.deviceActionVolumeDownBlurb ?? blurb;
+      case DeviceAction.ringPhone:
+        return l?.deviceActionRingPhoneBlurb ?? blurb;
+      case DeviceAction.torch:
+        return l?.deviceActionTorchBlurb ?? blurb;
+      case DeviceAction.markMoment:
+        return l?.deviceActionMarkMomentBlurb ?? blurb;
+      case DeviceAction.workoutToggle:
+        return l?.deviceActionWorkoutToggleBlurb ?? blurb;
+      case DeviceAction.logWater:
+        return l?.deviceActionLogWaterBlurb ?? blurb;
+      case DeviceAction.broadcastToTasker:
+        return l?.deviceActionBroadcastToTaskerBlurb ?? blurb;
     }
   }
 

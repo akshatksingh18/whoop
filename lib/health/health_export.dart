@@ -93,6 +93,39 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
       : types.where((type) => type != HealthDataType.HEART_RATE).toList();
 }
 
+/// Does a `delete()` answer mean the window is now clear of OUR samples — i.e.
+/// is it safe to write the replacement?
+///
+/// The two stores answer the EMPTY range differently, so the raw bool cannot be
+/// read the same way on both, and reading it wrong breaks the delete-then-write
+/// idempotency in opposite directions:
+///
+///   * Health Connect (`HealthPlugin.deleteData`) calls `deleteRecords` over a
+///     time range and reports success unless it THREW. A zero-match range is a
+///     normal success. So `false` there is always a genuine failure — a denied
+///     permission, an unmapped type, a store error — and the samples we meant
+///     to replace may well still be sitting there.
+///
+///   * HealthKit (`SwiftHealthPlugin.delete`) queries our own samples
+///     (`HKSource.default()`) and hands whatever came back to
+///     `HKHealthStore.delete`, which Apple documents as: "Deleting an empty
+///     array fails with an `errorInvalidArgument` error." So on Apple `false`
+///     is the NORMAL answer for a window we have never written — every FIRST
+///     export of every day and every workout sees it — and it says nothing
+///     about whether a real sample survived.
+///
+/// Hence: gate the write on Android, never on Apple. Trusting Apple's `false`
+/// is not optimism, it is the only reading the platform supports; and the
+/// HealthKit failures that CAN leave one of our samples behind (share
+/// permission never requested, or denied) suppress the following write for the
+/// same reason, so they cannot produce the duplicate this gate exists to stop.
+///
+/// Parameterised on [ios] rather than reading `Platform` for the same reason
+/// [healthActivityForType] is — so a host-VM test can exercise both branches.
+@visibleForTesting
+bool healthDeleteClearedRange({required bool deleted, required bool ios}) =>
+    deleted || ios;
+
 /// Cursor for the one-shot Apple Health sleep rewrite. Bump when the writer
 /// changes enough that nights already sitting in HealthKit should be replaced
 /// (plugin Core/in-bed misses, leftover 11pm fragments). Does not bump
@@ -352,6 +385,32 @@ class HealthExporter {
     } catch (e) {
       // Leave the cursor where it is so the next pass retries this day.
       debugPrint('[health] purge legacy steps $date: $e');
+    }
+  }
+
+  /// Delete OUR [type] samples in [start,end) and report whether the window is
+  /// now safe to write into — see [healthDeleteClearedRange] for why the two
+  /// stores' `false` cannot be read the same way.
+  ///
+  /// A THROW is a genuine failure on both stores (and on Apple the only signal
+  /// there is), so it is the one case that reports "not cleared" everywhere.
+  Future<bool> _deleteOwnSamples(
+    HealthDataType type,
+    DateTime start,
+    DateTime end,
+  ) async {
+    try {
+      return healthDeleteClearedRange(
+        deleted: await _health.delete(
+          type: type,
+          startTime: start,
+          endTime: end,
+        ),
+        ios: isApple,
+      );
+    } catch (e) {
+      debugPrint('[health] delete ${type.name}: $e');
+      return false;
     }
   }
 
@@ -844,21 +903,20 @@ class HealthExporter {
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
     // Sleep is not in this list — native replace already deleted it.
+    //
+    // A type whose delete did NOT clear the window must not be re-written on
+    // top of the survivor — that is how a retry turns one stale sample into
+    // two, then three. Only WORKOUT is tracked, because a duplicated workout
+    // is the one that shows up as a second entry in the user's activity list
+    // (and is the type `exportWorkout` re-writes out-of-band too); the scalar
+    // types below still write unconditionally, so an uncleared RHR/HRV window
+    // can still double until the next successful delete replaces both.
+    var workoutCleared = true;
     for (final t in _rewriteTypes) {
-      try {
-        final deleted = await _health.delete(
-          type: t,
-          startTime: dayStart,
-          endTime: dayEnd,
-        );
-        if (!deleted) {
-          debugPrint('[health] delete ${t.name} returned false');
-          success = false;
-        }
-      } catch (e) {
-        debugPrint('[health] delete ${t.name}: $e');
-        success = false;
-      }
+      if (await _deleteOwnSamples(t, dayStart, dayEnd)) continue;
+      debugPrint('[health] delete ${t.name} did not clear the day');
+      success = false;
+      if (t == HealthDataType.WORKOUT) workoutCleared = false;
     }
 
     final scalars = (b['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -1099,7 +1157,12 @@ class HealthExporter {
         debugPrint('[health] query workouts: $e');
         success = false;
       }
-      if (rows != null) {
+      // `workoutCleared` is false only when the day's WORKOUT delete genuinely
+      // failed (see the rewrite loop above), in which case every row here would
+      // land beside a survivor. `success` is already false, so the day retries
+      // and re-attempts the delete first; skipping only this block keeps that
+      // failure from touching the day's unrelated exports.
+      if (rows != null && workoutCleared) {
         for (final r in rows) {
           if (await _writeOneWorkout(r) == false) {
             debugPrint('[health] write workout returned false');
@@ -1162,6 +1225,11 @@ class HealthExporter {
   /// [_exportDay], which owns the whole-day delete). Best-effort — never
   /// throws; no-op if the health store isn't configured/available/permitted
   /// (mirrors [_exportDay]'s silent-no-op-on-missing-permission contract).
+  ///
+  /// The idempotency is only as good as the delete, so the write is GATED on
+  /// it: a delete that did not clear the window returns false without writing,
+  /// because writing beside a survivor is what turns a retry into a duplicate.
+  /// See [healthDeleteClearedRange] for what "did not clear" means per store.
   Future<bool> exportWorkout(Map<String, Object?> session) async {
     if ((session['status']?.toString() ?? '') == 'live') return false;
     final st = (session['start_ts'] as num?)?.toInt();
@@ -1172,20 +1240,16 @@ class HealthExporter {
       if (await _androidUnavailable() != null) return false;
       final start = DateTime.fromMillisecondsSinceEpoch(st * 1000);
       final end = DateTime.fromMillisecondsSinceEpoch(en * 1000);
-      var success = true;
-      try {
-        final deleted = await _health.delete(
-          type: HealthDataType.WORKOUT,
-          startTime: start,
-          endTime: end,
-        );
-        if (!deleted) success = false;
-      } catch (e) {
-        debugPrint('[health] delete workout @$st: $e');
-        success = false;
+      if (!await _deleteOwnSamples(HealthDataType.WORKOUT, start, end)) {
+        // The window still holds a copy we could not remove, so writing now
+        // would leave TWO of this workout in the store — and returning false
+        // hands the caller a retry, which would write a third. Bail instead:
+        // the same false still asks for a retry, but the retry re-attempts the
+        // delete FIRST and only writes once it actually clears.
+        debugPrint('[health] delete workout @$st did not clear the window');
+        return false;
       }
-      final wrote = (await _writeOneWorkout(session)) ?? false;
-      return success && wrote;
+      return (await _writeOneWorkout(session)) ?? false;
     } catch (e) {
       debugPrint('[health] exportWorkout: $e');
       return false;
@@ -1261,7 +1325,11 @@ String? healthWorkoutTitleForType(String? type) {
       .replaceAll('_', ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
-  return t.isEmpty ? null : t[0].toUpperCase() + t.substring(1);
+  if (t.isEmpty) return null;
+  return t
+      .split(' ')
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
 }
 
 /// Parameterised by [ios] rather than reading `Platform` directly so a unit

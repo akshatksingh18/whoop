@@ -19,6 +19,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../gestures/device_action.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'profile.dart';
@@ -61,6 +62,7 @@ class BandGesturesView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     // Enum order, filtered to this phone: nothing first (it is the default and
     // the way back out), then the in-app actions, then whatever the OS offered.
     final offered = [
@@ -74,27 +76,28 @@ class BandGesturesView extends StatelessWidget {
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Double-tap'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.gesturesNavTitle ?? 'Double-tap'),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
                 Section(
-                  'Tap the band twice',
+                  l?.gesturesSectionTitle ?? 'Tap the band twice',
                   Surface(
                     child: Text(
-                      'Only while the app is connected and awake. A tap the '
-                      'band stored while your phone was away arrives later with '
-                      'an old timestamp, and is ignored rather than fired hours '
-                      'after you meant it.',
+                      l?.gesturesSectionBody ??
+                          'Only while the app is connected and awake. A tap the '
+                              'band stored while your phone was away arrives later with '
+                              'an old timestamp, and is ignored rather than fired hours '
+                              'after you meant it.',
                       style: F.body.copyWith(color: p.ink2, height: 1.4),
                     ),
                   ),
                 ),
-                settingsGroup(c, 'It does', [
+                settingsGroup(c, l?.gesturesItDoesTitle ?? 'It does', [
                   for (final a in offered)
                     _ActionRow(
                       action: a,
@@ -105,13 +108,14 @@ class BandGesturesView extends StatelessWidget {
                 if (noPhoneActions) ...[
                   const SizedBox(height: S.x5),
                   Section(
-                    'Nothing on the phone?',
+                    l?.gesturesNoPhoneActionsTitle ?? 'Nothing on the phone?',
                     Surface(
                       child: Text(
-                        'Ringing your phone and the flashlight are missing '
-                        'because the app could not reach the system to ask what '
-                        'this device allows. Reopen the app and come back; the '
-                        'in-app actions above work either way.',
+                        l?.gesturesNoPhoneActionsBody ??
+                            'Ringing your phone and the flashlight are missing '
+                                'because the app could not reach the system to ask what '
+                                'this device allows. Reopen the app and come back; the '
+                                'in-app actions above work either way.',
                         style: F.body.copyWith(color: p.ink2, height: 1.4),
                       ),
                     ),
@@ -137,10 +141,11 @@ class _ActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Pressable(
       onTap: onTap,
-      semanticLabel:
-          '${action.label}. ${action.blurb}${selected ? ' Selected.' : ''}',
+      semanticLabel: '${action.localizedLabel(c)}. ${action.localizedBlurb(c)}'
+          '${selected ? (l?.settingsSelectedSuffix ?? ' Selected.') : ''}',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(children: [
@@ -150,11 +155,12 @@ class _ActionRow extends StatelessWidget {
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(action.label,
+              Text(action.localizedLabel(c),
                   style: F.body.copyWith(
                       color: selected ? p.on(C.indigo) : p.ink,
                       fontWeight: selected ? FontWeight.w600 : null)),
-              Text(action.blurb, style: F.over.copyWith(color: p.ink3)),
+              Text(action.localizedBlurb(c),
+                  style: F.over.copyWith(color: p.ink3)),
             ]),
           ),
           const SizedBox(width: S.x2),

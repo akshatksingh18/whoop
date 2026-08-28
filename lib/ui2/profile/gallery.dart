@@ -1104,6 +1104,7 @@ Map<String, Widget> extraCases() => {
 const _roughFull = RoughNight(
   day: '2026-08-15',
   signs: 4,
+  illnessFlagged: true,
   descriptor: 'a rougher night than usual for you — your body worked harder '
       'overnight',
   moved: [

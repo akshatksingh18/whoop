@@ -238,6 +238,7 @@ void main() {
         descriptor: 'a rougher night than usual for you — x',
         moved: ['your HRV ran lower'],
         knows: ['The illness watch flagged this night too — a rise.'],
+        illnessFlagged: true,
       );
       expect(flagged.ask, isNot(contains('sick')));
       // And the one it never offers on any night: the card IS the sleep

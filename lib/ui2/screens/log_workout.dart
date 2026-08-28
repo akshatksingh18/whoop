@@ -36,12 +36,13 @@ import '../../compute/manual_session.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../health/health_export.dart';
+import '../../l10n/app_localizations.dart';
 import '../../notify/notification_prefs.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../profile/profile.dart' show SetRow, settingsGroup;
 import '../ui2.dart';
-import 'home_screen.dart' show repoOf;
+import 'home_screen.dart' show monthShortName, repoOf, weekdayShortName;
 
 /// One detected bout, as this screen needs it. Built straight off a
 /// `workout_suggestions` row.
@@ -165,6 +166,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   Future<void> _confirm(Suggestion s) async {
     final repo = repoOf(context);
     if (repo == null || _busy) return;
+    final l = AppLocalizations.of(context);
     setState(() => _busy = true);
     var message = '';
     try {
@@ -186,7 +188,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
         await LocalDb.dismissWorkoutSuggestion(s.id);
       } catch (_) {/* the reason is already on screen */}
     } catch (_) {
-      message = 'Could not log this one — try again.';
+      message = l?.logWorkoutCouldNotLog ?? 'Could not log this one — try again.';
     }
     if (!mounted) return;
     setState(() => _busy = false);
@@ -196,11 +198,15 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
 
   Future<void> _dismiss(Suggestion s) async {
     if (_busy) return;
+    final l = AppLocalizations.of(context);
     setState(() => _busy = true);
     try {
       await LocalDb.dismissWorkoutSuggestion(s.id);
     } catch (_) {
-      if (mounted) _say('Could not dismiss this one — try again.');
+      if (mounted) {
+        _say(l?.logWorkoutCouldNotDismiss ??
+            'Could not dismiss this one — try again.');
+      }
     }
     if (!mounted) return;
     setState(() => _busy = false);
@@ -211,12 +217,13 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   /// session they actually did, then save that instead.
   Future<void> _adjust(Suggestion s) async {
     final nav = Navigator.of(context);
+    final l = AppLocalizations.of(context);
     final saved = await nav.push<bool>(MaterialPageRoute<bool>(
       builder: (_) => LogWorkout(
         start: DateTime.fromMillisecondsSinceEpoch(s.startTs * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(s.endTs * 1000),
         activity: s.activity,
-        title: 'Adjust the times',
+        title: l?.logWorkoutAdjustTimes ?? 'Adjust the times',
       ),
     ));
     if (saved == true) await _afterAction();
@@ -239,14 +246,16 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final items = _items;
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar('Detected activity', sub: 'YOURS TO CONFIRM'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.logWorkoutDetectedActivityTitle ?? 'Detected activity',
+                sub: l?.logWorkoutYoursToConfirmSub ?? 'YOURS TO CONFIRM'),
           ),
           Expanded(
             child: ListView(
@@ -254,19 +263,24 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
               children: [
                 if (_failed)
                   StatusCard(
-                    'Could not read your detected activity',
-                    'The store did not answer. Nothing has been logged or '
-                        'dismissed.',
-                    fix: 'Try again',
+                    l?.logWorkoutReadFailedTitle ??
+                        'Could not read your detected activity',
+                    l?.logWorkoutReadFailedBody ??
+                        'The store did not answer. Nothing has been logged or '
+                            'dismissed.',
+                    fix: l?.logWorkoutTryAgain ?? 'Try again',
                     icon: LucideIcons.refreshCw,
                     onFix: _load,
                   )
                 else if (items == null)
-                  const NoData(message: 'Reading what the band spotted…')
+                  NoData(
+                      message: l?.logWorkoutReadingSpotted ??
+                          'Reading what the band spotted…')
                 else if (items.isEmpty)
-                  const StatusCard(
-                    'Nothing to review',
-                    'This one may already have been logged or dismissed.',
+                  StatusCard(
+                    l?.logWorkoutNothingToReviewTitle ?? 'Nothing to review',
+                    l?.logWorkoutNothingToReviewBody ??
+                        'This one may already have been logged or dismissed.',
                     icon: LucideIcons.circleCheck,
                   )
                 else
@@ -280,11 +294,13 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
                     const SizedBox(height: S.x3),
                   ],
                 const SizedBox(height: S.x3),
-                const StatusCard(
-                  'These are the hard minutes, not the whole session',
-                  'Detection reports the sustained effort it could see, so a '
-                      'warm-up and the rest between sets fall outside it. '
-                      'Adjust the times before logging if the window is short.',
+                StatusCard(
+                  l?.logWorkoutHardMinutesTitle ??
+                      'These are the hard minutes, not the whole session',
+                  l?.logWorkoutHardMinutesBody ??
+                      'Detection reports the sustained effort it could see, so a '
+                          'warm-up and the rest between sets fall outside it. '
+                          'Adjust the times before logging if the window is short.',
                   icon: LucideIcons.scissors,
                 ),
               ],
@@ -311,6 +327,7 @@ class _SuggestionCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final a = s.activity;
     final colour = a?.color ?? C.purple;
     return Surface(
@@ -328,10 +345,12 @@ class _SuggestionCard extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${s.durationMin} min of effort',
+                  Text(
+                      l?.logWorkoutMinutesOfEffort(s.durationMin) ??
+                          '${s.durationMin} min of effort',
                       style: F.body
                           .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                  Text(windowLabel(s.startTs, s.endTs),
+                  Text(windowLabel(s.startTs, s.endTs, l),
                       style: F.over.copyWith(color: p.ink3)),
                 ]),
           ),
@@ -342,16 +361,20 @@ class _SuggestionCard extends StatelessWidget {
         // window is finally saved, and printing one here would be a number
         // this screen made up.
         InlineMetrics([
-          if (s.avgBpm != null) ('Avg HR', '${s.avgBpm} bpm', p.on(C.red)),
-          if (s.peakBpm != null) ('Peak HR', '${s.peakBpm} bpm', p.on(C.orange)),
-          if (a != null) ('Looks like', a.name, p.on(colour)),
+          if (s.avgBpm != null)
+            (l?.logWorkoutAvgHr ?? 'Avg HR', '${s.avgBpm} bpm', p.on(C.red)),
+          if (s.peakBpm != null)
+            (l?.logWorkoutPeakHr ?? 'Peak HR', '${s.peakBpm} bpm',
+                p.on(C.orange)),
+          if (a != null) (l?.logWorkoutLooksLike ?? 'Looks like', a.name, p.on(colour)),
         ]),
         const SizedBox(height: S.x4),
-        BigButton('Log it', icon: LucideIcons.check, onTap: onConfirm),
+        BigButton(l?.logWorkoutLogIt ?? 'Log it',
+            icon: LucideIcons.check, onTap: onConfirm),
         const SizedBox(height: S.x2),
         Row(children: [
           Expanded(
-            child: BigButton('Adjust the times',
+            child: BigButton(l?.logWorkoutAdjustTimes ?? 'Adjust the times',
                 icon: LucideIcons.clock,
                 color: C.blue,
                 soft: true,
@@ -359,7 +382,7 @@ class _SuggestionCard extends StatelessWidget {
           ),
           const SizedBox(width: S.x2),
           Expanded(
-            child: BigButton('Not a workout',
+            child: BigButton(l?.logWorkoutNotAWorkout ?? 'Not a workout',
                 icon: LucideIcons.x, color: C.red, soft: true, onTap: onDismiss),
           ),
         ]),
@@ -371,28 +394,23 @@ class _SuggestionCard extends StatelessWidget {
 /// "Today · 6:30 PM – 7:31 PM". The WINDOW, never just the start — the whole
 /// reason someone opens this screen is to check whether the detector clipped
 /// it, and a start time alone cannot show that.
-String windowLabel(int startTs, int endTs) {
+String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
   final s = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
   final e = DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
-  return '${dayLabel(s)} · ${formatMinuteOfDay(s.hour * 60 + s.minute)} – '
+  return '${dayLabel(s, l: l)} · ${formatMinuteOfDay(s.hour * 60 + s.minute)} – '
       '${formatMinuteOfDay(e.hour * 60 + e.minute)}';
 }
 
 /// Today / Yesterday / "Mon 11 Aug", against the real calendar day rather than
 /// a 24-hour subtraction — the day after a spring-forward is 23 hours long.
-String dayLabel(DateTime at, {DateTime? now}) {
+String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   final n = now ?? DateTime.now();
   final today = DateTime(n.year, n.month, n.day);
   final d = DateTime(at.year, at.month, at.day);
   final diff = today.difference(d).inDays;
-  if (diff == 0) return 'Today';
-  if (diff == 1) return 'Yesterday';
-  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const mo = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${wd[d.weekday - 1]} ${d.day} ${mo[d.month - 1]}';
+  if (diff == 0) return l?.logWorkoutToday ?? 'Today';
+  if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';
+  return '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
 }
 
 // ══════════════════ THE FORM ══════════════════
@@ -413,7 +431,7 @@ class LogWorkout extends StatefulWidget {
     this.start,
     this.end,
     this.activity,
-    this.title = 'Log a past workout',
+    this.title,
     this.spans,
     this.now,
   });
@@ -421,7 +439,11 @@ class LogWorkout extends StatefulWidget {
   final String? sessionId;
   final DateTime? start, end;
   final Activity? activity;
-  final String title;
+
+  /// Null means "use the default heading" — kept null rather than defaulted
+  /// in the constructor so the default can be localized with a BuildContext,
+  /// which a `const` field initializer does not have.
+  final String? title;
 
   /// The windows already in the log, for the live overlap check. Injected in
   /// tests; null means read them from the repo.
@@ -553,6 +575,7 @@ class _LogWorkoutState extends State<LogWorkout> {
     if (repo == null || _saving || _invalid != null) return;
     final nav = Navigator.of(context);
     final app = appOf(context);
+    final l = AppLocalizations.of(context);
     setState(() {
       _saving = true;
       _wrote = null;
@@ -576,9 +599,10 @@ class _LogWorkoutState extends State<LogWorkout> {
         if (!mounted) return;
         setState(() {
           _saving = false;
-          _wrote = 'Saved. No heart rate was recorded over that window, so it '
-              'has no strain and no calorie figure — the times are all this '
-              'one carries.';
+          _wrote = l?.logWorkoutUnscoredSaved ??
+              'Saved. No heart rate was recorded over that window, so it '
+                  'has no strain and no calorie figure — the times are all this '
+                  'one carries.';
         });
         return;
       }
@@ -589,7 +613,7 @@ class _LogWorkoutState extends State<LogWorkout> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _wrote = 'Could not save that — try again.';
+          _wrote = l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
         });
       }
     }
@@ -598,63 +622,80 @@ class _LogWorkoutState extends State<LogWorkout> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final bad = _invalid;
     final mins = _end.difference(_start).inMinutes;
     final retime = widget.sessionId != null;
+    final title = widget.title ?? (l?.logWorkoutDefaultTitle ?? 'Log a past workout');
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(widget.title,
-                sub: retime ? 'THE WINDOW, RE-SCORED' : 'YOUR OWN TIMES'),
+            child: NavBar(title,
+                sub: retime
+                    ? (l?.logWorkoutWindowRescoredSub ?? 'THE WINDOW, RE-SCORED')
+                    : (l?.logWorkoutYourOwnTimesSub ?? 'YOUR OWN TIMES')),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
-                settingsGroup(c, 'When', [
+                settingsGroup(c, l?.logWorkoutWhenGroup ?? 'When', [
                   if (!retime)
-                    SetRow(_activity.icon, _activity.color, 'Activity',
+                    SetRow(_activity.icon, _activity.color,
+                        l?.logWorkoutActivityLabel ?? 'Activity',
                         value: _activity.name, onTap: _pickActivity),
-                  SetRow(LucideIcons.calendar, C.blue, 'Date',
-                      value: dayLabel(_start, now: widget.now),
+                  SetRow(LucideIcons.calendar, C.blue,
+                      l?.logWorkoutDateLabel ?? 'Date',
+                      value: dayLabel(_start, now: widget.now, l: l),
                       onTap: _pickDate),
-                  SetRow(LucideIcons.play, C.green, 'Started',
+                  SetRow(LucideIcons.play, C.green,
+                      l?.logWorkoutStartedLabel ?? 'Started',
                       value:
                           formatMinuteOfDay(_start.hour * 60 + _start.minute),
                       onTap: () => _pickTime(isStart: true)),
-                  SetRow(LucideIcons.square, C.orange, 'Ended',
+                  SetRow(LucideIcons.square, C.orange,
+                      l?.logWorkoutEndedLabel ?? 'Ended',
                       value: formatMinuteOfDay(_end.hour * 60 + _end.minute),
-                      sub: _end.day != _start.day ? 'the next morning' : '',
+                      sub: _end.day != _start.day
+                          ? (l?.logWorkoutNextMorningSub ?? 'the next morning')
+                          : '',
                       onTap: () => _pickTime(isStart: false)),
-                  SetRow(LucideIcons.timer, C.purple, 'Length',
+                  SetRow(LucideIcons.timer, C.purple,
+                      l?.logWorkoutLengthLabel ?? 'Length',
                       value: mins > 0 ? '$mins min' : '—',
                       chevron: false),
                 ]),
                 const SizedBox(height: S.x4),
                 if (bad != null)
-                  StatusCard('That window will not save', bad.message,
+                  StatusCard(
+                      l?.logWorkoutWindowInvalidTitle ?? 'That window will not save',
+                      bad.message,
                       icon: LucideIcons.triangleAlert)
                 else if (_wrote != null)
-                  StatusCard(retime ? 'Times updated' : 'Workout logged',
+                  StatusCard(
+                      retime
+                          ? (l?.logWorkoutTimesUpdatedTitle ?? 'Times updated')
+                          : (l?.logWorkoutLoggedTitle ?? 'Workout logged'),
                       _wrote!, icon: LucideIcons.circleCheck)
                 else
                   StatusCard(
-                    'Scored from what the band recorded',
-                    'Strain and calories come from the 1-second heart rate '
-                        'inside these times, through the same method the day '
-                        'uses. Nothing is estimated from the duration.',
+                    l?.logWorkoutScoredTitle ?? 'Scored from what the band recorded',
+                    l?.logWorkoutScoredBody ??
+                        'Strain and calories come from the 1-second heart rate '
+                            'inside these times, through the same method the day '
+                            'uses. Nothing is estimated from the duration.',
                     icon: LucideIcons.heartPulse,
                   ),
                 const SizedBox(height: S.x4),
                 BigButton(
                   _saving
-                      ? 'Saving…'
+                      ? (l?.logWorkoutSaving ?? 'Saving…')
                       : retime
-                          ? 'Save the new times'
-                          : 'Log it',
+                          ? (l?.logWorkoutSaveNewTimes ?? 'Save the new times')
+                          : (l?.logWorkoutLogIt ?? 'Log it'),
                   icon: LucideIcons.check,
                   onTap: bad == null && !_saving ? _save : null,
                 ),
@@ -681,6 +722,7 @@ class _TypeSheetState extends State<_TypeSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final q = _q.trim().toLowerCase();
     final items = q.isEmpty
         ? allActivities
@@ -699,7 +741,7 @@ class _TypeSheetState extends State<_TypeSheet> {
               style: F.body.copyWith(color: p.ink),
               onChanged: (v) => setState(() => _q = v),
               decoration: InputDecoration(
-                hintText: 'Search activities',
+                hintText: l?.logWorkoutSearchActivities ?? 'Search activities',
                 hintStyle: F.body.copyWith(color: p.ink3),
                 filled: true,
                 fillColor: p.card2,
@@ -712,9 +754,11 @@ class _TypeSheetState extends State<_TypeSheet> {
           ),
           Flexible(
             child: items.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(S.x6),
-                    child: NoData(message: 'No activity by that name'),
+                ? Padding(
+                    padding: const EdgeInsets.all(S.x6),
+                    child: NoData(
+                        message: l?.logWorkoutNoActivityByName ??
+                            'No activity by that name'),
                   )
                 : ListView.builder(
                     shrinkWrap: true,

@@ -34,6 +34,7 @@ import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kOura;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -80,6 +81,34 @@ enum SourceTier {
   final String label;
   final String detail;
   final Color accent;
+}
+
+/// Localized label/detail for a [SourceTier]. The enum's own `.label`/
+/// `.detail` stay English-only (a const enum constructor can't take a
+/// BuildContext) — this is the wrapper every render call site should use
+/// instead, same split as `sourceState`/`_localizedSourceState` below.
+String sourceTierLabel(BuildContext c, SourceTier t) {
+  final l = AppLocalizations.of(c);
+  switch (t) {
+    case SourceTier.beatToBeat:
+      return l?.devicesTierBeatToBeatLabel ?? t.label;
+    case SourceTier.wristOptical:
+      return l?.devicesTierWristOpticalLabel ?? t.label;
+    case SourceTier.phone:
+      return l?.devicesTierPhoneLabel ?? t.label;
+  }
+}
+
+String sourceTierDetail(BuildContext c, SourceTier t) {
+  final l = AppLocalizations.of(c);
+  switch (t) {
+    case SourceTier.beatToBeat:
+      return l?.devicesTierBeatToBeatDetail ?? t.detail;
+    case SourceTier.wristOptical:
+      return l?.devicesTierWristOpticalDetail ?? t.detail;
+    case SourceTier.phone:
+      return l?.devicesTierPhoneDetail ?? t.detail;
+  }
 }
 
 /// This band's name, from the registry entry that decodes it — never asserted.
@@ -510,7 +539,9 @@ class MyDevicesView extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final fault = status?.isFault == true ? status : null;
+    final localizedStatus =
+        status == null ? null : localizedBandStatus(c, status!);
+    final fault = localizedStatus?.isFault == true ? localizedStatus : null;
     // A BAND, not "a source". The phone is a source and it is not a substitute
     // for one: gating this on `sources.isEmpty` meant a phone counting steps
     // hid the only route back to pairing, and forgetting a band left the user
@@ -766,13 +797,15 @@ class TierRow extends StatelessWidget {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
-                AppLocalizations.of(c)?.devicesTierRankLabel(tier.rank, tier.label) ??
+                AppLocalizations.of(c)?.devicesTierRankLabel(
+                        tier.rank, sourceTierLabel(c, tier)) ??
                     'Tier ${tier.rank} · ${tier.label}',
                 style: F.body.copyWith(
                     color: filled ? p.ink : p.ink2,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: S.x1),
-            Text(tier.detail, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            Text(sourceTierDetail(c, tier),
+                style: F.cap.copyWith(color: p.ink3, height: 1.5)),
             if (!filled) ...[
               const SizedBox(height: S.x1),
               // A dashed circle and a paler wash are not a statement. Without
@@ -1076,9 +1109,12 @@ class DeviceDetailView extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    final localizedStatus =
+        status == null ? null : localizedBandStatus(c, status!);
     final battery = s.batteryPct;
     final last = s.lastData;
-    final fault = status?.isFault == true ? status : null;
+    final fault =
+        localizedStatus?.isFault == true ? localizedStatus : null;
     final calibration = calibrationDisclosure(s);
     return Scaffold(
       backgroundColor: p.bg,
@@ -1109,7 +1145,8 @@ class DeviceDetailView extends StatelessWidget {
                 // here would say the same thing twice in two type sizes.
                 if (fault == null)
                   Center(
-                      child: Text(status?.title ?? _localizedSourceState(c, s),
+                      child: Text(
+                          localizedStatus?.title ?? _localizedSourceState(c, s),
                           style: F.cap.copyWith(
                               color: s.connected ? p.on(C.green) : p.ink3))),
                 const SizedBox(height: S.x6),
@@ -1156,7 +1193,7 @@ class DeviceDetailView extends StatelessWidget {
                       Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last),
+                          value: last == null ? '' : formatDayTime(last, l),
                           sub: last == null
                               ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
                               : '',
@@ -1238,7 +1275,7 @@ class DeviceDetailView extends StatelessWidget {
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last),
+                          value: last == null ? '' : formatDayTime(last, l),
                           sub: last == null
                               ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
                               : '',
@@ -1328,8 +1365,8 @@ String? _chargeHistory(Map<String, dynamic>? h) {
 ///
 /// It used to render `4/9, 07:12`, which a US reader reads as 9 April. The
 /// month name is the whole point; `formatDay` already writes one.
-String formatDayTime(DateTime d) {
+String formatDayTime(DateTime d, [AppLocalizations? l]) {
   final t = '${d.hour.toString().padLeft(2, '0')}:'
       '${d.minute.toString().padLeft(2, '0')}';
-  return '${formatDay(d)}, $t';
+  return '${formatDay(d, l)}, $t';
 }

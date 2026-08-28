@@ -23,11 +23,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf;
+import '../screens/home_screen.dart' show repoOf, monthName;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
-import 'catalogue.dart' show kZonesWhy;
+import 'catalogue.dart' show zonesWhy;
 import 'zones.dart' show ZonesDetail;
 
 /// Below this the day is not comparable to a full one and the screen says so.
@@ -153,10 +154,6 @@ class DayStrainData {
   }
 }
 
-const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
 
 class DayStrainDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
@@ -199,6 +196,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d ?? const DayStrainData();
     final day = d.day;
     // The date the drawn day IS. `getDayStrain` serves the last settled bundle
@@ -207,20 +205,21 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     final sub = day == null
         ? ''
         : dayLabelOf(day) == todayLabel()
-            ? 'TODAY'
-            : '${_months[day.month - 1]} ${day.day}'.toUpperCase();
+            ? (l?.dayStrainToday ?? 'TODAY')
+            : '${monthName(day.month, l)} ${day.day}'.toUpperCase();
 
     return detailScaffold(
       c,
-      'Day strain',
+      l?.dayStrainTitle ?? 'Day strain',
       [
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
         ] else ...[
-          ..._trace(p, d),
-          ..._zones(p, d),
-          Section('What this is made of', _inputs(p, d)),
+          ..._trace(p, l, d),
+          ..._zones(p, l, d),
+          Section(l?.dayStrainInputsSection ?? 'What this is made of',
+              _inputs(p, l, d)),
         ],
       ],
       sub: sub,
@@ -228,7 +227,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   }
 
   // ── the curve, and only then the number ────────────────────────────────────
-  List<Widget> _trace(P p, DayStrainData d) {
+  List<Widget> _trace(P p, AppLocalizations? l, DayStrainData d) {
     if (!d.hasCurve) {
       // THE BUNDLE'S REASON, or none. This card used to state one — "it needs a
       // resting heart rate from a scored night and a day the band was on your
@@ -251,13 +250,19 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       return [
         StatusCard(
           s == null
-              ? 'No strain trace for this day'
-              : 'No minute-by-minute trace for this day',
+              ? (l?.dayStrainNoTraceTitle ?? 'No strain trace for this day')
+              : (l?.dayStrainNoMinuteTraceTitle ??
+                  'No minute-by-minute trace for this day'),
           s == null
-              ? why ?? 'Nothing recorded says why this day produced no strain.'
-              : 'The day strain is ${s.toStringAsFixed(1)}. The waking minutes '
-                  'it was built from are not stored for this day.',
-          fix: (s == null && !saw) ? 'Wear the band through the day' : '',
+              ? why ??
+                  (l?.dayStrainNoReasonBody ??
+                      'Nothing recorded says why this day produced no strain.')
+              : (l?.dayStrainScoredNoTraceBody(s.toStringAsFixed(1)) ??
+                  'The day strain is ${s.toStringAsFixed(1)}. The waking minutes '
+                      'it was built from are not stored for this day.'),
+          fix: (s == null && !saw)
+              ? (l?.dayStrainWearBandFix ?? 'Wear the band through the day')
+              : '',
           icon: LucideIcons.trendingUp,
         ),
       ];
@@ -268,15 +273,16 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: 'STRAIN THROUGH THE DAY',
+            title: l?.dayStrainChartTitle ?? 'STRAIN THROUGH THE DAY',
             unit: '0–21',
             height: 170,
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
-            footnote: 'Accumulated, so it only ever climbs — the STEEP parts '
-                'are where the effort was. Built from $drawn recorded waking '
-                'minutes.',
+            footnote: l?.dayStrainChartFootnote(drawn) ??
+                'Accumulated, so it only ever climbs — the STEEP parts '
+                    'are where the effort was. Built from $drawn recorded waking '
+                    'minutes.',
             child: CustomPaint(
               size: Size.infinite,
               painter: LineChart(d.curve, p.on(C.purple),
@@ -287,10 +293,12 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             const SizedBox(height: S.x4),
             InlineMetrics([
               if (d.strain != null)
-                ('Day strain', d.strain!.toStringAsFixed(1), C.purple),
-              if (d.peakHr != null) ('Peak HR', '${d.peakHr} bpm', C.red),
+                (l?.dayStrainTitle ?? 'Day strain', d.strain!.toStringAsFixed(1),
+                    C.purple),
+              if (d.peakHr != null)
+                (l?.dayStrainPeakHr ?? 'Peak HR', '${d.peakHr} bpm', C.red),
               if (d.wornMin != null)
-                ('Worn', '${d.wornMin} min', C.teal),
+                (l?.dayStrainWorn ?? 'Worn', '${d.wornMin} min', C.teal),
             ]),
           ],
         ]),
@@ -299,10 +307,12 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         Padding(
           padding: const EdgeInsets.only(top: S.x4),
           child: StatusCard(
-            'The band saw ${d.coveragePct}% of this day',
-            'Strain is a total over the minutes that were recorded, so a '
-                'partly-worn day reads lower than a full one and the two are '
-                'not comparable.',
+            l?.dayStrainLowCoverageTitle(d.coveragePct!) ??
+                'The band saw ${d.coveragePct}% of this day',
+            l?.dayStrainLowCoverageBody ??
+                'Strain is a total over the minutes that were recorded, so a '
+                    'partly-worn day reads lower than a full one and the two are '
+                    'not comparable.',
             icon: LucideIcons.watch,
           ),
         ),
@@ -310,17 +320,17 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   }
 
   // ── where the effort sat ───────────────────────────────────────────────────
-  List<Widget> _zones(P p, DayStrainData d) {
+  List<Widget> _zones(P p, AppLocalizations? l, DayStrainData d) {
     final z = d.zoneMin;
     if (z == null) return const [];
     final total = z.fold<int>(0, (a, b) => a + b);
     if (total <= 0) return const [];
     return [
       Section(
-        'Time in zones',
+        l?.dayStrainTimeInZonesSection ?? 'Time in zones',
         Surface(
           child: ChartFrame(
-            title: 'TIME IN ZONES',
+            title: l?.dayStrainZonesChartTitle ?? 'TIME IN ZONES',
             unit: 'minutes',
             height: 10,
             legend: [
@@ -333,17 +343,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             // "estimated from your age" would then be false. The 28-day
             // distribution is NOT here — it lives one tap away and is gated on
             // the same anchors (TS-05).
-            footnote: switch (d.zoneSource) {
-              'karvonen' =>
-                'Zone edges span the gap between your measured resting heart '
-                    'rate and the highest we have seen (${d.zoneMaxHr?.round()} '
-                    'bpm). Both measured on you.',
-              'observed' =>
-                'Zone edges are percentages of the highest heart rate we have '
-                    'seen (${d.zoneMaxHr?.round()} bpm) — measured, not '
-                    'estimated.',
-              _ => kZonesWhy,
-            },
+            footnote: zonesWhy(d.zoneSource, d.zoneMaxHr, l),
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar([for (final v in z) v / total], p),
@@ -353,7 +353,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         // Progressive disclosure: this day screen gains a LINK, not a row. The
         // ceiling, the edges in bpm and the 28-day distribution are all one tap
         // behind it.
-        action: 'How these are set',
+        action: l?.dayStrainHowSet ?? 'How these are set',
         onAction: () => Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => const ZonesDetail())),
       ),
@@ -361,28 +361,32 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   }
 
   // ── the inputs, named ──────────────────────────────────────────────────────
-  Widget _inputs(P p, DayStrainData d) {
+  Widget _inputs(P p, AppLocalizations? l, DayStrainData d) {
     final max = d.maxHrUsed;
     return Surface(
       elevation: 0,
       color: p.card2,
       child: Text(
         [
-          'Banister TRIMP over your waking heart rate, scaled to 0–21.',
+          l?.dayStrainInputsBase ??
+              'Banister TRIMP over your waking heart rate, scaled to 0–21.',
           if (max != null)
-            'It was integrated against an assumed maximum of '
-                '${max.round()} bpm — estimated from your age and your strap, '
-                'not measured.',
+            l?.dayStrainInputsMaxHr(max.round()) ??
+                'It was integrated against an assumed maximum of '
+                    '${max.round()} bpm — estimated from your age and your strap, '
+                    'not measured.',
           // Said out loud because the zone bar above can now be banded on a
           // MEASURED ceiling while this number is still the age estimate, and
           // two different ceilings on one screen with nothing saying so is
           // exactly the defect TS-03a removed.
           if (max != null && d.zoneSource != null && d.zoneSource != 'tanaka')
-            'The zone bar above uses the measured ceiling instead; strain has '
-                'not been moved onto it, because that would rewrite every '
-                'strain score you have ever seen.',
-          'The other anchor is your resting heart rate from the night before, '
-              'so a night the band missed moves the whole day.',
+            l?.dayStrainInputsMeasuredCeilingNote ??
+                'The zone bar above uses the measured ceiling instead; strain has '
+                    'not been moved onto it, because that would rewrite every '
+                    'strain score you have ever seen.',
+          l?.dayStrainInputsRhrAnchor ??
+              'The other anchor is your resting heart rate from the night before, '
+                  'so a night the band missed moves the whole day.',
         ].join(' '),
         style: F.cap.copyWith(color: p.ink3, height: 1.5),
       ),

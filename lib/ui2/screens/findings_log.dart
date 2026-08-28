@@ -30,6 +30,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../compute/findings.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show prettyDay;
 import 'metric_detail.dart' show detailScaffold;
@@ -56,6 +57,7 @@ class FindingsLog extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     // Already newest-first out of findingsHistory; grouped here only so a day
     // with three findings reads as one morning rather than three events.
     final byDay = <String, List<Finding>>{};
@@ -65,14 +67,15 @@ class FindingsLog extends StatelessWidget {
 
     return detailScaffold(
       c,
-      'Observations',
+      l?.findingsLogTitle ?? 'Observations',
       [
         if (findings.isEmpty)
-          const StatusCard(
-            'Nothing has stood out',
-            'The watches for illness, unusual overnight physiology, skin '
-                'temperature and a shift in your resting heart rate have all '
-                'been quiet. That is an outcome, not an empty screen.',
+          StatusCard(
+            l?.findingsLogEmptyTitle ?? 'Nothing has stood out',
+            l?.findingsLogEmptyBody ??
+                'The watches for illness, unusual overnight physiology, skin '
+                    'temperature and a shift in your resting heart rate have '
+                    'all been quiet. That is an outcome, not an empty screen.',
             icon: LucideIcons.check,
           )
         else ...[
@@ -105,9 +108,10 @@ class FindingsLog extends StatelessWidget {
           // written down when they fired, so a day whose data was later
           // re-derived changes here with it — including out of existence.
           Text(
-            'Worked out from your own days each time this opens, not written '
-                'down when it happened — so if a day is re-analysed, what it '
-                'says here changes with it.',
+            l?.findingsLogDerivedNote ??
+                'Worked out from your own days each time this opens, not '
+                    'written down when it happened — so if a day is '
+                    're-analysed, what it says here changes with it.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
         ],

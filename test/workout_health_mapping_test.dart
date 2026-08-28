@@ -46,8 +46,8 @@ void main() {
       // Health Connect titles the record with the enum name when the write
       // carries no title, so bowling landed there as "OTHER".
       expect(healthWorkoutTitleForType('bowling'), 'Bowling');
-      expect(healthWorkoutTitleForType('general_workout'), 'General workout');
-      expect(healthWorkoutTitleForType('table_tennis'), 'Table tennis');
+      expect(healthWorkoutTitleForType('general_workout'), 'General Workout');
+      expect(healthWorkoutTitleForType('table_tennis'), 'Table Tennis');
       // The ponytail ceiling, pinned so it is a known shape and not a
       // surprise: acronyms come back title-cased.
       expect(healthWorkoutTitleForType('hiit'), 'Hiit');
@@ -61,7 +61,7 @@ void main() {
       // coach can write one, so a punctuation-only type is reachable.
       expect(healthWorkoutTitleForType('_'), isNull);
       expect(healthWorkoutTitleForType('___'), isNull);
-      expect(healthWorkoutTitleForType('cold__plunge'), 'Cold plunge');
+      expect(healthWorkoutTitleForType('cold__plunge'), 'Cold Plunge');
     });
 
     test('soccer is OTHER on Android — a write that reports false', () {

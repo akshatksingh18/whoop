@@ -40,6 +40,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart';
+import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
@@ -144,7 +145,9 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
           e is BleUnavailableException ? e.blocker : classifyBleBlocker(error: e);
       if (!mounted) return;
       setState(() => _problem = blocker != null
-          ? bandStatusFor(connection: 'disconnected', blocker: blocker).reason
+          ? localizedBandStatus(context,
+                  bandStatusFor(connection: 'disconnected', blocker: blocker))
+              .reason
           : (AppLocalizations.of(context)?.pairSensorScanDidNotRun(e.toString()) ??
               'The scan did not run: $e'));
     } finally {

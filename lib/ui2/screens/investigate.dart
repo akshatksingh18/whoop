@@ -30,6 +30,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'day_timeline.dart';
 import 'home_screen.dart';
@@ -264,11 +265,13 @@ class _InvestigateState extends State<Investigate> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final spec = specOf(widget.metricKey);
     final d = _d ?? const InvestigateData();
     final hrvish = widget.metricKey == 'hrv';
 
-    return detailScaffold(c, spec.title, sub: 'NERD STATS', [
+    return detailScaffold(c, spec.title,
+        sub: l?.investigateNerdStatsLabel ?? 'NERD STATS', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
@@ -280,19 +283,22 @@ class _InvestigateState extends State<Investigate> {
         if (widget.metricKey == 'sleep') ..._stagePanels(d),
         if (widget.metricKey == 'steps') ..._stepSourcePanels(d),
         const SizedBox(height: S.x3),
-        MonoTable('Provenance', [
-          ('Day', d.day ?? '—'),
-          ('Coverage', d.coveragePct == null ? '—' : '${d.coveragePct} %'),
+        MonoTable(l?.investigateProvenanceLabel ?? 'Provenance', [
+          (l?.investigateDayLabel ?? 'Day', d.day ?? '—'),
+          (l?.investigateCoverageLabel ?? 'Coverage',
+              d.coveragePct == null ? '—' : '${d.coveragePct} %'),
           if (d.windowStart != null)
-            ('Sleep window',
+            (l?.investigateSleepWindowLabel ?? 'Sleep window',
                 '${clockOfTs(d.windowStart)} – ${clockOfTs(d.windowEnd)}'),
           // Asserted as "wrist optical · this device" for every day, including
           // days that were read out of somebody else's export.
-          ('Source',
+          (l?.investigateSourceLabel ?? 'Source',
               d.importedFrom == null
-                  ? 'Band records · derived on this phone'
-                  : 'Imported · ${d.importedFrom}'),
-          ('Algorithm version',
+                  ? (l?.investigateSourceOnDevice ??
+                      'Band records · derived on this phone')
+                  : (l?.investigateSourceImported(d.importedFrom!) ??
+                      'Imported · ${d.importedFrom}')),
+          (l?.investigateAlgoVersionLabel ?? 'Algorithm version',
               d.algoVersion == null ? '—' : 'v${d.algoVersion}'),
         ]),
         // The arithmetic is above; this is the other question a person has in
@@ -304,8 +310,9 @@ class _InvestigateState extends State<Investigate> {
           detailLinkRow(
             c,
             LucideIcons.listOrdered,
-            'What happened that day',
-            'Sleep, sessions, meals and logs in time order',
+            l?.investigateWhatHappenedTitle ?? 'What happened that day',
+            l?.investigateWhatHappenedSub ??
+                'Sleep, sessions, meals and logs in time order',
             () => go(c, DayTimelineScreen(day: d.day)),
           ),
         ],
@@ -328,16 +335,20 @@ class _InvestigateState extends State<Investigate> {
   // phone won still gets to say what the wrist thought, and a gen4 day drops
   // the row entirely because that hardware cannot count steps at all.
   List<Widget> _stepSourcePanels(InvestigateData d) {
+    final l = AppLocalizations.of(context);
     final by = d.steps['by_source'];
     final split = by is Map ? by : const {};
     String n(Object? v) => v is num ? thousands(v) : '—';
     return [
-      MonoTable('Which sensor counted', [
-        ('strap · 100 Hz pedometer', n(split['strap'])),
-        ('strap · on-chip counter', n(split['strap_counter'])),
-        ('phone · pedometer', n(split['phone'])),
-        ('day total', n(d.steps['value'])),
-        ('strap chip reported', n(d.steps['band_measured'])),
+      MonoTable(l?.investigateWhichSensorCounted ?? 'Which sensor counted', [
+        (l?.investigateStrapPedometer ?? 'strap · 100 Hz pedometer',
+            n(split['strap'])),
+        (l?.investigateStrapOnChipCounter ?? 'strap · on-chip counter',
+            n(split['strap_counter'])),
+        (l?.investigatePhonePedometer ?? 'phone · pedometer', n(split['phone'])),
+        (l?.investigateDayTotal ?? 'day total', n(d.steps['value'])),
+        (l?.investigateStrapChipReported ?? 'strap chip reported',
+            n(d.steps['band_measured'])),
       ]),
       const SizedBox(height: S.x3),
     ];
@@ -345,6 +356,7 @@ class _InvestigateState extends State<Investigate> {
 
   // ── HRV: time, frequency, non-linear ──
   List<Widget> _hrvPanels(BuildContext c, InvestigateData d) {
+    final l = AppLocalizations.of(c);
     final time = envValue(d.hrv['hrv_time']) ?? const {};
     final freq = envValue(d.hrv['hrv_freq']) ?? const {};
     final freqNote = metricOf(d.hrv['hrv_freq']).note;
@@ -374,15 +386,16 @@ class _InvestigateState extends State<Investigate> {
     final beats = time['n_beats'] ?? irr['n_beats'] ?? irr24['n_beats'];
 
     return [
-      MonoTable('Time domain', [
-        ('RMSSD', ms(time['rmssd_ms'] ?? d.hrv['rmssd'])),
-        ('SDNN', ms(time['sdnn_ms'] ?? d.hrv['sdnn'])),
-        ('SDANN', ms(time['sdann_ms'])),
-        ('SDNN index', ms(time['sdnn_index_ms'])),
-        ('pNN50', pct(time['pnn50_pct'])),
-        ('ln RMSSD', plain(d.hrv['ln_rmssd'])),
-        ('Your baseline RMSSD', ms(d.hrv['baseline'])),
-        ('Stability (CV)', pct(cv)),
+      MonoTable(l?.investigateTimeDomain ?? 'Time domain', [
+        (l?.investigateRmssd ?? 'RMSSD', ms(time['rmssd_ms'] ?? d.hrv['rmssd'])),
+        (l?.investigateSdnn ?? 'SDNN', ms(time['sdnn_ms'] ?? d.hrv['sdnn'])),
+        (l?.investigateSdann ?? 'SDANN', ms(time['sdann_ms'])),
+        (l?.investigateSdnnIndex ?? 'SDNN index', ms(time['sdnn_index_ms'])),
+        (l?.investigatePnn50 ?? 'pNN50', pct(time['pnn50_pct'])),
+        (l?.investigateLnRmssd ?? 'ln RMSSD', plain(d.hrv['ln_rmssd'])),
+        (l?.investigateBaselineRmssd ?? 'Your baseline RMSSD',
+            ms(d.hrv['baseline'])),
+        (l?.investigateStabilityCv ?? 'Stability (CV)', pct(cv)),
       ]),
       const SizedBox(height: S.x3),
       // ms² is correct AGAIN: `lombScargle` now returns physical PSD (ms²/Hz)
@@ -392,27 +405,30 @@ class _InvestigateState extends State<Investigate> {
       // small. Every row here self-drops when its key is absent — ULF and a
       // too-short session now return null rather than a fabricated zero, and
       // MonoTable removes the row rather than dashing it.
-      MonoTable('Frequency domain', [
-        ('ULF power', ms2(freq['ulf'])),
-        ('VLF power', ms2(freq['vlf'])),
-        ('LF power', ms2(freq['lf'])),
-        ('HF power', ms2(freq['hf'])),
-        ('Total power', ms2(freq['total'])),
-        ('LF / HF', plain(freq['lf_hf'])),
-        ('LF, normalised', plain(freq['nu_lf'])),
-        ('HF, normalised', plain(freq['nu_hf'])),
+      MonoTable(l?.investigateFrequencyDomain ?? 'Frequency domain', [
+        (l?.investigateUlfPower ?? 'ULF power', ms2(freq['ulf'])),
+        (l?.investigateVlfPower ?? 'VLF power', ms2(freq['vlf'])),
+        (l?.investigateLfPower ?? 'LF power', ms2(freq['lf'])),
+        (l?.investigateHfPower ?? 'HF power', ms2(freq['hf'])),
+        (l?.investigateTotalPower ?? 'Total power', ms2(freq['total'])),
+        (l?.investigateLfHf ?? 'LF / HF', plain(freq['lf_hf'])),
+        (l?.investigateLfNormalised ?? 'LF, normalised', plain(freq['nu_lf'])),
+        (l?.investigateHfNormalised ?? 'HF, normalised', plain(freq['nu_hf'])),
         // An ABSENT spectrum is not an ungated one. `envValue` returns null for
         // an absent envelope, so `== true ? : 'no'` collapsed "never computed"
         // into a confident negative — and it left a one-row table reading
         // "HF gated no" directly above the card saying there is no spectrum.
-        ('HF gated', freq['hf_gated'] == null
+        (l?.investigateHfGated ?? 'HF gated', freq['hf_gated'] == null
             ? '—'
-            : (freq['hf_gated'] == true ? 'yes' : 'no')),
+            : (freq['hf_gated'] == true
+                ? (l?.investigateYes ?? 'yes')
+                : (l?.investigateNo ?? 'no'))),
       ]),
       const SizedBox(height: S.x3),
       if (freq['total'] == null)
         StatusCard(
-          'No frequency-domain spectrum for this night',
+          l?.investigateNoFrequencySpectrum ??
+              'No frequency-domain spectrum for this night',
           // THE ESTIMATOR'S OWN REASON. `total` goes null for three different
           // reasons and the envelope note distinguishes them; "too short" was
           // printed for all three, so a full 8 h night that failed the artifact
@@ -420,30 +436,45 @@ class _InvestigateState extends State<Investigate> {
           // their strap fit — contradicting the "HF gated yes" row above it.
           freqNote?.isNotEmpty == true
               ? freqNote!
-              : 'The recording was too short to resolve the bands.',
+              : (l?.investigateRecordingTooShort ??
+                  'The recording was too short to resolve the bands.'),
         ),
       const SizedBox(height: S.x3),
-      MonoTable('Non-linear', [
-        ('SD1, sleep', ms(irr['sd1'])),
-        ('SD2, sleep', ms(irr['sd2'])),
-        ('SD1, 24 h', ms(irr24['sd1_ms'])),
-        ('SD2, 24 h', ms(irr24['sd2_ms'])),
-        ('SD1 / SD2, 24 h', plain(irr24['sd1_sd2'])),
+      MonoTable(l?.investigateNonLinear ?? 'Non-linear', [
+        (l?.investigateSd1Sleep ?? 'SD1, sleep', ms(irr['sd1'])),
+        (l?.investigateSd2Sleep ?? 'SD2, sleep', ms(irr['sd2'])),
+        (l?.investigateSd124h ?? 'SD1, 24 h', ms(irr24['sd1_ms'])),
+        (l?.investigateSd224h ?? 'SD2, 24 h', ms(irr24['sd2_ms'])),
+        (l?.investigateSd1Sd224h ?? 'SD1 / SD2, 24 h',
+            plain(irr24['sd1_sd2'])),
         // The screen's own threshold, stated rather than baked into a label
         // the stored key cannot confirm.
-        ('Successive intervals over 70 ms', pct(irr24['pnn_pct'])),
+        (l?.investigateSuccessiveIntervalsOver70ms ??
+            'Successive intervals over 70 ms', pct(irr24['pnn_pct'])),
         // A screen that never RAN is not a screen that ran and found nothing.
         // `irregularBeatScreen` abstains below 500 clean beats or over 30%
         // artifact — the common case for a barely-worn day — and both rows
         // printed "clear" for it, i.e. a negative arrhythmia screen for a day
         // the screen was explicitly suppressed. MonoTable drops the em-dash.
-        ('Irregular-rhythm flag, sleep',
-            irr['flag'] == null ? '—' : (irr['flag'] == true ? 'raised' : 'clear')),
-        ('Irregular-rhythm flag, 24 h',
-            irr24['flag'] == null ? '—' : (irr24['flag'] == true ? 'raised' : 'clear')),
-        ('Deceleration capacity', ms(dc['capacity_ms'])),
-        ('Acceleration capacity', ms(ac['capacity_ms'])),
-        ('DC anchors', dc['anchors'] == null ? '—' : thousands(dc['anchors'] as num)),
+        (l?.investigateIrregularRhythmFlagSleep ??
+            'Irregular-rhythm flag, sleep',
+            irr['flag'] == null
+                ? '—'
+                : (irr['flag'] == true
+                    ? (l?.investigateFlagRaised ?? 'raised')
+                    : (l?.investigateFlagClear ?? 'clear'))),
+        (l?.investigateIrregularRhythmFlag24h ?? 'Irregular-rhythm flag, 24 h',
+            irr24['flag'] == null
+                ? '—'
+                : (irr24['flag'] == true
+                    ? (l?.investigateFlagRaised ?? 'raised')
+                    : (l?.investigateFlagClear ?? 'clear'))),
+        (l?.investigateDecelerationCapacity ?? 'Deceleration capacity',
+            ms(dc['capacity_ms'])),
+        (l?.investigateAccelerationCapacity ?? 'Acceleration capacity',
+            ms(ac['capacity_ms'])),
+        (l?.investigateDcAnchors ?? 'DC anchors',
+            dc['anchors'] == null ? '—' : thousands(dc['anchors'] as num)),
       ]),
       if (d.dcPoints.isNotEmpty) ...[
         const SizedBox(height: S.x3),
@@ -457,10 +488,13 @@ class _InvestigateState extends State<Investigate> {
       // Beats analysed is the only MEASURED row this table ever had; the other
       // three were constants sitting under a heading that made them look
       // measured. They are in the method note at the bottom of the screen.
-      MonoTable('Signal quality', [
-        ('Beats analysed', beats == null ? '—' : thousands(beats as num)),
-        ('Beats analysed, 24 h',
-            irr24['n_beats'] == null ? '—' : thousands(irr24['n_beats'] as num)),
+      MonoTable(l?.investigateSignalQuality ?? 'Signal quality', [
+        (l?.investigateBeatsAnalysed ?? 'Beats analysed',
+            beats == null ? '—' : thousands(beats as num)),
+        (l?.investigateBeatsAnalysed24h ?? 'Beats analysed, 24 h',
+            irr24['n_beats'] == null
+                ? '—'
+                : thousands(irr24['n_beats'] as num)),
       ]),
       ..._shapePanels(c, d),
     ];
@@ -490,6 +524,7 @@ class _InvestigateState extends State<Investigate> {
   /// hours between adjacent nights on identical physiology. The analytics
   /// refuses to compute it; this refuses to ask.
   List<Widget> _shapePanels(BuildContext c, InvestigateData d) {
+    final l = AppLocalizations.of(c);
     final raw = d.hrv['night_shape'];
     // No key at all: a bundle derived before the pipeline emitted this. Silence
     // is right — there is nothing to explain about a night nobody measured it
@@ -507,10 +542,11 @@ class _InvestigateState extends State<Investigate> {
       return [
         const SizedBox(height: S.x3),
         StatusCard(
-          'No shape for this night',
+          l?.investigateNoShapeForNight ?? 'No shape for this night',
           note?.isNotEmpty == true
               ? note!
-              : 'The night carried too few clean beats to bin.',
+              : (l?.investigateTooFewBeatsToBin ??
+                  'The night carried too few clean beats to bin.'),
           icon: LucideIcons.activity,
         ),
       ];
@@ -556,17 +592,18 @@ class _InvestigateState extends State<Investigate> {
       const SizedBox(height: S.x3),
       Surface(
         child: ChartFrame(
-          title: 'Shape of the night',
+          title: l?.investigateShapeOfTheNight ?? 'Shape of the night',
           unit: 'ms',
           height: 130,
           yAxis: axis,
           xLabels: origin == null ? const [] : [at(0), at(bins.length - 1)],
           legend: [
-            ('Bin RMSSD', p.on(C.green)),
-            ('Sampling range', p.ink3),
+            (l?.investigateBinRmssd ?? 'Bin RMSSD', p.on(C.green)),
+            (l?.investigateSamplingRange ?? 'Sampling range', p.ink3),
           ],
           series: mid,
-          footnote: '$drawn of ${bins.length} bins carried enough beats to '
+          footnote: l?.investigateShapeFootnote(drawn, bins.length) ??
+              '$drawn of ${bins.length} bins carried enough beats to '
               'read; the rest are gaps, not zeroes. The outer pair is the '
               "estimator's own sampling spread, not a range you were in. This "
               'describes the night and cannot explain it — a low first third '
@@ -593,15 +630,15 @@ class _InvestigateState extends State<Investigate> {
         ),
       ),
       const SizedBox(height: S.x3),
-      MonoTable('Night shape', [
-        ('Bin width',
+      MonoTable(l?.investigateNightShape ?? 'Night shape', [
+        (l?.investigateBinWidth ?? 'Bin width',
             widthMin == null ? '—' : '${widthMin.round()} min'),
-        ('Bins read', '$drawn of ${bins.length}'),
-        ('First third', ms(v['first_third_ms'])),
-        ('Last third', ms(v['last_third_ms'])),
+        (l?.investigateBinsRead ?? 'Bins read', '$drawn of ${bins.length}'),
+        (l?.investigateFirstThird ?? 'First third', ms(v['first_third_ms'])),
+        (l?.investigateLastThird ?? 'Last third', ms(v['last_third_ms'])),
         // A ratio, printed as a ratio. No adjective, no direction word, no
         // colour: "1.32" is the fact and "recovered well" is not one.
-        ('Last third ÷ first',
+        (l?.investigateLastThirdOverFirst ?? 'Last third ÷ first',
             ratio is num ? ratio.toStringAsFixed(2) : '—'),
       ]),
     ];
@@ -615,22 +652,32 @@ class _InvestigateState extends State<Investigate> {
   /// cleaner-signal line. No colour, no threshold, no reference range, ever.
   /// The beat count goes on the card because the artifact gate is load-bearing.
   Widget _dcTrend(BuildContext c, InvestigateData d, Object? beats) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final win = denseDays(d.dcPoints, 30);
     final vals = [for (final v in win) ?v];
     final axis = AxisSpec.of(vals, ticks: 3, format: axisFixed);
     return Surface(
       child: ChartFrame(
-        title: 'Deceleration capacity',
+        title: l?.investigateDecelerationCapacity ?? 'Deceleration capacity',
         unit: 'ms',
         height: 110,
         yAxis: axis,
-        xLabels: const ['29 days ago', 'Today'],
+        xLabels: [
+          l?.investigate29DaysAgo ?? '29 days ago',
+          l?.investigateToday ?? 'Today',
+        ],
         series: win,
-        footnote: 'Your own nights only — no reference range, and none exists '
-            'for pulse arrivals. Night-to-night signal quality moves this line '
-            'on its own'
-            '${beats is num ? ', and last night was ${thousands(beats)} beats' : ''}.',
+        footnote: beats is num
+            ? (l?.investigateDcFootnoteWithBeats(thousands(beats)) ??
+                'Your own nights only — no reference range, and none exists '
+                    'for pulse arrivals. Night-to-night signal quality moves '
+                    'this line on its own, and last night was '
+                    '${thousands(beats)} beats.')
+            : (l?.investigateDcFootnote ??
+                'Your own nights only — no reference range, and none exists '
+                    'for pulse arrivals. Night-to-night signal quality moves '
+                    'this line on its own.'),
         child: CustomPaint(
           size: Size.infinite,
           // p.ink3, not an accent. A colour here would be a verdict.
@@ -655,6 +702,7 @@ class _InvestigateState extends State<Investigate> {
   /// abnormal beats here and no AF, PVC or ectopy vocabulary anywhere near it.
   /// The footnote is permanent, not a tooltip: a clear strip means nothing.
   Widget _rhythmStrip(BuildContext c, InvestigateData d) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     const weeks = 12;
     final grid = _weekGrid(d.rhythmPoints, weeks);
@@ -662,12 +710,16 @@ class _InvestigateState extends State<Investigate> {
     final raised = d.rhythmPoints.where((e) => e.v >= 1).length;
     return Surface(
       child: ChartFrame(
-        title: 'Irregular-rhythm screen',
-        unit: 'one square per day',
+        title: l?.investigateIrregularRhythmScreen ?? 'Irregular-rhythm screen',
+        unit: l?.investigateOneSquarePerDay ?? 'one square per day',
         height: 96,
-        xLabels: const ['12 weeks ago', 'This week'],
-        legend: [('Screen ran', p.on(C.purple))],
-        footnote: 'Ran on $ran day${ran == 1 ? '' : 's'}, raised its flag on '
+        xLabels: [
+          l?.investigate12WeeksAgo ?? '12 weeks ago',
+          l?.investigateThisWeek ?? 'This week',
+        ],
+        legend: [(l?.investigateScreenRan ?? 'Screen ran', p.on(C.purple))],
+        footnote: l?.investigateRhythmStripFootnote(ran, raised) ??
+            'Ran on $ran day${ran == 1 ? '' : 's'}, raised its flag on '
             '$raised. An outlined square is a day it did not run. A clear '
             'strip is not a negative result: this is a screen on pulse '
             'timing, and it cannot tell an ectopic beat from a dropped beat '
@@ -712,17 +764,20 @@ class _InvestigateState extends State<Investigate> {
   // nocturnal breathing rate has its own row on Vitals and its own trend; this
   // one exists to answer the same question without waiting for a night.
   List<Widget> _restingBreathPanels(InvestigateData d) {
+    final l = AppLocalizations.of(context);
     final line = d.timeline['resp'];
     if (line is! List || line.isEmpty) return const [];
     final t0 = d.windowStart, t1 = d.windowEnd;
-    const empty = <Widget>[
-      SizedBox(height: S.x3),
+    final empty = <Widget>[
+      const SizedBox(height: S.x3),
       StatusCard(
-        'No resting breathing rate away from sleep',
-        'This reads breathing only from three-minute stretches where the band '
-            'saw you almost completely still, outside the sleep window. Most '
-            'days have none — a day with none is a day you were moving, not a '
-            'day anything went wrong.',
+        l?.investigateNoRestingBreathingRate ??
+            'No resting breathing rate away from sleep',
+        l?.investigateNoRestingBreathingRateBody ??
+            'This reads breathing only from three-minute stretches where the '
+                'band saw you almost completely still, outside the sleep '
+                'window. Most days have none — a day with none is a day you '
+                'were moving, not a day anything went wrong.',
         icon: LucideIcons.wind,
       ),
     ];
@@ -742,25 +797,30 @@ class _InvestigateState extends State<Investigate> {
 
     return [
       const SizedBox(height: S.x3),
-      MonoTable('Breathing at rest, awake', [
-        ('Still stretches outside sleep', '${awake.length}'),
-        ('Lowest', '${awake.first.toStringAsFixed(1)} br/min'),
+      MonoTable(l?.investigateBreathingAtRestAwake ?? 'Breathing at rest, awake', [
+        (l?.investigateStillStretchesOutsideSleep ??
+            'Still stretches outside sleep', '${awake.length}'),
+        (l?.investigateLowest ?? 'Lowest',
+            '${awake.first.toStringAsFixed(1)} br/min'),
         // The next one up, so the lowest is readable as one of several rather
         // than as a lone reading. Not a median of the day — these windows are
         // the stillest slices of it, not a sample of it.
-        ('Next lowest', '${awake[1].toStringAsFixed(1)} br/min'),
-        ('Highest of them', '${awake.last.toStringAsFixed(1)} br/min'),
+        (l?.investigateNextLowest ?? 'Next lowest',
+            '${awake[1].toStringAsFixed(1)} br/min'),
+        (l?.investigateHighestOfThem ?? 'Highest of them',
+            '${awake.last.toStringAsFixed(1)} br/min'),
       ]),
       const SizedBox(height: S.x3),
       Surface(
         color: P.of(context).card2,
         elevation: 0,
         child: Text(
-          'A floor, not a rate for the day. Only stretches where you were '
-          'almost completely still can be read at all, so these are the '
-          'stillest few minutes the band saw outside your sleep — nothing '
-          'here describes the rest of your day, and breathing while you move '
-          'cannot be recovered from beat timing.',
+          l?.investigateFloorNotRateBody ??
+              'A floor, not a rate for the day. Only stretches where you were '
+              'almost completely still can be read at all, so these are the '
+              'stillest few minutes the band saw outside your sleep — nothing '
+              'here describes the rest of your day, and breathing while you '
+              'move cannot be recovered from beat timing.',
           style: F.cap.copyWith(color: P.of(context).ink2, height: 1.6),
         ),
       ),
@@ -778,6 +838,7 @@ class _InvestigateState extends State<Investigate> {
   // only. Nothing here is a sleep-apnea finding and no copy anywhere near it
   // names a breathing disorder or a mechanism.
   List<Widget> _cvhrPanels(InvestigateData d) {
+    final l = AppLocalizations.of(context);
     final v = envValue(d.cvhr);
     final note = metricOf(d.cvhr).note;
     if (v == null) {
@@ -787,10 +848,12 @@ class _InvestigateState extends State<Investigate> {
       return [
         const SizedBox(height: S.x3),
         StatusCard(
-          'The cycle screen did not run for this night',
+          l?.investigateCycleScreenDidNotRun ??
+              'The cycle screen did not run for this night',
           note?.isNotEmpty == true
               ? note!
-              : 'Not enough clean beats to run it.',
+              : (l?.investigateNotEnoughCleanBeats ??
+                  'Not enough clean beats to run it.'),
           icon: LucideIcons.wind,
         ),
         // The across-nights view survives a night that abstained — that is the
@@ -810,24 +873,28 @@ class _InvestigateState extends State<Investigate> {
     final hours = v['analyzed_hours'] as num?;
     return [
       const SizedBox(height: S.x3),
-      MonoTable('Heart-rate cycles', [
-        ('Cycles counted', v['cycle_count'] == null
-            ? '—'
-            : thousands(v['cycle_count'] as num)),
-        ('Observed hours analysed',
+      MonoTable(l?.investigateHeartRateCycles ?? 'Heart-rate cycles', [
+        (l?.investigateCyclesCounted ?? 'Cycles counted',
+            v['cycle_count'] == null ? '—' : thousands(v['cycle_count'] as num)),
+        (l?.investigateObservedHoursAnalysed ?? 'Observed hours analysed',
             hours == null ? '—' : '${hours.toStringAsFixed(2)} h'),
-        ('Cycles per observed hour', v['cvhr_per_hour'] == null
-            ? '—'
-            : (v['cvhr_per_hour'] as num).toStringAsFixed(2)),
-        ('Mean cycle length', v['mean_width_sec'] == null
-            ? '—'
-            : '${(v['mean_width_sec'] as num).toStringAsFixed(1)} s'),
-        ('Mean dip depth', v['mean_depth_ms'] == null
-            ? '—'
-            : '${(v['mean_depth_ms'] as num).toStringAsFixed(1)} ms'),
+        (l?.investigateCyclesPerObservedHour ?? 'Cycles per observed hour',
+            v['cvhr_per_hour'] == null
+                ? '—'
+                : (v['cvhr_per_hour'] as num).toStringAsFixed(2)),
+        (l?.investigateMeanCycleLength ?? 'Mean cycle length',
+            v['mean_width_sec'] == null
+                ? '—'
+                : '${(v['mean_width_sec'] as num).toStringAsFixed(1)} s'),
+        (l?.investigateMeanDipDepth ?? 'Mean dip depth',
+            v['mean_depth_ms'] == null
+                ? '—'
+                : '${(v['mean_depth_ms'] as num).toStringAsFixed(1)} ms'),
         // p25 · p50 · p75 of the SAME per-cycle lists the means come from.
-        ('Cycle length, quartiles', q(v['width_quartiles_sec'], 's', 1)),
-        ('Dip depth, quartiles', q(v['depth_quartiles_ms'], 'ms', 1)),
+        (l?.investigateCycleLengthQuartiles ?? 'Cycle length, quartiles',
+            q(v['width_quartiles_sec'], 's', 1)),
+        (l?.investigateDipDepthQuartiles ?? 'Dip depth, quartiles',
+            q(v['depth_quartiles_ms'], 'ms', 1)),
       ]),
       ..._cvhrDistribution(d),
     ];
@@ -863,6 +930,7 @@ class _InvestigateState extends State<Investigate> {
   // screen that fires on atrial fibrillation, on altitude and on any broken-up
   // night turns into a diagnosis in somebody's head.
   List<Widget> _cvhrDistribution(InvestigateData d) {
+    final l = AppLocalizations.of(context);
     final m = d.cvhrDist;
     if (m == null) return const [];
     final p = P.of(context);
@@ -872,7 +940,8 @@ class _InvestigateState extends State<Investigate> {
       return [
         const SizedBox(height: S.x3),
         StatusCard(
-          'Not enough nights for the across-nights view',
+          l?.investigateNotEnoughNightsAcross ??
+              'Not enough nights for the across-nights view',
           // The screen's OWN reason, VERBATIM, including which gate dropped
           // which night. `need_baseline:` and `nights=A/B` are the pipeline's
           // machine spellings and they stay: this is the surface where the
@@ -880,7 +949,8 @@ class _InvestigateState extends State<Investigate> {
           // paraphrase of it, and the owner asked for it that way.
           m.note?.isNotEmpty == true
               ? m.note!
-              : 'This needs several nights with a few observed hours each.',
+              : (l?.investigateNeedsSeveralNights ??
+                  'This needs several nights with a few observed hours each.'),
           icon: LucideIcons.wind,
         ),
       ];
@@ -889,10 +959,12 @@ class _InvestigateState extends State<Investigate> {
     final n = v.nightsUsed;
     final dropped = [
       if (v.nightsExcludedIrregular > 0)
-        '${v.nightsExcludedIrregular} left out because the irregular-rhythm '
-            'screen flagged them',
+        l?.investigateDroppedIrregular(v.nightsExcludedIrregular) ??
+            '${v.nightsExcludedIrregular} left out because the '
+                'irregular-rhythm screen flagged them',
       if (v.nightsExcludedThin > 0)
-        '${v.nightsExcludedThin} left out for too few observed hours',
+        l?.investigateDroppedThin(v.nightsExcludedThin) ??
+            '${v.nightsExcludedThin} left out for too few observed hours',
     ];
 
     return [
@@ -901,40 +973,47 @@ class _InvestigateState extends State<Investigate> {
         color: p.card2,
         elevation: 0,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('ACROSS $n OF YOUR OWN NIGHTS',
+          Text(l?.investigateAcrossNOwnNights(n) ?? 'ACROSS $n OF YOUR OWN NIGHTS',
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           Text(
             v.aboveOwnUsual
-                ? 'Over your most recent nights, the heart-rate cycling this '
-                    'screen counts has been running higher than across the $n '
-                    'nights behind it.'
-                : 'Over your most recent nights, the heart-rate cycling this '
-                    'screen counts has stayed inside the range of the $n '
-                    'nights behind it.',
+                ? (l?.investigateCvhrAboveUsual(n) ??
+                    'Over your most recent nights, the heart-rate cycling '
+                        'this screen counts has been running higher than '
+                        'across the $n nights behind it.')
+                : (l?.investigateCvhrInsideUsual(n) ??
+                    'Over your most recent nights, the heart-rate cycling '
+                        'this screen counts has stayed inside the range of '
+                        'the $n nights behind it.'),
             style: F.body.copyWith(color: p.ink, height: 1.5),
           ),
           const SizedBox(height: S.x3),
           Text(
-            'It is a pattern in your pulse, not a measurement of your '
-            'breathing, and it is not a test for anything. The same cycling '
-            'comes from an irregular rhythm, from being at altitude, and from '
-            'any broken-up night — and beta-blockers, diabetes and nerve '
-            'conditions flatten it, so genuinely disturbed breathing often '
-            'leaves nothing here at all.',
+            l?.investigateCvhrExplainer ??
+                'It is a pattern in your pulse, not a measurement of your '
+                'breathing, and it is not a test for anything. The same '
+                'cycling comes from an irregular rhythm, from being at '
+                'altitude, and from any broken-up night — and beta-blockers, '
+                'diabetes and nerve conditions flatten it, so genuinely '
+                'disturbed breathing often leaves nothing here at all.',
             style: F.cap.copyWith(color: p.ink2, height: 1.6),
           ),
           const SizedBox(height: S.x3),
           Text(
-            'So nothing here is a negative result and nothing here clears '
-            'anything, and none of it says anything about any one night — a '
-            'single night’s count moves for a dozen reasons on its own.',
+            l?.investigateCvhrNotNegativeResult ??
+                'So nothing here is a negative result and nothing here '
+                'clears anything, and none of it says anything about any one '
+                'night — a single night’s count moves for a dozen reasons on '
+                'its own.',
             style: F.cap.copyWith(color: p.ink2, height: 1.6),
           ),
           const SizedBox(height: S.x3),
           Text(
-            'If you snore, wake unrefreshed, or someone has seen you stop '
-            'breathing in your sleep, a clinician can test that properly.',
+            l?.investigateCvhrSeeClinicianIfSymptoms ??
+                'If you snore, wake unrefreshed, or someone has seen you '
+                'stop breathing in your sleep, a clinician can test that '
+                'properly.',
             style: F.cap.copyWith(color: p.ink2, height: 1.6),
           ),
           if (dropped.isNotEmpty) ...[
@@ -954,14 +1033,15 @@ class _InvestigateState extends State<Investigate> {
   // somewhere the item names. Both are on the row, so the width is legible as a
   // property of the night rather than as a house style.
   List<Widget> _stagePanels(InvestigateData d) {
+    final l = AppLocalizations.of(context);
     final n = d.night;
     int? min(String k) => (n[k] as num?)?.round();
-    final l = min('light_min'), dp = min('deep_min'), r = min('rem_min');
+    final light = min('light_min'), dp = min('deep_min'), r = min('rem_min');
     final tst = min('duration_min');
-    if (l == null || dp == null || r == null || tst == null) return const [];
+    if (light == null || dp == null || r == null || tst == null) return const [];
     final conf = (n['stages_confidence'] as num?)?.toDouble();
     final iv = ana.stageIntervals(
-      lightSec: l * 60,
+      lightSec: light * 60,
       deepSec: dp * 60,
       remSec: r * 60,
       tstSec: tst * 60,
@@ -972,16 +1052,19 @@ class _InvestigateState extends State<Investigate> {
         '${(i.hiSec / 60).round()} min';
     return [
       const SizedBox(height: S.x3),
-      MonoTable('Stage minutes, as counted', [
-        ('Light', row(l, iv.light)),
-        ('Deep', row(dp, iv.deep)),
-        ('REM', row(r, iv.rem)),
-        ('Awake', min('awake_min') == null ? '—' : '${min('awake_min')} min'),
-        ('Total sleep', '$tst min'),
+      MonoTable(l?.investigateStageMinutesAsCounted ?? 'Stage minutes, as counted', [
+        (l?.investigateLight ?? 'Light', row(light, iv.light)),
+        (l?.investigateDeep ?? 'Deep', row(dp, iv.deep)),
+        (l?.investigateRem ?? 'REM', row(r, iv.rem)),
+        (l?.investigateAwake ?? 'Awake',
+            min('awake_min') == null ? '—' : '${min('awake_min')} min'),
+        (l?.investigateTotalSleep ?? 'Total sleep', '$tst min'),
         // The width of every interval above is a function of this one number
         // and nothing else, so it goes on the same table.
-        ('Segmentation confidence',
-            conf == null ? 'not published' : conf.toStringAsFixed(2)),
+        (l?.investigateSegmentationConfidence ?? 'Segmentation confidence',
+            conf == null
+                ? (l?.investigateNotPublished ?? 'not published')
+                : conf.toStringAsFixed(2)),
       ]),
     ];
   }
@@ -989,9 +1072,12 @@ class _InvestigateState extends State<Investigate> {
   // ── anything else: what the series itself looks like ──
   List<Widget> _genericPanels(
       BuildContext c, MetricSpec spec, InvestigateData d) {
+    final l = AppLocalizations.of(c);
     if (spec.suppress != null) {
       return [
-        StatusCard('Nothing computed for this key', spec.suppress!,
+        StatusCard(
+            l?.investigateNothingComputedForKey ?? 'Nothing computed for this key',
+            spec.suppress!,
             icon: spec.icon),
       ];
     }
@@ -999,8 +1085,9 @@ class _InvestigateState extends State<Investigate> {
     if (s.isEmpty) {
       return [
         StatusCard(
-          'No stored series',
-          'Nothing stored for ${spec.title.toLowerCase()} yet.',
+          l?.investigateNoStoredSeries ?? 'No stored series',
+          l?.investigateNothingStoredYet(spec.title.toLowerCase()) ??
+              'Nothing stored for ${spec.title.toLowerCase()} yet.',
           icon: spec.icon,
         ),
       ];
@@ -1016,32 +1103,38 @@ class _InvestigateState extends State<Investigate> {
         : v.toStringAsFixed(2);
 
     return [
-      MonoTable('Series', [
+      MonoTable(l?.investigateSeries ?? 'Series', [
         // DERIVED days, not calendar days. `metric_series` gets a row only on a
         // day that derives, so "Days stored 40" under "one value per calendar
         // day" read as 40 days of continuous coverage.
-        ('Days derived', '${s.length}'),
-        ('Latest', n(s.last)),
-        ('Mean', n(mean)),
-        ('Median', n(sorted[sorted.length ~/ 2])),
-        ('SD', n(sd)),
-        ('Min', n(sorted.first)),
-        ('Max', n(sorted.last)),
-        ('Unit', spec.unit.isEmpty ? 'unitless' : spec.unit),
-        ('Storage', 'one value per derived day'),
+        (l?.investigateDaysDerived ?? 'Days derived', '${s.length}'),
+        (l?.investigateLatest ?? 'Latest', n(s.last)),
+        (l?.investigateMean ?? 'Mean', n(mean)),
+        (l?.investigateMedian ?? 'Median', n(sorted[sorted.length ~/ 2])),
+        (l?.investigateSd ?? 'SD', n(sd)),
+        (l?.investigateMin ?? 'Min', n(sorted.first)),
+        (l?.investigateMax ?? 'Max', n(sorted.last)),
+        (l?.investigateUnit ?? 'Unit',
+            spec.unit.isEmpty ? (l?.investigateUnitless ?? 'unitless') : spec.unit),
+        (l?.investigateStorage ?? 'Storage',
+            l?.investigateOneValuePerDerivedDay ?? 'one value per derived day'),
       ]),
     ];
   }
 
   Widget _method(BuildContext c, MetricSpec spec) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     return Surface(
       elevation: 0,
       color: p.card2,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('METHOD', style: F.over.copyWith(color: p.ink3)),
+        Text(l?.investigateMethodLabel ?? 'METHOD', style: F.over.copyWith(color: p.ink3)),
         const SizedBox(height: S.x2),
-        Text(spec.method.isEmpty ? 'Not documented.' : spec.method,
+        Text(
+            spec.method.isEmpty
+                ? (l?.investigateNotDocumented ?? 'Not documented.')
+                : spec.method,
             style: F.cap.copyWith(color: p.ink2, height: 1.6)),
         if (spec.citation.isNotEmpty) ...[
           const SizedBox(height: S.x3),

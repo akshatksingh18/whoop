@@ -17,6 +17,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'catalogue.dart';
@@ -93,6 +94,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final a = widget.a;
     final est = a.kcal(widget.weightKg, _estimateMin);
 
@@ -120,7 +122,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                     const SizedBox(height: S.x4),
                     Text(a.name, style: F.t2.copyWith(color: p.ink)),
                     const SizedBox(height: S.x1),
-                    Text(_trackLabel(a.track),
+                    Text(_trackLabel(a.track, l),
                         textAlign: TextAlign.center,
                         style: F.cap.copyWith(color: p.ink3)),
                   ]),
@@ -133,28 +135,36 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       // No tick. Nothing here has asked for location yet, and
                       // an unconditional green check claimed a fix that a
                       // permission dialog had not even been shown for.
-                      _row(p, LucideIcons.mapPin, 'Route',
-                          'Recorded if location is available, and kept on '
-                              'this phone',
+                      _row(
+                          p,
+                          LucideIcons.mapPin,
+                          l?.activitySetupRouteLabel ?? 'Route',
+                          l?.activitySetupRouteDetail ??
+                              'Recorded if location is available, and kept '
+                                  'on this phone',
                           null),
                       Divider(color: p.line, height: 1),
                     ],
                     _row(
                         p,
                         LucideIcons.heartPulse,
-                        'Heart rate',
+                        l?.activitySetupHeartRateLabel ?? 'Heart rate',
                         widget.host.bandConnected
-                            ? 'Band connected'
-                            : 'No band connected',
+                            ? (l?.activitySetupBandConnected ??
+                                'Band connected')
+                            : (l?.activitySetupNoBandConnected ??
+                                'No band connected'),
                         widget.host.bandConnected),
                     Divider(color: p.line, height: 1),
                     _toggle(
                         p,
                         LucideIcons.lock,
-                        'Private session',
-                        'Hidden from summaries and exports',
+                        l?.activitySetupPrivateLabel ?? 'Private session',
+                        l?.activitySetupPrivateDetail ??
+                            'Hidden from summaries and exports',
                         private,
-                        () => setState(() => private = !private)),
+                        () => setState(() => private = !private),
+                        l),
                   ]),
                 ),
                 const SizedBox(height: S.x4),
@@ -165,17 +175,24 @@ class _ActivitySetupState extends State<ActivitySetup> {
                     Expanded(
                       child: Text(
                           a.met == null
-                              ? 'No estimate up front: no published MET '
-                                  'applies to a session that names no '
-                                  'activity. Calories come from your heart '
-                                  'rate instead — when your age, weight and '
-                                  'sex are set, and your resting and maximum '
-                                  'rates are measured rather than assumed.'
+                              ? (l?.activitySetupNoMetEstimate ??
+                                  'No estimate up front: no published MET '
+                                      'applies to a session that names no '
+                                      'activity. Calories come from your '
+                                      'heart rate instead — when your age, '
+                                      'weight and sex are set, and your '
+                                      'resting and maximum rates are '
+                                      'measured rather than assumed.')
                               : est == null
-                                  ? 'Calories need your weight.'
-                                  : 'About $est kcal per $_estimateMin min, '
-                                      'from ${a.met!.toStringAsFixed(1)} MET '
-                                      'and your weight.',
+                                  ? (l?.activitySetupCaloriesNeedWeight ??
+                                      'Calories need your weight.')
+                                  : (l?.activitySetupCalorieEstimate(
+                                          est,
+                                          _estimateMin,
+                                          a.met!.toStringAsFixed(1)) ??
+                                      'About $est kcal per $_estimateMin min, '
+                                          'from ${a.met!.toStringAsFixed(1)} '
+                                          'MET and your weight.'),
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),
@@ -183,17 +200,20 @@ class _ActivitySetupState extends State<ActivitySetup> {
                 if (_refused) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
-                    'A session is already running',
-                    'Only one can be live at a time.',
+                    l?.activitySetupSessionRunningTitle ??
+                        'A session is already running',
+                    l?.activitySetupSessionRunningBody ??
+                        'Only one can be live at a time.',
                     fix: LiveDraft.current == null
                         ? ''
-                        : 'Open the running session',
+                        : (l?.activitySetupOpenRunningSession ??
+                            'Open the running session'),
                     onFix: LiveDraft.current == null ? null : _resume,
                     icon: LucideIcons.circleAlert,
                   ),
                 ],
                 const SizedBox(height: S.x8),
-                BigButton('Start',
+                BigButton(l?.activitySetupStart ?? 'Start',
                     icon: LucideIcons.play,
                     color: a.color,
                     onTap: _starting ? null : _start),
@@ -208,12 +228,17 @@ class _ActivitySetupState extends State<ActivitySetup> {
   /// What this session will actually produce. Distance and pace are promised
   /// only where a route can be recorded — a treadmill was being sold "distance
   /// and pace" that nothing in this app can measure indoors.
-  String _trackLabel(Track t) => switch (t) {
-        Track.sets => 'Sets, reps and load — logged by you',
-        Track.distance when widget.a.gps => 'Distance, pace and heart rate',
-        Track.distance || Track.duration => 'Time and heart rate',
-        Track.interval => 'Rounds and heart rate',
-        Track.stillness => 'Time, breathing and heart rate',
+  String _trackLabel(Track t, AppLocalizations? l) => switch (t) {
+        Track.sets =>
+          l?.activitySetupTrackSets ?? 'Sets, reps and load — logged by you',
+        Track.distance when widget.a.gps =>
+          l?.activitySetupTrackDistanceGps ?? 'Distance, pace and heart rate',
+        Track.distance || Track.duration =>
+          l?.activitySetupTrackTime ?? 'Time and heart rate',
+        Track.interval =>
+          l?.activitySetupTrackInterval ?? 'Rounds and heart rate',
+        Track.stillness =>
+          l?.activitySetupTrackStillness ?? 'Time, breathing and heart rate',
       };
 
   /// [on] null means "not known yet" — no glyph at all, rather than a tick
@@ -238,9 +263,10 @@ class _ActivitySetupState extends State<ActivitySetup> {
       );
 
   Widget _toggle(P p, IconData i, String n, String s, bool on,
-          VoidCallback onTap) =>
+          VoidCallback onTap, AppLocalizations? l) =>
       Pressable(
-        semanticLabel: '$n, ${on ? 'on' : 'off'}',
+        semanticLabel:
+            '$n, ${on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off')}',
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: S.x3),

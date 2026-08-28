@@ -25,6 +25,7 @@ import 'dart:convert' show jsonDecode;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
@@ -32,6 +33,8 @@ import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
+import '../../l10n/app_localizations.dart';
+import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
@@ -78,14 +81,15 @@ class DayNote {
 /// Band events worth a line. Everything else the strap emits is about the
 /// strap — bonds, flash writes, sync bookkeeping — and belongs on Devices, not
 /// in somebody's day.
-const _events = <int, (String, IconData)>{
-  7: ('On the charger', LucideIcons.batteryCharging),
-  8: ('Off the charger', LucideIcons.batteryFull),
-  14: ('You double-tapped the band', LucideIcons.hand),
-  15: ('The band restarted', LucideIcons.rotateCw),
-  21: ('Battery pack attached', LucideIcons.batteryCharging),
-  22: ('Battery pack removed', LucideIcons.battery),
-  57: ('Alarm went off', LucideIcons.alarmClock),
+Map<int, (String, IconData)> _events(AppLocalizations? l) => {
+  7: (l?.dayTimelineChargerOn ?? 'On the charger', LucideIcons.batteryCharging),
+  8: (l?.dayTimelineChargerOff ?? 'Off the charger', LucideIcons.batteryFull),
+  14: (l?.dayTimelineDoubleTap ?? 'You double-tapped the band', LucideIcons.hand),
+  15: (l?.dayTimelineRestarted ?? 'The band restarted', LucideIcons.rotateCw),
+  21: (l?.dayTimelineBatteryPackAttached ?? 'Battery pack attached',
+      LucideIcons.batteryCharging),
+  22: (l?.dayTimelineBatteryPackRemoved ?? 'Battery pack removed', LucideIcons.battery),
+  57: (l?.dayTimelineAlarmWentOff ?? 'Alarm went off', LucideIcons.alarmClock),
 };
 
 /// An off-wrist gap shorter than this is a dropout, not an event in a day.
@@ -115,6 +119,7 @@ List<Moment> dayMoments({
   List<({String label, int at})> doses = const [],
   Map<String, JournalMetricValue> journal = const {},
   List<JournalFieldSpec> fields = const [],
+  AppLocalizations? l,
 }) {
   final out = <Moment>[];
   int? asInt(Object? v) => (v as num?)?.toInt();
@@ -129,7 +134,7 @@ List<Moment> dayMoments({
     out.add(Moment(
       at: on,
       until: off,
-      title: 'Asleep',
+      title: l?.dayTimelineAsleep ?? 'Asleep',
       detail: '${_span(on, off)} · ${_dur((off - on) / 60)}',
       icon: LucideIcons.moon,
       color: C.blue,
@@ -143,7 +148,7 @@ List<Moment> dayMoments({
     out.add(Moment(
       at: on,
       until: off,
-      title: 'Nap',
+      title: l?.dayTimelineNap ?? 'Nap',
       detail: '${_span(on, off)} · ${_dur(n['duration_min'] as num?)}',
       icon: LucideIcons.bedDouble,
       color: C.indigo,
@@ -164,7 +169,10 @@ List<Moment> dayMoments({
     out.add(Moment(
       at: on,
       until: asInt(s['end_ts']),
-      title: act?.name ?? (type ?? 'Workout').replaceAll('_', ' '),
+      title: act?.name ??
+          (type == null
+              ? (l?.dayTimelineWorkout ?? 'Workout')
+              : type.replaceAll('_', ' ')),
       detail: bits.join(' · '),
       icon: act?.icon ?? LucideIcons.dumbbell,
       color: act?.color ?? C.orange,
@@ -182,7 +190,7 @@ List<Moment> dayMoments({
     out.add(Moment(
       at: on,
       until: off,
-      title: 'Band off your wrist',
+      title: l?.dayTimelineBandOffWrist ?? 'Band off your wrist',
       detail: '${_span(on, off)} · ${_dur(len)}',
       icon: LucideIcons.watch,
     ));
@@ -193,9 +201,9 @@ List<Moment> dayMoments({
   // not support. What it is good for is a time to look at.
   final highs = timeline['highs'];
   if (highs is Map) {
-    for (final e in const [
-      ('peak_hr', 'Highest heart rate', LucideIcons.trendingUp),
-      ('low_hr', 'Lowest heart rate', LucideIcons.trendingDown),
+    for (final e in [
+      ('peak_hr', l?.dayTimelineHighestHr ?? 'Highest heart rate', LucideIcons.trendingUp),
+      ('low_hr', l?.dayTimelineLowestHr ?? 'Lowest heart rate', LucideIcons.trendingDown),
     ]) {
       final h = highs[e.$1];
       final t = h is Map ? asInt(h['t']) : null;
@@ -204,7 +212,8 @@ List<Moment> dayMoments({
       out.add(Moment(
         at: t,
         title: e.$2,
-        detail: '${v.round()} bpm at ${clockOfTs(t)}',
+        detail: l?.dayTimelineBpmAt(v.round(), clockOfTs(t)) ??
+            '${v.round()} bpm at ${clockOfTs(t)}',
         icon: e.$3,
         color: C.red,
       ));
@@ -214,10 +223,11 @@ List<Moment> dayMoments({
   // Events, de-duplicated: the strap delivers the same (id, ts) up to four
   // times, and a day with the charger on it should not read as four chargers.
   final seen = <String>{};
+  final events = _events(l);
   for (final e in (timeline['events'] as List?) ?? const []) {
     if (e is! Map) continue;
     final id = asInt(e['event_id']), t = asInt(e['ts']);
-    final def = id == null ? null : _events[id];
+    final def = id == null ? null : events[id];
     if (def == null || t == null || !seen.add('$id/$t')) continue;
     out.add(Moment(
       at: t,
@@ -250,7 +260,7 @@ List<Moment> dayMoments({
     out.add(Moment(
       at: d.at,
       title: d.label,
-      detail: 'Taken at ${clockOfTs(d.at)}',
+      detail: l?.dayTimelineTakenAt(clockOfTs(d.at)) ?? 'Taken at ${clockOfTs(d.at)}',
       icon: LucideIcons.pill,
       color: C.purple,
     ));
@@ -272,8 +282,8 @@ List<Moment> dayMoments({
       title: spec?.label ?? key.replaceAll('_', ' '),
       // "last one at" is the stored meaning, and saying just "at" would turn a
       // total plus one timestamp into a single event that never happened.
-      detail: '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.unit}'} '
-          '· last at ${clockOfTs(dayStart + min * 60)}',
+      detail: '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.unit}'} · '
+          '${l?.dayTimelineLastAt(clockOfTs(dayStart + min * 60)) ?? 'last at ${clockOfTs(dayStart + min * 60)}'}',
       icon: LucideIcons.notebookPen,
       color: C.domMind,
     ));
@@ -289,6 +299,7 @@ List<DayNote> dayNotes({
   Map<String, JournalMetricValue> journal = const {},
   List<JournalFieldSpec> fields = const [],
   List<Map<String, dynamic>> journalRows = const [],
+  AppLocalizations? l,
 }) {
   final out = <DayNote>[];
   for (final r in journalRows) {
@@ -303,7 +314,7 @@ List<DayNote> dayNotes({
     } catch (_) {/* a malformed row loses its tags, not the note */}
     if (note.isEmpty && tags.isEmpty) continue;
     out.add(DayNote(
-      note.isEmpty ? 'Tagged' : note,
+      note.isEmpty ? (l?.dayTimelineTaggedTitle ?? 'Tagged') : note,
       tags.join(' · '),
       LucideIcons.notebookPen,
     ));
@@ -527,7 +538,11 @@ class TimelineData {
   final List<Moment> moments;
   final List<DayNote> notes;
 
-  static Future<TimelineData> load(LocalRepository repo, {String? want}) async {
+  static Future<TimelineData> load(
+    LocalRepository repo, {
+    String? want,
+    AppLocalizations? l,
+  }) async {
     final days = await repo.availableDays();
     final today = await repo.getToday();
     final day = pickDay(
@@ -566,12 +581,14 @@ class TimelineData {
         doses: taken,
         journal: journal,
         fields: fields,
+        l: l,
       ),
       notes: dayNotes(
         meals: [for (final m in meals) m.sanitised],
         journal: journal,
         fields: fields,
         journalRows: [for (final r in notes) if (r['date'] == day) r],
+        l: l,
       ),
     );
   }
@@ -593,6 +610,20 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   bool _loading = true;
   String? _day;
 
+  // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes` at
+  // load time (see `TimelineData.load`), so a language switch while this
+  // screen is alive would otherwise leave it showing the old locale until
+  // something else (a day change, a revision bump) happens to reload it.
+  // Sentinel so the system-default locale (`code == null`) is not mistaken
+  // for "never seen yet" on the first pass.
+  static const Object _localeUnset = Object();
+  Object? _seenLocale = _localeUnset;
+
+  /// Bumped on every `_load()` call so an OLDER one that resolves after a
+  /// NEWER one (a locale change firing while a day-nav load is still in
+  /// flight) can tell it lost the race and must not overwrite fresher data.
+  int _loadToken = 0;
+
   @override
   void initState() {
     super.initState();
@@ -605,17 +636,41 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _load() async {
-    final repo = repoOf(context);
-    if (repo == null) {
-      if (mounted) setState(() => _loading = false);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // `code` alone misses a SYSTEM locale change while it is null (no
+    // in-app override) — see the same fix in RevisionReload.
+    final Object localeKey;
+    try {
+      final code = context.watch<LocaleController>().code;
+      localeKey = code ?? Localizations.localeOf(context);
+    } catch (_) {
       return;
     }
+    if (identical(_seenLocale, _localeUnset)) {
+      _seenLocale = localeKey;
+    } else if (_seenLocale != localeKey && widget.data == null) {
+      _seenLocale = localeKey;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final token = ++_loadToken;
+    final repo = repoOf(context);
+    if (repo == null) {
+      if (mounted && token == _loadToken) setState(() => _loading = false);
+      return;
+    }
+    final l = AppLocalizations.of(context);
     try {
-      final d = await TimelineData.load(repo, want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final d = await TimelineData.load(repo, want: _day, l: l);
+      if (mounted && token == _loadToken) {
+        setState(() => (_d = d, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
     }
   }
 
@@ -630,8 +685,9 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   @override
   Widget build(BuildContext c) {
     final d = _d ?? const TimelineData();
-    return detailScaffold(c, 'Breakdown of your day',
-        sub: 'MIDNIGHT TO MIDNIGHT', [
+    final l = AppLocalizations.of(c);
+    return detailScaffold(c, l?.dayTimelineTitle ?? 'Breakdown of your day',
+        sub: l?.dayTimelineSub ?? 'MIDNIGHT TO MIDNIGHT', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
@@ -651,6 +707,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
 Widget? dayGraphCard(BuildContext c, DayGraph g) {
   if (!g.hasCurve) return null;
   final p = P.of(c);
+  final l = AppLocalizations.of(c);
   final n = g.slots;
   double at(int m) => n <= 0 ? 0 : m / n;
   final axis = AxisSpec.of([for (final v in g.hr) ?v], ticks: 3);
@@ -660,19 +717,24 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
   final gaps = g.unmeasured;
   return Surface(
     child: ChartFrame(
-      title: 'Heart rate',
+      title: l?.dayTimelineHeartRateTitle ?? 'Heart rate',
       unit: 'bpm',
       height: 200,
       yAxis: axis,
       // Three, and only three, because ChartFrame lays the first flush left,
       // the last flush right and the rest centred — which puts a middle label
       // exactly on the middle of the plot and a five-label row 5 % out.
-      xLabels: const ['Midnight', 'Noon', 'Midnight'],
+      xLabels: [
+        l?.dayTimelineMidnight ?? 'Midnight',
+        l?.dayTimelineNoon ?? 'Noon',
+        l?.dayTimelineMidnight ?? 'Midnight',
+      ],
       legend: [
-        if (g.rest.isNotEmpty) ('Asleep', asleep),
-        if (g.work.isNotEmpty) ('Workout', workout),
-        if (g.movement.any((v) => v != null)) ('Moving', p.on(C.domMove)),
-        if (gaps.isNotEmpty) ('Not recorded', p.card2),
+        if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
+        if (g.work.isNotEmpty) (l?.dayTimelineWorkout ?? 'Workout', workout),
+        if (g.movement.any((v) => v != null))
+          (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
+        if (gaps.isNotEmpty) (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
       ],
       series: g.hr,
       child: Stack(children: [
@@ -710,21 +772,23 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
 /// state of it without a repository.
 List<Widget> timelineBody(BuildContext c, TimelineData d) {
   final p = P.of(c);
+  final l = AppLocalizations.of(c);
   final graph = dayGraphCard(c, d.graph);
   return [
     ?graph,
     if (d.moments.isEmpty && d.notes.isEmpty && graph == null)
-      const StatusCard(
-        'Nothing was recorded on this day',
-        'No sleep, no session, no log and no band event carrying a time. A day '
-            'with nothing on it is usually a day the band was off.',
+      StatusCard(
+        l?.dayTimelineNothingRecordedTitle ?? 'Nothing was recorded on this day',
+        l?.dayTimelineNothingRecordedBody ??
+            'No sleep, no session, no log and no band event carrying a time. A day '
+                'with nothing on it is usually a day the band was off.',
         icon: LucideIcons.circleSlash,
       )
     else ...[
       if (d.moments.isEmpty)
-        const StatusCard(
-          'Nothing on this day carries a time',
-          'What was logged for it is below.',
+        StatusCard(
+          l?.dayTimelineNoTimeTitle ?? 'Nothing on this day carries a time',
+          l?.dayTimelineNoTimeBody ?? 'What was logged for it is below.',
           icon: LucideIcons.clock,
         )
       else
@@ -732,7 +796,7 @@ List<Widget> timelineBody(BuildContext c, TimelineData d) {
         // that the picture is above it: the graph says when, this says what,
         // and without a name between them the rows read as a caption.
         Section(
-          'What happened',
+          l?.dayTimelineWhatHappenedSection ?? 'What happened',
           Surface(
             pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x2),
             child: Column(
@@ -744,7 +808,7 @@ List<Widget> timelineBody(BuildContext c, TimelineData d) {
         ),
       if (d.notes.isNotEmpty)
         Section(
-          'Also logged on this day',
+          l?.dayTimelineAlsoLoggedSection ?? 'Also logged on this day',
           Surface(
             pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x2),
             child: Column(
@@ -780,16 +844,18 @@ List<Widget> timelineBody(BuildContext c, TimelineData d) {
         Padding(
           padding: const EdgeInsets.only(top: S.x2, left: S.x1),
           child: Text(
-            'These were recorded against the day and carry no time of day, so '
-            'they are not placed on it.',
+            l?.dayTimelineNoTimeNote ??
+                'These were recorded against the day and carry no time of day, so '
+                    'they are not placed on it.',
             style: F.over.copyWith(color: p.ink3, height: 1.5),
           ),
         ),
     ],
     const SizedBox(height: S.x4),
     Text(
-      'Patterns in your own logs, not causes. Two things next to each other '
-      'here happened near each other, which is all this page claims.',
+      l?.dayTimelinePatternsNote ??
+          'Patterns in your own logs, not causes. Two things next to each other '
+              'here happened near each other, which is all this page claims.',
       style: F.over.copyWith(color: p.ink3, height: 1.5),
     ),
   ];

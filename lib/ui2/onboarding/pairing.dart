@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -184,7 +185,8 @@ class PairingView extends StatelessWidget {
     // The copy for this one lives in the BLE layer, so this screen and the
     // Devices screen cannot drift into two different accounts of one state.
     final blocked = phase == PairPhase.bluetoothBlocked
-        ? bandStatusFor(connection: 'disconnected', blocker: blocker)
+        ? localizedBandStatus(
+            c, bandStatusFor(connection: 'disconnected', blocker: blocker))
         : null;
     return Scaffold(
       backgroundColor: p.bg,
@@ -241,8 +243,9 @@ class PairingView extends StatelessWidget {
   static String _title(BuildContext c, PairPhase phase, [BleBlocker? blocker]) {
     final l = AppLocalizations.of(c);
     return switch (phase) {
-      PairPhase.bluetoothBlocked =>
-        bandStatusFor(connection: 'disconnected', blocker: blocker).title,
+      PairPhase.bluetoothBlocked => localizedBandStatus(
+          c, bandStatusFor(connection: 'disconnected', blocker: blocker))
+        .title,
       PairPhase.idle => l?.pairingIdleTitle ?? 'Wake the band and hold it close',
       PairPhase.scanning => l?.pairingScanningTitle ?? 'Looking for your band',
       PairPhase.notFound => l?.pairingNotFoundTitle ?? 'No band in range',
@@ -257,8 +260,9 @@ class PairingView extends StatelessWidget {
   static String _body(BuildContext c, PairPhase phase, [BleBlocker? blocker]) {
     final l = AppLocalizations.of(c);
     return switch (phase) {
-      PairPhase.bluetoothBlocked =>
-        bandStatusFor(connection: 'disconnected', blocker: blocker).reason,
+      PairPhase.bluetoothBlocked => localizedBandStatus(
+          c, bandStatusFor(connection: 'disconnected', blocker: blocker))
+        .reason,
       PairPhase.idle => l?.pairingIdleBody ??
           'Take the band off the charger, put it on your wrist and keep the '
               'phone within arm’s reach.',

@@ -19,6 +19,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../../stress/breath_phases.dart';
@@ -57,19 +58,74 @@ const kPaceSweepBlockMinutes = 2;
 /// The profile key holding the winners of past sweeps, oldest first.
 const kPaceWinsKey = 'breath_pace_wins';
 
+/// Localized copies of [kBreathPatterns], same order and keys. The consts
+/// live in `breath_phases.dart` (which stays free of l10n imports on
+/// purpose — it is the pure engine); the localized text is built here,
+/// where `AppLocalizations` is already in scope, the same way [paceAt] does
+/// it for the custom-paced resonance entry.
+List<BreathPattern> localizedBreathPatterns([AppLocalizations? l]) {
+  final resonance = kBreathPatternsByKey['resonance']!;
+  final box = kBreathPatternsByKey['box']!;
+  final fourSevenEight = kBreathPatternsByKey['four_seven_eight']!;
+  final extendedExhale = kBreathPatternsByKey['extended_exhale']!;
+  return [
+    BreathPattern(
+      key: resonance.key,
+      label: l?.calmBreathingResonanceLabel ?? resonance.label,
+      description:
+          l?.calmBreathingResonanceDescription(resonance.rate.toStringAsFixed(1)) ??
+              resonance.description,
+      phases: resonance.phases,
+      coherenceRated: true,
+    ),
+    BreathPattern(
+      key: box.key,
+      label: l?.breathPatternBoxName ?? box.label,
+      description: l?.breathPatternBoxDesc ?? box.description,
+      phases: box.phases,
+    ),
+    BreathPattern(
+      key: fourSevenEight.key,
+      label: l?.breathPattern478Name ?? fourSevenEight.label,
+      description: l?.breathPattern478Desc ?? fourSevenEight.description,
+      phases: fourSevenEight.phases,
+    ),
+    BreathPattern(
+      key: extendedExhale.key,
+      label: l?.breathPatternExtendedExhaleName ?? extendedExhale.label,
+      description:
+          l?.breathPatternExtendedExhaleDesc ?? extendedExhale.description,
+      phases: extendedExhale.phases,
+    ),
+  ];
+}
+
+/// The instruction shown on the breathing ring for [kind], localized.
+String breathPhaseKindLabel(BreathPhaseKind kind, [AppLocalizations? l]) =>
+    switch (kind) {
+      BreathPhaseKind.inhale => l?.breathPhaseInhale ?? kind.label,
+      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut =>
+        l?.breathPhaseHold ?? kind.label,
+      BreathPhaseKind.exhale => l?.breathPhaseExhale ?? kind.label,
+      BreathPhaseKind.work => l?.breathPhaseWork ?? kind.label,
+      BreathPhaseKind.rest => l?.breathPhaseRest ?? kind.label,
+    };
+
 /// A resonance pattern at [rate] breaths a minute — even in, even out.
 ///
 /// 5.5 returns the SHIPPED resonance pattern rather than a lookalike: two
 /// patterns at the same pace under two different keys would split her breathing
 /// history in half for no reason anyone could see.
-BreathPattern paceAt(double rate) {
+BreathPattern paceAt(double rate, [AppLocalizations? l]) {
   final shipped = kBreathPatterns.first;
-  if ((rate - shipped.rate).abs() < 0.05) return shipped;
+  if ((rate - shipped.rate).abs() < 0.05) {
+    return localizedBreathPatterns(l).first;
+  }
   final half = 30.0 / rate;
   return BreathPattern(
     key: 'resonance_${rate.toStringAsFixed(1).replaceAll('.', '_')}',
-    label: 'Resonance',
-    description:
+    label: l?.calmBreathingResonanceLabel ?? 'Resonance',
+    description: l?.calmBreathingResonanceDescription(rate.toStringAsFixed(1)) ??
         'Even in and out at about ${rate.toStringAsFixed(1)} breaths a '
         'minute. The one with a coherence score.',
     phases: [
@@ -119,10 +175,13 @@ double? agreedPace(Object? wins) {
 /// when two sittings have agreed on one, and is the shipped 5.5 otherwise —
 /// one entry either way, never a personal pace sitting next to the default as
 /// if they were two different exercises.
-List<BreathPattern> patternsFor(double? yours) => [
-  yours == null ? kBreathPatterns.first : paceAt(yours),
-  ...kBreathPatterns.skip(1),
-];
+List<BreathPattern> patternsFor(double? yours, [AppLocalizations? l]) {
+  final localized = localizedBreathPatterns(l);
+  return [
+    yours == null ? localized.first : paceAt(yours, l),
+    ...localized.skip(1),
+  ];
+}
 
 class CalmBreathing extends StatefulWidget {
   const CalmBreathing({super.key});
@@ -192,17 +251,30 @@ class _CalmBreathingState extends State<CalmBreathing>
   Duration? get _target => sessionEnd(_pattern, _rounds);
   int get _rounds => (_minutes * 60 / _pattern.cycleSeconds).round();
 
+  bool _paceRead = false;
+
   @override
   void initState() {
     super.initState();
     // The pace two sittings agreed on, read once. `read` rather than `watch`:
     // the pattern is the user's choice from here on, and a profile write mid
     // session must not silently repace her.
-    final app = context.read<AppState>();
-    _app = app;
-    final yours = agreedPace(app.user?[kPaceWinsKey]);
-    if (yours != null) _pattern = paceAt(yours);
+    _app = context.read<AppState>();
     unawaited(_loadEffect());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppLocalizations.of(context) may not be called from initState — the
+    // inherited lookup isn't ready until the widget is fully mounted. Read it
+    // here instead, but still only once: this picks the starting pattern, not
+    // a live-relocalized one.
+    if (_paceRead) return;
+    _paceRead = true;
+    final l = AppLocalizations.of(context);
+    final yours = agreedPace(_app?.user?[kPaceWinsKey]);
+    _pattern = yours != null ? paceAt(yours, l) : localizedBreathPatterns(l).first;
   }
 
   @override
@@ -348,11 +420,12 @@ class _CalmBreathingState extends State<CalmBreathing>
   /// the entire output is a comparison of beat timing and six minutes of
   /// breathing that cannot produce one is six minutes taken for nothing.
   Future<void> _startSweep() async {
+    final l = AppLocalizations.of(context);
     setState(() {
       _block = 0;
       _blockScores.clear();
       _minutes = kPaceSweepBlockMinutes;
-      _pattern = paceAt(kPaceSweepRates.first);
+      _pattern = paceAt(kPaceSweepRates.first, l);
       // The sweep is three paced blocks back to back. There is no unpaced
       // stretch anywhere in it to be a "before", so the windows do not apply.
       _windows = false;
@@ -385,7 +458,7 @@ class _CalmBreathingState extends State<CalmBreathing>
       if (block + 1 < kPaceSweepRates.length) {
         setState(() {
           _block = block + 1;
-          _pattern = paceAt(kPaceSweepRates[block + 1]);
+          _pattern = paceAt(kPaceSweepRates[block + 1], AppLocalizations.of(context));
         });
         await _start();
         return;
@@ -443,6 +516,7 @@ class _CalmBreathingState extends State<CalmBreathing>
     // A quiet window holds the same live streams the paced block does, so it
     // owes the same exit — swiping away during one has to close it, not leave
     // it running behind a screen that is gone.
+    final l = AppLocalizations.of(c);
     final busy = _running || _quiet != null;
     return PopScope(
       canPop: !busy,
@@ -466,7 +540,8 @@ class _CalmBreathingState extends State<CalmBreathing>
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Pressable(
-                    semanticLabel: 'Close breathing',
+                    semanticLabel:
+                        l?.calmBreathingCloseBreathing ?? 'Close breathing',
                     onTap: () async {
                       if (_running) {
                         await _stop(abort: true);
@@ -509,12 +584,16 @@ class _CalmBreathingState extends State<CalmBreathing>
                 ),
                 BigButton(
                   _quiet == 'post'
-                      ? 'Finish now'
+                      ? (l?.calmBreathingFinishNow ?? 'Finish now')
                       : _quiet == 'pre'
-                      ? 'Stop'
+                      ? (l?.calmBreathingStop ?? 'Stop')
                       : _running
-                      ? (_sweeping ? 'Stop' : 'End session')
-                      : (_finished ? 'Done' : 'Begin'),
+                      ? (_sweeping
+                            ? (l?.calmBreathingStop ?? 'Stop')
+                            : (l?.calmBreathingEndSession ?? 'End session'))
+                      : (_finished
+                            ? (l?.actionDone ?? 'Done')
+                            : (l?.calmBreathingBegin ?? 'Begin')),
                   icon: (_running || _quiet != null)
                       ? LucideIcons.square
                       : LucideIcons.play,
@@ -563,22 +642,24 @@ class _Setup extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final app = c.watch<AppState>();
     final yours = agreedPace(app.user?[kPaceWinsKey]);
     return ListView(
       children: [
         const SizedBox(height: S.x4),
-        Text('Take a breath.', style: F.t1.copyWith(color: p.ink)),
+        Text(l?.calmBreathingTakeABreath ?? 'Take a breath.',
+            style: F.t1.copyWith(color: p.ink)),
         const SizedBox(height: S.x2),
         // The buzz is band-dependent and this screen does not yet know whether
         // the band will accept the session, so it is not promised here. The
         // `!banded` card during the run is where that gets said.
         Text(
-          'The ring leads. Put the phone down.',
+          l?.calmBreathingRingLeads ?? 'The ring leads. Put the phone down.',
           style: F.cap.copyWith(color: p.ink2, height: 1.5),
         ),
-        for (final b in patternsFor(yours))
+        for (final b in patternsFor(yours, l))
           Padding(
             padding: const EdgeInsets.only(top: S.x3),
             child: Surface(
@@ -603,7 +684,7 @@ class _Setup extends StatelessWidget {
                             ),
                             if (b.coherenceRated) ...[
                               const SizedBox(width: S.x2),
-                              const Pill('Scored', C.domMind),
+                              Pill(l?.calmBreathingScoredPill ?? 'Scored', C.domMind),
                             ],
                           ],
                         ),
@@ -625,7 +706,7 @@ class _Setup extends StatelessWidget {
             ),
           ),
         Section(
-          'How long',
+          l?.calmBreathingHowLong ?? 'How long',
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -635,7 +716,8 @@ class _Setup extends StatelessWidget {
                     Expanded(
                       child: Pressable(
                         onTap: () => onMinutes(m),
-                        semanticLabel: '$m minutes',
+                        semanticLabel:
+                            l?.calmBreathingMinutesSemantic(m) ?? '$m minutes',
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: S.x3),
                           decoration: BoxDecoration(
@@ -644,7 +726,7 @@ class _Setup extends StatelessWidget {
                           ),
                           child: Center(
                             child: Text(
-                              '$m min',
+                              l?.calmBreathingMinutesAbbrev(m) ?? '$m min',
                               style: F.body.copyWith(
                                 color: m == minutes ? p.inkOnFill : p.ink2,
                               ),
@@ -668,7 +750,8 @@ class _Setup extends StatelessWidget {
         // and a comparison, which is not what someone who opened this screen
         // to breathe came for; it lives one tap away rather than as a fourth
         // thing to read before beginning.
-        Section('Your own pace', _sweepDoor(c, p, app.isConnected, yours)),
+        Section(l?.calmBreathingYourOwnPace ?? 'Your own pace',
+            _sweepDoor(c, p, app.isConnected, yours)),
       ],
     );
   }
@@ -681,12 +764,14 @@ class _Setup extends StatelessWidget {
   /// is one sentence about a run of sessions — never this session, never a
   /// delta, never a count that only goes up.
   Widget _windowRow(BuildContext c, P p, bool connected) {
+    final l = AppLocalizations.of(c);
     final e = effect;
     final on = windows && connected;
     return Surface(
       onTap: connected ? () => onWindows(!windows) : null,
       color: on ? p.wash(C.domMind) : null,
-      semanticLabel: 'Measure before and after, adds four minutes',
+      semanticLabel: l?.calmBreathingWindowRowSemantic ??
+          'Measure before and after, adds four minutes',
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -701,7 +786,8 @@ class _Setup extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Measure before and after · adds 4 min',
+                  l?.calmBreathingMeasureBeforeAfter ??
+                      'Measure before and after · adds 4 min',
                   style: F.body.copyWith(
                     color: connected ? p.ink : p.ink3,
                     fontWeight: FontWeight.w600,
@@ -710,8 +796,9 @@ class _Setup extends StatelessWidget {
                 const SizedBox(height: S.x1),
                 Text(
                   !connected
-                      ? 'Needs the band on — the comparison is made from beat '
-                            'timing.'
+                      ? (l?.calmBreathingNeedsBandBeatTiming ??
+                          'Needs the band on — the comparison is made from '
+                              'beat timing.')
                       : breathingEffectLine(e ?? _noSessionsYet),
                   style: F.cap.copyWith(color: p.ink3, height: 1.4),
                 ),
@@ -738,7 +825,9 @@ class _Setup extends StatelessWidget {
     P p,
     bool connected,
     double? yours,
-  ) => Surface(
+  ) {
+    final l = AppLocalizations.of(c);
+    return Surface(
     // Not offered without a band: the entire output is a comparison of
     // beat timing, so an unbanded sweep is six minutes taken for nothing.
     onTap: connected ? onSweep : null,
@@ -749,7 +838,7 @@ class _Setup extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Find the pace your heart follows',
+                l?.calmBreathingFindYourPace ?? 'Find the pace your heart follows',
                 style: F.body.copyWith(
                   color: connected ? p.ink : p.ink3,
                   fontWeight: FontWeight.w600,
@@ -758,17 +847,22 @@ class _Setup extends StatelessWidget {
               const SizedBox(height: S.x1),
               Text(
                 !connected
-                    ? 'Needs the band on — the comparison is made from '
-                          'beat timing.'
+                    ? (l?.calmBreathingNeedsBandBeatTiming ??
+                        'Needs the band on — the comparison is made from '
+                            'beat timing.')
                     : yours == null
-                    ? 'Six minutes: '
-                          '${kPaceSweepRates.map((r) => r.toStringAsFixed(1)).join(', ')} '
-                          'breaths a minute, two minutes each. It takes '
-                          'two sittings that agree before anything changes.'
-                    : 'Two sittings agreed on '
-                          '${yours.toStringAsFixed(1)} breaths a minute, '
-                          'and Resonance is paced there. Run it again to '
-                          'check.',
+                    ? (l?.calmBreathingSweepIntro(kPaceSweepRates
+                                .map((r) => r.toStringAsFixed(1))
+                                .join(', ')) ??
+                        'Six minutes: '
+                            '${kPaceSweepRates.map((r) => r.toStringAsFixed(1)).join(', ')} '
+                            'breaths a minute, two minutes each. It takes '
+                            'two sittings that agree before anything changes.')
+                    : (l?.calmBreathingSweepAgreed(yours.toStringAsFixed(1)) ??
+                        'Two sittings agreed on '
+                            '${yours.toStringAsFixed(1)} breaths a minute, '
+                            'and Resonance is paced there. Run it again to '
+                            'check.'),
                 style: F.cap.copyWith(color: p.ink3, height: 1.4),
               ),
             ],
@@ -781,6 +875,7 @@ class _Setup extends StatelessWidget {
       ],
     ),
   );
+  }
 }
 
 /// What the row says before the history has loaded — the same thing it says
@@ -810,6 +905,7 @@ class _Running extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final at = phaseAt(pattern, elapsed);
     final kind = at?.phase.kind ?? BreathPhaseKind.inhale;
@@ -822,26 +918,30 @@ class _Running extends StatelessWidget {
       children: [
         if (block != null) ...[
           Text(
-            'PACE ${block! + 1} OF ${kPaceSweepRates.length} · '
-            '${pattern.rate.toStringAsFixed(1)} BREATHS A MINUTE',
+            l?.calmBreathingPaceOfRate(
+                    block! + 1, kPaceSweepRates.length, pattern.rate.toStringAsFixed(1)) ??
+                'PACE ${block! + 1} OF ${kPaceSweepRates.length} · '
+                '${pattern.rate.toStringAsFixed(1)} BREATHS A MINUTE',
             textAlign: TextAlign.center,
             style: F.over.copyWith(color: p.ink3),
           ),
           const SizedBox(height: S.x5),
         ],
-        BreathCircle(t: t, label: kind.label),
+        BreathCircle(t: t, label: breathPhaseKindLabel(kind, l)),
         const SizedBox(height: S.x8),
         Text(_clock(elapsed), style: F.n34.copyWith(color: p.ink2)),
         if (target != null) ...[
           const SizedBox(height: S.x1),
-          Text('of ${_clock(target!)}', style: F.cap.copyWith(color: p.ink3)),
+          Text(l?.calmBreathingOfClock(_clock(target!)) ?? 'of ${_clock(target!)}',
+              style: F.cap.copyWith(color: p.ink3)),
         ],
         if (!banded) ...[
           const SizedBox(height: S.x6),
-          const StatusCard(
-            'No coherence score for this session',
-            'Scoring needs beat timing from the band. Not connected, so this '
-                'one paces you but is not saved.',
+          StatusCard(
+            l?.calmBreathingNoScoreForSession ?? 'No coherence score for this session',
+            l?.calmBreathingScoringNeedsBand ??
+                'Scoring needs beat timing from the band. Not connected, so '
+                    'this one paces you but is not saved.',
             icon: LucideIcons.bluetoothOff,
           ),
         ],
@@ -867,6 +967,7 @@ class _Quiet extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final pre = phase == 'pre';
     return Column(
@@ -874,20 +975,25 @@ class _Quiet extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          pre ? 'BEFORE' : 'AFTER',
+          pre
+              ? (l?.calmBreathingBeforeLabel ?? 'BEFORE')
+              : (l?.calmBreathingAfterLabel ?? 'AFTER'),
           textAlign: TextAlign.center,
           style: F.over.copyWith(color: p.ink3),
         ),
         const SizedBox(height: S.x4),
         Text(
-          pre ? 'Sit still for a moment.' : 'Stay sitting.',
+          pre
+              ? (l?.calmBreathingSitStill ?? 'Sit still for a moment.')
+              : (l?.calmBreathingStaySitting ?? 'Stay sitting.'),
           textAlign: TextAlign.center,
           style: F.t2.copyWith(color: p.ink),
         ),
         const SizedBox(height: S.x3),
         Text(
-          'Breathe however you normally would. Nothing is pacing you and '
-          'nothing is being scored.',
+          l?.calmBreathingNothingPacingScored ??
+              'Breathe however you normally would. Nothing is pacing you and '
+              'nothing is being scored.',
           textAlign: TextAlign.center,
           style: F.cap.copyWith(color: p.ink2, height: 1.5),
         ),
@@ -899,7 +1005,8 @@ class _Quiet extends StatelessWidget {
         ),
         const SizedBox(height: S.x1),
         Text(
-          'of ${_clock(kBreathingWindow)}',
+          l?.calmBreathingOfClock(_clock(kBreathingWindow)) ??
+              'of ${_clock(kBreathingWindow)}',
           textAlign: TextAlign.center,
           style: F.cap.copyWith(color: p.ink3),
         ),
@@ -960,6 +1067,7 @@ class _Result extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final app = c.watch<AppState>();
     final raw = app.breathingResult;
@@ -975,18 +1083,22 @@ class _Result extends StatelessWidget {
         ? null
         : Metric.parse({...raw, 'value': raw['score']});
     final absent = StatusCard.forMetric(
-      'No coherence score for this session',
+      l?.calmBreathingNoScoreForSession ?? 'No coherence score for this session',
       m,
       why: !rated
-          ? '${app.breathingPattern.label} is not scored. Resonance is the one '
-                'paced at the rate the score is built for.'
+          ? (l?.calmBreathingPatternNotScored(app.breathingPattern.label) ??
+              '${app.breathingPattern.label} is not scored. Resonance is the '
+                  'one paced at the rate the score is built for.')
           : app.breathingError ??
-                'Too few clean beat timings across the session to score it.',
+                (l?.calmBreathingTooFewBeatTimings ??
+                    'Too few clean beat timings across the session to score '
+                        'it.'),
     );
     return ListView(
       children: [
         const SizedBox(height: S.x8),
-        Text('That is done.', style: F.t1.copyWith(color: p.ink)),
+        Text(l?.calmBreathingThatIsDone ?? 'That is done.',
+            style: F.t1.copyWith(color: p.ink)),
         const SizedBox(height: S.x5),
         if (absent != null)
           absent
@@ -994,9 +1106,10 @@ class _Result extends StatelessWidget {
           SignalCard(
             LucideIcons.wind,
             C.domMind,
-            'Cardiac coherence',
+            l?.calmBreathingCardiacCoherence ?? 'Cardiac coherence',
             m!.value!.toStringAsFixed(0),
-            sub: 'HOW STRONGLY YOUR HEART RATE FOLLOWED THE PACE',
+            sub: l?.calmBreathingHowStronglyFollowedPace ??
+                'HOW STRONGLY YOUR HEART RATE FOLLOWED THE PACE',
           ),
       ],
     );
@@ -1023,6 +1136,7 @@ class _SweepResult extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final p = P.of(c);
     final app = c.watch<AppState>();
     final winner = aborted ? null : sweepWinner(kPaceSweepRates, scores);
@@ -1031,7 +1145,9 @@ class _SweepResult extends StatelessWidget {
       children: [
         const SizedBox(height: S.x8),
         Text(
-          aborted ? 'Stopped there.' : 'That is done.',
+          aborted
+              ? (l?.calmBreathingStoppedThere ?? 'Stopped there.')
+              : (l?.calmBreathingThatIsDone ?? 'That is done.'),
           style: F.t1.copyWith(color: p.ink),
         ),
         const SizedBox(height: S.x5),
@@ -1040,7 +1156,8 @@ class _SweepResult extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'HOW STRONGLY YOUR HEART RATE FOLLOWED EACH PACE',
+                l?.calmBreathingHowStronglyEachPace ??
+                    'HOW STRONGLY YOUR HEART RATE FOLLOWED EACH PACE',
                 style: F.over.copyWith(color: p.ink3),
               ),
               const SizedBox(height: S.x3),
@@ -1051,8 +1168,10 @@ class _SweepResult extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${kPaceSweepRates[i].toStringAsFixed(1)} breaths a '
-                          'minute',
+                          l?.calmBreathingBreathsAMinute(
+                                  kPaceSweepRates[i].toStringAsFixed(1)) ??
+                              '${kPaceSweepRates[i].toStringAsFixed(1)} '
+                                  'breaths a minute',
                           style: F.body.copyWith(
                             color: winner == kPaceSweepRates[i]
                                 ? p.ink
@@ -1066,9 +1185,10 @@ class _SweepResult extends StatelessWidget {
                       // things, and both of them are sentences.
                       Text(
                         i >= scores.length
-                            ? 'not reached'
+                            ? (l?.calmBreathingNotReached ?? 'not reached')
                             : scores[i] == null
-                            ? 'too few clean beats'
+                            ? (l?.calmBreathingTooFewCleanBeats ??
+                                'too few clean beats')
                             : '${scores[i]}',
                         style:
                             (i < scores.length && scores[i] != null
@@ -1084,39 +1204,46 @@ class _SweepResult extends StatelessWidget {
         ),
         const SizedBox(height: S.x4),
         Text(
-          _verdict(winner, agreed),
+          _verdict(winner, agreed, l),
           style: F.body.copyWith(color: p.ink, height: 1.4),
         ),
         const SizedBox(height: S.x3),
         Text(
-          'A ranking of three paces from one sitting. The blocks run back to '
-          'back, so each pace is measured while you are still settling out of '
-          'the one before. It says which pace your heart rate followed most '
-          'strongly, and nothing else.',
+          l?.calmBreathingRankingExplainer ??
+              'A ranking of three paces from one sitting. The blocks run back '
+              'to back, so each pace is measured while you are still settling '
+              'out of the one before. It says which pace your heart rate '
+              'followed most strongly, and nothing else.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
       ],
     );
   }
 
-  String _verdict(double? winner, double? agreed) {
+  String _verdict(double? winner, double? agreed, AppLocalizations? l) {
     if (aborted) {
-      return 'You stopped part way, so there was nothing to compare. Nothing '
-          'has changed.';
+      return l?.calmBreathingVerdictAborted ??
+          'You stopped part way, so there was nothing to compare. Nothing '
+              'has changed.';
     }
     if (winner == null) {
       return scores.any((s) => s == null)
-          ? 'At least one pace could not be scored, so there is nothing to '
-                'rank. Nothing has changed.'
-          : 'Two of the paces scored the same, so this sitting cannot '
-                'separate them. Nothing has changed.';
+          ? (l?.calmBreathingVerdictCouldNotScore ??
+              'At least one pace could not be scored, so there is nothing to '
+                  'rank. Nothing has changed.')
+          : (l?.calmBreathingVerdictTied ??
+              'Two of the paces scored the same, so this sitting cannot '
+                  'separate them. Nothing has changed.');
     }
-    final w = '${winner.toStringAsFixed(1)} breaths a minute';
+    final w = l?.calmBreathingBreathsAMinute(winner.toStringAsFixed(1)) ??
+        '${winner.toStringAsFixed(1)} breaths a minute';
     return agreed == winner
-        ? 'Of the paces tested, $w gave your strongest response — and that is '
-              'now two sittings in a row. Resonance is paced there.'
-        : 'Of the paces tested, $w gave your strongest response. Nothing is '
-              'set yet: the pace only changes when two sittings pick the same '
-              'one.';
+        ? (l?.calmBreathingVerdictConfirmed(w) ??
+            'Of the paces tested, $w gave your strongest response — and that '
+                'is now two sittings in a row. Resonance is paced there.')
+        : (l?.calmBreathingVerdictFirstWin(w) ??
+            'Of the paces tested, $w gave your strongest response. Nothing '
+                'is set yet: the pace only changes when two sittings pick the '
+                'same one.');
   }
 }

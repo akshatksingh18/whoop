@@ -22,6 +22,7 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../ai/briefing.dart' show currentBriefingPeriod;
 import '../../coach/coach_config.dart';
 import '../../coach/coach_engine.dart';
@@ -65,7 +66,9 @@ bool coachReady(BuildContext c) {
 String? coachSubtitle(BuildContext c) {
   try {
     final cfg = c.watch<CoachConfig>();
-    return cfg.configured ? cfg.model : 'Not set up';
+    return cfg.configured
+        ? cfg.model
+        : (AppLocalizations.of(c)?.coachNotSetUp ?? 'Not set up');
   } catch (_) {
     return null;
   }
@@ -86,14 +89,17 @@ class _CoachScreenState extends State<CoachScreen> {
   bool _busy = false;
   String? _status;
 
-  static const _starters = [
-    'How recovered am I today, and why?',
-    'Chart my HRV over the last month',
-    'How has my sleep been this week?',
-    'What did I eat yesterday?',
-    'Log 500 ml of water for today',
-    'I ran for 40 minutes this morning — log it',
-  ];
+  static List<String> _starters(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return [
+      l?.coachStarterRecovery ?? 'How recovered am I today, and why?',
+      l?.coachStarterHrvChart ?? 'Chart my HRV over the last month',
+      l?.coachStarterSleep ?? 'How has my sleep been this week?',
+      l?.coachStarterAteYesterday ?? 'What did I eat yesterday?',
+      l?.coachStarterLogWater ?? 'Log 500 ml of water for today',
+      l?.coachStarterLogRun ?? 'I ran for 40 minutes this morning — log it',
+    ];
+  }
 
   @override
   void initState() {
@@ -160,7 +166,10 @@ class _CoachScreenState extends State<CoachScreen> {
         setState(() {
           _items.add(
             CoachItem.error(
-              e is CoachException ? e.message : 'Something went wrong: $e',
+              e is CoachException
+                  ? e.message
+                  : (AppLocalizations.of(context)?.coachSomethingWrong('$e') ??
+                      'Something went wrong: $e'),
             ),
           );
         });
@@ -184,6 +193,7 @@ class _CoachScreenState extends State<CoachScreen> {
   Future<bool> _confirm(ActionRequest req) async {
     final destructive = req.tool.startsWith('delete_');
     final p = P.of(context);
+    final l = AppLocalizations.of(context);
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(
@@ -200,8 +210,9 @@ class _CoachScreenState extends State<CoachScreen> {
             const SizedBox(height: S.x3),
             Text(
               destructive
-                  ? 'This removes data from this device and cannot be undone.'
-                  : 'Nothing is written until you tap below.',
+                  ? (l?.coachDestructiveWarning ??
+                      'This removes data from this device and cannot be undone.')
+                  : (l?.coachSafeWarning ?? 'Nothing is written until you tap below.'),
               style: F.cap.copyWith(color: p.ink3),
             ),
           ],
@@ -209,12 +220,12 @@ class _CoachScreenState extends State<CoachScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(d).pop(false),
-            child: Text('Cancel', style: F.body.copyWith(color: p.ink2)),
+            child: Text(l?.actionCancel ?? 'Cancel', style: F.body.copyWith(color: p.ink2)),
           ),
           TextButton(
             onPressed: () => Navigator.of(d).pop(true),
             child: Text(
-              destructive ? 'Delete it' : 'Save it',
+              destructive ? (l?.coachDeleteIt ?? 'Delete it') : (l?.coachSaveIt ?? 'Save it'),
               style: F.body.copyWith(
                 color: p.on(destructive ? C.red : kCoachAccent),
                 fontWeight: FontWeight.w600,
@@ -259,6 +270,7 @@ class _CoachScreenState extends State<CoachScreen> {
   Future<void> _menu() async {
     final engine = _engine;
     final p = P.of(context);
+    final l = AppLocalizations.of(context);
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: p.card,
@@ -272,7 +284,7 @@ class _CoachScreenState extends State<CoachScreen> {
             children: [
               _MenuRow(
                 LucideIcons.plus,
-                'New chat',
+                l?.coachNewChat ?? 'New chat',
                 onTap: () {
                   Navigator.of(sheet).pop();
                   _newChat();
@@ -287,8 +299,8 @@ class _CoachScreenState extends State<CoachScreen> {
               // which is a recovery state rather than a settings entry.
               _MenuRow(
                 LucideIcons.fileText,
-                'Briefing, and what was sent',
-                sub: 'The exact snapshot that left this device',
+                l?.coachBriefingMenuTitle ?? 'Briefing, and what was sent',
+                sub: l?.coachBriefingMenuSub ?? 'The exact snapshot that left this device',
                 onTap: () {
                   Navigator.of(sheet).pop();
                   go(
@@ -302,7 +314,7 @@ class _CoachScreenState extends State<CoachScreen> {
               if (engine != null) ...[
                 const SizedBox(height: S.x4),
                 Text(
-                  'PAST CHATS',
+                  l?.coachPastChats ?? 'PAST CHATS',
                   style: F.over.copyWith(color: p.ink3),
                 ),
                 const SizedBox(height: S.x2),
@@ -312,7 +324,8 @@ class _CoachScreenState extends State<CoachScreen> {
                     final list = snap.data ?? const <CoachSessionMeta>[];
                     if (list.isEmpty) {
                       return Text(
-                        'Nothing yet — this is your first conversation.',
+                        l?.coachNoChatsYet ??
+                            'Nothing yet — this is your first conversation.',
                         style: F.cap.copyWith(color: p.ink3),
                       );
                     }
@@ -321,7 +334,7 @@ class _CoachScreenState extends State<CoachScreen> {
                         for (final s in list.take(20))
                           _MenuRow(
                             LucideIcons.messageSquare,
-                            s.title.isEmpty ? 'Untitled chat' : s.title,
+                            s.title.isEmpty ? (l?.coachUntitledChat ?? 'Untitled chat') : s.title,
                             sub: s.preview,
                             onTap: () {
                               Navigator.of(sheet).pop();
@@ -349,6 +362,7 @@ class _CoachScreenState extends State<CoachScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final cfg = c.watch<CoachConfig>();
     return Scaffold(
       backgroundColor: p.bg,
@@ -358,10 +372,10 @@ class _CoachScreenState extends State<CoachScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(
-                'Coach',
-                sub: cfg.configured ? cfg.model : 'Not set up',
+                l?.coachNavTitle ?? 'Coach',
+                sub: cfg.configured ? cfg.model : (l?.coachNotSetUp ?? 'Not set up'),
                 trailing: Pressable(
-                  semanticLabel: 'Chats and AI settings',
+                  semanticLabel: l?.coachMenuSemantic ?? 'Chats and AI settings',
                   onTap: _menu,
                   child: Icon(LucideIcons.ellipsis, size: 22, color: p.ink),
                 ),
@@ -399,6 +413,7 @@ class _CoachScreenState extends State<CoachScreen> {
   }
 
   Widget _body(BuildContext c, P p, CoachConfig cfg) {
+    final l = AppLocalizations.of(c);
     // The key IS saved, this process just could not read it. Showing the setup
     // wall here would tell the user their key is gone and invite them to paste
     // it again.
@@ -408,10 +423,11 @@ class _CoachScreenState extends State<CoachScreen> {
         children: [
           const SizedBox(height: S.x4),
           StatusCard(
-            'Your key is still saved',
-            'It could not be read from the keychain this time, which happens '
-                'when the app is woken while the phone is locked.',
-            fix: 'Try again',
+            l?.coachKeyStillSavedTitle ?? 'Your key is still saved',
+            l?.coachKeyStillSavedBody ??
+                'It could not be read from the keychain this time, which happens '
+                    'when the app is woken while the phone is locked.',
+            fix: l?.coachTryAgainFix ?? 'Try again',
             icon: LucideIcons.lock,
             onFix: () async {
               await cfg.refreshKeyOnResume();
@@ -427,11 +443,12 @@ class _CoachScreenState extends State<CoachScreen> {
         children: [
           const SizedBox(height: S.x4),
           StatusCard(
-            'The coach is not set up',
-            'It runs on a model you choose — one on your own machine, or any '
-                'OpenAI-compatible provider with your own key. Nothing goes '
-                'through OpenStrap either way.',
-            fix: 'Choose a model',
+            l?.coachNotSetUpTitle ?? 'The coach is not set up',
+            l?.coachNotSetUpBody ??
+                'It runs on a model you choose — one on your own machine, or any '
+                    'OpenAI-compatible provider with your own key. Nothing goes '
+                    'through OpenStrap either way.',
+            fix: l?.coachChooseModelFix ?? 'Choose a model',
             icon: LucideIcons.sparkles,
             onFix: () => go(c, const CoachSetup()),
           ),
@@ -443,10 +460,11 @@ class _CoachScreenState extends State<CoachScreen> {
         padding: pad,
         children: [
           const SizedBox(height: S.x4),
-          const StatusCard(
-            'No data to read yet',
-            'The coach answers from your own derived days, and there are none '
-                'on this device yet.',
+          StatusCard(
+            l?.coachNoDataTitle ?? 'No data to read yet',
+            l?.coachNoDataBody ??
+                'The coach answers from your own derived days, and there are none '
+                    'on this device yet.',
             icon: LucideIcons.database,
           ),
         ],
@@ -472,28 +490,29 @@ class _CoachScreenState extends State<CoachScreen> {
                     ),
                     const SizedBox(width: S.x2),
                     Text(
-                      'YOUR DATA, YOUR MODEL',
+                      l?.coachYourDataYourModel ?? 'YOUR DATA, YOUR MODEL',
                       style: F.over.copyWith(color: p.on(kCoachAccent)),
                     ),
                   ],
                 ),
                 const SizedBox(height: S.x3),
                 Text(
-                  'Ask about anything the app measures, and it can log food, '
-                  'water, workouts, doses and how you felt — always asking '
-                  'first.',
+                  l?.coachIntroBody ??
+                      'Ask about anything the app measures, and it can log food, '
+                          'water, workouts, doses and how you felt — always asking '
+                          'first.',
                   style: F.body.copyWith(color: p.ink, height: 1.45),
                 ),
               ],
             ),
           ),
           Section(
-            'Try asking',
+            l?.coachTryAsking ?? 'Try asking',
             Surface(
               pad: const EdgeInsets.symmetric(vertical: S.x1),
               child: Column(
                 children: [
-                  for (final s in _starters)
+                  for (final s in _starters(c))
                     Pressable(
                       onTap: () => _send(s),
                       child: Padding(
@@ -533,7 +552,9 @@ class _CoachScreenState extends State<CoachScreen> {
     );
   }
 
-  Widget _composer(BuildContext c, P p) => Padding(
+  Widget _composer(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    return Padding(
     padding: EdgeInsets.fromLTRB(
       S.x4,
       S.x2,
@@ -555,7 +576,7 @@ class _CoachScreenState extends State<CoachScreen> {
               border: Border.all(color: p.line),
             ),
             child: Semantics(
-              label: 'Ask the coach',
+              label: l?.coachAskLabel ?? 'Ask the coach',
               textField: true,
               child: TextField(
                 controller: _input,
@@ -569,7 +590,7 @@ class _CoachScreenState extends State<CoachScreen> {
                 decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
-                  hintText: 'Ask about your health…',
+                  hintText: l?.coachInputHint ?? 'Ask about your health…',
                   hintStyle: F.body.copyWith(color: p.ink3),
                 ),
               ),
@@ -578,7 +599,7 @@ class _CoachScreenState extends State<CoachScreen> {
         ),
         const SizedBox(width: S.x2),
         Pressable(
-          semanticLabel: 'Send',
+          semanticLabel: l?.coachSendLabel ?? 'Send',
           onTap: _busy ? null : () => _send(_input.text),
           child: Container(
             width: 44,
@@ -597,6 +618,7 @@ class _CoachScreenState extends State<CoachScreen> {
       ],
     ),
   );
+  }
 }
 
 /// One transcript entry. The user's turn is a soft bubble; the answer is the
@@ -651,7 +673,7 @@ class _Bubble extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: S.x4),
           child: StatusCard(
-            'That did not go through',
+            AppLocalizations.of(c)?.coachErrorTitle ?? 'That did not go through',
             item.text ?? '',
             icon: LucideIcons.triangleAlert,
           ),
@@ -707,7 +729,8 @@ class _MenuRow extends StatelessWidget {
             ),
             if (onRemove != null)
               Pressable(
-                semanticLabel: 'Delete $title',
+                semanticLabel:
+                    AppLocalizations.of(c)?.coachDeleteChat(title) ?? 'Delete $title',
                 onTap: onRemove,
                 child: Icon(LucideIcons.trash2, size: 16, color: p.ink3),
               ),
@@ -729,23 +752,17 @@ class _Preset {
   const _Preset(this.label, this.sub, this.baseUrl, {this.local = false});
 }
 
-const _presets = <_Preset>[
-  _Preset(
-    'Ollama',
-    'On this network. Nothing leaves your machine.',
-    'http://localhost:11434/v1',
-    local: true,
-  ),
-  _Preset(
-    'LM Studio',
-    'On this network. Nothing leaves your machine.',
-    'http://localhost:1234/v1',
-    local: true,
-  ),
-  _Preset('OpenAI', 'api.openai.com', 'https://api.openai.com/v1'),
-  _Preset('Anthropic', 'api.anthropic.com', 'https://api.anthropic.com/v1'),
-  _Preset('OpenRouter', 'openrouter.ai', 'https://openrouter.ai/api/v1'),
-];
+List<_Preset> _presets(BuildContext c) {
+  final local = AppLocalizations.of(c)?.coachLocalSub ??
+      'On this network. Nothing leaves your machine.';
+  return <_Preset>[
+    _Preset('Ollama', local, 'http://localhost:11434/v1', local: true),
+    _Preset('LM Studio', local, 'http://localhost:1234/v1', local: true),
+    _Preset('OpenAI', 'api.openai.com', 'https://api.openai.com/v1'),
+    _Preset('Anthropic', 'api.anthropic.com', 'https://api.anthropic.com/v1'),
+    _Preset('OpenRouter', 'openrouter.ai', 'https://openrouter.ai/api/v1'),
+  ];
+}
 
 class CoachSetup extends StatefulWidget {
   const CoachSetup({super.key});
@@ -803,18 +820,21 @@ class _CoachSetupState extends State<CoachSetup> {
     try {
       final ids = await CoachEngine.fetchModels(_base.text, _key.text);
       if (!mounted) return;
+      final l = AppLocalizations.of(context);
       setState(() {
         _models = ids;
         _msg = ids.isEmpty
-            ? 'That endpoint listed no models. Type one below instead.'
-            : '${ids.length} models. Tap one.';
+            ? (l?.coachNoModelsListed ??
+                'That endpoint listed no models. Type one below instead.')
+            : (l?.coachModelsFound(ids.length) ?? '${ids.length} models. Tap one.');
       });
     } catch (e) {
       if (!mounted) return;
+      final l = AppLocalizations.of(context);
       setState(
         () => _msg = e is CoachException
             ? e.message
-            : 'Could not reach that endpoint: $e',
+            : (l?.coachEndpointUnreachable('$e') ?? 'Could not reach that endpoint: $e'),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -823,8 +843,9 @@ class _CoachSetupState extends State<CoachSetup> {
 
   Future<void> _save() async {
     final chosen = _model.isNotEmpty ? _model : _search.text.trim();
+    final l = AppLocalizations.of(context);
     if (chosen.isEmpty) {
-      setState(() => _msg = 'Pick or type a model first.');
+      setState(() => _msg = l?.coachPickModelFirst ?? 'Pick or type a model first.');
       return;
     }
     final cfg = context.read<CoachConfig>();
@@ -840,7 +861,10 @@ class _CoachSetupState extends State<CoachSetup> {
         model: chosen,
       );
     } catch (e) {
-      if (mounted) setState(() => _msg = 'The keychain refused the key: $e');
+      if (mounted) {
+        setState(() =>
+            _msg = l?.coachKeychainRefused('$e') ?? 'The keychain refused the key: $e');
+      }
       return;
     }
     if (mounted && nav.canPop()) nav.pop();
@@ -849,6 +873,7 @@ class _CoachSetupState extends State<CoachSetup> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final q = _search.text.trim().toLowerCase();
     final shown = q.isEmpty
         ? _models
@@ -861,19 +886,20 @@ class _CoachSetupState extends State<CoachSetup> {
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: S.x4),
-              child: NavBar('AI settings', sub: 'Bring your own model'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(l?.coachSetupNavTitle ?? 'AI settings',
+                  sub: l?.coachSetupNavSub ?? 'Bring your own model'),
             ),
             Expanded(
               child: ListView(
                 padding: pad,
                 children: [
                   Section(
-                    'Where the model runs',
+                    l?.coachWhereModelRuns ?? 'Where the model runs',
                     Column(
                       children: [
-                        for (final preset in _presets)
+                        for (final preset in _presets(c))
                           Padding(
                             padding: const EdgeInsets.only(bottom: S.x2),
                             child: Surface(
@@ -930,13 +956,15 @@ class _CoachSetupState extends State<CoachSetup> {
                   const SizedBox(height: S.x2),
                   OsTextField(
                     controller: _base,
-                    label: 'Base URL',
+                    label: l?.coachBaseUrlLabel ?? 'Base URL',
                     hint: 'http://localhost:11434/v1',
                   ),
                   const SizedBox(height: S.x4),
                   OsTextField(
                     controller: _key,
-                    label: _isLocal ? 'API key (not needed locally)' : 'API key',
+                    label: _isLocal
+                        ? (l?.coachApiKeyLocalLabel ?? 'API key (not needed locally)')
+                        : (l?.coachApiKeyLabel ?? 'API key'),
                     hint: 'sk-…',
                   ),
                   const SizedBox(height: S.x3),
@@ -945,16 +973,18 @@ class _CoachSetupState extends State<CoachSetup> {
                   // in a settings page nobody opens.
                   Text(
                     _isLocal
-                        ? 'Your questions and the rows the coach reads stay on '
-                              'your own machine.'
-                        : 'Your questions and the rows the coach reads are sent '
-                              'to this endpoint. See exactly what that is on '
-                              '"What was sent".',
+                        ? (l?.coachLocalDataNote ??
+                            'Your questions and the rows the coach reads stay on '
+                                'your own machine.')
+                        : (l?.coachCloudDataNote ??
+                            'Your questions and the rows the coach reads are sent '
+                                'to this endpoint. See exactly what that is on '
+                                '"What was sent".'),
                     style: F.cap.copyWith(color: p.ink3, height: 1.5),
                   ),
                   const SizedBox(height: S.x4),
                   BigButton(
-                    _loading ? 'Asking…' : 'List models',
+                    _loading ? (l?.coachAsking ?? 'Asking…') : (l?.coachListModels ?? 'List models'),
                     icon: LucideIcons.refreshCw,
                     color: kCoachAccent,
                     soft: true,
@@ -967,8 +997,8 @@ class _CoachSetupState extends State<CoachSetup> {
                   const SizedBox(height: S.x4),
                   OsTextField(
                     controller: _search,
-                    label: 'Model',
-                    hint: 'search, or type an id',
+                    label: l?.coachModelLabel ?? 'Model',
+                    hint: l?.coachModelHint ?? 'search, or type an id',
                   ),
                   const SizedBox(height: S.x1),
                   Builder(
@@ -1013,7 +1043,7 @@ class _CoachSetupState extends State<CoachSetup> {
                   ),
                   const SizedBox(height: S.x4),
                   BigButton(
-                    'Save',
+                    l?.actionSave ?? 'Save',
                     icon: LucideIcons.check,
                     color: kCoachAccent,
                     onTap: _save,

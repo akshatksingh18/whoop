@@ -24,6 +24,7 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -59,10 +60,15 @@ Future<void> _until(WidgetTester t, Finder f, {int n = 60}) async {
   }
 }
 
-Widget _app(AppState app) => MaterialApp(
+Widget _app(AppState app, {LocaleController? locale}) => MaterialApp(
       theme: buildTheme(Brightness.light),
-      home: ChangeNotifierProvider<AppState>.value(
-        value: app,
+      home: MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AppState>.value(value: app),
+          ChangeNotifierProvider<LocaleController>.value(
+            value: locale ?? LocaleController.seed(null),
+          ),
+        ],
         child: const Scaffold(body: NutritionScreen()),
       ),
     );
@@ -142,6 +148,43 @@ void main() {
     }
     expect(repo.reads, first,
         reason: 'the screen re-read with nothing having landed');
+  });
+
+  testWidgets('a language switch reaches the live tab', (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _Repo();
+    app.repo = repo;
+    final locale = LocaleController.seed(null);
+    addTearDown(locale.dispose);
+
+    await t.pumpWidget(_app(app, locale: locale));
+    await _until(t, find.text('None yet'));
+    final before = t.state(find.byType(NutritionScreen));
+    final reads = repo.reads;
+    expect(reads, greaterThan(0));
+
+    // Nothing wrote underneath the screen — only the language changed.
+    // `NutritionData` bakes `AppLocalizations` strings into what it reads, so
+    // this has to reach the screen exactly like a durable write does, or a
+    // switch to Spanish leaves English on screen until something else forces
+    // a reload.
+    await locale.setCode('es');
+    for (var i = 0; i < 60 && repo.reads <= reads; i++) {
+      await t.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await t.pump();
+    }
+
+    expect(repo.reads, greaterThan(reads),
+        reason: 'the screen did not notice the language changed');
+    expect(identical(t.state(find.byType(NutritionScreen)), before), isTrue,
+        reason:
+            'the screen was remounted — that is the workaround, not the fix');
   });
 
   // ── the signal has to be raised where the writes are ──────────────────────

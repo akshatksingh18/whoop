@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
@@ -778,57 +779,65 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// is replaced by the rating in [SessionStats] — there is no confirm step,
   /// because a picker with a default and a Save button is how a 7 ends up in
   /// the database on behalf of somebody who never touched it.
-  Widget _rpePrompt(P p) => Surface(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('HOW HARD DID THAT FEEL?',
-              style: F.over.copyWith(color: p.ink3)),
-          const SizedBox(height: S.x2),
-          Text(
-              'Your own rating of the effort. It is a feeling, not a '
-              'measurement — which is the point, because it can disagree with '
-              'the numbers above.',
-              style: F.cap.copyWith(color: p.ink2, height: 1.4)),
-          const SizedBox(height: S.x4),
-          for (var row = 0; row < 2; row++) ...[
-            if (row > 0) const SizedBox(height: S.x2),
-            Row(children: [
-              for (var i = 0; i < 5; i++) ...[
-                if (i > 0) const SizedBox(width: S.x2),
-                Expanded(
-                  child: Pressable(
-                    semanticLabel: 'Rate this effort ${row * 5 + i + 1} of 10',
-                    onTap: () => _saveRpe(row * 5 + i + 1),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: S.x3),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                          color: p.wash(a.color), borderRadius: R.rMd),
-                      child: Text('${row * 5 + i + 1}',
-                          style: F.n17.copyWith(color: p.on(a.color))),
-                    ),
+  Widget _rpePrompt(P p) {
+    final l = AppLocalizations.of(context);
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(l?.activitySummaryRpeHeadline ?? 'HOW HARD DID THAT FEEL?',
+            style: F.over.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x2),
+        Text(
+            l?.activitySummaryRpeBody ??
+                'Your own rating of the effort. It is a feeling, not a '
+                    'measurement — which is the point, because it can '
+                    'disagree with the numbers above.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+        const SizedBox(height: S.x4),
+        for (var row = 0; row < 2; row++) ...[
+          if (row > 0) const SizedBox(height: S.x2),
+          Row(children: [
+            for (var i = 0; i < 5; i++) ...[
+              if (i > 0) const SizedBox(width: S.x2),
+              Expanded(
+                child: Pressable(
+                  semanticLabel: l?.activitySummaryRateEffort(
+                          row * 5 + i + 1) ??
+                      'Rate this effort ${row * 5 + i + 1} of 10',
+                  onTap: () => _saveRpe(row * 5 + i + 1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: S.x3),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: p.wash(a.color), borderRadius: R.rMd),
+                    child: Text('${row * 5 + i + 1}',
+                        style: F.n17.copyWith(color: p.on(a.color))),
                   ),
                 ),
-              ],
-            ]),
-          ],
-          const SizedBox(height: S.x3),
-          Row(children: [
-            Text('1 · very easy', style: F.over.copyWith(color: p.ink3)),
-            const Spacer(),
-            Text('10 · maximal', style: F.over.copyWith(color: p.ink3)),
+              ),
+            ],
           ]),
-          const SizedBox(height: S.x2),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Pressable(
-              onTap: _skipRpe,
-              child: Text('Not now',
-                  style: F.body.copyWith(
-                      color: p.ink2, fontWeight: FontWeight.w600)),
-            ),
-          ),
+        ],
+        const SizedBox(height: S.x3),
+        Row(children: [
+          Text(l?.activitySummaryRpeVeryEasy ?? '1 · very easy',
+              style: F.over.copyWith(color: p.ink3)),
+          const Spacer(),
+          Text(l?.activitySummaryRpeMaximal ?? '10 · maximal',
+              style: F.over.copyWith(color: p.ink3)),
         ]),
-      );
+        const SizedBox(height: S.x2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Pressable(
+            onTap: _skipRpe,
+            child: Text(l?.activitySummaryNotNow ?? 'Not now',
+                style: F.body.copyWith(
+                    color: p.ink2, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ]),
+    );
+  }
 
   /// Correct a session's activity type — the band's own guess, or a hand-typed
   /// one that was wrong. `LocalDb.setSessionType` is the narrow UPDATE this
@@ -895,6 +904,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // for a row that only ever draws one icon would shove the title left on
     // every unsaved-session summary for no reason.
     final canChangeType = r.sessionId != null;
+    final l = AppLocalizations.of(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -912,14 +922,17 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (canChangeType) ...[
                   Pressable(
-                    semanticLabel: 'Change activity type',
+                    semanticLabel:
+                        l?.activitySummaryChangeType ?? 'Change activity type',
                     onTap: () => _changeType(c),
                     child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
                   ),
                   const SizedBox(width: S.x3),
                 ],
                 Pressable(
-                  semanticLabel: 'Share this ${a.name.toLowerCase()}',
+                  semanticLabel: l?.activitySummaryShareThis(
+                          a.name.toLowerCase()) ??
+                      'Share this ${a.name.toLowerCase()}',
                   onTap: () => Navigator.of(c).push(MaterialPageRoute(
                       builder: (_) => ShareSheet(r))),
                   child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
@@ -929,7 +942,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: SubTabs(_tabs, tab, (i) => setState(() => tab = i),
+            // Display labels are localized; `_tabs` itself stays the fixed
+            // English keys the switch below matches by NAME.
+            child: SubTabs(
+                [
+                  for (final t in _tabs)
+                    switch (t) {
+                      'Overview' => l?.activitySummaryTabOverview ?? 'Overview',
+                      'Splits' => l?.activitySummaryTabSplits ?? 'Splits',
+                      _ => l?.activitySummaryTabGraphs ?? 'Graphs',
+                    },
+                ],
+                tab,
+                (i) => setState(() => tab = i),
                 color: a.color),
           ),
           Expanded(
@@ -952,12 +977,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   // ─────────────────── OVERVIEW ───────────────────
   List<Widget> _overview(BuildContext c, P p) {
     final hero = _hero();
+    final l = AppLocalizations.of(c);
     return [
       if (unsaved) ...[
         StatusCard(
-          'This session is not saved yet',
-          'Writing it to this phone failed.',
-          fix: _saving ? 'Saving' : 'Try again',
+          l?.activitySummaryUnsavedTitle ?? 'This session is not saved yet',
+          l?.activitySummaryUnsavedBody ?? 'Writing it to this phone failed.',
+          fix: _saving
+              ? (l?.activitySummarySaving ?? 'Saving')
+              : (l?.activitySummaryTryAgain ?? 'Try again'),
           onFix: _saving ? null : _retrySave,
           icon: LucideIcons.triangleAlert,
         ),
@@ -989,7 +1017,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ),
         if (r.private) ...[
           const SizedBox(width: S.x3),
-          const Pill('Private', C.n500, icon: LucideIcons.lock),
+          Pill(l?.activitySummaryPrivate ?? 'Private', C.n500,
+              icon: LucideIcons.lock),
         ],
       ]),
       const SizedBox(height: S.x1),
@@ -1018,22 +1047,26 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// always here; the step one joins it whenever a count is on the card,
   /// because a step row that does not name its sensor is weaker than the day
   /// screens beside it, which have named theirs all along.
-  Widget _basisNote(P p) => Surface(
-        elevation: 0,
-        color: p.card2,
-        child: Row(children: [
-          Expanded(
-            child: Text(
-                [
-                  _calorieBasis(),
-                  if (r.stepsCounted != null)
-                    "Steps came from the strap's own motion sensor, which only "
-                        'counts them on foot.',
-                ].join(' '),
-                style: F.cap.copyWith(color: p.ink3, height: 1.5)),
-          ),
-        ]),
-      );
+  Widget _basisNote(P p) {
+    final l = AppLocalizations.of(context);
+    return Surface(
+      elevation: 0,
+      color: p.card2,
+      child: Row(children: [
+        Expanded(
+          child: Text(
+              [
+                _calorieBasis(),
+                if (r.stepsCounted != null)
+                  l?.activitySummaryStepsBasis ??
+                      "Steps came from the strap's own motion sensor, which "
+                          'only counts them on foot.',
+              ].join(' '),
+              style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+        ),
+      ]),
+    );
+  }
 
   /// What the calorie figure was actually made of — or why there isn't one.
   ///
@@ -1051,28 +1084,37 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// When there is no number, say which anchor is missing and point at the
   /// effort measure that does not need one.
   String _calorieBasis() {
-    if (widget.weightKg == null) return 'Calories need your weight.';
+    final l = AppLocalizations.of(context);
+    if (widget.weightKg == null) {
+      return l?.activitySummaryCaloriesNeedWeight ??
+          'Calories need your weight.';
+    }
     final met = a.met.toStringAsFixed(1);
     if (r.calories == null) {
       return r.strain == null
-          ? 'No calorie figure for this session. An energy estimate from heart '
-              'rate needs your maximum and resting heart rates, and one of '
-              'them is not set.'
-          : 'No calorie figure for this session — an energy estimate from '
-              'heart rate needs your maximum and resting heart rates, and one '
-              'of them is not set. Strain above is the effort that was '
-              'measured, on its own 0–21 scale.';
+          ? l?.activitySummaryNoCalorieNoStrain ??
+              'No calorie figure for this session. An energy estimate from '
+                  'heart rate needs your maximum and resting heart rates, and '
+                  'one of them is not set.'
+          : l?.activitySummaryNoCalorieWithStrain ??
+              'No calorie figure for this session — an energy estimate from '
+                  'heart rate needs your maximum and resting heart rates, and '
+                  'one of them is not set. Strain above is the effort that '
+                  'was measured, on its own 0–21 scale.';
     }
     return r.avgHr == null
-        ? 'Estimated from $met MET and your weight. No heart rate reached '
-            'this session, so none of it is in the figure.'
-        : 'Estimated from $met MET, your weight and heart rate.';
+        ? l?.activitySummaryCalorieNoHr(met) ??
+            'Estimated from $met MET and your weight. No heart rate reached '
+                'this session, so none of it is in the figure.'
+        : l?.activitySummaryCalorieWithHr(met) ??
+            'Estimated from $met MET, your weight and heart rate.';
   }
 
   /// (value, unit, caption). The hero is the archetype's own headline — and
   /// falls back to elapsed time, which is the one number every session has.
   (String, String, String) _hero() {
-    final fallback = (hms(r.duration), '', 'Elapsed time');
+    final l = AppLocalizations.of(context);
+    final fallback = (hms(r.duration), '', l?.activitySummaryElapsedTime ?? 'Elapsed time');
     return switch (arch) {
       Arch.route || Arch.journey => _distance == null
           ? fallback
@@ -1080,25 +1122,34 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               _distance!.$1.toStringAsFixed(2),
               _distance!.$2,
               arch == Arch.journey && r.gainM != null
-                  ? '+${r.gainM!.round()} m climbed'
+                  ? (l?.activitySummaryClimbed(r.gainM!.round()) ??
+                      '+${r.gainM!.round()} m climbed')
                   : a.name
             ),
       Arch.strength => r.strength.volumeKg == null
           ? (
               '${r.strength.setCount}',
-              r.strength.setCount == 1 ? 'set' : 'sets',
-              'Nothing was logged with a load'
+              l?.activitySummarySetUnit(r.strength.setCount) ??
+                  (r.strength.setCount == 1 ? 'set' : 'sets'),
+              l?.activitySummaryNothingLoggedWithLoad ??
+                  'Nothing was logged with a load'
             )
           : (
               grouped(r.strength.volumeKg!),
               'kg',
               r.strength.hasUnloadedSets
-                  ? 'Volume of the loaded sets'
-                  : 'Total volume'
+                  ? (l?.activitySummaryVolumeLoadedSets ??
+                      'Volume of the loaded sets')
+                  : (l?.activitySummaryTotalVolume ?? 'Total volume')
             ),
       Arch.laps => r.swimMetres == null
           ? fallback
-          : (grouped(r.swimMetres!), 'm', '${r.lapCount} laps'),
+          : (
+              grouped(r.swimMetres!),
+              'm',
+              l?.activitySummaryLapsCaption(r.lapCount ?? 0) ??
+                  '${r.lapCount} laps'
+            ),
       Arch.flow ||
       Arch.match ||
       Arch.interval ||
@@ -1109,6 +1160,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   // ─────────── THE DEFINING VISUAL OBJECT ───────────
   List<Widget> _definingObject(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
     switch (arch) {
       case Arch.route:
         if (r.route.length < 2) {
@@ -1116,9 +1168,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             // No `fix`: there is no "how route recording works" screen, and
             // StatusCard paints any fix string as a blue call to action —
             // a button that cannot be tapped is worse than no button.
-            const StatusCard(
-              'No route for this session',
-              'Location was off, or this activity was not recorded with GPS.',
+            StatusCard(
+              l?.activitySummaryNoRouteTitle ?? 'No route for this session',
+              l?.activitySummaryNoRouteBody ??
+                  'Location was off, or this activity was not recorded with '
+                      'GPS.',
               icon: LucideIcons.map,
             ),
           ];
@@ -1126,7 +1180,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           Surface(
             child: ChartFrame(
-              title: 'ROUTE',
+              title: l?.activitySummaryRouteTitle ?? 'ROUTE',
               unit: _distanceUnit,
               height: 200,
               legend: r.routePace == null
@@ -1135,11 +1189,17 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   // These were opposite: the same run read green at its
                   // slowest here and green at its fastest on the poster, so a
                   // card and the screen it came from disagreed about the run.
-                  : [('Slower', p.on(C.red)), ('Faster', p.on(C.green))],
+                  : [
+                      (l?.activitySummarySlower ?? 'Slower', p.on(C.red)),
+                      (l?.activitySummaryFaster ?? 'Faster', p.on(C.green)),
+                    ],
               footnote: _distance == null
-                  ? 'Start and finish are pinned.'
-                  : '${_distance!.$1.toStringAsFixed(2)} ${_distance!.$2}, '
-                      'start and finish pinned.',
+                  ? (l?.activitySummaryStartFinishPinned ??
+                      'Start and finish are pinned.')
+                  : (l?.activitySummaryRouteFootnote(
+                          _distance!.$1.toStringAsFixed(2), _distance!.$2) ??
+                      '${_distance!.$1.toStringAsFixed(2)} ${_distance!.$2}, '
+                          'start and finish pinned.'),
               child: ClipRRect(
                 borderRadius: R.rLg,
                 child: Container(
@@ -1172,11 +1232,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       // an empty log.
       case Arch.strength:
         return r.strength.isEmpty
-            ? const [
+            ? [
                 StatusCard(
-                  'No sets logged',
-                  'Nothing was entered for this session, so there is no load '
-                      'and no volume to total.',
+                  l?.activitySummaryNoSetsTitle ?? 'No sets logged',
+                  l?.activitySummaryNoSetsBody ??
+                      'Nothing was entered for this session, so there is no '
+                          'load and no volume to total.',
                   icon: LucideIcons.dumbbell,
                 ),
               ]
@@ -1185,9 +1246,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.interval:
         if (r.rounds.isEmpty) {
           return [
-            const StatusCard(
-              'No rounds recorded',
-              '0 rounds logged.',
+            StatusCard(
+              l?.activitySummaryNoRoundsTitle ?? 'No rounds recorded',
+              l?.activitySummaryNoRoundsBody ?? '0 rounds logged.',
               icon: LucideIcons.timer,
             ),
           ];
@@ -1199,12 +1260,20 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           Surface(
             child: ChartFrame(
-              title: 'INTERVAL LADDER',
+              title: l?.activitySummaryIntervalLadderTitle ?? 'INTERVAL LADDER',
               unit: 'seconds',
               height: 110,
-              legend: [('Work', p.on(C.red)), ('Rest', p.on(C.teal))],
-              xLabels: ['Round 1', 'Round ${r.rounds.length}'],
-              footnote: 'Longest block ${clock(peak.round())}.',
+              legend: [
+                (l?.activitySummaryWork ?? 'Work', p.on(C.red)),
+                (l?.activitySummaryRest ?? 'Rest', p.on(C.teal)),
+              ],
+              xLabels: [
+                l?.activitySummaryRoundLabel(1) ?? 'Round 1',
+                l?.activitySummaryRoundLabel(r.rounds.length) ??
+                    'Round ${r.rounds.length}',
+              ],
+              footnote: l?.activitySummaryLongestBlock(clock(peak.round())) ??
+                  'Longest block ${clock(peak.round())}.',
               child: CustomPaint(
                 size: Size.infinite,
                 painter: IntervalLadder([
@@ -1240,7 +1309,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   Text(
                       r.poses.isEmpty
                           ? hms(r.duration)
-                          : '${r.poses.length} poses',
+                          : (l?.activitySummaryPosesCount(r.poses.length) ??
+                              '${r.poses.length} poses'),
                       style: F.head.copyWith(color: p.ink)),
                   Text(
                       r.breathsPerMin == null
@@ -1254,9 +1324,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.laps:
         if (r.lapSecs.isEmpty) {
           return [
-            const StatusCard(
-              'No laps counted',
-              '0 laps tapped.',
+            StatusCard(
+              l?.activitySummaryNoLapsTitle ?? 'No laps counted',
+              l?.activitySummaryNoLapsBody ?? '0 laps tapped.',
               icon: LucideIcons.waves,
             ),
           ];
@@ -1266,14 +1336,22 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           Surface(
             child: ChartFrame(
-              title: 'LAPS',
-              unit: 'seconds per lap',
+              title: l?.activitySummaryLapsTitle ?? 'LAPS',
+              unit: l?.activitySummarySecondsPerLap ?? 'seconds per lap',
               height: 150,
-              xLabels: ['Lap 1', 'Lap ${r.lapSecs.length}'],
+              xLabels: [
+                l?.activitySummaryLapLabel(1) ?? 'Lap 1',
+                l?.activitySummaryLapLabel(r.lapSecs.length) ??
+                    'Lap ${r.lapSecs.length}',
+              ],
               footnote: [
-                if (r.poolLengthM != null) '${r.poolLengthM} m pool',
-                'fastest ${clock(fastest)}',
-                'slowest ${clock(slowest)}',
+                if (r.poolLengthM != null)
+                  l?.activitySummaryPoolLength(r.poolLengthM!) ??
+                      '${r.poolLengthM} m pool',
+                l?.activitySummaryFastest(clock(fastest)) ??
+                    'fastest ${clock(fastest)}',
+                l?.activitySummarySlowest(clock(slowest)) ??
+                    'slowest ${clock(slowest)}',
               ].join(' · '),
               child: CustomPaint(
                   size: Size.infinite,
@@ -1285,9 +1363,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.journey:
         if (r.elevationM.length < 2) {
           return [
-            const StatusCard(
-              'No elevation profile',
-              'No route, or the route carried no altitude.',
+            StatusCard(
+              l?.activitySummaryNoElevationTitle ?? 'No elevation profile',
+              l?.activitySummaryNoElevationBody ??
+                  'No route, or the route carried no altitude.',
               icon: LucideIcons.mountain,
             ),
           ];
@@ -1298,11 +1377,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Surface(
             child: Column(children: [
               ChartFrame(
-                title: 'ELEVATION',
+                title: l?.activitySummaryElevationTitle ?? 'ELEVATION',
                 unit: 'm',
                 height: 130,
                 yAxis: axis,
-                xLabels: const ['Start', 'Finish'],
+                xLabels: [
+                  l?.activitySummaryStart ?? 'Start',
+                  l?.activitySummaryFinish ?? 'Finish',
+                ],
                 series: r.elevationM,
                 child: CustomPaint(
                     size: Size.infinite,
@@ -1311,9 +1393,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               ),
               const SizedBox(height: S.x4),
               InlineMetrics([
-                if (r.gainM != null) ('Gain', '+${r.gainM!.round()} m', C.green),
-                if (r.lossM != null) ('Loss', '−${r.lossM!.round()} m', C.orange),
-                ('Peak', '${grouped(peak)} m', C.n500),
+                if (r.gainM != null)
+                  (l?.activitySummaryGain ?? 'Gain',
+                      '+${r.gainM!.round()} m', C.green),
+                if (r.lossM != null)
+                  (l?.activitySummaryLoss ?? 'Loss',
+                      '−${r.lossM!.round()} m', C.orange),
+                (l?.activitySummaryPeak ?? 'Peak', '${grouped(peak)} m',
+                    C.n500),
               ]),
             ]),
           ),
@@ -1355,19 +1442,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// [_noHrCard] cannot end up telling three different stories about the same
   /// silent sensor. Offering "Check band connection" for a plunge is a fix for
   /// a problem the user does not have.
-  String? get _thermalWhy => !thermal
-      ? null
-      : a.name == 'Cold plunge'
-          ? 'Cold closes the blood vessels the sensor reads through. Finding '
-              'nothing here is expected, not a fault.'
-          : 'Heat, sweat and a strap that loosens as you warm up all stop the '
-              'sensor seeing a pulse. Finding nothing here is ordinary, not a '
-              'fault.';
+  String? get _thermalWhy {
+    if (!thermal) return null;
+    final l = AppLocalizations.of(context);
+    return a.name == 'Cold plunge'
+        ? l?.activitySummaryColdPlungeWhy ??
+            'Cold closes the blood vessels the sensor reads through. Finding '
+                'nothing here is expected, not a fault.'
+        : l?.activitySummaryHeatWhy ??
+            'Heat, sweat and a strap that loosens as you warm up all stop '
+                'the sensor seeing a pulse. Finding nothing here is '
+                'ordinary, not a fault.';
+  }
 
   IconData get _thermalIcon =>
       a.name == 'Cold plunge' ? LucideIcons.snowflake : LucideIcons.thermometer;
 
   List<Widget> _thermalObject(P p) {
+    final l = AppLocalizations.of(context);
     final (have, total) = r.hrMinutes;
     // Under two readings there is no line to draw — one point is not a trace.
     // The two headlines are not the same statement: nothing arrived, or one
@@ -1376,8 +1468,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       return [
         StatusCard(
           have == 0
-              ? 'No pulse reading for this ${a.name.toLowerCase()}'
-              : 'One minute of pulse, and no more',
+              ? (l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
+                  'No pulse reading for this ${a.name.toLowerCase()}')
+              : (l?.activitySummaryOneMinutePulse ??
+                  'One minute of pulse, and no more'),
           _thermalWhy!,
           icon: _thermalIcon,
         ),
@@ -1388,8 +1482,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         child: _hrFrame(
           p,
           extra: have < total
-              ? 'The band found a pulse in $have of $total minutes. The gaps '
-                  'are expected, so what is drawn is the part it could see.'
+              ? (l?.activitySummaryPulseGapNote(have, total) ??
+                  'The band found a pulse in $have of $total minutes. The '
+                      'gaps are expected, so what is drawn is the part it '
+                      'could see.')
               : null,
         ),
       ),
@@ -1403,30 +1499,38 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// used to get 'The band reported nothing while this was running' and a
   /// Check-band button, which is a false reason and a fix for a problem the
   /// user does not have.
-  Widget _noHrCard(BuildContext c) => r.hr.any((v) => v != null)
-      ? const StatusCard(
-          'Too short to chart',
-          'One minute of heart rate is a point, not a line.',
-          icon: LucideIcons.heartPulse,
-        )
-      // MT-08 — a third reason, and it is not a fault. On a heat or cold
-      // session the sensor is working and the blood is not where it can see
-      // it, so there is no connection to check and no button that helps.
-      : thermal
-          ? StatusCard(
-              'No pulse reading for this ${a.name.toLowerCase()}',
-              _thermalWhy!,
-              icon: _thermalIcon,
-            )
-          : StatusCard(
-              'No heart rate for this session',
-              'The band reported nothing while this was running.',
-              fix: 'Check band connection',
-              // The band, its battery and its link all live behind the
-              // profile's sources list. The CTA used to be paint.
-              onFix: () => openProfile(c),
-              icon: LucideIcons.heartPulse,
-            );
+  Widget _noHrCard(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return r.hr.any((v) => v != null)
+        ? StatusCard(
+            l?.activitySummaryTooShortTitle ?? 'Too short to chart',
+            l?.activitySummaryTooShortBody ??
+                'One minute of heart rate is a point, not a line.',
+            icon: LucideIcons.heartPulse,
+          )
+        // MT-08 — a third reason, and it is not a fault. On a heat or cold
+        // session the sensor is working and the blood is not where it can
+        // see it, so there is no connection to check and no button that
+        // helps.
+        : thermal
+            ? StatusCard(
+                l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
+                    'No pulse reading for this ${a.name.toLowerCase()}',
+                _thermalWhy!,
+                icon: _thermalIcon,
+              )
+            : StatusCard(
+                l?.activitySummaryNoHrTitle ?? 'No heart rate for this session',
+                l?.activitySummaryNoHrBody ??
+                    'The band reported nothing while this was running.',
+                fix: l?.activitySummaryCheckBandConnection ??
+                    'Check band connection',
+                // The band, its battery and its link all live behind the
+                // profile's sources list. The CTA used to be paint.
+                onFix: () => openProfile(c),
+                icon: LucideIcons.heartPulse,
+              );
+  }
 
   /// The heart-rate trace, framed — the one chart both `basic` and `match`
   /// are built on, so they cannot end up with two different axes for one
@@ -1442,23 +1546,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   String? get _traceNote {
     final pct = r.traceCoveragePct;
     if (pct == null || pct >= 90) return null;
-    return 'Partial trace — the band handed over $pct% of these minutes.';
+    final l = AppLocalizations.of(context);
+    return l?.activitySummaryPartialTrace(pct) ??
+        'Partial trace — the band handed over $pct% of these minutes.';
   }
 
   Widget _hrFrame(P p, {double height = 130, String? extra}) {
+    final l = AppLocalizations.of(context);
     final axis = AxisSpec.of(r.hr.whereType<double>());
     final hard = r.hardMinutes;
     final note = [
-      if (hard != null) '${hard.round()} min above 80% of your maximum.',
+      if (hard != null)
+        l?.activitySummaryHardMinutesNote(hard.round()) ??
+            '${hard.round()} min above 80% of your maximum.',
       ?_traceNote,
       ?extra,
     ];
     return ChartFrame(
-      title: 'HEART RATE',
+      title: l?.activitySummaryHeartRateTitle ?? 'HEART RATE',
       unit: 'bpm',
       height: height,
       yAxis: axis,
-      xLabels: ['Start', hms(r.duration)],
+      xLabels: [l?.activitySummaryStart ?? 'Start', hms(r.duration)],
       footnote: note.isEmpty ? null : note.join(' '),
       series: r.hr,
       child: CustomPaint(
@@ -1471,20 +1580,22 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// The zone split, with the minutes in the key rather than in a second row
   /// underneath it that has to be kept in step by hand.
   Widget _zoneFrame(P p) => ChartFrame(
-        title: 'TIME IN ZONES',
+        title: AppLocalizations.of(context)?.activitySummaryTimeInZonesTitle ??
+            'TIME IN ZONES',
         unit: 'minutes',
         height: 10,
         legend: [
           for (var i = 0; i < 5; i++)
             ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
         ],
-        footnote: zonesWhy(r.zoneSource, r.zoneMaxHr),
+        footnote: zonesWhy(r.zoneSource, r.zoneMaxHr, AppLocalizations.of(context)),
         child: CustomPaint(
             size: Size.infinite, painter: ZoneBar(_zoneFractions(), p)),
       );
 
   // ─────────── ARCHETYPE BODY ───────────
   List<Widget> _body(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
     switch (arch) {
       case Arch.strength:
         final top = r.strength.topSet;
@@ -1492,7 +1603,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           if (top != null)
             Section(
-              'Top set',
+              l?.activitySummaryTopSet ?? 'Top set',
               Surface(
                 child: Row(children: [
                   Container(
@@ -1515,7 +1626,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                                   color: p.ink, fontWeight: FontWeight.w600)),
                           Row(children: [
                             Flexible(
-                                child: Text('1RM estimate ${rm!.round()} kg',
+                                child: Text(
+                                    l?.activitySummaryOneRepMax(
+                                            rm!.round()) ??
+                                        '1RM estimate ${rm!.round()} kg',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: F.over.copyWith(color: p.ink3))),
@@ -1533,11 +1647,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               ),
             ),
           if (r.strength.hasUnloadedSets)
-            const Padding(
-              padding: EdgeInsets.only(top: S.x4),
+            Padding(
+              padding: const EdgeInsets.only(top: S.x4),
               child: StatusCard(
-                'Some sets had no load',
-                'Counted in sets and reps, but left out of volume.',
+                l?.activitySummarySomeSetsNoLoadTitle ??
+                    'Some sets had no load',
+                l?.activitySummarySomeSetsNoLoadBody ??
+                    'Counted in sets and reps, but left out of volume.',
                 icon: LucideIcons.info,
               ),
             ),
@@ -1553,7 +1669,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           if (r.gameScore.isNotEmpty)
             Section(
-              'Score',
+              l?.activitySummaryScore ?? 'Score',
               Surface(
                 pad: const EdgeInsets.symmetric(horizontal: S.x4),
                 child: Column(children: [
@@ -1562,7 +1678,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                       padding: const EdgeInsets.symmetric(vertical: S.x3),
                       child: Row(children: [
                         Expanded(
-                            child: Text('Set ${i + 1}',
+                            child: Text(
+                                l?.activitySummaryGameSetLabel(i + 1) ??
+                                    'Set ${i + 1}',
                                 style: F.body.copyWith(color: p.ink3))),
                         Text('${r.gameScore[i].$1} — ${r.gameScore[i].$2}',
                             style: F.n17.copyWith(
@@ -1590,7 +1708,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   List<Widget> _zoneSection(P p) => r.zoneMinutes.length != 5
       ? const []
-      : [Section('Heart-rate zones', Surface(child: _zoneFrame(p)))];
+      : [
+          Section(
+              AppLocalizations.of(context)?.activitySummaryHeartRateZones ??
+                  'Heart-rate zones',
+              Surface(child: _zoneFrame(p))),
+        ];
 
   List<double> _zoneFractions() {
     final total = r.zoneMinutes.fold<double>(0, (x, y) => x + y);
@@ -1605,13 +1728,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   // "Splits" is whatever this archetype breaks into: kilometres for a run,
   // sets for a lift, rounds for HIIT, laps for a swim.
   List<Widget> _splits(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
     switch (arch) {
       case Arch.route || Arch.journey:
         if (r.splits.isEmpty) {
           return [
-            const StatusCard(
-              'No splits for this session',
-              'Splits need a recorded distance.',
+            StatusCard(
+              l?.activitySummaryNoSplitsTitle ?? 'No splits for this session',
+              l?.activitySummaryNoSplitsBody ??
+                  'Splits need a recorded distance.',
               icon: LucideIcons.list,
             ),
           ];
@@ -1641,14 +1766,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               Row(children: [
                 SizedBox(
                     width: 26,
-                    child: Text('KM', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryKm ?? 'KM',
+                        style: F.over.copyWith(color: p.ink3))),
                 SizedBox(
                     width: 46,
-                    child: Text('PACE', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryPace ?? 'PACE',
+                        style: F.over.copyWith(color: p.ink3))),
                 const Expanded(child: SizedBox()),
                 SizedBox(
                     width: 34,
-                    child: Text('HR',
+                    child: Text(l?.activitySummaryHr ?? 'HR',
                         textAlign: TextAlign.right,
                         style: F.over.copyWith(color: p.ink3))),
               ]),
@@ -1692,9 +1819,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.strength:
         if (r.strength.isEmpty) {
           return [
-            const StatusCard(
-              'No sets logged',
-              '0 sets logged.',
+            StatusCard(
+              l?.activitySummaryNoSetsTitle ?? 'No sets logged',
+              l?.activitySummarySetsLoggedZero ?? '0 sets logged.',
               icon: LucideIcons.dumbbell,
             ),
           ];
@@ -1722,8 +1849,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.interval:
         if (r.rounds.isEmpty) {
           return [
-            const StatusCard('No rounds recorded',
-                '0 rounds logged.',
+            StatusCard(l?.activitySummaryNoRoundsTitle ?? 'No rounds recorded',
+                l?.activitySummaryNoRoundsBody ?? '0 rounds logged.',
                 icon: LucideIcons.timer),
           ];
         }
@@ -1737,15 +1864,18 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               Row(children: [
                 SizedBox(
                     width: 34,
-                    child: Text('R', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryRoundHeader ?? 'R',
+                        style: F.over.copyWith(color: p.ink3))),
                 Expanded(
-                    child: Text('WORK', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryWorkHeader ?? 'WORK',
+                        style: F.over.copyWith(color: p.ink3))),
                 Expanded(
-                    child: Text('REST', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryRestHeader ?? 'REST',
+                        style: F.over.copyWith(color: p.ink3))),
                 if (anyHr)
                   SizedBox(
                       width: 52,
-                      child: Text('AVG BPM',
+                      child: Text(l?.activitySummaryAvgBpm ?? 'AVG BPM',
                           textAlign: TextAlign.right,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1791,7 +1921,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       case Arch.laps:
         if (r.lapSecs.isEmpty) {
           return [
-            const StatusCard('No laps counted', '0 laps tapped.',
+            StatusCard(l?.activitySummaryNoLapsTitle ?? 'No laps counted',
+                l?.activitySummaryNoLapsBody ?? '0 laps tapped.',
                 icon: LucideIcons.waves),
           ];
         }
@@ -1803,12 +1934,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               Row(children: [
                 SizedBox(
                     width: 34,
-                    child: Text('LAP', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryLapHeader ?? 'LAP',
+                        style: F.over.copyWith(color: p.ink3))),
                 SizedBox(
                     width: 52,
-                    child: Text('TIME', style: F.over.copyWith(color: p.ink3))),
+                    child: Text(l?.activitySummaryTimeHeader ?? 'TIME',
+                        style: F.over.copyWith(color: p.ink3))),
                 Expanded(
-                    child: Text('SPEED vs FASTEST',
+                    child: Text(
+                        l?.activitySummarySpeedVsFastest ?? 'SPEED vs FASTEST',
                         textAlign: TextAlign.right,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1844,38 +1978,44 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
   }
 
-  Widget _setRow(P p, int n, LoggedSet s) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
-          Container(
-            width: 24,
-            height: 24,
-            alignment: Alignment.center,
-            decoration:
-                BoxDecoration(color: p.wash(C.purple), borderRadius: R.rSm),
-            child: Text('$n', style: F.over.copyWith(color: p.on(C.purple))),
-          ),
+  Widget _setRow(P p, int n, LoggedSet s) {
+    final l = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: Row(children: [
+        Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration:
+              BoxDecoration(color: p.wash(C.purple), borderRadius: R.rSm),
+          child: Text('$n', style: F.over.copyWith(color: p.on(C.purple))),
+        ),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Text(
+              s.loadKg == null
+                  ? (l?.activitySummaryBodyweightReps(s.reps) ??
+                      '${s.reps} reps · bodyweight')
+                  : '${_kg(s.loadKg!)} × ${s.reps}',
+              style: F.body.copyWith(color: p.ink)),
+        ),
+        if (s.rpe != null)
+          Text(l?.activitySummaryRpeValue(s.rpe!) ?? 'RPE ${s.rpe}',
+              style: F.cap.copyWith(color: p.ink3)),
+        if (s.volume != null) ...[
           const SizedBox(width: S.x3),
-          Expanded(
-            child: Text(
-                s.loadKg == null
-                    ? '${s.reps} reps · bodyweight'
-                    : '${_kg(s.loadKg!)} × ${s.reps}',
-                style: F.body.copyWith(color: p.ink)),
-          ),
-          if (s.rpe != null)
-            Text('RPE ${s.rpe}', style: F.cap.copyWith(color: p.ink3)),
-          if (s.volume != null) ...[
-            const SizedBox(width: S.x3),
-            Text('${grouped(s.volume!)} kg',
-                style: F.cap
-                    .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
-          ],
-        ]),
-      );
+          Text('${grouped(s.volume!)} kg',
+              style: F.cap
+                  .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+        ],
+      ]),
+    );
+  }
 
   // ─────────────────── GRAPHS ───────────────────
   List<Widget> _graphs(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
     final series = <(String, String, Color, List<double?>)>[
       if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr),
       if (r.elevationM.length > 1)
@@ -1887,24 +2027,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       // from the sources list.
       return [
         if (r.hr.any((v) => v != null))
-          const StatusCard(
-            'Too short to chart',
-            'One minute of heart rate is a point, not a line.',
+          StatusCard(
+            l?.activitySummaryTooShortTitle ?? 'Too short to chart',
+            l?.activitySummaryTooShortBody ??
+                'One minute of heart rate is a point, not a line.',
             icon: LucideIcons.chartLine,
           )
         // MT-08 — same guard as `_noHrCard`: a plunge with no trace has a
         // reason, and "check band connection" is not it.
         else if (thermal)
           StatusCard(
-            'Nothing to plot for this ${a.name.toLowerCase()}',
+            l?.activitySummaryNothingToPlot(a.name.toLowerCase()) ??
+                'Nothing to plot for this ${a.name.toLowerCase()}',
             _thermalWhy!,
             icon: _thermalIcon,
           )
         else
           StatusCard(
-            'No series to plot',
-            'This session recorded no per-minute streams.',
-            fix: 'Check band connection',
+            l?.activitySummaryNoSeriesTitle ?? 'No series to plot',
+            l?.activitySummaryNoSeriesBody ??
+                'This session recorded no per-minute streams.',
+            fix: l?.activitySummaryCheckBandConnection ??
+                'Check band connection',
             onFix: () => openProfile(c),
             icon: LucideIcons.chartLine,
           ),

@@ -49,6 +49,7 @@ import 'package:openstrap_analytics/onehz.dart' show mdc, robustBaseline;
 import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
@@ -246,13 +247,16 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   /// Confirmed, because it cannot be undone OR redone: the only writer on this
   /// screen logs TODAY, so a start deleted off an older date has no way back.
   Future<void> _deleteLog(String date) async {
+    final l = AppLocalizations.of(context);
     final ok = await confirmRemove(
       context,
-      title: 'Remove ${_short(date)}?',
+      title:
+          l?.cycleRemoveLogTitle(_short(date, l)) ?? 'Remove ${_short(date, l)}?',
       body:
+          l?.cycleRemoveLogBody ??
           'Cycle day, phase and the predicted next date are all counted from '
-          'the days you log. Only today can be logged, so this one cannot be '
-          'put back.',
+              'the days you log. Only today can be logged, so this one cannot be '
+              'put back.',
     );
     if (!ok || !mounted) return;
     final repo = context.read<AppState>().repo;
@@ -266,6 +270,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   /// tapped once.
   Future<void> _pickRepro() async {
     final p = P.of(context);
+    final l = AppLocalizations.of(context);
     final picked = await showModalBottomSheet<String>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
@@ -278,14 +283,11 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
             Padding(
               padding: const EdgeInsets.all(S.x4),
               child: Text(
-                'What applies to you',
+                l?.cycleWhatAppliesToYou ?? 'What applies to you',
                 style: F.head.copyWith(color: P.of(c).ink),
               ),
             ),
-            for (final (key, label, why) in [
-              ...kReproStates,
-              ('', 'Prefer not to say', 'The app keeps the phase off.'),
-            ])
+            for (final key in [...kReproStates.map((r) => r.$1), ''])
               Pressable(
                 onTap: () => Navigator.pop(c, key),
                 child: Padding(
@@ -296,9 +298,12 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(label, style: F.body.copyWith(color: P.of(c).ink)),
                       Text(
-                        why,
+                        _reproDisplayLabel(l, key),
+                        style: F.body.copyWith(color: P.of(c).ink),
+                      ),
+                      Text(
+                        _reproDisplayWhy(l, key),
                         style: F.over.copyWith(
                           color: P.of(c).ink3,
                           height: 1.4,
@@ -332,14 +337,15 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d;
     if (d == null) return const Center(child: CircularProgressIndicator());
 
     if (!d.enabled) {
       return StatusCard(
-        'Cycle tracking is off',
-        'It stays on this phone.',
-        fix: 'Turn on cycle tracking',
+        l?.cycleTrackingOffTitle ?? 'Cycle tracking is off',
+        l?.cycleTrackingOffBody ?? 'It stays on this phone.',
+        fix: l?.cycleTurnOnTracking ?? 'Turn on cycle tracking',
         icon: LucideIcons.circleDot,
         onFix: () => _setEnabled(true),
       );
@@ -350,9 +356,9 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
       children: [
         if (d.cycleDay == null)
           StatusCard(
-            'No period logged yet',
-            'Counted from the days you log.',
-            fix: 'Log a period start today',
+            l?.cycleNoPeriodTitle ?? 'No period logged yet',
+            l?.cycleNoPeriodBody ?? 'Counted from the days you log.',
+            fix: l?.cycleLogPeriodButton ?? 'Log a period start today',
             icon: LucideIcons.calendarPlus,
             onFix: _logStart,
           )
@@ -369,19 +375,25 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
         // are all look-backs, and the tab itself is for logging today.
         const SizedBox(height: S.x5),
         DeepDiveCard(
-          'Across your cycles',
+          l?.cycleAcrossCyclesTitle ?? 'Across your cycles',
           '${_completedCycles(d)}',
-          _completedCycles(d) == 1 ? 'complete cycle' : 'complete cycles',
-          'Open',
+          _completedCycles(d) == 1
+              ? (l?.cycleUnitCompleteCycle ?? 'complete cycle')
+              : (l?.cycleUnitCompleteCycles ?? 'complete cycles'),
+          l?.cycleOpenAction ?? 'Open',
           C.pink,
           onTap: () => Navigator.of(
             c,
           ).push(MaterialPageRoute<void>(builder: (_) => _CycleHistory(d))),
         ),
 
-        Section('What you noticed today', _symptoms(c, p, d)),
+        Section(
+          l?.cycleWhatYouNoticedToday ?? 'What you noticed today',
+          _symptoms(c, p, d),
+        ),
 
-        if (d.logs.isNotEmpty) Section('Logged days', _logs(c, p, d)),
+        if (d.logs.isNotEmpty)
+          Section(l?.cycleLoggedDays ?? 'Logged days', _logs(c, p, d)),
 
         // WH-07 — the one control that makes the screen say less. It sits in
         // this tab's settings gutter, next to the switch that turns the whole
@@ -392,17 +404,19 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
           child: MetricRow(
             LucideIcons.circleDot,
             C.pink,
-            'What applies to you',
-            _reproLabel(d.reproState),
+            l?.cycleWhatAppliesToYou ?? 'What applies to you',
+            _reproDisplayLabel(l, d.reproState),
             sub: d.reproState == null
-                ? 'Optional. Until you say, the app leaves the phase off.'
-                : 'Only you and this phone. Never exported.',
+                ? (l?.cycleReproOptionalHint ??
+                      'Optional. Until you say, the app leaves the phase off.')
+                : (l?.cycleReproPrivateHint ??
+                      'Only you and this phone. Never exported.'),
             onTap: _pickRepro,
           ),
         ),
         const SizedBox(height: S.x5),
         BigButton(
-          'Log a period start today',
+          l?.cycleLogPeriodButton ?? 'Log a period start today',
           icon: LucideIcons.calendarPlus,
           color: C.pink,
           onTap: _logStart,
@@ -411,7 +425,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
         Pressable(
           onTap: () => _setEnabled(false),
           child: Text(
-            'Turn off cycle tracking',
+            l?.cycleTurnOffTracking ?? 'Turn off cycle tracking',
             textAlign: TextAlign.center,
             style: F.cap.copyWith(color: p.ink3),
           ),
@@ -422,35 +436,43 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
 
   // ── today ────────────────────────────────────────────────────────────────
 
-  Widget _today(BuildContext c, P p, CycleData d) => Surface(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text('DAY IN THIS CYCLE', style: F.over.copyWith(color: p.ink3)),
-            const Spacer(),
-            if (d.phase != 'unknown') Pill(_phaseLabel(d.phase), C.pink),
-          ],
-        ),
-        const SizedBox(height: S.x2),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text('${d.cycleDay}', style: F.n34.copyWith(color: p.ink)),
-            const SizedBox(width: S.x2),
-            Text(
-              d.medianLength == null
-                  ? 'counted from your last logged start'
-                  : 'of about ${d.medianLength!.round()}',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+  Widget _today(BuildContext c, P p, CycleData d) {
+    final l = AppLocalizations.of(c);
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                l?.cycleDayInThisCycle ?? 'DAY IN THIS CYCLE',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+              const Spacer(),
+              if (d.phase != 'unknown') Pill(_phaseLabel(l, d.phase), C.pink),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text('${d.cycleDay}', style: F.n34.copyWith(color: p.ink)),
+              const SizedBox(width: S.x2),
+              Text(
+                d.medianLength == null
+                    ? (l?.cycleCountedFromLastStart ??
+                          'counted from your last logged start')
+                    : (l?.cycleOfAboutDays(d.medianLength!.round()) ??
+                          'of about ${d.medianLength!.round()}'),
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   // ── prediction ───────────────────────────────────────────────────────────
 
@@ -461,14 +483,15 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   /// Below two measured gaps there is no spread to state, so it falls back to
   /// the point and says why it has no width.
   Widget _prediction(BuildContext c, P p, CycleData d) {
+    final l = AppLocalizations.of(c);
     final from = d.predictedFrom, to = d.predictedTo;
     final ranged = from != null && to != null;
     final due = _parse(d.predictedNext!);
     final headline = ranged
-        ? '${_short(from)} – ${_short(to)}'
+        ? '${_short(from, l)} – ${_short(to, l)}'
         : due == null
         ? d.predictedNext!
-        : formatDay(due);
+        : formatDay(due, l);
     return Surface(
       child: Row(
         children: [
@@ -478,8 +501,10 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
               children: [
                 Text(
                   ranged
-                      ? 'NEXT PERIOD, EXPECTED BETWEEN'
-                      : 'NEXT PERIOD, EXPECTED AROUND',
+                      ? (l?.cycleNextPeriodBetween ??
+                            'NEXT PERIOD, EXPECTED BETWEEN')
+                      : (l?.cycleNextPeriodAround ??
+                            'NEXT PERIOD, EXPECTED AROUND'),
                   style: F.over.copyWith(color: p.ink3),
                 ),
                 const SizedBox(height: S.x1),
@@ -489,7 +514,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                 ),
                 const SizedBox(height: S.x1),
                 Text(
-                  _when(d),
+                  _when(l, d),
                   style: F.over.copyWith(color: p.ink3, height: 1.4),
                 ),
               ],
@@ -502,12 +527,12 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
 
   /// When, and what the number is made of. The evidence rides on the same row
   /// as the claim — never a date on its own.
-  String _when(CycleData d) {
+  String _when(AppLocalizations? l, CycleData d) {
     final n = d.gapN;
     if (d.predictedFrom == null || d.predictedTo == null) {
       final days = d.daysUntilNext?.round();
-      return '${_lead(days)}from your one measured gap, which cannot show how '
-          'much your own cycle varies';
+      return '${_lead(l, days)}${l?.cycleFromOneMeasuredGap ?? 'from your one measured gap, which cannot show how '
+          'much your own cycle varies'}';
     }
     // Offsets off the SAME `days_until_next` the point case uses, never a
     // second read of the clock: the repo already resolved "today" once, and a
@@ -520,23 +545,23 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     if (lo == null || hi == null) {
       when = '';
     } else if (hi < 0) {
-      when = '${-hi} days past the end of it · ';
+      when = l?.cyclePastEndOfIt(-hi) ?? '${-hi} days past the end of it · ';
     } else if (lo <= 0) {
-      when = 'you are inside it now · ';
+      when = l?.cycleInsideItNow ?? 'you are inside it now · ';
     } else {
-      when = 'in $lo–$hi days · ';
+      when = l?.cycleInDaysRange(lo, hi) ?? 'in $lo–$hi days · ';
     }
-    return '${when}half of your $n measured gaps landed inside a range this '
-        'wide';
+    return '$when${l?.cycleHalfOfMeasuredGaps(n) ?? 'half of your $n measured gaps landed inside a range this '
+        'wide'}';
   }
 
-  String _lead(int? days) => days == null
+  String _lead(AppLocalizations? l, int? days) => days == null
       ? ''
       : days < 0
-      ? '${-days} days late · '
+      ? (l?.cycleLeadDaysLate(-days) ?? '${-days} days late · ')
       : days == 0
-      ? 'today · '
-      : 'in $days days · ';
+      ? (l?.cycleLeadToday ?? 'today · ')
+      : (l?.cycleLeadInDays(days) ?? 'in $days days · ');
 
   int? _spanDays(String from, String to) {
     final a = _parse(from), b = _parse(to);
@@ -546,6 +571,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   // ── symptoms ─────────────────────────────────────────────────────────────
 
   Widget _symptoms(BuildContext c, P p, CycleData d) {
+    final l = AppLocalizations.of(c);
     final on = d.symptoms[_date] ?? const <String>[];
     return Surface(
       child: Column(
@@ -569,7 +595,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                       borderRadius: R.rPill,
                     ),
                     child: Text(
-                      s,
+                      _symptomLabel(l, s),
                       style: F.cap.copyWith(
                         color: on.contains(s) ? p.on(C.pink) : p.ink2,
                         fontWeight: on.contains(s)
@@ -600,20 +626,23 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   /// ranked by significance — these tags never go near a correlation. ~20 tags
   /// against a handful of tagged days is a p-hacking machine at this n.
   Widget _shape(BuildContext c, P p, CycleData d) {
+    final l = AppLocalizations.of(c);
     final s = _symptomShape(d);
     if (s == null) return const SizedBox.shrink();
+    final usuallyNotice =
+        l?.cycleWhatYouUsuallyNotice ?? 'What you usually notice';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: S.x3),
         Pressable(
-          semanticLabel: 'What you usually notice',
+          semanticLabel: usuallyNotice,
           onTap: () => setState(() => _showShape = !_showShape),
           child: Row(
             children: [
               Expanded(
                 child: Text(
-                  'What you usually notice',
+                  usuallyNotice,
                   style: F.cap.copyWith(color: p.ink2),
                 ),
               ),
@@ -634,17 +663,22 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(e.$1, style: F.cap.copyWith(color: p.ink)),
+                    child: Text(_symptomLabel(l, e.$1),
+                        style: F.cap.copyWith(color: p.ink)),
                   ),
                   Text(e.$2.join(' · '), style: F.n17.copyWith(color: p.ink2)),
                 ],
               ),
             ),
           Text(
-            'Four numbers, one per week of the cycle, counted back to your own '
-            'logged starts. You logged something on ${s.daysByWeek.join(', ')} '
-            'days of each week across ${s.cycles} cycles — those are the only '
-            'days in any of this.',
+            l?.cycleSymptomShapeSummary(
+                  s.daysByWeek.join(', '),
+                  s.cycles,
+                ) ??
+                'Four numbers, one per week of the cycle, counted back to your own '
+                    'logged starts. You logged something on ${s.daysByWeek.join(', ')} '
+                    'days of each week across ${s.cycles} cycles — those are the only '
+                    'days in any of this.',
             style: F.over.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -694,6 +728,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   // ── logs ─────────────────────────────────────────────────────────────────
 
   Widget _logs(BuildContext c, P p, CycleData d) {
+    final l = AppLocalizations.of(c);
     final recent = d.logs.reversed.take(6).toList();
     return Surface(
       pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -709,17 +744,23 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                     child: Text(
                       _parse(recent[i]['date'] as String? ?? '') == null
                           ? '${recent[i]['date']}'
-                          : formatDay(_parse(recent[i]['date'] as String)!),
+                          : formatDay(_parse(recent[i]['date'] as String)!, l),
                       style: F.body.copyWith(color: p.ink),
                     ),
                   ),
                   Text(
-                    '${recent[i]['kind']}'.toUpperCase(),
+                    recent[i]['kind'] == 'start'
+                        ? (l?.cycleLogKindStart ?? 'START')
+                        : (l?.cycleLogKindEnd ?? 'END'),
                     style: F.over.copyWith(color: p.ink3),
                   ),
                   const SizedBox(width: S.x3),
                   Pressable(
-                    semanticLabel: 'Remove ${recent[i]['date']}',
+                    semanticLabel:
+                        l?.cycleRemoveLoggedDay(
+                          '${recent[i]['date']}',
+                        ) ??
+                        'Remove ${recent[i]['date']}',
                     onTap: () => _deleteLog(recent[i]['date'] as String),
                     child: Icon(LucideIcons.x, size: 18, color: p.ink3),
                   ),
@@ -751,23 +792,56 @@ class _Shape {
 
 DateTime? _parse(String ymd) => DateTime.tryParse(ymd);
 
-String _short(String ymd) {
+String _short(String ymd, [AppLocalizations? l]) {
   final d = _parse(ymd);
-  return d == null ? ymd : formatDay(d);
+  return d == null ? ymd : formatDay(d, l);
 }
 
-String _reproLabel(String? s) {
-  for (final (key, label, _) in kReproStates) {
-    if (key == s) return label;
-  }
-  return 'Not set';
-}
+/// Localized display label for a `repro_state` key ('' = prefer not to say,
+/// null/unrecognised = never set).
+String _reproDisplayLabel(AppLocalizations? l, String? key) => switch (key) {
+  'cycling' => l?.cycleReproCyclingLabel ?? 'I have natural cycles',
+  'contraception' =>
+    l?.cycleReproContraceptionLabel ?? 'Hormonal contraception',
+  'none' =>
+    l?.cycleReproNoneLabel ?? 'Pregnant, postpartum, or not cycling',
+  '' => l?.cyclePreferNotToSay ?? 'Prefer not to say',
+  _ => l?.cycleReproNotSet ?? 'Not set',
+};
 
-String _phaseLabel(String p) => switch (p) {
-  'menstrual' => 'Menstrual',
-  'follicular' => 'Follicular',
-  'ovulation' => 'Ovulation window',
-  'luteal' => 'Luteal',
+/// Localized "why" copy shown under a `repro_state` option in the picker.
+String _reproDisplayWhy(AppLocalizations? l, String key) => switch (key) {
+  'cycling' =>
+    l?.cycleReproCyclingWhy ?? 'Counts a phase from your logged starts.',
+  'contraception' =>
+    l?.cycleReproContraceptionWhy ??
+        'No ovulation to count from, so no phase. Bleeds are still logged.',
+  'none' =>
+    l?.cycleReproNoneWhy ??
+        'No phase and no predicted next. Your biometrics still show.',
+  _ => l?.cyclePreferNotToSayWhy ?? 'The app keeps the phase off.',
+};
+
+/// Localized display label for a `kCycleSymptoms` key. The key itself stays
+/// English — it is the storage value posted to the repo — only the label
+/// shown on the chip is localized.
+String _symptomLabel(AppLocalizations? l, String key) => switch (key) {
+  'cramps' => l?.cycleSymptomCramps ?? 'cramps',
+  'headache' => l?.cycleSymptomHeadache ?? 'headache',
+  'bloating' => l?.cycleSymptomBloating ?? 'bloating',
+  'fatigue' => l?.cycleSymptomFatigue ?? 'fatigue',
+  'low mood' => l?.cycleSymptomLowMood ?? 'low mood',
+  'acne' => l?.cycleSymptomAcne ?? 'acne',
+  'tender breasts' => l?.cycleSymptomTenderBreasts ?? 'tender breasts',
+  'nausea' => l?.cycleSymptomNausea ?? 'nausea',
+  _ => key,
+};
+
+String _phaseLabel(AppLocalizations? l, String p) => switch (p) {
+  'menstrual' => l?.cyclePhaseMenstrual ?? 'Menstrual',
+  'follicular' => l?.cyclePhaseFollicular ?? 'Follicular',
+  'ovulation' => l?.cyclePhaseOvulation ?? 'Ovulation window',
+  'luteal' => l?.cyclePhaseLuteal ?? 'Luteal',
   _ => p,
 };
 
@@ -899,11 +973,15 @@ class _CycleHistoryState extends State<_CycleHistory> {
 
   @override
   Widget build(BuildContext c) {
-    return detailScaffold(c, 'Across your cycles', [
+    final l = AppLocalizations.of(c);
+    return detailScaffold(c, l?.cycleAcrossCyclesTitle ?? 'Across your cycles', [
       const SizedBox(height: S.x2),
-      Section('This cycle', _currentCycleChart(c, d)),
-      Section('By day of your cycle', _byDay(c)),
-      Section('How long your cycles have been', _lengths(c)),
+      Section(l?.cycleThisCycle ?? 'This cycle', _currentCycleChart(c, d)),
+      Section(l?.cycleByDayOfYourCycle ?? 'By day of your cycle', _byDay(c)),
+      Section(
+        l?.cycleHowLongCyclesBeen ?? 'How long your cycles have been',
+        _lengths(c),
+      ),
     ]);
   }
 
@@ -911,6 +989,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
 
   Widget _byDay(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final rhr = byCycleDay(d, 'resting_hr');
     final rmssd = byCycleDay(d, 'hrv_rmssd');
     // TWO SERIES, NOT THREE. The third would be `skin_temp_idx`, which is the
@@ -919,26 +998,28 @@ class _CycleHistoryState extends State<_CycleHistory> {
     final charts = [
       _cycleDayChart(
         c,
-        'Resting heart rate',
-        'bpm',
+        l?.cycleRestingHeartRate ?? 'Resting heart rate',
+        l?.cycleUnitBpm ?? 'bpm',
         C.pink,
         rhr,
         cycleDayNoise(d, 'resting_hr'),
       ),
       _cycleDayChart(
         c,
-        'HRV (RMSSD)',
-        'ms',
+        l?.cycleHrvRmssdTitle ?? 'HRV (RMSSD)',
+        l?.cycleUnitMs ?? 'ms',
         C.purple,
         rmssd,
         cycleDayNoise(d, 'hrv_rmssd'),
       ),
     ];
     if (charts.every((w) => w == null)) {
-      return const StatusCard(
-        'Not enough cycles to describe a cycle day yet',
-        'Every point here is the middle of the same day across two or more of '
-            'your own cycles. Nothing has two behind it yet.',
+      return StatusCard(
+        l?.cycleNotEnoughDescribeDayTitle ??
+            'Not enough cycles to describe a cycle day yet',
+        l?.cycleNotEnoughDescribeDayBody ??
+            'Every point here is the middle of the same day across two or more of '
+                'your own cycles. Nothing has two behind it yet.',
         icon: LucideIcons.circleDot,
       );
     }
@@ -948,9 +1029,10 @@ class _CycleHistoryState extends State<_CycleHistory> {
         for (final w in charts)
           if (w != null) ...[w, const SizedBox(height: S.x3)],
         Text(
-          'Your own past cycles, described. Days that only one cycle reached '
-          'are left empty rather than drawn — one night is not a middle. It '
-          'describes what happened, not what will.',
+          l?.cycleOwnPastCyclesDescribed ??
+              'Your own past cycles, described. Days that only one cycle reached '
+                  'are left empty rather than drawn — one night is not a middle. It '
+                  'describes what happened, not what will.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
         const SizedBox(height: S.x4),
@@ -989,19 +1071,23 @@ class _CycleHistoryState extends State<_CycleHistory> {
     if (axis == null) return null;
     final ns = [for (final k in med.keys) byDay[k]!.length]..sort();
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Surface(
       child: ChartFrame(
         title: title,
         unit: unit,
         yAxis: axis,
-        xLabels: ['Day 1', 'Day $last'],
+        xLabels: [
+          l?.cycleDayOneLabel ?? 'Day 1',
+          l?.cycleDayNLabel(last) ?? 'Day $last',
+        ],
         // n, on every point — as the range it actually spans, because thirty
         // little numbers along a line is not a readable chart and a single
         // headline n would be false for most of the points under it. Then the
         // MDC line, which is what stops the shape being read as a finding.
         footnote:
-            '${ns.first == ns.last ? 'Middle of ${ns.first} cycles at each day.' : 'Middle of between ${ns.first} and ${ns.last} cycles at each day.'}'
-            '${_mdcNote(med.values, unit, noise)}',
+            '${ns.first == ns.last ? (l?.cycleMiddleOfNCycles(ns.first) ?? 'Middle of ${ns.first} cycles at each day.') : (l?.cycleMiddleOfRangeCycles(ns.first, ns.last) ?? 'Middle of between ${ns.first} and ${ns.last} cycles at each day.')}'
+            '${_mdcNote(l, med.values, unit, noise)}',
         series: vals,
         child: CustomPaint(
           size: Size.infinite,
@@ -1030,22 +1116,26 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// state is the common one for most of a year.
   Widget _dayAgainstItself(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final lines = [
-      for (final (key, label, dp) in const [
-        ('hrv_rmssd', 'HRV', 1),
-        ('resting_hr', 'Resting heart rate', 1),
+      for (final (key, label, dp) in [
+        ('hrv_rmssd', l?.cycleCompareHrvLabel ?? 'HRV', 1),
+        ('resting_hr', l?.cycleRestingHeartRate ?? 'Resting heart rate', 1),
       ])
-        ?_compareLine(key, label, dp),
+        ?_compareLine(l, key, label, dp),
     ];
     if (lines.isEmpty) {
       final cd = d.cycleDay;
       return StatusCard(
-        'Not enough cycles to compare a day against itself',
+        l?.cycleNotEnoughCompareTitle ??
+            'Not enough cycles to compare a day against itself',
         cd == null
-            ? 'This puts today next to the same day of your own previous '
-                  'cycles. It needs three of them that got that far.'
-            : 'This puts today next to the same day of your own previous '
-                  'cycles. It needs three of them that reached day $cd.',
+            ? (l?.cycleCompareBodyGeneric ??
+                  'This puts today next to the same day of your own previous '
+                      'cycles. It needs three of them that got that far.')
+            : (l?.cycleCompareBodyWithDay(cd) ??
+                  'This puts today next to the same day of your own previous '
+                      'cycles. It needs three of them that reached day $cd.'),
         icon: LucideIcons.circleDot,
       );
     }
@@ -1063,19 +1153,21 @@ class _CycleHistoryState extends State<_CycleHistory> {
         children: [
           if (night.isNotEmpty) ...[
             Text(
-              'NIGHT OF ${_short(night.last).toUpperCase()}',
+              l?.cycleNightOfLabel(_short(night.last, l).toUpperCase()) ??
+                  'NIGHT OF ${_short(night.last, l).toUpperCase()}',
               style: F.over.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x2),
           ],
-          for (final l in lines) ...[
-            Text(l, style: F.body.copyWith(color: p.ink, height: 1.4)),
+          for (final line in lines) ...[
+            Text(line, style: F.body.copyWith(color: p.ink, height: 1.4)),
             const SizedBox(height: S.x2),
           ],
           Text(
-            'A comparison, not a correction. Nothing on your readiness has '
-            'been rescaled by this, and nothing here is a training '
-            'instruction.',
+            l?.cycleComparisonNotCorrection ??
+                'A comparison, not a correction. Nothing on your readiness has '
+                    'been rescaled by this, and nothing here is a training '
+                    'instruction.',
             style: F.over.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -1084,7 +1176,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
   }
 
   /// "HRV −1.2 vs your last 3 weeks, −0.3 vs your last three day-22s."
-  String? _compareLine(String key, String label, int dp) {
+  String? _compareLine(AppLocalizations? l, String key, String label, int dp) {
     final starts = startDates(d);
     if (starts.isEmpty) return null;
     // Newest row that carries this key. `overlay` is oldest first.
@@ -1119,8 +1211,15 @@ class _CycleHistoryState extends State<_CycleHistory> {
     final a = _spread(trailing), b = _spread(sameDay);
     if (a == null || b == null) return null;
     final z1 = (value - a.mean) / a.sd, z2 = (value - b.mean) / b.sd;
-    return '$label ${_signed(z1, dp)} vs your last 3 weeks, '
-        '${_signed(z2, dp)} vs your last ${sameDay.length} day-${cycleDay}s.';
+    return l?.cycleCompareLine(
+          label,
+          _signed(z1, dp),
+          _signed(z2, dp),
+          sameDay.length,
+          cycleDay,
+        ) ??
+        '$label ${_signed(z1, dp)} vs your last 3 weeks, '
+            '${_signed(z2, dp)} vs your last ${sameDay.length} day-${cycleDay}s.';
   }
 
   // ── WH-08 ────────────────────────────────────────────────────────────────
@@ -1131,16 +1230,18 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// be a verdict.
   Widget _lengths(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final starts = startDates(d);
     final gaps = cycleGaps(starts);
 
     if (!_lengthReview) {
       return StatusCard(
-        'Your cycle lengths against a published range',
-        'Off unless you ask for it. It draws the days between your own logged '
-            'starts next to the range published for an adult cycle, and says '
-            'nothing else about them.',
-        fix: 'Show it',
+        l?.cycleLengthsTitle ?? 'Your cycle lengths against a published range',
+        l?.cycleLengthsBody ??
+            'Off unless you ask for it. It draws the days between your own logged '
+                'starts next to the range published for an adult cycle, and says '
+                'nothing else about them.',
+        fix: l?.cycleShowIt ?? 'Show it',
         icon: LucideIcons.ruler,
         onFix: _app == null
             ? null
@@ -1149,21 +1250,26 @@ class _CycleHistoryState extends State<_CycleHistory> {
     }
     if (gaps.length < kCycleLengthReviewMinGaps) {
       return StatusCard(
-        'Not enough logged cycles yet',
-        'This needs a long run: ${gaps.length} of '
-            '$kCycleLengthReviewMinGaps gaps so far, which is about a year of '
-            'logging every start.',
+        l?.cycleNotEnoughLoggedTitle ?? 'Not enough logged cycles yet',
+        l?.cycleNotEnoughLoggedBody(
+              gaps.length,
+              kCycleLengthReviewMinGaps,
+            ) ??
+            'This needs a long run: ${gaps.length} of '
+                '$kCycleLengthReviewMinGaps gaps so far, which is about a year of '
+                'logging every start.',
         icon: LucideIcons.ruler,
       );
     }
     // REFUSING ON HOLES IS THE FEATURE.
     if (gaps.any((g) => g > kCycleLengthUnloggableGapDays)) {
-      return const StatusCard(
-        'There is a gap in your logged starts',
-        'One of them is more than $kCycleLengthUnloggableGapDays days after '
-            'the one before it. A start you never logged and a cycle that '
-            'genuinely ran that long look the same from here, so nothing is '
-            'drawn.',
+      return StatusCard(
+        l?.cycleGapTitle ?? 'There is a gap in your logged starts',
+        l?.cycleGapBody(kCycleLengthUnloggableGapDays) ??
+            'One of them is more than $kCycleLengthUnloggableGapDays days after '
+                'the one before it. A start you never logged and a cycle that '
+                'genuinely ran that long look the same from here, so nothing is '
+                'drawn.',
         icon: LucideIcons.ruler,
       );
     }
@@ -1185,17 +1291,24 @@ class _CycleHistoryState extends State<_CycleHistory> {
       children: [
         Surface(
           child: ChartFrame(
-            title: 'Days between your logged starts',
-            unit: 'days',
+            title: l?.cycleDaysBetweenStarts ?? 'Days between your logged starts',
+            unit: l?.cycleUnitDays ?? 'days',
             yAxis: axis,
-            xLabels: [_short(_ymdOf(starts[1])), _short(_ymdOf(starts.last))],
+            xLabels: [
+              _short(_ymdOf(starts[1]), l),
+              _short(_ymdOf(starts.last), l),
+            ],
             legend: [
-              ('Your cycles', p.on(C.pink)),
-              ('Published range', p.ink3),
+              (l?.cycleLegendYourCycles ?? 'Your cycles', p.on(C.pink)),
+              (l?.cycleLegendPublishedRange ?? 'Published range', p.ink3),
             ],
             footnote:
+                l?.cycleTwoLinesFootnote(
+                  kPublishedCycleDays.low.round(),
+                  kPublishedCycleDays.high.round(),
+                ) ??
                 'The two lines are ${kPublishedCycleDays.low.round()} and '
-                '${kPublishedCycleDays.high.round()} days.',
+                    '${kPublishedCycleDays.high.round()} days.',
             series: vals,
             child: Stack(
               fit: StackFit.expand,
@@ -1223,10 +1336,11 @@ class _CycleHistoryState extends State<_CycleHistory> {
         const SizedBox(height: S.x3),
         // Non-dismissible, and deliberately not a card that can be closed.
         Text(
-          'Cycle length changes for many reasons — thyroid, stress, weight '
-          'change, contraception, PCOS and others. This is your own logged '
-          'data next to a published range. It is a reason to ask a clinician, '
-          'not an answer from one.',
+          l?.cycleLengthChangesReasons ??
+              'Cycle length changes for many reasons — thyroid, stress, weight '
+                  'change, contraception, PCOS and others. This is your own logged '
+                  'data next to a published range. It is a reason to ask a clinician, '
+                  'not an answer from one.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
         const SizedBox(height: S.x3),
@@ -1235,7 +1349,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
               ? null
               : () => _app!.updateProfile({'cycle_length_review': false}),
           child: Text(
-            'Hide cycle lengths',
+            l?.cycleHideLengths ?? 'Hide cycle lengths',
             textAlign: TextAlign.center,
             style: F.cap.copyWith(color: p.ink3),
           ),
@@ -1274,16 +1388,26 @@ Widget _currentCycleChart(BuildContext c, CycleData d) {
   final present = byDay.values.toList();
   final axis = present.length < 3 ? null : AxisSpec.of(present);
   final p = P.of(c);
+  final l = AppLocalizations.of(c);
   return Surface(
     child: ChartFrame(
-      title: 'Resting heart rate',
-      unit: 'bpm',
+      title: l?.cycleRestingHeartRate ?? 'Resting heart rate',
+      unit: l?.cycleUnitBpm ?? 'bpm',
       height: 120,
       yAxis: axis,
-      xLabels: axis == null ? const [] : ['Day 1', 'Day $last'],
-      footnote: 'Descriptive only.',
+      xLabels: axis == null
+          ? const []
+          : [
+              l?.cycleDayOneLabel ?? 'Day 1',
+              l?.cycleDayNLabel(last) ?? 'Day $last',
+            ],
+      footnote: l?.cycleDescriptiveOnly ?? 'Descriptive only.',
       empty: axis == null
-          ? const NoData(message: 'Not enough derived nights this cycle yet')
+          ? NoData(
+              message:
+                  l?.cycleNotEnoughDerivedNights ??
+                  'Not enough derived nights this cycle yet',
+            )
           : null,
       series: vals,
       child: axis == null
@@ -1312,17 +1436,24 @@ Widget _currentCycleChart(BuildContext c, CycleData d) {
 /// and when the swing is the smaller of the two the sentence says the shape is
 /// not a shift. Returns '' when there is no MDC to state — an unqualified
 /// claim is worse than a quiet one, but so is a fabricated threshold.
-String _mdcNote(Iterable<double> medians, String unit, double? noise) {
+String _mdcNote(
+  AppLocalizations? l,
+  Iterable<double> medians,
+  String unit,
+  double? noise,
+) {
   if (noise == null || noise <= 0 || medians.isEmpty) return '';
   final swing = medians.reduce(math.max) - medians.reduce(math.min);
   final s = '${swing.toStringAsFixed(1)} $unit';
   final n = '${noise.toStringAsFixed(1)} $unit';
   return swing < noise
-      ? ' Every day drawn here is inside your own night-to-night spread: the '
-            'biggest gap between two of them is $s, and $n is the smallest '
-            'change this can tell from noise. A shape, not a shift.'
-      : ' Your nights vary by $n on their own, so days closer together than '
-            'that are not separated. The biggest gap here is $s.';
+      ? (l?.cycleMdcNoteInsideSpread(s, n) ??
+            ' Every day drawn here is inside your own night-to-night spread: the '
+                'biggest gap between two of them is $s, and $n is the smallest '
+                'change this can tell from noise. A shape, not a shift.')
+      : (l?.cycleMdcNoteVaries(n, s) ??
+            ' Your nights vary by $n on their own, so days closer together than '
+                'that are not separated. The biggest gap here is $s.');
 }
 
 /// A z with its sign always printed — "0.3" and "−0.3" are different findings

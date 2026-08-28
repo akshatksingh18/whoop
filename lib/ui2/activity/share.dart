@@ -25,6 +25,7 @@ import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/units_controller.dart';
 import '../grammar.dart';
 import '../profile/profile.dart' show SetRow;
@@ -118,8 +119,10 @@ class _ShareSheetState extends State<ShareSheet> {
       // A share that quietly does nothing is worse than one that says it
       // failed: this swallowed every iPad share for the life of the screen.
       if (mounted) {
-        messenger.showSnackBar(
-            const SnackBar(content: Text('Could not open the share sheet.')));
+        final l = AppLocalizations.of(context);
+        messenger.showSnackBar(SnackBar(
+            content: Text(
+                l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
       }
       debugPrint('share failed: $e');
     } finally {
@@ -219,6 +222,7 @@ class _ShareSheetState extends State<ShareSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -226,7 +230,7 @@ class _ShareSheetState extends State<ShareSheet> {
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: const NavBar('Share'),
+              child: NavBar(l?.activityShareTitle ?? 'Share'),
             ),
             Expanded(
               child: ListView(
@@ -262,7 +266,7 @@ class _ShareSheetState extends State<ShareSheet> {
                   // own ratio, so this is the difference between posting the
                   // card and posting a crop of it.
                   SubTabs(
-                    [for (final f in PosterFormat.values) f.label],
+                    [for (final f in PosterFormat.values) posterFormatLabel(c, f)],
                     PosterFormat.values.indexOf(_format),
                     (i) {
                       setState(() => _format = PosterFormat.values[i]);
@@ -271,20 +275,28 @@ class _ShareSheetState extends State<ShareSheet> {
                     color: r.activity.color,
                   ),
                   const SizedBox(height: S.x6),
-                  Text('YOUR PHOTO', style: F.over.copyWith(color: p.ink3)),
+                  Text(l?.activitySharePhotoHeader ?? 'YOUR PHOTO',
+                      style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: Column(children: [
-                      SetRow(LucideIcons.imagePlus, r.activity.color,
-                          _photo == null ? 'Add a photo' : 'Change photo',
+                      SetRow(
+                          LucideIcons.imagePlus,
+                          r.activity.color,
+                          _photo == null
+                              ? (l?.activityShareAddPhoto ?? 'Add a photo')
+                              : (l?.activityShareChangePhoto ??
+                                  'Change photo'),
                           sub: _photo == null
-                              ? 'From this phone. Nothing is uploaded'
+                              ? (l?.activitySharePhotoHint ??
+                                  'From this phone. Nothing is uploaded')
                               : _photo!.path.split('/').last,
                           onTap: _pickPhoto),
                       if (_photo != null) ...[
                         Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
+                        SetRow(LucideIcons.trash2, C.red,
+                            l?.activityShareRemovePhoto ?? 'Remove the photo',
                             chevron: false,
                             onTap: () => setState(() => _photo = null)),
                       ],
@@ -296,17 +308,21 @@ class _ShareSheetState extends State<ShareSheet> {
                   // them tells openstreetmap.org roughly where you were.
                   if (_hasRoute) ...[
                     const SizedBox(height: S.x6),
-                    Text('BASEMAP', style: F.over.copyWith(color: p.ink3)),
+                    Text(l?.activityShareBasemapHeader ?? 'BASEMAP',
+                        style: F.over.copyWith(color: p.ink3)),
                     const SizedBox(height: S.x3),
                     Surface(
                       pad: const EdgeInsets.symmetric(horizontal: S.x4),
                       child: SetRow(
                         LucideIcons.map,
                         r.activity.color,
-                        'Draw the real map',
-                        sub: 'Asks openstreetmap.org for the tiles covering '
-                            'this route. Off, the route draws on its own',
-                        value: _mapConsent ? 'On' : 'Off',
+                        l?.activityShareDrawMap ?? 'Draw the real map',
+                        sub: l?.activityShareMapHint ??
+                            'Asks openstreetmap.org for the tiles covering '
+                                'this route. Off, the route draws on its own',
+                        value: _mapConsent
+                            ? (l?.stateOn ?? 'On')
+                            : (l?.stateOff ?? 'Off'),
                         chevron: false,
                         onTap: _toggleMap,
                       ),
@@ -318,9 +334,10 @@ class _ShareSheetState extends State<ShareSheet> {
                   // first await.
                   if (_hasRoute && _mapBusy) ...[
                     const SizedBox(height: S.x3),
-                    const StatusCard(
-                      'Fetching the map',
-                      'The card draws as soon as every tile is here.',
+                    StatusCard(
+                      l?.activityShareFetchingMapTitle ?? 'Fetching the map',
+                      l?.activityShareFetchingMapBody ??
+                          'The card draws as soon as every tile is here.',
                       icon: LucideIcons.map,
                     ),
                   ]
@@ -333,11 +350,12 @@ class _ShareSheetState extends State<ShareSheet> {
                       _mapTried_ &&
                       _mosaic == null) ...[
                     const SizedBox(height: S.x3),
-                    const StatusCard(
-                      'No map for this card',
-                      'The map tiles could not be fetched, so the route is '
-                          'drawn on its own. Everything else on the card is '
-                          'unchanged.',
+                    StatusCard(
+                      l?.activityShareNoMapTitle ?? 'No map for this card',
+                      l?.activityShareNoMapBody ??
+                          'The map tiles could not be fetched, so the route is '
+                              'drawn on its own. Everything else on the card is '
+                              'unchanged.',
                       icon: LucideIcons.mapPinOff,
                     ),
                   ],
@@ -347,16 +365,18 @@ class _ShareSheetState extends State<ShareSheet> {
                   // four destination tiles that used to sit here were four
                   // integrations this app does not have.
                   BigButton(
-                    'Share',
+                    l?.activityShareTitle ?? 'Share',
                     icon: LucideIcons.share2,
                     color: r.activity.color,
                     onTap: _share,
                   ),
                   if (r.private) ...[
                     const SizedBox(height: S.x4),
-                    const StatusCard(
-                      'This session is private',
-                      'Hidden from summaries and exports.',
+                    StatusCard(
+                      l?.activityShareStatusPrivateTitle ??
+                          'This session is private',
+                      l?.activityShareStatusPrivateBody ??
+                          'Hidden from summaries and exports.',
                       icon: LucideIcons.lock,
                     ),
                   ],

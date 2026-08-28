@@ -203,7 +203,13 @@ class BandStatus {
   /// The way forward, or null when there is genuinely nothing to do.
   final String? fix;
 
-  const BandStatus(this.condition, this.title, this.reason, {this.fix});
+  /// Set only for [BandCondition.reconnectPaused] — the count already baked
+  /// into [reason]'s English text, carried separately so a UI layer can
+  /// re-render the reason in another language without re-parsing it.
+  final int? bondRefusals;
+
+  const BandStatus(this.condition, this.title, this.reason,
+      {this.fix, this.bondRefusals});
 
   /// True for the states that need to be shown. The four ordinary link states
   /// (connected/connecting/scanning/disconnected) are the app's normal
@@ -271,6 +277,7 @@ BandStatus bandStatusFor({
           'batteries on a link that will not open. Nothing is reconnecting '
           'until you act.',
       fix: repairFix,
+      bondRefusals: bondRefusals,
     );
   }
   if (needsRepairGuide) {

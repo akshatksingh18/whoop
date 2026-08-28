@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 
 /// Read one barcode. Resolves the digits, or null if the sheet was closed,
@@ -71,6 +72,7 @@ class _ScanSheetState extends State<_ScanSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x6),
@@ -81,11 +83,11 @@ class _ScanSheetState extends State<_ScanSheet> {
             Row(
               children: [
                 Expanded(
-                  child: Text('Scan the barcode',
+                  child: Text(l?.scanBarcodeTitle ?? 'Scan the barcode',
                       style: F.t2.copyWith(color: p.ink)),
                 ),
                 Pressable(
-                  semanticLabel: 'Close',
+                  semanticLabel: l?.scanBarcodeClose ?? 'Close',
                   onTap: () => Navigator.of(c).pop(),
                   child: Icon(LucideIcons.x, size: 20, color: p.ink3),
                 ),
@@ -105,8 +107,9 @@ class _ScanSheetState extends State<_ScanSheet> {
             ),
             const SizedBox(height: S.x4),
             Text(
-              'Hold the barcode inside the frame. Nothing is recorded — the '
-              'digits are all this reads.',
+              l?.scanBarcodeInstructions ??
+                  'Hold the barcode inside the frame. Nothing is recorded — '
+                      'the digits are all this reads.',
               style: F.cap.copyWith(color: p.ink3, height: 1.45),
             ),
           ],
@@ -124,17 +127,22 @@ class _CameraProblem extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     final denied = error.errorCode == MobileScannerErrorCode.permissionDenied;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(S.x4),
         child: StatusCard(
-          denied ? 'No camera access' : 'The camera did not start',
           denied
-              ? 'Scanning needs the camera, and this app has not been given '
-                  'it.'
-              : 'This device would not open its camera for the scanner.',
-          fix: 'Type the numbers instead',
+              ? (l?.scanBarcodeNoAccessTitle ?? 'No camera access')
+              : (l?.scanBarcodeCameraFailedTitle ?? 'The camera did not start'),
+          denied
+              ? (l?.scanBarcodeNoAccessBody ??
+                  'Scanning needs the camera, and this app has not been '
+                      'given it.')
+              : (l?.scanBarcodeCameraFailedBody ??
+                  'This device would not open its camera for the scanner.'),
+          fix: l?.scanBarcodeTypeInstead ?? 'Type the numbers instead',
           icon: LucideIcons.cameraOff,
           onFix: () => Navigator.of(c).pop(),
         ),

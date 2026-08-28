@@ -32,6 +32,7 @@ import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../data/nutrition_store.dart';
 import '../../data/off_lookup.dart';
+import '../../l10n/app_localizations.dart';
 import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
@@ -233,38 +234,43 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   /// Every branch ends in the same place on purpose: type the numbers off the
   /// pack. That is the fallback, it always was, and none of these are errors
   /// the user did anything to cause.
-  StatusCard? get _lookupProblem {
+  StatusCard? _lookupProblem(BuildContext c) {
     final o = _outcome;
     if (o == null) return null;
     // A product whose numbers all survived needs no card; the filled boxes
     // are the answer.
     if (o == OffOutcome.ok && _scanned?.isBare != true) return null;
+    final l = AppLocalizations.of(c);
     return switch (o) {
-      OffOutcome.ok => const StatusCard(
-          'No numbers for this one',
-          'Open Food Facts has the product but nothing usable on its '
-              'nutrition — or what it had did not survive a sanity check.',
+      OffOutcome.ok => StatusCard(
+          l?.logFoodNoNumbersTitle ?? 'No numbers for this one',
+          l?.logFoodNoNumbersBody ??
+              'Open Food Facts has the product but nothing usable on its '
+                  'nutrition — or what it had did not survive a sanity check.',
           icon: LucideIcons.scanBarcode,
         ),
-      OffOutcome.notFound => const StatusCard(
-          'Not in Open Food Facts',
-          'Nobody has added this barcode yet.',
+      OffOutcome.notFound => StatusCard(
+          l?.logFoodNotFoundTitle ?? 'Not in Open Food Facts',
+          l?.logFoodNotFoundBody ?? 'Nobody has added this barcode yet.',
           icon: LucideIcons.scanBarcode,
         ),
-      OffOutcome.flagged => const StatusCard(
-          'This record is flagged as wrong',
-          'Open Food Facts marks this product as containing errors, so none '
-              'of its numbers were filled in.',
+      OffOutcome.flagged => StatusCard(
+          l?.logFoodFlaggedTitle ?? 'This record is flagged as wrong',
+          l?.logFoodFlaggedBody ??
+              'Open Food Facts marks this product as containing errors, so none '
+                  'of its numbers were filled in.',
           icon: LucideIcons.triangleAlert,
         ),
-      OffOutcome.unreachable => const StatusCard(
-          'No answer from Open Food Facts',
-          'The lookup could not reach openfoodfacts.org.',
+      OffOutcome.unreachable => StatusCard(
+          l?.logFoodUnreachableTitle ?? 'No answer from Open Food Facts',
+          l?.logFoodUnreachableBody ??
+              'The lookup could not reach openfoodfacts.org.',
           icon: LucideIcons.cloudOff,
         ),
-      OffOutcome.refused => const StatusCard(
-          'Barcode lookup is off',
-          'Nothing was sent. You can turn it on in Settings › Privacy.',
+      OffOutcome.refused => StatusCard(
+          l?.logFoodRefusedTitle ?? 'Barcode lookup is off',
+          l?.logFoodRefusedBody ??
+              'Nothing was sent. You can turn it on in Settings › Privacy.',
           icon: LucideIcons.scanBarcode,
         ),
     };
@@ -273,13 +279,15 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   /// What basis the boxes are on. The pack's own serving is named when the
   /// record states one, because "33 g" beside a 400 g jar is the difference
   /// between a spoonful and a fortnight.
-  String _portionNote(OffProduct p) {
-    final base = 'Open Food Facts lists this per 100 g. Change the portion and '
-        'the numbers follow.';
+  String _portionNote(BuildContext c, OffProduct p) {
+    final l = AppLocalizations.of(c);
+    final base = l?.logFoodPortionNoteBase ??
+        'Open Food Facts lists this per 100 g. Change the portion and '
+            'the numbers follow.';
     if (p.servingLabel.isEmpty && p.servingG == null) return base;
     final serving =
         p.servingLabel.isNotEmpty ? p.servingLabel : '${_plain(p.servingG)} g';
-    return '$base The pack’s own serving is $serving.';
+    return l?.logFoodPortionNoteServing(serving) ?? '$base The pack’s own serving is $serving.';
   }
 
   void _fillFrom(OffProduct p, double grams) {
@@ -292,21 +300,25 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   }
 
   /// The number fields that were typed into and cannot be read.
-  List<String> get _unreadable => [
-        for (final (name, ctl) in [
-          ('Energy', _kcal),
-          ('Protein', _protein),
-          ('Carbs', _carbs),
-          ('Fat', _fat),
-          ('Fibre', _fibre),
-          if (_scanned != null) ('Portion', _portion),
-        ])
-          if (Typed.of(ctl.text).bad) name,
-      ];
+  List<String> _unreadable(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return [
+      for (final (name, ctl) in [
+        (l?.logFoodEnergyLabel ?? 'Energy', _kcal),
+        (l?.logFoodProteinLabel ?? 'Protein', _protein),
+        (l?.logFoodCarbsLabel ?? 'Carbs', _carbs),
+        (l?.logFoodFatLabel ?? 'Fat', _fat),
+        (l?.logFoodFibreLabel ?? 'Fibre', _fibre),
+        if (_scanned != null) (l?.logFoodPortionLabel ?? 'Portion', _portion),
+      ])
+        if (Typed.of(ctl.text).bad) name,
+    ];
+  }
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
       child: SafeArea(
@@ -317,11 +329,11 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
             Row(
               children: [
                 Expanded(
-                  child: Text('Log an eating occasion',
+                  child: Text(l?.logFoodTitle ?? 'Log an eating occasion',
                       style: F.t2.copyWith(color: p.ink)),
                 ),
                 Pressable(
-                  semanticLabel: 'Close',
+                  semanticLabel: l?.logFoodClose ?? 'Close',
                   onTap: () => Navigator.of(c).pop(),
                   child: Icon(LucideIcons.x, size: 20, color: p.ink3),
                 ),
@@ -334,7 +346,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   Expanded(
                     child: Pressable(
                       onTap: () => setState(() => _meal = m),
-                      semanticLabel: m,
+                      semanticLabel: _mealLabel(c, m),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: S.x3),
                         decoration: BoxDecoration(
@@ -343,7 +355,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                         ),
                         child: Center(
                           child: Text(
-                            _mealLabel(m),
+                            _mealLabel(c, m),
                             style: F.cap.copyWith(
                               color: m == _meal ? p.inkOnFill : p.ink2,
                             ),
@@ -358,14 +370,15 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
             ),
             const SizedBox(height: S.x5),
             BigButton(
-              'I ate ${_mealLabel(_meal).toLowerCase()}',
+              l?.logFoodIAte(_mealLabel(c, _meal)) ??
+                  'I ate ${_mealLabel(c, _meal).toLowerCase()}',
               icon: LucideIcons.check,
               color: C.domFood,
-              onTap: () => _write(_base(label: _mealLabel(_meal))),
+              onTap: () => _write(_base(label: _mealLabel(c, _meal))),
             ),
             if (_recent.isNotEmpty)
               Section(
-                'Again',
+                l?.logFoodAgain ?? 'Again',
                 Surface(
                   pad: const EdgeInsets.symmetric(horizontal: S.x4),
                   child: Column(
@@ -412,7 +425,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   const SizedBox(width: S.x2),
                   Expanded(
                     child: Text(
-                      'Add the numbers',
+                      l?.logFoodAddNumbers ?? 'Add the numbers',
                       style: F.body.copyWith(color: p.ink2),
                     ),
                   ),
@@ -426,65 +439,73 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 child: SetRow(
                   LucideIcons.scanBarcode,
                   C.domFood,
-                  'Scan a barcode',
+                  l?.logFoodScanBarcode ?? 'Scan a barcode',
                   sub: offLookupAllowed
-                      ? 'Asks openfoodfacts.org about the barcode, and fills '
-                          'in what it can stand behind'
-                      : 'Looks the pack up online. Asks first',
+                      ? (l?.logFoodScanSubOn ??
+                          'Asks openfoodfacts.org about the barcode, and fills '
+                              'in what it can stand behind')
+                      : (l?.logFoodScanSubOff ?? 'Looks the pack up online. Asks first'),
                   chevron: false,
                   onTap: _looking ? null : _scan,
                 ),
               ),
               if (_looking) ...[
                 const SizedBox(height: S.x3),
-                const StatusCard(
-                  'Looking it up',
-                  'The boxes fill as soon as the answer is here.',
+                StatusCard(
+                  l?.logFoodLookingUpTitle ?? 'Looking it up',
+                  l?.logFoodLookingUpBody ??
+                      'The boxes fill as soon as the answer is here.',
                   icon: LucideIcons.scanBarcode,
                 ),
-              ] else if (_lookupProblem != null) ...[
+              ] else if (_lookupProblem(c) != null) ...[
                 const SizedBox(height: S.x3),
-                _lookupProblem!,
+                _lookupProblem(c)!,
               ],
               const SizedBox(height: S.x4),
               OsTextField(
                 controller: _label,
-                label: 'What',
-                hint: 'Chicken and rice',
+                label: l?.logFoodWhatLabel ?? 'What',
+                hint: l?.logFoodWhatHint ?? 'Chicken and rice',
               ),
               if (_scanned != null) ...[
                 const SizedBox(height: S.x4),
                 _NumberRow(
-                  fields: [('Portion', 'g', _portion)],
+                  fields: [(l?.logFoodPortionLabel ?? 'Portion', 'g', _portion)],
                   hint: '100',
                 ),
                 const SizedBox(height: S.x2),
                 Text(
-                  _portionNote(_scanned!),
+                  _portionNote(c, _scanned!),
                   style: F.cap.copyWith(color: p.ink3, height: 1.45),
                 ),
               ],
               const SizedBox(height: S.x4),
               _NumberRow(
                 fields: [
-                  ('Energy', 'kcal', _kcal),
-                  ('Protein', 'g', _protein),
+                  (l?.logFoodEnergyLabel ?? 'Energy', 'kcal', _kcal),
+                  (l?.logFoodProteinLabel ?? 'Protein', 'g', _protein),
                 ],
+                hint: l?.logFoodUnknownHint ?? 'unknown',
               ),
               const SizedBox(height: S.x4),
               _NumberRow(
                 fields: [
-                  ('Carbs', 'g', _carbs),
-                  ('Fat', 'g', _fat),
+                  (l?.logFoodCarbsLabel ?? 'Carbs', 'g', _carbs),
+                  (l?.logFoodFatLabel ?? 'Fat', 'g', _fat),
                 ],
+                hint: l?.logFoodUnknownHint ?? 'unknown',
               ),
               const SizedBox(height: S.x4),
               // The week card has always averaged fibre; nothing could enter
               // it, so the row read "Not recorded" forever.
-              _NumberRow(fields: [('Fibre', 'g', _fibre)]),
+              _NumberRow(
+                fields: [(l?.logFoodFibreLabel ?? 'Fibre', 'g', _fibre)],
+                hint: l?.logFoodUnknownHint ?? 'unknown',
+              ),
               const SizedBox(height: S.x3),
               Text(
-                'A blank number stays blank. Only "What" is needed.',
+                l?.logFoodBlankHint ??
+                    'A blank number stays blank. Only "What" is needed.',
                 style: F.cap.copyWith(color: p.ink3, height: 1.45),
               ),
               // ODbL asks for attribution "reasonably calculated" to make a
@@ -496,7 +517,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               ],
               const SizedBox(height: S.x4),
               BigButton(
-                'Save',
+                l?.actionSave ?? 'Save',
                 color: C.domFood,
                 soft: true,
                 onTap: () {
@@ -505,12 +526,13 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   // button: nothing happened, nothing was said, and the typed
                   // numbers were thrown away by the only control that reacted.
                   if (label.isEmpty) {
-                    ScaffoldMessenger.of(c).showSnackBar(const SnackBar(
-                      content: Text('Say what it was first.'),
+                    ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+                      content: Text(
+                          l?.logFoodSayWhatFirst ?? 'Say what it was first.'),
                     ));
                     return;
                   }
-                  final bad = _unreadable;
+                  final bad = _unreadable(c);
                   if (bad.isNotEmpty) {
                     sayUnreadable(c, bad);
                     return;
@@ -584,6 +606,7 @@ Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
       ),
       builder: (s) {
         final p = P.of(s);
+        final l = AppLocalizations.of(s);
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x6),
@@ -591,36 +614,39 @@ Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Look barcodes up online?',
+                Text(l?.logFoodConsentTitle ?? 'Look barcodes up online?',
                     style: F.t2.copyWith(color: p.ink)),
                 const SizedBox(height: S.x4),
                 Text(
-                  'A scan sends the barcode to openfoodfacts.org, a free, '
-                  'open food database. They see the barcode and your IP '
-                  'address. Nothing about you, your meals or your health '
-                  'leaves this phone, and a barcode you have scanned before '
-                  'is answered from your own copy without asking them again.',
+                  l?.logFoodConsentBody1 ??
+                      'A scan sends the barcode to openfoodfacts.org, a free, '
+                          'open food database. They see the barcode and your IP '
+                          'address. Nothing about you, your meals or your health '
+                          'leaves this phone, and a barcode you have scanned before '
+                          'is answered from your own copy without asking them again.',
                   style: F.body.copyWith(color: p.ink2, height: 1.5),
                 ),
                 const SizedBox(height: S.x3),
                 Text(
-                  'Their numbers are typed in by the public and a fair few of '
-                  'them are wrong, so anything that fails a sanity check is '
-                  'left blank rather than filled in. Everything it does fill '
-                  'in is yours to edit before you save.',
+                  l?.logFoodConsentBody2 ??
+                      'Their numbers are typed in by the public and a fair few of '
+                          'them are wrong, so anything that fails a sanity check is '
+                          'left blank rather than filled in. Everything it does fill '
+                          'in is yours to edit before you save.',
                   style: F.body.copyWith(color: p.ink2, height: 1.5),
                 ),
                 const SizedBox(height: S.x3),
                 Text(
-                  'You can turn this back off in Settings › Privacy. Typing '
-                  'the numbers off the pack works either way.',
+                  l?.logFoodConsentBody3 ??
+                      'You can turn this back off in Settings › Privacy. Typing '
+                          'the numbers off the pack works either way.',
                   style: F.cap.copyWith(color: p.ink3, height: 1.45),
                 ),
                 const SizedBox(height: S.x5),
-                BigButton('Allow lookups',
+                BigButton(l?.logFoodAllowLookups ?? 'Allow lookups',
                     color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
                 const SizedBox(height: S.x3),
-                BigButton('Not now',
+                BigButton(l?.logFoodNotNow ?? 'Not now',
                     color: C.domFood,
                     soft: true,
                     onTap: () => Navigator.of(s).pop(false)),
@@ -668,7 +694,8 @@ class _Link extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Pressable(
-        semanticLabel: '$label, opens in your browser',
+        semanticLabel: AppLocalizations.of(c)?.logFoodOpensInBrowser(label) ??
+            '$label, opens in your browser',
         onTap: () => launchUrl(Uri.parse(url),
             mode: LaunchMode.externalApplication),
         child: Text(
@@ -681,12 +708,15 @@ class _Link extends StatelessWidget {
       );
 }
 
-String _mealLabel(String m) => switch (m) {
-  'breakfast' => 'Breakfast',
-  'lunch' => 'Lunch',
-  'dinner' => 'Dinner',
-  _ => 'Snack',
-};
+String _mealLabel(BuildContext c, String m) {
+  final l = AppLocalizations.of(c);
+  return switch (m) {
+    'breakfast' => l?.logFoodBreakfast ?? 'Breakfast',
+    'lunch' => l?.logFoodLunch ?? 'Lunch',
+    'dinner' => l?.logFoodDinner ?? 'Dinner',
+    _ => l?.logFoodSnack ?? 'Snack',
+  };
+}
 
 /// One logged entry. The provenance line is not decoration: a manufacturer
 /// panel and a typed guess are different claims, and the row says which it is.
@@ -705,9 +735,10 @@ class FoodRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Pressable(
       onTap: onTap,
-      semanticLabel: '${entry.label}. ${_detail(entry)}',
+      semanticLabel: '${entry.label}. ${_detail(c, entry)}',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
@@ -725,7 +756,7 @@ class FoodRow extends StatelessWidget {
                 children: [
                   Text(entry.label, style: F.body.copyWith(color: p.ink)),
                   Text(
-                    _detail(entry),
+                    _detail(c, entry),
                     style: F.over.copyWith(color: p.ink3),
                   ),
                 ],
@@ -737,7 +768,9 @@ class FoodRow extends StatelessWidget {
             // everything else here is the user's own.
             const SizedBox(width: S.x2),
             Pill(
-              entry.source == FoodSource.barcode ? 'Open Food Facts' : 'Yours',
+              entry.source == FoodSource.barcode
+                  ? (l?.logFoodPillOpenFoodFacts ?? 'Open Food Facts')
+                  : (l?.logFoodPillYours ?? 'Yours'),
               C.n400,
             ),
             if (trailing != null) ...[
@@ -750,10 +783,13 @@ class FoodRow extends StatelessWidget {
     );
   }
 
-  static String _detail(FoodEntry e) {
+  static String _detail(BuildContext c, FoodEntry e) {
     // No photo pipeline exists, so `FoodSource.photo` is never written and the
     // branch that read it could never run.
-    if (e.isBareOccasion) return 'LOGGED · ENERGY NOT RECORDED';
+    if (e.isBareOccasion) {
+      return AppLocalizations.of(c)?.logFoodBareOccasion ??
+          'LOGGED · ENERGY NOT RECORDED';
+    }
     final parts = <String>['${e.kcal!.round()} kcal'];
     if (e.proteinG != null) parts.add('${e.proteinG!.round()}P');
     if (e.carbsG != null) parts.add('${e.carbsG!.round()}C');

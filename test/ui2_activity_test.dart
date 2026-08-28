@@ -1061,7 +1061,7 @@ void main() {
         // them says so in words. This was only ever pinned by the goldens,
         // which is why it went four sweeps without anyone being able to say
         // what the 20 red PNGs were red about.
-        expect(find.text(kZonesWhy), findsOneWidget,
+        expect(find.text(zonesWhyFootnote()), findsOneWidget,
             reason: '${arch.name} zones must admit the ceiling is estimated');
       }
       expect(tester.takeException(), isNull);

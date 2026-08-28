@@ -16,6 +16,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../theme.dart';
 
 /// How a session is tracked — which decides which live screen it opens, and
@@ -242,6 +243,10 @@ const kCalorieWhy = 'MET value × your weight, refined by heart rate.';
 const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
     'estimated from your age — not one measured on you.';
 
+/// English, non-localized fallback/test seam — see [zonesWhyFootnote] and
+/// [zonesWhy] for the localized callers actually used by the UI.
+String zonesWhyFootnote([AppLocalizations? l]) => l?.catalogueZonesWhy ?? kZonesWhy;
+
 /// THE sentence a zone chart carries, for the anchors THAT chart was banded on.
 ///
 /// [source] is the set's own stamp (`karvonen` · `observed` · `tanaka`) and
@@ -253,20 +258,24 @@ const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
 /// minutes above a boundary its own footnote misattributes is unanswerable —
 /// there is no number on screen to check it against.
 ///
-/// [kZonesWhy] is the fallback rather than a fourth branch: an unknown stamp
-/// and a measured stamp with no ceiling to name are both "we cannot say this
-/// was measured on you", which is what the estimate sentence already says.
-String zonesWhy(String? source, num? maxHr) => maxHr == null
-    ? kZonesWhy
+/// [kZonesWhy] (via [zonesWhyFootnote]) is the fallback rather than a fourth
+/// branch: an unknown stamp and a measured stamp with no ceiling to name are
+/// both "we cannot say this was measured on you", which is what the estimate
+/// sentence already says. [l] is optional so the non-UI test seam
+/// (`hr_ceiling_zones_test.dart`) can call this with the plain English copy.
+String zonesWhy(String? source, num? maxHr, [AppLocalizations? l]) => maxHr == null
+    ? zonesWhyFootnote(l)
     : switch (source) {
         'karvonen' =>
-          'Zone edges span the gap between your measured resting heart rate '
-              'and the highest we have seen (${maxHr.round()} bpm). Both '
-              'measured on you.',
+          l?.dayStrainZoneFootnoteKarvonen(maxHr.round()) ??
+              'Zone edges span the gap between your measured resting heart rate '
+                  'and the highest we have seen (${maxHr.round()} bpm). Both '
+                  'measured on you.',
         'observed' =>
-          'Zone edges are percentages of the highest heart rate we have seen '
-              '(${maxHr.round()} bpm) — measured, not estimated.',
-        _ => kZonesWhy,
+          l?.dayStrainZoneFootnoteObserved(maxHr.round()) ??
+              'Zone edges are percentages of the highest heart rate we have seen '
+                  '(${maxHr.round()} bpm) — measured, not estimated.',
+        _ => zonesWhyFootnote(l),
       };
 
 /// The row that means most people never open the catalogue.

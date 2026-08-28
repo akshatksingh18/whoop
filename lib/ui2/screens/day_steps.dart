@@ -30,6 +30,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -286,26 +287,28 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final d = _d ?? const DayStepsData();
     // Same rule as Sleep: the stepper names the day, so the nav bar only does
     // when there is no stepper.
-    return detailScaffold(c, 'Steps',
+    return detailScaffold(c, l?.dayStepsTitle ?? 'Steps',
         sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else if (d.spans.isEmpty)
-        _absent(d)
+        _absent(c, d)
       else ...[
         _chart(c, p, d),
-        Section('Through the day', _rows(p, d)),
+        Section(l?.dayStepsThroughDay ?? 'Through the day', _rows(c, p, d)),
       ],
     ]);
   }
 
   // ── nothing to place on a clock ────────────────────────────────────────────
-  Widget _absent(DayStepsData d) {
+  Widget _absent(BuildContext c, DayStepsData d) {
+    final l = AppLocalizations.of(c);
     // A day CAN carry a step count with no spans behind it: with no windowed
     // source at all, the day falls back to the strap's on-chip counter, which
     // is a running total with no times of its own. Saying "no steps" over the
@@ -315,22 +318,27 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     // The day this card is about, named. It used to say "today" on a screen
     // that could only ever be today; now it can be any day on disk.
     final when = dayNavLabel(d.day) == 'Today'
-        ? 'today'
-        : 'on ${prettyDay(d.day)}';
+        ? (l?.dayStepsToday ?? 'today')
+        : (l?.dayStepsOnDay(prettyDay(d.day, l)) ?? 'on ${prettyDay(d.day, l)}');
     return StatusCard(
-      chip ? 'No times behind the count $when' : 'No steps counted $when',
       chip
-          ? 'The ${thousands(d.dayTotal)} steps counted $when came from the '
-                'strap\'s own step counter, which reports a running day total '
-                'and no times. There is nothing to place on a clock.'
+          ? (l?.dayStepsNoTimesTitle(when) ?? 'No times behind the count $when')
+          : (l?.dayStepsNoStepsTitle(when) ?? 'No steps counted $when'),
+      chip
+          ? (l?.dayStepsStrapCounterBody(thousands(d.dayTotal), when) ??
+                'The ${thousands(d.dayTotal)} steps counted $when came from the '
+                    'strap\'s own step counter, which reports a running day total '
+                    'and no times. There is nothing to place on a clock.')
           : whyFromNote(d.note, unit: 'days') ??
-                'Nothing that can count steps recorded $when.',
+                (l?.dayStepsNothingCounted(when) ??
+                    'Nothing that can count steps recorded $when.'),
       icon: chip ? LucideIcons.watch : LucideIcons.footprints,
     );
   }
 
   // ── when they were counted ─────────────────────────────────────────────────
   Widget _chart(BuildContext c, P p, DayStepsData d) {
+    final l = AppLocalizations.of(c);
     final (band, phone) = hourlySteps(d.spans);
     final totals = [for (var h = 0; h < 24; h++) band[h] ?? phone[h]];
     final axis = AxisSpec.of(totals.whereType<double>(), floor: 0);
@@ -338,8 +346,8 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
       child: Column(
         children: [
           ChartFrame(
-            title: 'WHEN THEY WERE COUNTED',
-            unit: 'steps',
+            title: l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
+            unit: l?.dayStepsUnit ?? 'steps',
             height: 150,
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
@@ -347,9 +355,12 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
             // ONE colour, one key — a day with a single sensor has nothing to
             // tell apart, and a legend of one is noise.
             legend: d.mixed
-                ? [(d.bandLabel, p.on(C.green)), ('Your phone', p.on(C.teal))]
+                ? [
+                    (d.bandLabel, p.on(C.green)),
+                    (l?.dayStepsYourPhone ?? 'Your phone', p.on(C.teal)),
+                  ]
                 : const [],
-            footnote: _honesty(d),
+            footnote: _honesty(c, d),
             empty: axis == null ? const NoData() : null,
             child: Stack(
               children: [
@@ -378,13 +389,15 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
           InlineMetrics(
             d.mixed
                 ? [
-                    ('Counted', thousands(d.total), C.green),
+                    (l?.dayStepsCounted ?? 'Counted', thousands(d.total), C.green),
                     (d.bandLabel, thousands(d.strap), C.green),
-                    ('Your phone', thousands(d.phone), C.teal),
+                    (l?.dayStepsYourPhone ?? 'Your phone', thousands(d.phone), C.teal),
                   ]
                 : [
                     (
-                      d.strap > 0 ? d.bandLabel : 'Your phone',
+                      d.strap > 0
+                          ? d.bandLabel
+                          : (l?.dayStepsYourPhone ?? 'Your phone'),
                       thousands(d.total),
                       d.strap > 0 ? C.green : C.teal,
                     ),
@@ -404,44 +417,53 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   /// over-count — while a trunk-carried counter's error is one-sided, so the
   /// phone's honest caveat is the steps it never saw rather than the ones it
   /// invented.
-  String _honesty(DayStepsData d) => d.mixed
-      ? 'Counted at your wrist and by your phone, and the two miscount '
-            'differently: a wrist reads a real walk low and can read rhythmic '
-            'hand work as walking, while a phone counts only the steps you had '
-            'it on you for.'
-      : d.strap > 0
-      ? 'Counted at your wrist, where a real walk tends to read low and '
-            'rhythmic hand work can read as walking.'
-      : 'Counted by your phone, so only the steps you had it on you for '
-            'are here.';
+  String _honesty(BuildContext c, DayStepsData d) {
+    final l = AppLocalizations.of(c);
+    return d.mixed
+        ? (l?.dayStepsHonestyMixed ??
+              'Counted at your wrist and by your phone, and the two miscount '
+                  'differently: a wrist reads a real walk low and can read rhythmic '
+                  'hand work as walking, while a phone counts only the steps you had '
+                  'it on you for.')
+        : d.strap > 0
+        ? (l?.dayStepsHonestyStrap ??
+              'Counted at your wrist, where a real walk tends to read low and '
+                  'rhythmic hand work can read as walking.')
+        : (l?.dayStepsHonestyPhone ??
+              'Counted by your phone, so only the steps you had it on you for '
+                  'are here.');
+  }
 
   // ── the stretches themselves ───────────────────────────────────────────────
-  Widget _rows(P p, DayStepsData d) => Surface(
-    child: Column(
-      children: [
-        for (final s in mergeAdjacent(d.spans))
-          MetricRow(
-            // The device is the icon and the colour, and it is said in words
-            // on the line below — the same three channels the chart uses.
-            s.fromBand ? LucideIcons.watch : LucideIcons.smartphone,
-            s.fromBand ? C.green : C.teal,
-            '${clockOfTs(s.startTs)} – ${clockOfTs(s.endTs)}',
-            // No `steps` unit on the row. A clock range is already a long
-            // name, and at 3× text the unit pushed the measurement out of
-            // the card — the screen is titled Steps and the chart's own unit
-            // says so, which is the one place it has to be said.
-            thousands(s.steps),
-            sub: [
-              s.fromBand ? d.bandLabel : 'Your phone',
-              // The session's own name, when the stretch sat inside one.
-              // Never invented for a stretch that did not: steps in an hour
-              // are steps, not a walk we watched.
-              ?activityByName(s.activity)?.name,
-            ].join(' · '),
-          ),
-      ],
-    ),
-  );
+  Widget _rows(BuildContext c, P p, DayStepsData d) {
+    final l = AppLocalizations.of(c);
+    return Surface(
+      child: Column(
+        children: [
+          for (final s in mergeAdjacent(d.spans))
+            MetricRow(
+              // The device is the icon and the colour, and it is said in words
+              // on the line below — the same three channels the chart uses.
+              s.fromBand ? LucideIcons.watch : LucideIcons.smartphone,
+              s.fromBand ? C.green : C.teal,
+              '${clockOfTs(s.startTs)} – ${clockOfTs(s.endTs)}',
+              // No `steps` unit on the row. A clock range is already a long
+              // name, and at 3× text the unit pushed the measurement out of
+              // the card — the screen is titled Steps and the chart's own unit
+              // says so, which is the one place it has to be said.
+              thousands(s.steps),
+              sub: [
+                s.fromBand ? d.bandLabel : (l?.dayStepsYourPhone ?? 'Your phone'),
+                // The session's own name, when the stretch sat inside one.
+                // Never invented for a stretch that did not: steps in an hour
+                // are steps, not a walk we watched.
+                ?activityByName(s.activity)?.name,
+              ].join(' · '),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The paired band's name, in the Devices screen's own words — or null when
@@ -452,14 +474,16 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
 /// this is the current one's name for both. The alternative is to name none of
 /// them, which loses the thing the screen exists to say.
 String bandLabel(BuildContext c) {
+  final fallback =
+      AppLocalizations.of(c)?.dayStepsYourBand ?? DayStepsData._defaultBand;
   try {
     final app = c.read<AppState>();
-    if (!app.isPaired) return DayStepsData._defaultBand;
+    if (!app.isPaired) return fallback;
     // The registry's own label for the band that is paired. A family with no
     // entry — an import, a pre-stamp row, an adapter this build does not carry
     // — is NOT a WHOOP 4, which is what the ternary here used to publish.
-    return bandLabelFor(app.device.generation) ?? DayStepsData._defaultBand;
+    return bandLabelFor(app.device.generation) ?? fallback;
   } catch (_) {
-    return DayStepsData._defaultBand;
+    return fallback;
   }
 }

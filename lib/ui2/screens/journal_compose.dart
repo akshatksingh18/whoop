@@ -19,6 +19,7 @@ import '../../ai/journal_ai.dart' show kJournalPresetTags;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
+import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
@@ -108,8 +109,11 @@ class _JournalComposeState extends State<JournalCompose> {
     // No repo means the sheet should never have been reachable; say so rather
     // than eating the tap.
     if (repo == null) {
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not ready yet — open the app first.')),
+        SnackBar(
+            content: Text(l?.journalComposeNotReady ??
+                'Not ready yet — open the app first.')),
       );
       return;
     }
@@ -120,9 +124,11 @@ class _JournalComposeState extends State<JournalCompose> {
       if (!mounted) return;
       // A failed persist must not read as success — the field would vanish
       // from the list while the user believes it saved.
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Could not save it — check storage and retry.')),
+        SnackBar(
+            content: Text(l?.journalComposeSaveFailed ??
+                'Could not save it — check storage and retry.')),
       );
       return;
     }
@@ -141,6 +147,7 @@ class _JournalComposeState extends State<JournalCompose> {
   Future<void> _setTime(String key) async {
     final cur = _values[key];
     if (cur == null) return;
+    final l = AppLocalizations.of(context);
     final at = await showTimePicker(
       context: context,
       initialTime: cur.atMinuteOfDay == null
@@ -149,7 +156,7 @@ class _JournalComposeState extends State<JournalCompose> {
               hour: cur.atMinuteOfDay! ~/ 60,
               minute: cur.atMinuteOfDay! % 60,
             ),
-      helpText: 'When was the last one?',
+      helpText: l?.journalComposeWhenWasLastOne ?? 'When was the last one?',
     );
     if (at == null || !mounted) return;
     setState(() {
@@ -172,12 +179,14 @@ class _JournalComposeState extends State<JournalCompose> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
         child: Column(
           children: [
-            NavBar('Journal', sub: _date, onBack: () => Navigator.of(c).pop()),
+            NavBar(l?.journalComposeTitle ?? 'Journal',
+                sub: _date, onBack: () => Navigator.of(c).pop()),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
@@ -189,7 +198,7 @@ class _JournalComposeState extends State<JournalCompose> {
                           onChanged: (v) => _set('mood', v?.toDouble()),
                         ),
                         Section(
-                          'Today',
+                          l?.journalComposeTodaySection ?? 'Today',
                           Surface(
                             pad: const EdgeInsets.symmetric(horizontal: S.x4),
                             child: Column(
@@ -234,7 +243,9 @@ class _JournalComposeState extends State<JournalCompose> {
                                         Icon(LucideIcons.plusCircle,
                                             size: 18, color: p.ink3),
                                         const SizedBox(width: S.x2),
-                                        Text('Track something else',
+                                        Text(
+                                            l?.journalComposeTrackSomethingElse ??
+                                                'Track something else',
                                             style:
                                                 F.body.copyWith(color: p.ink3)),
                                       ],
@@ -245,7 +256,9 @@ class _JournalComposeState extends State<JournalCompose> {
                           ),
                         ),
                         Section(
-                          'What happened',
+                          // Same English text as day_timeline's section — key
+                          // shared across the two files, not duplicated.
+                          l?.dayTimelineWhatHappenedSection ?? 'What happened',
                           Wrap(
                             spacing: S.x2,
                             runSpacing: S.x2,
@@ -271,13 +284,16 @@ class _JournalComposeState extends State<JournalCompose> {
                         const SizedBox(height: S.x5),
                         OsTextField(
                           controller: _note,
-                          label: 'Anything else',
-                          hint: 'A line about the day.',
+                          label: l?.journalComposeAnythingElseLabel ?? 'Anything else',
+                          hint: l?.journalComposeAnythingElseHint ??
+                              'A line about the day.',
                           lines: 4,
                         ),
                         const SizedBox(height: S.x6),
                         BigButton(
-                          _saving ? 'Saving' : 'Save',
+                          _saving
+                              ? (l?.journalComposeSavingLabel ?? 'Saving')
+                              : (l?.actionSave ?? 'Save'),
                           icon: LucideIcons.check,
                           color: C.domMind,
                           onTap: _saving ? null : _save,
@@ -319,19 +335,21 @@ class MoodPicker extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'How are you feeling?',
+            l?.journalComposeHowAreYouFeeling ?? 'How are you feeling?',
             style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: S.x1),
           Text(
             value == null
-                ? 'Not answered yet'
-                : 'Mood $value of 5 · tap it again to clear',
+                ? (l?.journalComposeNotAnsweredYet ?? 'Not answered yet')
+                : (l?.journalComposeMoodOfFive(value!) ??
+                    'Mood $value of 5 · tap it again to clear'),
             style: F.cap.copyWith(color: p.ink3),
           ),
           const SizedBox(height: S.x4),
@@ -341,8 +359,10 @@ class MoodPicker extends StatelessWidget {
                 Expanded(
                   child: Pressable(
                     semanticLabel: value == i + 1
-                        ? 'Mood ${i + 1} of 5, selected. Activate to clear.'
-                        : 'Mood ${i + 1} of 5',
+                        ? (l?.journalComposeMoodOfFiveSelected(i + 1) ??
+                            'Mood ${i + 1} of 5, selected. Activate to clear.')
+                        : (l?.journalComposeMoodOfFiveLabel(i + 1) ??
+                            'Mood ${i + 1} of 5'),
                     onTap: () => onChanged(value == i + 1 ? null : i + 1),
                     child: AnimatedContainer(
                       duration: motion(c, Motion.base),
@@ -409,6 +429,7 @@ class FieldStepper extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final v = value;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x2),
@@ -420,17 +441,22 @@ class FieldStepper extends StatelessWidget {
               children: [
                 Text(spec.label, style: F.body.copyWith(color: p.ink)),
                 Text(
-                  v == null ? 'Not logged' : spec.formatWithUnit(v),
+                  v == null
+                      ? (l?.journalComposeNotLogged ?? 'Not logged')
+                      : spec.formatWithUnit(v),
                   style: F.over.copyWith(color: p.ink3),
                 ),
                 if (v != null && v > 0 && onTime != null)
                   Pressable(
-                    semanticLabel: 'When was the last ${spec.label}',
+                    semanticLabel: l?.journalComposeWhenWasLastField(spec.label) ??
+                        'When was the last ${spec.label}',
                     onTap: onTime,
                     child: Text(
                       atMin == null
-                          ? 'Add the time of the last one'
-                          : 'Last at ${formatMinuteOfDay(atMin!)}',
+                          ? (l?.journalComposeAddTimeOfLastOne ??
+                              'Add the time of the last one')
+                          : (l?.journalComposeLastAt(formatMinuteOfDay(atMin!)) ??
+                              'Last at ${formatMinuteOfDay(atMin!)}'),
                       style: F.over.copyWith(color: p.on(C.blue)),
                     ),
                   ),
@@ -471,8 +497,11 @@ class _Step extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     return Pressable(
-      semanticLabel: icon == LucideIcons.plus ? 'Increase' : 'Decrease',
+      semanticLabel: icon == LucideIcons.plus
+          ? (l?.journalComposeIncrease ?? 'Increase')
+          : (l?.journalComposeDecrease ?? 'Decrease'),
       onTap: enabled ? onTap : null,
       child: Container(
         width: 32,
@@ -584,6 +613,7 @@ class _WeightRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final u = unitsOf(c);
     final v = kg;
     return Padding(
@@ -597,18 +627,21 @@ class _WeightRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Weight', style: F.body.copyWith(color: p.ink)),
+                    Text(l?.journalComposeWeightLabel ?? 'Weight',
+                        style: F.body.copyWith(color: p.ink)),
                     Text(
                       v == null
-                          ? 'Not entered'
-                          : '${u == null ? '${v.toStringAsFixed(1)} kg' : u.weight(v)} · entered, not measured',
+                          ? (l?.journalComposeNotEntered ?? 'Not entered')
+                          : (l?.journalComposeEnteredNotMeasured(
+                                  u == null ? '${v.toStringAsFixed(1)} kg' : u.weight(v)) ??
+                              '${u == null ? '${v.toStringAsFixed(1)} kg' : u.weight(v)} · entered, not measured'),
                       style: F.over.copyWith(color: p.ink3),
                     ),
                   ],
                 ),
               ),
               Pressable(
-                semanticLabel: 'Enter weight',
+                semanticLabel: l?.journalComposeEnterWeight ?? 'Enter weight',
                 onTap: () async {
                   final next = await _askWeight(c, u, v);
                   if (next != null) onChanged(next.value);
@@ -620,7 +653,9 @@ class _WeightRow extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(color: p.card2, borderRadius: R.rSm),
                   child: Text(
-                    v == null ? 'Enter' : 'Change',
+                    v == null
+                        ? (l?.journalComposeEnter ?? 'Enter')
+                        : (l?.journalComposeChange ?? 'Change'),
                     style: F.cap.copyWith(color: p.ink2),
                   ),
                 ),
@@ -628,12 +663,12 @@ class _WeightRow extends StatelessWidget {
             ],
           ),
           Pressable(
-            semanticLabel: 'See the weight trend',
+            semanticLabel: l?.journalComposeSeeWeightTrend ?? 'See the weight trend',
             onTap: () => Navigator.of(c).push(
               MaterialPageRoute<void>(builder: (_) => const _WeightTrend()),
             ),
             child: Text(
-              'See the trend',
+              l?.journalComposeSeeTheTrend ?? 'See the trend',
               style: F.over.copyWith(color: p.on(C.blue)),
             ),
           ),
@@ -652,12 +687,13 @@ class _WeightRow extends StatelessWidget {
   ) {
     final imperial = u?.isImperial ?? false;
     final ctrl = TextEditingController(text: u?.weightField(kg) ?? '');
+    final l = AppLocalizations.of(c);
     return showDialog<({double? value})>(
       context: c,
       builder: (dc) => AlertDialog(
         backgroundColor: P.of(dc).card,
         title: Text(
-          'Weight today',
+          l?.journalComposeWeightToday ?? 'Weight today',
           style: F.head.copyWith(color: P.of(dc).ink),
         ),
         content: Column(
@@ -666,13 +702,14 @@ class _WeightRow extends StatelessWidget {
           children: [
             OsTextField(
               controller: ctrl,
-              label: u?.weightLabel ?? 'Weight (kg)',
+              label: u?.weightLabel ?? (l?.journalComposeWeightKgLabel ?? 'Weight (kg)'),
               hint: imperial ? '154' : '70.0',
               keyboard: const TextInputType.numberWithOptions(decimal: true),
             ),
             const SizedBox(height: S.x3),
             Text(
-              'What you or your scale read. The band does not measure this.',
+              l?.journalComposeWeightScaleNote ??
+                  'What you or your scale read. The band does not measure this.',
               style: F.over.copyWith(color: P.of(dc).ink3, height: 1.4),
             ),
           ],
@@ -682,14 +719,14 @@ class _WeightRow extends StatelessWidget {
             TextButton(
               onPressed: () => Navigator.of(dc).pop((value: null)),
               child: Text(
-                'Clear',
+                l?.journalComposeClear ?? 'Clear',
                 style: F.body.copyWith(color: P.of(dc).ink2),
               ),
             ),
           TextButton(
             onPressed: () => Navigator.of(dc).pop(),
             child: Text(
-              'Cancel',
+              l?.actionCancel ?? 'Cancel',
               style: F.body.copyWith(color: P.of(dc).ink2),
             ),
           ),
@@ -698,7 +735,8 @@ class _WeightRow extends StatelessWidget {
               // A typo is not a blank. Nothing is saved from an unreadable
               // field, and the form says which one rather than storing a hole.
               if (Typed.of(ctrl.text).bad) {
-                sayUnreadable(dc, [u?.weightLabel ?? 'Weight']);
+                sayUnreadable(
+                    dc, [u?.weightLabel ?? (l?.journalComposeWeightLabel ?? 'Weight')]);
                 return;
               }
               final kgIn = u == null
@@ -707,7 +745,7 @@ class _WeightRow extends StatelessWidget {
               Navigator.of(dc).pop((value: kgIn));
             },
             child: Text(
-              'Save',
+              l?.actionSave ?? 'Save',
               style: F.body.copyWith(color: P.of(dc).on(C.blue)),
             ),
           ),
@@ -769,8 +807,10 @@ class _WeightTrendState extends State<_WeightTrend> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final title = l?.journalComposeWeightLabel ?? 'Weight';
     if (_loading) {
-      return detailScaffold(c, 'Weight', const [
+      return detailScaffold(c, title, const [
         SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
       ]);
@@ -779,12 +819,13 @@ class _WeightTrendState extends State<_WeightTrend> {
     final u = unitsOf(c);
     final trend = weightTrendEwma(_byDay);
     if (trend.length < 2) {
-      return detailScaffold(c, 'Weight', const [
-        SizedBox(height: S.x2),
+      return detailScaffold(c, title, [
+        const SizedBox(height: S.x2),
         StatusCard(
-          'Not enough entries for a trend',
-          'The line is a seven-day average through what you entered, so it '
-              'needs at least two days. Nothing is filled in between them.',
+          l?.journalComposeNotEnoughEntriesTitle ?? 'Not enough entries for a trend',
+          l?.journalComposeNotEnoughEntriesBody ??
+              'The line is a seven-day average through what you entered, so it '
+                  'needs at least two days. Nothing is filled in between them.',
           icon: LucideIcons.scale,
         ),
       ]);
@@ -809,16 +850,17 @@ class _WeightTrendState extends State<_WeightTrend> {
     final present = <double>[for (final v in vals) ?v];
     final axis = AxisSpec.of(present, format: axisFixed);
 
-    return detailScaffold(c, 'Weight', [
+    return detailScaffold(c, title, [
       const SizedBox(height: S.x2),
       Surface(
         child: ChartFrame(
-          title: 'Seven-day trend',
+          title: l?.journalComposeSevenDayTrend ?? 'Seven-day trend',
           unit: u?.isImperial == true ? 'lb' : 'kg',
           height: 140,
           yAxis: axis,
           xLabels: [days.first, days.last],
-          footnote: 'Entered by you. Days with no entry are left empty.',
+          footnote: l?.journalComposeTrendFootnote ??
+              'Entered by you. Days with no entry are left empty.',
           series: vals,
           empty: axis == null ? const NoData() : null,
           child: axis == null
@@ -839,11 +881,12 @@ class _WeightTrendState extends State<_WeightTrend> {
       ),
       const SizedBox(height: S.x4),
       Text(
-        'Entered by you or your scale — the band does not measure weight. What '
-        'is drawn is a seven-day average, because a scale moves one to two '
-        'kilos on water and food alone and the raw readings would show that as '
-        'something happening to your body. ${trend.length} '
-        '${trend.length == 1 ? 'day' : 'days'} entered.',
+        l?.journalComposeWeightTrendExplainer(trend.length) ??
+            'Entered by you or your scale — the band does not measure weight. What '
+            'is drawn is a seven-day average, because a scale moves one to two '
+            'kilos on water and food alone and the raw readings would show that as '
+            'something happening to your body. ${trend.length} '
+            '${trend.length == 1 ? 'day' : 'days'} entered.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

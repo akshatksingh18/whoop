@@ -27,6 +27,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../ui2.dart';
 import 'home_screen.dart'
@@ -225,7 +226,8 @@ List<DriverFacts> driverFacts({
 ///
 /// Null when the numbers are not there, or are not in units a person can read
 /// (see [DriverFacts.numeric]). Never a partial sentence with a blank in it.
-String? driverValueLine(DriverFacts f) {
+String? driverValueLine(BuildContext c, DriverFacts f) {
+  final l = AppLocalizations.of(c);
   final unit = unitBeside(f.spec.unit);
   final suffix = unit.isEmpty ? '' : ' $unit';
   if (!f.numeric) {
@@ -233,18 +235,24 @@ String? driverValueLine(DriverFacts f) {
     // usual" is the whole honest content of a raw ADC deviation.
     final d = f.delta;
     if (d == null || d == 0) return null;
-    return d > 0 ? 'Higher than your usual' : 'Lower than your usual';
+    return d > 0
+        ? (l?.driverBreakdownHigherThanUsual ?? 'Higher than your usual')
+        : (l?.driverBreakdownLowerThanUsual ?? 'Lower than your usual');
   }
   final v = f.value, u = f.usual, d = f.delta;
   if (v == null) return null;
   final now = '${metricValue(f.spec.unit, v)}$suffix';
   if (u == null || d == null) return now;
   if (metricValue(f.spec.unit, d.abs()) == metricValue(f.spec.unit, 0)) {
-    return '$now · right on your usual';
+    return l?.driverBreakdownRightOnUsual(now) ?? '$now · right on your usual';
   }
-  return '$now · ${metricValue(f.spec.unit, d.abs())}$suffix '
-      '${d > 0 ? 'above' : 'below'} your usual '
-      '${metricValue(f.spec.unit, u)}$suffix';
+  final deltaStr = '${metricValue(f.spec.unit, d.abs())}$suffix';
+  final usualStr = '${metricValue(f.spec.unit, u)}$suffix';
+  return d > 0
+      ? (l?.driverBreakdownAboveUsual(now, deltaStr, usualStr) ??
+          '$now · $deltaStr above your usual $usualStr')
+      : (l?.driverBreakdownBelowUsual(now, deltaStr, usualStr) ??
+          '$now · $deltaStr below your usual $usualStr');
 }
 
 /// The qualifiers, in `ReadinessDetail`'s own words so the two screens agree.
@@ -259,22 +267,28 @@ String? driverValueLine(DriverFacts f) {
 ///   4. outside it, but still inside measurement noise,
 ///   5. outside it, with no honest noise estimate — which says nothing rather
 ///      than rounding a missing MDC up into a claim.
-List<String> driverQualifiers(DriverFacts f) {
+List<String> driverQualifiers(BuildContext c, DriverFacts f) {
+  final l = AppLocalizations.of(c);
   final share = f.weightShare;
   final m = f.mdcMultiples;
   return [
-    if (share != null) '${(share * 100).round()}% weight',
-    if (!f.used) 'not available',
-    if (f.used && f.contribution == null) 'contribution not reported',
+    if (share != null)
+      l?.driverBreakdownWeightPct((share * 100).round()) ??
+          '${(share * 100).round()}% weight',
+    if (!f.used) l?.driverBreakdownNotAvailable ?? 'not available',
+    if (f.used && f.contribution == null)
+      l?.driverBreakdownContributionNotReported ?? 'contribution not reported',
     // A raw sensor deviation says so, every time it appears.
-    if (!f.numeric) 'relative, uncalibrated',
+    if (!f.numeric)
+      l?.driverBreakdownRelativeUncalibrated ?? 'relative, uncalibrated',
     if (f.used && !f.beyondUsualSpread)
-      'within your usual spread'
+      l?.driverBreakdownWithinUsualSpread ?? 'within your usual spread'
     else if (f.used && m != null)
       m.abs() >= 1
-          ? 'bigger than measurement noise'
-          : 'outside your usual spread, but small enough to be measurement '
-              'noise',
+          ? (l?.driverBreakdownBiggerThanNoise ?? 'bigger than measurement noise')
+          : (l?.driverBreakdownSmallerThanNoise ??
+              'outside your usual spread, but small enough to be measurement '
+                  'noise'),
   ];
 }
 
@@ -306,6 +320,7 @@ class _DriverBreakdownState extends State<DriverBreakdown> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final g = splitDrivers(widget.facts);
     final rows = <Widget>[];
 
@@ -327,12 +342,12 @@ class _DriverBreakdownState extends State<DriverBreakdown> {
       }
     }
 
-    group('What helped', g.helped);
-    group('What held you back', g.held);
+    group(l?.driverBreakdownWhatHelped ?? 'What helped', g.helped);
+    group(l?.driverBreakdownWhatHeldYouBack ?? 'What held you back', g.held);
     // Deliberately last and deliberately not called "what did nothing": an
     // input that was never measured did not fail to move your score, it was
     // absent, and the row underneath says which.
-    group('Neither', g.neither);
+    group(l?.driverBreakdownNeither ?? 'Neither', g.neither);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
@@ -344,10 +359,11 @@ class _DriverBreakdownState extends State<DriverBreakdown> {
         elevation: 0,
         color: p.card2,
         child: Text(
-          'Each input is ranked against your own history — a parallel view of '
-          'the same inputs, not slices of the score itself. "Measurement noise" '
-          'is how far a reading can move on its own without anything having '
-          'changed. Patterns in your own logs, not causes.',
+          l?.driverBreakdownFooter ??
+              'Each input is ranked against your own history — a parallel view of '
+                  'the same inputs, not slices of the score itself. "Measurement '
+                  'noise" is how far a reading can move on its own without '
+                  'anything having changed. Patterns in your own logs, not causes.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ),
@@ -365,9 +381,10 @@ class _DriverTile extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final contribution = f.used ? f.contribution : null;
-    final value = driverValueLine(f);
-    final quals = driverQualifiers(f).join(' · ');
+    final value = driverValueLine(c, f);
+    final quals = driverQualifiers(c, f).join(' · ');
     // The pipeline's own reason, never a written-here one. `need_baseline:
     // have=2,need=7` becomes "Need 5 more nights"; anything it cannot read
     // comes back null and the row simply says "not available" above.
@@ -413,8 +430,10 @@ class _DriverTile extends StatelessWidget {
         Pressable(
           onTap: onTap,
           semanticLabel: open
-              ? '${f.label}, hide its history'
-              : '${f.label}, show its history',
+              ? (l?.driverBreakdownHideHistory(f.label) ??
+                  '${f.label}, hide its history')
+              : (l?.driverBreakdownShowHistory(f.label) ??
+                  '${f.label}, show its history'),
           child: head,
         ),
       if (open) ...[
@@ -432,6 +451,7 @@ class _DriverTile extends StatelessWidget {
 /// and the band is the pipeline's own `|z| ≤ 1` — not a second definition of
 /// normal invented for a chart.
 Widget _chart(BuildContext c, P p, DriverFacts f) {
+  final l = AppLocalizations.of(c);
   final win = _window(f.series);
   final band = f.band;
   final ink = p.on(f.spec.color);
@@ -454,13 +474,21 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
     yAxis: axis,
     xLabels: win.length < 2
         ? const []
-        : ['${win.length - 1} day${win.length == 2 ? '' : 's'} ago', 'Today'],
+        : [
+            l?.driverBreakdownDaysAgo(win.length - 1) ??
+                '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
+            l?.driverBreakdownToday ?? 'Today',
+          ],
     series: win,
     footnote: band == null
         ? null
-        : 'Your usual range ${metricValue(f.spec.unit, band.$1)}–'
-            '${metricValue(f.spec.unit, band.$2)}'
-            '${unit.isEmpty ? '' : ' $unit'}',
+        : (l?.driverBreakdownUsualRange(
+                metricValue(f.spec.unit, band.$1),
+                metricValue(f.spec.unit, band.$2),
+                unit.isEmpty ? '' : ' $unit') ??
+            'Your usual range ${metricValue(f.spec.unit, band.$1)}–'
+                '${metricValue(f.spec.unit, band.$2)}'
+                '${unit.isEmpty ? '' : ' $unit'}'),
     empty: axis == null ? const NoData() : null,
     child: axis == null
         ? const SizedBox.shrink()
@@ -524,29 +552,35 @@ class _Band extends StatelessWidget {
 /// carries its own note, or nothing recorded says why — and the third case
 /// says exactly that instead of borrowing the cold-start sentence, which is a
 /// wrong answer to "the numbers exist and we will not stand behind them".
-StatusCard driverAbsenceCard({
+StatusCard driverAbsenceCard(
+  BuildContext c, {
   Map<String, dynamic>? stale,
   String? note,
   VoidCallback? onSync,
 }) {
+  final l = AppLocalizations.of(c);
   if (stale != null) {
     return StatusCard(
-      'No breakdown to show',
+      l?.driverBreakdownAbsenceTitle ?? 'No breakdown to show',
       switch (stale['kind']) {
-        'algo_version' => 'How readiness is worked out changed with the last '
-            'update, and it is being rebuilt.',
-        'stale' => 'The last rollup is too old to stand behind.',
-        _ => 'The stored rollup carries no version stamp.',
+        'algo_version' => l?.driverBreakdownAbsenceAlgoVersion ??
+            'How readiness is worked out changed with the last '
+                'update, and it is being rebuilt.',
+        'stale' => l?.driverBreakdownAbsenceStale ??
+            'The last rollup is too old to stand behind.',
+        _ => l?.driverBreakdownAbsenceNoVersion ??
+            'The stored rollup carries no version stamp.',
       },
-      fix: onSync == null ? '' : 'Sync the band',
+      fix: onSync == null ? '' : (l?.driverBreakdownSyncTheBand ?? 'Sync the band'),
       onFix: onSync,
       icon: LucideIcons.refreshCw,
     );
   }
   return StatusCard(
-    'No breakdown to show',
+    l?.driverBreakdownAbsenceTitle ?? 'No breakdown to show',
     whyFromNote(note) ??
-        'Nothing recorded says why last night has no breakdown.',
+        (l?.driverBreakdownAbsenceNoReason ??
+            'Nothing recorded says why last night has no breakdown.'),
     icon: LucideIcons.listTree,
   );
 }

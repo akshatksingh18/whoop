@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 
 // ── loose parsing (the model is not a schema) ────────────────────────────────
@@ -112,7 +113,7 @@ class CoachFigure extends StatelessWidget {
       'kpi_grid' => _kpis(c, p, title),
       'heatmap' => _heatmap(c, p, title, unit),
       'table' => _table(c, p, title),
-      _ => _unsupported(title, type),
+      _ => _unsupported(c, title, type),
     };
 
     if (note.isEmpty) return body;
@@ -126,15 +127,22 @@ class CoachFigure extends StatelessWidget {
     );
   }
 
-  Widget _unsupported(String title, String type) => StatusCard(
-    title.isEmpty ? 'A figure could not be drawn' : title,
-    type.isEmpty
-        ? 'The coach sent a figure with no type.'
-        : 'The coach asked for a "$type" figure, which this app does not draw.',
-    icon: LucideIcons.chartNoAxesColumn,
-  );
+  Widget _unsupported(BuildContext c, String title, String type) {
+    final l = AppLocalizations.of(c);
+    return StatusCard(
+      title.isEmpty
+          ? (l?.coachFiguresCouldNotBeDrawn ?? 'A figure could not be drawn')
+          : title,
+      type.isEmpty
+          ? (l?.coachFiguresNoType ?? 'The coach sent a figure with no type.')
+          : (l?.coachFiguresUnsupportedType(type) ??
+              'The coach asked for a "$type" figure, which this app does not draw.'),
+      icon: LucideIcons.chartNoAxesColumn,
+    );
+  }
 
   Widget _frame(
+    BuildContext c,
     String title,
     String unit,
     Widget child, {
@@ -146,7 +154,7 @@ class CoachFigure extends StatelessWidget {
     Widget? empty,
     String? footnote,
   }) => ChartFrame(
-    title: title.isEmpty ? 'Figure' : title,
+    title: title.isEmpty ? (AppLocalizations.of(c)?.coachFiguresFigure ?? 'Figure') : title,
     unit: unit,
     height: height,
     yAxis: yAxis,
@@ -167,10 +175,12 @@ class CoachFigure extends StatelessWidget {
     final series = _seriesOf(spec);
     final axis = _axisFor(series.map((s) => s.values));
     if (axis == null) {
-      return _frame(title, unit, const SizedBox.shrink(), empty: const NoData());
+      return _frame(c, title, unit, const SizedBox.shrink(), empty: const NoData());
     }
+    final l = AppLocalizations.of(c);
     final inks = _inks(p);
     return _frame(
+      c,
       title,
       unit,
       Stack(
@@ -199,7 +209,9 @@ class CoachFigure extends StatelessWidget {
           : [
               for (var i = 0; i < series.length; i++)
                 (
-                  series[i].name.isEmpty ? 'Series ${i + 1}' : series[i].name,
+                  series[i].name.isEmpty
+                      ? (l?.coachFiguresSeriesN(i + 1) ?? 'Series ${i + 1}')
+                      : series[i].name,
                   inks[i % inks.length],
                 ),
             ],
@@ -221,9 +233,10 @@ class CoachFigure extends StatelessWidget {
         ? null
         : AxisSpec.of(finite, floor: 0, format: axisFixedOrInt);
     if (axis == null) {
-      return _frame(title, unit, const SizedBox.shrink(), empty: const NoData());
+      return _frame(c, title, unit, const SizedBox.shrink(), empty: const NoData());
     }
     return _frame(
+      c,
       title,
       unit,
       CustomPaint(
@@ -263,14 +276,16 @@ class CoachFigure extends StatelessWidget {
         if (s.values.any((v) => v != null && v.isFinite)) s.values,
     ];
     if (lanes.isEmpty) {
-      return _frame(title, '', const SizedBox.shrink(), empty: const NoData());
+      return _frame(c, title, '', const SizedBox.shrink(), empty: const NoData());
     }
+    final loc = AppLocalizations.of(c);
     final inks = _inks(p);
     final units = [
       for (final k in const ['left', 'right'])
         if (spec[k] is Map) _str((spec[k] as Map)['unit']),
     ];
     return _frame(
+      c,
       title,
       units.where((u) => u.isNotEmpty).join(' · '),
       CustomPaint(
@@ -290,7 +305,9 @@ class CoachFigure extends StatelessWidget {
       legend: [
         for (var i = 0; i < series.length && i < lanes.length; i++)
           (
-            series[i].name.isEmpty ? 'Lane ${i + 1}' : series[i].name,
+            series[i].name.isEmpty
+                ? (loc?.coachFiguresLaneN(i + 1) ?? 'Lane ${i + 1}')
+                : series[i].name,
             inks[i % inks.length],
           ),
       ],
@@ -299,6 +316,9 @@ class CoachFigure extends StatelessWidget {
 
   // ── hypnogram ──────────────────────────────────────────────────────────────
   Widget _hypnogram(BuildContext c, P p, String title) {
+    final l = AppLocalizations.of(c);
+    final noSegs =
+        NoData(message: l?.coachFiguresNoSleepSegments ?? 'No sleep segments');
     final segs = _list(spec['segments']).whereType<Map>().toList();
     // The painter takes one entry per EPOCH, in order — it has no opinion about
     // time. Expand the segments onto a fixed grid so a 20-minute REM block and
@@ -307,22 +327,12 @@ class CoachFigure extends StatelessWidget {
     final lo = [for (final s in segs) ?_num(s['start'])];
     final hi = [for (final s in segs) ?_num(s['end'])];
     if (lo.isEmpty || hi.isEmpty) {
-      return _frame(
-        title,
-        'stage',
-        const SizedBox.shrink(),
-        empty: const NoData(message: 'No sleep segments'),
-      );
+      return _frame(c, title, 'stage', const SizedBox.shrink(), empty: noSegs);
     }
     final t0 = lo.reduce((a, b) => a < b ? a : b);
     final t1 = hi.reduce((a, b) => a > b ? a : b);
     if (t1 <= t0) {
-      return _frame(
-        title,
-        'stage',
-        const SizedBox.shrink(),
-        empty: const NoData(message: 'No sleep segments'),
-      );
+      return _frame(c, title, 'stage', const SizedBox.shrink(), empty: noSegs);
     }
     final grid = List<SleepStage>.filled(slots, SleepStage.awake);
     for (final s in segs) {
@@ -349,6 +359,7 @@ class CoachFigure extends StatelessWidget {
     }
 
     return _frame(
+      c,
       title,
       'stage',
       CustomPaint(size: Size.infinite, painter: Hypnogram(grid, p)),
@@ -364,6 +375,7 @@ class CoachFigure extends StatelessWidget {
   // A per-day stacked version would need a second painter and would be the only
   // stacked bar in the app.
   Widget _zones(BuildContext c, P p, String title) {
+    final l = AppLocalizations.of(c);
     var z = [
       for (final v in _values(spec['zones'] ?? spec['values']))
         if (v != null && v.isFinite && v >= 0) v,
@@ -378,31 +390,36 @@ class CoachFigure extends StatelessWidget {
     final total = z.fold<double>(0, (a, v) => a + v);
     if (z.length < 2 || total <= 0) {
       return _frame(
+        c,
         title,
         'min',
         const SizedBox.shrink(),
-        empty: const NoData(message: 'No time in zone'),
+        empty: NoData(
+            message: l?.coachFiguresNoTimeInZone ?? 'No time in zone'),
       );
     }
     final fracs = [for (final v in z.take(5)) v / total];
     return _frame(
+      c,
       title,
       'min',
       CustomPaint(size: Size.infinite, painter: ZoneBar(fracs, p)),
       height: 56,
       legend: ZoneBar.legend(p),
-      footnote: '${total.round()} min total',
+      footnote: l?.coachFiguresMinTotal(total.round()) ??
+          '${total.round()} min total',
     );
   }
 
   // ── gauge ──────────────────────────────────────────────────────────────────
   Widget _gauge(BuildContext c, P p, String title, String unit) {
+    final l = AppLocalizations.of(c);
     final v = _num(spec['value']);
     final lo = _num(spec['min']) ?? 0, hi = _num(spec['max']) ?? 100;
     if (v == null || hi <= lo) {
       return StatusCard(
-        title.isEmpty ? 'Gauge' : title,
-        'The coach sent a gauge with no value.',
+        title.isEmpty ? (l?.coachFiguresGauge ?? 'Gauge') : title,
+        l?.coachFiguresGaugeNoValue ?? 'The coach sent a gauge with no value.',
         icon: LucideIcons.gauge,
       );
     }
@@ -436,7 +453,9 @@ class CoachFigure extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title.isEmpty ? (label.isEmpty ? 'Gauge' : label) : title,
+                  title.isEmpty
+                      ? (label.isEmpty ? (l?.coachFiguresGauge ?? 'Gauge') : label)
+                      : title,
                   style: F.head.copyWith(color: p.ink),
                 ),
                 const SizedBox(height: S.x1),
@@ -460,11 +479,12 @@ class CoachFigure extends StatelessWidget {
   // number-and-a-picture card invented here would be a card job nobody else
   // spends.
   Widget _kpis(BuildContext c, P p, String title) {
+    final l = AppLocalizations.of(c);
     final cards = _list(spec['cards']).whereType<Map>().toList();
     if (cards.isEmpty) {
       return StatusCard(
-        title.isEmpty ? 'Summary' : title,
-        'The coach sent an empty summary.',
+        title.isEmpty ? (l?.coachFiguresSummary ?? 'Summary') : title,
+        l?.coachFiguresEmptySummary ?? 'The coach sent an empty summary.',
         icon: LucideIcons.layoutGrid,
       );
     }
@@ -513,9 +533,10 @@ class CoachFigure extends StatelessWidget {
         [for (final v in _list(r)) _num(v)],
     ];
     if (weeks.isEmpty || weeks.every((w) => w.every((v) => v == null))) {
-      return _frame(title, unit, const SizedBox.shrink(), empty: const NoData());
+      return _frame(c, title, unit, const SizedBox.shrink(), empty: const NoData());
     }
     return _frame(
+      c,
       title,
       unit,
       CustomPaint(
@@ -530,14 +551,15 @@ class CoachFigure extends StatelessWidget {
 
   // ── table ──────────────────────────────────────────────────────────────────
   Widget _table(BuildContext c, P p, String title) {
+    final l = AppLocalizations.of(c);
     final cols = [for (final e in _list(spec['columns'])) _str(e)];
     final rows = [
       for (final r in _list(spec['rows'])) [for (final e in _list(r)) _str(e)],
     ];
     if (rows.isEmpty) {
       return StatusCard(
-        title.isEmpty ? 'Table' : title,
-        'The coach sent a table with no rows.',
+        title.isEmpty ? (l?.coachFiguresTable ?? 'Table') : title,
+        l?.coachFiguresTableNoRows ?? 'The coach sent a table with no rows.',
         icon: LucideIcons.table,
       );
     }

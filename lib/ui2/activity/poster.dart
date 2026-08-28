@@ -35,6 +35,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
@@ -66,6 +67,16 @@ enum PosterFormat {
 
   double get height => kPosterW * ratio;
   Size get size => Size(kPosterW, height);
+}
+
+/// The format's user-facing name, for the format switcher — `label` itself
+/// stays a plain English enum field so it can serve as the fallback here.
+String posterFormatLabel(BuildContext c, PosterFormat f) {
+  final l = AppLocalizations.of(c);
+  return switch (f) {
+    PosterFormat.post => l?.activityPosterFormatPost ?? f.label,
+    PosterFormat.story => l?.activityPosterFormatStory ?? f.label,
+  };
 }
 
 /// Every card is authored at this width and exported at 3×, so a post lands

@@ -30,6 +30,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 // screens describe a session, the caller owns it. Prefs is a synchronous
 // key/value façade, not the app.
 import '../../gps/gps_source.dart' show GpsPermissionStatus;
+import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show unitsOf;
@@ -514,6 +515,7 @@ class LiveShellState extends State<LiveShell> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final a = widget.a;
     return Scaffold(
       backgroundColor: p.bg,
@@ -527,7 +529,7 @@ class LiveShellState extends State<LiveShell> {
               // back, or by an iOS edge-swipe — puts it away rather than
               // destroying it. The bar above the tab bar brings it back.
               Pressable(
-                semanticLabel: 'Minimise',
+                semanticLabel: l?.activityLiveMinimiseLabel ?? 'Minimise',
                 onTap: () => Navigator.maybePop(c),
                 child:
                     Icon(LucideIcons.chevronDown, size: 24, color: p.ink3),
@@ -588,7 +590,9 @@ class LiveShellState extends State<LiveShell> {
               const SizedBox(width: S.x4),
               Expanded(
                 child: Pressable(
-                  semanticLabel: paused ? 'Resume' : 'Pause',
+                  semanticLabel: paused
+                      ? (l?.activityLiveResumeLabel ?? 'Resume')
+                      : (l?.activityLivePauseLabel ?? 'Pause'),
                   onTap: () => setState(() {
                     paused = !paused;
                     LiveDraft.current?.setPaused(paused);
@@ -607,7 +611,8 @@ class LiveShellState extends State<LiveShell> {
               ),
               const SizedBox(width: S.x4),
               _round(p, LucideIcons.square, p.card2, p.on(C.red),
-                  'Finish session', finish),
+                  l?.activityLiveFinishSessionLabel ?? 'Finish session',
+                  finish),
             ]),
           ),
         ]),
@@ -739,20 +744,23 @@ class LiveHeart extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     if (feed.hr == null) {
       // One card used to cover both, and it told a user whose band had
       // dropped mid-session to adjust the fit of a band that was not there.
       return feed.bandConnected
-          ? const StatusCard(
-              'No heart rate yet',
-              'The band is connected but has not reported a beat, so it needs '
-                  'to be snug, a finger-width above the wrist bone.',
+          ? StatusCard(
+              l?.activityLiveNoHrYetTitle ?? 'No heart rate yet',
+              l?.activityLiveNoHrYetBody ??
+                  'The band is connected but has not reported a beat, so it '
+                      'needs to be snug, a finger-width above the wrist bone.',
               icon: LucideIcons.heartPulse,
             )
-          : const StatusCard(
-              'No heart rate',
-              'The band is not connected, so nothing is arriving for this '
-                  'session.',
+          : StatusCard(
+              l?.activityLiveNoHrTitle ?? 'No heart rate',
+              l?.activityLiveNoHrBody ??
+                  'The band is not connected, so nothing is arriving for '
+                      'this session.',
               icon: LucideIcons.heartPulse,
             );
     }
@@ -773,18 +781,20 @@ class LiveHeart extends StatelessWidget {
             const SizedBox(width: S.x2),
             Text('${feed.hr}', style: F.n24.copyWith(color: p.ink)),
             const SizedBox(width: S.x1),
-            Text('bpm', style: F.cap.copyWith(color: p.ink3)),
+            Text(l?.activityLiveBpmUnit ?? 'bpm',
+                style: F.cap.copyWith(color: p.ink3)),
           ]),
           if (z != null)
             // The zone's OWN colour, the one the bar underneath paints it in. A
             // fixed green said "zone 5" and "zone 1" in the same breath.
-            Pill('Zone $z', ZoneBar.pigment[(z - 1).clamp(0, 4)]),
+            Pill(l?.activityLiveZoneLabel(z) ?? 'Zone $z',
+                ZoneBar.pigment[(z - 1).clamp(0, 4)]),
         ],
       ),
       if (feed.zoneMinutes.length == 5) ...[
         const SizedBox(height: S.x4),
         ChartFrame(
-          title: 'TIME IN ZONES',
+          title: l?.activityLiveTimeInZonesTitle ?? 'TIME IN ZONES',
           unit: 'minutes',
           height: 10,
           legend: [
@@ -809,43 +819,53 @@ class LiveHeart extends StatelessWidget {
 /// Why this session is being recorded without a route, and the one thing that
 /// would fix it. The session keeps running either way — a missing map is not a
 /// reason to stop a run — but it is named rather than left blank.
-Widget? _routeIssueCard(GpsPermissionStatus? issue, VoidCallback? onFix) =>
-    switch (issue) {
-      null => null,
-      // Title and action, no body. The body was cut as slop; the AFFORDANCE is
-      // not slop — denied is the one branch a user can actually resolve from
-      // here, and dropping the whole card left them with a missing map and no
-      // way to fix it.
-      GpsPermissionStatus.denied => StatusCard(
-          'No route: location not allowed',
-          '',
-          fix: 'Allow location',
-          onFix: onFix,
-          icon: LucideIcons.mapPin,
-        ),
-      GpsPermissionStatus.serviceOff => StatusCard(
-          'No route: location is off',
-          'Location services are off on this phone, so no fixes are arriving.',
-          fix: 'Turn on location',
-          onFix: onFix,
-          icon: LucideIcons.mapPin,
-        ),
-      GpsPermissionStatus.deniedForever => StatusCard(
-          'No route: location not allowed',
-          'Location is denied for this app, which only Settings can change.',
-          fix: 'Open Settings',
-          onFix: onFix,
-          icon: LucideIcons.mapPin,
-        ),
-      // `granted` cannot reach here: it is never stored as an issue.
-      _ => StatusCard(
-          'No route: location failed',
-          'The phone returned an error when asked for a fix.',
-          fix: 'Try again',
-          onFix: onFix,
-          icon: LucideIcons.mapPin,
-        ),
-    };
+Widget? _routeIssueCard(
+    BuildContext c, GpsPermissionStatus? issue, VoidCallback? onFix) {
+  final l = AppLocalizations.of(c);
+  return switch (issue) {
+    null => null,
+    // Title and action, no body. The body was cut as slop; the AFFORDANCE is
+    // not slop — denied is the one branch a user can actually resolve from
+    // here, and dropping the whole card left them with a missing map and no
+    // way to fix it.
+    GpsPermissionStatus.denied => StatusCard(
+        l?.activityLiveNoRouteNotAllowedTitle ??
+            'No route: location not allowed',
+        '',
+        fix: l?.activityLiveAllowLocation ?? 'Allow location',
+        onFix: onFix,
+        icon: LucideIcons.mapPin,
+      ),
+    GpsPermissionStatus.serviceOff => StatusCard(
+        l?.activityLiveNoRouteOffTitle ?? 'No route: location is off',
+        l?.activityLiveNoRouteOffBody ??
+            'Location services are off on this phone, so no fixes are '
+                'arriving.',
+        fix: l?.activityLiveTurnOnLocation ?? 'Turn on location',
+        onFix: onFix,
+        icon: LucideIcons.mapPin,
+      ),
+    GpsPermissionStatus.deniedForever => StatusCard(
+        l?.activityLiveNoRouteNotAllowedTitle ??
+            'No route: location not allowed',
+        l?.activityLiveDeniedForeverBody ??
+            'Location is denied for this app, which only Settings can '
+                'change.',
+        fix: l?.activityLiveOpenSettings ?? 'Open Settings',
+        onFix: onFix,
+        icon: LucideIcons.mapPin,
+      ),
+    // `granted` cannot reach here: it is never stored as an issue.
+    _ => StatusCard(
+        l?.activityLiveNoRouteFailedTitle ?? 'No route: location failed',
+        l?.activityLiveNoRouteFailedBody ??
+            'The phone returned an error when asked for a fix.',
+        fix: l?.activityLiveTryAgain ?? 'Try again',
+        onFix: onFix,
+        icon: LucideIcons.mapPin,
+      ),
+  };
+}
 
 /// MET-derived calories for the elapsed time, or the feed's own figure when
 /// the band produced one. Null when body weight is unknown — the whole point
@@ -876,7 +896,7 @@ List<Widget> _distanceStats(BuildContext ctx, P p, LiveFeed f, Activity a,
     statRow(p, [
       if (value != null) (value.toStringAsFixed(2), unit),
       if (pacePerUnit != null) (pacePerUnit, '/$unit'),
-      ..._commonStats(a, f, weightKg, elapsed),
+      ..._commonStats(ctx, a, f, weightKg, elapsed),
     ].take(3).toList()),
   ];
 }
@@ -891,14 +911,49 @@ String _distanceText(BuildContext c, double km) {
 
 String _distanceUnit(BuildContext c) => unitsOf(c)?.distanceUnit ?? 'km';
 
+/// Display text for a swim stroke — [key] stays the canonical English value
+/// stored on the session (see [LiveSwim]'s `strokes` and [_baseResult]'s
+/// `stroke:`); only what the user reads is translated.
+String _strokeLabel(BuildContext c, String key) {
+  final l = AppLocalizations.of(c);
+  return switch (key) {
+    'Free' => l?.activityLiveStrokeFree ?? 'Free',
+    'Back' => l?.activityLiveStrokeBack ?? 'Back',
+    'Breast' => l?.activityLiveStrokeBreast ?? 'Breast',
+    'Fly' => l?.activityLiveStrokeFly ?? 'Fly',
+    _ => key,
+  };
+}
+
+/// Display text for a yoga pose — [key] stays the canonical English value
+/// stored in [LiveFlow]'s `poses` and passed to [_baseResult]'s `poses:`.
+String _poseLabel(BuildContext c, String key) {
+  final l = AppLocalizations.of(c);
+  return switch (key) {
+    'Mountain' => l?.activityLivePoseMountain ?? 'Mountain',
+    'Forward fold' => l?.activityLivePoseForwardFold ?? 'Forward fold',
+    'Plank' => l?.activityLivePosePlank ?? 'Plank',
+    'Warrior II' => l?.activityLivePoseWarriorTwo ?? 'Warrior II',
+    'Triangle' => l?.activityLivePoseTriangle ?? 'Triangle',
+    'Chair' => l?.activityLivePoseChair ?? 'Chair',
+    'Pigeon' => l?.activityLivePosePigeon ?? 'Pigeon',
+    'Bridge' => l?.activityLivePoseBridge ?? 'Bridge',
+    "Child's pose" => l?.activityLivePoseChildsPose ?? "Child's pose",
+    'Savasana' => l?.activityLivePoseSavasana ?? 'Savasana',
+    _ => key,
+  };
+}
+
 /// The three-up row every live screen ends with.
 List<(String, String)> _commonStats(
-    Activity a, LiveFeed feed, double? weightKg, int elapsed) {
+    BuildContext c, Activity a, LiveFeed feed, double? weightKg, int elapsed) {
+  final l = AppLocalizations.of(c);
   final kcal = _kcal(a, feed, weightKg, elapsed);
   return [
-    if (kcal != null) ('$kcal', 'kcal · est'),
-    if (feed.strain != null) (feed.strain!.toStringAsFixed(1), 'strain'),
-    if (feed.steps != null) ('${feed.steps}', 'steps'),
+    if (kcal != null) ('$kcal', l?.activityLiveKcalEstUnit ?? 'kcal · est'),
+    if (feed.strain != null)
+      (feed.strain!.toStringAsFixed(1), l?.activityLiveStrainUnit ?? 'strain'),
+    if (feed.steps != null) ('${feed.steps}', l?.activityLiveStepsUnit ?? 'steps'),
   ];
 }
 
@@ -984,10 +1039,12 @@ class LiveMeasured extends StatelessWidget {
               private),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
+        final l = AppLocalizations.of(ctx);
         final f = feed?.call() ?? LiveFeed.none;
         return Column(children: [
           const SizedBox(height: S.x6),
-          Text('DURATION', style: F.over.copyWith(color: p.ink3)),
+          Text(l?.activityLiveDurationHeader ?? 'DURATION',
+              style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           bigNum(p, clock(elapsed), ''),
           // Only once fixes are actually arriving. The catalogue's `gps` flag
@@ -995,8 +1052,9 @@ class LiveMeasured extends StatelessWidget {
           // it claimed "GPS ACTIVE" with location denied.
           if (f.gpsActive) ...[
             const SizedBox(height: S.x3),
-            const Pill('Recording route', C.green, icon: LucideIcons.mapPin),
-          ] else if (_routeIssueCard(f.routeIssue, f.onFixRoute)
+            Pill(l?.activityLiveRecordingRoute ?? 'Recording route', C.green,
+                icon: LucideIcons.mapPin),
+          ] else if (_routeIssueCard(ctx, f.routeIssue, f.onFixRoute)
               case final card?) ...[
             const SizedBox(height: S.x4),
             card,
@@ -1010,13 +1068,16 @@ class LiveMeasured extends StatelessWidget {
           if (f.route.length > 1) ...[
             const SizedBox(height: S.x5),
             ChartFrame(
-              title: 'ROUTE SO FAR',
+              title: l?.activityLiveRouteSoFarTitle ?? 'ROUTE SO FAR',
               unit: _distanceUnit(ctx),
               height: 150,
               footnote: f.distanceKm == null
-                  ? 'Start pinned; distance appears once the fixes settle.'
-                  : '${_distanceText(ctx, f.distanceKm!)} from the fixes '
-                      'recorded so far.',
+                  ? (l?.activityLiveRouteFootnoteNoDistance ??
+                      'Start pinned; distance appears once the fixes settle.')
+                  : (l?.activityLiveRouteFootnoteWithDistance(
+                          _distanceText(ctx, f.distanceKm!)) ??
+                      '${_distanceText(ctx, f.distanceKm!)} from the fixes '
+                          'recorded so far.'),
               child: ClipRRect(
                 borderRadius: R.rLg,
                 child: Container(
@@ -1038,7 +1099,7 @@ class LiveMeasured extends StatelessWidget {
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(LucideIcons.lock, size: 12, color: p.ink3),
               const SizedBox(width: S.x1),
-              Text('Private session',
+              Text(l?.activityLivePrivateSession ?? 'Private session',
                   style: F.over.copyWith(color: p.ink3)),
             ]),
           ],
@@ -1200,7 +1261,9 @@ class _LiveStrengthState extends State<LiveStrength> {
         HapticFeedback.mediumImpact();
         // A buzz is not a message. The rest-over moment was reachable only by
         // feeling the watch, or by watching a number nobody was told to watch.
-        say(context, 'Rest over');
+        say(context,
+            AppLocalizations.of(context)?.activityLiveRestOverAnnounce ??
+                'Rest over');
       }
     });
   }
@@ -1223,11 +1286,12 @@ class _LiveStrengthState extends State<LiveStrength> {
       shape: const RoundedRectangleBorder(borderRadius: R.rXl),
       builder: (c) {
         final p = P.of(c);
+        final l = AppLocalizations.of(c);
         return SafeArea(
           child: ListView(shrinkWrap: true, children: [
             Padding(
               padding: const EdgeInsets.all(S.x4),
-              child: Text('Add exercise',
+              child: Text(l?.activityLiveAddExerciseTitle ?? 'Add exercise',
                   style: F.head.copyWith(color: p.ink)),
             ),
             for (final e in exerciseLibrary)
@@ -1260,11 +1324,14 @@ class _LiveStrengthState extends State<LiveStrength> {
   @override
   Widget build(BuildContext c) {
     final volume = log.volumeKg;
+    final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
       subtitle: volume == null
-          ? '${log.setCount} SETS'
-          : '${grouped(volume)} KG · ${log.setCount} SETS',
+          ? (l?.activityLiveSetsCountSubtitle(log.setCount) ??
+              '${log.setCount} SETS')
+          : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
+              '${grouped(volume)} KG · ${log.setCount} SETS'),
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1284,7 +1351,9 @@ class _LiveStrengthState extends State<LiveStrength> {
               ),
               const SizedBox(width: S.x3),
               Expanded(
-                child: BigButton('Skip rest',
+                child: BigButton(
+                    AppLocalizations.of(ctx)?.activityLiveSkipRest ??
+                        'Skip rest',
                     icon: LucideIcons.skipForward,
                     color: C.teal,
                     onTap: () {
@@ -1294,7 +1363,7 @@ class _LiveStrengthState extends State<LiveStrength> {
                     }),
               ),
             ])
-          : BigButton('Log set',
+          : BigButton(AppLocalizations.of(ctx)?.activityLiveLogSet ?? 'Log set',
               icon: LucideIcons.plus, color: C.purple, onTap: logSet),
       // Nothing here is measured: the sets, reps and load are typed, and the
       // one live thing on the screen is the heart-rate block, which asks for
@@ -1306,32 +1375,39 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   Widget _body(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final volume = log.volumeKg;
     final hist = widget.history[key];
     return Column(children: [
       // running totals — the numbers that actually matter here
       Row(children: [
         Expanded(
-            child: _total(p, volume == null ? 'BW' : grouped(volume),
-                volume == null ? 'bodyweight only' : 'kg volume')),
+            child: _total(
+                p,
+                volume == null ? (l?.activityLiveBwAbbrev ?? 'BW') : grouped(volume),
+                volume == null
+                    ? (l?.activityLiveBodyweightOnly ?? 'bodyweight only')
+                    : (l?.activityLiveKgVolumeUnit ?? 'kg volume'))),
         Container(width: 1, height: 26, color: p.line),
-        Expanded(child: _total(p, '${log.setCount}', 'sets')),
+        Expanded(child: _total(p, '${log.setCount}', l?.activityLiveSetsUnit ?? 'sets')),
         Container(width: 1, height: 26, color: p.line),
-        Expanded(child: _total(p, '${log.repCount}', 'reps')),
+        Expanded(child: _total(p, '${log.repCount}', l?.activityLiveRepsUnit ?? 'reps')),
       ]),
       const SizedBox(height: S.x5),
 
       // exercise navigation
       Row(children: [
         Pressable(
-          semanticLabel: 'Previous exercise',
+          semanticLabel: l?.activityLivePreviousExercise ?? 'Previous exercise',
           onTap: () => goExercise(index - 1),
           child: Icon(LucideIcons.chevronLeft,
               size: 20, color: index == 0 ? p.line : p.ink3),
         ),
         Expanded(
           child: Column(children: [
-            Text('EXERCISE ${index + 1} OF ${plan.length}',
+            Text(
+                l?.activityLiveExerciseOf(index + 1, plan.length) ??
+                    'EXERCISE ${index + 1} OF ${plan.length}',
                 style: F.over.copyWith(color: p.ink3)),
             const SizedBox(height: S.x1),
             Text(def?.label ?? key,
@@ -1340,7 +1416,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           ]),
         ),
         Pressable(
-          semanticLabel: 'Next exercise',
+          semanticLabel: l?.activityLiveNextExercise ?? 'Next exercise',
           onTap: () => index == plan.length - 1
               ? addExercise()
               : goExercise(index + 1),
@@ -1374,7 +1450,8 @@ class _LiveStrengthState extends State<LiveStrength> {
       const SizedBox(height: S.x2),
       // Tabular: this counts up mid-lift, and proportional digits made the
       // label shuffle sideways on every set.
-      Text('Set ${setsHere.length + 1}',
+      Text(l?.activityLiveSetNumber(setsHere.length + 1) ??
+              'Set ${setsHere.length + 1}',
           style: F.cap.copyWith(
               color: p.ink3,
               fontFeatures: const [FontFeature.tabularFigures()])),
@@ -1383,17 +1460,17 @@ class _LiveStrengthState extends State<LiveStrength> {
       if (restLeft.value > 0)
         ValueListenableBuilder<int>(
           valueListenable: restLeft,
-          builder: (_, _, _) => _rest_(p),
+          builder: (_, _, _) => _rest_(p, c),
         )
       else
-        ..._entry(p),
+        ..._entry(p, c),
 
       const SizedBox(height: S.x6),
       if (setsHere.isNotEmpty) ...[
         Align(
             alignment: Alignment.centerLeft,
-            child:
-                Text('THIS EXERCISE', style: F.over.copyWith(color: p.ink3))),
+            child: Text(l?.activityLiveThisExerciseLabel ?? 'THIS EXERCISE',
+                style: F.over.copyWith(color: p.ink3))),
         const SizedBox(height: S.x3),
         Surface(
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -1415,7 +1492,9 @@ class _LiveStrengthState extends State<LiveStrength> {
                   Expanded(
                     child: Text(
                         setsHere[i].loadKg == null
-                            ? '${setsHere[i].reps} reps · bodyweight'
+                            ? (l?.activityLiveRepsBodyweightRow(
+                                    setsHere[i].reps) ??
+                                '${setsHere[i].reps} reps · bodyweight')
                             : '${_fmt(setsHere[i].loadKg!)} kg × '
                                 '${setsHere[i].reps}',
                         style: F.body.copyWith(color: p.ink)),
@@ -1441,9 +1520,13 @@ class _LiveStrengthState extends State<LiveStrength> {
       // references
       if (hist?.previous != null || hist?.best != null) ...[
         Row(children: [
-          Expanded(child: _ref(p, 'Previous', hist?.previous)),
+          Expanded(
+              child: _ref(c, p, l?.activityLivePreviousLabel ?? 'Previous',
+                  hist?.previous)),
           const SizedBox(width: S.x3),
-          Expanded(child: _ref(p, 'Best', hist?.best, gold: true)),
+          Expanded(
+              child: _ref(c, p, l?.activityLiveBestLabel ?? 'Best',
+                  hist?.best, gold: true)),
         ]),
         const SizedBox(height: S.x5),
       ],
@@ -1451,11 +1534,14 @@ class _LiveStrengthState extends State<LiveStrength> {
     ]);
   }
 
-  List<Widget> _entry(P p) => [
+  List<Widget> _entry(P p, BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return [
         _stepper(
+            c,
             p,
-            'WEIGHT',
-            bodyweight ? 'BW' : _fmt(kg),
+            l?.activityLiveWeightLabel ?? 'WEIGHT',
+            bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg),
             bodyweight ? '' : 'kg',
             () => setState(() =>
                 kg = (kg - (def?.step ?? 2.5)).clamp(0, 500).toDouble()),
@@ -1465,19 +1551,20 @@ class _LiveStrengthState extends State<LiveStrength> {
           onTap: () => setState(() => bodyweight = !bodyweight),
           child: Text(
               bodyweight
-                  ? 'Bodyweight — left out of volume'
-                  : 'Log as bodyweight',
+                  ? (l?.activityLiveBodyweightExcludedNote ??
+                      'Bodyweight — left out of volume')
+                  : (l?.activityLiveLogAsBodyweight ?? 'Log as bodyweight'),
               style: F.cap.copyWith(color: p.on(C.purple))),
         ),
         const SizedBox(height: S.x5),
-        _stepper(p, 'REPS', '$reps', '',
+        _stepper(c, p, l?.activityLiveRepsLabel ?? 'REPS', '$reps', '',
             () => setState(() => reps = (reps - 1).clamp(1, 100)),
             () => setState(() => reps = reps + 1)),
         const SizedBox(height: S.x5),
         Align(
             alignment: Alignment.centerLeft,
-            child:
-                Text('EFFORT (RPE)', style: F.over.copyWith(color: p.ink3))),
+            child: Text(l?.activityLiveEffortRpeHeader ?? 'EFFORT (RPE)',
+                style: F.over.copyWith(color: p.ink3))),
         const SizedBox(height: S.x3),
         Row(
           children: List.generate(5, (i) {
@@ -1504,9 +1591,13 @@ class _LiveStrengthState extends State<LiveStrength> {
           }),
         ),
       ];
+  }
 
-  Widget _rest_(P p) => Column(children: [
-        Text('RESTING', style: F.over.copyWith(color: p.on(C.teal))),
+  Widget _rest_(P p, BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return Column(children: [
+        Text(l?.activityLiveRestingHeader ?? 'RESTING',
+            style: F.over.copyWith(color: p.on(C.teal))),
         const SizedBox(height: S.x3),
         SizedBox(
           width: 170,
@@ -1521,26 +1612,35 @@ class _LiveStrengthState extends State<LiveStrength> {
               if (logged.isNotEmpty)
                 Text(
                     logged.last.loadKg == null
-                        ? '${logged.last.reps} reps logged'
-                        : '${_fmt(logged.last.loadKg!)} kg × '
-                            '${logged.last.reps} logged',
+                        ? (l?.activityLiveRepsLoggedBodyweight(
+                                logged.last.reps) ??
+                            '${logged.last.reps} reps logged')
+                        : (l?.activityLiveWeightRepsLogged(
+                                _fmt(logged.last.loadKg!), logged.last.reps) ??
+                            '${_fmt(logged.last.loadKg!)} kg × '
+                                '${logged.last.reps} logged'),
                     style: F.cap.copyWith(color: p.ink3)),
             ]),
           ]),
         ),
       ]);
+  }
 
-  Widget _stepper(P p, String label, String value, String unit,
-          VoidCallback minus, VoidCallback plus) =>
-      Column(children: [
+  Widget _stepper(BuildContext c, P p, String label, String value,
+          String unit, VoidCallback minus, VoidCallback plus) {
+    final l = AppLocalizations.of(c);
+    return Column(children: [
         Text(label, style: F.over.copyWith(color: p.ink3)),
         const SizedBox(height: S.x3),
         Row(children: [
-          counterButton(p, LucideIcons.minus, p.ink, '$label down', minus),
+          counterButton(p, LucideIcons.minus, p.ink,
+              l?.activityLiveDecrease(label) ?? '$label down', minus),
           Expanded(child: bigNum(p, value, unit)),
-          counterButton(p, LucideIcons.plus, p.ink, '$label up', plus),
+          counterButton(p, LucideIcons.plus, p.ink,
+              l?.activityLiveIncrease(label) ?? '$label up', plus),
         ]),
       ]);
+  }
 
   Widget _total(P p, String v, String l) => Column(children: [
         Text(v, style: F.n17.copyWith(color: p.ink)),
@@ -1549,7 +1649,10 @@ class _LiveStrengthState extends State<LiveStrength> {
             textAlign: TextAlign.center),
       ]);
 
-  Widget _ref(P p, String label, LoggedSet? s, {bool gold = false}) => Surface(
+  Widget _ref(BuildContext c, P p, String label, LoggedSet? s,
+      {bool gold = false}) {
+    final l = AppLocalizations.of(c);
+    return Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x3),
         child: Column(children: [
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -1564,14 +1667,15 @@ class _LiveStrengthState extends State<LiveStrength> {
           const SizedBox(height: S.x2),
           Text(
               s == null
-                  ? 'None yet'
+                  ? (l?.activityLiveNoneYet ?? 'None yet')
                   : s.loadKg == null
-                      ? '${s.reps} reps'
+                      ? (l?.activityLiveRepsOnly(s.reps) ?? '${s.reps} reps')
                       : '${_fmt(s.loadKg!)} kg × ${s.reps}',
               style: F.cap
                   .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
         ]),
       );
+  }
 
   String _fmt(double d) =>
       d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1);
@@ -1644,9 +1748,12 @@ class _LiveSwimState extends State<LiveSwim> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: '${poolLen}M POOL · ${strokes[stroke].toUpperCase()}',
+      subtitle: l?.activityLivePoolSubtitle(
+              poolLen, _strokeLabel(c, strokes[stroke]).toUpperCase()) ??
+          '${poolLen}M POOL · ${strokes[stroke].toUpperCase()}',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1658,29 +1765,34 @@ class _LiveSwimState extends State<LiveSwim> {
           stroke: strokes[stroke]),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
+        final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         return Column(children: [
           const SizedBox(height: S.x5),
           bigNum(p, '${laps * poolLen}', 'm'),
           const SizedBox(height: S.x2),
-          Text('$laps ${laps == 1 ? 'lap' : 'laps'} · ${strokes[stroke]}',
+          Text(
+              l?.activityLiveLapsCount(laps, _strokeLabel(ctx, strokes[stroke])) ??
+                  '$laps ${laps == 1 ? 'lap' : 'laps'} · ${strokes[stroke]}',
               style: F.body.copyWith(color: p.ink3)),
           const SizedBox(height: S.x6),
           statRow(p, [
-            (clock(elapsed), 'time'),
-            if (laps > 0) (clock(elapsed ~/ laps), 'per lap'),
-            ..._commonStats(widget.a, f, widget.weightKg, elapsed),
+            (clock(elapsed), l?.activityLiveTimeUnit ?? 'time'),
+            if (laps > 0)
+              (clock(elapsed ~/ laps), l?.activityLivePerLapUnit ?? 'per lap'),
+            ..._commonStats(ctx, widget.a, f, widget.weightKg, elapsed),
           ].take(3).toList()),
           const SizedBox(height: S.x8),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            counterButton(p, LucideIcons.minus, p.ink, 'One lap fewer', () {
+            counterButton(p, LucideIcons.minus, p.ink,
+                l?.activityLiveOneLapFewer ?? 'One lap fewer', () {
               if (lapAt.isEmpty) return;
               setState(() => lapAt.removeLast());
               _persist();
             }),
             const SizedBox(width: S.x6),
             Pressable(
-              semanticLabel: 'Add a lap',
+              semanticLabel: l?.activityLiveAddALap ?? 'Add a lap',
               onTap: () {
                 HapticFeedback.mediumImpact();
                 setState(() => lapAt.add(elapsed));
@@ -1695,13 +1807,14 @@ class _LiveSwimState extends State<LiveSwim> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(LucideIcons.plus, size: 30, color: p.inkOnFill),
-                      Text('LAP',
+                      Text(l?.activityLiveLapButtonLabel ?? 'LAP',
                           style: F.over.copyWith(color: p.inkOnFill)),
                     ]),
               ),
             ),
             const SizedBox(width: S.x6),
-            counterButton(p, LucideIcons.repeat2, p.ink, 'Change stroke', () {
+            counterButton(p, LucideIcons.repeat2, p.ink,
+                l?.activityLiveChangeStroke ?? 'Change stroke', () {
               setState(() => stroke = (stroke + 1) % strokes.length);
               _persist();
             }),
@@ -1712,7 +1825,8 @@ class _LiveSwimState extends State<LiveSwim> {
               children: [
                 for (final len in pools) ...[
                   Pressable(
-                    semanticLabel: '$len metre pool',
+                    semanticLabel:
+                        l?.activityLiveMetrePoolLabel(len) ?? '$len metre pool',
                     onTap: () {
                       setState(() => poolLen = len);
                       _persist();
@@ -1740,12 +1854,16 @@ class _LiveSwimState extends State<LiveSwim> {
             if (secs.isEmpty) return const SizedBox.shrink();
             final fastest = secs.reduce((x, y) => x < y ? x : y);
             return ChartFrame(
-              title: 'LAPS',
+              title: l?.activityLiveLapsChartTitle ?? 'LAPS',
               unit: 'seconds per lap',
               height: 20.0 * secs.length,
-              xLabels: ['Lap 1', 'Lap ${secs.length}'],
-              footnote: 'Fastest ${clock(fastest)} · bar length is speed '
-                  'against it.',
+              xLabels: [
+                l?.activityLiveLapXLabel(1) ?? 'Lap 1',
+                l?.activityLiveLapXLabel(secs.length) ?? 'Lap ${secs.length}',
+              ],
+              footnote: l?.activityLiveLapsFootnote(clock(fastest)) ??
+                  'Fastest ${clock(fastest)} · bar length is speed '
+                      'against it.',
               child: CustomPaint(
                   size: Size.infinite,
                   painter: LapBars(
@@ -1866,9 +1984,11 @@ class _LiveFlowState extends State<LiveFlow>
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: 'POSE ${pose + 1} OF ${poses.length}',
+      subtitle: l?.activityLivePoseOf(pose + 1, poses.length) ??
+          'POSE ${pose + 1} OF ${poses.length}',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1878,6 +1998,7 @@ class _LiveFlowState extends State<LiveFlow>
           poses: poses.sublist(0, reached + 1)),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
+        final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         return Column(children: [
           const SizedBox(height: S.x4),
@@ -1904,9 +2025,11 @@ class _LiveFlowState extends State<LiveFlow>
                 Icon(LucideIcons.personStanding,
                     size: 46, color: p.on(C.teal)),
                 const SizedBox(height: S.x2),
-                Text(poses[pose], style: F.t2.copyWith(color: p.ink)),
+                Text(_poseLabel(ctx, poses[pose]),
+                    style: F.t2.copyWith(color: p.ink)),
                 const SizedBox(height: S.x1),
-                Text('Hold · ${clock(hold)}',
+                Text(l?.activityLiveHoldTime(clock(hold)) ??
+                    'Hold · ${clock(hold)}',
                     style: F.cap.copyWith(color: p.on(C.teal))),
               ]),
             ]),
@@ -1914,7 +2037,7 @@ class _LiveFlowState extends State<LiveFlow>
           const SizedBox(height: S.x4),
           Row(children: [
             Expanded(
-              child: BigButton('Previous',
+              child: BigButton(l?.activityLivePreviousLabel ?? 'Previous',
                   icon: LucideIcons.chevronLeft,
                   color: C.teal,
                   soft: true,
@@ -1922,7 +2045,7 @@ class _LiveFlowState extends State<LiveFlow>
             ),
             const SizedBox(width: S.x3),
             Expanded(
-              child: BigButton('Next pose',
+              child: BigButton(l?.activityLiveNextPose ?? 'Next pose',
                   icon: LucideIcons.chevronRight,
                   color: C.teal,
                   onTap: () => _go(pose + 1)),
@@ -2009,9 +2132,11 @@ class _LiveMatchState extends State<LiveMatch> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: 'SET ${sets.length + 1}',
+      subtitle: l?.activityLiveMatchSetSubtitle(sets.length + 1) ??
+          'SET ${sets.length + 1}',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -2021,6 +2146,7 @@ class _LiveMatchState extends State<LiveMatch> {
           gameScore: [...sets, if (me > 0 || them > 0) (me, them)]),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
+        final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         return Column(children: [
           const SizedBox(height: S.x4),
@@ -2028,17 +2154,19 @@ class _LiveMatchState extends State<LiveMatch> {
           const SizedBox(height: S.x6),
           Row(children: [
             Expanded(
-                child: _side(p, 'YOU', me, p.on(widget.a.color),
+                child: _side(ctx, p, l?.activityLiveYouLabel ?? 'YOU', me,
+                    p.on(widget.a.color),
                     () => _score(() => me++),
                     () => _score(() => me = (me - 1).clamp(0, 99)))),
             Container(width: 1, height: 120, color: p.line),
             Expanded(
-                child: _side(p, 'OPPONENT', them, p.ink2,
+                child: _side(ctx, p, l?.activityLiveOpponentLabel ?? 'OPPONENT',
+                    them, p.ink2,
                     () => _score(() => them++),
                     () => _score(() => them = (them - 1).clamp(0, 99)))),
           ]),
           const SizedBox(height: S.x5),
-          BigButton('End set',
+          BigButton(l?.activityLiveEndSet ?? 'End set',
               color: widget.a.color,
               soft: true,
               onTap: () => _score(() {
@@ -2050,7 +2178,8 @@ class _LiveMatchState extends State<LiveMatch> {
           if (sets.isNotEmpty) ...[
             Align(
                 alignment: Alignment.centerLeft,
-                child: Text('SETS', style: F.over.copyWith(color: p.ink3))),
+                child: Text(l?.activityLiveSetsListHeader ?? 'SETS',
+                    style: F.over.copyWith(color: p.ink3))),
             const SizedBox(height: S.x3),
             Surface(
               pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -2060,7 +2189,8 @@ class _LiveMatchState extends State<LiveMatch> {
                     padding: const EdgeInsets.symmetric(vertical: S.x3),
                     child: Row(children: [
                       Expanded(
-                          child: Text('Set ${i + 1}',
+                          child: Text(
+                              l?.activityLiveSetNumber(i + 1) ?? 'Set ${i + 1}',
                               style: F.body.copyWith(color: p.ink3))),
                       Text('${sets[i].$1} — ${sets[i].$2}',
                           style: F.n17.copyWith(
@@ -2081,13 +2211,14 @@ class _LiveMatchState extends State<LiveMatch> {
     );
   }
 
-  Widget _side(P p, String label, int v, Color col, VoidCallback up,
-          VoidCallback down) =>
-      Column(children: [
+  Widget _side(BuildContext c, P p, String label, int v, Color col,
+      VoidCallback up, VoidCallback down) {
+    final l = AppLocalizations.of(c);
+    return Column(children: [
         Text(label, style: F.over.copyWith(color: p.ink3)),
         const SizedBox(height: S.x3),
         Pressable(
-          semanticLabel: '$label point',
+          semanticLabel: l?.activityLivePointLabel(label) ?? '$label point',
           onTap: () {
             HapticFeedback.mediumImpact();
             up();
@@ -2096,12 +2227,15 @@ class _LiveMatchState extends State<LiveMatch> {
         ),
         const SizedBox(height: S.x3),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          counterButton(p, LucideIcons.minus, p.ink2, '$label down', down,
+          counterButton(p, LucideIcons.minus, p.ink2,
+              l?.activityLiveDecrease(label) ?? '$label down', down,
               size: 40),
           const SizedBox(width: S.x3),
-          counterButton(p, LucideIcons.plus, col, '$label up', up, size: 40),
+          counterButton(p, LucideIcons.plus, col,
+              l?.activityLiveIncrease(label) ?? '$label up', up, size: 40),
         ]),
       ]);
+  }
 }
 
 // ══════════════ INTERVAL — the rounds run themselves ══════════════
@@ -2169,7 +2303,12 @@ class _LiveIntervalState extends State<LiveInterval> {
           return;
         }
         HapticFeedback.mediumImpact();
-        say(context, work ? 'Rest' : 'Work');
+        final l = AppLocalizations.of(context);
+        say(
+            context,
+            work
+                ? (l?.activityLiveRestWord ?? 'Rest')
+                : (l?.activityLiveWorkWord ?? 'Work'));
         if (work) {
           work = false;
           left = restSec;
@@ -2201,9 +2340,11 @@ class _LiveIntervalState extends State<LiveInterval> {
 
   @override
   Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: '$workSec S WORK · $restSec S REST',
+      subtitle: l?.activityLiveIntervalSubtitle(workSec, restSec) ??
+          '$workSec S WORK · $restSec S REST',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -2213,6 +2354,7 @@ class _LiveIntervalState extends State<LiveInterval> {
           rounds: done),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
+        final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         final col = work ? C.red : C.teal;
         // At least the eight the row is drawn for, and more once the session
@@ -2220,11 +2362,16 @@ class _LiveIntervalState extends State<LiveInterval> {
         final pips = round > rounds ? round : rounds;
         return Column(children: [
           const SizedBox(height: S.x5),
-          Text('ROUND $round', style: F.over.copyWith(color: p.ink3)),
+          Text(l?.activityLiveRoundLabel(round) ?? 'ROUND $round',
+              style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x4),
           Text(clock(left), style: F.n48.copyWith(color: p.on(col))),
           const SizedBox(height: S.x2),
-          Text(work ? 'WORK' : 'REST',
+          Text(
+              (work
+                      ? (l?.activityLiveWorkWord ?? 'Work')
+                      : (l?.activityLiveRestWord ?? 'Rest'))
+                  .toUpperCase(),
               style: F.t2.copyWith(color: p.on(col), letterSpacing: 3)),
           const SizedBox(height: S.x5),
           ClipRRect(
@@ -2238,10 +2385,15 @@ class _LiveIntervalState extends State<LiveInterval> {
           const SizedBox(height: S.x6),
           Surface(
             child: Row(children: [
-              Text('NEXT', style: F.over.copyWith(color: p.ink3)),
+              Text(l?.activityLiveNextLabel ?? 'NEXT',
+                  style: F.over.copyWith(color: p.ink3)),
               const Spacer(),
-              Text(work ? 'Rest · ${clock(restSec)}'
-                  : 'Work · ${clock(workSec)}',
+              Text(
+                  work
+                      ? (l?.activityLiveNextRest(clock(restSec)) ??
+                          'Rest · ${clock(restSec)}')
+                      : (l?.activityLiveNextWork(clock(workSec)) ??
+                          'Work · ${clock(workSec)}'),
                   style: F.body
                       .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             ]),
@@ -2262,7 +2414,7 @@ class _LiveIntervalState extends State<LiveInterval> {
                     )),
           ),
           const SizedBox(height: S.x6),
-          statRow(p, _commonStats(widget.a, f, widget.weightKg, elapsed)),
+          statRow(p, _commonStats(ctx, widget.a, f, widget.weightKg, elapsed)),
           const SizedBox(height: S.x6),
           LiveHeart(f),
         ]);

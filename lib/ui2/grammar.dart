@@ -903,6 +903,11 @@ class StatusCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onFix;
 
+  /// Replaces the [icon] glyph — a small spinner in place of a static icon is
+  /// the whole difference between "this is missing" and "this is happening",
+  /// and the rest of the card (title, body, fix) is identical either way.
+  final Widget? leading;
+
   const StatusCard(
     this.what,
     this.why, {
@@ -910,6 +915,7 @@ class StatusCard extends StatelessWidget {
     this.fix = '',
     this.icon = LucideIcons.circleHelp,
     this.onFix,
+    this.leading,
   });
 
   /// Build straight from an abstention — turns the metric's own note into the
@@ -970,7 +976,7 @@ class StatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: p.ink3),
+              leading ?? Icon(icon, size: 16, color: p.ink3),
               const SizedBox(width: S.x2),
               Expanded(
                 child: Text(

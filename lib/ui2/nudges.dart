@@ -78,9 +78,9 @@ class _AskCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final (icon, color, title, body, cta, url) = switch (ask) {
+    final (glyph, color, title, body, cta, url) = switch (ask) {
       _Ask.discord => (
-          LucideIcons.usersRound,
+          brandGlyph('assets/icons/discord.svg'),
           C.indigo,
           'Come say hi',
           'Other OpenStrap users hang out on Discord — bugs, ideas, and '
@@ -89,10 +89,11 @@ class _AskCard extends StatelessWidget {
           kDiscordUrl,
         ),
       _Ask.donate => (
-          LucideIcons.heartHandshake,
+          (Color tint) =>
+              Icon(LucideIcons.heartHandshake, size: 16, color: tint),
           C.pink,
           'Enjoying OpenStrap?',
-          'It is a free, one-person project with no subscription. '
+          'It is a free, open-source project with no subscription. '
               'Sponsoring keeps it maintained.',
           'Support the project',
           kSponsorUrl,
@@ -110,7 +111,7 @@ class _AskCard extends StatelessWidget {
               alignment: Alignment.center,
               decoration:
                   BoxDecoration(color: p.wash(color), borderRadius: R.rSm),
-              child: Icon(icon, size: 16, color: p.on(color)),
+              child: glyph(p.on(color)),
             ),
             const SizedBox(width: S.x3),
             Expanded(

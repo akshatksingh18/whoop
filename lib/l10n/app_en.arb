@@ -7122,6 +7122,30 @@
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
+  "homeSyncingTitle": "Syncing with your band",
+  "@homeSyncingTitle": {
+    "description": "Title shown on a bare day while records are actively arriving from the band."
+  },
+  "homeSyncingBody": "Pulling data now — this can take a few minutes on a full backlog.",
+  "@homeSyncingBody": {
+    "description": "Body shown on a bare day while records are actively arriving from the band."
+  },
+  "homeAnalyzingTitle": "Crunching last night's numbers",
+  "@homeAnalyzingTitle": {
+    "description": "Title shown on a bare day once the backlog has landed and a derive job is computing today's numbers."
+  },
+  "homeAnalyzingBody": "The data is in — sleep, recovery and strain are being worked out now.",
+  "@homeAnalyzingBody": {
+    "description": "Body shown on a bare day once the backlog has landed and a derive job is computing today's numbers."
+  },
+  "homeConnectingTitle": "Connecting to your band",
+  "@homeConnectingTitle": {
+    "description": "Title shown right after tapping Sync the band, before any record has arrived yet."
+  },
+  "homeConnectingBody": "Hang on — this usually takes a few seconds.",
+  "@homeConnectingBody": {
+    "description": "Body shown right after tapping Sync the band, before any record has arrived yet."
+  },
   "homeAskCoach": "Ask the coach",
   "@homeAskCoach": {
     "description": "Semantic label for the button that opens the AI coach on Home."

@@ -13,6 +13,7 @@
 // Honesty: a metric whose value is absent stays absent ("—"); we never fabricate.
 // Profile-gated metrics are null when the profile field is missing.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -27,6 +28,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
+import '../health/health_export.dart';
 import 'journal_fields.dart';
 import 'local_repository.dart';
 import 'series_codec.dart';
@@ -2475,6 +2477,12 @@ class LocalRepositoryImpl extends LocalRepository {
         'status': 'done',
         'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       });
+      // This is the choke point the AI coach's `end_workout` tool reaches
+      // directly (bypassing AppState.stopWorkout, the only other place this
+      // used to happen) — without it a coach-ended workout never reached
+      // Apple Health / Health Connect (edge#277). Idempotent + best-effort;
+      // exportWorkoutId re-reads the row and no-ops if sync is off.
+      unawaited(HealthExporter.exportWorkoutId(workoutId));
     }
     return {'workout_id': workoutId};
   }

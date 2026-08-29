@@ -5400,7 +5400,19 @@ class AppState extends ChangeNotifier {
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
-          await LocalDb.putSession({...row, 'status': 'done'});
+          // A stale live row has no end_ts (it was never stopped), which
+          // permanently kept it un-exportable — Health export requires a real
+          // end. We don't know when the workout actually ended, so the
+          // honest stamp is reconcile-time (stated as such), not a guess at
+          // the real finish (edge#277).
+          final reconciledEndTs = nowMs ~/ 1000;
+          await LocalDb.putSession({
+            ...row,
+            'status': 'done',
+            'end_ts': row['end_ts'] ?? reconciledEndTs,
+          });
+          final id = row['id'] as String?;
+          if (id != null) unawaited(HealthExporter.exportWorkoutId(id));
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }
       }

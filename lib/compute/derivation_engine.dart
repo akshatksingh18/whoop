@@ -3746,7 +3746,7 @@ class DerivationEngine {
     // this null silently overwrites a good historical baseline point and
     // collapses every later night's readiness baseline out from under it.
     //
-    // v84 (edge#305 fully closed): this no longer requires THIS pass to have
+    // v85 (edge#305 fully closed): this no longer requires THIS pass to have
     // found a sleep window. A re-stage whose RR/HR substrate aged out can come
     // back with no window at all (`NO_SLEEP_DETECTED`), not just a truncated
     // one — that shape is exactly as much a regression against an existing

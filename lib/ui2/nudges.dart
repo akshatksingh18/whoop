@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../l10n/app_localizations.dart';
 import '../state/prefs.dart';
 import 'community_links.dart';
 import 'ui2.dart';
@@ -42,10 +43,19 @@ class _CommunityNudgeState extends State<CommunityNudge> {
 
   // Discord above the sponsor ask when both are due — joining a community
   // is a smaller thing to ask for than money.
-  final List<_Ask> _asks = [
-    for (final a in _Ask.values)
-      if (_eligible(a)) a,
-  ];
+  late List<_Ask> _asks;
+
+  @override
+  void initState() {
+    super.initState();
+    _asks = [for (final a in _Ask.values) if (_eligible(a)) a];
+    // Mark each shown ask as seen NOW, not only on snooze/silence — otherwise
+    // the cooldown never actually starts and leaving Home without tapping
+    // anything shows the same ask again on the very next rebuild.
+    for (final a in _asks) {
+      Prefs.setInt(_lastShownKey(a), DateTime.now().millisecondsSinceEpoch);
+    }
+  }
 
   void _snooze(_Ask a) {
     Prefs.setInt(_lastShownKey(a), DateTime.now().millisecondsSinceEpoch);
@@ -78,24 +88,27 @@ class _AskCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final (glyph, color, title, body, cta, url) = switch (ask) {
       _Ask.discord => (
           brandGlyph('assets/icons/discord.svg'),
           C.indigo,
-          'Come say hi',
-          'Other OpenStrap users hang out on Discord — bugs, ideas, and '
-              'people running the same band as you.',
-          'Join Discord',
+          l?.nudgeDiscordTitle ?? 'Come say hi',
+          l?.nudgeDiscordBody ??
+              'Other OpenStrap users hang out on Discord — bugs, ideas, and '
+                  'people running the same band as you.',
+          l?.nudgeDiscordCta ?? 'Join Discord',
           kDiscordUrl,
         ),
       _Ask.donate => (
           (Color tint) =>
               Icon(LucideIcons.heartHandshake, size: 16, color: tint),
           C.pink,
-          'Enjoying OpenStrap?',
-          'It is a free, open-source project with no subscription. '
-              'Sponsoring keeps it maintained.',
-          'Support the project',
+          l?.nudgeDonateTitle ?? 'Enjoying OpenStrap?',
+          l?.nudgeDonateBody ??
+              'It is a free, open-source project with no subscription. '
+                  'Sponsoring keeps it maintained.',
+          l?.nudgeDonateCta ?? 'Support the project',
           kSponsorUrl,
         ),
     };
@@ -128,7 +141,7 @@ class _AskCard extends StatelessWidget {
             const SizedBox(width: S.x2),
             Pressable(
               onTap: () => onSnooze(ask),
-              semanticLabel: 'Not now',
+              semanticLabel: l?.nudgeNotNow ?? 'Not now',
               child: Icon(LucideIcons.x, size: 16, color: p.ink3),
             ),
           ]),
@@ -146,8 +159,8 @@ class _AskCard extends StatelessWidget {
           Center(
             child: Pressable(
               onTap: () => onSilence(ask),
-              semanticLabel: "Don't show this again",
-              child: Text("Don't show this again",
+              semanticLabel: l?.nudgeDontShowAgain ?? "Don't show this again",
+              child: Text(l?.nudgeDontShowAgain ?? "Don't show this again",
                   style: F.over.copyWith(
                       color: p.ink3, decoration: TextDecoration.underline)),
             ),

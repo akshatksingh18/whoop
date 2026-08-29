@@ -11620,5 +11620,73 @@
   "deviceActionBroadcastToTaskerBlurb": "Fire a broadcast intent so Tasker can trigger any automation.",
   "@deviceActionBroadcastToTaskerBlurb": {
     "description": "Band double-tap action picker: blurb for Tasker broadcast (Android only)"
+  },
+  "profileCommunityGroup": "Community",
+  "@profileCommunityGroup": {
+    "description": "Title of the Profile section grouping the project's public community links."
+  },
+  "profileGithubTitle": "GitHub",
+  "@profileGithubTitle": {
+    "description": "Title of the Profile row linking to the project's GitHub repo."
+  },
+  "profileGithubSub": "Please star and show your support — it helps the project grow",
+  "@profileGithubSub": {
+    "description": "Subtitle of the Profile row linking to the project's GitHub repo."
+  },
+  "profileRedditTitle": "Reddit",
+  "@profileRedditTitle": {
+    "description": "Title of the Profile row linking to the project's subreddit."
+  },
+  "profileRedditSub": "Join r/OpenStrap — post your achievements, questions, anything",
+  "@profileRedditSub": {
+    "description": "Subtitle of the Profile row linking to the project's subreddit."
+  },
+  "profileDiscordTitle": "Discord",
+  "@profileDiscordTitle": {
+    "description": "Title of the Profile row linking to the project's Discord server."
+  },
+  "profileDiscordSub": "Hang out with other users and the people building this",
+  "@profileDiscordSub": {
+    "description": "Subtitle of the Profile row linking to the project's Discord server."
+  },
+  "profileSponsorTitle": "Sponsor",
+  "@profileSponsorTitle": {
+    "description": "Title of the Profile row linking to GitHub Sponsors."
+  },
+  "profileSponsorSub": "This is a free, open-source project — sponsoring keeps it going",
+  "@profileSponsorSub": {
+    "description": "Subtitle of the Profile row linking to GitHub Sponsors."
+  },
+  "nudgeDiscordTitle": "Come say hi",
+  "@nudgeDiscordTitle": {
+    "description": "Title of the Home nudge card inviting the user to join Discord."
+  },
+  "nudgeDiscordBody": "Other OpenStrap users hang out on Discord — bugs, ideas, and people running the same band as you.",
+  "@nudgeDiscordBody": {
+    "description": "Body of the Home nudge card inviting the user to join Discord."
+  },
+  "nudgeDiscordCta": "Join Discord",
+  "@nudgeDiscordCta": {
+    "description": "CTA button label of the Home nudge card inviting the user to join Discord."
+  },
+  "nudgeDonateTitle": "Enjoying OpenStrap?",
+  "@nudgeDonateTitle": {
+    "description": "Title of the Home nudge card inviting the user to sponsor the project."
+  },
+  "nudgeDonateBody": "It is a free, open-source project with no subscription. Sponsoring keeps it maintained.",
+  "@nudgeDonateBody": {
+    "description": "Body of the Home nudge card inviting the user to sponsor the project."
+  },
+  "nudgeDonateCta": "Support the project",
+  "@nudgeDonateCta": {
+    "description": "CTA button label of the Home nudge card inviting the user to sponsor the project."
+  },
+  "nudgeNotNow": "Not now",
+  "@nudgeNotNow": {
+    "description": "Semantic label for the button that snoozes a Home community nudge."
+  },
+  "nudgeDontShowAgain": "Don't show this again",
+  "@nudgeDontShowAgain": {
+    "description": "Label and semantic label for the button that permanently dismisses a Home community nudge."
   }
 }

@@ -1310,9 +1310,24 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// this screen is still bare because the heavy derive it depends on hasn't
   /// finished. Without that phase the card would flash back to a bare "Nothing
   /// derived yet" for the minute or so a full sleep-stage + spectra pass takes.
-  Widget _bareStatusCard(BuildContext c, HomeData d, AppLocalizations? l) {
+  /// The syncing / analyzing / connecting phase card — valid whether or not
+  /// [HomeData] itself has loaded yet, which is why it does not take one.
+  /// Shared by the fully-bare first-run path (`d == null`) and the
+  /// derived-but-empty bare-day path, so a first-run tap of "Sync the band"
+  /// gets the same connecting/syncing feedback as every other one. Returns
+  /// null when none of the three phases apply, so the caller falls through
+  /// to its own "nothing yet" copy.
+  Widget? _phaseStatusCard(BuildContext c, AppLocalizations? l) {
     final syncing = syncingNowOf(c);
     final deriving = derivingOf(c);
+    // The tap latch is otherwise cleared only by its 20s grace timer — if
+    // real progress lands before that timer fires, clear it here too so the
+    // UI does not bounce back to "Connecting" once syncing/deriving goes
+    // quiet again.
+    if ((syncing || deriving) && _syncTapped) {
+      _syncTapped = false;
+      _syncTapTimer?.cancel();
+    }
     final spinner = SizedBox(
       width: 16,
       height: 16,
@@ -1342,6 +1357,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         leading: spinner,
       );
     }
+    return null;
+  }
+
+  Widget _bareStatusCard(BuildContext c, HomeData d, AppLocalizations? l) {
+    final phase = _phaseStatusCard(c, l);
+    if (phase != null) return phase;
 
     final sync = syncOf(c);
     return StatusCard(
@@ -1400,13 +1421,18 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             },
           )
         else
-          StatusCard(
-            l?.homeNothingDerivedTitle ?? 'Nothing derived yet',
-            l?.homeNothingDerivedBody ?? 'No band recordings processed yet.',
-            fix: syncOf(c) == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
-            icon: LucideIcons.watch,
-            onFix: syncOf(c),
-          ),
+          Builder(builder: (c) {
+            final phase = _phaseStatusCard(c, l);
+            if (phase != null) return phase;
+            final sync = syncOf(c);
+            return StatusCard(
+              l?.homeNothingDerivedTitle ?? 'Nothing derived yet',
+              l?.homeNothingDerivedBody ?? 'No band recordings processed yet.',
+              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+              icon: LucideIcons.watch,
+              onFix: sync == null ? null : () => _tapSync(sync),
+            );
+          }),
       ]));
     }
 

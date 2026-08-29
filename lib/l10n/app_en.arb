@@ -9274,9 +9274,9 @@
   "@dayStrainChartTitle": {
     "description": "Chart title above the day's strain-over-time curve"
   },
-  "dayStrainChartFootnote": "Accumulated, so it only ever climbs — the STEEP parts are where the effort was. Built from {drawn} recorded waking minutes.",
+  "dayStrainChartFootnote": "Effort banked above your usual waking pace — it can ease later in the day if intensity drops back toward that pace, even though the STEEP parts already happened. Built from {drawn} recorded waking minutes.",
   "@dayStrainChartFootnote": {
-    "description": "Footnote under the strain curve chart explaining it is cumulative",
+    "description": "Footnote under the strain curve chart explaining it tracks effort above baseline pace, not a raw accumulator, so it can dip",
     "placeholders": {
       "drawn": {
         "type": "int"

@@ -395,7 +395,6 @@ void main() {
         'scalars is a regression', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(
-          hasSleepWindow: true,
           sleepSubEmpty: true,
           nightScalarsNull: true,
         ),
@@ -403,15 +402,17 @@ void main() {
       );
     });
 
-    test('no known sleep window at all is not a regression (honest no-sleep '
-        'day)', () {
+    test('the v83 counterexample: a re-stage that finds NO window at all '
+        '(NO_SLEEP_DETECTED) with null night scalars is STILL a regression '
+        '— the shape test does not require this pass to have found a '
+        'window; the caller\'s existing-result check is what protects an '
+        'honest no-sleep day', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(
-          hasSleepWindow: false,
           sleepSubEmpty: true,
           nightScalarsNull: true,
         ),
-        isFalse,
+        isTrue,
       );
     });
 
@@ -419,7 +420,6 @@ void main() {
         'scalars (a genuine can\'t-compute night)', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(
-          hasSleepWindow: true,
           sleepSubEmpty: false,
           nightScalarsNull: true,
         ),
@@ -430,7 +430,6 @@ void main() {
     test('real night scalars computed is not a regression', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(
-          hasSleepWindow: true,
           sleepSubEmpty: true,
           nightScalarsNull: false,
         ),
@@ -448,7 +447,6 @@ void main() {
     expect(await LocalDb.dayResult(day), isNull, reason: 'precondition');
     expect(
       DerivationEngine.nightSubstrateRegressed(
-        hasSleepWindow: true,
         sleepSubEmpty: true,
         nightScalarsNull: true,
       ),

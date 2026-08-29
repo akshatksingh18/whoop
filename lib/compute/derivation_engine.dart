@@ -1538,7 +1538,51 @@ import 'substrate.dart';
 // so the older, complete row keeps being served. Also: the readiness z-cap
 // abstention now populates `readiness_absent_diag` with its own
 // `unstable_baseline:` reason instead of leaving it null (onehz_pipeline.dart).
-const int kAlgoVersion = 83;
+//
+// v83's guard was `hasSleepWindow && sleepSubEmpty && nightScalarsNull`
+// (:4204) — #305's own writeup named this exact shape ("a sleep-window
+// boundary check") as insufficient, with a counterexample: a day whose stager
+// found NO window at all (`hasSleepWindow` false) still hit the original
+// clobber, unprotected. The v83 fix also declined by early `return` rather
+// than writing a protected row state, which is the OTHER approach #305 names
+// and rejects ("wedges the pruner... retried every pass forever") —
+// mitigated only by the pre-existing generic `_maxRawHoldDays` bound (14
+// days), not by anything added for #305. v83 did ship #305's third proposed
+// fix in full (the dedicated `unstable_baseline:` diagnostic).
+//
+// 83 → 84: repins both siblings to their main #-audit merges. protocol
+// 6664854 -> 471034c (#42, live-decode-path fixes only — no persisted
+// decoder moves, see the protocol pin comment). analytics 187e026 -> 1fa8144
+// (#59): `sessionHrCeiling`'s corroboration window no longer lets a single
+// un-averaged sample count as sustained motion (was reachable at the very
+// first trailing-window iteration), and `irregularBeatScreen`'s
+// sustained-window check no longer diffs across a beat that artifact
+// rejection removed as if it were adjacent. Both feed stored scalars
+// (`hr_ceiling_bpm` via `sessionHrCeiling` at :7662; the 24 h and sleep
+// irregular-rhythm screens via `irregularBeatScreen` in onehz_pipeline.dart),
+// so this bump is real, not a repin-only formality.
+//
+// 84 → 85 (edge#305, closing the gap left by v83): `nightSubstrateRegressed`
+// no longer requires THIS pass to have found a sleep window (:4232). The
+// counterexample v83 missed — a re-stage whose RR/HR substrate aged out and
+// came back `NO_SLEEP_DETECTED` instead of a truncated window — is now
+// declined the same way as the truncated-window case. Safety against
+// clobbering a genuinely-honest "no sleep that night" derive still comes from
+// the caller's existingHadNight check, not from this shape test: a day that
+// never had real sleep never had an existing result with real night scalars
+// to protect. #305 is now fully closed.
+//
+// 85 → 86 (analytics#40, closing edge#204's workaround): `_attachNaps`'s
+// midnight dedup used to guess a bout was already-counted from
+// `nap.startSec == 0`, which only ever matched the FIRST bout of the day's
+// window — a fragment chained onto it by a brief arousal (`napChainGapSec`)
+// has `startSec > 0` but is just as edge-anchored, and slipped through
+// uncounted, double-crediting its minutes to both days. Analytics now
+// propagates a real `NapWindow.startsAtRecordEdge` flag through the whole
+// chain (nap.dart); `_attachNaps` tests that flag directly instead of
+// re-deriving it from the index. Real output change (nap minutes / sleep
+// need on days with a midnight-arousal-split nap), so the bump is real.
+const int kAlgoVersion = 86;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1652,8 +1696,8 @@ const int kAlgoVersion = 83;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
-const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
-const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
+const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
+const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3702,18 +3746,23 @@ class DerivationEngine {
     // this null silently overwrites a good historical baseline point and
     // collapses every later night's readiness baseline out from under it.
     //
-    // Detect the same shape the guard above already reasons about — a known
-    // sleep window whose substrate is now entirely gone, re-deriving over a
-    // day that already had a real result — and decline the SAME way: keep
-    // the existing (older-version) row being served (`_servedDayJoin` already
-    // serves the highest version <= ceiling, so nothing needs to change there)
-    // rather than writing a new, worse row. A `partial` row was considered
-    // instead, but `partial` still gets written to `day_result` and would
-    // still shadow the better older row for day-detail reads; declining is
-    // what actually protects it.
+    // v85 (edge#305 fully closed): this no longer requires THIS pass to have
+    // found a sleep window. A re-stage whose RR/HR substrate aged out can come
+    // back with no window at all (`NO_SLEEP_DETECTED`), not just a truncated
+    // one — that shape is exactly as much a regression against an existing
+    // real result, and v83's `hasSleepWindow` requirement missed it (the exact
+    // counterexample #305 named). What actually distinguishes this from an
+    // honest "this day never had sleep" derive is the existingHadNight check
+    // right below, not whether this pass sees a window — a day that never had
+    // real sleep never had an existing result with real night scalars either.
+    // Decline the same way: keep the existing (older-version) row being served
+    // (`_servedDayJoin` already serves the highest version <= ceiling, so
+    // nothing needs to change there) rather than writing a new, worse row. A
+    // `partial` row was considered instead, but `partial` still gets written
+    // to `day_result` and would still shadow the better older row for
+    // day-detail reads; declining is what actually protects it.
     if (!producedNothing &&
         nightSubstrateRegressed(
-          hasSleepWindow: day.sleepOffsetSec > day.sleepOnsetSec,
           sleepSubEmpty: sleepSub.isEmpty,
           nightScalarsNull: scMap == null ||
               (scMap['rhr'] == null &&
@@ -4193,19 +4242,24 @@ class DerivationEngine {
 
   /// edge#305 — whether THIS derive's night-physiology substrate has
   /// regressed to nothing even though [producedNothing] (in
-  /// `_derivePreparedDay`) is false: plenty of daytime HR survives
-  /// ([hasSleepWindow] true, i.e. sleep STAGING still has a window — it
-  /// replays the durable `sleep_session_candidates` row, not raw — but
-  /// [sleepSubEmpty], the night's own RR/HR substrate, has aged out from
-  /// under it) and every night-physiology scalar ([nightScalarsNull]) came
-  /// back null. Pure so the shape is unit-testable without the full pipeline;
-  /// the caller still has to confirm an EXISTING result actually had real
-  /// night scalars before declining to write over it.
+  /// `_derivePreparedDay`) is false: plenty of daytime HR survives, but
+  /// [sleepSubEmpty] (the night's own RR/HR substrate) is gone and every
+  /// night-physiology scalar ([nightScalarsNull]) came back null. Deliberately
+  /// NOT gated on this pass finding a sleep window: v83 required
+  /// `hasSleepWindow` and missed the exact counterexample #305 named — a
+  /// re-stage whose RR/HR substrate aged out can come back `NO_SLEEP_DETECTED`
+  /// too, not just a truncated-but-present window, and that shape is just as
+  /// much a regression against an existing real result. A genuinely-honest
+  /// "this day never had sleep" case is still safe: it never had an existing
+  /// result with real night scalars, so the caller's existing-result check is
+  /// what actually distinguishes the two, not this shape test. Pure so the
+  /// shape is unit-testable without the full pipeline; the caller still has to
+  /// confirm an EXISTING result actually had real night scalars before
+  /// declining to write over it.
   static bool nightSubstrateRegressed({
-    required bool hasSleepWindow,
     required bool sleepSubEmpty,
     required bool nightScalarsNull,
-  }) => hasSleepWindow && sleepSubEmpty && nightScalarsNull;
+  }) => sleepSubEmpty && nightScalarsNull;
 
   /// Whether [row] is a REAL derived day result worth protecting — i.e. not a
   /// skip marker and not an all-absent shell.
@@ -7031,30 +7085,36 @@ class DerivationEngine {
       }
 
       final t0 = s.tsSec.first;
-      // The window opens AT local midnight and is contiguous into it, so a bout
-      // that begins at the very first sample was already in progress when we
-      // started looking — it is the tail of something that started YESTERDAY,
-      // and yesterday's buffered window (which runs `napBoundaryBufferSec` past
-      // its own midnight) saw it whole and emitted it whole.
+      // The window opens AT local midnight and is contiguous into it, so a
+      // bout [NapWindow.startsAtRecordEdge] flags — already in progress when
+      // we started looking — is the tail of something that started
+      // YESTERDAY, and yesterday's buffered window (which runs
+      // `napBoundaryBufferSec` past its own midnight) saw it whole and
+      // emitted it whole.
       //
-      // Analytics guards the trailing edge only: `unfinished` walks BACKWARD
-      // from the array end (nap.dart), while `stillAt(0)` short-circuits its
-      // discontinuity check at `k == 0` — so a bout at index 0 is always
-      // emitted, with no way for the detector to know what preceded it. Before
-      // `minNapSec` dropped to 15 min this was unreachable (the old nocturnal
-      // detector needed 60+ min and an HR dip); it is reachable now.
+      // analytics#40 (closing edge#204's workaround): this used to be
+      // guessed from `nap.startSec == 0`, which only ever caught the FIRST
+      // bout of the window — a bout chained onto it within `napChainGapSec`
+      // (a brief arousal right at midnight) has `startSec > 0` but is just as
+      // edge-anchored, and the old check let it through uncounted. Analytics
+      // now propagates the flag through the whole chain (nap.dart), so
+      // testing it directly instead of re-deriving it from the index catches
+      // those fragments too.
       //
-      // Gated on contiguity, NOT on index alone: if the record only STARTS
-      // hours into the day (band off overnight), yesterday's detector broke on
-      // that same discontinuity and dropped the bout too, so dropping it here
-      // as well would lose a real nap rather than de-duplicate one.
+      // Still gated on contiguity, NOT on the flag alone: if the record only
+      // STARTS hours into the day (band off overnight), yesterday's detector
+      // broke on that same discontinuity and dropped the bout too, so
+      // dropping it here as well would lose a real nap rather than
+      // de-duplicate one.
       final leadingEdgeOwnedByYesterday = attributionStartSec != null &&
           t0 <= attributionStartSec + napLeadingEdgeContiguitySec;
       // A nap STARTING at/after the real day boundary is tomorrow's — its own
       // (unbuffered) window finds it independently, so keeping it here too
       // would double-count it.
       final naps = m.value!.where((nap) {
-        if (leadingEdgeOwnedByYesterday && nap.startSec == 0) return false;
+        if (leadingEdgeOwnedByYesterday && nap.startsAtRecordEdge) {
+          return false;
+        }
         if (attributionEndSec == null) return true;
         return t0 + nap.startSec < attributionEndSec;
       }).toList();

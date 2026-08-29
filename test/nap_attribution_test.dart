@@ -322,6 +322,79 @@ void main() {
       expect(sc['nap_min'], 0.0);
     });
 
+    test(
+      'analytics#40: a fragment CHAINED onto the edge bout by a brief arousal '
+      'is also yesterday\'s, even though it does not itself start at index 0',
+      () {
+        // bout0 [0, 6min) is too short to be a nap on its own (< 15 min) but
+        // still touches index 0, so analytics flags it (and anything chained
+        // to it within napChainGapSec) as record-edge. A 10 min arousal
+        // separates it from bout1 [16min, 36min) — far enough to NOT bridge
+        // into one bout (> napBridgeSec = 5 min) but close enough to still
+        // chain as one edge-anchored episode (< napChainGapSec = 1 h). Only
+        // bout1 is long enough to be emitted as a nap, with `startSec > 0` —
+        // the old `nap.startSec == 0` proxy would have missed it and double
+        // -counted the same physical episode today.
+        const lengthSec = 6 * 3600;
+        final ts = <int>[];
+        final hr = <int>[];
+        final ax = <double>[], ay = <double>[], az = <double>[];
+        for (var i = 0; i < lengthSec; i++) {
+          ts.add(midnight + i);
+          final inBout0 = i < 6 * 60;
+          final inBout1 = i >= 16 * 60 && i < 36 * 60;
+          final still = inBout0 || inBout1;
+          hr.add(still ? 56 : 78);
+          if (still) {
+            ax.add(0.0);
+            ay.add(0.0);
+            az.add(1.0);
+          } else {
+            final deg = (i % 9) * 10.0;
+            final rad = deg * math.pi / 180.0;
+            ax.add(math.cos(rad));
+            ay.add(0.0);
+            az.add(math.sin(rad));
+          }
+        }
+        final s = Substrate(
+          tsSec: ts,
+          hr: hr,
+          rrTsMs: const [],
+          rrMs: const [],
+          ax: ax,
+          ay: ay,
+          az: az,
+          spo2Red: List<int>.filled(lengthSec, 0),
+          spo2Ir: List<int>.filled(lengthSec, 0),
+          skinTemp: List<int>.filled(lengthSec, 0),
+          skinContact: List<int>.filled(lengthSec, 0),
+        );
+        final bundle = <String, dynamic>{};
+        final sc = <String, dynamic>{};
+
+        final periods = DerivationEngine.debugAttachNaps(
+          bundle,
+          sc,
+          s,
+          0,
+          0,
+          attributionStartSec: midnight,
+          attributionEndSec: midnight + 86400,
+        );
+
+        expect(periods, isNotNull, reason: 'the day WAS judged');
+        expect(
+          periods,
+          isEmpty,
+          reason:
+              'bout1 is chained to the edge-anchored bout0, so it is still '
+              "yesterday's tail, not a fresh nap today",
+        );
+        expect(sc['nap_min'], 0.0);
+      },
+    );
+
     test('a nap-shaped block fully inside a CHARGING span is not a nap', () {
       final s = _daySubstrate(
         startSec: midnight,

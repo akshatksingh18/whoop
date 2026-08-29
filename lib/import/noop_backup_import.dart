@@ -164,24 +164,44 @@ class NoopBackupImporter {
     final rawPageSize = (header[16] << 8) | header[17];
     // 1 means 65536 (the u16 field cannot hold it) — see the format spec.
     final pageSize = rawPageSize == 1 ? 65536 : rawPageSize;
-    if (pageSize == 0 || fileLen % pageSize != 0) return (path, null);
+    // SQLite only ever writes a power of two from 512 to 32768 (or the 1
+    // encoding above). Anything else means the magic bytes matched but the
+    // header itself is garbage — e.g. pageSize==3 would pass a bare
+    // `fileLen % pageSize` check on plenty of ordinary file lengths and send
+    // a file that was never a real SQLite page layout through the repair
+    // copy, patching offset 28 against a page count that means nothing.
+    final validPageSize = pageSize == 65536 ||
+        (pageSize >= 512 && pageSize <= 32768 && (pageSize & (pageSize - 1)) == 0);
+    if (!validPageSize || fileLen % pageSize != 0) return (path, null);
     final declaredPages =
         (header[28] << 24) | (header[29] << 16) | (header[30] << 8) | header[31];
     final actualPages = fileLen ~/ pageSize;
     if (actualPages <= declaredPages) return (path, null); // header agrees
 
     final scratch = await Directory.systemTemp.createTemp('openstrap_noopfix_');
-    final repaired = p.join(scratch.path, 'repaired.sqlite');
-    await File(path).copy(repaired); // OS-level copy, not materialised here
-    final raf = await File(repaired).open(mode: FileMode.append);
     try {
-      await raf.setPosition(28);
-      final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
-      await raf.writeFrom(be.buffer.asUint8List());
-    } finally {
-      await raf.close();
+      final repaired = p.join(scratch.path, 'repaired.sqlite');
+      await File(path).copy(repaired); // OS-level copy, not materialised here
+      final raf = await File(repaired).open(mode: FileMode.append);
+      try {
+        await raf.setPosition(28);
+        final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
+        await raf.writeFrom(be.buffer.asUint8List());
+      } finally {
+        await raf.close();
+      }
+      return (repaired, scratch);
+    } catch (_) {
+      // Nothing has been returned yet, so the caller has no handle to clean
+      // this up with — delete it here rather than leak a scratch dir + a
+      // partial copy of the user's database on every failure.
+      try {
+        await scratch.delete(recursive: true);
+      } catch (_) {
+        /* the OS reclaims the temp dir eventually */
+      }
+      rethrow;
     }
-    return (repaired, scratch);
   }
 
   static Future<NoopImportResult> _import(
@@ -237,15 +257,6 @@ class NoopBackupImporter {
       for (final e in columns.entries)
         if (e.value.length == (_kTableCols[e.key]?.length ?? -1)) e.key,
     };
-    final span = await _span(src, readable);
-    if (span == null) {
-      throw const ImportFormatException(
-        'That NOOP backup holds no samples — there is nothing to import.',
-      );
-    }
-    final (minTs, maxTs) = span;
-
-    final ingest = NoopIngest(profile, engine, onProgress: onProgress);
 
     // A backup exported by copying NOOP's live database file (rather than
     // through a proper backup API) can leave a scattered corrupt page
@@ -258,7 +269,25 @@ class NoopBackupImporter {
     // just the day the bad page would chronologically belong to, so a table
     // goes in here once and stays — there is no point re-running the same
     // failing whole-table scan on every remaining day.
+    //
+    // Declared before the span probe (not just before the day walk below):
+    // `_span`'s own whole-table MIN/MAX scan can hit the same SQLITE_CORRUPT a
+    // per-day `_read` would, and if every table is torn this badly, `_span`
+    // returns null — that must still surface as "corrupted", not as "empty",
+    // which is the exact distinction this file exists to make.
     final corrupt = <String>{};
+    final span = await _span(src, readable, corrupt);
+    if (span == null) {
+      throw ImportFormatException(corrupt.isNotEmpty
+          ? 'That NOOP backup file is corrupted — SQLite cannot read '
+              '${corrupt.join(', ')}, and those are every table this app '
+              'imports. There is nothing left to recover from this file; '
+              'export a new backup from NOOP.'
+          : 'That NOOP backup holds no samples — there is nothing to import.');
+    }
+    final (minTs, maxTs) = span;
+
+    final ingest = NoopIngest(profile, engine, onProgress: onProgress);
 
     // Walk LOCAL days. Built through the DateTime(y, m, d + 1) constructor
     // rather than `add(Duration(days: 1))` so a DST boundary lands on real local
@@ -474,7 +503,11 @@ class NoopBackupImporter {
 
   /// Earliest and latest sample timestamp across every table we read, so the day
   /// walk covers days that carry (say) only a step counter.
-  static Future<(int, int)?> _span(Database src, Set<String> tables) async {
+  static Future<(int, int)?> _span(
+    Database src,
+    Set<String> tables,
+    Set<String> corrupt,
+  ) async {
     int? lo, hi;
     for (final t in const [
       'hrSample',
@@ -503,6 +536,7 @@ class NoopBackupImporter {
         );
       } catch (e) {
         if (!_isCorruptPageError(e)) rethrow;
+        corrupt.add(t);
         continue;
       }
       if (r.isEmpty) continue;

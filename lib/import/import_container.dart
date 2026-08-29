@@ -529,26 +529,26 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
           'of space. Free some up and try again.',
         );
       }
-      if (db.size > 0 && written > db.size) {
-        // A REAL NOOP export (10.5.0, measured 2026-08) has been seen with
-        // this exact shape: the zip's own uncompressed-size field for
-        // `noop-backup.sqlite` undercounts the true content by a few thousand
-        // pages, while the archive's CRC-32 — computed over the FULL
-        // decompressed stream, not the declared length — matches what actually
-        // came out. That is a bug in whatever wrote the zip (its size field
-        // went stale before the deflate stream did), not a truncated or
-        // tampered file, and `unzip -t` reports the very same file as OK
-        // because it validates by CRC. Trust the CRC the same way: only an
-        // ACTUAL mismatch means damage.
-        final crc = db.crc32;
-        final matches = crc != null && await _fileCrc32(destPath) == crc;
-        if (!matches) {
-          throw ImportFormatException(
-            '“${p.basename(path)}” does not hold what it says it does — its '
-            'database unpacked to more than the archive declared. It is '
-            'likely damaged; export it again.',
-          );
-        }
+      // CRC is checked whenever the archive gives us one — not only on an
+      // over-run. A REAL NOOP export (10.5.0, measured 2026-08) has been seen
+      // shaped exactly like the over-run case below: the zip's own
+      // uncompressed-size field for `noop-backup.sqlite` undercounts the true
+      // content by a few thousand pages, while the archive's CRC-32 —
+      // computed over the FULL decompressed stream, not the declared length —
+      // matches what actually came out. That is a bug in whatever wrote the
+      // zip (its size field went stale before the deflate stream did), not a
+      // truncated or tampered file, and `unzip -t` reports the very same file
+      // as OK because it validates by CRC. Trust the CRC the same way — but
+      // an exact-size extraction can ALSO be silently wrong (same length,
+      // different bytes), which checking only `written > db.size` would miss
+      // entirely, so this runs for `written >= db.size`, not just the overrun.
+      final crc = db.crc32;
+      if (db.size > 0 && crc != null && await _fileCrc32(destPath) != crc) {
+        throw ImportFormatException(
+          '“${p.basename(path)}” does not hold what it says it does — its '
+          'database does not match the archive checksum. It is likely '
+          'damaged; export it again.',
+        );
       }
       return ResolvedNoopDatabase(destPath, tempDir);
     } catch (_) {

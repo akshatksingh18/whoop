@@ -4102,10 +4102,13 @@ Map<String, dynamic> _spotCheckCompute(List<String> records) {
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
     if (rr != null) {
-      // A duplicate or out-of-order packet timestamp cannot prove adjacency
-      // to whatever came before it — drop the whole packet rather than let
-      // it splice onto the series at the wrong place.
-      if (lastPacketTs == null || rr.ts > lastPacketTs) {
+      // rr.ts is whole SECONDS, and a live 0x2B packet can legitimately land
+      // more than once in the same second — only an out-of-order (strictly
+      // older) timestamp can't prove adjacency to what came before it, so
+      // only that gets dropped; an equal timestamp is accepted like normal
+      // (sourcery flagged the earlier strict `>` as silently losing real
+      // beats on any multi-packet-per-second burst).
+      if (lastPacketTs == null || rr.ts >= lastPacketTs) {
         lastPacketTs = rr.ts;
         final ts = rr.ts.toDouble() * 1000;
         for (final v in rr.rrMs) {
@@ -4153,7 +4156,10 @@ Map<String, dynamic> _breathingCoherenceCompute(
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
     if (rr != null) {
-      if (lastPacketTs == null || rr.ts > lastPacketTs) {
+      // See _spotCheckCompute above: rr.ts is whole seconds, so only a
+      // strictly older (out-of-order) timestamp gets dropped, not an equal
+      // one — a live packet can legitimately land more than once a second.
+      if (lastPacketTs == null || rr.ts >= lastPacketTs) {
         lastPacketTs = rr.ts;
         final ts = rr.ts.toDouble() * 1000;
         for (final v in rr.rrMs) {

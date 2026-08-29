@@ -7134,7 +7134,7 @@
   "@homeAnalyzingTitle": {
     "description": "Title shown on a bare day once the backlog has landed and a derive job is computing today's numbers."
   },
-  "homeAnalyzingBody": "The data is in — sleep, recovery and strain are being worked out now.",
+  "homeAnalyzingBody": "The data is in — sleep, recovery and strain are next.",
   "@homeAnalyzingBody": {
     "description": "Body shown on a bare day once the backlog has landed and a derive job is computing today's numbers."
   },

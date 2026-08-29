@@ -1346,7 +1346,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       return StatusCard(
         l?.homeAnalyzingTitle ?? 'Crunching last night\'s numbers',
         l?.homeAnalyzingBody ?? 'The data is in — sleep, recovery and strain '
-            'are being worked out now.',
+            'are next.',
         leading: spinner,
       );
     }

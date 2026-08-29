@@ -1539,6 +1539,17 @@ import 'substrate.dart';
 // abstention now populates `readiness_absent_diag` with its own
 // `unstable_baseline:` reason instead of leaving it null (onehz_pipeline.dart).
 //
+// v83's guard was `hasSleepWindow && sleepSubEmpty && nightScalarsNull`
+// (:4204) — #305's own writeup named this exact shape ("a sleep-window
+// boundary check") as insufficient, with a counterexample: a day whose stager
+// found NO window at all (`hasSleepWindow` false) still hit the original
+// clobber, unprotected. The v83 fix also declined by early `return` rather
+// than writing a protected row state, which is the OTHER approach #305 names
+// and rejects ("wedges the pruner... retried every pass forever") —
+// mitigated only by the pre-existing generic `_maxRawHoldDays` bound (14
+// days), not by anything added for #305. v83 did ship #305's third proposed
+// fix in full (the dedicated `unstable_baseline:` diagnostic).
+//
 // 83 → 84: repins both siblings to their main #-audit merges. protocol
 // 6664854 -> 471034c (#42, live-decode-path fixes only — no persisted
 // decoder moves, see the protocol pin comment). analytics 187e026 -> 1fa8144
@@ -1550,7 +1561,17 @@ import 'substrate.dart';
 // (`hr_ceiling_bpm` via `sessionHrCeiling` at :7662; the 24 h and sleep
 // irregular-rhythm screens via `irregularBeatScreen` in onehz_pipeline.dart),
 // so this bump is real, not a repin-only formality.
-const int kAlgoVersion = 84;
+//
+// 84 → 85 (edge#305, closing the gap left by v83): `nightSubstrateRegressed`
+// no longer requires THIS pass to have found a sleep window (:4232). The
+// counterexample v83 missed — a re-stage whose RR/HR substrate aged out and
+// came back `NO_SLEEP_DETECTED` instead of a truncated window — is now
+// declined the same way as the truncated-window case. Safety against
+// clobbering a genuinely-honest "no sleep that night" derive still comes from
+// the caller's existingHadNight check, not from this shape test: a day that
+// never had real sleep never had an existing result with real night scalars
+// to protect. #305 is now fully closed.
+const int kAlgoVersion = 85;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -3714,18 +3735,23 @@ class DerivationEngine {
     // this null silently overwrites a good historical baseline point and
     // collapses every later night's readiness baseline out from under it.
     //
-    // Detect the same shape the guard above already reasons about — a known
-    // sleep window whose substrate is now entirely gone, re-deriving over a
-    // day that already had a real result — and decline the SAME way: keep
-    // the existing (older-version) row being served (`_servedDayJoin` already
-    // serves the highest version <= ceiling, so nothing needs to change there)
-    // rather than writing a new, worse row. A `partial` row was considered
-    // instead, but `partial` still gets written to `day_result` and would
-    // still shadow the better older row for day-detail reads; declining is
-    // what actually protects it.
+    // v84 (edge#305 fully closed): this no longer requires THIS pass to have
+    // found a sleep window. A re-stage whose RR/HR substrate aged out can come
+    // back with no window at all (`NO_SLEEP_DETECTED`), not just a truncated
+    // one — that shape is exactly as much a regression against an existing
+    // real result, and v83's `hasSleepWindow` requirement missed it (the exact
+    // counterexample #305 named). What actually distinguishes this from an
+    // honest "this day never had sleep" derive is the existingHadNight check
+    // right below, not whether this pass sees a window — a day that never had
+    // real sleep never had an existing result with real night scalars either.
+    // Decline the same way: keep the existing (older-version) row being served
+    // (`_servedDayJoin` already serves the highest version <= ceiling, so
+    // nothing needs to change there) rather than writing a new, worse row. A
+    // `partial` row was considered instead, but `partial` still gets written
+    // to `day_result` and would still shadow the better older row for
+    // day-detail reads; declining is what actually protects it.
     if (!producedNothing &&
         nightSubstrateRegressed(
-          hasSleepWindow: day.sleepOffsetSec > day.sleepOnsetSec,
           sleepSubEmpty: sleepSub.isEmpty,
           nightScalarsNull: scMap == null ||
               (scMap['rhr'] == null &&
@@ -4205,19 +4231,24 @@ class DerivationEngine {
 
   /// edge#305 — whether THIS derive's night-physiology substrate has
   /// regressed to nothing even though [producedNothing] (in
-  /// `_derivePreparedDay`) is false: plenty of daytime HR survives
-  /// ([hasSleepWindow] true, i.e. sleep STAGING still has a window — it
-  /// replays the durable `sleep_session_candidates` row, not raw — but
-  /// [sleepSubEmpty], the night's own RR/HR substrate, has aged out from
-  /// under it) and every night-physiology scalar ([nightScalarsNull]) came
-  /// back null. Pure so the shape is unit-testable without the full pipeline;
-  /// the caller still has to confirm an EXISTING result actually had real
-  /// night scalars before declining to write over it.
+  /// `_derivePreparedDay`) is false: plenty of daytime HR survives, but
+  /// [sleepSubEmpty] (the night's own RR/HR substrate) is gone and every
+  /// night-physiology scalar ([nightScalarsNull]) came back null. Deliberately
+  /// NOT gated on this pass finding a sleep window: v83 required
+  /// `hasSleepWindow` and missed the exact counterexample #305 named — a
+  /// re-stage whose RR/HR substrate aged out can come back `NO_SLEEP_DETECTED`
+  /// too, not just a truncated-but-present window, and that shape is just as
+  /// much a regression against an existing real result. A genuinely-honest
+  /// "this day never had sleep" case is still safe: it never had an existing
+  /// result with real night scalars, so the caller's existing-result check is
+  /// what actually distinguishes the two, not this shape test. Pure so the
+  /// shape is unit-testable without the full pipeline; the caller still has to
+  /// confirm an EXISTING result actually had real night scalars before
+  /// declining to write over it.
   static bool nightSubstrateRegressed({
-    required bool hasSleepWindow,
     required bool sleepSubEmpty,
     required bool nightScalarsNull,
-  }) => hasSleepWindow && sleepSubEmpty && nightScalarsNull;
+  }) => sleepSubEmpty && nightScalarsNull;
 
   /// Whether [row] is a REAL derived day result worth protecting — i.e. not a
   /// skip marker and not an all-absent shell.

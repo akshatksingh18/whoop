@@ -1538,7 +1538,19 @@ import 'substrate.dart';
 // so the older, complete row keeps being served. Also: the readiness z-cap
 // abstention now populates `readiness_absent_diag` with its own
 // `unstable_baseline:` reason instead of leaving it null (onehz_pipeline.dart).
-const int kAlgoVersion = 83;
+//
+// 83 → 84: repins both siblings to their main #-audit merges. protocol
+// 6664854 -> 471034c (#42, live-decode-path fixes only — no persisted
+// decoder moves, see the protocol pin comment). analytics 187e026 -> 1fa8144
+// (#59): `sessionHrCeiling`'s corroboration window no longer lets a single
+// un-averaged sample count as sustained motion (was reachable at the very
+// first trailing-window iteration), and `irregularBeatScreen`'s
+// sustained-window check no longer diffs across a beat that artifact
+// rejection removed as if it were adjacent. Both feed stored scalars
+// (`hr_ceiling_bpm` via `sessionHrCeiling` at :7662; the 24 h and sleep
+// irregular-rhythm screens via `irregularBeatScreen` in onehz_pipeline.dart),
+// so this bump is real, not a repin-only formality.
+const int kAlgoVersion = 84;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1652,8 +1664,8 @@ const int kAlgoVersion = 83;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
-const String kAnalyticsPin = '187e026fd975d3885ff1a22af5e125d1c8c1825e';
-const String kProtocolPin = '6664854062d6e0e6099eac39b3ee73d96703a49e';
+const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
+const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

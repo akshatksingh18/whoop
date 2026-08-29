@@ -126,7 +126,24 @@ dependencies:
       # so no stored number can move. Reasoning also sits beside kProtocolPin
       # in lib/compute/derivation_engine.dart, which moves together with this
       # ref and pubspec.lock (the pin-equality test fails a partial repin).
-      ref: 6664854062d6e0e6099eac39b3ee73d96703a49e
+      #
+      # REPIN: protocol main @ 471034c, the #42 (audit/consolidated-fixes)
+      # merge — 6 commits on top of 6664854: decodeFrame's short-packet
+      # dispatch now tries the v2 realtime-HR parser before falling back to
+      # v1 (rev-2 packets were being misdecoded); R10 live dispatch no longer
+      # drops hr==0 (off-wrist) records to a bare data_record and now carries
+      # ts_epoch like the other realtime_hr branches; the copy-pasted LE
+      # (sec, subsec) byte packing used by 5 command builders and the
+      # hand-rolled _pow10/gen5 u16/i16/u32 readers were deduped; and #36
+      # lands raw R11 frame decoding (`R11Raw`/`decodeR11Raw`, meaning
+      # unconfirmed — see live.dart).
+      #
+      # NO kAlgoVersion bump: every changed decoder here is on the live
+      # realtime path (decodeFrame's `realtime_hr`/`realtime_small`, R11) —
+      # live high-rate streams are never persisted (see invariant #1), so no
+      # stored day_result number moves. R11's meaning is still unconfirmed
+      # and edge does not read it.
+      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -280,7 +297,29 @@ dependencies:
       # that onehz_pipeline.dart (edge #289 / 3120774) already calls -- the
       # pin was never moved when that landed, which broke `flutter analyze`
       # (undefined_named_parameter, both call sites). No other symbol changed.
-      ref: 187e026fd975d3885ff1a22af5e125d1c8c1825e
+      #
+      # REPIN: analytics main @ 1fa8144, the #59 (audit/consolidated-fixes)
+      # merge — 3 commits on top of 187e026, two output-affecting:
+      # `sessionHrCeiling`'s trailing-motion corroboration window could be
+      # satisfied by a single un-averaged sample at the very first iteration
+      # (one noisy sample "corroborating" a hold before the trailing window
+      # had actually accumulated its ~3 s span) — now only updates `bestTrail`
+      # once the window has matured to a full span; `irregularBeatScreen`'s
+      # sustained-window check diffed consecutive elements of the
+      # artifact-compacted beat array even when a removed beat sat between
+      # them, understating the true gap and risking a false sustained-flag —
+      # now carries an alignment flag (`nnAdjacent`) so a diff across a
+      # dropped beat is skipped the same way the aggregate diff already does.
+      # The third commit is doc-only (README quick-start's `nnTimesMs`
+      # numbers were off by one cumulative sum; `dailyActiveMinutes`'s
+      # AN-2554 citation was wrong, relabeled internal ESTIMATE).
+      #
+      # kAlgoVersion bumped (84) for this hop: `sessionHrCeiling` feeds the
+      # stored `hr_ceiling_bpm` (derivation_engine.dart:7662) and
+      # `irregularBeatScreen` feeds the stored 24 h and sleep irregular-rhythm
+      # screens (onehz_pipeline.dart) — both are real, if narrow, output
+      # changes, not NaN/±inf-only rejections.
+      ref: 1fa8144a5e3b728ce91eeed6ecbc15d482933b44
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

@@ -2536,6 +2536,15 @@ class LocalRepositoryImpl extends LocalRepository {
     if (existing['status'] == 'live') {
       throw StateError('setWorkoutWindow: session $id is still live');
     }
+    // Clear the OLD Health window before the retimed row overwrites it — the
+    // caller's subsequent exportWorkoutId only deletes inside the NEW window,
+    // so a narrowed/moved retime would otherwise leave the previous sample
+    // stranded outside it.
+    final oldStart = (existing['start_ts'] as num?)?.toInt();
+    final oldEnd = (existing['end_ts'] as num?)?.toInt();
+    if (oldStart != null && oldEnd != null) {
+      await HealthExporter.deleteWorkoutWindow(oldStart, oldEnd);
+    }
     // A retimed session keeps its id, so the OLD row is replaced rather than
     // orphaned — including its GPS route, which still belongs to it.
     return _writeManualSession(

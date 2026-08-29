@@ -44,6 +44,13 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
+  // LocalDb.instance caches its open Database keyed only on `db.isOpen`, not
+  // on `dbName` — a still-open handle left by an earlier suite is handed back
+  // as-is, ignoring the dbName set above. Close ours so whichever suite runs
+  // next doesn't inherit it (see phone_pedometer_hour_walk_test.dart, which
+  // was the actual source of this file's order-dependent flake: edge#259).
+  tearDownAll(() => LocalDb.close());
+
   group('DeriveScheduler — live-workout gate', () {
     late List<String> logs;
     late int runs;

@@ -1970,6 +1970,32 @@ class AppState extends ChangeNotifier {
     await _reanalyzeForOverride();
   }
 
+  /// Reject a day's detected main sleep entirely — "this was not sleep at
+  /// all", the missing counterpart to [confirmSleep] (naps already have this
+  /// via `sleep_nap` source='rejected'; main-sleep sessions didn't — edge#248).
+  /// Same table, same force-re-derive; `source: 'rejected'` tells
+  /// `calendarDays` (substrate.dart) to skip staging this window rather than
+  /// force it, so the day re-derives with no main sleep at all. Reversible
+  /// the same way as any other override: [clearSleepOverride].
+  Future<void> rejectSleep(String date) async {
+    if (repo == null) return;
+    final sleep = await repo!.getDaySleep(date);
+    final onset = (sleep['onset_ts'] as num?)?.toInt();
+    final offset = (sleep['wake_ts'] as num?)?.toInt();
+    // The rejected window is stored for the record, same as a rejected nap —
+    // it is never read back once source is 'rejected' (staging is skipped
+    // outright), so an absent detected window falls back to a harmless
+    // same-day placeholder rather than blocking the rejection.
+    final fallback = DateTime.parse(date).millisecondsSinceEpoch ~/ 1000;
+    await LocalDb.putSleepOverride(
+      dayId: date,
+      onsetTs: onset ?? fallback,
+      offsetTs: offset ?? (fallback + 1),
+      source: 'rejected',
+    );
+    await _reanalyzeForOverride();
+  }
+
   /// Remove a manual/confirmed override for [date] — revert to auto/fallback.
   Future<void> clearSleepOverride(String date) async {
     await LocalDb.deleteSleepOverride(date);
@@ -2644,7 +2670,11 @@ class AppState extends ChangeNotifier {
     // `breathingWindowOpen` is the MIND-06 quiet window either side of the
     // paced block — the same buffer, held open across the pacing's own start
     // and stop so a "before" and an "after" exist at all.
-    if ((breathingActive || breathingWindowOpen) && (pt == 0x28 || pt == 0x2B)) {
+    // A 0x2B envelope also carries gen5 Maverick's rev-21 100 Hz IMU record
+    // (byte[1] != 10) — realtimeRr already yields no beats from it, but it
+    // should not occupy the breathing R-R buffer at all (edge#286).
+    final isRrBearing = pt == 0x28 || (pt == 0x2B && _isR10Record(hex));
+    if ((breathingActive || breathingWindowOpen) && isRrBearing) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
     // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
@@ -2666,6 +2696,17 @@ class AppState extends ChangeNotifier {
         _ingestLiveMags(f);
         _trackCoverage(recTs);
       }
+    }
+  }
+
+  /// True iff a live inner packet's record-type byte ([1]) is 10 (R10, the
+  /// only R-R-bearing record a 0x2B envelope carries).
+  bool _isR10Record(String hex) {
+    if (hex.length < 4) return false;
+    try {
+      return int.parse(hex.substring(2, 4), radix: 16) == 10;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -5398,7 +5439,19 @@ class AppState extends ChangeNotifier {
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
-          await LocalDb.putSession({...row, 'status': 'done'});
+          // A stale live row has no end_ts (it was never stopped), which
+          // permanently kept it un-exportable — Health export requires a real
+          // end. We don't know when the workout actually ended, so the
+          // honest stamp is reconcile-time (stated as such), not a guess at
+          // the real finish (edge#277).
+          final reconciledEndTs = nowMs ~/ 1000;
+          await LocalDb.putSession({
+            ...row,
+            'status': 'done',
+            'end_ts': row['end_ts'] ?? reconciledEndTs,
+          });
+          final id = row['id'] as String?;
+          if (id != null) unawaited(HealthExporter.exportWorkoutId(id));
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }
       }

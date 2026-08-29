@@ -31,6 +31,12 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
+  // LocalDb.instance caches its open Database keyed only on `db.isOpen`, not
+  // on `dbName` — leaving it open here hands the next suite this file's db
+  // instead of its own. This was the actual source of
+  // workout_reliability_test.dart's order-dependent flake (edge#259).
+  tearDownAll(() => LocalDb.close());
+
   setUp(() async {
     final db = await LocalDb.instance;
     await db.delete('live_coverage');

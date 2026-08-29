@@ -117,4 +117,58 @@ void main() {
     expect(inBed, greaterThan(3 * 3600));
     expect(inBed, lessThanOrEqualTo(4 * 3600 + 60));
   });
+
+  test(
+    'a "rejected" sleep override skips staging entirely (edge#248)',
+    () {
+      // Same still-wrist-plus-low-HR shape as the "forces + stages" case
+      // above — without the override this would stage as sleep.
+      final start = DateTime(2026, 6, 27, 0, 0).millisecondsSinceEpoch ~/ 1000;
+      final end = DateTime(2026, 6, 27, 5, 0).millisecondsSinceEpoch ~/ 1000;
+      final ts = <int>[];
+      final hr = <int>[];
+      for (var t = start; t <= end; t++) {
+        ts.add(t);
+        hr.add(50);
+      }
+      final sub = Substrate(
+        tsSec: ts,
+        hr: hr,
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: List<double>.filled(ts.length, 0.02),
+        ay: List<double>.filled(ts.length, 0.02),
+        az: List<double>.filled(ts.length, 1.0),
+        spo2Red: List<int>.filled(ts.length, 0),
+        spo2Ir: List<int>.filled(ts.length, 0),
+        skinTemp: List<int>.filled(ts.length, 0),
+        skinContact: List<int>.filled(ts.length, 0),
+      );
+
+      final onsetSec =
+          DateTime(2026, 6, 27, 0, 30).millisecondsSinceEpoch ~/ 1000;
+      final offsetSec =
+          DateTime(2026, 6, 27, 4, 30).millisecondsSinceEpoch ~/ 1000;
+
+      final out = prepareDerivationPayload(
+        sub,
+        targetDay: '2026-06-27',
+        override: SleepWindowOverride(
+          dayId: '2026-06-27',
+          onsetSec: onsetSec,
+          offsetSec: offsetSec,
+          source: 'rejected',
+        ),
+      );
+      expect(out.days, hasLength(1));
+      final day = out.days.first;
+      // The rejection is on the record...
+      expect(day.sleepSource, 'rejected');
+      expect(day.flags, contains('SLEEP_REJECTED'));
+      // ...but nothing is staged from it — this day has no sleep at all.
+      expect(day.sleepJson['tst_sec'], isNull);
+      expect(day.sleepOnsetSec, 0);
+      expect(day.sleepOffsetSec, 0);
+    },
+  );
 }

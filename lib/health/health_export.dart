@@ -298,6 +298,29 @@ class HealthExporter {
     }
   }
 
+  /// Clear a stale workout's OLD window before the caller writes its retimed
+  /// replacement. [exportWorkout] only ever deletes inside the row's CURRENT
+  /// `[start,end]` — fine for a same-window re-export, but `setWorkoutWindow`
+  /// narrowing or moving a session leaves its previous Health sample outside
+  /// that window, so it survives untouched. Call this with the row's window
+  /// as it stood BEFORE the retime, then let the normal exportWorkoutId path
+  /// write the new one. Best-effort; never throws.
+  static Future<void> deleteWorkoutWindow(int startTs, int endTs) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(kHealthSyncPref) != true) return;
+      await shared._ensureConfigured();
+      if (await shared._androidUnavailable() != null) return;
+      await shared._deleteOwnSamples(
+        HealthDataType.WORKOUT,
+        DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
+        DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+      );
+    } catch (e) {
+      debugPrint('[health] deleteWorkoutWindow: $e');
+    }
+  }
+
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
   static bool get isApple => Platform.isIOS || Platform.isMacOS;
 

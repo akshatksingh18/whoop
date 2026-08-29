@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/health/health_export.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// A stand-in for the platform health store, driven over the `health` plugin's
 /// own method channel — the only seam `HealthExporter` reaches the store
@@ -124,6 +125,40 @@ void main() {
 
       expect(ok, isTrue);
       expect(store.calls, containsAllInOrder(['delete', 'writeWorkoutData']));
+    });
+  });
+
+  group('deleteWorkoutWindow (retime cleanup)', () {
+    // setWorkoutWindow only has the OLD [start,end] before it overwrites the
+    // row — this is what it calls to clear that range so a narrowed/moved
+    // retime doesn't leave the previous Health sample stranded outside the
+    // new window (which is all `exportWorkoutId`'s own delete ever reaches).
+    late _FakeHealthStore store;
+
+    tearDown(() => store.remove());
+
+    test('clears the old window when health sync is on', () async {
+      SharedPreferences.setMockInitialValues({'health_sync': true});
+      store = _FakeHealthStore(deleteResult: true)..install();
+
+      final oldStart = DateTime(2026, 8, 26, 18, 30);
+      final oldEnd = DateTime(2026, 8, 26, 19, 15);
+      await HealthExporter.deleteWorkoutWindow(
+        oldStart.millisecondsSinceEpoch ~/ 1000,
+        oldEnd.millisecondsSinceEpoch ~/ 1000,
+      );
+
+      expect(store.calls, contains('delete'));
+      expect(store.calls, isNot(contains('writeWorkoutData')));
+    });
+
+    test('no-ops when health sync is off', () async {
+      SharedPreferences.setMockInitialValues({'health_sync': false});
+      store = _FakeHealthStore(deleteResult: true)..install();
+
+      await HealthExporter.deleteWorkoutWindow(0, 100);
+
+      expect(store.calls, isEmpty);
     });
   });
 }

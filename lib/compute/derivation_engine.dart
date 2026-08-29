@@ -1528,7 +1528,17 @@ import 'substrate.dart';
 // zone anchor. Two different derivations cannot share one number — that is
 // the whole contract of this constant, and main's 81 is the one already on
 // main, so it keeps it. Nothing about the zone change itself moved.
-const int kAlgoVersion = 82;
+//
+// 82 → 83 (edge#305): a re-derive at the retention-cutoff edge could produce
+// null rhr/rmssd/readiness for a day whose sleep-window substrate had aged
+// out while daytime HR survived, and — because `metric_series` is unversioned
+// — silently clobber a good historical baseline point, collapsing the
+// readiness baseline out from under later nights. That re-derive is now
+// declined (see the guard in `_derivePreparedDay` right after `producedNothing`)
+// so the older, complete row keeps being served. Also: the readiness z-cap
+// abstention now populates `readiness_absent_diag` with its own
+// `unstable_baseline:` reason instead of leaving it null (onehz_pipeline.dart).
+const int kAlgoVersion = 83;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -3684,6 +3694,50 @@ class DerivationEngine {
       }
     }
 
+    // ── NEVER WRITE NIGHT-NULL OVER NIGHT-REAL (edge#305) ───────────────────
+    // The guard above only catches a day with literally NOTHING. A day at the
+    // retention-cutoff EDGE can have plenty of daytime HR (daySub non-empty)
+    // while its sleep window's own RR/HR substrate has aged out from under it
+    // (sleepSub empty) — sleep STAGING survives regardless (it replays the
+    // durable `sleep_session_candidates` row, not raw), so `daySub`/`sleepSub`/
+    // `scMap` all look like "something" and `producedNothing` is false — but
+    // every night-physiology scalar (rhr/rmssd/readiness) comes back null.
+    // `putDayResult` replaces `metric_series` wholesale (it's UNVERSIONED), so
+    // this null silently overwrites a good historical baseline point and
+    // collapses every later night's readiness baseline out from under it.
+    //
+    // Detect the same shape the guard above already reasons about — a known
+    // sleep window whose substrate is now entirely gone, re-deriving over a
+    // day that already had a real result — and decline the SAME way: keep
+    // the existing (older-version) row being served (`_servedDayJoin` already
+    // serves the highest version <= ceiling, so nothing needs to change there)
+    // rather than writing a new, worse row. A `partial` row was considered
+    // instead, but `partial` still gets written to `day_result` and would
+    // still shadow the better older row for day-detail reads; declining is
+    // what actually protects it.
+    if (!producedNothing &&
+        nightSubstrateRegressed(
+          hasSleepWindow: day.sleepOffsetSec > day.sleepOnsetSec,
+          sleepSubEmpty: sleepSub.isEmpty,
+          nightScalarsNull: scMap == null ||
+              (scMap['rhr'] == null &&
+                  scMap['rmssd'] == null &&
+                  scMap['readiness'] == null),
+        )) {
+      final existingNight = await LocalDb.dayResult(day.date);
+      final existingHadNight = existingNight != null &&
+          (existingNight['rhr'] != null ||
+              existingNight['rmssd'] != null ||
+              existingNight['readiness'] != null);
+      if (existingHadNight) {
+        _log('derive ${day.date}: sleep-window substrate pruned out from '
+            "under a day that already had real night scalars — kept the "
+            'existing result rather than nulling the readiness baseline '
+            '(edge#305)');
+        return;
+      }
+    }
+
     // ── SECOND HALF — OFFLOADED to a background isolate ──────────────────────
     // Everything that turns the isolate-1 bundle into the full day result (wake
     // features, hybrid steps + TDEE, all-day HRV/RSA/skin-temp Timeline lines,
@@ -4140,6 +4194,22 @@ class DerivationEngine {
   /// rather than a permanently pathological day. These must never finalize:
   /// finalizing locks the day out of every future pass at this algo version.
   static const Set<String> _transientSkipReasons = {'timeout', 'error'};
+
+  /// edge#305 — whether THIS derive's night-physiology substrate has
+  /// regressed to nothing even though [producedNothing] (in
+  /// `_derivePreparedDay`) is false: plenty of daytime HR survives
+  /// ([hasSleepWindow] true, i.e. sleep STAGING still has a window — it
+  /// replays the durable `sleep_session_candidates` row, not raw — but
+  /// [sleepSubEmpty], the night's own RR/HR substrate, has aged out from
+  /// under it) and every night-physiology scalar ([nightScalarsNull]) came
+  /// back null. Pure so the shape is unit-testable without the full pipeline;
+  /// the caller still has to confirm an EXISTING result actually had real
+  /// night scalars before declining to write over it.
+  static bool nightSubstrateRegressed({
+    required bool hasSleepWindow,
+    required bool sleepSubEmpty,
+    required bool nightScalarsNull,
+  }) => hasSleepWindow && sleepSubEmpty && nightScalarsNull;
 
   /// Whether [row] is a REAL derived day result worth protecting — i.e. not a
   /// skip marker and not an all-absent shell.

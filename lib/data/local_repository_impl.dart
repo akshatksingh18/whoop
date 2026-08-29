@@ -13,6 +13,7 @@
 // Honesty: a metric whose value is absent stays absent ("—"); we never fabricate.
 // Profile-gated metrics are null when the profile field is missing.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -27,6 +28,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
+import '../health/health_export.dart';
 import 'journal_fields.dart';
 import 'local_repository.dart';
 import 'series_codec.dart';
@@ -2475,6 +2477,12 @@ class LocalRepositoryImpl extends LocalRepository {
         'status': 'done',
         'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       });
+      // This is the choke point the AI coach's `end_workout` tool reaches
+      // directly (bypassing AppState.stopWorkout, the only other place this
+      // used to happen) — without it a coach-ended workout never reached
+      // Apple Health / Health Connect (edge#277). Idempotent + best-effort;
+      // exportWorkoutId re-reads the row and no-ops if sync is off.
+      unawaited(HealthExporter.exportWorkoutId(workoutId));
     }
     return {'workout_id': workoutId};
   }
@@ -2527,6 +2535,15 @@ class LocalRepositoryImpl extends LocalRepository {
     // not the only caller; the status deserves the same treatment.
     if (existing['status'] == 'live') {
       throw StateError('setWorkoutWindow: session $id is still live');
+    }
+    // Clear the OLD Health window before the retimed row overwrites it — the
+    // caller's subsequent exportWorkoutId only deletes inside the NEW window,
+    // so a narrowed/moved retime would otherwise leave the previous sample
+    // stranded outside it.
+    final oldStart = (existing['start_ts'] as num?)?.toInt();
+    final oldEnd = (existing['end_ts'] as num?)?.toInt();
+    if (oldStart != null && oldEnd != null) {
+      await HealthExporter.deleteWorkoutWindow(oldStart, oldEnd);
     }
     // A retimed session keeps its id, so the OLD row is replaced rather than
     // orphaned — including its GPS route, which still belongs to it.
@@ -4081,17 +4098,48 @@ Map<String, dynamic>? stressSummaryForToday(
 // Top-level (no `this` capture) + only file-scoped `proto`/`ana` top-level
 // functions + a List<String> of hex frames in, a plain Map out — all sendable.
 
-Map<String, dynamic> _spotCheckCompute(List<String> records) {
-  // Decode RR from the live RR-bearing frames (0x28 / R10), clean, compute HRV.
+/// Decode RR beats from the live RR-bearing frames (0x28 / R10), shared by
+/// [_spotCheckCompute] and [_breathingCoherenceCompute] (CodeRabbit noted the
+/// duplication on edge#308). rrTsMs carries each beat's packet timestamp
+/// (ms) alongside it — same seam getNightBeats uses (line ~867) — so
+/// correctRr can re-anchor at a dropout and hrvTime's/coherence's seam
+/// detection can refuse to diff across it (edge#286: a flat rrMs-only list
+/// let a real packet gap read as two successive beats). rr.ts is whole
+/// SECONDS, and a live 0x2B packet can legitimately land more than once in
+/// the same second — only an out-of-order (strictly older) timestamp can't
+/// prove adjacency to what came before it, so only that gets dropped; an
+/// equal timestamp is accepted like normal (sourcery flagged the earlier
+/// strict `>` as silently losing real beats on any multi-packet-per-second
+/// burst).
+({List<double> rrMs, List<double> rrTsMs}) _decodeLiveRr(
+  List<String> records,
+) {
   final rrMs = <double>[];
-  final hrs = <double>[];
+  final rrTsMs = <double>[];
+  int? lastPacketTs;
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
-    if (rr != null) {
-      for (final v in rr.rrMs) {
-        if (v > 0) rrMs.add(v.toDouble());
+    if (rr == null || (lastPacketTs != null && rr.ts < lastPacketTs)) {
+      continue;
+    }
+    lastPacketTs = rr.ts;
+    final ts = rr.ts.toDouble() * 1000;
+    for (final v in rr.rrMs) {
+      if (v > 0) {
+        rrMs.add(v.toDouble());
+        rrTsMs.add(ts);
       }
     }
+  }
+  return (rrMs: rrMs, rrTsMs: rrTsMs);
+}
+
+Map<String, dynamic> _spotCheckCompute(List<String> records) {
+  final decoded = _decodeLiveRr(records);
+  final rrMs = decoded.rrMs;
+  final rrTsMs = decoded.rrTsMs;
+  final hrs = <double>[];
+  for (final hex in records) {
     try {
       final s = proto.decodeRecord(hex);
       if (s != null && s.hr > 0) hrs.add(s.hr.toDouble());
@@ -4100,7 +4148,7 @@ Map<String, dynamic> _spotCheckCompute(List<String> records) {
   if (rrMs.length < 20) {
     return {'ok': false, 'n_beats': rrMs.length};
   }
-  final cleaned = ana.correctRr(rrMs);
+  final cleaned = ana.correctRr(rrMs, rrTsMs: rrTsMs);
   final hrv = ana.hrvTime(cleaned.nn, nnTimesMs: cleaned.nnTimesMs);
   if (!hrv.present) return {'ok': false, 'n_beats': cleaned.nn.length};
   final meanHr = hrs.isEmpty ? null : hrs.reduce((a, b) => a + b) / hrs.length;
@@ -4118,21 +4166,18 @@ Map<String, dynamic> _breathingCoherenceCompute(
   List<String> records,
   double? pacedHz,
 ) {
-  // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
-  // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
-  final rrMs = <double>[];
-  for (final hex in records) {
-    final rr = proto.realtimeRr(hex);
-    if (rr != null) {
-      for (final v in rr.rrMs) {
-        if (v > 0) rrMs.add(v.toDouble());
-      }
-    }
-  }
+  // Decode RR from the live RR-bearing frames (0x28 / R10) via the shared
+  // _decodeLiveRr helper (same seam spotCheck uses), then run McCraty &
+  // Zayas 2014 cardiac coherence. rrTsMs lets correctRr re-anchor at a real
+  // packet gap so the coherence time axis is the real wall clock, not a
+  // gap-free cumsum (edge#286).
+  final decoded = _decodeLiveRr(records);
+  final rrMs = decoded.rrMs;
+  final rrTsMs = decoded.rrTsMs;
   if (rrMs.length < 20) {
     return {'ok': false, 'n_beats': rrMs.length};
   }
-  final cleaned = ana.correctRr(rrMs);
+  final cleaned = ana.correctRr(rrMs, rrTsMs: rrTsMs);
   final m = ana.cardiacCoherence(
     cleaned.nn,
     cleaned.nnTimesMs,

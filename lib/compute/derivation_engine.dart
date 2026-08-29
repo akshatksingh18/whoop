@@ -1571,7 +1571,18 @@ import 'substrate.dart';
 // the caller's existingHadNight check, not from this shape test: a day that
 // never had real sleep never had an existing result with real night scalars
 // to protect. #305 is now fully closed.
-const int kAlgoVersion = 85;
+//
+// 85 → 86 (analytics#40, closing edge#204's workaround): `_attachNaps`'s
+// midnight dedup used to guess a bout was already-counted from
+// `nap.startSec == 0`, which only ever matched the FIRST bout of the day's
+// window — a fragment chained onto it by a brief arousal (`napChainGapSec`)
+// has `startSec > 0` but is just as edge-anchored, and slipped through
+// uncounted, double-crediting its minutes to both days. Analytics now
+// propagates a real `NapWindow.startsAtRecordEdge` flag through the whole
+// chain (nap.dart); `_attachNaps` tests that flag directly instead of
+// re-deriving it from the index. Real output change (nap minutes / sleep
+// need on days with a midnight-arousal-split nap), so the bump is real.
+const int kAlgoVersion = 86;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -7074,30 +7085,36 @@ class DerivationEngine {
       }
 
       final t0 = s.tsSec.first;
-      // The window opens AT local midnight and is contiguous into it, so a bout
-      // that begins at the very first sample was already in progress when we
-      // started looking — it is the tail of something that started YESTERDAY,
-      // and yesterday's buffered window (which runs `napBoundaryBufferSec` past
-      // its own midnight) saw it whole and emitted it whole.
+      // The window opens AT local midnight and is contiguous into it, so a
+      // bout [NapWindow.startsAtRecordEdge] flags — already in progress when
+      // we started looking — is the tail of something that started
+      // YESTERDAY, and yesterday's buffered window (which runs
+      // `napBoundaryBufferSec` past its own midnight) saw it whole and
+      // emitted it whole.
       //
-      // Analytics guards the trailing edge only: `unfinished` walks BACKWARD
-      // from the array end (nap.dart), while `stillAt(0)` short-circuits its
-      // discontinuity check at `k == 0` — so a bout at index 0 is always
-      // emitted, with no way for the detector to know what preceded it. Before
-      // `minNapSec` dropped to 15 min this was unreachable (the old nocturnal
-      // detector needed 60+ min and an HR dip); it is reachable now.
+      // analytics#40 (closing edge#204's workaround): this used to be
+      // guessed from `nap.startSec == 0`, which only ever caught the FIRST
+      // bout of the window — a bout chained onto it within `napChainGapSec`
+      // (a brief arousal right at midnight) has `startSec > 0` but is just as
+      // edge-anchored, and the old check let it through uncounted. Analytics
+      // now propagates the flag through the whole chain (nap.dart), so
+      // testing it directly instead of re-deriving it from the index catches
+      // those fragments too.
       //
-      // Gated on contiguity, NOT on index alone: if the record only STARTS
-      // hours into the day (band off overnight), yesterday's detector broke on
-      // that same discontinuity and dropped the bout too, so dropping it here
-      // as well would lose a real nap rather than de-duplicate one.
+      // Still gated on contiguity, NOT on the flag alone: if the record only
+      // STARTS hours into the day (band off overnight), yesterday's detector
+      // broke on that same discontinuity and dropped the bout too, so
+      // dropping it here as well would lose a real nap rather than
+      // de-duplicate one.
       final leadingEdgeOwnedByYesterday = attributionStartSec != null &&
           t0 <= attributionStartSec + napLeadingEdgeContiguitySec;
       // A nap STARTING at/after the real day boundary is tomorrow's — its own
       // (unbuffered) window finds it independently, so keeping it here too
       // would double-count it.
       final naps = m.value!.where((nap) {
-        if (leadingEdgeOwnedByYesterday && nap.startSec == 0) return false;
+        if (leadingEdgeOwnedByYesterday && nap.startsAtRecordEdge) {
+          return false;
+        }
         if (attributionEndSec == null) return true;
         return t0 + nap.startSec < attributionEndSec;
       }).toList();

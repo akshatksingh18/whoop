@@ -34,56 +34,83 @@ bool deepEquals(Object? a, Object? b) {
 
 const fixtures = ['payload.json', 'payload_july10.json', 'payload_null.json'];
 
+// These are real dated day_result bundles — never committed (same leak class
+// as docs/internal/, purged for the same reason: real dated HRV/sleep values
+// tied to a calendar date). Same convention as whoop_hist.jsonl elsewhere:
+// skip gracefully when they're not present on disk rather than fail, so a
+// dev who does have a local capture still gets the coverage.
+final fixturesPresent = fixtures.every((f) => File(f).existsSync());
+const _noFixtures = 'real bundle fixture not committed (privacy) — place a '
+    'local, gitignored copy at the repo root to run this';
+
 Map<String, dynamic> loadFixture(String name) =>
     (jsonDecode(File(name).readAsStringSync()) as Map).cast<String, dynamic>();
 
 void main() {
   group('round-trip on real bundles', () {
     for (final name in fixtures) {
-      test('$name survives encode → decode unchanged', () {
-        final original = loadFixture(name);
-        final encoded = SeriesCodec.encodePayload(loadFixture(name));
-        final decoded = SeriesCodec.decodePayload(encoded);
-        expect(
-          deepEquals(original, decoded),
-          isTrue,
-          reason: '$name did not round-trip losslessly',
-        );
-      });
+      test(
+        '$name survives encode → decode unchanged',
+        () {
+          final original = loadFixture(name);
+          final encoded = SeriesCodec.encodePayload(loadFixture(name));
+          final decoded = SeriesCodec.decodePayload(encoded);
+          expect(
+            deepEquals(original, decoded),
+            isTrue,
+            reason: '$name did not round-trip losslessly',
+          );
+        },
+        skip: fixturesPresent ? false : _noFixtures,
+      );
 
-      test('$name shrinks by at least half', () {
-        final before = jsonEncode(loadFixture(name)).length;
-        final after = jsonEncode(
-          SeriesCodec.encodePayload(loadFixture(name)),
-        ).length;
-        expect(
-          after,
-          lessThan(before),
-          reason: 'encoding must never grow a bundle',
-        );
-        // Measured 1.73x–2.67x across the three fixtures; 50% is the floor the
-        // weakest one clears with room to spare.
-        expect(after / before, lessThan(0.75));
-      });
+      test(
+        '$name shrinks by at least half',
+        () {
+          final before = jsonEncode(loadFixture(name)).length;
+          final after = jsonEncode(
+            SeriesCodec.encodePayload(loadFixture(name)),
+          ).length;
+          expect(
+            after,
+            lessThan(before),
+            reason: 'encoding must never grow a bundle',
+          );
+          // Measured 1.73x–2.67x across the three fixtures; 50% is the floor
+          // the weakest one clears with room to spare.
+          expect(after / before, lessThan(0.75));
+        },
+        skip: fixturesPresent ? false : _noFixtures,
+      );
 
-      test('$name encode is idempotent', () {
-        final once = jsonEncode(SeriesCodec.encodePayload(loadFixture(name)));
-        final twice = jsonEncode(
-          SeriesCodec.encodePayload(
-            (jsonDecode(once) as Map).cast<String, dynamic>(),
-          ),
-        );
-        expect(twice, once);
-      });
+      test(
+        '$name encode is idempotent',
+        () {
+          final once = jsonEncode(
+            SeriesCodec.encodePayload(loadFixture(name)),
+          );
+          final twice = jsonEncode(
+            SeriesCodec.encodePayload(
+              (jsonDecode(once) as Map).cast<String, dynamic>(),
+            ),
+          );
+          expect(twice, once);
+        },
+        skip: fixturesPresent ? false : _noFixtures,
+      );
 
-      test('$name reports needing re-encode before, not after', () {
-        final raw = jsonEncode(loadFixture(name));
-        expect(SeriesCodec.needsReencode(raw), isTrue);
-        expect(
-          SeriesCodec.needsReencode(SeriesCodec.encodePayloadJson(raw)),
-          isFalse,
-        );
-      });
+      test(
+        '$name reports needing re-encode before, not after',
+        () {
+          final raw = jsonEncode(loadFixture(name));
+          expect(SeriesCodec.needsReencode(raw), isTrue);
+          expect(
+            SeriesCodec.needsReencode(SeriesCodec.encodePayloadJson(raw)),
+            isFalse,
+          );
+        },
+        skip: fixturesPresent ? false : _noFixtures,
+      );
     }
   });
 
@@ -296,22 +323,30 @@ void main() {
   // fine".
   group('verifyLossless', () {
     for (final name in fixtures) {
-      test('$name vouches for itself', () {
-        expect(
-          SeriesCodec.verifyLossless(File(name).readAsStringSync()),
-          isTrue,
-        );
-      });
+      test(
+        '$name vouches for itself',
+        () {
+          expect(
+            SeriesCodec.verifyLossless(File(name).readAsStringSync()),
+            isTrue,
+          );
+        },
+        skip: fixturesPresent ? false : _noFixtures,
+      );
     }
 
-    test('an already-encoded bundle still vouches for itself', () {
-      // The backfill can meet a row a previous pass converted. Re-encoding it
-      // is a no-op, so the gate must not refuse it.
-      final encoded = jsonEncode(
-        SeriesCodec.encodePayload(loadFixture(fixtures.first)),
-      );
-      expect(SeriesCodec.verifyLossless(encoded), isTrue);
-    });
+    test(
+      'an already-encoded bundle still vouches for itself',
+      () {
+        // The backfill can meet a row a previous pass converted. Re-encoding
+        // it is a no-op, so the gate must not refuse it.
+        final encoded = jsonEncode(
+          SeriesCodec.encodePayload(loadFixture(fixtures.first)),
+        );
+        expect(SeriesCodec.verifyLossless(encoded), isTrue);
+      },
+      skip: fixturesPresent ? false : _noFixtures,
+    );
 
     test('a hand-built bundle covering all three shapes vouches', () {
       final bundle = jsonEncode({

@@ -199,9 +199,9 @@ Being precise about the network, since "no cloud" gets said too loosely. Nothing
 is required for the app to work, and none of it carries health data except the two you
 turn on yourself:
 
-- **Anonymous diagnostics** (Firebase crash/performance). **On by default in GitHub
-  release builds** — switch it off in your profile and collection stops immediately.
-  **Not present at all** in App Store / Play Store builds. Never includes health data.
+- **Anonymous diagnostics** (Firebase crash/performance). **Off by default in every
+  build** — nothing is collected until you turn it on in your profile, and switching
+  it back off stops collection immediately. Never includes health data.
 - **OTA/announcement pointer** — checks whether there's a newer build.
 - **Legacy account import** — one-time, only if you had an old OpenStrap cloud account.
 - **BYOK AI assistant** — only if you configure a provider. Your key, your account. Be
@@ -217,16 +217,46 @@ Full detail in [PRIVACY.md](PRIVACY.md).
 ## Repo layout
 
 ```
-lib/ble/       Bluetooth + sync
-lib/data/      local storage + the repository seam the UI reads from
+lib/ai/        BYOK AI assistant — briefings, journal AI, nightly sweep
+lib/ble/       Bluetooth link + history-sync state machine
+lib/cloud/     optional companion/backend + cloud import clients
+lib/coach/     read-only SQL coach over allow-listed views
 lib/compute/   runs the analytics pipeline, writes results
+lib/data/      local storage + the repository seam the UI reads from
+lib/debug/     debug-mode flags
+lib/gestures/  device action / gesture dispatch
+lib/gps/       GPS route tracking for outdoor activities
+lib/health/    HealthKit / Health Connect import + export
+lib/import/    backup + third-party data import
+lib/l10n/      translations (.arb)
+lib/live/      Live Activity / breathing session
+lib/models/    shared data models (Metric, payloads, app status)
+lib/notify/    the single notification emitter + alert policies
+lib/platform/  platform-channel glue (app icon, Tasker, device actions)
 lib/state/     AppState, the one source of truth
-lib/ui/        every screen
+lib/stress/    guided-breathing session logic
+lib/sync/      background/headless sync policies
+lib/telemetry/ opt-in error + usage telemetry
+lib/theme/     design tokens, theming, transitions
+lib/ui2/       every screen
+lib/widget/    App-Group snapshot for the home-screen/watch widget
 ```
+
+See `AGENTS.md` §2 for the full architecture map, invariants, and the biggest
+files by ownership.
 
 Protocol decoding and analytics live in their own repos —
 [protocol](https://github.com/OpenStrap/protocol),
 [analytics](https://github.com/OpenStrap/analytics).
+
+## Guides
+
+- [`guides/IOS_INSTALLATION.md`](guides/IOS_INSTALLATION.md) — building and installing on an iPhone.
+- [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — sideloading without a paid developer account.
+- [`guides/WATCH_SETUP.md`](guides/WATCH_SETUP.md) — the Apple Watch companion app.
+- [`guides/AI_COACH.md`](guides/AI_COACH.md) — bring-your-own-key AI coach, briefings, and journal.
+- [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.
+- [`guides/BUZZ_MEANINGS.md`](guides/BUZZ_MEANINGS.md) — what each buzz pattern means.
 
 ## Contributing
 

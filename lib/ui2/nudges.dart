@@ -67,6 +67,10 @@ class _CommunityNudgeState extends State<CommunityNudge> {
   }
 
   void _hide(_Ask a) {
+    // The card's CTA awaits open3rdPartyLink before calling this — if the
+    // widget tree was torn down while that was in flight, setState here
+    // would throw after dispose.
+    if (!mounted) return;
     // Dev mode ignores its own dismissal/cooldown (see _eligible) — writing
     // it above is harmless, but re-adding it here is what testing it needs.
     final devMode = Prefs.getBool(Prefs.devMode, false);
@@ -149,10 +153,15 @@ class _AskCard extends StatelessWidget {
               icon: LucideIcons.externalLink,
               color: color,
               soft: true,
-              onTap: () {
-                open3rdPartyLink(url);
-                // Acted on, not just seen — no reason to ask again.
-                onSilence(ask);
+              onTap: () async {
+                // Only silence permanently once the link actually opened —
+                // a failed launch (no app registered, no browser default)
+                // should not look "acted on".
+                if (await open3rdPartyLink(url)) {
+                  onSilence(ask);
+                } else {
+                  onSnooze(ask);
+                }
               }),
           const SizedBox(height: S.x2),
           Center(

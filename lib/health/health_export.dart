@@ -934,6 +934,16 @@ class HealthExporter {
     // (and is the type `exportWorkout` re-writes out-of-band too); the scalar
     // types below still write unconditionally, so an uncleared RHR/HRV window
     // can still double until the next successful delete replaces both.
+    //
+    // This day-wide WORKOUT delete runs before the per-session loop below
+    // skips any end_ts_fabricated row (see _writeOneWorkout) — that is safe
+    // ONLY because a fabricated row can never have a prior Health entry to
+    // lose: the flag is set exclusively by _reconcileOrphanedLiveWorkout on a
+    // row that was status=='live' up to that point, and every export path
+    // (this one and exportWorkout) already skips 'live' rows outright. If a
+    // second end_ts_fabricated writer is ever added on an already-exported
+    // row, that invariant breaks and this delete would need to become
+    // per-session instead of day-wide.
     var workoutCleared = true;
     for (final t in _rewriteTypes) {
       if (await _deleteOwnSamples(t, dayStart, dayEnd)) continue;
@@ -1021,6 +1031,11 @@ class HealthExporter {
       var workoutCal = 0.0;
       for (final r in rows) {
         if ((r['status']?.toString() ?? '') == 'live') continue;
+        // A fabricated session's calories never get their own WORKOUT
+        // sample (_writeOneWorkout skips it) — subtracting them here too
+        // would make them vanish from the day entirely instead of just
+        // staying in the active-energy total where they still belong.
+        if ((r['end_ts_fabricated'] as num?)?.toInt() == 1) continue;
         workoutCal += (r['calories'] as num?)?.toDouble() ?? 0.0;
       }
       cal = (cal > workoutCal) ? cal - workoutCal : 0.0;
@@ -1211,6 +1226,12 @@ class HealthExporter {
     if ((r['status']?.toString() ?? '') == 'live') {
       return null; // skip, not a failure
     }
+    // Set by `_reconcileOrphanedLiveWorkout` on a crash-orphaned session it
+    // finalized without ever seeing the real finish — `end_ts` there is
+    // reconcile-time, not a measurement, so this must never reach Health.
+    if ((r['end_ts_fabricated'] as num?)?.toInt() == 1) {
+      return null; // skip, not a failure
+    }
     final st = (r['start_ts'] as num?)?.toInt();
     final en = (r['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) {
@@ -1255,6 +1276,11 @@ class HealthExporter {
   /// See [healthDeleteClearedRange] for what "did not clear" means per store.
   Future<bool> exportWorkout(Map<String, Object?> session) async {
     if ((session['status']?.toString() ?? '') == 'live') return false;
+    // Same fabricated-end_ts skip as _writeOneWorkout, but checked BEFORE any
+    // delete: this session's window may still hold a real, previously
+    // exported workout, and deleting it here — only to have _writeOneWorkout
+    // refuse to write the replacement — would erase it for nothing.
+    if ((session['end_ts_fabricated'] as num?)?.toInt() == 1) return false;
     final st = (session['start_ts'] as num?)?.toInt();
     final en = (session['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) return false;

@@ -4634,6 +4634,19 @@ class AppState extends ChangeNotifier {
   bool get syncingNow =>
       _syncActivity.isActive(DateTime.now().millisecondsSinceEpoch);
 
+  /// A derive job is running RIGHT NOW — the backlog just landed and the
+  /// pipeline is computing what it means. Surfaced so a screen sitting on
+  /// "nothing yet" can say it is being worked on rather than looking dead.
+  /// Thin reads of [_deriveScheduler]'s own state; `onChanged: notifyListeners`
+  /// already ticks on every transition, so nothing new to wire.
+  bool get deriving => _deriveScheduler.running;
+
+  /// A job is queued behind its settle window (the offload/workout just
+  /// ended) — about to run, not running yet. Kept distinct from [deriving]
+  /// only because a caller may want to say "about to" rather than "is".
+  bool get derivePending =>
+      _deriveScheduler.pendingLight || _deriveScheduler.pendingHeavy;
+
   /// Records reached durable storage. Called from the durable-write callback —
   /// NOT inferred from a sync burst finishing, because `_onDataStored` has
   /// already advanced the frontier by then, so the burst's own "did the

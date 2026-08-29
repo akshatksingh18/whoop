@@ -28,6 +28,11 @@ dependencies:
   # glyph the design names.
   lucide_icons_flutter: ^3.1.15
 
+  # Renders the three community brand marks (assets/icons/) as tinted SVG —
+  # GitHub/Discord/Reddit have their own logos, not a Lucide glyph standing
+  # in for them. Nowhere else: every other icon in the app is still Lucide.
+  flutter_svg: ^2.0.10+1
+
   # Local pure-Dart packages — the protocol byte codecs and the metric/analytics
   # engine. Replace the old cloud backend: decode happens on-device, and the
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
@@ -485,6 +490,11 @@ flutter:
     - assets/images/
     - assets/images/2.0x/
     - assets/images/3.0x/
+    # The three community brand marks the one-icon-family rule (see
+    # lucide_icons_flutter below) deliberately doesn't cover — a generic
+    # Lucide glyph can't stand in for GitHub/Discord/Reddit's own logos.
+    # Official simple-icons SVGs, single fill path, tinted at paint time.
+    - assets/icons/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user
   # has seen the consent screen, and contrary to PRIVACY.md. It also lets the

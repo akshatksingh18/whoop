@@ -26,19 +26,34 @@ import 'settings.dart';
 
 /// One row in a settings list. Shared by all three profile screens.
 class SetRow extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
   final Color color;
   final String title, sub, value;
   final bool danger, chevron;
   final VoidCallback? onTap;
 
-  const SetRow(this.icon, this.color, this.title,
+  /// A brand mark in place of [icon] — Lucide has no GitHub/Discord/Reddit
+  /// logo, and a generic glyph standing in for one of those is worse than
+  /// the extra param. Sized and tinted the same as the [Icon] it replaces.
+  final Widget Function(Color tint)? glyph;
+
+  const SetRow(IconData this.icon, this.color, this.title,
       {super.key,
       this.sub = '',
       this.value = '',
       this.danger = false,
       this.chevron = true,
-      this.onTap});
+      this.onTap})
+      : glyph = null;
+
+  const SetRow.brand(this.glyph, this.color, this.title,
+      {super.key,
+      this.sub = '',
+      this.value = '',
+      this.danger = false,
+      this.chevron = true,
+      this.onTap})
+      : icon = null;
 
   @override
   Widget build(BuildContext c) {
@@ -56,7 +71,9 @@ class SetRow extends StatelessWidget {
             alignment: Alignment.center,
             decoration:
                 BoxDecoration(color: p.wash(accent), borderRadius: R.rSm),
-            child: Icon(icon, size: 16, color: p.on(accent)),
+            child: glyph != null
+                ? glyph!(p.on(accent))
+                : Icon(icon, size: 16, color: p.on(accent)),
           ),
           const SizedBox(width: S.x3),
           Expanded(
@@ -270,45 +287,13 @@ class ProfileHomeView extends StatelessWidget {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(l?.profileTitle ?? 'Profile',
-                trailing: Pressable(
-                  onTap: onSettings,
-                  semanticLabel: l?.actionSettings ?? 'Settings',
-                  child: Icon(LucideIcons.settings, size: 20, color: p.ink2),
-                )),
+            child: NavBar(l?.profileTitle ?? 'Profile'),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
                 const SizedBox(height: S.x4),
-                Center(
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.wash(C.green, strength: 2),
-                    ),
-                    child:
-                        Icon(LucideIcons.user, size: 42, color: p.on(C.green)),
-                  ),
-                ),
-                const SizedBox(height: S.x4),
-                Center(
-                  child: Text(
-                    (s?.name?.trim().isNotEmpty ?? false)
-                        ? s!.name!
-                        : (l?.profileDefaultName ?? 'You'),
-                    style: F.t2.copyWith(color: p.ink),
-                  ),
-                ),
-                const SizedBox(height: S.x3),
-                Center(
-                    child: Pill(l?.pillLocalNoCloud ?? 'Local · no cloud',
-                        C.green, icon: LucideIcons.shieldCheck)),
-                const SizedBox(height: S.x6),
                 settingsGroup(c, l?.profileQuickAccessGroup ?? 'Quick access', [
                   SetRow(LucideIcons.watch, C.blue,
                       l?.profileMyDevices ?? 'My devices',
@@ -364,6 +349,32 @@ class ProfileHomeView extends StatelessWidget {
                           'Import from $storeName, export, backup, units, '
                               'privacy, reset',
                       onTap: onSettings),
+                ]),
+                settingsGroup(c, l?.profileCommunityGroup ?? 'Community', [
+                  SetRow.brand(brandGlyph('assets/icons/github.svg'), C.n500,
+                      l?.profileGithubTitle ?? 'GitHub',
+                      sub: l?.profileGithubSub ??
+                          'Please star and show your support — it helps '
+                              'the project grow',
+                      onTap: () => open3rdPartyLink(kGithubUrl)),
+                  SetRow.brand(brandGlyph('assets/icons/reddit.svg'), C.orange,
+                      l?.profileRedditTitle ?? 'Reddit',
+                      sub: l?.profileRedditSub ??
+                          'Join r/OpenStrap — post your achievements, '
+                              'questions, anything',
+                      onTap: () => open3rdPartyLink(kRedditUrl)),
+                  SetRow.brand(brandGlyph('assets/icons/discord.svg'),
+                      C.indigo, l?.profileDiscordTitle ?? 'Discord',
+                      sub: l?.profileDiscordSub ??
+                          'Hang out with other users and the people '
+                              'building this',
+                      onTap: () => open3rdPartyLink(kDiscordUrl)),
+                  SetRow(LucideIcons.heartHandshake, C.pink,
+                      l?.profileSponsorTitle ?? 'Sponsor',
+                      sub: l?.profileSponsorSub ??
+                          'This is a free, open-source project — '
+                              'sponsoring keeps it going',
+                      onTap: () => open3rdPartyLink(kSponsorUrl)),
                 ]),
               ],
             ),

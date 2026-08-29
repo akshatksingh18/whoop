@@ -764,6 +764,10 @@ Map<String, Widget> extraCases() => {
         const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),
         gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
       )!,
+      // Both asks stacked, default (unloaded) Prefs state — the same state
+      // an actual first run starts from, since an unset dismissed/last-shown
+      // key reads as "eligible, never shown yet".
+      'community_nudge': const CommunityNudge(),
       'surface': Builder(
         builder: (c) => Surface(
           child: Text(

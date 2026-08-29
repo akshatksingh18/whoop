@@ -26,6 +26,8 @@
 // data layer. They live here rather than in a fourth file because there are
 // only three of them and they are read together.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -122,6 +124,28 @@ DbRebuild? dbRebuildOf(BuildContext c) {
 bool workoutLiveOf(BuildContext c) {
   try {
     return c.select<AppState, bool>((a) => a.activeWorkout != null);
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Whether the band is actively sending data right now, or false in a
+/// golden. Same shape and same reasoning as [workoutLiveOf] — `select`
+/// because this only cares about the bool flipping, not AppState's ~1 Hz
+/// heartbeat.
+bool syncingNowOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.syncingNow);
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Whether a derive job is running or about to (the backlog just landed and
+/// today's numbers are being worked out), or false in a golden.
+bool derivingOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.deriving || a.derivePending);
   } catch (_) {
     return false;
   }
@@ -1210,6 +1234,30 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// history that their band has never produced data is the wrong answer to it.
   bool _failed = false;
 
+  /// Set the moment "Sync the band" is tapped, cleared once real progress has
+  /// a signal of its own (`syncingNow`) or after [_tapGrace] with nothing —
+  /// the bridge over the gap between the tap and the first record landing,
+  /// where neither `busy` (skipped entirely on the common fast-reclaim path)
+  /// nor `syncingNow` has moved yet and the button would otherwise look inert.
+  bool _syncTapped = false;
+  Timer? _syncTapTimer;
+  static const _tapGrace = Duration(seconds: 20);
+
+  void _tapSync(VoidCallback sync) {
+    sync();
+    setState(() => _syncTapped = true);
+    _syncTapTimer?.cancel();
+    _syncTapTimer = Timer(_tapGrace, () {
+      if (mounted) setState(() => _syncTapped = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTapTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1247,6 +1295,88 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     } catch (_) {
       if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
     }
+  }
+
+  /// The "nothing derived yet" card, upgraded with the one thing it used to
+  /// withhold: whether anything is actually happening right now. Tapping Sync
+  /// used to leave this card looking identical whether the band was mid-drain
+  /// or the tap had silently gone nowhere — "I am not sure if it is actually
+  /// syncing or not, no progress, no cue" was exactly that gap. `syncingNow` is
+  /// the one signal that is honest across BOTH session paths (a fresh connect
+  /// sets `busy`; the common fast-reclaim-from-background path never does), so
+  /// it is what ends "connecting", not `busy`. `deriving`/`derivePending` catch
+  /// the LAST mile — the backlog landed, `syncingNow` has gone quiet again, but
+  /// this screen is still bare because the heavy derive it depends on hasn't
+  /// finished. Without that phase the card would flash back to a bare "Nothing
+  /// derived yet" for the minute or so a full sleep-stage + spectra pass takes.
+  /// The syncing / analyzing / connecting phase card — valid whether or not
+  /// [HomeData] itself has loaded yet, which is why it does not take one.
+  /// Shared by the fully-bare first-run path (`d == null`) and the
+  /// derived-but-empty bare-day path, so a first-run tap of "Sync the band"
+  /// gets the same connecting/syncing feedback as every other one. Returns
+  /// null when none of the three phases apply, so the caller falls through
+  /// to its own "nothing yet" copy.
+  Widget? _phaseStatusCard(BuildContext c, AppLocalizations? l) {
+    final syncing = syncingNowOf(c);
+    final deriving = derivingOf(c);
+    // The tap latch is otherwise cleared only by its 20s grace timer — if
+    // real progress lands before that timer fires, clear it here too so the
+    // UI does not bounce back to "Connecting" once syncing/deriving goes
+    // quiet again.
+    if ((syncing || deriving) && _syncTapped) {
+      _syncTapped = false;
+      _syncTapTimer?.cancel();
+    }
+    final spinner = SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(strokeWidth: 2, color: P.of(c).ink3),
+    );
+
+    if (syncing) {
+      return StatusCard(
+        l?.homeSyncingTitle ?? 'Syncing with your band',
+        l?.homeSyncingBody ?? 'Pulling data now — this can take a few minutes '
+            'on a full backlog.',
+        leading: spinner,
+      );
+    }
+    if (deriving) {
+      return StatusCard(
+        l?.homeAnalyzingTitle ?? 'Crunching last night\'s numbers',
+        l?.homeAnalyzingBody ?? 'The data is in — sleep, recovery and strain '
+            'are next.',
+        leading: spinner,
+      );
+    }
+    if (_syncTapped) {
+      return StatusCard(
+        l?.homeConnectingTitle ?? 'Connecting to your band',
+        l?.homeConnectingBody ?? 'Hang on — this usually takes a few seconds.',
+        leading: spinner,
+      );
+    }
+    return null;
+  }
+
+  Widget _bareStatusCard(BuildContext c, HomeData d, AppLocalizations? l) {
+    final phase = _phaseStatusCard(c, l);
+    if (phase != null) return phase;
+
+    final sync = syncOf(c);
+    return StatusCard(
+      d.heldOverNight == null
+          ? (l?.homeNothingDerivedTitle ?? 'Nothing derived yet')
+          : (l?.homeNothingTodayTitle ?? 'Nothing recorded for today'),
+      d.heldOverNight == null
+          ? (l?.homeNothingDerivedBody ?? 'No band recordings processed yet.')
+          : (l?.homeNothingTodayBody(prettyDay(d.heldOverNight, l)) ??
+              'The last night this app scored was '
+                  '${prettyDay(d.heldOverNight, l)}. Nothing has reached it since.'),
+      fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+      icon: LucideIcons.watch,
+      onFix: sync == null ? null : () => _tapSync(sync),
+    );
   }
 
   /// Morning / afternoon / evening / night. One split at 18:00 greeted 00:30
@@ -1290,13 +1420,18 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             },
           )
         else
-          StatusCard(
-            l?.homeNothingDerivedTitle ?? 'Nothing derived yet',
-            l?.homeNothingDerivedBody ?? 'No band recordings processed yet.',
-            fix: syncOf(c) == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
-            icon: LucideIcons.watch,
-            onFix: syncOf(c),
-          ),
+          Builder(builder: (c) {
+            final phase = _phaseStatusCard(c, l);
+            if (phase != null) return phase;
+            final sync = syncOf(c);
+            return StatusCard(
+              l?.homeNothingDerivedTitle ?? 'Nothing derived yet',
+              l?.homeNothingDerivedBody ?? 'No band recordings processed yet.',
+              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+              icon: LucideIcons.watch,
+              onFix: sync == null ? null : () => _tapSync(sync),
+            );
+          }),
       ]));
     }
 
@@ -1391,7 +1526,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               height: 40,
               decoration: BoxDecoration(
                   shape: BoxShape.circle, color: p.fill(C.domHome)),
-              child: Icon(LucideIcons.user, size: 18, color: p.inkOnFill),
+              child: Icon(LucideIcons.settings, size: 18, color: p.inkOnFill),
             ),
           ),
         ]),
@@ -1402,19 +1537,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // is the hold at work, not a sync problem — see [workoutHoldCard].
         (widget.workoutLive ?? workoutLiveOf(c))
             ? workoutHoldCard(l)
-            : StatusCard(
-                d.heldOverNight == null
-                    ? (l?.homeNothingDerivedTitle ?? 'Nothing derived yet')
-                    : (l?.homeNothingTodayTitle ?? 'Nothing recorded for today'),
-                d.heldOverNight == null
-                    ? (l?.homeNothingDerivedBody ?? 'No band recordings processed yet.')
-                    : (l?.homeNothingTodayBody(prettyDay(d.heldOverNight, l)) ??
-                        'The last night this app scored was '
-                        '${prettyDay(d.heldOverNight, l)}. Nothing has reached it since.'),
-                fix: syncOf(c) == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
-                icon: LucideIcons.watch,
-                onFix: syncOf(c),
-              )
+            : _bareStatusCard(c, d, l)
       else ...[
         // ── the three rings ──
         //
@@ -1457,6 +1580,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               onFix: () => go(c, const ReadinessDetail()),
             );
           }),
+
+        // Right under the rings, above everything else — the one spot on
+        // this screen nobody scrolls past without seeing.
+        const CommunityNudge(),
 
         // ── the rollup was withheld, not absent ──
         if (stale != null) ...[const SizedBox(height: S.x3), stale],

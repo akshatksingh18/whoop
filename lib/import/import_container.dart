@@ -529,10 +529,24 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
           'of space. Free some up and try again.',
         );
       }
-      if (db.size > 0 && written > db.size) {
+      // CRC is checked whenever the archive gives us one — not only on an
+      // over-run. A REAL NOOP export (10.5.0, measured 2026-08) has been seen
+      // shaped exactly like the over-run case below: the zip's own
+      // uncompressed-size field for `noop-backup.sqlite` undercounts the true
+      // content by a few thousand pages, while the archive's CRC-32 —
+      // computed over the FULL decompressed stream, not the declared length —
+      // matches what actually came out. That is a bug in whatever wrote the
+      // zip (its size field went stale before the deflate stream did), not a
+      // truncated or tampered file, and `unzip -t` reports the very same file
+      // as OK because it validates by CRC. Trust the CRC the same way — but
+      // an exact-size extraction can ALSO be silently wrong (same length,
+      // different bytes), which checking only `written > db.size` would miss
+      // entirely, so this runs for `written >= db.size`, not just the overrun.
+      final crc = db.crc32;
+      if (db.size > 0 && crc != null && await _fileCrc32(destPath) != crc) {
         throw ImportFormatException(
           '“${p.basename(path)}” does not hold what it says it does — its '
-          'database unpacked to more than the archive declared. It is likely '
+          'database does not match the archive checksum. It is likely '
           'damaged; export it again.',
         );
       }
@@ -551,6 +565,17 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
   } finally {
     await input.close();
   }
+}
+
+/// CRC-32 of a file's whole content, read in chunks — this runs on the
+/// unpacked database (hundreds of MB to a couple of GB), and loading it whole
+/// just to checksum it would double the memory an import already costs.
+Future<int> _fileCrc32(String path) async {
+  var crc = 0;
+  await for (final chunk in File(path).openRead()) {
+    crc = getCrc32(chunk, crc);
+  }
+  return crc;
 }
 
 /// Resolve the picked paths into CSV files on disk, unwrapping ZIP archives.

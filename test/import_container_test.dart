@@ -10,6 +10,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +23,50 @@ List<int> _zipOf(Map<String, String> members) {
     a.addFile(ArchiveFile(name, bytes.length, bytes));
   });
   return ZipEncoder().encode(a);
+}
+
+int _findSig(Uint8List b, List<int> sig, [int from = 0]) {
+  outer:
+  for (var i = from; i <= b.length - sig.length; i++) {
+    for (var j = 0; j < sig.length; j++) {
+      if (b[i + j] != sig[j]) continue outer;
+    }
+    return i;
+  }
+  throw StateError('signature not found');
+}
+
+void _writeU32LE(Uint8List b, int offset, int value) {
+  b[offset] = value & 0xff;
+  b[offset + 1] = (value >> 8) & 0xff;
+  b[offset + 2] = (value >> 16) & 0xff;
+  b[offset + 3] = (value >> 24) & 0xff;
+}
+
+int _readU32LE(Uint8List b, int offset) =>
+    b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24);
+
+/// Patch the ONE central-directory entry's declared uncompressed-size field
+/// (offset +24 from its `PK\x01\x02` signature) down by [by] bytes, leaving
+/// the compressed data and its CRC-32 untouched — the exact shape of the real
+/// bug this guards: the size field went stale, the content did not.
+Uint8List _understateCentralDirectorySize(List<int> zipBytes, {required int by}) {
+  final b = Uint8List.fromList(zipBytes);
+  final cdr = _findSig(b, const [0x50, 0x4B, 0x01, 0x02]);
+  _writeU32LE(b, cdr + 24, _readU32LE(b, cdr + 24) - by);
+  return b;
+}
+
+/// Corrupt the declared CRC-32 in BOTH the local file header (offset +14) and
+/// the central-directory entry (offset +16), independent of which one the
+/// decoder trusts — genuine damage, not merely a stale size field.
+Uint8List _corruptDeclaredCrc32(List<int> zipBytes) {
+  final b = Uint8List.fromList(zipBytes);
+  final lfh = _findSig(b, const [0x50, 0x4B, 0x03, 0x04]);
+  _writeU32LE(b, lfh + 14, _readU32LE(b, lfh + 14) ^ 0xFFFFFFFF);
+  final cdr = _findSig(b, const [0x50, 0x4B, 0x01, 0x02]);
+  _writeU32LE(b, cdr + 16, _readU32LE(b, cdr + 16) ^ 0xFFFFFFFF);
+  return b;
 }
 
 void main() {
@@ -189,6 +234,50 @@ void main() {
       final db = await resolveNoopDatabase(path);
       expect(db!.path.endsWith('noop-backup.sqlite'), isTrue);
       await db.dispose();
+    });
+
+    // A real NOOP backup (10.5.0, measured 2026-08) unpacked to more bytes
+    // than its own zip declared: the central directory's uncompressed-size
+    // field for `noop-backup.sqlite` undercounted the true content by a few
+    // thousand pages, while the CRC-32 — computed over the FULL decompressed
+    // stream regardless of that field — still matched. `unzip -t` calls that
+    // file OK for the same reason. Reproduced here by encoding a normal zip
+    // and then patching just the declared size downward, the same shape the
+    // real writer's bug leaves: content and CRC untouched, only the size lie.
+    test('an uncompressed-size field that undercounts the real content is '
+        'not treated as damage when the CRC still matches', () async {
+      final content = utf8.encode('SQLite format 3 ${'z' * 5000}');
+      final zipBytes = _zipOf({'noop-backup.sqlite': String.fromCharCodes(content)});
+      final patched = _understateCentralDirectorySize(zipBytes, by: 37);
+      final path = await write('undercounted.noopbak', patched);
+
+      final db = await resolveNoopDatabase(path);
+      expect(db, isNotNull);
+      expect(await File(db!.path).readAsBytes(), content);
+      await db.dispose();
+    });
+
+    test('an uncompressed-size mismatch with a WRONG crc is still refused',
+        () async {
+      final content = utf8.encode('SQLite format 3 ${'z' * 5000}');
+      final zipBytes = _zipOf({'noop-backup.sqlite': String.fromCharCodes(content)});
+      // Undercount the size (as above) AND corrupt the declared CRC-32 fields
+      // themselves, leaving the compressed data untouched. The archive still
+      // decodes; what it actually produces no longer matches what it CLAIMS
+      // to have produced, which is real damage rather than a stale size field
+      // and must still be refused.
+      final tampered =
+          _corruptDeclaredCrc32(_understateCentralDirectorySize(zipBytes, by: 37));
+      final path = await write('tampered.noopbak', tampered);
+
+      await expectLater(
+        resolveNoopDatabase(path),
+        throwsA(isA<ImportFormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('does not hold what it says'),
+        )),
+      );
     });
 
     test('a loose database is taken as-is and never deleted', () async {

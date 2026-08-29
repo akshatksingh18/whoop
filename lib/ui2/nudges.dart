@@ -2,8 +2,7 @@
 // Two independent nudges (join Discord / support the project on GitHub
 // Sponsors), each shown at most once per cooldown and never again once the
 // user says so, via the same `Prefs` facade every other one-time UI flag
-// uses. At most one shown at a time — asking about both in one breath is
-// exactly the nagging feel this was asked not to have.
+// uses. Both can be up at once, stacked — each is dismissed on its own.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -14,9 +13,7 @@ import 'ui2.dart';
 
 enum _Ask { discord, donate }
 
-/// A card Home renders last, after everything it actually measured — never
-/// above the fold, never in the way of the numbers someone opened the app
-/// for.
+/// Home renders one of these per eligible ask, right under the rings.
 class CommunityNudge extends StatefulWidget {
   const CommunityNudge({super.key});
 
@@ -43,35 +40,45 @@ class _CommunityNudgeState extends State<CommunityNudge> {
     return DateTime.now().millisecondsSinceEpoch - last > _cooldownMs;
   }
 
-  /// Discord before the sponsor ask — joining a community is a smaller thing
-  /// to ask for than money, so it goes first when both are due.
-  static _Ask? _pick() {
-    if (_eligible(_Ask.discord)) return _Ask.discord;
-    if (_eligible(_Ask.donate)) return _Ask.donate;
-    return null;
-  }
-
-  late _Ask? _ask = _pick();
+  // Discord above the sponsor ask when both are due — joining a community
+  // is a smaller thing to ask for than money.
+  final List<_Ask> _asks = [
+    for (final a in _Ask.values)
+      if (_eligible(a)) a,
+  ];
 
   void _snooze(_Ask a) {
     Prefs.setInt(_lastShownKey(a), DateTime.now().millisecondsSinceEpoch);
-    // Dev mode ignores its own cooldown (see _eligible) — writing it is
-    // harmless, but leaving the card up is what testing it needs.
-    setState(() => _ask = Prefs.getBool(Prefs.devMode, false) ? _pick() : null);
+    _hide(a);
   }
 
   void _silence(_Ask a) {
     Prefs.setBool(_dismissedKey(a), true);
-    setState(() => _ask = Prefs.getBool(Prefs.devMode, false) ? _pick() : null);
+    _hide(a);
+  }
+
+  void _hide(_Ask a) {
+    // Dev mode ignores its own dismissal/cooldown (see _eligible) — writing
+    // it above is harmless, but re-adding it here is what testing it needs.
+    final devMode = Prefs.getBool(Prefs.devMode, false);
+    setState(() => devMode ? null : _asks.remove(a));
   }
 
   @override
-  Widget build(BuildContext c) {
-    final a = _ask;
-    if (a == null) return const SizedBox.shrink();
-    final p = P.of(c);
+  Widget build(BuildContext c) => Column(
+      children: [for (final a in _asks) _AskCard(a, onSnooze: _snooze, onSilence: _silence)]);
+}
 
-    final (icon, color, title, body, cta, url) = switch (a) {
+class _AskCard extends StatelessWidget {
+  final _Ask ask;
+  final void Function(_Ask) onSnooze, onSilence;
+
+  const _AskCard(this.ask, {required this.onSnooze, required this.onSilence});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final (icon, color, title, body, cta, url) = switch (ask) {
       _Ask.discord => (
           LucideIcons.usersRound,
           C.indigo,
@@ -119,7 +126,7 @@ class _CommunityNudgeState extends State<CommunityNudge> {
             ),
             const SizedBox(width: S.x2),
             Pressable(
-              onTap: () => _snooze(a),
+              onTap: () => onSnooze(ask),
               semanticLabel: 'Not now',
               child: Icon(LucideIcons.x, size: 16, color: p.ink3),
             ),
@@ -132,12 +139,12 @@ class _CommunityNudgeState extends State<CommunityNudge> {
               onTap: () {
                 open3rdPartyLink(url);
                 // Acted on, not just seen — no reason to ask again.
-                _silence(a);
+                onSilence(ask);
               }),
           const SizedBox(height: S.x2),
           Center(
             child: Pressable(
-              onTap: () => _silence(a),
+              onTap: () => onSilence(ask),
               semanticLabel: "Don't show this again",
               child: Text("Don't show this again",
                   style: F.over.copyWith(

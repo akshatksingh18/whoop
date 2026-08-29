@@ -35,7 +35,9 @@
 
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../compute/derivation_engine.dart';
@@ -43,6 +45,13 @@ import '../compute/profile.dart';
 import 'import_container.dart';
 import 'noop_import.dart';
 import 'noop_ingest.dart';
+
+/// "SQLite format 3\0" — the fixed 16-byte magic every SQLite file starts
+/// with (https://www.sqlite.org/fileformat.html#the_database_header).
+const List<int> _kSqliteMagic = [
+  0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, //
+  0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
+];
 
 /// Rows per platform-channel round trip. Big enough that a 1 Hz day is a handful
 /// of queries, small enough that no single response is a memory event. Not
@@ -85,20 +94,94 @@ class NoopBackupImporter {
     if (!await File(path).exists()) {
       throw const ImportFormatException('That backup could not be read.');
     }
-    final Database src;
+    Directory? scratch;
     try {
-      src = await openDatabase(path, readOnly: true);
-    } catch (e) {
-      throw ImportFormatException(
-        'That backup\'s database could not be opened ($e). If it came off '
-        'another phone, try exporting it again.',
-      );
-    }
-    try {
-      return await _import(src, profile, engine, onProgress: onProgress);
+      final opened = await _repairTruncatedHeader(path);
+      scratch = opened.$2;
+      final Database src;
+      try {
+        src = await openDatabase(opened.$1, readOnly: true);
+      } catch (e) {
+        throw ImportFormatException(
+          'That backup\'s database could not be opened ($e). If it came off '
+          'another phone, try exporting it again.',
+        );
+      }
+      try {
+        return await _import(src, profile, engine, onProgress: onProgress);
+      } finally {
+        await src.close();
+      }
     } finally {
-      await src.close();
+      if (scratch != null) {
+        try {
+          await scratch.delete(recursive: true);
+        } catch (_) {}
+      }
     }
+  }
+
+  /// A `.noopbak` exported by copying NOOP's live database file (rather than
+  /// through a proper backup API, e.g. `sqlite3_backup` or a WAL checkpoint)
+  /// can catch it mid-write: new pages are already flushed to disk, but the
+  /// header's page-count field (bytes 28-31, big-endian — see the SQLite file
+  /// format spec) was not updated before the copy ran. Every B-tree pointer
+  /// into one of those pages then reads as SQLITE_CORRUPT ("invalid page
+  /// number") from the very first page it touches, which on a real backup
+  /// meant losing gravity/skin-temp/step samples ENTIRELY rather than just
+  /// their newest rows.
+  ///
+  /// Fixed by comparing the header's page count against how many whole pages
+  /// the file actually holds: if there are more than the header claims, the
+  /// header is patched to match, on a COPY — never the original, which may be
+  /// the user's picked file with no [ResolvedNoopDatabase] tempDir to own it.
+  /// A file the header already agrees with is returned untouched, so a normal
+  /// backup pays no copy at all.
+  ///
+  /// This does NOT repair genuine row-level corruption from the same partial
+  /// write (a torn B-tree page, rather than a stale page count) — that surfaces
+  /// downstream as [_isCorruptPageError], and [_read] drops just the affected
+  /// table rather than the whole import.
+  static Future<(String, Directory?)> _repairTruncatedHeader(
+    String path,
+  ) async {
+    final f = await File(path).open();
+    final int fileLen;
+    final List<int> header;
+    try {
+      header = await f.read(100);
+      fileLen = await f.length();
+    } finally {
+      await f.close();
+    }
+    if (header.length < 100 ||
+        !const ListEquality<int>().equals(
+          header.sublist(0, 16),
+          _kSqliteMagic,
+        )) {
+      return (path, null); // not a plain SQLite file (or too short to check)
+    }
+    final rawPageSize = (header[16] << 8) | header[17];
+    // 1 means 65536 (the u16 field cannot hold it) — see the format spec.
+    final pageSize = rawPageSize == 1 ? 65536 : rawPageSize;
+    if (pageSize == 0 || fileLen % pageSize != 0) return (path, null);
+    final declaredPages =
+        (header[28] << 24) | (header[29] << 16) | (header[30] << 8) | header[31];
+    final actualPages = fileLen ~/ pageSize;
+    if (actualPages <= declaredPages) return (path, null); // header agrees
+
+    final scratch = await Directory.systemTemp.createTemp('openstrap_noopfix_');
+    final repaired = p.join(scratch.path, 'repaired.sqlite');
+    await File(path).copy(repaired); // OS-level copy, not materialised here
+    final raf = await File(repaired).open(mode: FileMode.append);
+    try {
+      await raf.setPosition(28);
+      final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
+      await raf.writeFrom(be.buffer.asUint8List());
+    } finally {
+      await raf.close();
+    }
+    return (repaired, scratch);
   }
 
   static Future<NoopImportResult> _import(
@@ -164,6 +247,19 @@ class NoopBackupImporter {
 
     final ingest = NoopIngest(profile, engine, onProgress: onProgress);
 
+    // A backup exported by copying NOOP's live database file (rather than
+    // through a proper backup API) can leave a scattered corrupt page
+    // anywhere in a table's own storage. None of these tables carry an index
+    // usable for a `ts` range that ALSO covers the other columns a read here
+    // selects (x/y/z, bpm, …), so every per-day read of an affected table
+    // scans the WHOLE table before it can emit a single row — the `ts`
+    // window narrows what's kept, not what's touched. That means one corrupt
+    // page anywhere in a table fails EVERY day's read of it identically, not
+    // just the day the bad page would chronologically belong to, so a table
+    // goes in here once and stays — there is no point re-running the same
+    // failing whole-table scan on every remaining day.
+    final corrupt = <String>{};
+
     // Walk LOCAL days. Built through the DateTime(y, m, d + 1) constructor
     // rather than `add(Duration(days: 1))` so a DST boundary lands on real local
     // midnight instead of 23:00 or 01:00.
@@ -176,41 +272,42 @@ class NoopBackupImporter {
       // Order within a day does not matter — [NoopIngest] rebuilds the Substrate
       // sorted by timestamp — but the DAYS must arrive in ascending order, since
       // the high-water date is what closes out and derives the previous one.
-      await _read(src, tables, columns, ordered, 'hrSample', from, to, (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'hrSample', from, to,
+          (r) async {
         final ts = _int(r['ts']), v = _int(r['bpm']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.hr(ts, v);
       });
-      await _read(src, tables, columns, ordered, 'rrInterval', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'rrInterval', from,
+          to, (r) async {
         final ts = _int(r['ts']), v = _num(r['rrMs']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.rr(ts, v);
       });
-      await _read(src, tables, columns, ordered, 'gravitySample', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'gravitySample',
+          from, to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) {
           ingest.gravity(ts, _num(r['x']), _num(r['y']), _num(r['z']));
         }
       });
-      await _read(src, tables, columns, ordered, 'skinTempSample', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'skinTempSample',
+          from, to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) ingest.skinTemp(ts, _int(r['raw']));
       });
-      await _read(src, tables, columns, ordered, 'spo2Sample', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'spo2Sample', from,
+          to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) {
           ingest.spo2(ts, _int(r['red']), _int(r['ir']));
         }
       });
-      await _read(src, tables, columns, ordered, 'stepSample', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, corrupt, 'stepSample', from,
+          to, (r) async {
         final ts = _int(r['ts']), v = _int(r['counter']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.stepCounter(ts, v);
@@ -220,13 +317,19 @@ class NoopBackupImporter {
     }
 
     if (ingest.rows == 0) {
-      throw const ImportFormatException(
-        'That NOOP backup holds no samples we could read.',
-      );
+      // Every channel we read came back corrupt (see [_isCorruptPageError]) —
+      // this is not "the backup is empty", it is "SQLite itself cannot read
+      // the file", and the two must never share a message.
+      throw ImportFormatException(corrupt.isNotEmpty
+          ? 'That NOOP backup file is corrupted — SQLite cannot read '
+              '${corrupt.join(', ')}, and those are every table this app '
+              'imports. There is nothing left to recover from this file; '
+              'export a new backup from NOOP.'
+          : 'That NOOP backup holds no samples we could read.');
     }
     await ingest.finish();
     return NoopImportResult(ingest.days, ingest.rows, ingest.lateRows,
-        ingest.steps, ingest.strandedDates);
+        ingest.steps, ingest.strandedDates, corrupt);
   }
 
   /// Page one table's rows for the half-open window [from, to) into [onRow].
@@ -249,6 +352,7 @@ class NoopBackupImporter {
     Set<String> tables,
     Map<String, List<String>> columns,
     Map<String, String> ordered,
+    Set<String> corrupt,
     String table,
     int from,
     int to,
@@ -259,6 +363,7 @@ class NoopBackupImporter {
     // channel.
     final cols = _kTableCols[table]!;
     if (!tables.contains(table)) return;
+    if (corrupt.contains(table)) return; // already hit a torn page, see below
     final usable = columns[table] ?? const <String>[];
     if (usable.length < cols.length) return;
     final orderBy = ordered[table] ?? 'ts';
@@ -272,14 +377,25 @@ class NoopBackupImporter {
     num cursor = from;
     var firstPage = true;
     while (true) {
-      final rows = await src.query(
-        table,
-        columns: cols,
-        where: firstPage ? 'ts >= ? AND ts < ?' : 'ts > ? AND ts < ?',
-        whereArgs: [cursor, to],
-        orderBy: orderBy,
-        limit: kNoopBackupPageRows,
-      );
+      final List<Map<String, Object?>> rows;
+      try {
+        rows = await src.query(
+          table,
+          columns: cols,
+          where: firstPage ? 'ts >= ? AND ts < ?' : 'ts > ? AND ts < ?',
+          whereArgs: [cursor, to],
+          orderBy: orderBy,
+          limit: kNoopBackupPageRows,
+        );
+      } catch (e) {
+        if (!_isCorruptPageError(e)) rethrow;
+        // A whole-table scan (see the comment above [corrupt]'s declaration)
+        // means this can surface on page ONE of day one — there is usually
+        // nothing from this table to salvage, only nothing further lost by
+        // trying. Every OTHER channel keeps importing regardless.
+        corrupt.add(table);
+        return;
+      }
       firstPage = false;
       if (rows.isEmpty) return;
       final full = rows.length == kNoopBackupPageRows;
@@ -305,15 +421,22 @@ class NoopBackupImporter {
         }
         var drained = rows.length;
         while (lastTs != null) {
-          final more = await src.query(
-            table,
-            columns: cols,
-            where: 'ts = ?',
-            whereArgs: [lastTs],
-            orderBy: orderBy,
-            limit: kNoopBackupPageRows,
-            offset: drained,
-          );
+          final List<Map<String, Object?>> more;
+          try {
+            more = await src.query(
+              table,
+              columns: cols,
+              where: 'ts = ?',
+              whereArgs: [lastTs],
+              orderBy: orderBy,
+              limit: kNoopBackupPageRows,
+              offset: drained,
+            );
+          } catch (e) {
+            if (!_isCorruptPageError(e)) rethrow;
+            corrupt.add(table);
+            return;
+          }
           if (more.isEmpty) break;
           for (final r in more) {
             await onRow(r);
@@ -338,6 +461,17 @@ class NoopBackupImporter {
     }
   }
 
+  /// SQLite's own corruption signal (`SQLITE_CORRUPT`, result code 11 —
+  /// "database disk image is malformed") reached mid-scan, distinguished from
+  /// every other [DatabaseException] (a typo'd column, a closed database) that
+  /// this must NOT swallow. Matched on message text because sqflite does not
+  /// expose the result code uniformly across its Android/iOS/ffi backends —
+  /// see [DatabaseException.getResultCode]'s own comment on the same problem.
+  static bool _isCorruptPageError(Object e) =>
+      e is DatabaseException &&
+      (e.toString().contains('malformed') ||
+          e.toString().contains('SQLITE_CORRUPT'));
+
   /// Earliest and latest sample timestamp across every table we read, so the day
   /// walk covers days that carry (say) only a step counter.
   static Future<(int, int)?> _span(Database src, Set<String> tables) async {
@@ -356,10 +490,21 @@ class NoopBackupImporter {
       // timestamp — one `ts = 0`, one millisecond-scaled row — would otherwise
       // disqualify the entire table and, if every table has one, fail the
       // import as "no samples" on a backup holding years of data.
-      final r = await src.rawQuery(
-        'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM $t WHERE ts >= ? AND ts <= ?',
-        [_kMinPlausibleTs, _kMaxPlausibleTs],
-      );
+      // A table torn by a live-copy export (see [_read]) can fail this
+      // whole-table scan before it returns a row at all. One corrupt table
+      // does not sink the span — every other table covers roughly the same
+      // 1 Hz timeline, and [_read] below marks the same table corrupt on its
+      // first day and drops only that channel from the import.
+      final List<Map<String, Object?>> r;
+      try {
+        r = await src.rawQuery(
+          'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM $t WHERE ts >= ? AND ts <= ?',
+          [_kMinPlausibleTs, _kMaxPlausibleTs],
+        );
+      } catch (e) {
+        if (!_isCorruptPageError(e)) rethrow;
+        continue;
+      }
       if (r.isEmpty) continue;
       final a = _int(r.first['lo']), b = _int(r.first['hi']);
       if (a == null || b == null) continue;

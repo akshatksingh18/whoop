@@ -47,6 +47,13 @@ class ImportOutcome {
   /// following day, but never derived in their own right.
   final int strandedDays;
 
+  /// Source tables SQLite reported as corrupt while reading a `.noopbak`
+  /// (unreadable pages, not a schema mismatch — see `_isCorruptPageError`).
+  /// Every OTHER table still imported; this only names what could not be
+  /// read, so a heart-rate stream that came back empty doesn't read as a
+  /// complete one.
+  final Set<String> corruptTables;
+
   /// Journal days written by the hand-entered CSV path (csv-reimport). Its own
   /// counter: those rows REPLACE the journal for the dates they name, which is
   /// a different promise from "a day the band measured is never overwritten",
@@ -74,6 +81,7 @@ class ImportOutcome {
     this.skippedDays = 0,
     this.lateRows = 0,
     this.strandedDays = 0,
+    this.corruptTables = const {},
     this.journalRows = 0,
     this.rejectedRows = const [],
     this.error,
@@ -81,7 +89,8 @@ class ImportOutcome {
     this.readError,
   });
 
-  bool get lostSomething => lateRows > 0 || strandedDays > 0;
+  bool get lostSomething =>
+      lateRows > 0 || strandedDays > 0 || corruptTables.isNotEmpty;
 
   /// Nothing at all landed. A zero under a green tick is a no-op that reads as
   /// a success, which is the one thing an import report must never do.
@@ -292,6 +301,7 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
+  final corruptTables = <String>{};
   final rejected = <String>[];
   String? rollupError;
   String? cryptoError;
@@ -375,6 +385,7 @@ Future<ImportOutcome> runImport(
       if (r != null) {
         late += r.lateRows;
         stranded += r.strandedDates.length;
+        corruptTables.addAll(r.corruptTables);
       }
     }
   }
@@ -441,6 +452,7 @@ Future<ImportOutcome> runImport(
     skippedDays: skipped,
     lateRows: late,
     strandedDays: stranded,
+    corruptTables: corruptTables,
     journalRows: journalRows,
     rejectedRows: rejected,
     rollupError: rollupError,
@@ -709,8 +721,15 @@ class ImportReport extends StatelessWidget {
               l?.welcomeLateRows(o.lateRows) ??
                   '${o.lateRows} row${o.lateRows == 1 ? '' : 's'} arrived after '
                       'their day had already been scored and closed.',
+            if (o.corruptTables.isNotEmpty)
+              '${o.corruptTables.join(', ')} could not be read — SQLite '
+                  'reported the file itself as corrupted for those tables. '
+                  'Every other table imported normally.',
           ].join(' '),
-          fix: l?.welcomeExportAgainInDateOrder ?? 'Export again in date order',
+          fix: o.corruptTables.isNotEmpty
+              ? (l?.actionTryAnotherFile ?? 'Try another file')
+              : (l?.welcomeExportAgainInDateOrder ??
+                  'Export again in date order'),
           icon: LucideIcons.fileWarning,
         ),
       ],

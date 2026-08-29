@@ -9,6 +9,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -602,5 +603,97 @@ void main() {
       throwsA(isA<ImportFormatException>()
           .having((e) => e.message, 'message', contains('no samples'))),
     );
+  });
+
+  // OpenStrap/edge — a real `.noopbak` off a phone (NOOP 10.5.0, WHOOP 5.0/MG)
+  // failed to open at all: `PRAGMA quick_check` reported "invalid page
+  // number" across most tables, on a zip whose own declared uncompressed size
+  // also undercounted its content (see import_container_test.dart for that
+  // half). The backup was taken by copying NOOP's live database file rather
+  // than through a proper backup API, which left two DIFFERENT kinds of
+  // damage: a stale page-count header (bytes 28-31) that undercounted how
+  // many pages the file actually holds, on top of genuinely torn B-tree pages
+  // scattered through several tables' own storage. The two tests below pin
+  // both, on a synthetic fixture (never the real file — see the memory note
+  // on personal health data in fixtures). On the real file, EVERY populated
+  // 1 Hz table had at least one torn page, so nothing below `dailyMetric` /
+  // `sleepSession` (deliberately not read — see this file's header) survived;
+  // the second test below still confirms the degradation is per-table, not
+  // total, on a fixture with exactly one bad page.
+
+  test('a stale page-count header self-heals and imports in full', () async {
+    // Big enough to spread hrSample across several real pages, the same
+    // shape the header lie has to actually matter for. A date no other
+    // fixture in this file uses (they share one LocalDb across tests).
+    const t0 = 1786953600; // 2026-08-17
+    const secs = 6000;
+    final dbPath = await writeNoopDb('stale_header.sqlite', t0: t0, seconds: secs);
+
+    // Patch the header exactly the way the real bug left it: the file holds
+    // more whole pages than byte 28-31 claims.
+    final bytes = File(dbPath).readAsBytesSync();
+    final pageSize = (bytes[16] << 8) | bytes[17];
+    final actualPages = bytes.length ~/ pageSize;
+    expect(actualPages, greaterThan(4),
+        reason: 'fixture must span multiple pages for this to test anything');
+    final understated = actualPages - 2;
+    final patched = Uint8List.fromList(bytes);
+    patched[28] = (understated >> 24) & 0xff;
+    patched[29] = (understated >> 16) & 0xff;
+    patched[30] = (understated >> 8) & 0xff;
+    patched[31] = understated & 0xff;
+    File(dbPath).writeAsBytesSync(patched);
+
+    final bak = writeBackup('stale_header.noopbak', dbPath);
+    final res = await NoopImporter.importFile(bak, const Profile(), DerivationEngine());
+
+    // A header lie, not row damage — every row is recovered, on every table.
+    expect(res.rows, secs * 4 + (secs / 2).ceil()); // hr+gravity+skinTemp+step, rr every other second
+    expect(res.corruptTables, isEmpty);
+  });
+
+  test('a torn page loses only its own table, not the whole import',
+      () async {
+    const t0 = 1787040000; // 2026-08-18, distinct from every other fixture here
+    const secs = 6000; // enough rows that hrSample spans several leaf pages
+    final dbPath = await writeNoopDb('torn_page.sqlite', t0: t0, seconds: secs);
+
+    // Find a real hrSample leaf page and scramble it — the same shape as a
+    // torn write, not merely an absent one: an all-zero page is a VALID empty
+    // leaf, so this has to write bytes that are not a legal btree page type.
+    final probe = await databaseFactory.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(readOnly: true),
+    );
+    final rows = await probe.rawQuery(
+      "SELECT pageno FROM dbstat('main') WHERE name = 'hrSample' AND pagetype = 'leaf' ORDER BY pageno",
+    );
+    await probe.close();
+    expect(rows.length, greaterThan(2),
+        reason: 'fixture must span multiple leaf pages for this to test anything');
+    // WHICH leaf doesn't matter, and that is the point: none of these tables
+    // carry an index that covers the extra columns `_read` selects (bpm, x/y/z,
+    // …) alongside `ts`, so a day-windowed read has to scan hrSample's WHOLE
+    // table before it can emit a single (ordered) row. One bad page anywhere
+    // fails that scan for EVERY day identically — this is not "the newest
+    // rows are lost", it is "this whole channel is lost, every other one
+    // survives".
+    final targetPage = (rows[rows.length ~/ 2]['pageno'] as int);
+
+    final raw = File(dbPath).readAsBytesSync();
+    final pageSize = (raw[16] << 8) | raw[17];
+    final patched = Uint8List.fromList(raw);
+    final offset = (targetPage - 1) * pageSize;
+    patched.fillRange(offset, offset + pageSize, 0xFF); // not a valid page type
+    File(dbPath).writeAsBytesSync(patched);
+
+    final bak = writeBackup('torn_page.noopbak', dbPath);
+    final res = await NoopImporter.importFile(bak, const Profile(), DerivationEngine());
+
+    expect(res.corruptTables, {'hrSample'});
+    // hrSample itself contributes NOTHING — gravity+skinTemp+step (3 * secs)
+    // and rr (every other second) still land in full.
+    expect(res.rows, secs * 3 + (secs / 2).ceil());
+    expect(res.days, greaterThan(0));
   });
 }

@@ -934,6 +934,16 @@ class HealthExporter {
     // (and is the type `exportWorkout` re-writes out-of-band too); the scalar
     // types below still write unconditionally, so an uncleared RHR/HRV window
     // can still double until the next successful delete replaces both.
+    //
+    // This day-wide WORKOUT delete runs before the per-session loop below
+    // skips any end_ts_fabricated row (see _writeOneWorkout) — that is safe
+    // ONLY because a fabricated row can never have a prior Health entry to
+    // lose: the flag is set exclusively by _reconcileOrphanedLiveWorkout on a
+    // row that was status=='live' up to that point, and every export path
+    // (this one and exportWorkout) already skips 'live' rows outright. If a
+    // second end_ts_fabricated writer is ever added on an already-exported
+    // row, that invariant breaks and this delete would need to become
+    // per-session instead of day-wide.
     var workoutCleared = true;
     for (final t in _rewriteTypes) {
       if (await _deleteOwnSamples(t, dayStart, dayEnd)) continue;

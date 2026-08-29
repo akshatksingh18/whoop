@@ -5439,19 +5439,24 @@ class AppState extends ChangeNotifier {
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
-          // A stale live row has no end_ts (it was never stopped), which
-          // permanently kept it un-exportable — Health export requires a real
-          // end. We don't know when the workout actually ended, so the
-          // honest stamp is reconcile-time (stated as such), not a guess at
-          // the real finish (edge#277).
+          // A stale live row has no end_ts (it was never stopped). We don't
+          // know when the workout actually ended, so the honest stamp is
+          // reconcile-time (stated as such), not a guess at the real finish
+          // (edge#277) — and for the same reason this is NEVER exported to
+          // Health: [end_ts] here is fabricated, so a [start,end_ts] Health
+          // workout sample would report a bogus duration as real data.
+          // `end_ts_fabricated` records that so `_writeOneWorkout` can skip it
+          // on every later periodic export pass too, not just this call site —
+          // without the flag the row looks like any other finished workout and
+          // gets exported on the next drain/derive cycle regardless.
           final reconciledEndTs = nowMs ~/ 1000;
+          final hadRealEnd = row['end_ts'] != null;
           await LocalDb.putSession({
             ...row,
             'status': 'done',
             'end_ts': row['end_ts'] ?? reconciledEndTs,
+            'end_ts_fabricated': hadRealEnd ? (row['end_ts_fabricated'] ?? 0) : 1,
           });
-          final id = row['id'] as String?;
-          if (id != null) unawaited(HealthExporter.exportWorkoutId(id));
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }
       }

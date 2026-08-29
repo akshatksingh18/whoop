@@ -4089,36 +4089,48 @@ Map<String, dynamic>? stressSummaryForToday(
 // Top-level (no `this` capture) + only file-scoped `proto`/`ana` top-level
 // functions + a List<String> of hex frames in, a plain Map out — all sendable.
 
-Map<String, dynamic> _spotCheckCompute(List<String> records) {
-  // Decode RR from the live RR-bearing frames (0x28 / R10), clean, compute HRV.
-  // rrTsMs carries each beat's packet timestamp (ms) alongside it — same seam
-  // getNightBeats uses (line ~867) — so correctRr can re-anchor at a dropout
-  // and hrvTime's seam detection can refuse to diff across it (edge#286: a
-  // flat rrMs-only list let a real packet gap read as two successive beats).
+/// Decode RR beats from the live RR-bearing frames (0x28 / R10), shared by
+/// [_spotCheckCompute] and [_breathingCoherenceCompute] (CodeRabbit noted the
+/// duplication on edge#308). rrTsMs carries each beat's packet timestamp
+/// (ms) alongside it — same seam getNightBeats uses (line ~867) — so
+/// correctRr can re-anchor at a dropout and hrvTime's/coherence's seam
+/// detection can refuse to diff across it (edge#286: a flat rrMs-only list
+/// let a real packet gap read as two successive beats). rr.ts is whole
+/// SECONDS, and a live 0x2B packet can legitimately land more than once in
+/// the same second — only an out-of-order (strictly older) timestamp can't
+/// prove adjacency to what came before it, so only that gets dropped; an
+/// equal timestamp is accepted like normal (sourcery flagged the earlier
+/// strict `>` as silently losing real beats on any multi-packet-per-second
+/// burst).
+({List<double> rrMs, List<double> rrTsMs}) _decodeLiveRr(
+  List<String> records,
+) {
   final rrMs = <double>[];
   final rrTsMs = <double>[];
-  final hrs = <double>[];
   int? lastPacketTs;
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
-    if (rr != null) {
-      // rr.ts is whole SECONDS, and a live 0x2B packet can legitimately land
-      // more than once in the same second — only an out-of-order (strictly
-      // older) timestamp can't prove adjacency to what came before it, so
-      // only that gets dropped; an equal timestamp is accepted like normal
-      // (sourcery flagged the earlier strict `>` as silently losing real
-      // beats on any multi-packet-per-second burst).
-      if (lastPacketTs == null || rr.ts >= lastPacketTs) {
-        lastPacketTs = rr.ts;
-        final ts = rr.ts.toDouble() * 1000;
-        for (final v in rr.rrMs) {
-          if (v > 0) {
-            rrMs.add(v.toDouble());
-            rrTsMs.add(ts);
-          }
-        }
+    if (rr == null || (lastPacketTs != null && rr.ts < lastPacketTs)) {
+      continue;
+    }
+    lastPacketTs = rr.ts;
+    final ts = rr.ts.toDouble() * 1000;
+    for (final v in rr.rrMs) {
+      if (v > 0) {
+        rrMs.add(v.toDouble());
+        rrTsMs.add(ts);
       }
     }
+  }
+  return (rrMs: rrMs, rrTsMs: rrTsMs);
+}
+
+Map<String, dynamic> _spotCheckCompute(List<String> records) {
+  final decoded = _decodeLiveRr(records);
+  final rrMs = decoded.rrMs;
+  final rrTsMs = decoded.rrTsMs;
+  final hrs = <double>[];
+  for (final hex in records) {
     try {
       final s = proto.decodeRecord(hex);
       if (s != null && s.hr > 0) hrs.add(s.hr.toDouble());
@@ -4145,32 +4157,14 @@ Map<String, dynamic> _breathingCoherenceCompute(
   List<String> records,
   double? pacedHz,
 ) {
-  // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
-  // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
-  // rrTsMs (see _spotCheckCompute above) lets correctRr re-anchor at a real
+  // Decode RR from the live RR-bearing frames (0x28 / R10) via the shared
+  // _decodeLiveRr helper (same seam spotCheck uses), then run McCraty &
+  // Zayas 2014 cardiac coherence. rrTsMs lets correctRr re-anchor at a real
   // packet gap so the coherence time axis is the real wall clock, not a
   // gap-free cumsum (edge#286).
-  final rrMs = <double>[];
-  final rrTsMs = <double>[];
-  int? lastPacketTs;
-  for (final hex in records) {
-    final rr = proto.realtimeRr(hex);
-    if (rr != null) {
-      // See _spotCheckCompute above: rr.ts is whole seconds, so only a
-      // strictly older (out-of-order) timestamp gets dropped, not an equal
-      // one — a live packet can legitimately land more than once a second.
-      if (lastPacketTs == null || rr.ts >= lastPacketTs) {
-        lastPacketTs = rr.ts;
-        final ts = rr.ts.toDouble() * 1000;
-        for (final v in rr.rrMs) {
-          if (v > 0) {
-            rrMs.add(v.toDouble());
-            rrTsMs.add(ts);
-          }
-        }
-      }
-    }
-  }
+  final decoded = _decodeLiveRr(records);
+  final rrMs = decoded.rrMs;
+  final rrTsMs = decoded.rrTsMs;
   if (rrMs.length < 20) {
     return {'ok': false, 'n_beats': rrMs.length};
   }

@@ -104,6 +104,25 @@ double? headlineReadinessScalar(Metric<Readiness> composite) {
   return r.score;
 }
 
+/// The `readiness_absent_diag` note for a composite that computed (unlike the
+/// `!composite.present` cold-start case) but got withheld by [kReadinessZCap]
+/// — a saturated, degenerate-baseline artefact. Null whenever
+/// [headlineReadinessScalar] would have returned a value, i.e. there is
+/// nothing to explain.
+///
+/// Deliberately NOT the `need_baseline:` note (edge#305): reaching a present
+/// composite already means every input cleared `readinessCompositeMinBaseline`,
+/// so "Need N more nights" would be a proven-false cause once this fires — the
+/// UI's baseline-note convention exists precisely to prevent stating a wrong
+/// cause. Pure so the gate + note format are unit-testable without the full
+/// pipeline.
+String? zCapAbsentNote(Metric<Readiness> composite) {
+  if (!composite.present) return null;
+  if (headlineReadinessScalar(composite) != null) return null;
+  final z = composite.value!.compositeZ;
+  return 'unstable_baseline:z=${z.toStringAsFixed(3)},cap=$kReadinessZCap';
+}
+
 /// Serializable input to the isolate: one physiological day's decoded 1 Hz
 /// substrate (the day slice), the PRECOMPUTED single-source sleep segmentation,
 /// the profile, and trailing baseline history for the readiness pass.
@@ -1042,6 +1061,32 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Abstain from a saturated, degenerate-baseline readiness rather than persist a
   // bogus ~100 that a cleaner re-derive would then snap back down (#117 bounce).
   final readinessScalar = headlineReadinessScalar(composite);
+  // The z-cap can abstain even when the composite itself is `present` — a
+  // saturated, degenerate-baseline artefact, not a cold-start — and that used
+  // to leave `readinessAbsentDiag` null (only the `!composite.present` branch
+  // above sets it), so the UI fell through to the composite's own prose, which
+  // names whichever driver its renormalisation happened to refuse (e.g. temp)
+  // rather than the real reason the headline is blank (edge#305). Do NOT reuse
+  // `need_baseline:` here: on main an input needs >=`readinessCompositeMinBaseline`
+  // points before the composite is even present, so by the time THIS branch can
+  // fire "Need N more nights" is a proven-false cause. Give it its own reason,
+  // carrying the z that tripped the cap plus the same per-input counts the
+  // cold-start diag carries, so it renders with an actual explanation instead
+  // of a bare blank.
+  final zCapNote = zCapAbsentNote(composite);
+  if (readinessAbsentDiag == null && zCapNote != null) {
+    readinessAbsentDiag = {
+      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
+      'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
+      'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
+      'temp': {
+        'value': skinTempAdc != null,
+        'baseline_n': d.skinTempAdcHistory.length,
+        'settled_frac': skinTempSettledFrac,
+      },
+      'note': zCapNote,
+    };
+  }
   final strainScalar = strainMetric.present ? strainMetric.value : null;
 
   // ── STRESS: Baevsky SI → a transparent 0–100 score (log-mapped over the

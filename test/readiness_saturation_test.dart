@@ -98,4 +98,35 @@ void main() {
       expect(headlineReadinessScalar(flat), isNull);
     });
   });
+
+  // edge#305 — the z-cap abstention used to leave `readiness_absent_diag` null
+  // (only the `!composite.present` cold-start branch set it), so the UI fell
+  // through to the composite's own prose, which names whichever driver its
+  // renormalisation happened to refuse rather than the real reason the
+  // headline is blank. `zCapAbsentNote` gives it its own reason.
+  group('zCapAbsentNote', () {
+    test('a saturated composite gets its own note, not need_baseline', () {
+      final sat = composite(61.0, 59.0, degenerate);
+      final note = zCapAbsentNote(sat);
+      expect(note, isNotNull);
+      expect(note, startsWith('unstable_baseline:'));
+      expect(note, isNot(contains('need_baseline')));
+      expect(note, contains('cap=$kReadinessZCap'));
+    });
+
+    test('a clean composite (real score) has nothing to explain', () {
+      final ok = composite(70.0, 60.0, clean);
+      expect(zCapAbsentNote(ok), isNull);
+    });
+
+    test('an absent composite (cold-start) is the OTHER branch\'s job', () {
+      // The z-cap note only fires once the composite is already `present` —
+      // the `!composite.present` cold-start case has its own `need_baseline:`
+      // note built elsewhere and must not collide with this one.
+      final flat = composite(61.0, 59.0, List.filled(28, 60.0),
+          rhrBase: List.filled(28, 60.0));
+      expect(flat.present, isFalse);
+      expect(zCapAbsentNote(flat), isNull);
+    });
+  });
 }

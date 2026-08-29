@@ -4083,13 +4083,29 @@ Map<String, dynamic>? stressSummaryForToday(
 
 Map<String, dynamic> _spotCheckCompute(List<String> records) {
   // Decode RR from the live RR-bearing frames (0x28 / R10), clean, compute HRV.
+  // rrTsMs carries each beat's packet timestamp (ms) alongside it — same seam
+  // getNightBeats uses (line ~867) — so correctRr can re-anchor at a dropout
+  // and hrvTime's seam detection can refuse to diff across it (edge#286: a
+  // flat rrMs-only list let a real packet gap read as two successive beats).
   final rrMs = <double>[];
+  final rrTsMs = <double>[];
   final hrs = <double>[];
+  int? lastPacketTs;
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
     if (rr != null) {
-      for (final v in rr.rrMs) {
-        if (v > 0) rrMs.add(v.toDouble());
+      // A duplicate or out-of-order packet timestamp cannot prove adjacency
+      // to whatever came before it — drop the whole packet rather than let
+      // it splice onto the series at the wrong place.
+      if (lastPacketTs == null || rr.ts > lastPacketTs) {
+        lastPacketTs = rr.ts;
+        final ts = rr.ts.toDouble() * 1000;
+        for (final v in rr.rrMs) {
+          if (v > 0) {
+            rrMs.add(v.toDouble());
+            rrTsMs.add(ts);
+          }
+        }
       }
     }
     try {
@@ -4100,7 +4116,7 @@ Map<String, dynamic> _spotCheckCompute(List<String> records) {
   if (rrMs.length < 20) {
     return {'ok': false, 'n_beats': rrMs.length};
   }
-  final cleaned = ana.correctRr(rrMs);
+  final cleaned = ana.correctRr(rrMs, rrTsMs: rrTsMs);
   final hrv = ana.hrvTime(cleaned.nn, nnTimesMs: cleaned.nnTimesMs);
   if (!hrv.present) return {'ok': false, 'n_beats': cleaned.nn.length};
   final meanHr = hrs.isEmpty ? null : hrs.reduce((a, b) => a + b) / hrs.length;
@@ -4120,19 +4136,31 @@ Map<String, dynamic> _breathingCoherenceCompute(
 ) {
   // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
   // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
+  // rrTsMs (see _spotCheckCompute above) lets correctRr re-anchor at a real
+  // packet gap so the coherence time axis is the real wall clock, not a
+  // gap-free cumsum (edge#286).
   final rrMs = <double>[];
+  final rrTsMs = <double>[];
+  int? lastPacketTs;
   for (final hex in records) {
     final rr = proto.realtimeRr(hex);
     if (rr != null) {
-      for (final v in rr.rrMs) {
-        if (v > 0) rrMs.add(v.toDouble());
+      if (lastPacketTs == null || rr.ts > lastPacketTs) {
+        lastPacketTs = rr.ts;
+        final ts = rr.ts.toDouble() * 1000;
+        for (final v in rr.rrMs) {
+          if (v > 0) {
+            rrMs.add(v.toDouble());
+            rrTsMs.add(ts);
+          }
+        }
       }
     }
   }
   if (rrMs.length < 20) {
     return {'ok': false, 'n_beats': rrMs.length};
   }
-  final cleaned = ana.correctRr(rrMs);
+  final cleaned = ana.correctRr(rrMs, rrTsMs: rrTsMs);
   final m = ana.cardiacCoherence(
     cleaned.nn,
     cleaned.nnTimesMs,

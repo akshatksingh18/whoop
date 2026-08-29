@@ -2644,7 +2644,11 @@ class AppState extends ChangeNotifier {
     // `breathingWindowOpen` is the MIND-06 quiet window either side of the
     // paced block — the same buffer, held open across the pacing's own start
     // and stop so a "before" and an "after" exist at all.
-    if ((breathingActive || breathingWindowOpen) && (pt == 0x28 || pt == 0x2B)) {
+    // A 0x2B envelope also carries gen5 Maverick's rev-21 100 Hz IMU record
+    // (byte[1] != 10) — realtimeRr already yields no beats from it, but it
+    // should not occupy the breathing R-R buffer at all (edge#286).
+    final isRrBearing = pt == 0x28 || (pt == 0x2B && _isR10Record(hex));
+    if ((breathingActive || breathingWindowOpen) && isRrBearing) {
       if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
     // LIVE STEP COUNTER. Gen4: dedicated 0x33 IMU (~10 frames/s × 10 samples)
@@ -2666,6 +2670,17 @@ class AppState extends ChangeNotifier {
         _ingestLiveMags(f);
         _trackCoverage(recTs);
       }
+    }
+  }
+
+  /// True iff a live inner packet's record-type byte ([1]) is 10 (R10, the
+  /// only R-R-bearing record a 0x2B envelope carries).
+  bool _isR10Record(String hex) {
+    if (hex.length < 4) return false;
+    try {
+      return int.parse(hex.substring(2, 4), radix: 16) == 10;
+    } catch (_) {
+      return false;
     }
   }
 

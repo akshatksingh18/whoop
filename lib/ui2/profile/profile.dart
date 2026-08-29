@@ -288,45 +288,13 @@ class ProfileHomeView extends StatelessWidget {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(l?.profileTitle ?? 'Profile',
-                trailing: Pressable(
-                  onTap: onSettings,
-                  semanticLabel: l?.actionSettings ?? 'Settings',
-                  child: Icon(LucideIcons.settings, size: 20, color: p.ink2),
-                )),
+            child: NavBar(l?.profileTitle ?? 'Profile'),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
                 const SizedBox(height: S.x4),
-                Center(
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.wash(C.green, strength: 2),
-                    ),
-                    child:
-                        Icon(LucideIcons.user, size: 42, color: p.on(C.green)),
-                  ),
-                ),
-                const SizedBox(height: S.x4),
-                Center(
-                  child: Text(
-                    (s?.name?.trim().isNotEmpty ?? false)
-                        ? s!.name!
-                        : (l?.profileDefaultName ?? 'You'),
-                    style: F.t2.copyWith(color: p.ink),
-                  ),
-                ),
-                const SizedBox(height: S.x3),
-                Center(
-                    child: Pill(l?.pillLocalNoCloud ?? 'Local · no cloud',
-                        C.green, icon: LucideIcons.shieldCheck)),
-                const SizedBox(height: S.x6),
                 settingsGroup(c, l?.profileQuickAccessGroup ?? 'Quick access', [
                   SetRow(LucideIcons.watch, C.blue,
                       l?.profileMyDevices ?? 'My devices',
@@ -400,7 +368,7 @@ class ProfileHomeView extends StatelessWidget {
                           'building this',
                       onTap: () => open3rdPartyLink(kDiscordUrl)),
                   SetRow(LucideIcons.heartHandshake, C.pink, 'Sponsor',
-                      sub: 'This is a free, one-person project — '
+                      sub: 'This is a free, open-source project — '
                           'sponsoring keeps it going',
                       onTap: () => open3rdPartyLink(kSponsorUrl)),
                 ]),

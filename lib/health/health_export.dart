@@ -1031,6 +1031,11 @@ class HealthExporter {
       var workoutCal = 0.0;
       for (final r in rows) {
         if ((r['status']?.toString() ?? '') == 'live') continue;
+        // A fabricated session's calories never get their own WORKOUT
+        // sample (_writeOneWorkout skips it) — subtracting them here too
+        // would make them vanish from the day entirely instead of just
+        // staying in the active-energy total where they still belong.
+        if ((r['end_ts_fabricated'] as num?)?.toInt() == 1) continue;
         workoutCal += (r['calories'] as num?)?.toDouble() ?? 0.0;
       }
       cal = (cal > workoutCal) ? cal - workoutCal : 0.0;

@@ -67,7 +67,12 @@ final _rules = <_Rule>[
     RegExp(r'Duration\((?!\s*\))'),
     'Durations come from Motion.fast/base/slow and pass through '
         'motion(context, …) so reduced motion collapses them to zero.',
-    allow: {_tokenFile},
+    // home_screen's `_tapGrace` is a `Timer` bridging a tap to the first
+    // sync signal, not an animation — reduced motion has no opinion on how
+    // long a network round trip gets before the button gives up on it, and
+    // `Timer` has no non-`Duration` constructor to dodge this the way
+    // beats.dart's wall-clock math does.
+    allow: {_tokenFile, 'lib/ui2/screens/home_screen.dart'},
   ),
   _Rule(
     'raw gesture detector',

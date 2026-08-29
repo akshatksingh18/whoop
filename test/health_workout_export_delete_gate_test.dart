@@ -141,6 +141,10 @@ void main() {
       expect(store.calls, isNot(contains('writeWorkoutData')),
           reason: 'end_ts here is reconcile-time, not a measurement — this '
               'must never reach Health, on the periodic export path either');
+      expect(store.calls, isNot(contains('delete')),
+          reason: 'a real, previously-exported workout could still be '
+              'sitting in this window — deleting it here, only to then '
+              'refuse to write the replacement, would erase it for nothing');
     });
   });
 

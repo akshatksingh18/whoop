@@ -67,6 +67,10 @@ class _CommunityNudgeState extends State<CommunityNudge> {
   }
 
   void _hide(_Ask a) {
+    // The card's CTA awaits open3rdPartyLink before calling this — if the
+    // widget tree was torn down while that was in flight, setState here
+    // would throw after dispose.
+    if (!mounted) return;
     // Dev mode ignores its own dismissal/cooldown (see _eligible) — writing
     // it above is harmless, but re-adding it here is what testing it needs.
     final devMode = Prefs.getBool(Prefs.devMode, false);

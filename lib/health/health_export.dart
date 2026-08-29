@@ -1261,6 +1261,11 @@ class HealthExporter {
   /// See [healthDeleteClearedRange] for what "did not clear" means per store.
   Future<bool> exportWorkout(Map<String, Object?> session) async {
     if ((session['status']?.toString() ?? '') == 'live') return false;
+    // Same fabricated-end_ts skip as _writeOneWorkout, but checked BEFORE any
+    // delete: this session's window may still hold a real, previously
+    // exported workout, and deleting it here — only to have _writeOneWorkout
+    // refuse to write the replacement — would erase it for nothing.
+    if ((session['end_ts_fabricated'] as num?)?.toInt() == 1) return false;
     final st = (session['start_ts'] as num?)?.toInt();
     final en = (session['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) return false;

@@ -34,6 +34,10 @@ class _CommunityNudgeState extends State<CommunityNudge> {
   static String _lastShownKey(_Ask a) => 'nudge.${a.name}.last_shown_ms';
 
   static bool _eligible(_Ask a) {
+    // Developer mode is someone deliberately testing the app, not a real
+    // reader being nagged — silencing or a cooldown here would just make
+    // this unreachable on every build after the first tap.
+    if (Prefs.getBool(Prefs.devMode, false)) return true;
     if (Prefs.getBool(_dismissedKey(a), false)) return false;
     final last = Prefs.getInt(_lastShownKey(a), 0);
     return DateTime.now().millisecondsSinceEpoch - last > _cooldownMs;
@@ -51,12 +55,14 @@ class _CommunityNudgeState extends State<CommunityNudge> {
 
   void _snooze(_Ask a) {
     Prefs.setInt(_lastShownKey(a), DateTime.now().millisecondsSinceEpoch);
-    setState(() => _ask = null);
+    // Dev mode ignores its own cooldown (see _eligible) — writing it is
+    // harmless, but leaving the card up is what testing it needs.
+    setState(() => _ask = Prefs.getBool(Prefs.devMode, false) ? _pick() : null);
   }
 
   void _silence(_Ask a) {
     Prefs.setBool(_dismissedKey(a), true);
-    setState(() => _ask = null);
+    setState(() => _ask = Prefs.getBool(Prefs.devMode, false) ? _pick() : null);
   }
 
   @override

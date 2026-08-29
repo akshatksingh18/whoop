@@ -8169,6 +8169,22 @@
   "@sleepDetailBackToAutomatic": {
     "description": "Button: revert a manual sleep window override back to automatic staging."
   },
+  "sleepDetailNotSleep": "Not sleep",
+  "@sleepDetailNotSleep": {
+    "description": "Button: reject this window entirely — it was not sleep at all."
+  },
+  "sleepDetailRejectedTitle": "Marked as not sleep",
+  "@sleepDetailRejectedTitle": {
+    "description": "Status card title for a night the user rejected outright as not sleep."
+  },
+  "sleepDetailRejectedBody": "You told us this stretch was not sleep, so nothing is scored for it.",
+  "@sleepDetailRejectedBody": {
+    "description": "Status card body for a night the user rejected outright as not sleep."
+  },
+  "sleepDetailUndoRejection": "Undo — go back to automatic",
+  "@sleepDetailUndoRejection": {
+    "description": "Button: undo a not-sleep rejection and return the day to automatic staging."
+  },
   "sleepDetailReanalysing": "Re-analysing the night…",
   "@sleepDetailReanalysing": {
     "description": "Progress label shown while the night is being re-derived after a window edit."

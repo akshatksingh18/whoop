@@ -1970,6 +1970,32 @@ class AppState extends ChangeNotifier {
     await _reanalyzeForOverride();
   }
 
+  /// Reject a day's detected main sleep entirely — "this was not sleep at
+  /// all", the missing counterpart to [confirmSleep] (naps already have this
+  /// via `sleep_nap` source='rejected'; main-sleep sessions didn't — edge#248).
+  /// Same table, same force-re-derive; `source: 'rejected'` tells
+  /// `calendarDays` (substrate.dart) to skip staging this window rather than
+  /// force it, so the day re-derives with no main sleep at all. Reversible
+  /// the same way as any other override: [clearSleepOverride].
+  Future<void> rejectSleep(String date) async {
+    if (repo == null) return;
+    final sleep = await repo!.getDaySleep(date);
+    final onset = (sleep['onset_ts'] as num?)?.toInt();
+    final offset = (sleep['wake_ts'] as num?)?.toInt();
+    // The rejected window is stored for the record, same as a rejected nap —
+    // it is never read back once source is 'rejected' (staging is skipped
+    // outright), so an absent detected window falls back to a harmless
+    // same-day placeholder rather than blocking the rejection.
+    final fallback = DateTime.parse(date).millisecondsSinceEpoch ~/ 1000;
+    await LocalDb.putSleepOverride(
+      dayId: date,
+      onsetTs: onset ?? fallback,
+      offsetTs: offset ?? (fallback + 1),
+      source: 'rejected',
+    );
+    await _reanalyzeForOverride();
+  }
+
   /// Remove a manual/confirmed override for [date] — revert to auto/fallback.
   Future<void> clearSleepOverride(String date) async {
     await LocalDb.deleteSleepOverride(date);

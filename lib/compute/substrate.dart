@@ -941,7 +941,11 @@ class SleepWindowOverride {
   final String dayId;
   final int onsetSec;
   final int offsetSec;
-  final String source; // 'manual' | 'confirmed'
+  final String source; // 'manual' | 'confirmed' | 'rejected'
+  // 'rejected': onsetSec/offsetSec still carry the window being rejected (the
+  // auto-detected window at the time of rejection, same convention the
+  // already-shipped rejected-nap rows use), but the window is never staged —
+  // see calendarDays' `ov.source == 'rejected'` branch.
 
   const SleepWindowOverride({
     required this.dayId,
@@ -1070,7 +1074,14 @@ List<PhysioDay> calendarDays(
 
       ana.SleepSegmentation s;
       String src;
-      if (ov != null) {
+      if (ov != null && ov.source == 'rejected') {
+        // The user's word again, the other direction: this was NOT sleep at
+        // all. Skip detection/staging entirely rather than force a window —
+        // the day derives with no main sleep, same as the already-shipped
+        // rejected-nap path (`sleep_nap` source='rejected').
+        s = ana.SleepSegmentation.absent;
+        src = 'rejected';
+      } else if (ov != null) {
         // The user's word — force the window, skip detection entirely.
         s = ana.segmentSleep(
           accelSlice,
@@ -1156,6 +1167,11 @@ List<PhysioDay> calendarDays(
             ));
           }
         }
+      } else if (src == 'rejected') {
+        // No window to stage (deliberately), but the day still needs to know
+        // it was a rejection rather than an ordinary absence — sleep_detail
+        // reads this to keep the "not sleep" state from re-prompting.
+        sleepSource = 'rejected';
       }
     }
 
@@ -1174,7 +1190,9 @@ List<PhysioDay> calendarDays(
               : (sleepSource == 'manual' || sleepSource == 'confirmed'
                   ? const <String>['SLEEP_MANUAL']
                   : const <String>[]))
-          : const <String>['NO_SLEEP_DETECTED'],
+          : (sleepSource == 'rejected'
+              ? const <String>['SLEEP_REJECTED']
+              : const <String>['NO_SLEEP_DETECTED']),
     ));
     dayStart = dayEnd;
   }

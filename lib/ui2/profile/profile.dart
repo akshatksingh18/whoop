@@ -17,7 +17,6 @@ import '../../health/health_import_state.dart' show storeName;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
-import '../community_links.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import 'devices.dart';

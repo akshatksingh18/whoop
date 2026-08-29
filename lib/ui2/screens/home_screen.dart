@@ -41,7 +41,6 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
-import '../nudges.dart';
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'coach.dart';

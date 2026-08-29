@@ -9,7 +9,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../l10n/app_localizations.dart';
 import '../state/prefs.dart';
-import 'community_links.dart';
 import 'ui2.dart';
 
 enum _Ask { discord, donate }

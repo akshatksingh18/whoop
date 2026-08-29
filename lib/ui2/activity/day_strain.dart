@@ -280,9 +280,10 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
             footnote: l?.dayStrainChartFootnote(drawn) ??
-                'Accumulated, so it only ever climbs — the STEEP parts '
-                    'are where the effort was. Built from $drawn recorded waking '
-                    'minutes.',
+                'Effort banked above your usual waking pace — it can ease '
+                    'later in the day if intensity drops back toward that '
+                    'pace, even though the STEEP parts already happened. '
+                    'Built from $drawn recorded waking minutes.',
             child: CustomPaint(
               size: Size.infinite,
               painter: LineChart(d.curve, p.on(C.purple),

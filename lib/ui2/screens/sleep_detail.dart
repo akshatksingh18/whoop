@@ -427,6 +427,12 @@ class _SleepDetailState extends State<SleepDetail> {
     }
 
     if (!d.hasNight) {
+      // "No night" also covers a night the user REJECTED outright (edge#248):
+      // staging was skipped on purpose, so this day has no window at all — but
+      // that must stay reversible the same way any other override is.
+      final rejectedDay = d.day;
+      final rejected =
+          (d.night['sleep_source'] as String?) == 'rejected' && rejectedDay != null;
       return detailScaffold(c, title, [
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
@@ -435,13 +441,27 @@ class _SleepDetailState extends State<SleepDetail> {
         // those says so and leaves the stepper above it, so it is a day you
         // walk off rather than a dead end.
         StatusCard(
-          l?.sleepDetailNoNightTitle ?? 'No night to show',
-          l?.sleepDetailNoNightBody ??
-              'No stretch of band recordings long enough to score.',
-          fix: l?.sleepDetailNoNightFix ??
-              'Wear the band overnight and sync in the morning',
-          icon: LucideIcons.moon,
+          rejected
+              ? (l?.sleepDetailRejectedTitle ?? 'Marked as not sleep')
+              : (l?.sleepDetailNoNightTitle ?? 'No night to show'),
+          rejected
+              ? (l?.sleepDetailRejectedBody ??
+                  'You told us this stretch was not sleep, so nothing is '
+                      'scored for it.')
+              : (l?.sleepDetailNoNightBody ??
+                  'No stretch of band recordings long enough to score.'),
+          fix: rejected ? '' : (l?.sleepDetailNoNightFix ??
+              'Wear the band overnight and sync in the morning'),
+          icon: rejected ? LucideIcons.undo2 : LucideIcons.moon,
         ),
+        if (rejected) ...[
+          const SizedBox(height: S.x2),
+          TextButton(
+            onPressed: _saving ? null : () => _clearWindow(rejectedDay),
+            child: Text(
+                l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
+          ),
+        ],
       ]);
     }
 
@@ -655,6 +675,13 @@ class _SleepDetailState extends State<SleepDetail> {
                 child:
                     Text(l?.sleepDetailBackToAutomatic ?? 'Back to automatic'),
               ),
+            // The missing third answer next to "Looks right"/"Edit": naps
+            // already have a reject action (sleep_nap source='rejected');
+            // a whole-night main-sleep session didn't (edge#248).
+            TextButton(
+              onPressed: busy ? null : () => _rejectWindow(day),
+              child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
+            ),
           ]),
           if (busy) ...[
             const SizedBox(height: S.x2),
@@ -680,6 +707,9 @@ class _SleepDetailState extends State<SleepDetail> {
 
   Future<void> _clearWindow(String day) =>
       _runOverride(() => context.read<AppState>().clearSleepOverride(day));
+
+  Future<void> _rejectWindow(String day) =>
+      _runOverride(() => context.read<AppState>().rejectSleep(day));
 
   /// Two pickers, seeded from the window we already have — the user is
   /// correcting times, not entering a date, so the DATES stay as measured and

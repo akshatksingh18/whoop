@@ -3,15 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenStrap Edge — use your WHOOP 4.0 without a subscription</title>
-<meta name="description" content="An open-source app that makes a WHOOP 4.0 useful without a WHOOP subscription. Pairs over Bluetooth, computes everything on your phone. No cloud, no account, MIT licensed.">
-<meta property="og:title" content="OpenStrap Edge — use your WHOOP 4.0 without a subscription">
+<title>OpenStrap Edge — use your WHOOP 4.0, 5, or MG without a subscription</title>
+<meta name="description" content="An open-source app that makes a WHOOP band useful without a WHOOP subscription. Pairs over Bluetooth, computes recovery, strain and sleep entirely on your phone. No cloud, no account, MIT licensed.">
+<meta property="og:title" content="OpenStrap Edge — use your WHOOP band without a subscription">
 <meta property="og:description" content="Pairs over Bluetooth, computes everything on your phone. No cloud, no account, MIT licensed.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://openstrap.github.io/edge/">
+<meta property="og:url" content="https://openstrap.site/">
 <meta property="og:image" content="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/today.png">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://openstrap.site/">
 <link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "MobileApplication",
+  "name": "OpenStrap Edge",
+  "url": "https://openstrap.site/",
+  "description": "Open-source app that reads a WHOOP 4.0, WHOOP 5, or MG band over Bluetooth and computes recovery, strain and sleep entirely on-device, without a WHOOP subscription.",
+  "operatingSystem": "iOS, Android",
+  "applicationCategory": "HealthApplication",
+  "license": "https://github.com/OpenStrap/edge/blob/main/LICENSE",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "OpenStrap", "url": "https://github.com/OpenStrap" }
+}
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -26,9 +41,9 @@
 
   <main>
     <section class="hero">
-      <h1>Your WHOOP&nbsp;4.0 doesn&rsquo;t stop working when the subscription does.</h1>
+      <h1>Your strap doesn&rsquo;t stop working when the subscription does.</h1>
       <p class="lede">
-        Only the app goes dark. Edge pairs with the band over Bluetooth, decodes what it
+        Only the app goes dark. Edge pairs with your band over Bluetooth, decodes what it
         recorded, and works out your sleep, recovery, strain and the rest &mdash;
         entirely on your phone. No account, no subscription, and no server that ever
         receives your health data.
@@ -47,7 +62,24 @@
 
       <p class="fineprint">
         Free and MIT licensed. Not affiliated with WHOOP.
-        Tested on WHOOP&nbsp;4.0 &mdash; 5.0&nbsp;/&nbsp;MG support is experimental.
+      </p>
+    </section>
+
+    <section class="honest" aria-label="Device support">
+      <h2>Supports</h2>
+      <ul>
+        <li><strong>WHOOP 4, WHOOP 5, MG</strong> &mdash; full support: sleep, recovery,
+          strain, everything computed on-device. WHOOP 4 gets the most daily wear-testing.</li>
+        <li><strong>Any standard Bluetooth heart-rate strap</strong> &mdash; pairs for
+          workout tracking today (heart rate and beat timing, stored and shown). Full
+          metrics from it are on the roadmap.</li>
+        <li><strong>Oura Ring</strong> &mdash; the protocol groundwork is in the codebase;
+          not pairable in the app yet.</li>
+      </ul>
+      <p class="fineprint">
+        More device support is ongoing work, not a promise with a date &mdash; see the
+        <a href="https://github.com/OpenStrap/protocol">protocol</a> repo for what's decoded
+        so far.
       </p>
     </section>
 

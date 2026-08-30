@@ -1,6 +1,6 @@
 # Openstrap Edge
 
-An app that makes a WHOOP 4.0 useful without a WHOOP subscription. Connects to the band over Bluetooth, computes everything on your phone locally iOS and Android.
+An app that makes a WHOOP band useful without a WHOOP subscription. Connects over Bluetooth, computes everything on your phone, iOS and Android.
 
 [![test](https://github.com/OpenStrap/edge/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStrap/edge/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -8,6 +8,7 @@ An app that makes a WHOOP 4.0 useful without a WHOOP subscription. Connects to t
 [![APK](https://img.shields.io/github/v/release/OpenStrap/edge?label=Android%20APK&logo=android&logoColor=white)](https://github.com/OpenStrap/edge/releases/latest)
 [![downloads](https://img.shields.io/github/downloads/OpenStrap/edge/total?label=downloads&color=6aa9e0)](https://github.com/OpenStrap/edge/releases)
 [![stars](https://img.shields.io/github/stars/OpenStrap/edge?style=flat&color=e2825f)](https://github.com/OpenStrap/edge/stargazers)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/dUXds5MWkd)
 [![Donate](https://img.shields.io/badge/donate-BTC%20%2F%20ETH-f7931a)](DONATE.md)
 
 > Not affiliated with WHOOP. Not a clone of their app or their scores — see below.
@@ -79,8 +80,9 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 
 ## Checklist
 
-- **WHOOP 4.0 is the one that's properly tested.** WHOOP 5 and MG work too, but they're
-  experimental — see the note further down.
+- Pairs, syncs, and decodes WHOOP 4.0, WHOOP 5, and MG. WHOOP 4.0 gets the most daily
+  wear-testing since that's what's on my wrist — open an issue if 5 or MG does something
+  wrong.
 - Not affiliated with WHOOP, doesn't talk to their servers.
 - Not a clone of their algorithms — different math, published methods, cited in the
   analytics repo. Don't expect identical numbers to what their app shows.
@@ -144,10 +146,9 @@ shortcuts, a smart alarm that buzzes the band.
   against a lab, don't treat any of it as a diagnosis.
 - Not on the App Store or Play Store yet. iOS is a public TestFlight beta, which is a
   normal install but still a beta; Android is an APK straight off Releases.
-- WHOOP 5.0 / MG support is **experimental**. Both pair, sync and decode, and the work is
-  checked against real records off real bands — but 4.0 is the one I wear every day, so
-  it's the one that gets found out when it breaks. Expect rough edges on 5 and MG, and
-  open an issue when you hit one.
+- WHOOP 5 and MG support is newer than 4.0's and hasn't had as many bands, firmwares,
+  and daily hours put on it. Expect the occasional rough edge, and open an issue when
+  you hit one.
 
 ## Run it
 
@@ -258,6 +259,11 @@ Protocol decoding and analytics live in their own repos —
 - [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.
 - [`guides/BUZZ_MEANINGS.md`](guides/BUZZ_MEANINGS.md) — what each buzz pattern means.
 
+## Community
+
+[Discord](https://discord.gg/dUXds5MWkd) — for questions, band-specific quirks, and
+bug reports that don't need a full issue yet.
+
 ## Contributing
 
 Found something broken? Open an issue. Found something broken and fixed it? Even better,
@@ -294,11 +300,3 @@ different band is worth a great deal — see
 That cliff in mid-July is [Hackaday](https://hackaday.com/2026/07/15/making-a-locked-down-wearable-work-without-a-subscription/)
 and [Adafruit](https://blog.adafruit.com/2026/07/15/openstrap-edge-makes-a-whoop-4-0-band-useful-without-a-subscription)
 covering it on the same day.
-
-
-
-## Support the work
-
-Free, MIT, no company behind it. If it gave your band a second life,
-[**DONATE.md**](DONATE.md) has the BTC and EVM addresses and explains what they
-actually pay for. Bug reports from real bands are worth more than money, though.

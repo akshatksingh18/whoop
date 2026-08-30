@@ -110,6 +110,13 @@ couple of Siri shortcuts.
 
 Every screenshot above is real output from a WHOOP 4.0. 
 
+## Supports
+
+- **WHOOP 4, WHOOP 5, MG** — full support. Everything below is computed from these.
+- **Any standard Bluetooth heart-rate strap** — pairs for workout tracking today (heart
+  rate + beat timing, stored and shown). Feeding it into recovery/strain is on the roadmap.
+- **Oura Ring** — protocol groundwork exists in the codebase; not pairable in the app yet.
+
 ## What works
 
 **Health** — heart rate, HRV, sleep staging, recovery/readiness, strain, stress, an HRV

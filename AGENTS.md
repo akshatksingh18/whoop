@@ -18,14 +18,15 @@ local-first**: BLE offload → SQLite → on-device analytics → UI. No backend
 user data. Network use is limited to OTA update pointers, opt-in
 telemetry/Crashlytics, and BYOK LLM calls.
 
-Three sibling repos, strict separation — push work to the right one:
-- `OpenStrap/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
-- `OpenStrap/analytics` — metrics: HRV, sleep staging, readiness, strain.
-- `OpenStrap/edge` (**this repo**) — flows, BLE link management, storage, UI.
+One monorepo, strict source-area separation — put work in the right tree:
+- `packages/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
+- `packages/analytics` — metrics: HRV, sleep staging, readiness, strain.
+- the root app (`lib/`, platform folders, and app config) — flows, BLE link
+  management, storage, UI.
 
 New opcode/record → protocol. New metric → analytics. New screen/flow/table →
-edge. A PR implementing a metric inside `edge/lib/compute` is in the wrong repo
-unless it is pure orchestration.
+the root app. A change implementing a metric inside `lib/compute` is in the
+wrong source area unless it is pure orchestration.
 
 ## 2. Architecture map (`lib/`, well over 200 files — these five are the biggest by far)
 
@@ -89,15 +90,17 @@ a hotspot.
    imputation, no substituted defaults, no deriving one metric from another as a
    fallback. Most-violated rule in the repo (§4.1).
 4. **Bump `kAlgoVersion`** (`compute/derivation_engine.dart`) whenever any
-   analytics *output* changes, including via a sibling re-pin. Rows are immutable
-   per version; without a bump nothing recomputes. Add a changelog entry above
-   the constant.
-5. **A bump citing a sibling change must be backed by the pin.** Verify the SHA
-   in `pubspec.yaml` actually contains the cited change. v43's changelog
-   described an analytics fix its pin never contained; the bug stayed live three
-   releases and only shipped at v46.
-6. **Siblings pinned to full commit SHAs, never branch refs.** `ref: main` on
-   analytics shipped main-thread ANRs into 0.9.13/0.9.14.
+   analytics *output* changes, including a change under `packages/analytics`.
+   Rows are immutable per version; without a bump nothing recomputes. Add a
+   changelog entry above the constant.
+5. **A bump citing a package change must include that source change.** Verify the
+   monorepo commit actually contains it. v43's changelog described an analytics
+   fix its dependency pin never contained; the bug stayed live three releases
+   and only shipped at v46.
+6. **In-tree packages are reviewed commits, never floating dependencies.**
+   `ref: main` on analytics shipped main-thread ANRs into 0.9.13/0.9.14. Keep
+   the tracked `packages/` sources, `packages/upstream-revisions.yaml`, and path
+   dependencies in the same history.
 7. **Day labels are LOCAL.** Always `todayLabel()` / `dayLabelOf()` from
    `data/day_label.dart`; never `DateTime.now().toUtc()...substring(0,10)`. Epoch
    timestamps (rec_ts, session bounds, prune cutoffs) are absolute — do not
@@ -203,18 +206,18 @@ breaking on DST, a briefing greeting "morning" in the afternoon, sleep not
 detected in non-UTC timezones, and an alarm armed in the phone's clock frame
 instead of the strap's RTC frame so it never fired.
 
-### 4.9 Dependency pinning / lockfile / release metadata
+### 4.9 Package revisions / lockfile / release metadata
 Four separate passes. Committed path `dependency_overrides` broke a release;
 `pubspec.lock` resolved a package via a stale local path; floating `ref: main`
 rode analytics v42 into 0.9.13; a PR bumped `kAlgoVersion` while the lock still
 pinned the pre-fix analytics commit, requiring a manual merge-order gate; and
 `0.9.17+1` shipped versionCode 1 → `INSTALL_FAILED_VERSION_DOWNGRADE`, making
 the release uninstallable.
-`pubspec_overrides.yaml` redirects siblings to `../analytics` / `../protocol` and
-is gitignored — committing a path override fails CI `flutter pub get` (exit 66).
-Note the tracked `pubspec.lock` currently records `source: path` for both
-siblings, so it provides **no** pin guarantee; `pubspec.yaml` is the source of
-truth. `version:` must always keep its `+BUILD` suffix, and the iOS widget/watch
+This monorepo tracks protocol and analytics under `packages/` and resolves both
+through paths in `pubspec.yaml`; the package trees and app therefore move in the
+same Git history. Do not use `pubspec_overrides.yaml` or restore floating Git
+refs for them. Keep `pubspec.lock` consistent with those paths. `version:` must
+always keep its `+BUILD` suffix, and the iOS widget/watch
 `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped manually and drift.
 
 ### 4.10 Duplicated / inconsistent values across screens

@@ -37,46 +37,51 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // The other half of the serve seam: a day_result records the algo version and
-  // NOTHING about which analytics/protocol produced it, so two builds pinning
-  // different siblings at the same version serve each other's days as
+  // NOTHING about which analytics/protocol produced it, so two builds carrying
+  // different package revisions at the same version serve each other's days as
   // equivalent, and the substrate is pruned behind them. That is not detectable
-  // at runtime — the only place it can be caught is here, where the pin and the
-  // version constant have to agree. Repin, and this goes red on the line above
-  // kAlgoVersion.
-  test('the sibling pins match the SHAs kAlgoVersion was derived against', () {
+  // at runtime — the only place it can be caught is here, where the imported
+  // revision manifest and version constants have to agree. Update a package,
+  // and this goes red on the line above kAlgoVersion.
+  test('the in-tree package revisions match the kAlgoVersion provenance', () {
     final deps =
         (loadYaml(File('pubspec.yaml').readAsStringSync())
             as Map)['dependencies'] as Map;
-    String ref(String pkg) => ((deps[pkg] as Map)['git'] as Map)['ref'] as String;
+    String path(String pkg) => (deps[pkg] as Map)['path'] as String;
 
     const why =
-        'sibling repinned without visiting kAlgoVersion. bump it and say what '
-        'moved, or every day already derived at this version is served as if '
-        'it came from the new analytics';
-    expect(ref('openstrap_analytics'), kAnalyticsPin, reason: why);
-    expect(ref('openstrap_protocol'), kProtocolPin, reason: why);
+        'an in-tree package moved without visiting kAlgoVersion. bump it and '
+        'say what moved, or every day already derived at this version is '
+        'served as if it came from the new analytics';
+    expect(path('openstrap_analytics'), 'packages/analytics');
+    expect(path('openstrap_protocol'), 'packages/protocol');
+
+    final revisions =
+        loadYaml(File('packages/upstream-revisions.yaml').readAsStringSync())
+            as Map;
+    expect(revisions['analytics'], kAnalyticsPin, reason: why);
+    expect(revisions['protocol'], kProtocolPin, reason: why);
 
     // AND THE LOCK, which is the file that actually decides what a build
-    // resolves. `pubspec.yaml` and the constants agreeing while the lock
-    // trails behind is a PARTIAL repin — the exact failure mode the repin
-    // comments promise this test catches, and it did not until it read this
-    // file. `resolved-ref` too: `ref` alone can name a moved branch.
+    // resolves. `pubspec.yaml` and the revision manifest agreeing while the
+    // lock trails behind is a PARTIAL package move.
     final locked =
         (loadYaml(File('pubspec.lock').readAsStringSync())
             as Map)['packages'] as Map;
-    String lockRef(String pkg, String field) =>
-        ((locked[pkg] as Map)['description'] as Map)[field] as String;
+    String lockPath(String pkg) =>
+        ((locked[pkg] as Map)['description'] as Map)['path'] as String;
 
     const whyLock =
-        'pubspec.lock disagrees with pubspec.yaml and the pin constants — a '
-        'partial repin. Move all three together, or a build resolves a '
-        'sibling nobody reasoned about';
-    for (final field in const ['ref', 'resolved-ref']) {
-      expect(lockRef('openstrap_analytics', field), kAnalyticsPin,
-          reason: whyLock);
-      expect(lockRef('openstrap_protocol', field), kProtocolPin,
-          reason: whyLock);
-    }
+        'pubspec.lock disagrees with the tracked package paths — a partial '
+        'monorepo update. Move the manifest, source, and lock together';
+    expect(lockPath('openstrap_analytics'), 'packages/analytics',
+        reason: whyLock);
+    expect(lockPath('openstrap_protocol'), 'packages/protocol',
+        reason: whyLock);
+    expect((locked['openstrap_analytics'] as Map)['source'], 'path',
+        reason: whyLock);
+    expect((locked['openstrap_protocol'] as Map)['source'], 'path',
+        reason: whyLock);
   });
 
   const name = 'db_serve_version_test.db';

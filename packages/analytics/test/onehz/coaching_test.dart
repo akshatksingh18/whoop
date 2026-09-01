@@ -1,0 +1,594 @@
+// Coaching surface — synthetic known-answer tests. Covers PR #11's untested
+// coaching API.
+//
+// vo2maxEstimate and physiologicalAge and their tests are GONE (CV-02): the
+// first was 15.3·maxHr/rhr with maxHr a constant per user, i.e. k/RHR — the
+// RHR chart with the wrong unit on the axis — and the second then counted the
+// same RHR twice, once through that VO2max and once directly.
+import 'package:test/test.dart';
+import 'package:openstrap_analytics/src/onehz/types.dart';
+import 'package:openstrap_analytics/src/onehz/human/coaching.dart';
+
+void main() {
+  group('sleepNeed', () {
+    test('21 strain adds the full 45-min bonus', () {
+      final m = sleepNeed(
+        baselineNeedSec: 28800, // 8h
+        sleepDebtSec: 0,
+        dayStrain: 21.0,
+        napCreditSec: 0,
+      );
+      expect(m.present, isTrue);
+      expect(m.tier, Tier.estimate);
+      expect(m.confidence, closeTo(0.6, 1e-9));
+      expect(m.value!.needSec, closeTo(28800 + 2700, 1));
+    });
+
+    test('mid case: baseline + debt + partial strain bonus − nap credit', () {
+      // strain 10.5 → bonus = (10.5/21)*2700 = 1350 s.
+      // 28800 + 3600 + 1350 − 1800 = 31950, inside the [6h,11h] band.
+      final m = sleepNeed(
+        baselineNeedSec: 28800,
+        sleepDebtSec: 3600,
+        dayStrain: 10.5,
+        napCreditSec: 1800,
+      );
+      expect(m.value!.needSec, closeTo(31950, 1e-6));
+    });
+
+    test('nap credit is subtracted', () {
+      final base = sleepNeed(
+        baselineNeedSec: 28800,
+        sleepDebtSec: 0,
+        dayStrain: 0,
+        napCreditSec: 0,
+      ).value!.needSec;
+      final withNap = sleepNeed(
+        baselineNeedSec: 28800,
+        sleepDebtSec: 0,
+        dayStrain: 0,
+        napCreditSec: 1800,
+      ).value!.needSec;
+      expect(withNap, closeTo(base - 1800, 1e-6));
+    });
+
+    test('clamps to the 11 h ceiling', () {
+      final m = sleepNeed(
+        baselineNeedSec: 999999,
+        sleepDebtSec: 0,
+        dayStrain: 0,
+        napCreditSec: 0,
+      );
+      expect(m.value!.needSec, 11 * 3600.0);
+    });
+
+    test('clamps to the 6 h floor (huge nap credit cannot go below 6h)', () {
+      final m = sleepNeed(
+        baselineNeedSec: 28800,
+        sleepDebtSec: 0,
+        dayStrain: 0,
+        napCreditSec: 999999,
+      );
+      expect(m.value!.needSec, 6 * 3600.0);
+    });
+  });
+
+  group('sleepPerformance', () {
+    test('exact need → 100%', () {
+      final m = sleepPerformance(28800, 28800);
+      expect(m.present, isTrue);
+      expect(m.tier, Tier.estimate);
+      expect(m.confidence, closeTo(0.7, 1e-9));
+      expect(m.value!.pct, closeTo(100.0, 1e-9));
+    });
+
+    test('half of need → 50%', () {
+      expect(sleepPerformance(14400, 28800).value!.pct, closeTo(50.0, 1e-9));
+    });
+
+    test('over-need caps at 100%', () {
+      expect(sleepPerformance(40000, 28800).value!.pct, closeTo(100.0, 1e-9));
+    });
+
+    test('zero sleep → 0%', () {
+      expect(sleepPerformance(0, 28800).value!.pct, closeTo(0.0, 1e-9));
+    });
+
+    test('non-positive need → absent (no divide-by-zero)', () {
+      expect(sleepPerformance(28800, 0).present, isFalse);
+      expect(sleepPerformance(28800, -1).present, isFalse);
+    });
+  });
+
+  group('recommendedBedtime', () {
+    test('backward math from wake time, efficiency-adjusted time-in-bed', () {
+      // need 8h=28800s, eff 90%→0.90, inBed=32000s=533.333min.
+      // wake 07:00 = 420 min. bed = (420 − 533.333) mod 1440 → 1326.667.
+      final m = recommendedBedtime(
+        needSec: 28800,
+        typicalWakeMinOfDay: 420,
+        typicalEfficiencyPct: 90,
+      );
+      expect(m.present, isTrue);
+      expect(m.tier, Tier.estimate);
+      expect(m.value!.bedtimeMinOfDay, closeTo(1326.6667, 1e-3));
+    });
+
+    test('efficiency is clamped to [0.75, 0.99]', () {
+      // A wild 200% efficiency is clamped to 0.99, not >1.
+      final m = recommendedBedtime(
+        needSec: 28800,
+        typicalWakeMinOfDay: 600,
+        typicalEfficiencyPct: 200,
+      );
+      // inBed = 28800/0.99 = 29090.9s = 484.848 min; bed = 600 − 484.848 = 115.152.
+      expect(m.value!.bedtimeMinOfDay, closeTo(115.1515, 1e-3));
+    });
+
+    test('minute-of-day never goes negative (wraparound to [0,1440))', () {
+      final m = recommendedBedtime(
+        needSec: 28800,
+        typicalWakeMinOfDay: 60, // 01:00 wake → bed the previous "day"
+        typicalEfficiencyPct: 90,
+      );
+      expect(m.value!.bedtimeMinOfDay, greaterThanOrEqualTo(0.0));
+      expect(m.value!.bedtimeMinOfDay, lessThan(1440.0));
+    });
+  });
+
+  group('recommendedWake', () {
+    test('wake = bedtime + the SAME time in bed the bedtime was backed off',
+        () {
+      // an-wellness-2. This used to add round(need/90)*90 SLEEP minutes onto a
+      // bedtime built from an IN-BED duration, so the pair always described a
+      // short night: at need 8 h / eff 88 % it gave bed 21:55 and wake 05:25 —
+      // a 7.50 h span for an 8.00 h need, and 95 min before the 07:00 typical
+      // wake the bedtime was anchored to. Now the two ends agree exactly, so
+      // target wake lands back on the user's own typical wake.
+      // need 8h, eff 88% -> inBed = 28800/0.88 = 32727.27s = 545.4545 min.
+      final bed = recommendedBedtime(
+        needSec: 28800,
+        typicalWakeMinOfDay: 420, // 07:00
+        typicalEfficiencyPct: 88,
+      );
+      final wake = recommendedWake(
+        bedtimeMinOfDay: bed.value!.bedtimeMinOfDay,
+        needSec: 28800,
+        typicalEfficiencyPct: 88,
+      );
+      expect(wake.present, isTrue);
+      expect(wake.tier, Tier.estimate);
+      expect(wake.confidence, closeTo(0.55, 1e-9));
+      expect(wake.value!.wakeMinOfDay, closeTo(420.0, 1e-9));
+    });
+
+    test('INVARIANT: the span is never short of need/efficiency', () {
+      // The old shortfall was systematic, not unlucky: the efficiency gap is
+      // need*0.136 (65 min at an 8 h need) while the biggest possible cycle
+      // round-UP was 45 min. Grid it.
+      for (final needH in [6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 10.0, 11.0]) {
+        for (final effPct in [75.0, 80.0, 85.0, 88.0, 92.0, 99.0]) {
+          final needSec = needH * 3600.0;
+          final bed = recommendedBedtime(
+            needSec: needSec,
+            typicalWakeMinOfDay: 420,
+            typicalEfficiencyPct: effPct,
+          ).value!.bedtimeMinOfDay;
+          final wake = recommendedWake(
+            bedtimeMinOfDay: bed,
+            needSec: needSec,
+            typicalEfficiencyPct: effPct,
+          ).value!.wakeMinOfDay;
+          final span = (wake - bed) % 1440.0;
+          final required = needSec / (effPct / 100.0) / 60.0;
+          expect(span, greaterThanOrEqualTo(required - 1e-6),
+              reason: 'need ${needH}h at $effPct% eff: '
+                  'span $span min < in-bed $required min');
+        }
+      }
+    });
+
+    test('more need never moves target wake EARLIER', () {
+      // The cycle rounding used to make a 0.5 h need increase shift target wake
+      // 55 min LATER (05:25 -> 06:20 at a fixed 07:00 typical wake) by crossing
+      // a 90-minute boundary. Monotone now, and pinned at typical wake.
+      double wakeFor(double needH) {
+        final bed = recommendedBedtime(
+          needSec: needH * 3600.0,
+          typicalWakeMinOfDay: 420,
+          typicalEfficiencyPct: 88,
+        ).value!.bedtimeMinOfDay;
+        return recommendedWake(
+          bedtimeMinOfDay: bed,
+          needSec: needH * 3600.0,
+          typicalEfficiencyPct: 88,
+        ).value!.wakeMinOfDay;
+      }
+
+      for (final h in [7.0, 7.5, 8.0, 8.5, 9.0]) {
+        expect(wakeFor(h), closeTo(420.0, 1e-9));
+      }
+    });
+
+    test('wraps around midnight into [0,1440)', () {
+      // bed 23:30 = 1410, need 7.5h at 88% -> inBed 511.36 min -> 1921.36 mod
+      // 1440 = 481.36 (08:01).
+      final m = recommendedWake(
+        bedtimeMinOfDay: 1410,
+        needSec: 27000,
+        typicalEfficiencyPct: 88,
+      );
+      expect(m.value!.wakeMinOfDay, closeTo(481.3636, 1e-3));
+      expect(m.value!.wakeMinOfDay, greaterThanOrEqualTo(0.0));
+      expect(m.value!.wakeMinOfDay, lessThan(1440.0));
+    });
+  });
+
+  group('strainTarget', () {
+    test('null recovery → absent', () {
+      final m =
+          strainTarget(recovery0to100: null, ctl: null, atl: null, tsb: null);
+      expect(m.present, isFalse);
+    });
+
+    test('recovery bands: recover / ease / maintain / push', () {
+      expect(
+          strainTarget(recovery0to100: 20, ctl: null, atl: null, tsb: null)
+              .value!
+              .band,
+          'recover');
+      expect(
+          strainTarget(recovery0to100: 50, ctl: null, atl: null, tsb: null)
+              .value!
+              .band,
+          'ease');
+      expect(
+          strainTarget(recovery0to100: 70, ctl: null, atl: null, tsb: null)
+              .value!
+              .band,
+          'maintain');
+      expect(
+          strainTarget(recovery0to100: 90, ctl: null, atl: null, tsb: null)
+              .value!
+              .band,
+          'push');
+    });
+
+    test('maintain band base window is [9,14]', () {
+      final m =
+          strainTarget(recovery0to100: 70, ctl: null, atl: null, tsb: null);
+      expect(m.value!.targetMin, closeTo(9, 1e-9));
+      expect(m.value!.targetMax, closeTo(14, 1e-9));
+      expect(m.tier, Tier.estimate);
+      expect(m.confidence, closeTo(0.6, 1e-9));
+    });
+
+    test('REGRESSION: a recover target is reachable, not below the floor', () {
+      // The bands were sized for a scale the app never produced: "recover 4–8"
+      // sat BELOW what an inactive worn day scored (~13 on the old map), so a
+      // low-recovery day asked for a number the user had already passed before
+      // getting out of bed. A recover ceiling must sit above a rest day (2–4)
+      // and below a typical active day (8–11).
+      final m =
+          strainTarget(recovery0to100: 20, ctl: null, atl: null, tsb: null);
+      expect(m.value!.band, 'recover');
+      expect(m.value!.targetMin, closeTo(0, 1e-9));
+      expect(m.value!.targetMax, greaterThan(4.0));
+      expect(m.value!.targetMax, lessThan(8.0));
+    });
+
+    test('a push target stays inside what a real day can reach', () {
+      // 21 is a maximal day. A push ceiling above ~19 is not a target, it is a
+      // dare — the old band topped out at 18 on a scale whose real ceiling was
+      // ~16 for a marathon.
+      final m =
+          strainTarget(recovery0to100: 90, ctl: null, atl: null, tsb: null);
+      expect(m.value!.band, 'push');
+      expect(m.value!.targetMin, closeTo(13, 1e-9));
+      expect(m.value!.targetMax, lessThanOrEqualTo(19.0));
+    });
+
+    test('fatigue is judged on the ATL:CTL RATIO, not a raw TRIMP difference',
+        () {
+      // ctl/atl arrive as raw daily TRIMP (hundreds), but the thresholds were
+      // sized as if they were 0–21 strain points: `atl − ctl > 10` fired on
+      // ordinary week-to-week noise. 320 vs 300 is a 6.7 % lift — not fatigue —
+      // yet the old absolute test (diff 20 > 10) shrank the window for it.
+      final noise =
+          strainTarget(recovery0to100: 70, ctl: 300, atl: 320, tsb: null);
+      expect(noise.value!.targetMin, closeTo(9, 1e-9));
+      expect(noise.value!.targetMax, closeTo(14, 1e-9));
+
+      // A genuine 30 % acute lift over chronic still lowers the window.
+      final real =
+          strainTarget(recovery0to100: 70, ctl: 100, atl: 130, tsb: null);
+      expect(real.value!.targetMin, closeTo(8, 1e-9));
+      expect(real.value!.targetMax, closeTo(12, 1e-9));
+    });
+
+    test('freshness is judged on TSB relative to CTL, not a raw TRIMP value',
+        () {
+      // tsb 6 against a chronic load of 300 is 2 % — noise, not freshness.
+      final noise =
+          strainTarget(recovery0to100: 70, ctl: 300, atl: 294, tsb: 6);
+      expect(noise.value!.targetMax, closeTo(14, 1e-9));
+
+      // tsb 20 against a chronic load of 100 is a real 20 % taper.
+      final real = strainTarget(recovery0to100: 70, ctl: 100, atl: 80, tsb: 20);
+      expect(real.value!.targetMax, closeTo(15, 1e-9));
+    });
+
+    test('no load history leaves the recovery window untouched', () {
+      final m =
+          strainTarget(recovery0to100: 70, ctl: null, atl: null, tsb: null);
+      expect(m.value!.targetMin, closeTo(9, 1e-9));
+      expect(m.value!.targetMax, closeTo(14, 1e-9));
+      // A zero chronic load must not divide by zero into an adjustment.
+      final zero = strainTarget(recovery0to100: 70, ctl: 0, atl: 0, tsb: 0);
+      expect(zero.value!.targetMin, closeTo(9, 1e-9));
+      expect(zero.value!.targetMax, closeTo(14, 1e-9));
+    });
+
+    test('targets stay within [0,21] and hi > lo', () {
+      final m = strainTarget(recovery0to100: 90, ctl: null, atl: null, tsb: 99);
+      expect(m.value!.targetMin, greaterThanOrEqualTo(0.0));
+      expect(m.value!.targetMax, lessThanOrEqualTo(21.0));
+      expect(m.value!.targetMax, greaterThan(m.value!.targetMin));
+    });
+  });
+
+  group('journalCorrelations', () {
+    test('insufficient sample (<2 per side) is gated as insufficient', () {
+      // Only one tagged day for "coffee" → cannot compare.
+      final journal = <JournalDay>[
+        const JournalDay('d0', {'coffee'}),
+        const JournalDay('d1', {}),
+        const JournalDay('d2', {}),
+      ];
+      final dates = ['d0', 'd1', 'd2'];
+      final outcomes = <String, List<double?>>{
+        'recovery': [60, 62, 64],
+      };
+      final out = journalCorrelations(
+          journal: journal, dates: dates, outcomes: outcomes);
+      final coffee = out.firstWhere((c) => c.tag == 'coffee');
+      final eff = coffee.effects.single;
+      expect(eff.insufficient, isTrue);
+      expect(eff.meaningful, isFalse);
+      expect(eff.nTagged, 1);
+      expect(eff.higherSide, 'neither');
+    });
+
+    test('clear positive correlation is detected and marked meaningful', () {
+      // "alcohol" days have clearly lower recovery than untagged days. FIVE per
+      // side: at two per side there are only six label assignments, so no
+      // permutation p can reach the FDR bar (see the RD-10 group below).
+      final journal = <JournalDay>[
+        for (var i = 0; i < 5; i++) JournalDay('d$i', const {'alcohol'}),
+        for (var i = 5; i < 10; i++) JournalDay('d$i', const {}),
+      ];
+      final dates = [for (var i = 0; i < 10; i++) 'd$i'];
+      final outcomes = <String, List<double?>>{
+        'recovery': [40, 41, 42, 43, 44, 80, 81, 82, 83, 84],
+      };
+      final out = journalCorrelations(
+          journal: journal, dates: dates, outcomes: outcomes);
+      final eff = out.firstWhere((c) => c.tag == 'alcohol').effects.single;
+      expect(eff.insufficient, isFalse);
+      expect(eff.meaningful, isTrue);
+      expect(eff.delta, closeTo(42 - 82, 1e-9)); // −40
+      expect(
+          eff.higherSide, 'untagged'); // untagged (non-alcohol) recovers more
+      expect(eff.nTagged, 5);
+      expect(eff.nUntagged, 5);
+      expect(eff.pctChange, isNotNull);
+      expect(eff.pctChange!.abs(), greaterThanOrEqualTo(3.0));
+      expect(eff.q, isNotNull);
+      expect(eff.q!, lessThanOrEqualTo(0.10));
+    });
+
+    test('nulls are dropped from both sides before comparing', () {
+      final journal = <JournalDay>[
+        const JournalDay('d0', {'x'}),
+        const JournalDay('d1', {'x'}),
+        const JournalDay('d2', {}),
+        const JournalDay('d3', {}),
+      ];
+      final dates = ['d0', 'd1', 'd2', 'd3'];
+      final outcomes = <String, List<double?>>{
+        'hrv': [50, null, 60, 60], // tagged has only 1 valid → insufficient
+      };
+      final out = journalCorrelations(
+          journal: journal, dates: dates, outcomes: outcomes);
+      final eff = out.firstWhere((c) => c.tag == 'x').effects.single;
+      expect(eff.nTagged, 1);
+      expect(eff.insufficient, isTrue);
+    });
+
+    test('empty journal yields no correlations', () {
+      final out = journalCorrelations(
+        journal: const [],
+        dates: const ['d0', 'd1'],
+        outcomes: const {
+          'recovery': [50, 60]
+        },
+      );
+      expect(out, isEmpty);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION: journalCorrelations needs a dispersion test, and must not
+  // index an outcome list by dates.length without checking.
+  // -------------------------------------------------------------------------
+  group('journalCorrelations — dispersion + length guard (regression)', () {
+    test('a 3% mean gap swamped by within-group spread is NOT meaningful', () {
+      // tagged [50,80] mean 65 vs untagged [40,86] mean 63 => +3.17%, which
+      // PRE-FIX cleared the bare `pct.abs() >= 3.0` bar. Each side spans 30–46
+      // points, so Cohen's d is ~0.07: this is noise, not a journal effect.
+      final journal = <JournalDay>[
+        const JournalDay('d0', {'coffee'}),
+        const JournalDay('d1', {'coffee'}),
+        const JournalDay('d2', {}),
+        const JournalDay('d3', {}),
+      ];
+      final out = journalCorrelations(
+        journal: journal,
+        dates: const ['d0', 'd1', 'd2', 'd3'],
+        outcomes: const {
+          'recovery': [50, 80, 40, 86]
+        },
+      );
+      final eff = out.firstWhere((c) => c.tag == 'coffee').effects.single;
+      expect(eff.insufficient, isFalse);
+      expect(eff.pctChange!.abs(), greaterThanOrEqualTo(3.0),
+          reason: 'the old percentage bar IS cleared');
+      expect(eff.cohensD, isNotNull);
+      expect(eff.cohensD!.abs(), lessThan(0.5));
+      expect(eff.meaningful, isFalse,
+          reason: 'dispersion test must veto it (d=${eff.cohensD})');
+    });
+
+    test('a large, well-separated effect is still meaningful', () {
+      final out = journalCorrelations(
+        journal: [
+          for (var i = 0; i < 5; i++) JournalDay('d$i', const {'alcohol'}),
+          for (var i = 5; i < 10; i++) JournalDay('d$i', const {}),
+        ],
+        dates: [for (var i = 0; i < 10; i++) 'd$i'],
+        outcomes: const {
+          'recovery': [40, 41, 42, 43, 44, 80, 81, 82, 83, 84]
+        },
+      );
+      final eff = out.firstWhere((c) => c.tag == 'alcohol').effects.single;
+      expect(eff.meaningful, isTrue);
+      expect(eff.cohensD!.abs(), greaterThan(0.5));
+    });
+
+    // -----------------------------------------------------------------------
+    // RD-10. The verdict used to be `|Δ%| ≥ 3 AND |d| ≥ 0.5` with no test and no
+    // multiplicity correction, which under the null called a cell meaningful
+    // 65.5 % of the time at 2 vs 2 and 42.9 % at 3 vs 20.
+    // -----------------------------------------------------------------------
+    test('2 vs 2 cannot be meaningful however cleanly it separates', () {
+      final out = journalCorrelations(
+        journal: const [
+          JournalDay('d0', {'alcohol'}),
+          JournalDay('d1', {'alcohol'}),
+          JournalDay('d2', {}),
+          JournalDay('d3', {}),
+        ],
+        dates: const ['d0', 'd1', 'd2', 'd3'],
+        outcomes: const {
+          'recovery': [40, 42, 80, 82]
+        },
+      );
+      final eff = out.firstWhere((c) => c.tag == 'alcohol').effects.single;
+      expect(eff.cohensD!.abs(), greaterThan(0.5),
+          reason: 'the old d bar IS cleared');
+      expect(eff.pctChange!.abs(), greaterThanOrEqualTo(3.0),
+          reason: 'the old percentage bar IS cleared');
+      // Six label assignments, two of them at least as extreme => p ~ 1/3. No
+      // amount of separation can beat that, which is the whole point.
+      expect(eff.p!, greaterThan(0.3));
+      expect(eff.meaningful, isFalse);
+    });
+
+    test('3 tagged vs 20 untagged: a d ≥ 0.5 gap is not enough on its own', () {
+      final untagged = <double>[
+        for (var i = 0; i < 2; i++) ...[52, 54, 56, 58, 60, 62, 64, 66, 68, 70]
+      ];
+      final out = journalCorrelations(
+        journal: [
+          for (var i = 0; i < 3; i++) JournalDay('d$i', const {'late_meal'}),
+          for (var i = 3; i < 23; i++) JournalDay('d$i', const {}),
+        ],
+        dates: [for (var i = 0; i < 23; i++) 'd$i'],
+        outcomes: {
+          'recovery': <double?>[64, 66, 68, ...untagged],
+        },
+      );
+      final eff = out.firstWhere((c) => c.tag == 'late_meal').effects.single;
+      expect(eff.cohensD!.abs(), greaterThan(0.5));
+      expect(eff.pctChange!.abs(), greaterThanOrEqualTo(3.0));
+      expect(eff.meaningful, isFalse,
+          reason: 'three days is not evidence (p=${eff.p}, q=${eff.q})');
+    });
+
+    test('the FDR correction runs over the whole tag × outcome grid', () {
+      // One real effect, seven pure-noise tags on the same days. The noise tags
+      // are tested too, so the real one has to survive the correction.
+      final dates = [for (var i = 0; i < 12; i++) 'd$i'];
+      final out = journalCorrelations(
+        journal: [
+          for (var i = 0; i < 12; i++)
+            JournalDay('d$i', {
+              if (i < 6) 'alcohol',
+              if (i.isEven) 'noise_a',
+              if (i % 3 == 0) 'noise_b',
+            }),
+        ],
+        dates: dates,
+        outcomes: const {
+          'recovery': [40, 41, 42, 43, 44, 45, 80, 81, 82, 83, 84, 85],
+          'hrv': [55, 56, 57, 58, 59, 60, 55, 56, 57, 58, 59, 60],
+        },
+      );
+      final alcohol = out.firstWhere((c) => c.tag == 'alcohol');
+      final rec = alcohol.effects.firstWhere((e) => e.outcome == 'recovery');
+      expect(rec.meaningful, isTrue);
+      expect(rec.q, isNotNull);
+      // Every cell carries its q, and no noise tag survives.
+      for (final tc in out) {
+        for (final e in tc.effects) {
+          if (tc.tag == 'alcohol' && e.outcome == 'recovery') continue;
+          expect(e.meaningful, isFalse, reason: '${tc.tag}/${e.outcome}');
+        }
+      }
+    });
+
+    test('two constant sides with only 2 days each are NOT meaningful', () {
+      // Pooled SD is 0 so Cohen's d is undefined; refuse to call it.
+      final out = journalCorrelations(
+        journal: const [
+          JournalDay('d0', {'x'}),
+          JournalDay('d1', {'x'}),
+          JournalDay('d2', {}),
+          JournalDay('d3', {}),
+        ],
+        dates: const ['d0', 'd1', 'd2', 'd3'],
+        outcomes: const {
+          'recovery': [60, 60, 70, 70]
+        },
+      );
+      final eff = out.firstWhere((c) => c.tag == 'x').effects.single;
+      expect(eff.cohensD, isNull);
+      expect(eff.meaningful, isFalse);
+    });
+
+    test('an outcome list shorter than dates is guarded, not a RangeError', () {
+      // PRE-FIX `entry.value[i]` was indexed by dates.length => RangeError.
+      late final List<JournalTagCorrelation> out;
+      expect(
+        () => out = journalCorrelations(
+          journal: const [
+            JournalDay('d0', {'x'}),
+            JournalDay('d1', {'x'}),
+            JournalDay('d2', {}),
+            JournalDay('d3', {}),
+          ],
+          dates: const ['d0', 'd1', 'd2', 'd3'],
+          outcomes: const {
+            'recovery': [60, 62] // misaligned: 2 values for 4 dates
+          },
+        ),
+        returnsNormally,
+      );
+      final eff = out.firstWhere((c) => c.tag == 'x').effects.single;
+      expect(eff.insufficient, isTrue);
+      expect(eff.meaningful, isFalse);
+      expect(eff.nTagged, 0);
+      expect(eff.nUntagged, 0);
+    });
+  });
+}

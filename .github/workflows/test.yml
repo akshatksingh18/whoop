@@ -48,20 +48,14 @@ jobs:
           channel: stable
           cache: true
 
-      # `flutter pub get` run locally WITH pubspec_overrides.yaml present
-      # rewrites the tracked pubspec.lock to `path: ../analytics` and drops the
-      # resolved-ref, so the lock stops recording which sibling commit was
-      # actually tested. It is easy to do by accident — any local `flutter
-      # build` or `flutter test` triggers it — and it has reached main before.
-      # This runs BEFORE `pub get` so it inspects the committed file. Shared
-      # with build.yml's `preflight` — a tag push never runs this job, so the
-      # guard has to live there too to actually protect a release.
-      - name: Guard — the lock pins sibling commits, and the pins aren't stale
+      # Inspect the committed monorepo paths, lock, reviewed revision manifest,
+      # and algorithm provenance before dependency resolution. Shared with
+      # build.yml's preflight because a tag push never runs this job.
+      - name: Guard — in-tree package revisions and paths agree
         run: bash .github/scripts/check_sibling_pins.sh
 
-      # Sibling packages resolve from their pinned commit SHAs in pubspec.yaml.
-      # There is no pubspec_overrides.yaml here — that file is gitignored and
-      # local-dev only — so CI tests exactly the pins a release would ship.
+      # Protocol and analytics resolve from the tracked packages/ source used by
+      # local development and releases; no pubspec override is needed.
       - name: Install dependencies
         run: flutter pub get
 

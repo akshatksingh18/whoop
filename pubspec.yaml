@@ -38,18 +38,15 @@ dependencies:
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
-  # SIBLING PACKAGES ARE PINNED TO COMMIT SHAs, NOT FLOATING `main`/BRANCH REFS.
+  # IN-TREE PACKAGES ARE IMPORTED AT REVIEWED COMMITS, NOT FLOATING BRANCH REFS.
   # A floating ref means an upstream commit silently changes the behaviour of an
   # already-tagged edge release (this bit us: analytics v42 rode `ref: main` into
   # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
-  # Bump these SHAs deliberately, as part of a reviewed edge change. Local dev
-  # still builds against ../analytics and ../protocol via pubspec_overrides.yaml.
-  # NOTE: this is the multiband branch, so protocol is pinned at the gen5 work
-  # rather than plain `main`. Prefer merge commits on `main` over PR-branch
-  # heads where possible — a deleted branch can orphan a PR-branch SHA.
+  # Update package histories deliberately as part of a reviewed app change.
+  # This monorepo keeps the reviewed sources under packages/ so local, CI, and
+  # release builds all resolve the same code without a pubspec override.
   openstrap_protocol:
-    git:
-      url: https://github.com/OpenStrap/protocol.git
+    path: packages/protocol
       # protocol PR #27 head. main deliberately stays on a pre-gen5 SHA so the
       # multiband surface doesn't ride in as a side effect of unrelated work —
       # that is the right call THERE. This is the branch that wants it.
@@ -143,10 +140,8 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
   openstrap_analytics:
-    git:
-      url: https://github.com/OpenStrap/analytics.git
+    path: packages/analytics
       # analytics main @ #34 merge. Two hops in one: #32 (the HR-onset bypass
       # for low-limb-swing cardio) had already merged and this pin was still
       # sitting on its PR-branch head, and #34 lands the sleep-stager rewrite.
@@ -319,7 +314,6 @@ dependencies:
       # `irregularBeatScreen` feeds the stored 24 h and sleep irregular-rhythm
       # screens (onehz_pipeline.dart) — both are real, if narrow, output
       # changes, not NaN/±inf-only rejections.
-      ref: 1fa8144a5e3b728ce91eeed6ecbc15d482933b44
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -459,11 +453,8 @@ dependencies:
   firebase_performance: ^0.11.4+3
   firebase_analytics: ^12.4.3
 
-# NOTE: to build against the in-tree sibling packages during local development,
-# create a (gitignored) pubspec_overrides.yaml — pub auto-detects it. Keeping the
-# overrides OUT of this file means CI/release resolves the pinned git refs above
-# (the siblings aren't checked out in CI, so a committed path override fails
-# `flutter pub get` with exit 66).
+# Protocol and analytics are tracked inside this monorepo, so the path dependencies above are
+# also the CI/release source of truth. Do not add a pubspec override for these packages.
 
 dev_dependencies:
   flutter_test:

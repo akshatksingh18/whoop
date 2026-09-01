@@ -1687,9 +1687,9 @@ const int kAlgoVersion = 86;
 // across unchanged. NO kAlgoVersion bump: hello feeds connection identity and
 // state, not the derivation pipeline — no decoder for a persisted record
 // moves, so no stored number can. This constant moves together with
-// pubspec.yaml's `ref:` and pubspec.lock
-// (test/db_serve_version_and_reads_test.dart pins them equal, so a partial
-// repin fails the suite).
+// packages/upstream-revisions.yaml and the imported package source
+// (test/db_serve_version_and_reads_test.dart pins the manifest and local
+// dependency paths, so a partial monorepo update fails the suite).
 //
 // MERGE (main → this branch): each side moved ONE pin and neither moved
 // the other, so this is both repins standing, not a choice between them.

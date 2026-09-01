@@ -10,8 +10,10 @@ contains:
 - analytics `1fa8144a5e3b728ce91eeed6ecbc15d482933b44` under `packages/analytics/`
 
 The official sources are named `upstream-edge`, `upstream-protocol`, and `upstream-analytics`.
-There is deliberately no `origin`: creating a private repository on Akshat's main GitHub account,
-adding it as `origin`, and pushing are a separate future phase.
+The personal workflow remote is `origin`, a local bare repository at
+`C:\Users\aksha\git-remotes\whoop.git`; `main` tracks `origin/main`. This is same-machine storage
+only. Creating a private repository on Akshat's main GitHub account and replacing the `origin`
+URL remain a separate future phase.
 
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
@@ -79,9 +81,10 @@ without following `AGENTS.md`'s `kAlgoVersion` requirements.
 
 ## Deferred private GitHub and iOS pipeline
 
-No GitHub repository, authentication, personal remote, or push is part of this setup. When a
-private repository is created later, GitHub Actions usage will be metered; macOS runners consume
-substantially more billed minutes than Linux runners.
+No GitHub repository or GitHub authentication is configured. Until a private repository is
+created, the local bare `origin` above is the personal push target. When hosting is activated,
+replace the `origin` URL and push `main`; GitHub Actions usage will be metered, and macOS runners
+consume substantially more billed minutes than Linux runners.
 
 The intended iOS experiment remains: run `flutter build ios --no-codesign` on a macOS runner,
 package the unsigned app as an artifact, download it on Windows, and sideload it with Sideloadly.

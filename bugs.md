@@ -29,9 +29,12 @@ assuming correct):**
    (`startObservingDevicePresence` etc., per the original README) — CDM is known to be less
    reliable for this than a properly configured `autoConnect=true` GATT connection.
 
-3. **On iOS**, the equivalent risk is CoreBluetooth background restoration getting killed by the OS
-   under memory pressure — different root cause, same symptom, worth checking separately once iOS
-   builds exist.
+3. **On the planned personal iPhone build**, the equivalent risk is a broken CoreBluetooth
+   restoration/reconnection handoff after suspension, ordinary system termination, memory pressure,
+   reboot, or out-of-range return. The accepted build keeps `bluetooth-central`, the native restore
+   manager, stable restoration identifier, saved band UUID, and normal Flutter drain handoff. None
+   is physically verified yet. Test this separately from Android, and record manual swipe-to-force-
+   quit as an iOS lifecycle limitation rather than assuming it is the same defect.
 
 **Goal:** either (a) find and fix the actual bug so reconnection is silent and automatic like the
 official app, or (b) if a true fix isn't feasible, at minimum improve the UX — detect a failed
@@ -43,3 +46,10 @@ pulses blue, then try again") instead of silently sitting at "Not connected."
   restrictions" for `edge`, app locked in recent-apps view, or background sync gets killed outright.
 - Quit/uninstall the official WHOOP app before pairing — only one app can hold the Bluetooth
   connection to the band at a time.
+
+## Documentation synchronization
+
+If reconnection evidence, platform scope, leading hypotheses, or verification state changes, update
+this file together with `CLAUDE.md`, `setup.md`, the applicable iOS guide, and any implemented test or
+recovery instruction. Keep Android evidence, personal-iPhone plan, and observed iPhone behavior
+separate.

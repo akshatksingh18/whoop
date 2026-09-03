@@ -1,5 +1,16 @@
 # Openstrap Edge
 
+> **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's accepted
+> daily iPhone path is a future minimal release/AOT IPA installed directly with Sideloadly. That
+> personal flavor is not implemented or built yet and initially excludes Watch, widgets/Live
+> Activities, App Groups, and HealthKit while retaining the phone app and CoreBluetooth restoration.
+> This personal monorepo is backed up privately at
+> [`akshatksingh18/whoop`](https://github.com/akshatksingh18/whoop); upstream links and badges below
+> continue to describe the public OpenStrap projects.
+> Public TestFlight/release instructions and full-capability descriptions below refer to upstream,
+> not to a completed personal build. See [`CLAUDE.md`](CLAUDE.md),
+> [`setup.md`](setup.md), and [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md).
+
 An app that makes your wearable useful without its subscription. Pairs over Bluetooth, computes everything on your phone, iOS and Android. WHOOP 4/5/MG get full support today; see [Supports](#supports) for what else it talks to.
 
 [![test](https://github.com/OpenStrap/edge/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStrap/edge/actions/workflows/test.yml)
@@ -31,16 +42,21 @@ An app that makes your wearable useful without its subscription. Pairs over Blue
 
 ## Install
 
+The public options below document upstream distribution. For this personal checkout, do not use
+TestFlight or an arbitrary release IPA as proof of the accepted personal capability profile; build
+and validate the personal artifact first, then follow `guides/IOS_SIDELOAD.md`.
+
 | | |
 |---|---|
-| **iOS** | **[Join the TestFlight beta →](https://testflight.apple.com/join/2BVSwq65)** — normal TestFlight install, no sideloading, no computer needed. |
+| **iOS (upstream)** | **[Join the TestFlight beta →](https://testflight.apple.com/join/2BVSwq65)** — normal upstream TestFlight install, not Akshat's personal free-signing workflow. |
 | **Android** | **[Download the APK →](https://github.com/OpenStrap/edge/releases/latest)** — allow installs from unknown sources and open it. |
 
 Quit the official WHOOP app before you pair. Bluetooth only lets one app own the
 band at a time.
 
-Prefer to sideload the unsigned IPA instead of using TestFlight? That still
-works — see [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md).
+For Akshat's selected personal sideload, see [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md);
+it requires the not-yet-built minimal personal IPA, stable identity, recurring refresh, backup, and
+recovery workflow described there.
 
 ---
 
@@ -69,7 +85,7 @@ person's physiology in the test data otherwise.*
 
 ---
 
-## What made me build this app 
+## What made me build this app
 
 My subscription lapsed and a perfectly good sensor turned into a bracelet. The hardware
 never stopped working, only the app that made it useful did. So I reverse-engineered
@@ -101,14 +117,15 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 | <img src="screenshots/steps.png" width="230"><br>**Steps** | <img src="screenshots/workouts.png" width="230"><br>**Workouts** | <img src="screenshots/records.png" width="230"><br>**Records** |
 | <img src="screenshots/recap.png" width="230"><br>**Recap** | <img src="screenshots/profile.png" width="230"><br>**Profile** | |
 
-iOS also gets a home-screen widget, a lock-screen/Dynamic Island Live Activity, and a
-couple of Siri shortcuts.
+The full upstream/source-signed iOS profile also gets a home-screen widget, a lock-screen/Dynamic
+Island Live Activity, and Siri shortcuts. Akshat's initial personal free-sideload profile excludes
+the widget/Live Activity extension and App Group deliberately.
 
 | | | |
 |:--:|:--:|:--:|
 | <img src="screenshots/widget.jpg" width="300"><br>**Widget** | <img src="screenshots/battery-widget.jpg" width="200"><br>**Battery widget** | <img src="screenshots/live-activity.jpg" width="300"><br>**Live Activity** |
 
-Every screenshot above is real output from a WHOOP 4.0. 
+Every screenshot above is real output from a WHOOP 4.0.
 
 ## Supports
 
@@ -125,8 +142,10 @@ spot-check, real-time breathing coherence.
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
 zones.
 
-**Your data, elsewhere** — writes to **Apple Health** (HealthKit) and **Google Health
-Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.
+**Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
+Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.
+Akshat's initial personal iPhone profile excludes HealthKit until a separate entitlement/install/
+refresh experiment passes; manual profile entry and band-derived metrics remain.
 Only things the band actually measures — never the derived scores, which have no native
 type and would be fabricated. Exports are idempotent, so a day re-deriving never
 duplicates samples. You can also export the entire local SQLite database to a file
@@ -134,11 +153,11 @@ whenever you like — it's your data, in a format anything can open.
 
 **Background sync** — the band drains without you opening the app. Android runs a
 foreground service with a 15-minute watchdog worker and re-attaches via
-CompanionDeviceManager. iOS uses a background processing task plus a light refresh task,
-and a separate restore Bluetooth central that relaunches the app when the band
-reconnects.
+CompanionDeviceManager. The full iOS source includes processing/refresh tasks and a restore
+Bluetooth central. Akshat's personal profile keeps `bluetooth-central` and CoreBluetooth restoration;
+processing/fetch remain optional best-effort gates, never a correctness requirement.
 
-**Everything else** — trends/history, a journal with on-device correlation insights
+**Everything else in the full source** — trends/history, a journal with on-device correlation insights
 ("what actually moves your numbers"), cycle tracking, a deterministic coach, a shareable
 weekly recap, a BYOK AI assistant, home-screen widgets, iOS Live Activities, Siri
 shortcuts, a smart alarm that buzzes the band.
@@ -151,8 +170,8 @@ shortcuts, a smart alarm that buzzes the band.
   not "always." Android has no such limit.
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
-- Not on the App Store or Play Store yet. iOS is a public TestFlight beta, which is a
-  normal install but still a beta; Android is an APK straight off Releases.
+- Upstream iOS is a public TestFlight beta and Android is an APK from Releases. Akshat's personal
+  iPhone flavor is separately planned, not yet built, and will use recurring free-team signing.
 - WHOOP 5 and MG support is newer than 4.0's and hasn't had as many bands, firmwares,
   and daily hours put on it. Expect the occasional rough edge, and open an issue when
   you hit one.
@@ -168,8 +187,8 @@ flutter run --dart-define-from-file=.env
 ```
 
 Quit the official WHOOP app before you pair — Bluetooth only lets one app own the band at
-a time. iOS signing and the App Group setup for the widget/Live Activity is its own
-longer story — see `guides/IOS_INSTALLATION.md`.
+a time. `guides/IOS_INSTALLATION.md` separates the accepted minimal personal profile from the
+full App Group/widget/Live Activity/Watch source-signed profile.
 
 ## How it works
 
@@ -259,8 +278,10 @@ Protocol decoding and analytics live in their own repos —
 
 ## Guides
 
-- [`guides/IOS_INSTALLATION.md`](guides/IOS_INSTALLATION.md) — building and installing on an iPhone.
-- [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — sideloading without a paid developer account.
+- [`guides/IOS_INSTALLATION.md`](guides/IOS_INSTALLATION.md) — minimal personal versus full
+  source-signed iOS build profiles.
+- [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — Akshat's direct Windows Sideloadly install,
+  refresh, backup, and recovery plan.
 - [`guides/WATCH_SETUP.md`](guides/WATCH_SETUP.md) — the Apple Watch companion app.
 - [`guides/AI_COACH.md`](guides/AI_COACH.md) — bring-your-own-key AI coach, briefings, and journal.
 - [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.

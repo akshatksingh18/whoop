@@ -1,57 +1,92 @@
-# iOS Installation
+# WHOOP iOS build and installation profiles
 
-This guide covers the iOS setup needed to build and run Edge from a public
-checkout. The project uses widgets, Live Activities, and an App Group, so every
-developer needs Apple identifiers that belong to their own Apple Developer
-account.
+**State:** The repository contains the full upstream-capable iOS targets. The selected minimal
+personal-sideload flavor described below is accepted but not implemented or built. Do not describe
+the personal IPA as available until its build/configuration and packaging guards exist.
 
-## Prerequisites
+This guide separates two different artifacts that must not be conflated:
 
-- Flutter installed and available on `PATH`.
-- Xcode installed with iOS support.
-- CocoaPods installed.
-- An Apple Developer account or team that can create App IDs and App Groups.
-- A physical iPhone for BLE testing. The simulator is useful for UI work, but it
-  cannot test the WHOOP Bluetooth integration.
+1. **Personal free-sideload build (selected for Akshat):** standalone phone-only release/AOT IPA,
+   deliberately minimal for direct Sideloadly installation.
+2. **Full source-signed upstream build:** Runner plus Apple capability targets such as App Groups,
+   Widget/Live Activity, Watch, and HealthKit, requiring a signing team/profile that grants them.
 
-Check the local toolchain:
+## Common prerequisites
 
-```bash
-flutter doctor -v
-flutter devices
-```
-
-## Project Setup
+- Compatible macOS and Xcode with support for the physical iPhone's iOS version.
+- Flutter and CocoaPods; use the pinned/recorded project toolchain when producing a release.
+- A physical iPhone and WHOOP band for BLE testing; the simulator cannot validate the product.
+- A local ignored `.env`, with optional network features disabled unless deliberately tested.
+- The official WHOOP app fully quit before pairing because only one app should own the peripheral.
 
 From the repository root:
 
 ```bash
 cp .env.example .env
 flutter pub get
+flutter doctor -v
+flutter devices
 ```
 
-Edit `.env` and set your backend URL:
+Never commit credentials, Apple signing files, personal health data, databases, captures, or IPAs.
 
-```text
-BACKEND_URL=https://your-backend.example
+## Profile A: selected personal free-sideload build
+
+### Required build contract
+
+Implement a dedicated personal flavor/configuration rather than editing the full target ad hoc or
+expecting Sideloadly to repair entitlements:
+
+- keep `Runner`, local BLE/SQLite/analytics/UI, local notifications, Files import/export,
+  `bluetooth-central`, and CoreBluetooth restoration;
+- preserve the stable restoration identifier, saved band UUID, normal Flutter drain handoff, and
+  every commit-before-ACK/resumable-cursor invariant;
+- remove the Watch companion and Widget/Live Activity extension from the packaged IPA;
+- remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
+- keep GPS route recording only if explicitly chosen and physically verified; never use location to
+  keep the process alive;
+- treat `processing` and `fetch` as optional best-effort optimizations, never correctness
+  requirements;
+- default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
+  and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
+- fail packaging if `Watch/`, widget `PlugIns/*.appex`, unexpected entitlements, signing
+  credentials, personal data, injected dylibs, or secrets remain.
+
+The current project/workflow does **not** implement these exclusions yet. Activation must add
+deterministic build flags/targets, entitlement and payload guards, and tests before this command can
+be treated as producing the accepted artifact:
+
+```bash
+flutter build ios --release --no-codesign --dart-define-from-file=.env
 ```
 
-The app can ask for a backend URL during onboarding if no value is provided, but
-using `.env` keeps local builds repeatable.
+Package a conventional `Payload/Runner.app` IPA only after those guards pass. Record the permanent
+verified bundle ID, app/build version, source commit, Flutter/Xcode versions, capability manifest,
+and SHA-256. Cache the accepted unsigned IPA and previous known-good artifact on Windows outside Git.
 
-## Local iOS Signing Config
+New source binaries require macOS/Xcode; free-profile refreshes do not. Follow
+`IOS_SIDELOAD.md` for Windows signing, monitoring, data-safe overwrite, and recovery.
 
-The committed iOS project uses placeholder identifiers so the public repo does
-not depend on one developer's Apple account. Personal signing values belong in
-`ios/Config/Signing.xcconfig`, which is ignored by git.
+### Personal flavor acceptance
 
-Create your local signing override:
+Before promotion, inspect the payload/entitlements, perform a fresh install and same-ID in-place
+upgrade, pair and drain offline, prove CoreBluetooth background/restoration behavior, complete the
+72-hour soak, restore an encrypted export, and pass the refresh/expiry gates in `CLAUDE.md`.
+
+## Profile B: full source-signed upstream build
+
+Use this profile only when the selected Apple team/profile supports the full capability set. It is
+not the accepted free-Sideloadly daily artifact.
+
+### Local signing configuration
+
+The committed project uses placeholders. Copy the ignored override:
 
 ```bash
 cp ios/Config/Signing.xcconfig.example ios/Config/Signing.xcconfig
 ```
 
-Edit `ios/Config/Signing.xcconfig`:
+Set identifiers belonging to the selected signing team:
 
 ```text
 APP_BUNDLE_IDENTIFIER = com.yourname.openstrapEdge
@@ -60,123 +95,55 @@ APP_GROUP_IDENTIFIER = group.com.yourname.openstrap
 APPLE_DEVELOPMENT_TEAM = YOURTEAMID
 ```
 
-Default committed values live in `ios/Config/Signing.defaults.xcconfig`:
+Do not commit `ios/Config/Signing.xcconfig` or personal Xcode project changes.
 
-```text
-APP_BUNDLE_IDENTIFIER = com.example.openstrapEdge
-APP_WIDGET_BUNDLE_IDENTIFIER = $(APP_BUNDLE_IDENTIFIER).OpenStrapWidget
-APP_GROUP_IDENTIFIER = group.com.example.openstrap
-APPLE_DEVELOPMENT_TEAM =
-```
-
-Do not commit `ios/Config/Signing.xcconfig`.
-
-## Apple Developer Setup
-
-Create matching identifiers in Apple Developer:
-
-1. App ID for `APP_BUNDLE_IDENTIFIER`.
-2. App ID for `APP_WIDGET_BUNDLE_IDENTIFIER`.
-3. App Group for `APP_GROUP_IDENTIFIER`.
-4. Enable App Groups on both App IDs.
-5. Attach the same `APP_GROUP_IDENTIFIER` to both App IDs.
-
-The entitlement files use `$(APP_GROUP_IDENTIFIER)`, and the native widget reads
-the same value from its generated Info.plist. Dart reads the App Group value from
-iOS at runtime through `openstrap/ios_config`, so Xcode builds do not need a
-separate `--dart-define` to keep the widget bridge aligned.
-
-## Xcode Setup
-
-Open the workspace, not the project:
+For the full build, create matching Runner and widget App IDs, one App Group, enable the App Group on
+both IDs, and grant every shipped entitlement (including HealthKit when retained). Open the workspace:
 
 ```bash
 open ios/Runner.xcworkspace
 ```
 
-In Xcode:
+Verify signing/capabilities for Runner, Widget, and any included Watch target against the same team
+and intended identifiers. Do not assume a free Personal Team profile grants these capabilities.
 
-1. Select the `Runner` project.
-2. Verify signing for the `Runner` target.
-3. Verify signing for the `OpenStrapWidget` target.
-4. Confirm both targets show the same App Group capability.
-5. Select your physical iPhone as the run destination.
-
-If Xcode changes `ios/Runner.xcodeproj/project.pbxproj` while you are adjusting
-personal signing settings, do not commit those personal changes. Put the values
-in `ios/Config/Signing.xcconfig` instead and revert the project file.
-
-## Build and Run
-
-For a normal development run attached to Flutter tooling:
+### Build modes
 
 ```bash
+# Attached development
 flutter run -d <device-id> --dart-define-from-file=.env
-```
 
-For a no-codesign build check:
+# Unsigned release build check
+flutter build ios --release --no-codesign --dart-define-from-file=.env
 
-```bash
-flutter build ios --release --no-codesign
-```
-
-For a signed release-style device install:
-
-```bash
+# Signed release-style physical-device run
 flutter run --release -d <device-id> --dart-define-from-file=.env
 ```
 
-## Version Numbers
+Flutter debug builds require Flutter/Xcode tooling to relaunch and are not daily Home Screen builds.
+Use Profile/Release for standalone relaunch testing.
 
-`Runner` tracks `pubspec.yaml`'s `version:` automatically via `Info.plist`'s
-`CFBundleShortVersionString`/`CFBundleVersion` keys, which point at
-`$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)` (Flutter writes these into
-`ios/Flutter/Generated.xcconfig` on every build). Runner's own
-`CURRENT_PROJECT_VERSION` build setting also resolves to `$(FLUTTER_BUILD_NUMBER)`;
-it does not set a `MARKETING_VERSION` build setting at all — the marketing
-version comes solely from the `Info.plist` key above.
+## Version alignment
 
-The **`OpenStrapWidget`/`OpenStrapWidgetExtension`** and **`OpenStrapWatch Watch
-App`** targets are NOT wired to that mechanism — they don't include
-`Generated.xcconfig`, so those Flutter variables aren't available to them, and
-`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are hardcoded per-target in
-`project.pbxproj` instead. **Bump these by hand to match `pubspec.yaml`'s
-`version:` every time it changes** — App Store Connect validates that a host
-app's embedded extensions and companion Watch app carry compatible version
-numbers, so letting these drift is a real upload-time risk, not just cosmetic
-inconsistency.
+Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
+The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
+`CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
+targets ship. The personal phone-only artifact excludes them, but its Runner version/build and source
+manifest still change for every new binary; bundle identity does not.
 
-## Debug Builds and Home-Screen Relaunch
+## Common failure checks
 
-Flutter debug builds on iOS must be launched by Flutter tooling or Xcode. If you
-install a Debug build, close it, and later tap the app icon from the iPhone home
-screen, Flutter can terminate during engine startup with:
+- Open `ios/Runner.xcworkspace`, not only the Xcode project.
+- Update Xcode when it cannot support the physical iPhone's iOS version.
+- Treat entitlement/profile mismatch as a build configuration error; do not let Sideloadly strip or
+  mutate features unpredictably.
+- Keep the official WHOOP app quit while pairing/testing.
+- A successful compile/install does not prove BLE restoration, background behavior, database
+  preservation, or backup recovery.
 
-```text
-Cannot create a FlutterEngine instance in debug mode without Flutter tooling or Xcode.
-```
+## Documentation synchronization
 
-Use Debug when you are attached to Xcode or `flutter run`. Use Profile or Release
-when you want to test normal home-screen launch, close, and relaunch behavior:
-
-```bash
-flutter run --profile -d <device-id> --dart-define-from-file=.env
-flutter run --release -d <device-id> --dart-define-from-file=.env
-```
-
-In Xcode, keep the shared scheme's Run action on Debug for development. If you
-need home-screen relaunch testing from an Xcode-installed build, temporarily set
-Product > Scheme > Edit Scheme > Run > Build Configuration to Profile or Release
-locally.
-
-## Common Issues
-
-- Open `ios/Runner.xcworkspace`, not `ios/Runner.xcodeproj`.
-- If App Group signing fails, verify both App IDs have the same App Group
-  enabled in Apple Developer.
-- If widgets cannot read app data, verify `APP_GROUP_IDENTIFIER` is identical in
-  Apple Developer and `ios/Config/Signing.xcconfig`.
-- If a physical iPhone is on a newer iOS version than your installed Xcode
-  supports, update Xcode or install the matching iOS support/runtime.
-- Quit the official WHOOP app before connecting the band. Bluetooth only lets
-  one app own the band at a time.
+When the personal flavor, capabilities, identifiers, build commands, toolchain, workflow, or
+verification state changes, update this guide, `IOS_SIDELOAD.md`, `setup.md`, `README.md`,
+`CLAUDE.md`, workflow/configuration notes, and affected tests in the same change. Keep full-source
+and minimal-personal profiles explicit, and never describe an accepted plan as implemented.

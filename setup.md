@@ -9,11 +9,12 @@ contains:
 - protocol `471034cb84b85edb37e72b6f6add79a2d7929294` under `packages/protocol/`
 - analytics `1fa8144a5e3b728ce91eeed6ecbc15d482933b44` under `packages/analytics/`
 
-The official sources are named `upstream-edge`, `upstream-protocol`, and `upstream-analytics`.
-The personal workflow remote is `origin`, a local bare repository at
-`C:\Users\aksha\git-remotes\whoop.git`; `main` tracks `origin/main`. This is same-machine storage
-only. Creating a private repository on Akshat's main GitHub account and replacing the `origin`
-URL remain a separate future phase.
+The official sources are named `upstream-edge`, `upstream-protocol`, and `upstream-analytics` and
+remain fetch-only. The personal workflow remote is `origin` at the private GitHub repository
+<https://github.com/akshatksingh18/whoop>; `main` tracks `origin/main` after the first push. The former
+same-machine bare repository at `C:\Users\aksha\git-remotes\whoop.git` is preserved as the
+`local-backup` remote. GitHub is the primary collaboration/recovery remote; `local-backup` is an
+additional same-machine copy, not an off-device backup.
 
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
@@ -79,14 +80,47 @@ into their existing package histories and reviewed together with the app behavio
 Never copy a floating upstream worktree over a package, and never change an algorithm revision
 without following `AGENTS.md`'s `kAlgoVersion` requirements.
 
-## Deferred private GitHub and iOS pipeline
+## Accepted personal iPhone pipeline (planned, not implemented)
 
-No GitHub repository or GitHub authentication is configured. Until a private repository is
-created, the local bare `origin` above is the personal push target. When hosting is activated,
-replace the `origin` URL and push `main`; GitHub Actions usage will be metered, and macOS runners
-consume substantially more billed minutes than Linux runners.
+Private GitHub hosting and CLI authentication are configured, but no workflow has been activated
+for the personal iPhone artifact. GitHub Actions usage is metered, and macOS runners consume
+substantially more billed minutes than Linux runners; do not trigger the existing tag workflow as a
+personal build until its exclusions, payload checks, and secret handling meet the accepted contract.
 
-The intended iOS experiment remains: run `flutter build ios --no-codesign` on a macOS runner,
-package the unsigned app as an artifact, download it on Windows, and sideload it with Sideloadly.
-That workflow and any Apple/GitHub credentials must be configured only in the future private
-hosting phase.
+The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
+**release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
+Personal Team. This is a plan, not a completed pipeline: no personal-sideload flavor has been
+implemented, no iOS IPA has been built in this repository, and the current tag workflow has not
+been changed.
+
+The personal artifact must preserve the root phone app, local database/analytics, local
+notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
+drain invariants. Its initial capability profile deliberately excludes the Watch companion, widget/
+Live Activity extension, App Groups, and HealthKit. GPS and background processing/fetch remain
+explicit test-gated options; required telemetry, health-data contribution, backend, and OTA
+dependencies remain off. The full upstream source targets stay in the repository for reference and
+possible future source-signed builds.
+
+Creating a new IPA requires one of these deliberately chosen Mac paths:
+
+1. a controlled compatible Mac/Xcode environment; or
+2. the private-GitHub macOS workflow after it implements the personal-flavor exclusions,
+   payload/entitlement inspection, and source/hash manifest.
+
+Windows then caches the current and previous accepted unsigned IPAs outside Git and performs routine
+re-sign/refresh without Flutter, CocoaPods, Xcode, or a source rebuild. The permanent bundle ID,
+Windows cache path, encrypted-backup destination, Sideloadly/Local Anisette settings, monitoring,
+and alert implementation are intentionally unset until activation and must be recorded here when
+chosen. Never commit Apple/GitHub credentials, 2FA codes, signing material, Anisette data, personal
+health exports, or IPAs.
+
+See `guides/IOS_INSTALLATION.md` for the personal-versus-full build boundary and
+`guides/IOS_SIDELOAD.md` for the accepted Windows install/refresh/recovery workflow. `CLAUDE.md`
+owns the complete physical-device, encrypted-backup, expiry, upgrade, and activation gates.
+
+## Documentation synchronization
+
+Any material repository, toolchain, build-hosting, capability, signing, cache, backup, or activation
+change must update this file, `CLAUDE.md`, the relevant iOS guide, `README.md`, workflow/configuration
+notes, and current verification results in the same change. Keep accepted plan, implemented pipeline,
+and executed validation distinct.

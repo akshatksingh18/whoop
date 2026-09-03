@@ -1,84 +1,128 @@
-# Installing the iOS build (no Mac, no Xcode)
+# WHOOP personal iPhone sideload and refresh plan
 
-The iOS file on [Releases](https://github.com/OpenStrap/edge/releases) is an
-**unsigned `.ipa`** — it's not on the App Store, so iOS won't just let you tap-install it
-like a normal app. You need a small sideloading tool first. This is a one-time setup, and
-it's the same process people use for any homebrew/sideloaded iOS app, not something
-specific to this project.
+**State:** Accepted operating plan; the matching minimal personal IPA and Windows automation have
+not been produced or verified yet. Do not substitute an arbitrary upstream release IPA and claim it
+matches this capability profile.
 
-If you'd rather build it yourself with your own Apple Developer account and Xcode, see
-[`IOS_INSTALLATION.md`](IOS_INSTALLATION.md) instead — that gets you Watch support and
-full widget/Live Activity support, which the sideload path below can't always guarantee
-(more on that at the bottom).
+This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
+on a compatible Mac environment when source changes, then sign/install and routinely refresh that
+cached artifact from Windows with Sideloadly and a free Apple Personal Team.
 
-## What you'll need
+## Personal artifact required
 
-- A Windows or Mac computer, just for the install step. Your phone does everything after
-  that.
-- A USB cable, or Wi-Fi for some tools.
-- A free Apple ID (your normal iCloud one is fine).
-- The `.ipa` file from [the latest release](https://github.com/OpenStrap/edge/releases).
+Before following installation steps, the candidate IPA must pass the personal-build contract in
+`CLAUDE.md` and `IOS_INSTALLATION.md`:
 
-## Option A — Sideloadly (simplest, works anywhere)
+- phone `Runner`, local BLE/database/analytics, local notifications, `bluetooth-central`, and
+  CoreBluetooth restoration retained;
+- Watch companion and widget/Live Activity extension removed from the packaged IPA;
+- App Group and HealthKit entitlements absent in the initial personal flavor;
+- health-data contribution and required telemetry/backend/OTA behavior off;
+- conventional `Payload/Runner.app` release/AOT artifact with no injected libraries, JIT,
+  credentials, personal data, or installer metadata;
+- permanent verified bundle ID plus source version/revision, capability manifest, and SHA-256
+  recorded.
 
-[Sideloadly](https://sideloadly.io) is a free desktop tool, no region restrictions, works
-with just an Apple ID.
+The full upstream/TestFlight build can contain more Apple capabilities; it is not the selected
+free-sideload artifact.
 
-1. Download Sideloadly for [Windows or
-   Mac](https://sideloadly.io/#download) and install it.
-2. Plug your iPhone into the computer with a cable, and open Sideloadly.
-3. Drag the `.ipa` file you downloaded into the Sideloadly window.
+## Portfolio and prerequisites
 
-   | macOS | Windows |
-   |:--:|:--:|
-   | <img src="images/ios-sideload/sideloadly-macos.png" width="380"> | <img src="images/ios-sideload/sideloadly-windows.png" width="380"> |
+- WHOOP occupies one of the free Personal Team's three installed-app slots. PageVault and Squat
+  Reminder occupy the other two.
+- Use direct Sideloadly. AltStore/SideStore installs an on-phone host app and therefore cannot stay
+  installed with all three planned apps unless one is temporarily removed.
+- Use the same Apple Account/team and permanent WHOOP bundle ID for every install, refresh, and
+  upgrade.
+- Install Sideloadly only from <https://sideloadly.io>, configure **Local Anisette**, and use the
+  current official Apple Windows components required by its FAQ.
+- Have a trusted USB cable and the accepted IPA in the stable Windows cache. Keep the previous
+  known-good IPA and a current encrypted database export available before first install/upgrade.
 
-4. Enter your Apple ID and password when it asks (this stays between your computer and
-   Apple — Sideloadly just uses it to sign the app for your device, the same thing Xcode
-   does).
-5. Hit start and wait for it to finish installing.
+Current external constraints must be rechecked at activation:
 
-## Option B — AltStore Classic
+- Apple Personal Team limits:
+  <https://developer.apple.com/help/account/basics/about-your-developer-account/>
+- Sideloadly setup, Wi-Fi, overwrite, refresh, and support caveats:
+  <https://sideloadly.io/faq.html> and <https://sideloadly.io/changelog>
 
-[AltStore Classic](https://faq.altstore.io/altstore-classic/altserver) is the other
-well-known option. It needs a small companion app (AltServer) running on your computer,
-and in exchange it can re-sign the app automatically over Wi-Fi every week instead of you
-having to reconnect a cable — worth it if you don't want to think about this again for a
-while. Install AltServer on your computer, install AltStore on your phone through it, then
-open the `.ipa` from AltStore's "My Apps" tab. Their own install walkthrough (linked above)
-covers the exact clicks for Windows and Mac.
+## First controlled installation
 
-## Trust the app on your phone
+1. On Windows, connect the iPhone over USB, trust the computer, enable iOS Developer Mode, and use
+   iTunes to enable **Sync with this iPhone over Wi-Fi**.
+2. Open Sideloadly, select the accepted personal IPA and iPhone, choose Local Anisette, and enter the
+   permanent custom bundle ID exactly as recorded. Disable tweak/dylib injection and identity
+   randomization.
+3. Use the selected Apple Account and enroll the app for automatic refresh. Keep credentials/2FA
+   out of Git, scripts, task arguments, and plaintext logs.
+4. Complete the iOS developer trust flow if prompted, then launch from the Home Screen. Confirm the
+   installed bundle identity/profile expiry and that HealthKit/widget/Live Activity/Watch surfaces
+   are absent.
+5. Pair the WHOOP 4.0 with the official WHOOP app fully quit, complete an initial drain, verify local
+   metrics/offline launch, and create/restore-test an encrypted export before making this install
+   authoritative.
 
-Whichever tool you used, the first time you open the app you'll get a screen saying its
-developer isn't trusted yet — that's expected, it's not a sign anything's wrong.
+## Refresh automation and proof
 
-| The warning you'll see | Where to fix it |
-|:--:|:--:|
-| <img src="images/ios-sideload/untrusted-warning.png" width="260"> | <img src="images/ios-sideload/trust-developer-settings.png" width="260"> |
+- Start the Sideloadly daemon at Windows sign-in and keep automatic refresh plus trusted Wi-Fi sync
+  enabled. The computer must be available and the phone detected over Wi-Fi or USB.
+- Check health daily or at worst every 48 hours. The check can be lightweight, but it must record
+  actual WHOOP refresh success/new expiry. A running daemon, opened GUI, scheduled-task exit code,
+  or cache timestamp is not device-install proof.
+- Target verified refresh while at least three days remain. Sideloadly decides when an app is “near
+  expiry”; if its daemon has not refreshed by the portfolio threshold, use **Refresh All Apps
+  Manually** or the normal same-IPA install path.
+- Raise a persistent Windows alert at the three-day threshold, escalate by two days, and require USB
+  recovery inside the final day. Test every alert and one failed-network retry.
+- Wi-Fi discovery may occasionally need iTunes open, the iPhone screen on, current Apple Windows
+  components, or re-pairing. USB is the deterministic recovery route.
+- After Sideloadly, Apple-device-component, or iOS updates, prove one Wi-Fi and one USB refresh again
+  before trusting unattended operation.
 
-Go to **Settings → General → VPN & Device Management**, find your Apple ID under
-"Developer App," tap it, and tap **Trust**. Open the app again and it'll launch normally
-from here on.
+## Data-safe refresh, upgrade, and expiry recovery
 
-## Good to know before you start
+- Refresh/reinstall over the existing app with the same Apple Account and bundle ID. Never uninstall
+  for routine signing; uninstalling can delete the database, pairing state, and preferences.
+- Before a new-IPA upgrade, bundle/signing migration, or recovery experiment, create and restore-test
+  the app's passphrase-encrypted full database export off the phone.
+- A same-IPA refresh must preserve pairing, settings, database row counts/key samples, and latest
+  sync. A newer IPA additionally must pass schema migration and in-place upgrade gates.
+- If the profile expires and the app will not launch, leave it installed and sign/install the cached
+  same-ID IPA over it. Uninstall only after a verified backup and an explicit conclusion that
+  container-preserving recovery failed.
+- Keep current and previous known-good unsigned IPAs, hashes, source revisions, and capability
+  manifests outside Git so a compatible replacement signer can be used if Sideloadly temporarily
+  breaks after an Apple change.
 
-- **Free Apple ID sideloads expire after 7 days.** iOS will just stop opening the app
-  until you re-sign it — reconnect Sideloadly, or let AltServer's Wi-Fi auto-refresh
-  handle it. This is an Apple limit on free developer accounts, not something either tool
-  can avoid. A paid Apple Developer account ($99/year) makes it last a year instead, if
-  you'd rather not deal with weekly refreshes.
-- **The home-screen widget and Live Activity might not work.** A free-account resign
-  gives the app a different "team ID" than the one the widget's App Group expects to see,
-  and there's no way around that from a sideloading tool — it's an Apple-side identity
-  check. If those matter to you, building from source with your own signing (see
-  `IOS_INSTALLATION.md`) is the only way to get them reliably.
-- **The Apple Watch companion app isn't in this build at all.** It's left out on purpose —
-  it can't survive being re-signed this way no matter which tool you use, so it's not
-  worth shipping broken. Same answer: build from source if you want Watch support.
-- None of this touches your WHOOP data or your Apple ID beyond the one-time signing step.
-  Sideloadly/AltServer only talk to Apple to get a signing certificate; nothing about your
-  band or your health data goes through them.
+## Capability and runtime caveats
 
----
-Screenshots: Sideloadly's own site, and Apple's official support documentation.
+- Background BLE is best-effort under iOS. Preserve CoreBluetooth state restoration and test locked,
+  backgrounded, out-of-range/reconnect, ordinary system termination, reboot, and 72-hour soak
+  behavior. Manual swipe-to-force-quit may suppress background relaunch until the app is opened.
+- The initial personal flavor intentionally has no Apple Health, widget, Live Activity, or Watch
+  companion. Do not describe those as “might work”; they are excluded until a separate capability
+  experiment passes exact free-profile and upgrade tests.
+- Local Anisette avoids dependence on Sideloadly's remote Anisette service, but Apple signing servers
+  remain required. Apple can change provisioning/authentication and Sideloadly can require an update.
+  Reliability comes from early retries, visible alerts, USB recovery, backups, stable identity, and
+  a portable IPA—not permanent installation.
+
+## Fallback installers
+
+A maintained compatible desktop signer or direct Xcode install may replace Sideloadly if it can use
+the same Apple Account/team, bundle ID, and standard IPA without uninstalling. AltStore/SideStore are
+temporary fallbacks only because their host consumes a slot. LiveContainer/JIT/StikDebug,
+enterprise/leaked certificates, DNS revocation blocking, and exploit-specific persistence are not
+the daily WHOOP plan.
+
+## Acceptance
+
+Do not call this workflow dependable until WHOOP passes its physical-device matrix, encrypted
+restore, same-IPA Wi-Fi/USB refresh, new-IPA upgrade, controlled expiry recovery, two consecutive
+unattended portfolio refresh cycles, alert escalation, and USB recovery gates in `CLAUDE.md`.
+
+## Documentation synchronization
+
+When bundle identity, artifact capabilities, Sideloadly behavior, monitoring, backup, recovery, or
+verification changes, update this guide, `IOS_INSTALLATION.md`, `setup.md`, `README.md`, and
+`CLAUDE.md` together. Keep plan, implementation, and observed device behavior separate.

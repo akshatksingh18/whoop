@@ -46,4 +46,13 @@ void main() {
       expect(swift, isNot(contains(e.service.toLowerCase())));
     }
   });
+
+  test('AccessorySetup.swift does not pass a name-only descriptor to iOS', () {
+    // AccessorySetupKit requires every Bluetooth descriptor to identify a
+    // service or company; a name is only an additional filter. This guards the
+    // native crash that occurred when the picker validated the old fallback.
+    final swift =
+        File('ios/Runner/AccessorySetup.swift').readAsStringSync();
+    expect(swift, isNot(contains('bluetoothNameSubstring')));
+  });
 }

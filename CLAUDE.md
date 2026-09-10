@@ -16,8 +16,10 @@ remain fetch-only named upstreams.
 
 **Status:** Active Android-to-iPhone migration — the deterministic personal IPA from commit
 `325a3da7abac893326d45d3f7d3cc2367d60b22c` was built, verified, signed by Sideloadly, and installed
-on Akshat's iPhone; history import, exact installed identity/profile inspection, band pairing, and
-physical-device behavior remain unverified, and Android development is out of scope.
+on Akshat's iPhone and launches, but tapping **Find my band** terminates the app before the iOS
+picker appears. The crash is confirmed in the report as an AccessorySetupKit discovery-descriptor
+validation abort; history import state and exact installed identity/profile still need confirmation,
+the bridge fix/replacement IPA remain, and Android development is out of scope.
 
 ## Files
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
@@ -58,8 +60,9 @@ physical-device behavior remain unverified, and Android development is out of sc
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; its
-  first candidate is installed and visible on the phone, but history migration, launch, pairing,
-  sync, background behavior, refresh, and recovery are not verified yet
+  first candidate is installed and launches, but its first pairing attempt crashes at **Find my
+  band**; history migration, installed identity, pairing, sync, background behavior, refresh, and
+  recovery are not verified yet
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
@@ -72,8 +75,10 @@ independent Flutter app/process, not embedded in the hub; no paid tier, rotation
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
 macOS-built candidate passed automated payload/hash verification, and Sideloadly installed it on
-the iPhone. Home-screen presence is the only device evidence so far; daily-use activation still
-requires history import, exact identity/profile inspection, pairing, sync, recovery, and the other
+the iPhone. Launch is verified, but the first **Find my band** tap terminates the app before a picker
+appears. The crash report confirms malformed AccessorySetupKit descriptor validation; daily-use
+activation is blocked on fixing that bridge and producing a replacement IPA, and still requires
+history import confirmation, exact identity/profile inspection, pairing, sync, recovery, and the other
 physical-device evidence below.
 
 ### Chosen delivery model and non-negotiable constraints

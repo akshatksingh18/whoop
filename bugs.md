@@ -45,6 +45,39 @@ assuming correct):**
 range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
 Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
+## Active iPhone pairing crash
+
+**Confirmed on the installed personal candidate:** the app launches, but tapping **Find my band**
+terminates the process before the iOS accessory picker appears. The exported report
+`Runner-2026-09-09-204522.ips` identifies `EXC_BREAKPOINT`/`SIGTRAP` on the main thread in
+`ASAccessorySession _validateDiscoveryDescriptor` → `_validateDisplayItem` →
+`_showPickerForDisplayItems`. This is a native AccessorySetupKit validation abort, not the ordinary
+not-found or still-connected-to-Android result: Dart's pairing screen catches normal plugin errors
+and would render them in place.
+
+**Confirmed cause:** on iOS 18+, `PairingScreen._pair()` routes to `AccessorySetup.showPicker()`.
+The Swift bridge currently adds a final `ASPickerDisplayItem` whose descriptor contains only
+`bluetoothNameSubstring` and no `bluetoothServiceUUID` or `bluetoothCompanyIdentifier`; Apple
+documents the latter as required for every Bluetooth descriptor. The report specifically identifies
+that descriptor-validation path, which bypasses Dart's catch and terminates the process exactly at
+this tap. The bridge also has a separate activation-order risk: it calls `showPicker(for:)`
+immediately after `ASAccessorySession.activate(on:)`, before the asynchronous `.activated` event. The shipped IPA does
+contain the declared Bluetooth services, name allow-list, and Bluetooth usage description, so a
+missing-key privacy termination is not the leading hypothesis.
+
+**Next implementation:** remove or make the name fallback valid (service/company UUID plus name),
+queue picker work until `.activated`, report activation failure through the method channel, and add a
+regression test. Do not claim this fix until a replacement IPA passes on the physical iPhone.
+
+The secondary-sensor screen provides a separate observation, not a WHOOP-pairing fallback. After
+skipping onboarding, **Settings → My Device → Add a Sensor → Bluetooth Heart Rate Sensor** reports
+“The phone’s radio is off…”. That screen is for a standard Bluetooth heart-rate chest strap, not the
+primary WHOOP, and its pre-scan code maps CoreBluetooth `poweredOff` to that exact sentence; an
+app-level denial has different copy. Confirm Bluetooth is on in the iPhone Settings app and WHOOP
+is allowed under Privacy & Security → Bluetooth. Also force-quit/relaunch WHOOP after attempting a
+secondary-sensor scan: that path creates a global `CBCentralManager`, which the current source says
+prevents AccessorySetupKit from presenting the primary-WHOOP picker for the rest of that process.
+
 ## Other known environment quirks (not app bugs)
 - Vivo/OriginOS aggressively kills background apps — battery optimization must be "No
   restrictions" for `edge`, app locked in recent-apps view, or background sync gets killed outright.

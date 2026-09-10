@@ -67,8 +67,10 @@ The current imported source baseline is not test-clean:
 
 The Android release build is validated on Windows. The personal iOS candidate was built on GitHub's
 macOS runner, signed/installed through Sideloadly, and is visible on the iPhone. History migration,
-exact installed identity/profile inspection, launch, Bluetooth pairing, and runtime behavior still
-require physical-device verification.
+exact installed identity/profile inspection, Bluetooth pairing, and runtime behavior still require
+physical-device verification. Launch now passes, but tapping **Find my band** terminates the app
+before the iOS picker appears; the exported crash report confirms an AccessorySetupKit
+discovery-descriptor validation abort, so pairing is blocked pending a bridge fix and new build.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -94,7 +96,9 @@ The accepted daily-use target is now Akshat's iPhone through a standard unsigned
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
 manual workflow are implemented, and the first unsigned IPA passed automated validation. Akshat
 reports that Sideloadly signed/installed it and the app is present on the iPhone; history import,
-exact bundle/profile inspection, launch, pairing, and runtime acceptance remain. The current tag
+exact bundle/profile inspection, pairing, and runtime acceptance remain. Launch passes, but the
+first **Find my band** attempt terminates the app before the system picker appears; the exported
+crash report confirms an AccessorySetupKit discovery-descriptor validation abort. The current tag
 workflow remains unchanged.
 
 Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
@@ -127,7 +131,9 @@ The current candidate is version `0.9.29` build `62`, produced by run `344225235
 manifest, and checksum are cached at
 `C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. The local validator and downloaded
 checksum both pass. Sideloadly installation and home-screen presence are also user-confirmed; the
-installed bundle/profile identity and all app/band behavior remain unverified.
+app launches, but **Find my band** currently terminates it before the system picker appears. The
+crash report confirms the AccessorySetupKit descriptor failure; the installed bundle/profile
+identity and all band behavior remain unverified.
 
 The first private-repository build crossed the account's included Actions-minute threshold; the
 account notice reports reset on October 1, 2026. The repository was audited and changed to public

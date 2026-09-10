@@ -2,12 +2,10 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and public manual workflow produced a validated unsigned candidate,
-> and Sideloadly installed a signed copy on the iPhone. The app launches, but its first **Find my
-> band** attempt terminates the process before the iOS picker appears. The exported crash report
-> confirms an AccessorySetupKit discovery-descriptor validation abort; pairing remains blocked until
-> the bridge is fixed and a replacement IPA is tested. History-import state and the remaining physical behavior are not
-> verified yet. The personal profile
+> deterministic build profile and public manual workflow produced replacement `0.9.30` build `63`,
+> which passed macOS/package validation after the AccessorySetupKit bridge fix and is cached in
+> Downloads for Sideloadly. Installation, pairing, history-import state, and the remaining physical
+> behavior are not verified yet. The personal profile
 > excludes Watch, widgets/Live Activities, App Groups, HealthKit, GPS routes, and scheduled
 > processing/fetch while retaining the phone app and CoreBluetooth restoration.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's

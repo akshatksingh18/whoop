@@ -3,9 +3,12 @@
 **State:** The matching minimal build profile and public-repository macOS workflow produced and
 verified candidate `0.9.29` build `62`, cached under
 `C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. Sideloadly signed and installed it, and
-the app is visible on the iPhone. History import, installed identity/profile, launch, pairing, and
-physical behavior remain unverified, and Windows refresh automation remains unimplemented. Do not substitute an
-arbitrary upstream release IPA and claim it matches this capability profile.
+the app launches on the iPhone. Its first **Find my band** attempt terminates the app before the iOS
+picker appears; the exported crash report confirms an AccessorySetupKit discovery-descriptor
+validation abort, so pairing is blocked pending a bridge fix and replacement build.
+History-import state, installed identity/profile, and the remaining physical behavior remain
+unverified, and Windows refresh automation remains unimplemented. Do not substitute an arbitrary
+upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that

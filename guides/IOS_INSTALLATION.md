@@ -3,8 +3,10 @@
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
 personal-sideload build profile and manual public-GitHub workflow. Candidate `0.9.29` build `62`
 was built, payload/hash verified, downloaded to Windows, signed and installed with Sideloadly, and
-is visible on the iPhone. History import, exact installed identity/profile, launch, pairing, and
-physical behavior remain unverified.
+launches on the iPhone. Tapping **Find my band** terminates the app before the iOS picker appears;
+the exported crash report confirms an AccessorySetupKit discovery-descriptor validation abort, so
+pairing is blocked pending a bridge fix and replacement build. History-import state,
+exact installed identity/profile, and the remaining physical behavior remain unverified.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,

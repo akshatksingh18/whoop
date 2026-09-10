@@ -65,12 +65,12 @@ The current imported source baseline is not test-clean:
   (`import_container_test.dart`), the iOS ASK plist check, two movement/import date expectations,
   and repository policy checks in `substrate_admission_test.dart` and `ui2_tokens_test.dart`.
 
-The Android release build is validated on Windows. The personal iOS candidate was built on GitHub's
-macOS runner, signed/installed through Sideloadly, and is visible on the iPhone. History migration,
-exact installed identity/profile inspection, Bluetooth pairing, and runtime behavior still require
-physical-device verification. Launch now passes, but tapping **Find my band** terminates the app
-before the iOS picker appears; the exported crash report confirms an AccessorySetupKit
-discovery-descriptor validation abort, so pairing is blocked pending a bridge fix and new build.
+The Android release build is validated on Windows. The first personal iOS candidate was built on
+GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit
+discovery-descriptor validation abort when **Find my band** was tapped. The bridge fix is now in
+source and replacement `0.9.30` build `63` passed the macOS build/package gates; physical install,
+history migration, exact installed identity/profile inspection, Bluetooth pairing, and runtime
+behavior still require device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -94,12 +94,9 @@ personal build.
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented, and the first unsigned IPA passed automated validation. Akshat
-reports that Sideloadly signed/installed it and the app is present on the iPhone; history import,
-exact bundle/profile inspection, pairing, and runtime acceptance remain. Launch passes, but the
-first **Find my band** attempt terminates the app before the system picker appears; the exported
-crash report confirms an AccessorySetupKit discovery-descriptor validation abort. The current tag
-workflow remains unchanged.
+manual workflow are implemented. Replacement `0.9.30` build `63` passed automated validation and
+is cached at `C:\Users\aksha\Downloads\WHOOP-0.9.30-build63-ba307b7`; install/pairing/runtime
+acceptance on the iPhone remain the next gate. The current tag workflow remains unchanged.
 
 Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
 validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
@@ -125,15 +122,13 @@ conventional IPA payload, and uploads the IPA, capability/source manifest, and S
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
 
-The current candidate is version `0.9.29` build `62`, produced by run `34422523505` from source
-`325a3da7abac893326d45d3f7d3cc2367d60b22c`. Its SHA-256 is
-`1103ae5352ec5431ad3763f540ba8720a3e99e867fac3fcf18841c1a1bd7ec6b`, and the downloaded IPA,
+The current replacement candidate is version `0.9.30` build `63`, produced by run `34428183924` from
+source `ba307b7149522b4b962abf0f5ce9462da8c934f6`. Its SHA-256 is
+`ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
 manifest, and checksum are cached at
-`C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. The local validator and downloaded
-checksum both pass. Sideloadly installation and home-screen presence are also user-confirmed; the
-app launches, but **Find my band** currently terminates it before the system picker appears. The
-crash report confirms the AccessorySetupKit descriptor failure; the installed bundle/profile
-identity and all band behavior remain unverified.
+`C:\Users\aksha\Downloads\WHOOP-0.9.30-build63-ba307b7`. The macOS workflow, local validator,
+and downloaded checksum all pass. Sideloadly installation, pairing, history import, installed
+bundle/profile identity, and all band behavior remain unverified for this replacement.
 
 The first private-repository build crossed the account's included Actions-minute threshold; the
 account notice reports reset on October 1, 2026. The repository was audited and changed to public

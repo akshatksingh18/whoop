@@ -14,12 +14,11 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active Android-to-iPhone migration — the deterministic personal IPA from commit
-`325a3da7abac893326d45d3f7d3cc2367d60b22c` was built, verified, signed by Sideloadly, and installed
-on Akshat's iPhone and launches, but tapping **Find my band** terminates the app before the iOS
-picker appears. The crash is confirmed in the report as an AccessorySetupKit discovery-descriptor
-validation abort; history import state and exact installed identity/profile still need confirmation,
-the bridge fix/replacement IPA remain, and Android development is out of scope.
+**Status:** Active iPhone implementation — replacement personal IPA `0.9.30` build `63` from commit
+`ba307b7149522b4b962abf0f5ce9462da8c934f6` built and passed the macOS package/validator gates after
+the AccessorySetupKit bridge fix, and is ready in Windows Downloads for Sideloadly. Physical
+installation, pairing, history import, and runtime verification of this replacement remain
+pending; Android development is out of scope.
 
 ## Files
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
@@ -59,10 +58,9 @@ the bridge fix/replacement IPA remain, and Android development is out of scope.
 
 ## Environment
 - Dev machine: Windows laptop, no local Mac
-- Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; its
-  first candidate is installed and launches, but its first pairing attempt crashes at **Find my
-  band**; history migration, installed identity, pairing, sync, background behavior, refresh, and
-  recovery are not verified yet
+- Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; the
+  replacement `0.9.30`/63 artifact is built and locally cached, but installation, history migration,
+  installed identity, pairing, sync, background behavior, refresh, and recovery are not verified yet
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
@@ -74,12 +72,11 @@ ReelVault: two free-signing slots. `../akshatos/hub-plan.md` owns that packaging
 independent Flutter app/process, not embedded in the hub; no paid tier, rotation, or identity
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
-macOS-built candidate passed automated payload/hash verification, and Sideloadly installed it on
-the iPhone. Launch is verified, but the first **Find my band** tap terminates the app before a picker
-appears. The crash report confirms malformed AccessorySetupKit descriptor validation; daily-use
-activation is blocked on fixing that bridge and producing a replacement IPA, and still requires
-history import confirmation, exact identity/profile inspection, pairing, sync, recovery, and the other
-physical-device evidence below.
+macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
+The bridge is now fixed and replacement `0.9.30`/63 passed automated macOS payload/hash validation;
+the IPA is cached in Downloads for Sideloadly. Daily-use activation still requires installing this
+replacement and confirming history import, exact identity/profile, pairing, sync, recovery, and the
+other physical-device evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 

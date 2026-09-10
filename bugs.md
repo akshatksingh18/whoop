@@ -65,9 +65,11 @@ immediately after `ASAccessorySession.activate(on:)`, before the asynchronous `.
 contain the declared Bluetooth services, name allow-list, and Bluetooth usage description, so a
 missing-key privacy termination is not the leading hypothesis.
 
-**Next implementation:** remove or make the name fallback valid (service/company UUID plus name),
-queue picker work until `.activated`, report activation failure through the method channel, and add a
-regression test. Do not claim this fix until a replacement IPA passes on the physical iPhone.
+**Fix status:** the name-only fallback was removed, picker/provision/remove operations now wait for
+the asynchronous `.activated` event, and a regression guard covers the malformed descriptor. The
+replacement `0.9.30`/63 IPA built and passed automated macOS/package validation; sideloading and
+physical **Find my band** verification are still pending. Keep the original crash evidence until
+the replacement is tested on the iPhone.
 
 The secondary-sensor screen provides a separate observation, not a WHOOP-pairing fallback. After
 skipping onboarding, **Settings → My Device → Add a Sensor → Bluetooth Heart Rate Sensor** reports

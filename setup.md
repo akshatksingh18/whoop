@@ -78,41 +78,63 @@ test fixtures, not Akshat's personal health exports.
 Fetch and review each named upstream independently. Protocol or analytics changes must be merged
 into their existing package histories and reviewed together with the app behavior they affect.
 Never copy a floating upstream worktree over a package, and never change an algorithm revision
-without following `AGENTS.md`'s `kAlgoVersion` requirements.
+without following `CLAUDE.md`'s `kAlgoVersion` requirements.
 
-## Accepted personal iPhone pipeline (planned, not implemented)
+## Personal iPhone pipeline
 
-Private GitHub hosting and CLI authentication are configured, but no workflow has been activated
-for the personal iPhone artifact. GitHub Actions usage is metered, and macOS runners consume
-substantially more billed minutes than Linux runners; do not trigger the existing tag workflow as a
-personal build until its exclusions, payload checks, and secret handling meet the accepted contract.
+Private GitHub hosting and CLI authentication are configured. The manual
+`.github/workflows/personal-ios.yml` workflow is now the selected build host; it has not been
+committed/pushed or run yet. GitHub Actions usage is metered, and macOS runners consume
+substantially more billed minutes than Linux runners, so obtain Akshat's explicit approval before
+triggering a candidate. Never use the existing tag workflow as the personal build.
 
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
-Personal Team. This is a plan, not a completed pipeline: no personal-sideload flavor has been
-implemented, no iOS IPA has been built in this repository, and the current tag workflow has not
-been changed.
+Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
+manual workflow are implemented, but no iOS IPA has been built and no device acceptance evidence
+exists. The current tag workflow remains unchanged.
+
+Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
+validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
+from the IPA, so deleting it would not simplify signing, installation, runtime, or iPhone testing.
+
+The accepted shared portfolio is standalone WHOOP plus one native hub containing Squats, PageVault,
+and ReelVault (two free-signing slots). See `../akshatos/hub-plan.md`. WHOOP retains its independent
+Flutter process, identity, and Bluetooth lifecycle; it is not embedded in the hub. No paid tier,
+rotation, WHOOP source move, capability expansion, or activation is implied. The native hub is
+owned by `../akshatos/`; consult its build guide for implementation and device evidence.
 
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
 drain invariants. Its initial capability profile deliberately excludes the Watch companion, widget/
-Live Activity extension, App Groups, and HealthKit. GPS and background processing/fetch remain
-explicit test-gated options; required telemetry, health-data contribution, backend, and OTA
-dependencies remain off. The full upstream source targets stay in the repository for reference and
-possible future source-signed builds.
+Live Activity extension, App Groups, HealthKit, GPS, and background processing/fetch. Required
+telemetry, health-data contribution, backend, and OTA dependencies remain off. The full upstream
+source targets stay in the repository for reference and possible future source-signed builds.
 
-Creating a new IPA requires one of these deliberately chosen Mac paths:
-
-1. a controlled compatible Mac/Xcode environment; or
-2. the private-GitHub macOS workflow after it implements the personal-flavor exclusions,
-   payload/entitlement inspection, and source/hash manifest.
+Creating a new IPA uses the manual private-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
+minimal phone-only Runner in its ephemeral checkout, builds with
+`flutter build ios --release --no-codesign --dart-define-from-file=.env`, validates the
+conventional IPA payload, and uploads the IPA, capability/source manifest, and SHA-256 as a private
+artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
+material.
 
 Windows then caches the current and previous accepted unsigned IPAs outside Git and performs routine
 re-sign/refresh without Flutter, CocoaPods, Xcode, or a source rebuild. The permanent bundle ID,
 Windows cache path, encrypted-backup destination, Sideloadly/Local Anisette settings, monitoring,
 and alert implementation are intentionally unset until activation and must be recorded here when
-chosen. Never commit Apple/GitHub credentials, 2FA codes, signing material, Anisette data, personal
-health exports, or IPAs.
+chosen. The iPhone display/bundle name is `WHOOP` and the permanent bundle ID is
+`com.akshat.personal.whoop`; the first signing attempt still has to prove Apple accepts it
+for the selected Personal Team. Never commit Apple/GitHub
+credentials, 2FA codes, signing material, Anisette data, personal health exports, or IPAs.
+The personal build selects the supplied black-and-white circular logo from
+`ios/Runner/Assets.xcassets/AppIconPersonal.appiconset`; upstream/reference builds continue using
+their existing icon catalog.
+
+Windows is partly ready already: iTunes 12.13.10.3 and Apple Mobile Device Support 19.4.0.10 are
+installed, the Apple Mobile Device Service is automatic/running, and the Sideloadly daemon is
+running from `C:\Users\aksha\AppData\Local\Sideloadly`. The installed Sideloadly version and
+Local Anisette configuration are not yet verified, and no iPhone was detected during the readiness
+check. These facts are setup inventory, not proof of an install or refresh.
 
 See `guides/IOS_INSTALLATION.md` for the personal-versus-full build boundary and
 `guides/IOS_SIDELOAD.md` for the accepted Windows install/refresh/recovery workflow. `CLAUDE.md`

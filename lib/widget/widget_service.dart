@@ -11,6 +11,7 @@ import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
 
 import '../data/local_repository.dart';
+import '../build_profile.dart';
 import '../models/metric.dart';
 import '../models/payloads.dart';
 import '../ui2/screens/home_screen.dart' show hm, readinessBand;
@@ -53,6 +54,7 @@ class WidgetService {
 
   static bool _inited = false;
   static Future<void> init() async {
+    if (kPersonalSideload) return;
     if (_inited) return;
     try {
       final configured = await _platform.invokeMethod<String>(
@@ -79,6 +81,7 @@ class WidgetService {
   ///
   /// Best-effort; never throws into the caller.
   static Future<void> refresh(LocalRepository? repo) async {
+    if (kPersonalSideload) return;
     if (repo == null) return;
     try {
       await push(TodayData.fromJson(await repo.getToday()));
@@ -168,6 +171,7 @@ class WidgetService {
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
   /// throws into the caller. Sentinels: ints use -1 / strings use '' for "no data".
   static Future<void> push(TodayData t) async {
+    if (kPersonalSideload) return;
     try {
       await init();
       // WHICH NIGHT IS THIS. `getToday` holds the last night that scored over
@@ -347,6 +351,7 @@ class WidgetService {
   /// alone is sufficient — the rest is cleared so no stale value survives to be
   /// read by some future reader that forgets to check the flag.
   static Future<void> clear() async {
+    if (kPersonalSideload) return;
     try {
       await init();
       // The change gate must not swallow the first push after a wipe.
@@ -426,6 +431,7 @@ class WidgetService {
   /// Sentinel: pct -1 = never seen the band. [name] is the strap's advertising
   /// name (the widget falls back to "Strap" when empty/null).
   static Future<void> pushBattery(int? pct, bool? charging, String? name) async {
+    if (kPersonalSideload) return;
     try {
       await init();
       await HomeWidget.saveWidgetData<int>('batt_pct', pct ?? -1);
@@ -444,6 +450,7 @@ class WidgetService {
   /// user overrides the OS in-app. Reloads the home widget immediately; the Live
   /// Activity picks it up on its next (frequent) content-state update.
   static Future<void> setThemeDark(bool dark) async {
+    if (kPersonalSideload) return;
     try {
       await init();
       await HomeWidget.saveWidgetData<bool>('theme_dark', dark);
@@ -461,6 +468,7 @@ class WidgetService {
   /// True once (and clears) if the Live Activity's Finish button was tapped.
   /// The App Intent sets `end_session` in the App Group; we consume it on resume.
   static Future<bool> consumeEndSessionFlag() async {
+    if (kPersonalSideload) return false;
     try {
       await init();
       final v = await HomeWidget.getWidgetData<bool>(
@@ -482,6 +490,7 @@ class WidgetService {
   /// through the normal tap-route pipeline (AppState._handleTapRoute /
   /// tap_router.dart) — never invent a separate navigation path.
   static Future<String?> consumePendingRoute() async {
+    if (kPersonalSideload) return null;
     try {
       await init();
       final v = await HomeWidget.getWidgetData<String>(
@@ -501,6 +510,7 @@ class WidgetService {
   /// `end_session` — EndBreathingIntent in OpenStrapBreathingLiveActivity.swift
   /// sets it; two independent Live Activities must never share one flag.
   static Future<bool> consumeEndBreathingFlag() async {
+    if (kPersonalSideload) return false;
     try {
       await init();
       final v = await HomeWidget.getWidgetData<bool>(

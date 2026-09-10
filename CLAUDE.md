@@ -14,22 +14,24 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Paused/research — source and history are imported and the local Git repository is
-ready, but no feature or bug-fix work is expected while paused.
+**Status:** Active iPhone candidate build — the deterministic personal-sideload profile and manual
+private-GitHub build workflow are implemented locally, but no IPA or physical-device behavior has
+been verified; Android development is out of scope for Akshat's personal use.
 
 ## Files
 - `setup.md` — current private-GitHub/local-backup/upstream remotes, imported revisions, Windows
-  validation, accepted but unimplemented personal-iPhone pipeline, and deferred Mac build choice.
-- `bugs.md` — the active reconnection bug: Android evidence/hypotheses plus the separate planned
-  iPhone CoreBluetooth restoration/reconnection verification risk.
+  validation, implemented personal-iPhone build pipeline, and unexecuted install decisions.
+- `bugs.md` — retained Android reconnection evidence plus the active iPhone CoreBluetooth
+  restoration/reconnection verification risk.
 - `README.md` — preserved upstream product reference with a personal-fork status banner and clear
-  distinctions between upstream distribution/features and the unbuilt minimal personal profile.
+  distinctions between upstream distribution/features and the implemented but unbuilt profile.
 - `guides/IOS_INSTALLATION.md` — selected minimal personal versus full source-signed iOS build
   profiles, capability boundaries, and build acceptance requirements.
 - `guides/IOS_SIDELOAD.md` — accepted Windows Sideloadly installation, refresh monitoring, backup,
-  expiry recovery, three-slot, and fallback-signer workflow; not yet executed.
-- `AGENTS.md` — upstream engineering, architecture, safety, testing, and review requirements,
-  adjusted only where the one-repository layout replaces sibling repositories.
+  expiry recovery, two-app portfolio, and fallback-signer workflow; not yet executed.
+- `.github/workflows/personal-ios.yml` and `tool/personal_ios.py` — manual private macOS
+  build plus deterministic personal-profile transformation, payload validation, manifest, and
+  checksum.
 - `.claude/skills/ponytail/SKILL.md` — upstream implementation discipline; read it before changing
   application or package behavior.
 - `pubspec.yaml` and `pubspec.lock` — Flutter dependencies; protocol and analytics resolve through
@@ -54,16 +56,21 @@ ready, but no feature or bug-fix work is expected while paused.
 
 ## Environment
 - Dev machine: Windows laptop, no local Mac
-- Intended primary daily-use device: iPhone via the planned minimal Sideloadly-sideloaded release
-  IPA; this artifact and pipeline are not implemented or verified yet
-- Available fallback/test device: Android phone (Vivo iQOO, OriginOS/Funtouch skin)
+- Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; its
+  build pipeline is implemented, but no candidate artifact or installation is verified yet
+- Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
+  code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
 ## Personal iPhone deployment plan
 
-This is the durable plan for making the iPhone the primary WHOOP device without a paid Apple
-Developer Program membership. It records a future implementation path; it does not unpause the
-project or authorize behavior changes by itself. Keep the current paused/research status until
-Akshat explicitly activates the plan and the acceptance gates below pass.
+This is the durable free-compatible plan for making the iPhone the primary WHOOP device. The
+accepted portfolio is standalone WHOOP plus one native hub containing Squats, PageVault, and
+ReelVault: two free-signing slots. `../akshatos/hub-plan.md` owns that packaging. WHOOP remains an
+independent Flutter app/process, not embedded in the hub; no paid tier, rotation, or identity
+migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
+Akshat has activated iPhone implementation. The personal flavor now exists in source, but that does
+not claim a successful macOS build or that any device acceptance gate has passed; daily-use
+activation still requires the artifact, signing, recovery, and physical-device evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -71,10 +78,10 @@ Akshat explicitly activates the plan and the acceptance gates below pass.
   `.ipa`, then let Sideloadly sign and install it directly from the Windows laptop with Akshat's
   free Apple Personal Team. Do not use a Flutter debug build for daily use: debug builds require
   Flutter/Xcode to relaunch from the home screen.
-- WHOOP owns one of the three free Personal Team app slots; the intended allocation is PageVault,
-  Squat Reminder, and WHOOP. Sideloadly has no phone-side host app and therefore preserves all
-  three slots. AltStore Classic and SideStore each consume a slot themselves and are fallback
-  installers only if another personal app is temporarily removed.
+- WHOOP uses one slot and the native Squats/PageVault/ReelVault hub uses a second; the third is
+  unallocated. Sideloadly has no phone-side host. AltStore/SideStore would use a further slot and
+  require an explicit workflow choice; neither is needed. Preserve WHOOP's independent lifecycle,
+  minimal personal flavor, encrypted exports, and stable identity rather than embedding it in the hub.
 - Do not put the daily app inside LiveContainer and do not add StikDebug, LocalDevVPN, JIT,
   injected tweaks, or a Sideloadly-specific runtime dependency. Those add failure surfaces and
   cannot be trusted to preserve WHOOP's entitlements or CoreBluetooth background restoration.
@@ -107,8 +114,10 @@ Akshat explicitly activates the plan and the acceptance gates below pass.
 
 ### Personal-sideload build contract
 
-Create a dedicated personal-sideload build/configuration when this plan is activated. Do not
-mutate the general source build ad hoc or rely on Sideloadly to repair an over-entitled bundle.
+The dedicated personal-sideload build/configuration is implemented by `PERSONAL_SIDELOAD`,
+`tool/personal_ios.py`, and `.github/workflows/personal-ios.yml`. The script transforms
+only the ephemeral build checkout, with drift guards, instead of mutating the general source target
+ad hoc or relying on Sideloadly to repair an over-entitled bundle.
 The personal artifact must have these properties:
 
 - Keep the root iPhone `Runner` and all local BLE, SQLite, analytics, UI, local-notification,
@@ -120,15 +129,13 @@ The personal artifact must have these properties:
   stable `openstrap.ble.restore` restoration identifier, the saved band UUID, the deferred
   first-pairing central creation, and the existing handoff to the normal Flutter drain path.
   CoreBluetooth wakes are bounded opportunities, not a promise of continuous execution; every
-  drain must retain the commit-before-ACK and resumable-cursor invariants from `AGENTS.md`.
-- Treat `location` as an explicit optional capability for route recording during a live workout.
-  Keep it only if Akshat wants that feature and physical testing proves that permission prompts,
-  background behavior, battery use, and stop semantics remain honest. Never request always-on
-  location merely to keep the process alive.
-- Treat `processing` and `fetch` as best-effort optimizations. They may remain only after the
-  personal build registers bundle-appropriate `BGTaskSchedulerPermittedIdentifiers` and tests
-  prove they do not interfere with CoreBluetooth restoration. Correctness must never depend on a
-  background task running on schedule.
+  drain must retain the commit-before-ACK and resumable-cursor invariants documented below.
+- The initial personal profile removes location usage keys/native routes and suppresses route
+  tracking. A later GPS experiment requires an explicit decision plus permission, battery,
+  background, and stop-semantics evidence; never add location merely to keep the process alive.
+- The initial personal profile removes `processing`/`fetch` modes, BG task identifiers,
+  native registration, and Dart scheduling. They remain optional future experiments, never
+  correctness requirements.
 - Default the personal flavor to local-only operation: no health-data contribution, no required
   companion/backend URL, no automatic OTA dependency, and no automatic Firebase Analytics,
   Performance, or Crashlytics collection. In particular, do not carry the current release
@@ -160,11 +167,15 @@ The personal artifact must have these properties:
 
 ### Bundle identity, upgrades, and data continuity
 
-- Before the first controlled install, choose and record one permanent personal bundle identifier
-  (prefer a stable Akshat-owned form such as `com.akshat.personal.whoop` after verifying it can be
-  provisioned). Use that exact identifier, the same Apple Account, and the same Sideloadly custom
+- The personal app's iPhone display/bundle name is `WHOOP`. The permanent bundle identifier
+  is `com.akshat.personal.whoop`; the first Sideloadly signing attempt must still prove that
+  Apple accepts it for the selected Personal Team. Use that exact identifier, the same Apple
+  Account, and the same Sideloadly custom
   bundle-ID behavior for every refresh and upgrade. Never accept a new random identifier merely
   to make an installation succeed.
+- The personal iPhone build uses the black-and-white circular mark in
+  `ios/Runner/Assets.xcassets/AppIconPersonal.appiconset`; the general upstream target retains its
+  existing `AppIcon` artwork.
 - Keep the existing source version rules: every new binary gets the correct `pubspec.yaml`
   version/build number and passes the release guards. Code upgrades change the version, never the
   bundle identity. Do not uninstall the existing app for a normal refresh or upgrade; install over
@@ -183,12 +194,12 @@ The personal artifact must have these properties:
 - macOS/Xcode is required only when source changes require a **new** unsigned IPA. Re-signing the
   already-built IPA every few days happens entirely from Windows and must not rerun Flutter,
   Xcode, CocoaPods, or the analytics pipeline.
-- The existing tag workflow already has a macOS job that builds an unsigned release IPA and strips
-  the Watch app. The private GitHub remote now exists, but activation must still choose between a
-  controlled Mac build and adapting that workflow to the personal-sideload contract above. Do not
-  run or trust the current tag workflow for the personal artifact until its capability exclusions,
-  payload inspection, and secret handling are implemented. GitHub/macOS is a build dependency when
-  code changes, not a runtime dependency of the installed app.
+- The chosen build host is the private GitHub repository's manual macOS workflow,
+  `.github/workflows/personal-ios.yml`. It uses Flutter 3.41.6, injects no backend/Firebase
+  secrets, applies the personal transform, validates the IPA, and uploads a private 14-day artifact
+  with a source/capability manifest and SHA-256. The existing tag workflow remains the
+  upstream-capable release path and must not supply this personal artifact. GitHub/macOS is a build
+  dependency only when code changes, not a runtime or routine refresh dependency.
 - Cache the current signed-input IPA on Windows in a stable, non-temporary directory outside Git.
   Keep the current and immediately previous known-good artifacts, each with filename/version,
   SHA-256, source commit, Flutter version, build date, and the feature/capability manifest. Record
@@ -298,48 +309,51 @@ fully quit so it does not own the peripheral:
 10. **Installer disruption:** simulate the daemon stopped, Windows rebooted, phone unseen on
     Wi-Fi, USB-only recovery, and Sideloadly temporarily unavailable. Confirm alerts arrive early
     and the standard IPA remains usable by the chosen backup signer without changing its bundle
-    identity. Activating AltStore/SideStore requires a documented decision about which of the
-    other three personal apps temporarily gives up its slot.
+    identity. Activating AltStore/SideStore requires a documented workflow/slot check and verified
+    encrypted backup/restore; the selected two-app model does not require removing either app.
 
 ### Activation phases and acceptance gates
 
-1. **Remain paused:** preserve the imported baseline, current local-only Git origin, upstream
-   histories, algorithm/version invariants, and `bugs.md` evidence. This documentation change is
-   the only authorized work until Akshat explicitly unpauses iPhone implementation.
-2. **Lock decisions:** choose the permanent bundle ID, Apple Account, optional GPS route mode,
-   macOS build source, Windows artifact-cache path, encrypted-backup destination, and exact alert
-   behavior. Record decisions without committing credentials or personal data.
-3. **Build the personal flavor:** implement the entitlement/extension/network exclusions, local
-   signing-expiry status, packaging checks, and tests. All existing application/package behavior
-   changes still follow `.claude/skills/ponytail/SKILL.md` and every `AGENTS.md` invariant.
+1. **Scope locked:** target Akshat's iPhone only. Preserve the imported baseline, private origin,
+   upstream histories, algorithm/version invariants, Android source as reference, and `bugs.md`
+   evidence; Android fixes, builds, and device validation are not part of the personal roadmap.
+2. **Lock decisions:** bundle ID `com.akshat.personal.whoop`, no initial GPS, and the
+   private-GitHub macOS build source are locked. Before installation, record the Apple Account/team
+   continuity choice, Windows artifact-cache path, encrypted-backup destination, and exact alert
+   behavior without credentials or personal data. The installed set is standalone WHOOP plus the
+   native three-feature hub under free signing.
+3. **Build the personal flavor:** the core entitlement/extension/location/network exclusions,
+   packaging checks, and tests are implemented. A local installed-profile expiry/status surface
+   remains desirable but does not block producing the first controlled candidate.
 4. **Produce and inspect one candidate:** build on controlled macOS/Xcode, cache it on Windows,
    record its hash/source, sign with the free Personal Team, and pass artifact, install, pairing,
    offline, backup, and core BLE tests. A successful install alone is not an acceptance gate.
 5. **Pilot daily use:** pass the full lifecycle/restoration matrix and 72-hour soak, then pass an
-   unchanged-IPA refresh and new-IPA upgrade with data preservation. Keep Android as the fallback
-   during this phase.
+   unchanged-IPA refresh and new-IPA upgrade with data preservation. Android is not an acceptance
+   dependency or active fallback for this pilot.
 6. **Prove the signing loop:** pass at least two consecutive unattended refresh cycles, alert
    escalation, USB recovery, and the controlled expired-profile recovery. Do not make the iPhone
    authoritative before the encrypted restore test also passes.
-7. **Activate:** only after all gates pass may the project status move from paused/research to an
-   active iPhone pilot or daily-use status. Keep periodic backups, early refresh verification, and
-   regression checks after Sideloadly, Apple-device-component, Flutter/Xcode, or iOS changes.
+7. **Activate daily use:** only after all gates pass may the project status move from active iPhone
+   implementation planning to an active iPhone pilot or daily-use status. Keep periodic backups,
+   early refresh verification, and regression checks after Sideloadly, Apple-device-component,
+   Flutter/Xcode, or iOS changes.
 
 ### Documentation and workflow synchronization
 
-`setup.md`, `README.md`, `bugs.md`, and both iOS guides now distinguish the accepted personal plan,
-the current upstream-capable source, and unexecuted verification. The project remains paused; the
-actual personal build flavor, signing configuration, and workflow have deliberately not been changed.
+`setup.md`, `README.md`, `bugs.md`, and both iOS guides distinguish the personal plan,
+the current upstream-capable source, iPhone-only scope, implemented build profile, and unexecuted
+verification. The first private macOS build, Windows cache, Sideloadly signing, and all device gates
+remain.
 
-When implementation begins, update all affected sources in the same coherent change:
+As implementation proceeds, update all affected sources in the same coherent change:
 
-- Record the permanent bundle ID, chosen controlled-Mac or private-GitHub build path, artifact/cache/backup paths,
-  exact build command, source/hash/capability manifest, Sideloadly settings, monitoring/alerts, and
-  current physical validation in `setup.md` and the guides.
-- Update `.github/workflows/build.yml` (or the selected controlled-Mac equivalent) with the explicit
-  personal flavor, health contribution/telemetry off, Watch/widget exclusion, minimal entitlement/
-  payload validation, pinned preflight guards, and artifact metadata. The tag workflow is dormant
-  until it has been adapted and verified for the personal-sideload artifact.
+- Record the artifact/cache/backup paths, exact source/hash manifest, Sideloadly settings,
+  monitoring/alerts, and current physical validation in `setup.md` and the guides as they become
+  real.
+- Keep `.github/workflows/personal-ios.yml` manual, private, minimal, and distinct from the
+  existing tag release workflow; update the transform and contract tests whenever the Xcode project
+  moves.
 - Make `ios/Runner/Info.plist`, entitlements, signing configs, Xcode targets, and feature flags enforce
   the chosen capability profile together; remove omitted feature UI/bridges rather than shipping
   misleading controls. Keep generated AccessorySetupKit entries generated and update guard tests.
@@ -350,10 +364,14 @@ When implementation begins, update all affected sources in the same coherent cha
 ## Working agreement
 - Keep this as one repository. Route byte/protocol work to `packages/protocol/`, metric work to
   `packages/analytics/`, and app/flow/storage/UI work to the root app areas.
-- Preserve the algorithm-version rules in `AGENTS.md`: any analytics output change must still be
+- Preserve the algorithm-version rules below: any analytics output change must still be
   reviewed with the matching `kAlgoVersion` decision even though no external package pin changes.
 - Treat upstream updates as deliberate reviewed imports; never replace a local package with a
   floating branch dependency.
+- Personal product work is iPhone-only. Do not delete the imported Android target merely to narrow
+  scope: it is not packaged into the IPA, and retaining it avoids an unrelated destructive diff and
+  preserves upstream merge/reference value. Do not build, debug, or extend it unless Akshat reopens
+  Android scope.
 - Any material platform, capability, entitlement, BLE/background, storage, build/signing, status,
   or deployment decision must update this file and every affected current-state supporting
   document—especially `setup.md`, `README.md`, `bugs.md`, the iOS guides, workflow/configuration
@@ -363,3 +381,263 @@ When implementation begins, update all affected sources in the same coherent cha
 - **Whenever a new project-owned file or top-level source area is added**, add a bullet under
   `## Files` in the same edit. Files inside an already-indexed imported source area do not need
   individual bullets.
+
+## Engineering architecture, invariants, and review guidance
+
+Reviewer context. This doc drifts from code between edits — check
+`kAlgoVersion` (`lib/compute/derivation_engine.dart`), `schemaVersion`
+(`lib/data/db.dart`), and the `version:` line in `pubspec.yaml` directly
+rather than trusting a number written here. Where a source comment disagrees
+with an implementation, **the implementation wins** — header comments here go
+stale (e.g. `lib/compute/substrate.dart`'s file header still describes a
+wake-to-wake day model that `calendarDays()` no longer implements; it walks
+local midnight to local midnight). The same drift applies to §2's table and
+every line-number citation in §3 below — line numbers move on every edit,
+symbol names don't; verify against the source, not this doc.
+
+### Project and source-area boundaries
+
+A Flutter app for a reverse-engineered WHOOP 4.0 band. **Fully on-device,
+local-first**: BLE offload → SQLite → on-device analytics → UI. No backend owns
+user data. Network use is limited to OTA update pointers, opt-in
+telemetry/Crashlytics, and BYOK LLM calls.
+
+One monorepo, strict source-area separation — put work in the right tree:
+- `packages/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
+- `packages/analytics` — metrics: HRV, sleep staging, readiness, strain.
+- the root app (`lib/`, platform folders, and app config) — flows, BLE link
+  management, storage, UI.
+
+New opcode/record → protocol. New metric → analytics. New screen/flow/table →
+the root app. A change implementing a metric inside `lib/compute` is in the
+wrong source area unless it is pure orchestration.
+
+### Architecture map (`lib/`, well over 200 files — these five are the biggest by far)
+
+Line counts drift constantly; don't trust a number here, `wc -l` the file.
+
+| file | owns |
+|---|---|
+| `data/db.dart` | `LocalDb`: schema ladder (`onUpgrade`), all CRUD, coach views |
+| `compute/derivation_engine.dart` | `DerivationEngine`, `kAlgoVersion`, day scheduling, isolate offload |
+| `state/app_state.dart` | `AppState` ChangeNotifier — BLE↔DB↔UI orchestration |
+| `ble/ble_engine.dart` | GATT connect/drain/history-sync state machine |
+| `data/local_repository_impl.dart` | read seam: `day_result`/`metric_series` → screen shapes; zero compute on read |
+
+- `ble/` — engine + `ble_state.dart` **pure policies**: `ReconnectPolicy`,
+  `SeqAllocator`, `DrainStopEvaluator`, `RecordGate`, `CounterRegressionDetector`,
+  `AckRetryPolicy`, `ChunkFailureLedger`, `DeriveDebouncer`, `AlarmPayloads`,
+  `AlarmConfirmation`.
+- `sync/` — `sync_policy.dart` **pure policies**: `ClockRef`/`ClockPolicy`,
+  `BackfillPolicy`, `MarginalRadioDetector`, `FrameCorruptionDetector`,
+  `PostBondTimeoutLoopDetector`, `BondRefusalGiveUp`, `EmptySyncTracker`,
+  `StuckStrapDetector`; plus background/headless entries and OTA.
+- `compute/` — `substrate.dart` (**single** raw→`Substrate` decode point +
+  `calendarDays()` day model), `onehz_pipeline.dart` (pure, isolate-safe per-day
+  pipeline), `crossday_pipeline.dart`, `derivation_engine.dart`.
+- `data/` — `db.dart`, read seam, `day_label.dart` (the *only* day-label helper).
+- `notify/` — `notification_center.dart` is the **single emitter**;
+  `fired_keys.dart` is the persistent fire-once guard.
+- `coach/` — read-only SQL over allow-listed `v_*` views behind a deny-list guard.
+- `ui2/` — 66 files (`lib/ui` was deleted in the UI rebuild): `ui2/theme.dart`
+  and `ui2/grammar.dart` (design system), `ui2/charts.dart`, `ui2/screens/`
+  (shared metric/trend IA), plus `ui2/onboarding/`, `ui2/activity/`,
+  `ui2/profile/`.
+- Also `ai/` (BYOK), `gps/`, `health/` (HealthKit/Health Connect export),
+  `telemetry/` (opt-in), `widget/` (App-Group snapshot for WidgetKit/watch).
+
+**Storage.** Durable ledger: `decoded_onehz` (1 Hz, `UNIQUE(rec_ts)`,
+INSERT-OR-REPLACE) + `decoded_rr` (beats, cascades on eviction) + `raw_archive`
+(never pruned; undecodable/unknown-version records) + `raw_records` (retained as
+replay/debug ledger and upgrade fallback) + `events`/`band_events`. Derived
+output: versioned **immutable** `day_result` (PK `day_id, algo_version`) and
+`metric_series` (PK `date,key`, REPLACE).
+
+**Bug-density hotspots** (fix-titled commit churn, last 300 commits):
+`state/app_state.dart` 30 · `data/db.dart` 25 · `compute/derivation_engine.dart`
+24 · `data/local_repository_impl.dart` 17 · `ble/ble_engine.dart` 12 ·
+`main.dart`+`app.dart` 19. Treat diffs in these with extra scrutiny.
+`pubspec.yaml` has high raw churn but most of it is release version bumps — not
+a hotspot.
+
+### Hard invariants — violating these is a P0 regression
+
+1. **Commit before ACK.** In the history-sync drain (`ble/ble_engine.dart`)
+   decoded rows + cursor commit in one transaction *before*
+   `buildHistoryResultOk` echoes the verbatim 8-byte HISTORY_END token. The band
+   trims flash on ACK. Reordering, or echoing a regenerated/mangled token, causes
+   permanent data loss or an infinite re-flood. Never ACK a partial chunk.
+2. **`decoded_onehz` stays INSERT-OR-REPLACE keyed on `rec_ts`.** INSERT-OR-IGNORE
+   breaks counter-reset recovery. Evicting a row must delete that counter's
+   `decoded_rr` beats in the same batch.
+3. **Never fabricate a metric.** Absent input ⇒ null / `Metric.absent` / "—". No
+   imputation, no substituted defaults, no deriving one metric from another as a
+   fallback. Most-violated rule in the repo (§4.1).
+4. **Bump `kAlgoVersion`** (`compute/derivation_engine.dart`) whenever any
+   analytics *output* changes, including a change under `packages/analytics`.
+   Rows are immutable per version; without a bump nothing recomputes. Add a
+   changelog entry above the constant.
+5. **A bump citing a package change must include that source change.** Verify the
+   monorepo commit actually contains it. v43's changelog described an analytics
+   fix its dependency pin never contained; the bug stayed live three releases
+   and only shipped at v46.
+6. **In-tree packages are reviewed commits, never floating dependencies.**
+   `ref: main` on analytics shipped main-thread ANRs into 0.9.13/0.9.14. Keep
+   the tracked `packages/` sources, `packages/upstream-revisions.yaml`, and path
+   dependencies in the same history.
+7. **Day labels are LOCAL.** Always `todayLabel()` / `dayLabelOf()` from
+   `data/day_label.dart`; never `DateTime.now().toUtc()...substring(0,10)`. Epoch
+   timestamps (rec_ts, session bounds, prune cutoffs) are absolute — do not
+   "fix" those to local. Day-length arithmetic must not assume 86400 s (DST).
+8. **One source per concern.** One raw decode point (`substrate.dart`), one sleep
+   segmentation, one readiness, one frame-ingest path (`RecordGate`), one
+   notification emitter (`NotificationCenter.emit`). A second path is the bug.
+9. **Never prune raw/decoded for a day that is not fully derived.** `day_result`
+   has a `partial` column because days with good headline scalars but a failed
+   second-half compute were finalized and pruned — unrecoverable. `raw_archive`
+   is never pruned.
+10. **Heavy compute never on the UI isolate.** Staging/derivation goes through
+    `Isolate.run`; analytics ambient globals do not cross the boundary and must
+    be re-armed inside the closure.
+11. **Migrations additive and idempotent.** `onUpgrade` is a sequential
+    `if (oldV < N)` ladder; `onOpen`'s `_repairOpenSchema` re-runs creators so
+    same-version merged builds self-heal. Migrations run inside `openDatabase`
+    under iOS's CPU watchdog — keep them cheap. `PRAGMA journal_mode=WAL` must go
+    through `rawQuery` (it returns a row; `execute` bricks iOS Darwin sqflite).
+12. **Headless/background sync serializes through `HeadlessSyncGate.tryRun`** —
+    skip, don't queue.
+13. **The coach reads only allow-listed `v_*` views** — never `decoded_*`,
+    `raw_*`, or base tables.
+14. **Live high-rate streams (0x28/0x2B/0x33) are never persisted** — RAM-only.
+15. **Dangerous opcodes are never auto-sent** (`dangerousCmds`, gated in
+    `ble/ble_engine.dart` wherever a write checks it): force-trim, reboot,
+    power-cycle, firmware load.
+
+### Recurring bug patterns — what actually ships broken here
+
+#### 4.1 Fabricated / non-abstaining metrics ("honesty" violations)
+The project has an explicit never-impute rule and keeps breaking it. Instances:
+two copies of a `100 - readiness` stress fallback; RHR falling back to daytime HR
+("Readiness 100" ten minutes after first wear); literal `"null"` rendered for
+oxygen dips; a skin-temp section gated on `spo2` presence; `StageBars` drawing an
+*invisible gap* for an absent sleep stage; pace showing absurd numbers instead of
+"—"; a false empty state instead of a retryable error; Bluetooth-off reported as
+"no strap found". One is still open: stress shows a confident score on ~20 min of
+data.
+**Ask on any metric diff:** what does this return when the input is missing or
+thin? Anything other than null/"—"/an honest low-confidence envelope is a bug.
+
+#### 4.2 Readiness / recompute-idempotence — the largest single cluster
+Eight distinct fixes and four sequential attempts at one user-visible symptom.
+Readiness recomputes on *every* BLE drain against a moving 28-day baseline, so
+any non-idempotent step corrupts it: duplicate-day appends into the baseline
+(MAD == 0 ⇒ robust z abstains ⇒ blank ring), rebuilding on persist but not on
+read, withholding a score while the overnight builds but not preventing a
+ready→ready drift, flashing a stale value before today settles, and saturation
+bouncing the ring to 100.
+**Ask:** if this runs three more times today with slightly more data, does the
+persisted scalar stay stable? Does it append where it should replace?
+**Footgun:** `LocalDb.metricSeries(limit: n)` is `ORDER BY date ASC LIMIT n` =
+the **oldest** n. For a trailing window use `trailingSeriesValues(key, n)`.
+
+#### 4.3 Sticky boolean latches never reset on the failure path
+Self-identified as recurring in the repo's own commit messages ("same shape as
+the foregroundActive bug from a couple days ago"). A flag is set, an error path
+returns early without clearing it, and sync wedges until force-close. Known
+instances: `foregroundActive`, `markForegroundIntent`, `_offloadActive`,
+`_drainingOffloadFrames` (no `try/finally`), a sticky standard-HR fallback that
+silently zeroed step calibration, and trusting a stale `isConnected`.
+**Ask:** every flag set in this diff — is it cleared in `finally`, on timeout, and
+on the give-up branch?
+
+#### 4.4 Heavy compute on the main/UI isolate → ANR, jank, stuck launch
+Recurred one build apart: `cardioStager`'s per-30s Lomb–Scargle on the main
+isolate (Android ANRs every ~30 s), then the *entire second half* of
+`_derivePreparedDay` running on the UI isolate for the foreground pass that fires
+on every sync. Also: app freezing during backfills, unbounded pre-`runApp` inits
+stalling launch, a dark-mode rebuild storm starving background BLE.
+
+#### 4.5 `context` / Provider used after `await` or after unmount
+Repeated crash source: `Provider._inheritedElementOf` null in `dispose`,
+`context.read` in `dispose`, bare `Navigator.pop()` after an `await`, missing
+`mounted` guard on a post-navigation reload.
+
+#### 4.6 Notification re-fire, dedupe race, and gating bypass
+Call sites promised "at most once per day" with nothing enforcing it, so
+derivation re-runs re-fired them across illness, anomaly, temperature, readiness,
+HR-shift, recovery-ready, step-goal and auto-workout alerts. Then the stress
+screen called `NotificationService.presentEvent` **directly**, bypassing both the
+prefs gate and the new dedupe guard. Then a TOCTOU race let two overlapping
+`emit()`s both pass `hasFired`.
+**Flag:** any direct call into `NotificationService` that skips
+`NotificationCenter.emit`, and any check-then-record without the lock.
+
+#### 4.7 Capability wired into one call path but not all N
+The most damaging instance: `FirmwareAwareR24Decoder` existed but was not wired
+into all three decode paths (`ble_engine.dart`, `db.dart`, `substrate.dart`), so
+a real user's 88-byte v12 records were 100% silently archived — total sync
+outage. Also: HealthKit export gated on `day_result` and never session-triggered
+(a workout finished offline never exported); auto-detected workouts never
+reaching the `sessions` table, invisible to both AI Coach and Health export.
+**Ask:** how many call sites exist for this concern, and does the diff cover all
+of them?
+
+#### 4.8 UTC-vs-local and day-boundary math
+Fixed, then reintroduced *in the same file* (SRI's hypnogram grid used raw UTC
+time-of-day right below the fix for that exact mistake), then again in the
+`v_sessions` view (AI Coach mis-dated workouts). Also: day math assuming 86400 s
+breaking on DST, a briefing greeting "morning" in the afternoon, sleep not
+detected in non-UTC timezones, and an alarm armed in the phone's clock frame
+instead of the strap's RTC frame so it never fired.
+
+#### 4.9 Package revisions / lockfile / release metadata
+Four separate passes. Committed path `dependency_overrides` broke a release;
+`pubspec.lock` resolved a package via a stale local path; floating `ref: main`
+rode analytics v42 into 0.9.13; a PR bumped `kAlgoVersion` while the lock still
+pinned the pre-fix analytics commit, requiring a manual merge-order gate; and
+`0.9.17+1` shipped versionCode 1 → `INSTALL_FAILED_VERSION_DOWNGRADE`, making
+the release uninstallable.
+This monorepo tracks protocol and analytics under `packages/` and resolves both
+through paths in `pubspec.yaml`; the package trees and app therefore move in the
+same Git history. Do not use `pubspec_overrides.yaml` or restore floating Git
+refs for them. Keep `pubspec.lock` consistent with those paths. `version:` must
+always keep its `+BUILD` suffix, and the iOS widget/watch
+`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped manually and drift.
+
+#### 4.10 Duplicated / inconsistent values across screens
+Today showed strain/sleep/stress twice; a week-load wheel duplicated the strain
+figure; the steps figure disagreed across screens through three separate
+unification attempts and is still being fixed; two different HRV baselines both
+labeled "baseline" on one screen.
+
+#### 4.11 Chart / hypnogram render regressions
+`Hypnogram.plot` lost its `RepaintBoundary` in a refactor and stayed lost through
+three rewrites before being restored. Also recap scrub-marker misalignment,
+`GanttPainter` needing restoration, and `RangeError` from unpadded substrate
+fields. Rendering regressions here surface as test failures rather than obvious
+visual bugs — check whether removed wrapper widgets were load-bearing.
+
+### How to review this repo
+
+**CI does run on PRs.** `.github/workflows/test.yml` runs `flutter analyze` +
+`flutter test` on every pull request and on push to `main`.
+`.github/workflows/build.yml` (the APK/IPA release) is the one gated to
+`push: tags: ['v*']` — it doesn't touch PRs. `test/` is large and not flat
+(it has `adapters/`, `support/`, and other subdirectories alongside the
+top-level test files). Several regression tests are named for the bug they pin
+(`readiness_flash_test`, `readiness_freeze_test`, `readiness_saturation_test`,
+`readiness_baseline_pollution_test`). A behavior change with no accompanying
+test is a real finding — CI passing doesn't mean the right test exists.
+
+`analysis_options.yaml` is stock `flutter_lints`: no custom rules, no excludes,
+no strict language modes.
+
+**Deprioritize:** formatting, import ordering, naming style, `const`
+constructors, string-interpolation preference, missing dartdoc, "extract a
+widget", and general Flutter/Dart idiom advice not tied to a behavior change.
+
+**Prioritize:** the invariants in §3, the patterns in §4, absent-input handling on
+every metric path, idempotence under repeated derivation, flag reset on failure
+paths, transaction ordering and durability around BLE sync, isolate boundaries,
+migration safety, and anything that could display a number the data does not
+support.

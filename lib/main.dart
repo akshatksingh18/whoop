@@ -21,6 +21,7 @@ import 'package:workmanager/workmanager.dart';
 import 'dart:async';
 import 'dart:io';
 import 'compute/background_derivation.dart' show kHeavyDeriveTaskName, kSyncTaskName;
+import 'build_profile.dart';
 
 /// Ceiling on every pre-runApp platform-channel await. Each one is guarded
 /// against THROWING, but a channel call that simply never completes (seen in
@@ -36,12 +37,14 @@ Future<void> main() async {
   // Initialize Firebase (overridden by dummy values until flutterfire configure).
   // OPTIONAL: a build with no real google-services.json / GoogleService-Info.plist
   // throws here and the app carries on without any Firebase at all.
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(_kStartupInitTimeout);
-  } catch (e) {
-    debugPrint('Firebase init failed (run flutterfire configure!): $e');
+  if (!kPersonalSideload) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ).timeout(_kStartupInitTimeout);
+    } catch (e) {
+      debugPrint('Firebase init failed (run flutterfire configure!): $e');
+    }
   }
   // ZERO COLLECTION UNTIL CONSENT. The SDKs are already told to stay quiet at
   // the platform level (Info.plist / AndroidManifest.xml

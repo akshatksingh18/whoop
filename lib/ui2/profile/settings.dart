@@ -19,6 +19,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auto_backup.dart';
+import '../../build_profile.dart';
 import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
@@ -654,12 +655,21 @@ class MoreSettingsView extends StatelessWidget {
                   // was already written and simply had no way to be switched
                   // on, so the write entitlement and usage strings described a
                   // path that could not run.
-                  SetRow(LucideIcons.heartPulse, C.red,
+                  if (!kPersonalSideload)
+                    SetRow(
+                      LucideIcons.heartPulse,
+                      C.red,
                       l?.settingsWriteToHealthStoreRowTitle(healthStore) ??
                           'Write to $healthStore',
-                      sub: healthSyncSub(c, healthSync, healthState, healthStore),
+                      sub: healthSyncSub(
+                        c,
+                        healthSync,
+                        healthState,
+                        healthStore,
+                      ),
                       value: healthSync ? on : off,
-                      onTap: onToggleHealthSync),
+                      onTap: onToggleHealthSync,
+                    ),
                 ]),
                 settingsGroup(c, l?.settingsGroupAutomation ?? 'Automation', [
                   // The picker died with the old ui tree and the engine kept
@@ -686,12 +696,17 @@ class MoreSettingsView extends StatelessWidget {
                       onTap: onAutomation),
                 ]),
                 settingsGroup(c, l?.settingsGroupPrivacy ?? 'Privacy', [
-                  SetRow(LucideIcons.bug, C.orange,
+                  if (!kPersonalSideload)
+                    SetRow(
+                      LucideIcons.bug,
+                      C.orange,
                       l?.settingsCrashReportsRowTitle ?? 'Crash reports',
-                      sub: l?.settingsCrashReportsRowSub ??
+                      sub:
+                          l?.settingsCrashReportsRowSub ??
                           'Nothing is sent until you say so',
                       value: telemetry ? on : off,
-                      onTap: onToggleTelemetry),
+                      onTap: onToggleTelemetry,
+                    ),
                   // The food log's one outbound call. Named by what it sends,
                   // not by the feature it powers — a scan is the only thing
                   // that triggers it and the barcode is the whole payload.
@@ -1236,7 +1251,7 @@ class EditProfile extends StatelessWidget {
       // The merge policy (weight and height win, age and sex only fill a gap)
       // stays in `mergeHealthProfile` and is not re-decided here. The fields
       // come back so the form shows what arrived rather than claiming it.
-      onImport: () async {
+      onImport: kPersonalSideload ? null : () async {
         final importer = HealthProfileImporter();
         final l = AppLocalizations.of(c);
         // Asked HERE, on the tap, and for these four types only. Nothing at

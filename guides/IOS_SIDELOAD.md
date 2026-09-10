@@ -1,8 +1,8 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Accepted operating plan; the matching minimal personal IPA and Windows automation have
-not been produced or verified yet. Do not substitute an arbitrary upstream release IPA and claim it
-matches this capability profile.
+**State:** The matching minimal build profile and private macOS workflow are implemented, but no
+personal IPA or Windows refresh automation has been produced or verified yet. Do not substitute an
+arbitrary upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that
@@ -28,10 +28,15 @@ free-sideload artifact.
 
 ## Portfolio and prerequisites
 
-- WHOOP occupies one of the free Personal Team's three installed-app slots. PageVault and Squat
-  Reminder occupy the other two.
-- Use direct Sideloadly. AltStore/SideStore installs an on-phone host app and therefore cannot stay
-  installed with all three planned apps unless one is temporarily removed.
+- Install standalone WHOOP plus the native Squats/PageVault/ReelVault hub: two slots under free
+  signing, with the third unallocated. `../../akshatos/hub-plan.md` owns the accepted packaging;
+  WHOOP stays independent, with active iPhone-only implementation but no daily-use activation until
+  its own gates pass. Android is not part of the personal build or acceptance plan. No paid tier or
+  rotation.
+- Free profiles still expire after seven days; these refresh timings remain applicable. Another
+  free account does not bypass the per-device cap, but the two-app model does not exceed it.
+- Use direct Windows Sideloadly. AltStore/SideStore would install a phone-side host and require a
+  separate workflow decision. They are not required, and neither app should be removed to add one.
 - Use the same Apple Account/team and permanent WHOOP bundle ID for every install, refresh, and
   upgrade.
 - Install Sideloadly only from <https://sideloadly.io>, configure **Local Anisette**, and use the

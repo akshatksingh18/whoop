@@ -7,6 +7,8 @@
 
 import 'package:flutter/services.dart';
 
+import '../build_profile.dart';
+
 class BreathingLiveActivity {
   static const MethodChannel _ch = MethodChannel(
     'openstrap/breathing_live_activity',
@@ -18,6 +20,7 @@ class BreathingLiveActivity {
   /// Start the activity for a breathing session. [startedAt] drives the live
   /// timer. No coherence score yet — the widget shows "Calibrating…".
   static Future<void> start({required DateTime startedAt}) async {
+    if (kPersonalSideload) return;
     try {
       await _ch.invokeMethod('start', {
         'startedAtMs': startedAt.millisecondsSinceEpoch,
@@ -30,6 +33,7 @@ class BreathingLiveActivity {
   /// Push a new coherence score (0-100). Pass null/absent to keep showing
   /// "Calibrating…" — never push a fabricated number.
   static Future<void> update({double? coherenceScore}) async {
+    if (kPersonalSideload) return;
     if (!_active) return;
     try {
       await _ch.invokeMethod('update', {
@@ -39,6 +43,7 @@ class BreathingLiveActivity {
   }
 
   static Future<void> end() async {
+    if (kPersonalSideload) return;
     try {
       await _ch.invokeMethod('end');
     } catch (_) {}

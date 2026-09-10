@@ -73,6 +73,7 @@ import '../gestures/gesture_settings.dart';
 import '../health/auto_workout_import.dart';
 import '../health/health_export.dart';
 import '../health/phone_pedometer.dart';
+import '../build_profile.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
@@ -333,7 +334,8 @@ class AppState extends ChangeNotifier {
     _onboardChoice = prefs.getString(_kOnboard);
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
-    healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    healthSyncEnabled =
+        !kPersonalSideload && (prefs.getBool(_kHealthSync) ?? false);
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
     // Steps only exist if a real pedometer measured them, so kick the phone
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
@@ -537,6 +539,7 @@ class AppState extends ChangeNotifier {
 
   /// Toggle continuous export. Enabling requests permission + does a first sync.
   Future<void> setHealthSync(bool on) async {
+    if (kPersonalSideload) return;
     healthSyncEnabled = on;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kHealthSync, on);
@@ -791,8 +794,12 @@ class AppState extends ChangeNotifier {
         deviceId = const Uuid().v4();
         await prefs.setString(_kDeviceId, deviceId);
       }
-      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? false;
-      healthShareConsent = prefs.getBool(_kHealthShareConsent) ?? false;
+      telemetryConsent =
+          !kPersonalSideload && (prefs.getBool(_kTelemetryConsent) ?? false);
+      healthShareConsent =
+          !kPersonalSideload &&
+          kHealthDataContributionEnabled &&
+          (prefs.getBool(_kHealthShareConsent) ?? false);
       consentChosen = prefs.getBool(_kConsentChosen) ?? false;
       CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
 
@@ -849,6 +856,7 @@ class AppState extends ChangeNotifier {
   /// Toggle anonymous diagnostics (telemetry). Persists, records the consent on the
   /// server, and flips the transmission gate.
   Future<void> setTelemetryConsent(bool on) async {
+    if (kPersonalSideload) return;
     telemetryConsent = on;
     consentChosen = true;
     final prefs = await SharedPreferences.getInstance();
@@ -869,6 +877,7 @@ class AppState extends ChangeNotifier {
 
   /// Toggle full-.db health-data contribution. Persists + records server consent.
   Future<void> setHealthShareConsent(bool on) async {
+    if (kPersonalSideload || !kHealthDataContributionEnabled) return;
     healthShareConsent = on;
     consentChosen = true;
     final prefs = await SharedPreferences.getInstance();
@@ -1647,7 +1656,9 @@ class AppState extends ChangeNotifier {
       // permission + a 1 h throttle — see AutoWorkoutImport). Foreground
       // cadence is the trigger: workouts are not live data, and this never
       // prompts.
-      unawaited(AutoWorkoutImport.maybeRun());
+      if (!kPersonalSideload) {
+        unawaited(AutoWorkoutImport.maybeRun());
+      }
       await _maybeGenerateBriefing();
       unawaited(_checkSchemaHealth()); // throttled internally to 24h
       // Staleness-escalation meta-layer: the SAME check the headless path
@@ -5260,6 +5271,7 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
+    if (kPersonalSideload) return;
     // Lowercased for the same reason every other type lookup is: the stored
     // `type` column is free-form text and older rows carry mixed case.
     if (!typeRecordsRoute(type)) return;

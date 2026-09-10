@@ -2,7 +2,9 @@ import Flutter
 import UIKit
 import AudioToolbox
 import AVFoundation
+#if !PERSONAL_SIDELOAD
 import BackgroundTasks
+#endif
 import CoreMotion
 
 @main
@@ -15,6 +17,7 @@ import CoreMotion
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.
     BleRestoreManager.shared.start(launchOptions: launchOptions)
 
+    #if !PERSONAL_SIDELOAD
     // BGTaskScheduler registration MUST happen before didFinishLaunching returns.
     // The channel wiring (messenger) happens in didInitializeImplicitFlutterEngine below;
     // here we only register the identifier with the OS so it survives to that point.
@@ -46,6 +49,7 @@ import CoreMotion
     // today's metrics (mirrored from the App Group snapshot). No-op without a
     // paired watch. See WatchBridge.swift.
     WatchBridge.shared.activate()
+    #endif
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -60,11 +64,14 @@ import CoreMotion
   // no-recent-data state rather than yesterday's numbers.
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
+    #if !PERSONAL_SIDELOAD
     WatchBridge.shared.pushCurrentState()
+    #endif
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    #if !PERSONAL_SIDELOAD
     // Live Activity MethodChannel (start/update/end the workout activity).
     // LiveActivityBridge lives in LiveActivityBridge.swift (Runner target).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
@@ -75,6 +82,7 @@ import CoreMotion
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BreathingLiveActivityBridge") {
       BreathingLiveActivityBridge.register(messenger: registrar.messenger())
     }
+    #endif
     // BLE-restore channel: native wake (band reconnected) → Dart headless sync.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BleRestoreManager") {
       BleRestoreManager.shared.attach(messenger: registrar.messenger())
@@ -102,6 +110,7 @@ import CoreMotion
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
     }
+    #if !PERSONAL_SIDELOAD
     // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
     // the workouts themselves. See lib/health/health_workout_import.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
@@ -119,6 +128,7 @@ import CoreMotion
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
     }
+    #endif
   }
 }
 
@@ -130,12 +140,20 @@ enum ConfigBridge {
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "appGroupIdentifier":
+        #if PERSONAL_SIDELOAD
+        result("")
+        #else
         result(Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String ?? "")
+        #endif
       case "syncWatch":
         // Dart calls this right after writing the widget snapshot; mirror it to
         // the paired Apple Watch. Best-effort, never fails the Dart caller.
+        #if PERSONAL_SIDELOAD
+        result(false)
+        #else
         WatchBridge.shared.pushCurrentState()
         result(true)
+        #endif
       case "keepAwake":
         // Hold the display awake for a live workout, the way every run/ride app
         // does. Scoped strictly to the session: Dart clears it on finish, and

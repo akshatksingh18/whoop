@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../build_profile.dart';
 import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
@@ -285,6 +286,7 @@ class HealthExporter {
   /// platform store with the switch off is exactly the thing the switch is
   /// for. Best-effort: never throws, false when nothing was written.
   static Future<bool> exportWorkoutId(String? id) async {
+    if (kPersonalSideload) return false;
     if (id == null || id.isEmpty) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -306,6 +308,7 @@ class HealthExporter {
   /// as it stood BEFORE the retime, then let the normal exportWorkoutId path
   /// write the new one. Best-effort; never throws.
   static Future<void> deleteWorkoutWindow(int startTs, int endTs) async {
+    if (kPersonalSideload) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(kHealthSyncPref) != true) return;
@@ -597,6 +600,7 @@ class HealthExporter {
     bool forceRetry = false,
     void Function(int days)? onProgress,
   }) async {
+    if (kPersonalSideload) return 0;
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     try {
@@ -1275,6 +1279,7 @@ class HealthExporter {
   /// because writing beside a survivor is what turns a retry into a duplicate.
   /// See [healthDeleteClearedRange] for what "did not clear" means per store.
   Future<bool> exportWorkout(Map<String, Object?> session) async {
+    if (kPersonalSideload) return false;
     if ((session['status']?.toString() ?? '') == 'live') return false;
     // Same fabricated-end_ts skip as _writeOneWorkout, but checked BEFORE any
     // delete: this session's window may still hold a real, previously

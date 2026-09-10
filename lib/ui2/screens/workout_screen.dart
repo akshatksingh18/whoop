@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../build_profile.dart';
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
@@ -651,6 +652,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// it joins — it used to live three taps deep under More settings, next to a
   /// database export, which is not where anybody looks for their Sunday run.
   List<Widget> _importCard(BuildContext c, _WorkoutData d) {
+    if (kPersonalSideload) return const [];
     final p = P.of(c);
     final loc = AppLocalizations.of(c);
     return [
@@ -718,6 +720,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   @override
   void initState() {
     super.initState();
+    if (kPersonalSideload) return;
     () async {
       final on = await AutoWorkoutImport.isEnabled();
       if (!mounted) return;
@@ -727,6 +730,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   Future<void> _setAutoImport(bool v) async {
+    if (kPersonalSideload) return;
     setState(() => _autoImport = v);
     await AutoWorkoutImport.setEnabled(v);
     // Silent by design: the tick only arms the hourly sweep. The refresh
@@ -743,6 +747,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// a copy. It also picks up a workout the source app edited or back-dated
   /// after the fact, which a "since last time" cursor would miss forever.
   Future<void> _importWorkouts({bool silent = false}) async {
+    if (kPersonalSideload) return;
     if (_importing) return;
     setState(() {
       _importing = true;

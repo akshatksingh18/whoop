@@ -21,6 +21,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../build_profile.dart';
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
@@ -315,12 +316,14 @@ class _DataScreenState extends State<DataScreen> {
                   // Progressive disclosure: two health-store reads, each with
                   // its own consent and its own ceiling, behind one row rather
                   // than two more rows on this screen.
-                  SetRow(LucideIcons.smartphone, C.blue,
-                      l?.dataFromYourPhone ?? 'From your phone',
-                      sub: l?.dataFromYourPhoneSub ??
-                          'Resting heart rate, blood pressure, glucose and '
-                              'body temperature',
-                      onTap: _busy ? null : () => goto(c, const PhoneImport())),
+                  if (!kPersonalSideload)
+                    SetRow(LucideIcons.smartphone, C.blue,
+                        l?.dataFromYourPhone ?? 'From your phone',
+                        sub: l?.dataFromYourPhoneSub ??
+                            'Resting heart rate, blood pressure, glucose and '
+                                'body temperature',
+                        onTap:
+                            _busy ? null : () => goto(c, const PhoneImport())),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, l?.dataRebuildGroup ?? 'Rebuild', [

@@ -1,8 +1,15 @@
 # WHOOP iOS build and installation profiles
 
-**State:** The repository contains the full upstream-capable iOS targets. The selected minimal
-personal-sideload flavor described below is accepted but not implemented or built. Do not describe
-the personal IPA as available until its build/configuration and packaging guards exist.
+**State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
+personal-sideload build profile and manual private-GitHub workflow. No personal IPA has been built,
+signed, installed, or physically verified yet.
+
+The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
+two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
+not an embedded module. Its iPhone-only implementation scope is active, but the minimal personal
+artifact remains unbuilt and every verification gate remains; no paid membership or capability
+expansion is needed for the chosen packaging. The imported Android target is reference source only
+and is not part of this build or acceptance matrix.
 
 This guide separates two different artifacts that must not be conflated:
 
@@ -34,8 +41,10 @@ Never commit credentials, Apple signing files, personal health data, databases, 
 
 ### Required build contract
 
-Implement a dedicated personal flavor/configuration rather than editing the full target ad hoc or
-expecting Sideloadly to repair entitlements:
+The dedicated profile is implemented with `PERSONAL_SIDELOAD`, `tool/personal_ios.py`,
+`ios/Runner/RunnerPersonal.entitlements`, and
+`.github/workflows/personal-ios.yml`. It transforms only an ephemeral build checkout rather
+than editing the full target ad hoc or expecting Sideloadly to repair entitlements:
 
 - keep `Runner`, local BLE/SQLite/analytics/UI, local notifications, Files import/export,
   `bluetooth-central`, and CoreBluetooth restoration;
@@ -43,26 +52,27 @@ expecting Sideloadly to repair entitlements:
   every commit-before-ACK/resumable-cursor invariant;
 - remove the Watch companion and Widget/Live Activity extension from the packaged IPA;
 - remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
-- keep GPS route recording only if explicitly chosen and physically verified; never use location to
-  keep the process alive;
-- treat `processing` and `fetch` as optional best-effort optimizations, never correctness
-  requirements;
+- remove GPS route recording and location permission keys from the initial profile;
+- remove `processing`, `fetch`, and their native/Dart BG task registrations from the
+  initial profile;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
   and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
 - fail packaging if `Watch/`, widget `PlugIns/*.appex`, unexpected entitlements, signing
   credentials, personal data, injected dylibs, or secrets remain.
 
-The current project/workflow does **not** implement these exclusions yet. Activation must add
-deterministic build flags/targets, entitlement and payload guards, and tests before this command can
-be treated as producing the accepted artifact:
+The manual workflow applies and tests these exclusions, then runs:
 
 ```bash
 flutter build ios --release --no-codesign --dart-define-from-file=.env
 ```
 
-Package a conventional `Payload/Runner.app` IPA only after those guards pass. Record the permanent
-verified bundle ID, app/build version, source commit, Flutter/Xcode versions, capability manifest,
-and SHA-256. Cache the accepted unsigned IPA and previous known-good artifact on Windows outside Git.
+It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
+manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
+ID is `com.akshat.personal.whoop`; its availability to the selected Personal Team remains
+a first-signing gate. Cache the accepted unsigned IPA and previous known-good artifact on Windows
+outside Git.
+The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
+black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.
 
 New source binaries require macOS/Xcode; free-profile refreshes do not. Follow
 `IOS_SIDELOAD.md` for Windows signing, monitoring, data-safe overwrite, and recovery.
@@ -146,4 +156,5 @@ manifest still change for every new binary; bundle identity does not.
 When the personal flavor, capabilities, identifiers, build commands, toolchain, workflow, or
 verification state changes, update this guide, `IOS_SIDELOAD.md`, `setup.md`, `README.md`,
 `CLAUDE.md`, workflow/configuration notes, and affected tests in the same change. Keep full-source
-and minimal-personal profiles explicit, and never describe an accepted plan as implemented.
+and minimal-personal profiles explicit, and keep implementation, built artifacts, and observed
+device behavior separate.

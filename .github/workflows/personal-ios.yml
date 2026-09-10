@@ -1,0 +1,94 @@
+name: personal iPhone sideload
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: personal-iphone-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+# This is a private, manually requested artifact. The job cannot publish a
+# release or write back to the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Keep this in lockstep with test.yml and build.yml.
+          flutter-version: '3.41.6'
+          channel: stable
+          cache: true
+
+      - name: Guard — in-tree package revisions and paths agree
+        run: bash .github/scripts/check_sibling_pins.sh
+
+      - name: Verify personal iOS build contract
+        run: |
+          python3 -m unittest tool/test_personal_ios.py
+          python3 tool/personal_ios.py check
+
+      - name: Write private build configuration
+        run: |
+          printf '%s\n' \
+            'PERSONAL_SIDELOAD=true' \
+            'COMPANION_URL=' \
+            'BACKEND_URL=' \
+            'ENABLE_HEALTH_DATA_CONTRIBUTION=false' > .env
+          printf '%s\n' \
+            'APP_BUNDLE_IDENTIFIER = com.akshat.personal.whoop' \
+            'APP_WIDGET_BUNDLE_IDENTIFIER = $(APP_BUNDLE_IDENTIFIER).OpenStrapWidget' \
+            'APP_GROUP_IDENTIFIER = group.com.akshat.personal.whoop' \
+            'APPLE_DEVELOPMENT_TEAM =' > ios/Config/Signing.xcconfig
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Compile and test personal Dart gates
+        run: >-
+          flutter test --concurrency=1
+          --dart-define=PERSONAL_SIDELOAD=true
+          test/personal_sideload_profile_test.dart
+
+      # Transform only this ephemeral checkout. The general upstream project
+      # remains able to build its widget, Watch app, HealthKit, and Firebase
+      # release surfaces.
+      - name: Prepare personal Runner target
+        run: python3 tool/personal_ios.py prepare
+
+      - name: Build unsigned iPhone app
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      - name: Package and verify unsigned IPA
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:12}"
+          ipa="$GITHUB_WORKSPACE/dist/whoop-personal-${short_sha}-unsigned.ipa"
+          mkdir -p "$GITHUB_WORKSPACE/dist/package/Payload"
+          cp -R build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/package/Payload/Runner.app"
+          (cd "$GITHUB_WORKSPACE/dist/package" && zip -qry -y "$ipa" Payload)
+          python3 tool/personal_ios.py validate "$ipa"
+          python3 tool/personal_ios.py manifest \
+            "$ipa" "$GITHUB_WORKSPACE/dist/whoop-personal-manifest.json" \
+            --source-revision "$GITHUB_SHA"
+          ipa_name="${ipa##*/}"
+          (cd "$GITHUB_WORKSPACE/dist" && shasum -a 256 "$ipa_name" > whoop-personal.sha256)
+
+      - name: Upload private sideload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whoop-personal-iphone
+          path: |
+            dist/*.ipa
+            dist/whoop-personal-manifest.json
+            dist/whoop-personal.sha256
+          if-no-files-found: error
+          retention-days: 14

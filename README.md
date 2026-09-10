@@ -1,15 +1,21 @@
 # Openstrap Edge
 
-> **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's accepted
-> daily iPhone path is a future minimal release/AOT IPA installed directly with Sideloadly. That
-> personal flavor is not implemented or built yet and initially excludes Watch, widgets/Live
-> Activities, App Groups, and HealthKit while retaining the phone app and CoreBluetooth restoration.
+> **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
+> personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
+> deterministic build profile and private manual workflow are implemented but not yet built; it
+> excludes Watch, widgets/Live Activities, App Groups, HealthKit, GPS routes, and scheduled
+> processing/fetch while retaining the phone app and CoreBluetooth restoration.
+> Android remains in the imported source for upstream/reference value but is not part of Akshat's
+> personal implementation, build, or device-validation roadmap.
 > This personal monorepo is backed up privately at
 > [`akshatksingh18/whoop`](https://github.com/akshatksingh18/whoop); upstream links and badges below
 > continue to describe the public OpenStrap projects.
 > Public TestFlight/release instructions and full-capability descriptions below refer to upstream,
 > not to a completed personal build. See [`CLAUDE.md`](CLAUDE.md),
 > [`setup.md`](setup.md), and [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md).
+> The accepted personal portfolio is standalone WHOOP plus a native hub containing Squats,
+> PageVault, and ReelVault: two free-signing slots. WHOOP is not embedded in that hub. This plan
+> does not activate WHOOP or change its minimal capability profile; the hub is not built yet.
 
 An app that makes your wearable useful without its subscription. Pairs over Bluetooth, computes everything on your phone, iOS and Android. WHOOP 4/5/MG get full support today; see [Supports](#supports) for what else it talks to.
 
@@ -55,7 +61,7 @@ Quit the official WHOOP app before you pair. Bluetooth only lets one app own the
 band at a time.
 
 For Akshat's selected personal sideload, see [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md);
-it requires the not-yet-built minimal personal IPA, stable identity, recurring refresh, backup, and
+it requires a successfully built and validated personal IPA, stable identity, recurring refresh, backup, and
 recovery workflow described there.
 
 ---
@@ -140,7 +146,7 @@ Every screenshot above is real output from a WHOOP 4.0.
 spot-check, real-time breathing coherence.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
-zones.
+zones. The initial personal iPhone profile keeps live workouts but removes GPS route capture.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.
@@ -154,8 +160,8 @@ whenever you like — it's your data, in a format anything can open.
 **Background sync** — the band drains without you opening the app. Android runs a
 foreground service with a 15-minute watchdog worker and re-attaches via
 CompanionDeviceManager. The full iOS source includes processing/refresh tasks and a restore
-Bluetooth central. Akshat's personal profile keeps `bluetooth-central` and CoreBluetooth restoration;
-processing/fetch remain optional best-effort gates, never a correctness requirement.
+Bluetooth central. Akshat's personal profile keeps `bluetooth-central` and CoreBluetooth restoration
+while removing processing/fetch from the initial artifact; they are never a correctness requirement.
 
 **Everything else in the full source** — trends/history, a journal with on-device correlation insights
 ("what actually moves your numbers"), cycle tracking, a deterministic coach, a shareable
@@ -171,7 +177,7 @@ shortcuts, a smart alarm that buzzes the band.
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
 - Upstream iOS is a public TestFlight beta and Android is an APK from Releases. Akshat's personal
-  iPhone flavor is separately planned, not yet built, and will use recurring free-team signing.
+  iPhone flavor is implemented but not yet built, and will use recurring free-team signing.
 - WHOOP 5 and MG support is newer than 4.0's and hasn't had as many bands, firmwares,
   and daily hours put on it. Expect the occasional rough edge, and open an issue when
   you hit one.
@@ -269,8 +275,8 @@ lib/ui2/       every screen
 lib/widget/    App-Group snapshot for the home-screen/watch widget
 ```
 
-See `AGENTS.md` §2 for the full architecture map, invariants, and the biggest
-files by ownership.
+See `CLAUDE.md` under “Engineering architecture, invariants, and review guidance” for the full
+architecture map, invariants, and the biggest files by ownership.
 
 Protocol decoding and analytics live in their own repos —
 [protocol](https://github.com/OpenStrap/protocol),

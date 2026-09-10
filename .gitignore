@@ -50,6 +50,7 @@ app.*.map.json
 .env
 .env.local
 ios/Config/Signing.xcconfig
+ios/Runner/Info-Personal.plist
 
 # stray dumps / archives never belong in assets
 *.gz

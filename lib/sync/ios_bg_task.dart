@@ -31,6 +31,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../compute/derivation_engine.dart';
+import '../build_profile.dart';
 import '../compute/profile.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
@@ -51,6 +52,7 @@ class IosBgTask {
   /// Register the method call handler. Call once at startup from main().
   /// No-op on Android.
   static Future<void> init() async {
+    if (kPersonalSideload) return;
     if (!Platform.isIOS) return;
     _ch.setMethodCallHandler((call) async {
       if (call.method != 'run') return null;

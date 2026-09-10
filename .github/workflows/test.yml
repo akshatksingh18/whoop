@@ -25,6 +25,11 @@ jobs:
           # could read it. Nothing in this job pushes back to the repo.
           persist-credentials: false
 
+      - name: Personal iOS build contract
+        run: |
+          python3 -m unittest tool/test_personal_ios.py
+          python3 tool/personal_ios.py check
+
       # PINNED, not `channel: stable`. Two reasons, both found the hard way when
       # this workflow first ran:
       #

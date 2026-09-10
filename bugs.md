@@ -1,4 +1,9 @@
-# Active Bug: Reconnection Failure After Any Disconnect
+# Reconnection Evidence and iPhone Verification Risk
+
+The Android observations below are retained as protocol/implementation evidence only. Akshat's
+personal product scope is now iPhone-only, so no Android fix, build, or device validation is planned
+unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
+restoration and reconnection path on the personal iPhone build.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
@@ -36,10 +41,9 @@ assuming correct):**
    is physically verified yet. Test this separately from Android, and record manual swipe-to-force-
    quit as an iOS lifecycle limitation rather than assuming it is the same defect.
 
-**Goal:** either (a) find and fix the actual bug so reconnection is silent and automatic like the
-official app, or (b) if a true fix isn't feasible, at minimum improve the UX — detect a failed
-reconnect and surface a clear in-app prompt ("Take the band off and double-tap the front until it
-pulses blue, then try again") instead of silently sitting at "Not connected."
+**iPhone goal:** prove silent CoreBluetooth restoration/reconnection across ordinary lifecycle and
+range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
+Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
 ## Other known environment quirks (not app bugs)
 - Vivo/OriginOS aggressively kills background apps — battery optimization must be "No

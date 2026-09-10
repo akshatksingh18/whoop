@@ -4,6 +4,8 @@
 
 import 'package:flutter/services.dart';
 
+import '../build_profile.dart';
+
 class LiveActivity {
   static const MethodChannel _ch = MethodChannel('openstrap/live_activity');
   static bool _active = false;
@@ -18,6 +20,7 @@ class LiveActivity {
     required int rhr,
     String name = 'Live session',
   }) async {
+    if (kPersonalSideload) return;
     try {
       await _ch.invokeMethod('start', {
         'name': name,
@@ -47,6 +50,7 @@ class LiveActivity {
     required int maxHr,
     required int rhr,
   }) async {
+    if (kPersonalSideload) return;
     if (!_active) return;
     try {
       await _ch.invokeMethod('update', {
@@ -57,6 +61,7 @@ class LiveActivity {
   }
 
   static Future<void> end() async {
+    if (kPersonalSideload) return;
     try {
       await _ch.invokeMethod('end');
     } catch (_) {}

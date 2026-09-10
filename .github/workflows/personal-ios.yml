@@ -7,13 +7,16 @@ concurrency:
   group: personal-iphone-sideload-${{ github.ref }}
   cancel-in-progress: true
 
-# This is a private, manually requested artifact. The job cannot publish a
+# This is a manually requested personal artifact. The job cannot publish a
 # release or write back to the repository.
 permissions:
   contents: read
 
 jobs:
   build:
+    # Standard hosted runners are free for this public repository. If its
+    # visibility ever changes back to private, skip before allocating macOS.
+    if: ${{ github.event.repository.private == false }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -36,7 +39,7 @@ jobs:
           python3 -m unittest tool/test_personal_ios.py
           python3 tool/personal_ios.py check
 
-      - name: Write private build configuration
+      - name: Write personal build configuration
         run: |
           printf '%s\n' \
             'PERSONAL_SIDELOAD=true' \
@@ -82,7 +85,7 @@ jobs:
           ipa_name="${ipa##*/}"
           (cd "$GITHUB_WORKSPACE/dist" && shasum -a 256 "$ipa_name" > whoop-personal.sha256)
 
-      - name: Upload private sideload artifact
+      - name: Upload personal sideload artifact
         uses: actions/upload-artifact@v4
         with:
           name: whoop-personal-iphone

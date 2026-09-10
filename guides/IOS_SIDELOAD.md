@@ -1,7 +1,9 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** The matching minimal build profile and private macOS workflow are implemented, but no
-personal IPA or Windows refresh automation has been produced or verified yet. Do not substitute an
+**State:** The matching minimal build profile and public-repository macOS workflow produced and
+verified candidate `0.9.29` build `62`, cached under
+`C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. It has not been signed, installed, or
+physically verified, and Windows refresh automation remains unimplemented. Do not substitute an
 arbitrary upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA

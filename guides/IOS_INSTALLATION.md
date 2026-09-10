@@ -2,13 +2,14 @@
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
 personal-sideload build profile and manual public-GitHub workflow. Candidate `0.9.29` build `62`
-has been built, payload/hash verified, and downloaded to Windows; it remains unsigned, uninstalled,
-and physically unverified.
+was built, payload/hash verified, downloaded to Windows, signed and installed with Sideloadly, and
+is visible on the iPhone. History import, exact installed identity/profile, launch, pairing, and
+physical behavior remain unverified.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
-not an embedded module. Its iPhone-only implementation scope is active, but every signing and
-physical-device verification gate remains; no paid membership or capability
+not an embedded module. Its iPhone-only implementation scope is active, but installed-identity and
+physical-device verification gates remain; no paid membership or capability
 expansion is needed for the chosen packaging. The imported Android target is reference source only
 and is not part of this build or acceptance matrix.
 
@@ -69,8 +70,8 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 
 It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
 manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`; its availability to the selected Personal Team remains
-a first-signing gate. Cache the accepted unsigned IPA and previous known-good artifact on Windows
+ID is `com.akshat.personal.whoop`. Sideloadly installation succeeded, but inspect the installed
+identity/profile to confirm that exact ID was preserved. Cache the accepted unsigned IPA and previous known-good artifact on Windows
 outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.

@@ -65,9 +65,10 @@ The current imported source baseline is not test-clean:
   (`import_container_test.dart`), the iOS ASK plist check, two movement/import date expectations,
   and repository policy checks in `substrate_admission_test.dart` and `ui2_tokens_test.dart`.
 
-The Android release build is validated on Windows. Runtime behavior, Bluetooth pairing, and
-release signing still require physical-device verification. The personal iOS candidate has now
-been built on GitHub's macOS runner; it remains unsigned and uninstalled.
+The Android release build is validated on Windows. The personal iOS candidate was built on GitHub's
+macOS runner, signed/installed through Sideloadly, and is visible on the iPhone. History migration,
+exact installed identity/profile inspection, launch, Bluetooth pairing, and runtime behavior still
+require physical-device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -91,9 +92,10 @@ personal build.
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented, and the first unsigned IPA passed automated validation. No
-signing, installation, or device acceptance evidence exists. The current tag workflow remains
-unchanged.
+manual workflow are implemented, and the first unsigned IPA passed automated validation. Akshat
+reports that Sideloadly signed/installed it and the app is present on the iPhone; history import,
+exact bundle/profile inspection, launch, pairing, and runtime acceptance remain. The current tag
+workflow remains unchanged.
 
 Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
 validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
@@ -124,7 +126,8 @@ The current candidate is version `0.9.29` build `62`, produced by run `344225235
 `1103ae5352ec5431ad3763f540ba8720a3e99e867fac3fcf18841c1a1bd7ec6b`, and the downloaded IPA,
 manifest, and checksum are cached at
 `C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. The local validator and downloaded
-checksum both pass. This proves the unsigned artifact only, not Sideloadly signing or device behavior.
+checksum both pass. Sideloadly installation and home-screen presence are also user-confirmed; the
+installed bundle/profile identity and all app/band behavior remain unverified.
 
 The first private-repository build crossed the account's included Actions-minute threshold; the
 account notice reports reset on October 1, 2026. The repository was audited and changed to public
@@ -135,8 +138,9 @@ re-sign/refresh without Flutter, CocoaPods, Xcode, or a source rebuild. The perm
 Windows cache path, encrypted-backup destination, Sideloadly/Local Anisette settings, monitoring,
 and alert implementation are intentionally unset until activation and must be recorded here when
 chosen. The iPhone display/bundle name is `WHOOP` and the permanent bundle ID is
-`com.akshat.personal.whoop`; the first signing attempt still has to prove Apple accepts it
-for the selected Personal Team. Never commit Apple/GitHub
+`com.akshat.personal.whoop`. The first installation proves Sideloadly could provision an app, but
+the installed identity/profile still must be inspected to confirm that exact ID was preserved.
+Never commit Apple/GitHub
 credentials, 2FA codes, signing material, Anisette data, personal health exports, or IPAs.
 The personal build selects the supplied black-and-white circular logo from
 `ios/Runner/Assets.xcassets/AppIconPersonal.appiconset`; upstream/reference builds continue using

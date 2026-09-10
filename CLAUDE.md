@@ -14,18 +14,18 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone candidate installation — the deterministic personal IPA was built and
-verified from commit `325a3da7abac893326d45d3f7d3cc2367d60b22c` and downloaded to Windows;
-signing, installation, and physical-device behavior remain unverified, and Android development is
-out of scope for Akshat's personal use.
+**Status:** Active Android-to-iPhone migration — the deterministic personal IPA from commit
+`325a3da7abac893326d45d3f7d3cc2367d60b22c` was built, verified, signed by Sideloadly, and installed
+on Akshat's iPhone; history import, exact installed identity/profile inspection, band pairing, and
+physical-device behavior remain unverified, and Android development is out of scope.
 
 ## Files
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
-  validation, verified personal-iPhone candidate, and unexecuted install decisions.
+  validation, installed personal-iPhone candidate, and remaining migration/device decisions.
 - `bugs.md` — retained Android reconnection evidence plus the active iPhone CoreBluetooth
   restoration/reconnection verification risk.
 - `README.md` — preserved upstream product reference with a personal-fork status banner and clear
-  distinctions between upstream distribution/features and the built but uninstalled profile.
+  distinctions between upstream distribution/features and the installed but unverified profile.
 - `guides/IOS_INSTALLATION.md` — selected minimal personal versus full source-signed iOS build
   profiles, capability boundaries, and build acceptance requirements.
 - `guides/IOS_SIDELOAD.md` — accepted Windows Sideloadly installation, refresh monitoring, backup,
@@ -58,7 +58,8 @@ out of scope for Akshat's personal use.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; its
-  first candidate is built and locally verified, but signing and installation are not verified yet
+  first candidate is installed and visible on the phone, but history migration, launch, pairing,
+  sync, background behavior, refresh, and recovery are not verified yet
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
@@ -69,10 +70,11 @@ accepted portfolio is standalone WHOOP plus one native hub containing Squats, Pa
 ReelVault: two free-signing slots. `../akshatos/hub-plan.md` owns that packaging. WHOOP remains an
 independent Flutter app/process, not embedded in the hub; no paid tier, rotation, or identity
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
-Akshat has activated iPhone implementation. The personal flavor exists in source and its first
-macOS-built candidate passed automated payload/hash verification. No device acceptance gate has
-passed; daily-use activation still requires signing, installation, recovery, and physical-device
-evidence below.
+Akshat has activated iPhone implementation. The personal flavor exists in source, its first
+macOS-built candidate passed automated payload/hash verification, and Sideloadly installed it on
+the iPhone. Home-screen presence is the only device evidence so far; daily-use activation still
+requires history import, exact identity/profile inspection, pairing, sync, recovery, and the other
+physical-device evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -170,8 +172,9 @@ The personal artifact must have these properties:
 ### Bundle identity, upgrades, and data continuity
 
 - The personal app's iPhone display/bundle name is `WHOOP`. The permanent bundle identifier
-  is `com.akshat.personal.whoop`; the first Sideloadly signing attempt must still prove that
-  Apple accepts it for the selected Personal Team. Use that exact identifier, the same Apple
+  is `com.akshat.personal.whoop`; Sideloadly signing and installation succeeded, but the installed
+  profile/bundle identity must still be inspected to prove that exact identifier was preserved.
+  Use that exact identifier, the same Apple
   Account, and the same Sideloadly custom
   bundle-ID behavior for every refresh and upgrade. Never accept a new random identifier merely
   to make an installation succeed.
@@ -327,9 +330,10 @@ fully quit so it does not own the peripheral:
 3. **Build the personal flavor:** the core entitlement/extension/location/network exclusions,
    packaging checks, and tests are implemented. A local installed-profile expiry/status surface
    remains desirable but does not block producing the first controlled candidate.
-4. **Produce and inspect one candidate:** build on controlled macOS/Xcode, cache it on Windows,
-   record its hash/source, sign with the free Personal Team, and pass artifact, install, pairing,
-   offline, backup, and core BLE tests. A successful install alone is not an acceptance gate.
+4. **Produce and inspect one candidate:** build, cache, hash, Sideloadly signing, and installation
+   are complete. Import the Android encrypted backup before pairing, then pass exact installed
+   identity/profile, pairing, offline, backup, and core BLE tests. Home-screen presence alone is not
+   an acceptance gate.
 5. **Pilot daily use:** pass the full lifecycle/restoration matrix and 72-hour soak, then pass an
    unchanged-IPA refresh and new-IPA upgrade with data preservation. Android is not an acceptance
    dependency or active fallback for this pilot.
@@ -345,8 +349,8 @@ fully quit so it does not own the peripheral:
 
 `setup.md`, `README.md`, `bugs.md`, and both iOS guides distinguish the personal plan,
 the current upstream-capable source, iPhone-only scope, implemented build profile, and unexecuted
-verification. The first macOS build and Windows download are complete; Sideloadly signing and all
-device gates remain.
+verification. The first macOS build, Windows download, Sideloadly signing, and installation are
+complete; history migration and the remaining device gates remain.
 
 As implementation proceeds, update all affected sources in the same coherent change:
 

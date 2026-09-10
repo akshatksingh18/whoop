@@ -2,8 +2,9 @@
 
 **State:** The matching minimal build profile and public-repository macOS workflow produced and
 verified candidate `0.9.29` build `62`, cached under
-`C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. It has not been signed, installed, or
-physically verified, and Windows refresh automation remains unimplemented. Do not substitute an
+`C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. Sideloadly signed and installed it, and
+the app is visible on the iPhone. History import, installed identity/profile, launch, pairing, and
+physical behavior remain unverified, and Windows refresh automation remains unimplemented. Do not substitute an
 arbitrary upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
@@ -54,6 +55,21 @@ Current external constraints must be rechecked at activation:
   <https://sideloadly.io/faq.html> and <https://sideloadly.io/changelog>
 
 ## First controlled installation
+
+For migration from an existing Android installation, preserve this order:
+
+1. Let Android finish a final band sync, then export a **passphrase-encrypted backup**. This is the
+   same lossless database as the plaintext export; spreadsheets are readable summaries and cannot
+   restore the full app history. Keep the Android data and passphrase until the iPhone restore is
+   verified.
+2. Transfer the `.osbk` file somewhere the iPhone Files picker can reach. On the iPhone welcome
+   screen, choose **Bring my history first**, select the backup, enter its passphrase, and wait for
+   the import to finish. The importer deliberately skips the source phone's non-portable primary
+   BLE identity while merging the raw ledger, derived history, sessions, journal, and other data.
+3. Only after the import succeeds, choose **Forget this band** in the Android app, fully close it,
+   and turn Android Bluetooth off for the first iPhone pairing. If the band is listed in Android's
+   system Bluetooth devices, forget it there too. Do not uninstall or erase Android until iPhone
+   history and a fresh encrypted iPhone backup have both been verified.
 
 1. On Windows, connect the iPhone over USB, trust the computer, enable iOS Developer Mode, and use
    iTunes to enable **Sync with this iPhone over Wi-Fi**.

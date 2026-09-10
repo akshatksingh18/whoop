@@ -178,9 +178,12 @@ void main() {
       );
     });
 
-    test('ASK has a name-substring item as the last net', () {
-      expect(swift, contains('bluetoothNameSubstring'));
-      expect(swift, contains('"WHOOP"'));
+    test('ASK does not add a name-only item as the last net', () {
+      // AccessorySetupKit requires every Bluetooth descriptor to identify a
+      // service or company; a name is only an additional filter. A name-only
+      // fallback caused the iOS picker to abort during descriptor validation.
+      expect(swift, isNot(contains('bluetoothNameSubstring')));
+      expect(swift, contains('items.append(makeItem("WHOOP 5.0 / MG")'));
     });
 
     test(
@@ -230,7 +233,7 @@ void main() {
       );
       // items[0] must be the FIRST registry-driven item (gen4 — kBandRegistry
       // lists it before gen5, see _registry.dart), not the appended gen5-only
-      // fallback items (member UUID / name substring).
+      // member-UUID fallback item.
       final itemsStart = swift.indexOf('var items = services.map');
       expect(itemsStart, greaterThanOrEqualTo(0));
       final fallbackAppendStart = swift.indexOf(
@@ -238,8 +241,8 @@ void main() {
         itemsStart,
       );
       expect(fallbackAppendStart, greaterThan(itemsStart),
-          reason: 'the two gen5-only fallback items must be appended AFTER '
-              'the registry-driven items, so items[0] stays gen4');
+          reason: 'the gen5-only fallback item must be appended AFTER the '
+              'registry-driven items, so items[0] stays gen4');
     });
 
     test(

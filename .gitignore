@@ -75,6 +75,13 @@ pubspec_overrides.yaml
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 
+# Personal iOS build/signing artifacts never belong in source control.
+*.ipa
+*.mobileprovision
+*.p12
+*.pfx
+*.xcarchive
+
 firebase.json
 
 # one-off local debug scratch files - had a handful of these lying around

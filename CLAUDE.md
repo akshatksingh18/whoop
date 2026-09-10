@@ -9,27 +9,28 @@ subscription and no app backend.
 - `packages/analytics/` contains the local metric engine at the exact revision the imported app
   used.
 
-The monorepo preserves all three upstream histories. Its personal `origin` is the private
+The monorepo preserves all three upstream histories. Its personal `origin` is the public
 <https://github.com/akshatksingh18/whoop> repository on Akshat's main account. The former local bare
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone candidate build — the deterministic personal-sideload profile and manual
-private-GitHub build workflow are implemented locally, but no IPA or physical-device behavior has
-been verified; Android development is out of scope for Akshat's personal use.
+**Status:** Active iPhone candidate installation — the deterministic personal IPA was built and
+verified from commit `325a3da7abac893326d45d3f7d3cc2367d60b22c` and downloaded to Windows;
+signing, installation, and physical-device behavior remain unverified, and Android development is
+out of scope for Akshat's personal use.
 
 ## Files
-- `setup.md` — current private-GitHub/local-backup/upstream remotes, imported revisions, Windows
-  validation, implemented personal-iPhone build pipeline, and unexecuted install decisions.
+- `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
+  validation, verified personal-iPhone candidate, and unexecuted install decisions.
 - `bugs.md` — retained Android reconnection evidence plus the active iPhone CoreBluetooth
   restoration/reconnection verification risk.
 - `README.md` — preserved upstream product reference with a personal-fork status banner and clear
-  distinctions between upstream distribution/features and the implemented but unbuilt profile.
+  distinctions between upstream distribution/features and the built but uninstalled profile.
 - `guides/IOS_INSTALLATION.md` — selected minimal personal versus full source-signed iOS build
   profiles, capability boundaries, and build acceptance requirements.
 - `guides/IOS_SIDELOAD.md` — accepted Windows Sideloadly installation, refresh monitoring, backup,
   expiry recovery, two-app portfolio, and fallback-signer workflow; not yet executed.
-- `.github/workflows/personal-ios.yml` and `tool/personal_ios.py` — manual private macOS
+- `.github/workflows/personal-ios.yml` and `tool/personal_ios.py` — manual public-repository macOS
   build plus deterministic personal-profile transformation, payload validation, manifest, and
   checksum.
 - `.claude/skills/ponytail/SKILL.md` — upstream implementation discipline; read it before changing
@@ -57,7 +58,7 @@ been verified; Android development is out of scope for Akshat's personal use.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; its
-  build pipeline is implemented, but no candidate artifact or installation is verified yet
+  first candidate is built and locally verified, but signing and installation are not verified yet
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
@@ -68,9 +69,10 @@ accepted portfolio is standalone WHOOP plus one native hub containing Squats, Pa
 ReelVault: two free-signing slots. `../akshatos/hub-plan.md` owns that packaging. WHOOP remains an
 independent Flutter app/process, not embedded in the hub; no paid tier, rotation, or identity
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
-Akshat has activated iPhone implementation. The personal flavor now exists in source, but that does
-not claim a successful macOS build or that any device acceptance gate has passed; daily-use
-activation still requires the artifact, signing, recovery, and physical-device evidence below.
+Akshat has activated iPhone implementation. The personal flavor exists in source and its first
+macOS-built candidate passed automated payload/hash verification. No device acceptance gate has
+passed; daily-use activation still requires signing, installation, recovery, and physical-device
+evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -194,9 +196,9 @@ The personal artifact must have these properties:
 - macOS/Xcode is required only when source changes require a **new** unsigned IPA. Re-signing the
   already-built IPA every few days happens entirely from Windows and must not rerun Flutter,
   Xcode, CocoaPods, or the analytics pipeline.
-- The chosen build host is the private GitHub repository's manual macOS workflow,
+- The chosen build host is the public GitHub repository's manual macOS workflow,
   `.github/workflows/personal-ios.yml`. It uses Flutter 3.41.6, injects no backend/Firebase
-  secrets, applies the personal transform, validates the IPA, and uploads a private 14-day artifact
+  secrets, applies the personal transform, validates the IPA, and uploads a 14-day artifact
   with a source/capability manifest and SHA-256. The existing tag workflow remains the
   upstream-capable release path and must not supply this personal artifact. GitHub/macOS is a build
   dependency only when code changes, not a runtime or routine refresh dependency.
@@ -314,11 +316,11 @@ fully quit so it does not own the peripheral:
 
 ### Activation phases and acceptance gates
 
-1. **Scope locked:** target Akshat's iPhone only. Preserve the imported baseline, private origin,
+1. **Scope locked:** target Akshat's iPhone only. Preserve the imported baseline, public origin,
    upstream histories, algorithm/version invariants, Android source as reference, and `bugs.md`
    evidence; Android fixes, builds, and device validation are not part of the personal roadmap.
 2. **Lock decisions:** bundle ID `com.akshat.personal.whoop`, no initial GPS, and the
-   private-GitHub macOS build source are locked. Before installation, record the Apple Account/team
+   public-GitHub macOS build source are locked. Before installation, record the Apple Account/team
    continuity choice, Windows artifact-cache path, encrypted-backup destination, and exact alert
    behavior without credentials or personal data. The installed set is standalone WHOOP plus the
    native three-feature hub under free signing.
@@ -343,15 +345,15 @@ fully quit so it does not own the peripheral:
 
 `setup.md`, `README.md`, `bugs.md`, and both iOS guides distinguish the personal plan,
 the current upstream-capable source, iPhone-only scope, implemented build profile, and unexecuted
-verification. The first private macOS build, Windows cache, Sideloadly signing, and all device gates
-remain.
+verification. The first macOS build and Windows download are complete; Sideloadly signing and all
+device gates remain.
 
 As implementation proceeds, update all affected sources in the same coherent change:
 
 - Record the artifact/cache/backup paths, exact source/hash manifest, Sideloadly settings,
   monitoring/alerts, and current physical validation in `setup.md` and the guides as they become
   real.
-- Keep `.github/workflows/personal-ios.yml` manual, private, minimal, and distinct from the
+- Keep `.github/workflows/personal-ios.yml` manual, public-repository-only, minimal, and distinct from the
   existing tag release workflow; update the transform and contract tests whenever the Xcode project
   moves.
 - Make `ios/Runner/Info.plist`, entitlements, signing configs, Xcode targets, and feature flags enforce

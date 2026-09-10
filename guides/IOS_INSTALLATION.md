@@ -1,13 +1,14 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
-personal-sideload build profile and manual private-GitHub workflow. No personal IPA has been built,
-signed, installed, or physically verified yet.
+personal-sideload build profile and manual public-GitHub workflow. Candidate `0.9.29` build `62`
+has been built, payload/hash verified, and downloaded to Windows; it remains unsigned, uninstalled,
+and physically unverified.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
-not an embedded module. Its iPhone-only implementation scope is active, but the minimal personal
-artifact remains unbuilt and every verification gate remains; no paid membership or capability
+not an embedded module. Its iPhone-only implementation scope is active, but every signing and
+physical-device verification gate remains; no paid membership or capability
 expansion is needed for the chosen packaging. The imported Android target is reference source only
 and is not part of this build or acceptance matrix.
 

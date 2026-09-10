@@ -2,12 +2,13 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and private manual workflow are implemented but not yet built; it
+> deterministic build profile and public manual workflow produced a validated unsigned candidate;
+> it is not signed, installed, or physically verified yet, and it
 > excludes Watch, widgets/Live Activities, App Groups, HealthKit, GPS routes, and scheduled
 > processing/fetch while retaining the phone app and CoreBluetooth restoration.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
-> This personal monorepo is backed up privately at
+> This personal monorepo is publicly backed up at
 > [`akshatksingh18/whoop`](https://github.com/akshatksingh18/whoop); upstream links and badges below
 > continue to describe the public OpenStrap projects.
 > Public TestFlight/release instructions and full-capability descriptions below refer to upstream,
@@ -177,7 +178,8 @@ shortcuts, a smart alarm that buzzes the band.
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
 - Upstream iOS is a public TestFlight beta and Android is an APK from Releases. Akshat's personal
-  iPhone flavor is implemented but not yet built, and will use recurring free-team signing.
+  iPhone flavor has a validated unsigned candidate and will use recurring free-team signing; its
+  installation and device behavior remain unverified.
 - WHOOP 5 and MG support is newer than 4.0's and hasn't had as many bands, firmwares,
   and daily hours put on it. Expect the occasional rough edge, and open an issue when
   you hit one.

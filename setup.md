@@ -10,7 +10,7 @@ contains:
 - analytics `1fa8144a5e3b728ce91eeed6ecbc15d482933b44` under `packages/analytics/`
 
 The official sources are named `upstream-edge`, `upstream-protocol`, and `upstream-analytics` and
-remain fetch-only. The personal workflow remote is `origin` at the private GitHub repository
+remain fetch-only. The personal workflow remote is `origin` at the public GitHub repository
 <https://github.com/akshatksingh18/whoop>; `main` tracks `origin/main` after the first push. The former
 same-machine bare repository at `C:\Users\aksha\git-remotes\whoop.git` is preserved as the
 `local-backup` remote. GitHub is the primary collaboration/recovery remote; `local-backup` is an
@@ -66,8 +66,8 @@ The current imported source baseline is not test-clean:
   and repository policy checks in `substrate_admission_test.dart` and `ui2_tokens_test.dart`.
 
 The Android release build is validated on Windows. Runtime behavior, Bluetooth pairing, and
-release signing still require physical-device verification. The iOS build remains unexecuted
-because it requires macOS/Xcode.
+release signing still require physical-device verification. The personal iOS candidate has now
+been built on GitHub's macOS runner; it remains unsigned and uninstalled.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -82,17 +82,18 @@ without following `CLAUDE.md`'s `kAlgoVersion` requirements.
 
 ## Personal iPhone pipeline
 
-Private GitHub hosting and CLI authentication are configured. The manual
-`.github/workflows/personal-ios.yml` workflow is now the selected build host; it has not been
-committed/pushed or run yet. GitHub Actions usage is metered, and macOS runners consume
-substantially more billed minutes than Linux runners, so obtain Akshat's explicit approval before
-triggering a candidate. Never use the existing tag workflow as the personal build.
+The public GitHub repository and CLI authentication are configured. The manual
+`.github/workflows/personal-ios.yml` workflow is the selected build host and refuses to allocate a
+macOS runner if the repository is private. Standard GitHub-hosted runners for the public repository
+do not consume the private-repository minute allowance. Never use the existing tag workflow as the
+personal build.
 
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented, but no iOS IPA has been built and no device acceptance evidence
-exists. The current tag workflow remains unchanged.
+manual workflow are implemented, and the first unsigned IPA passed automated validation. No
+signing, installation, or device acceptance evidence exists. The current tag workflow remains
+unchanged.
 
 Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
 validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
@@ -111,12 +112,23 @@ Live Activity extension, App Groups, HealthKit, GPS, and background processing/f
 telemetry, health-data contribution, backend, and OTA dependencies remain off. The full upstream
 source targets stay in the repository for reference and possible future source-signed builds.
 
-Creating a new IPA uses the manual private-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
+Creating a new IPA uses the manual public-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
 minimal phone-only Runner in its ephemeral checkout, builds with
 `flutter build ios --release --no-codesign --dart-define-from-file=.env`, validates the
-conventional IPA payload, and uploads the IPA, capability/source manifest, and SHA-256 as a private
+conventional IPA payload, and uploads the IPA, capability/source manifest, and SHA-256 as a
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
+
+The current candidate is version `0.9.29` build `62`, produced by run `34422523505` from source
+`325a3da7abac893326d45d3f7d3cc2367d60b22c`. Its SHA-256 is
+`1103ae5352ec5431ad3763f540ba8720a3e99e867fac3fcf18841c1a1bd7ec6b`, and the downloaded IPA,
+manifest, and checksum are cached at
+`C:\Users\aksha\Downloads\WHOOP-325a3da-run-34422523505`. The local validator and downloaded
+checksum both pass. This proves the unsigned artifact only, not Sideloadly signing or device behavior.
+
+The first private-repository build crossed the account's included Actions-minute threshold; the
+account notice reports reset on October 1, 2026. The repository was audited and changed to public
+before future builds. Do not run this macOS workflow if the repository becomes private again.
 
 Windows then caches the current and previous accepted unsigned IPAs outside Git and performs routine
 re-sign/refresh without Flutter, CocoaPods, Xcode, or a source rebuild. The permanent bundle ID,

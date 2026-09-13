@@ -350,32 +350,6 @@ class ProfileHomeView extends StatelessWidget {
                               'privacy, reset',
                       onTap: onSettings),
                 ]),
-                settingsGroup(c, l?.profileCommunityGroup ?? 'Community', [
-                  SetRow.brand(brandGlyph('assets/icons/github.svg'), C.n500,
-                      l?.profileGithubTitle ?? 'GitHub',
-                      sub: l?.profileGithubSub ??
-                          'Please star and show your support — it helps '
-                              'the project grow',
-                      onTap: () => open3rdPartyLink(kGithubUrl)),
-                  SetRow.brand(brandGlyph('assets/icons/reddit.svg'), C.orange,
-                      l?.profileRedditTitle ?? 'Reddit',
-                      sub: l?.profileRedditSub ??
-                          'Join r/OpenStrap — post your achievements, '
-                              'questions, anything',
-                      onTap: () => open3rdPartyLink(kRedditUrl)),
-                  SetRow.brand(brandGlyph('assets/icons/discord.svg'),
-                      C.indigo, l?.profileDiscordTitle ?? 'Discord',
-                      sub: l?.profileDiscordSub ??
-                          'Hang out with other users and the people '
-                              'building this',
-                      onTap: () => open3rdPartyLink(kDiscordUrl)),
-                  SetRow(LucideIcons.heartHandshake, C.pink,
-                      l?.profileSponsorTitle ?? 'Sponsor',
-                      sub: l?.profileSponsorSub ??
-                          'This is a free, open-source project — '
-                              'sponsoring keeps it going',
-                      onTap: () => open3rdPartyLink(kSponsorUrl)),
-                ]),
               ],
             ),
           ),

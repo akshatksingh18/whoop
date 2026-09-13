@@ -42,10 +42,19 @@ class PersonalIosContractTest(unittest.TestCase):
         info = personal_info(source)
         self.assertEqual(info["CFBundleDisplayName"], APP_NAME)
         self.assertEqual(info["CFBundleName"], APP_NAME)
-        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central"])
+        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location"])
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
         self.assertNotIn("NSSupportsLiveActivities", info)
+
+    def test_personal_info_gps_stays_while_in_use_only(self) -> None:
+        # The GPS-experiment reopening's one hard constraint: permission stays at While-In-Use,
+        # matching lib/gps/gps_source.dart's own design. A future change that widens this to
+        # Always must not slip through this contract test unnoticed.
+        source = plistlib.loads(SOURCE_INFO.read_bytes())
+        info = personal_info(source)
+        self.assertIn("NSLocationWhenInUseUsageDescription", info)
+        self.assertNotIn("NSLocationAlwaysAndWhenInUseUsageDescription", info)
 
     def test_personal_entitlements_are_empty(self) -> None:
         self.assertEqual(plistlib.loads(PERSONAL_ENTITLEMENTS.read_bytes()), {})

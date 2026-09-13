@@ -60,8 +60,12 @@ _FORBIDDEN_INFO_KEYS = {
     "BGTaskSchedulerPermittedIdentifiers",
     "NSHealthShareUsageDescription",
     "NSHealthUpdateUsageDescription",
+    # Always is deliberately never requested - lib/gps/gps_source.dart's own design keeps
+    # authorization at While-In-Use and relies on the location background mode below to keep a
+    # workout tracked with the screen off. Reopened per CLAUDE.md's stated GPS-experiment
+    # conditions; NSLocationWhenInUseUsageDescription is no longer forbidden - see the required
+    # keys below and route_math.dart/route_tracker.dart for what actually uses it.
     "NSLocationAlwaysAndWhenInUseUsageDescription",
-    "NSLocationWhenInUseUsageDescription",
     "NSSupportsLiveActivities",
     "OpenStrapAppGroupIdentifier",
 }
@@ -168,7 +172,10 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     out["CFBundleDisplayName"] = APP_NAME
     out["CFBundleName"] = APP_NAME
     out["OpenStrapPersonalSideload"] = True
-    out["UIBackgroundModes"] = ["bluetooth-central"]
+    # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
+    # authorization (never Always - see _FORBIDDEN_INFO_KEYS) is what lets a run stay tracked
+    # with the screen locked, per gps_source.dart's own comment on the same tradeoff.
+    out["UIBackgroundModes"] = ["bluetooth-central", "location"]
     validate_info(out, resolved_bundle_id=None)
     return out
 
@@ -182,14 +189,15 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
         raise ContractError("personal-build marker is missing")
     if info.get("CFBundleDisplayName") != APP_NAME or info.get("CFBundleName") != APP_NAME:
         raise ContractError(f"personal app name must be {APP_NAME}")
-    if info.get("UIBackgroundModes") != ["bluetooth-central"]:
-        raise ContractError("UIBackgroundModes must contain only bluetooth-central")
+    if info.get("UIBackgroundModes") != ["bluetooth-central", "location"]:
+        raise ContractError("UIBackgroundModes must contain only bluetooth-central and location")
     for key in _FORBIDDEN_INFO_KEYS:
         if key in info:
             raise ContractError(f"forbidden Info.plist key remains: {key}")
     for key in (
         "NSAccessorySetupBluetoothServices",
         "NSBluetoothAlwaysUsageDescription",
+        "NSLocationWhenInUseUsageDescription",
         "NSMotionUsageDescription",
         "UIFileSharingEnabled",
     ):
@@ -269,7 +277,7 @@ def write_manifest(ipa: Path, output: Path, source_revision: str) -> None:
             "phonePedometer": True,
             "filesSharing": True,
             "healthKit": False,
-            "locationRoutes": False,
+            "locationRoutes": True,
             "backgroundProcessing": False,
             "firebaseInitialization": False,
             "healthDataContribution": False,

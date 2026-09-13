@@ -2,9 +2,13 @@
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
 personal-sideload build profile and manual public-GitHub workflow. Replacement `0.9.30` build `63`
-was built and payload/hash verified after the AccessorySetupKit bridge fix, then downloaded to
-Windows. Installation, history-import state, exact installed identity/profile, pairing, and the
-remaining physical behavior remain unverified until this replacement is sideloaded.
+was built and payload/hash verified after the AccessorySetupKit bridge fix, then installed via
+Sideloadly. The current minimal profile intentionally excludes HealthKit, so it does not import the
+Apple Health aggregate. Device testing verified the direct iPhone-pedometer import after enabling
+**This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
+for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
+all-day step reconstruction. History-import state, exact installed identity/profile, complete
+pairing, and the remaining physical behavior remain unverified.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -54,7 +58,10 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   every commit-before-ACK/resumable-cursor invariant;
 - remove the Watch companion and Widget/Live Activity extension from the packaged IPA;
 - remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
-- remove GPS route recording and location permission keys from the initial profile;
+- **keep GPS route recording** — reopened on Akshat's explicit decision. `NSLocationWhenInUseUsageDescription`
+  and the `location` background mode are present; `NSLocationAlwaysAndWhenInUseUsageDescription`
+  stays removed, since `lib/gps/gps_source.dart` deliberately never requests Always. Buildable and
+  contract-tested, not yet device-verified — `CLAUDE.md` owns the outstanding evidence gate;
 - remove `processing`, `fetch`, and their native/Dart BG task registrations from the
   initial profile;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,

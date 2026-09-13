@@ -14,23 +14,30 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone implementation — replacement personal IPA `0.9.30` build `63` from commit
-`ba307b7149522b4b962abf0f5ce9462da8c934f6` built and passed the macOS package/validator gates after
-the AccessorySetupKit bridge fix, and is ready in Windows Downloads for Sideloadly. Physical
-installation, pairing, history import, and runtime verification of this replacement remain
-pending; Android development is out of scope.
+**Status:** Active iPhone verification — replacement personal IPA `0.9.30` build `63` from commit
+`ba307b7149522b4b962abf0f5ce9462da8c934f6` is installed. The initial roughly-6,000-versus-200
+step mismatch was the disabled **This phone → Steps** setting; enabling it verified that the direct
+`CMPedometer` path imports iPhone steps. The profile still deliberately excludes the Apple Health
+aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data
+is too low-rate for honest all-day step reconstruction. Background/recovery and other device gates
+remain before daily use. Android development is out of scope.
 
 ## Files
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
   validation, installed personal-iPhone candidate, and remaining migration/device decisions.
-- `bugs.md` — retained Android reconnection evidence plus the active iPhone CoreBluetooth
-  restoration/reconnection verification risk.
+- `bugs.md` — retained Android reconnection evidence plus active iPhone CoreBluetooth and verified
+  iPhone-pedometer step-source behavior.
 - `README.md` — preserved upstream product reference with a personal-fork status banner and clear
   distinctions between upstream distribution/features and the installed but unverified profile.
 - `guides/IOS_INSTALLATION.md` — selected minimal personal versus full source-signed iOS build
   profiles, capability boundaries, and build acceptance requirements.
 - `guides/IOS_SIDELOAD.md` — accepted Windows Sideloadly installation, refresh monitoring, backup,
-  expiry recovery, two-app portfolio, and fallback-signer workflow; not yet executed.
+  expiry recovery, two-app portfolio, and fallback-signer workflow; initial installation is complete,
+  while refresh and recovery validation remain pending.
+- `../final-ipas/whoop/` (sibling folder, outside this repository) — the stable release cache:
+  `backup\` holds the current accepted build, `testing\` a candidate awaiting its device pass.
+  `../final-ipas/README.md` owns the model; excluded from the workspace OneDrive backup the same way
+  every `personal-project/` subfolder is, and not tracked in Git.
 - `.github/workflows/personal-ios.yml` and `tool/personal_ios.py` — manual public-repository macOS
   build plus deterministic personal-profile transformation, payload validation, manifest, and
   checksum.
@@ -59,8 +66,9 @@ pending; Android development is out of scope.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; the
-  replacement `0.9.30`/63 artifact is built and locally cached, but installation, history migration,
-  installed identity, pairing, sync, background behavior, refresh, and recovery are not verified yet
+  replacement `0.9.30`/63 artifact is installed; enabling **This phone → Steps** verified its direct
+  iPhone-pedometer import. Apple Health’s aggregate is deliberately not read. History migration,
+  installed identity, complete sync/recovery, background behavior, and refresh remain unverified.
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
@@ -74,9 +82,10 @@ migration is required by this decision. Seven-day profiles and the refresh/recov
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
 macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
 The bridge is now fixed and replacement `0.9.30`/63 passed automated macOS payload/hash validation;
-the IPA is cached in Downloads for Sideloadly. Daily-use activation still requires installing this
-replacement and confirming history import, exact identity/profile, pairing, sync, recovery, and the
-other physical-device evidence below.
+the IPA is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location) and installed
+through Sideloadly. Daily-use activation still requires
+confirming history import, exact identity/profile, pairing, sync, recovery, and the other
+physical-device evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -136,9 +145,15 @@ The personal artifact must have these properties:
   first-pairing central creation, and the existing handoff to the normal Flutter drain path.
   CoreBluetooth wakes are bounded opportunities, not a promise of continuous execution; every
   drain must retain the commit-before-ACK and resumable-cursor invariants documented below.
-- The initial personal profile removes location usage keys/native routes and suppresses route
-  tracking. A later GPS experiment requires an explicit decision plus permission, battery,
-  background, and stop-semantics evidence; never add location merely to keep the process alive.
+- **The GPS experiment is reopened, on an explicit decision — Akshat runs and wants a traced
+  route.** `NSLocationWhenInUseUsageDescription` and the `location` background mode are back in
+  `personal_ios.py`'s personal `Info.plist`; `NSLocationAlwaysAndWhenInUseUsageDescription` stays
+  forbidden — authorization is While-In-Use only, matching `lib/gps/gps_source.dart`'s own design,
+  which relies on the background mode rather than Always to keep a run tracked with the screen
+  locked. `tool/test_personal_ios.py` enforces both halves. **Buildable, not yet verified**: the
+  permission, battery, background, and stop-semantics evidence this reopening still calls for needs
+  a real outdoor run on the phone, not a code review. Do not describe route tracking as accepted
+  until that pass happens and is recorded here.
 - The initial personal profile removes `processing`/`fetch` modes, BG task identifiers,
   native registration, and Dart scheduling. They remain optional future experiments, never
   correctness requirements.
@@ -324,8 +339,10 @@ fully quit so it does not own the peripheral:
 1. **Scope locked:** target Akshat's iPhone only. Preserve the imported baseline, public origin,
    upstream histories, algorithm/version invariants, Android source as reference, and `bugs.md`
    evidence; Android fixes, builds, and device validation are not part of the personal roadmap.
-2. **Lock decisions:** bundle ID `com.akshat.personal.whoop`, no initial GPS, and the
-   public-GitHub macOS build source are locked. Before installation, record the Apple Account/team
+2. **Lock decisions:** bundle ID `com.akshat.personal.whoop` and the public-GitHub macOS build
+   source are locked. GPS route tracking was initially excluded and is now reopened — see the
+   engineering-invariants bullet above for the exact scope and what is still unverified. Before
+   installation, record the Apple Account/team
    continuity choice, Windows artifact-cache path, encrypted-backup destination, and exact alert
    behavior without credentials or personal data. The installed set is standalone WHOOP plus the
    native three-feature hub under free signing.

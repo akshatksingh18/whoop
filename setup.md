@@ -25,15 +25,19 @@ reviewed source revisions and must move with any deliberate package update.
 
 The local Android toolchain is installed and `flutter doctor -v` reports no issues:
 
-- Flutter 3.41.6 at `D:\dev\flutter` with Dart 3.11.4
-- Microsoft OpenJDK 17.0.20.1 at `D:\dev\jdk-17`
-- Android SDK at `D:\dev\android-sdk`, including platform tools, Android 34–36 platforms,
-  build tools 35.0.0 and 36.0.0, NDK 28.2.13676358, and CMake 3.22.1
+- Flutter 3.41.6 at `D:\AI Important Files\personal-project\dev\flutter` with Dart 3.11.4
+- Microsoft OpenJDK 17.0.20.1 at `D:\AI Important Files\personal-project\dev\jdk-17`
+- Android SDK at `D:\AI Important Files\personal-project\dev\android-sdk`, including platform tools,
+  Android 34–36 platforms, build tools 35.0.0 and 36.0.0, NDK 28.2.13676358, and CMake 3.22.1
 - Visual Studio Build Tools 2026 and Chrome for the other Flutter desktop/web targets
 
 The Android SDK licenses are accepted for Akshat's Windows user. `JAVA_HOME`, `ANDROID_HOME`,
 `ANDROID_SDK_ROOT`, Flutter, Cargo, and Android command-line tool paths are persisted in that
-user's environment. From this repository root, the repeatable validation commands are:
+user's environment. This toolchain moved into `personal-project/dev/` from a former standalone
+`D:\dev\`; the three user env vars and the three `PATH` entries were updated to match at the same
+time, and `android/local.properties`'s `sdk.dir`/`flutter.sdk` (machine-specific, not committed)
+were repointed too. Verified afterward by running `java`, `adb` and `flutter --version` directly
+from the new location. From this repository root, the repeatable validation commands are:
 
 ```powershell
 Copy-Item .env.example .env
@@ -68,9 +72,9 @@ The current imported source baseline is not test-clean:
 The Android release build is validated on Windows. The first personal iOS candidate was built on
 GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit
 discovery-descriptor validation abort when **Find my band** was tapped. The bridge fix is now in
-source and replacement `0.9.30` build `63` passed the macOS build/package gates; physical install,
-history migration, exact installed identity/profile inspection, Bluetooth pairing, and runtime
-behavior still require device verification.
+source and replacement `0.9.30` build `63` passed the macOS build/package gates and is installed.
+Its direct iPhone-pedometer path is verified; history migration, exact installed identity/profile
+inspection, Bluetooth pairing, and the remaining runtime behavior still require device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -95,8 +99,13 @@ The accepted daily-use target is now Akshat's iPhone through a standard unsigned
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
 manual workflow are implemented. Replacement `0.9.30` build `63` passed automated validation and
-is cached at `C:\Users\aksha\Downloads\WHOOP-0.9.30-build63-ba307b7`; install/pairing/runtime
-acceptance on the iPhone remain the next gate. The current tag workflow remains unchanged.
+is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-ba307b7` (not in Downloads — see
+`D:\AI Important Files\personal-project\final-ipas\README.md`); it is installed on the iPhone.
+The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
+direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
+Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
+historical data is too low-rate for honest all-day step reconstruction. The current tag workflow
+remains unchanged.
 
 Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
 validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
@@ -126,9 +135,20 @@ The current replacement candidate is version `0.9.30` build `63`, produced by ru
 source `ba307b7149522b4b962abf0f5ce9462da8c934f6`. Its SHA-256 is
 `ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
 manifest, and checksum are cached at
-`C:\Users\aksha\Downloads\WHOOP-0.9.30-build63-ba307b7`. The macOS workflow, local validator,
-and downloaded checksum all pass. Sideloadly installation, pairing, history import, installed
-bundle/profile identity, and all band behavior remain unverified for this replacement.
+`../final-ipas/whoop/backup/WHOOP-0.9.30-build63-ba307b7` — the stable release cache outside
+Downloads, excluded from the OneDrive backup archive the same way every `personal-project/`
+subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
+validator, and downloaded checksum all pass.
+
+**A known Sideloadly failure mode, found here first:** its own internal cache of a previously
+installed app's IPA can go missing independent of this file — the first wireless refresh attempt
+after wireless detection started working found Sideloadly's own cached copy of this build gone, and
+it failed with `Install failed: Guru Meditation … __init__() missing 1 required positional argument:
+'orig'` instead of a clean error. Fix: reinstall from the file above (USB, to isolate the variable),
+which repopulates Sideloadly's cache with a real file. The IPA is installed; enabling **This phone → Steps** verified its
+direct iPhone-pedometer import after the initially low band fallback. The personal profile does not
+read Apple Health. History import, installed bundle/profile identity, complete pairing/sync,
+background behavior, and refresh remain unverified.
 
 The first private-repository build crossed the account's included Actions-minute threshold; the
 account notice reports reset on October 1, 2026. The repository was audited and changed to public

@@ -2317,22 +2317,5 @@
   "deviceActionLogWaterLabel": "Registrar agua",
   "deviceActionLogWaterBlurb": "Añade un vaso al agua de hoy, el mismo paso que el + de la pantalla de nutrición.",
   "deviceActionBroadcastToTaskerLabel": "Emitir a Tasker",
-  "deviceActionBroadcastToTaskerBlurb": "Enviar un intent de difusión para que Tasker pueda disparar cualquier automatización.",
-  "profileCommunityGroup": "Comunidad",
-  "profileGithubTitle": "GitHub",
-  "profileGithubSub": "Dale una estrella y muestra tu apoyo — ayuda a que el proyecto crezca",
-  "profileRedditTitle": "Reddit",
-  "profileRedditSub": "Únete a r/OpenStrap — publica tus logros, tus dudas, lo que sea",
-  "profileDiscordTitle": "Discord",
-  "profileDiscordSub": "Charla con otros usuarios y con quienes construyen esto",
-  "profileSponsorTitle": "Patrocinar",
-  "profileSponsorSub": "Este es un proyecto libre y de código abierto — patrocinarlo lo mantiene en marcha",
-  "nudgeDiscordTitle": "Ven a saludar",
-  "nudgeDiscordBody": "Otros usuarios de OpenStrap se juntan en Discord — errores, ideas y gente con la misma banda que tú.",
-  "nudgeDiscordCta": "Unirse a Discord",
-  "nudgeDonateTitle": "¿Te gusta OpenStrap?",
-  "nudgeDonateBody": "Es un proyecto libre y de código abierto, sin suscripción. Patrocinarlo permite mantenerlo.",
-  "nudgeDonateCta": "Apoyar el proyecto",
-  "nudgeNotNow": "Ahora no",
-  "nudgeDontShowAgain": "No volver a mostrar"
+  "deviceActionBroadcastToTaskerBlurb": "Enviar un intent de difusión para que Tasker pueda disparar cualquier automatización."
 }

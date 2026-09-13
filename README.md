@@ -3,11 +3,15 @@
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced replacement `0.9.30` build `63`,
-> which passed macOS/package validation after the AccessorySetupKit bridge fix and is cached in
-> Downloads for Sideloadly. Installation, pairing, history-import state, and the remaining physical
-> behavior are not verified yet. The personal profile
-> excludes Watch, widgets/Live Activities, App Groups, HealthKit, GPS routes, and scheduled
-> processing/fetch while retaining the phone app and CoreBluetooth restoration.
+> which passed macOS/package validation after the AccessorySetupKit bridge fix and is installed via
+> Sideloadly. It does not import Apple Health’s aggregate: the minimal personal profile excludes
+> HealthKit and queries the direct phone pedometer only. Device testing verified step import after
+> enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
+> steps enabled for normal iPhone-carried use: WHOOP 4 band-only historical data is too low-rate for
+> honest all-day step reconstruction. The personal profile
+> excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
+> processing/fetch, while retaining the phone app and CoreBluetooth restoration. GPS route
+> tracking was excluded too and is now reopened — see `CLAUDE.md`.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at
@@ -149,7 +153,9 @@ Every screenshot above is real output from a WHOOP 4.0.
 spot-check, real-time breathing coherence.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
-zones. The initial personal iPhone profile keeps live workouts but removes GPS route capture.
+zones. Akshat's personal iPhone profile keeps GPS route capture — reopened on his own decision
+since he runs — with While-In-Use permission only, never Always; see `CLAUDE.md` for what is
+buildable versus what still needs a real device pass.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.

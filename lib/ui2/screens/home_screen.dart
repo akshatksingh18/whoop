@@ -1581,10 +1581,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             );
           }),
 
-        // Right under the rings, above everything else — the one spot on
-        // this screen nobody scrolls past without seeing.
-        const CommunityNudge(),
-
         // ── the rollup was withheld, not absent ──
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 

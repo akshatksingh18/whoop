@@ -67,9 +67,27 @@ missing-key privacy termination is not the leading hypothesis.
 
 **Fix status:** the name-only fallback was removed, picker/provision/remove operations now wait for
 the asynchronous `.activated` event, and a regression guard covers the malformed descriptor. The
-replacement `0.9.30`/63 IPA built and passed automated macOS/package validation; sideloading and
-physical **Find my band** verification are still pending. Keep the original crash evidence until
-the replacement is tested on the iPhone.
+replacement `0.9.30`/63 IPA built, passed automated macOS/package validation, and is installed. Its
+direct-pedometer path is verified, but physical **Find my band** verification is still pending. Keep
+the original crash evidence until that picker path is tested on the iPhone.
+
+## Verified iPhone step-source behavior
+
+**Observed and resolved on the installed personal IPA:** Apple Health showed roughly 6,000 steps while
+WHOOP showed roughly 200 because **Settings → This phone → Steps** was off. Enabling that setting
+verified the direct iPhone `CMPedometer` import. The personal artifact intentionally removes HealthKit
+entitlements, Health usage strings, and Health routes (`tool/personal_ios.py` reports `healthKit: false`),
+so it still does not query the Apple Health aggregate.
+
+The earlier low number was therefore the band fallback, not a Health total being scaled down. Do not
+describe the current personal IPA as importing Apple Health steps: it imports the iPhone motion
+coprocessor only. A future HealthKit expansion would need an explicit source/overlap policy rather
+than adding its aggregate to the band count and double-counting.
+
+WHOOP 4 band-only all-day steps are not a reliable supported source in this app: the available
+historical wrist stream is too low-rate for honest step reconstruction. Keep phone steps enabled for
+normal iPhone-carried use. If steps without the iPhone are later required, first prove that the WHOOP
+protocol exposes a trustworthy on-band counter; do not fabricate one from 1 Hz historical data.
 
 The secondary-sensor screen provides a separate observation, not a WHOOP-pairing fallback. After
 skipping onboarding, **Settings → My Device → Add a Sensor → Bluetooth Heart Rate Sensor** reports

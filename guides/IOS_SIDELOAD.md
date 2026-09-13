@@ -2,9 +2,14 @@
 
 **State:** The matching minimal build profile and public-repository macOS workflow produced and
 verified replacement `0.9.30` build `63` after the AccessorySetupKit bridge fix, cached under
-`C:\Users\aksha\Downloads\WHOOP-0.9.30-build63-ba307b7`. Installation, pairing, history-import
-state, installed identity/profile, and the remaining physical behavior remain unverified until
-this replacement is sideloaded; Windows refresh automation remains unimplemented. Do not
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-ba307b7` (`../setup.md` owns the cache location)
+and installed via Sideloadly. The current
+minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
+aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
+the earlier roughly-200 count was the band fallback. Keep phone steps enabled for normal
+iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest all-day step
+reconstruction. History-import state, installed identity/profile, complete pairing, and the remaining
+physical behavior remain unverified; Windows refresh automation remains unimplemented. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA

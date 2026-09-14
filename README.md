@@ -322,25 +322,3 @@ implementing.
 
 Security problems shouldn't go in a public issue — see [SECURITY.md](SECURITY.md) for
 private reporting.
-
-## Contributors
-
-Every one of these people made the app better — mostly by using it on a real
-wrist and reporting what came out wrong.
-
-<a href="https://github.com/OpenStrap/edge/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=OpenStrap/edge" alt="Contributors to OpenStrap/edge" />
-</a>
-
-The most useful contribution isn't necessarily code. There's one person's
-physiology in the test data, so a bug report from a different body on a
-different band is worth a great deal — see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Star history
-
-<img src="docs/star-history.svg" alt="Star history for OpenStrap/edge" width="760">
-
-That cliff in mid-July is [Hackaday](https://hackaday.com/2026/07/15/making-a-locked-down-wearable-work-without-a-subscription/)
-and [Adafruit](https://blog.adafruit.com/2026/07/15/openstrap-edge-makes-a-whoop-4-0-band-useful-without-a-subscription)
-covering it on the same day.

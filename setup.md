@@ -63,11 +63,19 @@ production-signed distribution artifact.
 The current imported source baseline is not test-clean:
 
 - `flutter analyze` completes with 35 info-level lint/deprecation findings and no compile errors;
-  the command exits nonzero because infos are treated as fatal.
-- `flutter test` reports 3,219 passed, 439 skipped, and 13 failed. The failures are in the
-  Windows-incompatible POSIX timezone setup (`day_window_dst_test.dart`), ZIP temp-file handling
-  (`import_container_test.dart`), the iOS ASK plist check, two movement/import date expectations,
-  and repository policy checks in `substrate_admission_test.dart` and `ui2_tokens_test.dart`.
+  the command exits nonzero because infos are treated as fatal. Still true after the `dev/` move
+  below — confirmed clean of new errors.
+- `flutter test` reported 3,219 passed, 439 skipped, and 13 failed as of 2026-08-31, when Flutter
+  lived at `D:\dev\flutter` (no space in that path). **It does not run at all as of the 2026-09-13
+  `dev/` relocation** — `flutter test` fails before collecting a single test, in a native-assets
+  build hook for the `objective_c` package: `'D:\AI' is not recognized as an internal or external
+  command`, a path-with-spaces quoting bug. The likely cause is exactly that move: Flutter's own SDK
+  now lives at `D:\AI Important Files\personal-project\dev\flutter`, which contains a space for the
+  first time — the project checkout has always been under a space-containing path and that was never
+  the problem. Not yet confirmed by moving Flutter back to a space-free path and re-testing.
+  GitHub Actions (`ubuntu-latest`, no spaces in its checkout path) is unaffected and stays the real
+  test gate; see `CLAUDE.md`'s "How to review this repo". The failures listed above (Windows timezone/ZIP/ASK-plist/
+  policy tests) are therefore last confirmed pre-move, not re-verified since.
 
 The Android release build is validated on Windows. The first personal iOS candidate was built on
 GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit

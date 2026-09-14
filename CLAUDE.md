@@ -406,6 +406,13 @@ As implementation proceeds, update all affected sources in the same coherent cha
 - **Whenever a new project-owned file or top-level source area is added**, add a bullet under
   `## Files` in the same edit. Files inside an already-indexed imported source area do not need
   individual bullets.
+- **Sync documentation locally as work happens; do not commit or push it on its own.** Akshat's
+  standing correction (given for `akshatos/`, applies here the same way): a commit-and-push per doc
+  note or small script tweak is redundant ceremony. Keep files current locally the whole time —
+  that is not optional — but the threshold to commit is a real implementation change, not an
+  accumulation of notes. Batch related small changes and commit them together once there is one, or
+  push only when Akshat explicitly says to. The one exception is something he needs in hand right
+  away.
 
 ## Engineering architecture, invariants, and review guidance
 

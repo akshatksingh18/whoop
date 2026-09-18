@@ -16,7 +16,7 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # all tags, so the versionCode guard can read prior releases' pubspec
           persist-credentials: false   # nothing here writes to the repo
@@ -162,7 +162,7 @@ jobs:
       # nothing in this job reads git. `generate_release_notes` builds its diff on
       # GitHub's side from the tag, not from local history — the ios job has always
       # run shallow and attaches to the same release without trouble.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false   # nothing here writes to the repo
 
@@ -267,7 +267,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false   # nothing here writes to the repo
 

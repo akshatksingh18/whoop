@@ -1,15 +1,17 @@
 # WHOOP personal iPhone sideload and refresh plan
 
 **State:** The matching minimal build profile and public-repository macOS workflow produced and
-verified replacement `0.9.30` build `63` after the AccessorySetupKit bridge fix, cached under
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-ba307b7` (`../setup.md` owns the cache location)
+verified accepted `0.9.30` build `63` after the AccessorySetupKit bridge fix, cached under
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (`../setup.md` owns the cache location)
 and installed via Sideloadly. The current
 minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
 aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
 the earlier roughly-200 count was the band fallback. Keep phone steps enabled for normal
 iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest all-day step
 reconstruction. History-import state, installed identity/profile, complete pairing, and the remaining
-physical behavior remain unverified; Windows refresh automation remains unimplemented. Do not
+physical behavior remain unverified; Windows refresh automation remains unimplemented. Installed
+build 63 excludes GPS. Current `0.9.31` build `64` source enables personal GPS and hides the
+unsupported Oura pairing row, but no build-64 IPA has been produced or accepted. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA

@@ -14,12 +14,26 @@ from tool.personal_ios import (
     SOURCE_INFO,
     personal_info,
     transform_project,
+    validate_new_build_identity,
     validate_personal_icons,
     validate_ipa,
 )
 
 
 class PersonalIosContractTest(unittest.TestCase):
+    def test_accepted_personal_build_identity_cannot_be_reused(self) -> None:
+        ledger = {
+            "acceptedBuilds": [
+                {"version": "0.9.30", "build": "63"},
+            ]
+        }
+        with self.assertRaises(ContractError):
+            validate_new_build_identity("version: 0.9.30+63\n", ledger)
+        self.assertEqual(
+            validate_new_build_identity("version: 0.9.31+64\n", ledger),
+            ("0.9.31", "64"),
+        )
+
     def test_project_transform_removes_personal_exclusions(self) -> None:
         transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
         self.assertEqual(transformed.count("PERSONAL_SIDELOAD"), 3)

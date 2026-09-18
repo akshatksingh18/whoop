@@ -14,12 +14,14 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — replacement personal IPA `0.9.30` build `63` from commit
-`ba307b7149522b4b962abf0f5ce9462da8c934f6` is installed. The initial roughly-6,000-versus-200
-step mismatch was the disabled **This phone → Steps** setting; enabling it verified that the direct
-`CMPedometer` path imports iPhone steps. The profile still deliberately excludes the Apple Health
-aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data
-is too low-rate for honest all-day step reconstruction. Background/recovery and other device gates
+**Status:** Active iPhone verification — accepted personal IPA `0.9.30` build `63`, whose sanitized-
+history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`, remains installed.
+The initial roughly-6,000-versus-200 step mismatch was the disabled **This phone → Steps** setting;
+enabling it verified that the direct `CMPedometer` path imports iPhone steps. The profile still
+deliberately excludes the Apple Health aggregate. Current source is the unbuilt `0.9.31` build `64`
+candidate: its personal GPS runtime path is enabled and its unsupported Oura pairing row is hidden.
+Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data is too
+low-rate for honest all-day step reconstruction. Background/recovery, GPS, and other device gates
 remain before daily use. Android development is out of scope.
 
 ## Files
@@ -38,9 +40,10 @@ remain before daily use. Android development is out of scope.
   `backup\` holds the current accepted build, `testing\` a candidate awaiting its device pass.
   `../final-ipas/README.md` owns the model; excluded from the workspace OneDrive backup the same way
   every `personal-project/` subfolder is, and not tracked in Git.
-- `.github/workflows/personal-ios.yml` and `tool/personal_ios.py` — manual public-repository macOS
-  build plus deterministic personal-profile transformation, payload validation, manifest, and
-  checksum.
+- `.github/workflows/personal-ios.yml`, `tool/personal_ios.py`, and
+  `tool/personal_ios_accepted_builds.json` — manual public-repository macOS build, deterministic
+  personal-profile transformation, payload validation, manifest/checksum, and the accepted-build
+  identity ledger that prevents version/build reuse.
 - `.claude/skills/ponytail/SKILL.md` — upstream implementation discipline; read it before changing
   application or package behavior.
 - `pubspec.yaml` and `pubspec.lock` — Flutter dependencies; protocol and analytics resolve through
@@ -154,6 +157,11 @@ The personal artifact must have these properties:
   permission, battery, background, and stop-semantics evidence this reopening still calls for needs
   a real outdoor run on the phone, not a code review. Do not describe route tracking as accepted
   until that pass happens and is recorded here.
+- **Akshat does not own an Oura ring**, so the upstream adapter, protocol, and derivation seams stay
+  for merge value but are unverified here. The personal build hides the Oura pairing row behind
+  `kPersonalSideload`; the full upstream-capable build retains it. This is an explicit unsupported-
+  hardware product decision, not an AccessorySetupKit limitation: Oura pairing uses the direct BLE
+  sensor path rather than the primary-WHOOP AccessorySetupKit picker.
 - The initial personal profile removes `processing`/`fetch` modes, BG task identifiers,
   native registration, and Dart scheduling. They remain optional future experiments, never
   correctness requirements.
@@ -200,9 +208,10 @@ The personal artifact must have these properties:
   existing `AppIcon` artwork.
 - Keep the existing source version rules: every new binary gets the correct `pubspec.yaml`
   version/build number and passes the release guards. Code upgrades change the version, never the
-  bundle identity. Do not uninstall the existing app for a normal refresh or upgrade; install over
-  it with the same Apple Account and bundle ID so iOS retains the app container, pairing state,
-  database, and preferences.
+  bundle identity. `tool/personal_ios_accepted_builds.json` records accepted version/build pairs;
+  `personal_ios.py check` refuses to build one again. Do not uninstall the existing app for a normal
+  refresh or upgrade; install over it with the same Apple Account and bundle ID so iOS retains the
+  app container, pairing state, database, and preferences.
 - Treat overwrite preservation as a tested behavior, not the only backup. Sideloadly's cached IPA
   and signing state are replaceable; health history is not. An accidental uninstall, changed
   bundle ID, device restore, or failed signing migration can still orphan the container.

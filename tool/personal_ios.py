@@ -20,6 +20,7 @@ PROJECT = ROOT / "ios" / "Runner.xcodeproj" / "project.pbxproj"
 SOURCE_INFO = ROOT / "ios" / "Runner" / "Info.plist"
 PERSONAL_INFO = ROOT / "ios" / "Runner" / "Info-Personal.plist"
 PERSONAL_ENTITLEMENTS = ROOT / "ios" / "Runner" / "RunnerPersonal.entitlements"
+ACCEPTED_BUILDS = ROOT / "tool" / "personal_ios_accepted_builds.json"
 PERSONAL_ICONS = (
     ROOT
     / "ios"
@@ -143,6 +144,32 @@ def validate_personal_icons() -> None:
             raise ContractError(f"personal app icon must not contain alpha: {filename}")
 
 
+def validate_new_build_identity(
+    pubspec_text: str | None = None,
+    accepted: dict[str, object] | None = None,
+) -> tuple[str, str]:
+    """Refuse a version/build pair already assigned to an accepted personal IPA."""
+    text = pubspec_text if pubspec_text is not None else (ROOT / "pubspec.yaml").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"^version:\s*([^\s+]+)\+(\d+)\s*$", text, re.MULTILINE)
+    if not match:
+        raise ContractError("pubspec version must use VERSION+INTEGER_BUILD")
+    version, build = match.groups()
+    ledger = accepted
+    if ledger is None:
+        ledger = json.loads(ACCEPTED_BUILDS.read_text(encoding="utf-8"))
+    used = {
+        (str(item["version"]), str(item["build"]))
+        for item in ledger.get("acceptedBuilds", [])
+    }
+    if (version, build) in used:
+        raise ContractError(
+            f"personal build {version}+{build} is already accepted; bump pubspec before building"
+        )
+    return version, build
+
+
 def transform_project(text: str) -> str:
     """Return the personal Runner project, refusing unknown upstream drift."""
     for line in _REMOVE_ONCE:
@@ -206,6 +233,7 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
 
 
 def check_project() -> None:
+    validate_new_build_identity()
     transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
     if transformed.count("PERSONAL_SIDELOAD") != 3:
         raise ContractError("all three Runner configurations must define PERSONAL_SIDELOAD")

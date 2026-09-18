@@ -16,6 +16,11 @@ same-machine bare repository at `C:\Users\aksha\git-remotes\whoop.git` is preser
 `local-backup` remote. GitHub is the primary collaboration/recovery remote; `local-backup` is an
 additional same-machine copy, not an off-device backup.
 
+The public `main` history has been rewritten to remove ignored personal health exports and real
+device-capture fixtures from every reachable commit. The pre-rewrite history remains only in the
+private same-machine safety mirrors and must never be pushed to a public remote. Public commits,
+documentation, fixtures, releases, and artifacts must contain synthetic data only.
+
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
@@ -106,8 +111,8 @@ personal build.
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented. Replacement `0.9.30` build `63` passed automated validation and
-is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-ba307b7` (not in Downloads — see
+manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and
+is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (not in Downloads — see
 `D:\AI Important Files\personal-project\final-ipas\README.md`); it is installed on the iPhone.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
@@ -127,10 +132,11 @@ owned by `../akshatos/`; consult its build guide for implementation and device e
 
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
-drain invariants. Its initial capability profile deliberately excludes the Watch companion, widget/
-Live Activity extension, App Groups, HealthKit, GPS, and background processing/fetch. Required
-telemetry, health-data contribution, backend, and OTA dependencies remain off. The full upstream
-source targets stay in the repository for reference and possible future source-signed builds.
+drain invariants. Installed build 63 excludes the Watch companion, widget/Live Activity extension,
+App Groups, HealthKit, GPS, and background processing/fetch. Current source for unbuilt build 64
+reopens GPS with While-In-Use authorization and the location background mode while retaining all
+other exclusions. Required telemetry, health-data contribution, backend, and OTA dependencies
+remain off. The full upstream source targets stay for reference and possible source-signed builds.
 
 Creating a new IPA uses the manual public-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
 minimal phone-only Runner in its ephemeral checkout, builds with
@@ -139,14 +145,15 @@ conventional IPA payload, and uploads the IPA, capability/source manifest, and S
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
 
-The current replacement candidate is version `0.9.30` build `63`, produced by run `34428183924` from
-source `ba307b7149522b4b962abf0f5ce9462da8c934f6`. Its SHA-256 is
+The accepted installed artifact is version `0.9.30` build `63`, produced by run `34428183924`; its
+sanitized-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`. Its SHA-256 is
 `ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
 manifest, and checksum are cached at
-`../final-ipas/whoop/backup/WHOOP-0.9.30-build63-ba307b7` — the stable release cache outside
+`../final-ipas/whoop/backup/WHOOP-0.9.30-build63-accepted` — the stable release cache outside
 Downloads, excluded from the OneDrive backup archive the same way every `personal-project/`
 subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
-validator, and downloaded checksum all pass.
+validator, and downloaded checksum all pass. Current source is `0.9.31` build `64`; it has not been
+built, installed, or device-verified. The accepted-build ledger prevents reuse of `0.9.30+63`.
 
 **A known Sideloadly failure mode, found here first:** its own internal cache of a previously
 installed app's IPA can go missing independent of this file — the first wireless refresh attempt

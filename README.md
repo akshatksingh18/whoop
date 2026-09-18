@@ -2,7 +2,7 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and public manual workflow produced replacement `0.9.30` build `63`,
+> deterministic build profile and public manual workflow produced accepted `0.9.30` build `63`,
 > which passed macOS/package validation after the AccessorySetupKit bridge fix and is installed via
 > Sideloadly. It does not import Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
@@ -10,8 +10,8 @@
 > steps enabled for normal iPhone-carried use: WHOOP 4 band-only historical data is too low-rate for
 > honest all-day step reconstruction. The personal profile
 > excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
-> processing/fetch, while retaining the phone app and CoreBluetooth restoration. GPS route
-> tracking was excluded too and is now reopened — see `CLAUDE.md`.
+> processing/fetch, while retaining the phone app and CoreBluetooth restoration. Installed build
+> 63 excludes GPS; current unbuilt `0.9.31` build `64` source reopens it — see `CLAUDE.md`.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at
@@ -145,17 +145,18 @@ Every screenshot above is real output from a WHOOP 4.0.
 - **WHOOP 4, WHOOP 5, MG** — full support. Everything below is computed from these.
 - **Any standard Bluetooth heart-rate strap** — pairs for workout tracking today (heart
   rate + beat timing, stored and shown). Feeding it into recovery/strain is on the roadmap.
-- **Oura Ring** — protocol groundwork exists in the codebase; not pairable in the app yet.
+- **Oura Ring** — direct-BLE protocol groundwork remains in the upstream-capable codebase. Akshat's
+  personal build hides this unsupported, hardware-unverified pairing row.
 
 ## What works
 
 **Health** — heart rate, HRV, sleep staging, recovery/readiness, strain, stress, an HRV
 spot-check, real-time breathing coherence.
 
-**Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
-zones. Akshat's personal iPhone profile keeps GPS route capture — reopened on his own decision
-since he runs — with While-In-Use permission only, never Always; see `CLAUDE.md` for what is
-buildable versus what still needs a real device pass.
+**Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate zones.
+Current personal-build source keeps GPS route capture — reopened on Akshat's decision since he runs
+— with While-In-Use permission only, never Always. That path is not present in installed build 63
+and still needs a build-64 device pass; see `CLAUDE.md`.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.

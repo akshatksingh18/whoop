@@ -30,6 +30,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart'
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../build_profile.dart' show kPersonalSideload;
 import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kOura;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
@@ -444,14 +445,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     // heart-rate sensor needs.
     pick: null,
   ),
-  (
-    entry: kOura,
-    blurb: 'Reads the ring directly, with no Oura account and no subscription. '
-        'The ring must be factory reset FIRST — one that is already set up in '
-        'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
-        'unpair the ring), then close that app before pairing here.',
-    pick: pairOuraRing,
-  ),
+  if (!kPersonalSideload)
+    (
+      entry: kOura,
+      blurb: 'Reads the ring directly, with no Oura account and no subscription. '
+          'The ring must be factory reset FIRST — one that is already set up in '
+          'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
+          'unpair the ring), then close that app before pairing here.',
+      pick: pairOuraRing,
+    ),
 ];
 
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.

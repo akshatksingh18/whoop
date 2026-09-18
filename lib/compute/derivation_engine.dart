@@ -451,8 +451,8 @@ import 'substrate.dart';
 // EDGE-LOCAL changes, which ship the moment this constant lands:
 //   - `_sleepPeriods` no longer runs its OWN nap detector (20-min stillness
 //     runs). That second notion disagreed with `detectNaps` on real days —
-//     the committed `payload.json` shows a 21-minute period alongside
-//     `naps.count: 0` — and fed a different screen. One source now (§3.8).
+//     a private regression fixture produced a period while `naps.count` was
+//     zero — and fed a different screen. One source now (§3.8).
 //   - Periods speak the contract the Sleep-periods screen actually reads
 //     (`onset_ts`/`wake_ts`/`duration_min`/`efficiency`), which it never did:
 //     every nap card rendered "0m" with a red confidence dot regardless of
@@ -6800,7 +6800,7 @@ class DerivationEngine {
   ///
   /// This used to run its OWN nap detector — 20-min runs of still, on-wrist
   /// minutes — in parallel with `detectNaps`. Two detectors, two answers, two
-  /// screens: `payload.json` shipped a 21-minute period here on the very day
+  /// screens: a private regression fixture produced a period here while
   /// `naps` reported `count: 0`. One source per concern (AGENTS §3.8), so the
   /// naps are now passed in rather than re-derived.
   ///
@@ -6943,8 +6943,8 @@ class DerivationEngine {
   /// Timeline, and returns period maps for [_sleepPeriods] so the Sleep-periods
   /// screen lists exactly the same naps the Timeline draws. There used to be a
   /// second, coarser nap notion in `_sleepPeriods` built from 20-min stillness
-  /// runs; the two disagreed on real days (`payload.json` shipped a 21-min
-  /// period alongside `naps.count: 0`) and fed two different screens.
+  /// runs; a private regression fixture made the two disagree and feed two
+  /// different screens.
   ///
   /// ABSENT is not ZERO. When the detector cannot judge the day, `nap_min` is
   /// left UNWRITTEN rather than set to 0 — a written 0 is a claim that there

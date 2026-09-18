@@ -1,14 +1,16 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
-personal-sideload build profile and manual public-GitHub workflow. Replacement `0.9.30` build `63`
+personal-sideload build profile and manual public-GitHub workflow. Accepted `0.9.30` build `63`
 was built and payload/hash verified after the AccessorySetupKit bridge fix, then installed via
 Sideloadly. The current minimal profile intentionally excludes HealthKit, so it does not import the
 Apple Health aggregate. Device testing verified the direct iPhone-pedometer import after enabling
 **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
 for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
 all-day step reconstruction. History-import state, exact installed identity/profile, complete
-pairing, and the remaining physical behavior remain unverified.
+pairing, and the remaining physical behavior remain unverified. Installed build 63 excludes GPS;
+current unbuilt `0.9.31` build `64` source enables the route runtime and declares the matching
+While-In-Use/background capability, but is not yet an accepted artifact.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -62,6 +64,8 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   and the `location` background mode are present; `NSLocationAlwaysAndWhenInUseUsageDescription`
   stays removed, since `lib/gps/gps_source.dart` deliberately never requests Always. Buildable and
   contract-tested, not yet device-verified — `CLAUDE.md` owns the outstanding evidence gate;
+- hide the unsupported Oura pairing row in the personal flavor while retaining its direct-BLE
+  implementation in the full upstream-capable source;
 - remove `processing`, `fetch`, and their native/Dart BG task registrations from the
   initial profile;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
@@ -147,8 +151,9 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. The personal phone-only artifact excludes them, but its Runner version/build and source
-manifest still change for every new binary; bundle identity does not.
+targets ship. Current source aligns all targets at `0.9.31+64`. The personal phone-only artifact
+excludes them, but its Runner version/build and source manifest still change for every new binary;
+the accepted-build ledger prevents reuse and bundle identity does not change.
 
 ## Common failure checks
 

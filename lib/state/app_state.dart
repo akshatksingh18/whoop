@@ -5271,7 +5271,6 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (kPersonalSideload) return;
     // Lowercased for the same reason every other type lookup is: the stored
     // `type` column is free-form text and older rows carry mixed case.
     if (!typeRecordsRoute(type)) return;

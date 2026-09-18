@@ -186,16 +186,11 @@ a missing key today.
 
 ## Measured outcome
 
-Prototype run against the three tracked fixtures, with `v_series` output
-compared row-for-row between the old SQL over old payloads and the new SQL over
-encoded payloads:
-
-| Fixture | Now | Encoded | Ratio | View output |
-|---|---|---|---|---|
-| `payload.json` | 88,053 | 32,985 | 2.67x | identical |
-| `payload_july10.json` | 68,317 | 39,456 | 1.73x | identical |
-| `payload_null.json` | 57,252 | 27,786 | 2.06x | identical |
-| **Total** | 213,622 | 100,227 | **2.13x** | **byte-identical** |
+Prototype runs against three private, gitignored fixtures compared `v_series`
+row-for-row between the old SQL over old payloads and the new SQL over encoded
+payloads. All three outputs were byte-identical, and encoded size ranged from
+37% to 58% of the original. Raw personal fixtures and their per-file results
+are deliberately not repository content.
 
 End-to-end, rebuilding the real schema both ways and reading `dbstat` — a
 one-year-old install with three days of 1 Hz substrate and five auto-backups:
